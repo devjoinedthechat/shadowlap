@@ -20,8 +20,8 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
 /** Runs the agent, failing every third time (flaky-agent.mjs). */
 const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
-/** The bound of 5 passes in 7 attempts, exact under the gate's stopping, at its 95%. */
-const BOUND_5_OF_7 = 'rate 0.29 to 0.97 (95%)';
+/** Five of seven passed on each side of seven pairs: the drop's interval, each end at 95%. */
+const DROP_5_OF_7 = 'drop -0.66 to 0.71 (95%)';
 
 let mock: MockServer;
 let cwd: string;
@@ -93,7 +93,8 @@ describe('shadowlap decisions', () => {
   it('reports no rank 1 or 2 change for the same model at temperature 0, and sends each recorded request with only that set', async () => {
     const runId = await record({ AGENT_MODEL: 'claude-sonnet-4-6' });
     const before = mock.requests.length;
-    const r = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--set', 'temperature=0', '--json']);
+    // One sample, so each recorded request is sent once, changed: the control arm is tested apart.
+    const r = await shadowlap(['decisions', runId, '--model', 'claude-sonnet-4-6', '--set', 'temperature=0', '--samples', '1', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(report.counts).toMatchObject({ 1: 0, 2: 0, same: 11, notAsked: 0 });
@@ -129,7 +130,7 @@ describe('shadowlap decisions', () => {
     const emailStep = callOf(runId, 'send_email');
     const runs = runsInStore();
     const before = mock.requests.length;
-    const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.', REFERENCE_AGENT_OUTBOX: outbox });
+    const r = await shadowlap(['decisions', runId, '--from-code', '--samples', '1', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.', REFERENCE_AGENT_OUTBOX: outbox });
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([runId]);
@@ -189,7 +190,7 @@ describe('shadowlap decisions', () => {
     const hasThinking = (m: { content: unknown }) => Array.isArray(m.content) && m.content.some((b) => (b as { type?: string }).type === 'thinking');
 
     let before = mock.requests.length;
-    const prompt = await shadowlap(['decisions', runId, '--from-code', '--json'], { ...thinks, AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
+    const prompt = await shadowlap(['decisions', runId, '--from-code', '--samples', '1', '--json'], { ...thinks, AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
     expect(prompt.code, prompt.out).toBe(0);
     const changed = json<DecisionsReport>(prompt);
     expect(changed.flagged).toEqual([runId]);
@@ -206,7 +207,7 @@ describe('shadowlap decisions', () => {
 
     // A new model is sent the reasoning as the agent would send it after a switch.
     before = mock.requests.length;
-    const model = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--json']);
+    const model = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--samples', '1', '--json']);
     expect(model.code, model.out).toBe(0);
     const switched = json<DecisionsReport>(model);
     sent = mock.requests.slice(before).map((q) => q.body as unknown as Sent);
@@ -312,71 +313,83 @@ describe('shadowlap decisions', () => {
 
   it('leaves a run its gate could not settle inconclusive, for --inconclusive to decide, in the report and in the session it keeps', async () => {
     const [one, two] = [await record(), await record()];
-    const asked = await shadowlap(['decisions', one, two, '--model', 'claude-haiku-4-5', '--json']);
+    const asked = await shadowlap(['decisions', one, two, '--model', 'claude-haiku-4-5', '--samples', '1', '--json']);
     expect(asked.code, asked.out).toBe(0);
     const session = json<DecisionsReport>(asked);
     expect(session.flagged).toEqual([one, two]);
-    // The command verify runs fails every third time: a run passing about two times in three, which seven
-    // attempts can't tell from one passing half the time or one passing 90%. The gate runs out between its bounds.
+    // Both runs pass as recorded, so verify keeps each against its baseline: the same run on the model it
+    // was recorded with, attempt for attempt. The command verify runs fails every third time it starts,
+    // the baseline's attempts counted in turn with the change's: five of seven pass on each side, which
+    // seven pairs can't tell from a drop of 10 points. A gate's max other than its default caps the pairs.
     const flaky = ['--', process.execPath, FLAKY, join(cwd, `flaky-${one}.count`), process.execPath, AGENT];
     const gate = '{"bad":0.5,"max":7}';
-    const rule = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
+    const keptRule = (pairs: number) => `kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to ${pairs} pairs`;
+    const rule = keptRule(7);
     const r = await shadowlap(['decisions', '--verify', session.decisionsId!, one, '--gate', gate, '--json', ...flaky]);
     expect(r.code, r.out).toBe(3);
     const first = json<{ verify: NonNullable<DecisionsReport['verify']> }>(r).verify;
-    expect(first).toMatchObject({ verdict: 'incomplete', rule, runs: [{ runId: one, role: 'good', outcome: 'inconclusive', passes: 5, attempts: 7, bound: BOUND_5_OF_7 }] });
-    expect(first.reasons).toEqual([`good run ${one.slice(0, 10)} inconclusive: 5 of 7 passed · ${BOUND_5_OF_7}, between the gate's bounds when its attempts ran out`]);
+    expect(first).toMatchObject({ verdict: 'incomplete', runs: [{ runId: one, role: 'good', outcome: 'inconclusive', passes: 5, attempts: 7, baseline: { passes: 5, attempts: 7 }, bound: DROP_5_OF_7, rule }] });
+    expect(first.reasons).toEqual([`good run ${one.slice(0, 10)} inconclusive: 5 of 7 passed, baseline 5 of 7 · ${DROP_5_OF_7}, neither kept nor broken against its baseline when its pairs ran out`]);
 
-    // The other run settles under other figures; the session stays incomplete while the first is inconclusive, and each
-    // run keeps the rule that decided it, so its tally and bound read under their own rule: none is stated for both.
+    // The other run under other figures, four pairs: too few to keep a run at 10 points (38 when every
+    // attempt passes), inconclusive too. Each run keeps the rule that decided it, so its tally and bound
+    // read under their own rule: none is stated for both.
     const other = await shadowlap(['decisions', '--verify', session.decisionsId!, two, '--gate', '{"bad":0.1,"max":4}']);
-    expect(other.code, other.out).toBe(0);
-    const otherRule = 'gate: tells 90%+ from 10%- at <= 5% risk, up to 4 attempts';
-    expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  kept  2 of 2 passed · rate >= 0.15 (95%)\n`);
+    expect(other.code, other.out).toBe(3);
+    const otherRule = keptRule(4);
+    expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  inconclusive  4 of 4 passed, baseline 4 of 4 · drop `);
     const store = Store.open(db);
     try {
       const kept = store.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
       expect(kept).toMatchObject({ verdict: 'incomplete', rule: null });
       expect(kept.runs.map((x) => [x.runId, x.outcome, x.bound, x.rule])).toEqual([
-        [one, 'inconclusive', BOUND_5_OF_7, rule],
-        [two, 'kept', 'rate >= 0.15 (95%)', otherRule],
+        [one, 'inconclusive', DROP_5_OF_7, rule],
+        [two, 'inconclusive', expect.stringMatching(/^drop -?\d\.\d\d to \d\.\d\d \(95%\)$/), otherRule],
       ]);
     } finally {
       store.close();
     }
 
     // --then-verify the same way: inconclusive, which --inconclusive warn lets through with a warning.
-    const warned = await shadowlap(['decisions', one, '--model', 'claude-haiku-4-5', '--then-verify', '--gate', gate, '--inconclusive', 'warn', ...flaky]);
+    const warned = await shadowlap(['decisions', one, '--model', 'claude-haiku-4-5', '--samples', '1', '--then-verify', '--gate', gate, '--inconclusive', 'warn', ...flaky]);
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
-    expect(warned.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed · ${BOUND_5_OF_7}\n`);
+    // The counter goes on from where the first verify left it, so this time the change's attempts fail where the baseline's did.
+    expect(warned.stdout).toMatch(new RegExp(`  ${rule.replace(/[+.]/g, '\\$&')}\\n  ${one.slice(0, 10)}  inconclusive  \\d of 7 passed, baseline \\d of 7 · drop `));
     // And --verify: the same run, counted afresh, inconclusive again, and let through.
     const again = ['--', process.execPath, FLAKY, join(cwd, `flaky-${one}-again.count`), process.execPath, AGENT];
     const warnedAgain = await shadowlap(['decisions', '--verify', session.decisionsId!, one, '--gate', gate, '--inconclusive', 'warn', ...again]);
     expect(warnedAgain.code, warnedAgain.out).toBe(0);
     expect(warnedAgain.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
-    expect(warnedAgain.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed · ${BOUND_5_OF_7}\n`);
+    expect(warnedAgain.stdout).toContain(`  ${rule}\n  ${one.slice(0, 10)}  inconclusive  5 of 7 passed, baseline 5 of 7 · ${DROP_5_OF_7}\n`);
 
     // Verified again as the dashboard's Verify the changed runs verifies it, every run the session flagged with
-    // no count and no gate of its own, by the command each was recorded with: verify's own gate settles both, the
-    // session reads accepted, and it states that one rule.
-    const settled = await shadowlap(['decisions', '--verify', session.decisionsId!, '--json']);
-    expect(settled.code, settled.out).toBe(0);
-    const verifyGate = 'gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts';
-    const byGate = { role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.73 (95%)' };
-    expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(settled).verify).toMatchObject({ verdict: 'accepted', rule: verifyGate, runs: [{ runId: one, ...byGate }, { runId: two, ...byGate }] });
-    const after = Store.open(db);
+    // no count and no gate of its own, by the command each was recorded with: kept against its baseline, as
+    // every attempt of each side passes; the session reads accepted. The project's verify.margin, 50 points,
+    // keeps such a run after 6 pairs where the default 10 takes 38.
+    const config = join(cwd, 'shadowlap.config.json');
+    writeFileSync(config, JSON.stringify({ verify: { margin: 0.5 } }));
     try {
-      const kept = after.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
-      expect(kept).toMatchObject({ verdict: 'accepted', rule: verifyGate });
-      expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.bound, x.rule])).toEqual([
-        [one, 'kept', 12, 12, 'rate >= 0.73 (95%)', verifyGate],
-        [two, 'kept', 12, 12, 'rate >= 0.73 (95%)', verifyGate],
-      ]);
+      const settled = await shadowlap(['decisions', '--verify', session.decisionsId!, '--json']);
+      expect(settled.code, settled.out).toBe(0);
+      const wide = 'kept unless it drops 50+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs';
+      const byBaseline = { role: 'good', outcome: 'kept', passes: 6, attempts: 6, baseline: { passes: 6, attempts: 6 }, bound: expect.stringMatching(/^drop <= 0\.\d\d \(95%\)$/), rule: wide };
+      expect(json<{ verify: NonNullable<DecisionsReport['verify']> }>(settled).verify).toMatchObject({ verdict: 'accepted', runs: [{ runId: one, ...byBaseline }, { runId: two, ...byBaseline }] });
+      const after = Store.open(db);
+      try {
+        const kept = after.getDecisionSession(session.decisionsId!)!.data.verify as NonNullable<DecisionsReport['verify']>;
+        expect(kept).toMatchObject({ verdict: 'accepted' });
+        expect(kept.runs.map((x) => [x.runId, x.outcome, x.passes, x.attempts, x.rule])).toEqual([
+          [one, 'kept', 6, 6, wide],
+          [two, 'kept', 6, 6, wide],
+        ]);
+      } finally {
+        after.close();
+      }
     } finally {
-      after.close();
+      rmSync(config, { force: true });
     }
-  }, 180_000);
+  }, 300_000);
 
   it('asks the goldens a pack holds, named as test names them, and warns about a model that retires', async () => {
     const runId = await record({ AGENT_MODEL: 'claude-sonnet-4-5-20250929' });
@@ -401,21 +414,52 @@ describe('shadowlap decisions', () => {
     expect([...shape.missing, ...shape.extra]).toEqual([]);
   }, 120_000);
 
-  it('flags a change by what most samples show: a write changed in 1 of 3 is listed, not flagged', async () => {
+  it("ranks a change only beyond the model's own variation: a write changed in 1 of 3 samples, and in none as recorded, is listed, not ranked", async () => {
     const runId = await record();
     const emailStep = callOf(runId, 'send_email');
-    // mock-coin words the email its own way the first time it is asked at that turn, and as recorded after.
+    // mock-coin words the email its own way the first time it is asked at that turn, and as recorded
+    // after; the control asks the recorded model, which plays the recording.
     const r = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3', '--strict', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     const step = report.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
-    expect(step).toMatchObject({ rank: 1, majority: null, samples: { asked: 3, answered: 3, changed: 1 } });
+    // One changed sample of three against none of three is a split one time in two: not beyond chance.
+    expect(step).toMatchObject({ rank: null, majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1 }, control: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] } });
+    expect(step.noise!.p).toBeCloseTo(0.5, 12);
     expect(step.samples.ranks.slice().sort()).toEqual([0, 0, 1]);
-    expect(report.runs[0]).toMatchObject({ rank: 1, majority: null });
+    expect(report.runs[0]).toMatchObject({ rank: null, majority: null });
     expect(report.flagged).toEqual([]);
-    expect(report.notes).toContain("1 step had a write, stop or judged change in fewer than half its samples: listed, not flagged, as a model's own variation.");
+    expect(report.counts.noise).toBe(1);
+    expect(report.notes).toContain("1 step decided otherwise no more often than it did as recorded: listed with both counts, not ranked, as the model's own variation.");
+    // Each sample of the change went with one of the request as recorded: six requests a step.
+    expect(report.cost.upstreamRequests).toBe(6 * report.runs[0]!.asked);
     const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3']);
-    expect(text.stdout).toMatch(/rank 1 +send_email is called with other arguments · in 1 of 3 samples, fewer than half: not flagged/);
+    expect(text.stdout).toMatch(/step 10  within the model's own variation  send_email is called with other arguments · in 1 of 3 samples, 0 of 3 as recorded/);
+    expect(text.stdout).toMatch(/11 steps asked, 3 samples each and as many as recorded: 1 within the model's own variation, 10 the same/);
+    // Below 3 samples no split can reach 5%, so there is no control: the change's own samples decide, by what most show.
+    const two = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '2', '--strict', '--json']));
+    const twoStep = two.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    expect(twoStep.control).toBeUndefined();
+    expect(two.notes).toContain("Each step was asked 2 times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.");
+  }, 120_000);
+
+  it("ranks a change every sample shows and no sample as recorded does, with both arms' counts", async () => {
+    const runId = await record();
+    const emailStep = callOf(runId, 'send_email');
+    const before = mock.requests.length;
+    const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
+    expect(r.code, r.out).toBe(0);
+    const report = json<DecisionsReport>(r);
+    const step = report.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    // Three of three against none of three: the one split of twenty that comes out so, 5%.
+    expect(step).toMatchObject({ rank: 1, majority: 1, sampled: 1, samples: { asked: 3, changed: 3 }, control: { asked: 3, answered: 3, changed: 0 } });
+    expect(step.noise!.p).toBeCloseTo(1 / 20, 12);
+    expect(report.flagged).toEqual([runId]);
+    // The control asks each changed step's request as recorded: the recorded system prompt, three times.
+    const sent = mock.requests.slice(before).map((q) => JSON.stringify(q.body.system ?? ''));
+    const changed = sent.filter((x) => x.includes('Do not email the summary.')).length;
+    expect(changed).toBe(3 * report.runs[0]!.asked);
+    expect(sent.length - changed).toBe(changed);
   }, 120_000);
 
   it("masks what the project's redaction rules mask in the report, as every export, pack and share link is", async () => {

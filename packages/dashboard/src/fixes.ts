@@ -260,7 +260,7 @@ export interface RepairStep {
   roles: Array<{ role: 'target' | 'held-out' | 'good'; held: number; of: number }>;
   needed: number | null;
   attemptsPerRun: number | null;
-  /** How each run was decided: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from 70%- at <= 5% risk`; null without a verification. */
+  /** How each run was decided: `each at 4 of 5 attempts`, or `each by its gate, which tells 90%+ from 70%- at <= 5% risk`, with the good runs' baseline rule after it when they were kept against one (verify's `eachRun`); null without a verification. */
   rule: string | null;
   /** Where each failing run was lost, from its blame. */
   lost: Array<{ runId: string; at: string; href: string }>;

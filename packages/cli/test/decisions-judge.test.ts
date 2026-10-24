@@ -50,9 +50,16 @@ afterAll(async () => {
   rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
+/**
+ * These tests are about how each request is shaped and answered, so a step is asked once unless a
+ * test says otherwise: by default decisions also asks each step as recorded, three times a side (the
+ * control arm, which decisions.test.ts covers).
+ */
+const once = (args: string[]): string[] => (args[0] === 'decisions' && !args.includes('--samples') && !args.includes('--verify') ? [...args, '--samples', '1'] : args);
+
 function shadowlap(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...args], {
+    const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...once(args)], {
       cwd: dir,
       env: { ...process.env, ...NO_OTHER_PROVIDER, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(dir, 'home'), ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -404,7 +411,7 @@ describe('judging text-only changes, more ways', () => {
     await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve));
     try {
       const upstream = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
-      const child = spawn(process.execPath, [CLI, '--db', join(p.dir, 'store.db'), 'decisions', 'goldens/*', '--model', 'mock-terse', '--then-verify', '--attempts', '1', '--json'], {
+      const child = spawn(process.execPath, [CLI, '--db', join(p.dir, 'store.db'), ...once(['decisions', 'goldens/*', '--model', 'mock-terse', '--then-verify', '--attempts', '1', '--json'])], {
         cwd: p.dir,
         env: { ...process.env, ...NO_OTHER_PROVIDER, SHADOWLAP_UPSTREAM_ANTHROPIC: upstream, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(p.dir, 'home') },
         stdio: ['ignore', 'pipe', 'pipe'],

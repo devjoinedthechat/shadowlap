@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -11,6 +11,7 @@ import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
+import { BaseCheckout } from './verify-base.js';
 
 /**
  * `shadowlap repair`: blame each failing run, propose fixes, and keep the smallest one the verify gate
@@ -274,6 +275,8 @@ interface Blamed {
    * it (`notTheAnswer`), or null when it found nothing that says so.
    */
   notTheAnswer: string | null;
+  /** Why its blame stopped part way, for one that did: the budget, a signal, a provider that stayed unavailable. */
+  stopReason?: string | null;
 }
 
 /**
@@ -393,6 +396,8 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
   /** Each verified run's recorded requests, read once (recordedRequests), and whether linked files were said. */
   const requestsOf = new Map<string, Array<{ body: string; inputTokens: number }>>();
   let linkedSaid = false;
+  /** Why verify stopped on a provider that stayed unavailable, once it did (`unavailableStop`): the repair tries nothing more. */
+  let providerDown: string | null = null;
   /** Each candidate, and the edit it makes: where, the text it replaces, and that text as the agent sent it. */
   const candidates: Array<{ c: RepairCandidate; edit: { file: string; offset: number; text: string; sent: string } }> = [];
   // What a stopped repair found so far is still reported.
@@ -424,9 +429,16 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
       blamed.push(await blameOne(t, { ...(s.rescueFields ?? {}) }));
       const last = blamed.at(-1)!;
+      // The provider stayed unavailable: nothing was found about this run, and no other run would fare
+      // better now. The repair stops, inconclusive, with the provider named.
+      if (unavailableStop(last.stopReason)) return stopped(last.stopReason!);
       if (last.target.outcome === 'unrescuable' && s.stronger) {
         log(`  resampling did not ${last.target.unsettled ? 'settle whether it rescues' : 'rescue'} ${shortId(t.parent.runId)}; trying ${s.stronger}`);
         const again = await blameOne(t, { ...(s.rescueFields ?? {}), model: s.stronger });
+        if (unavailableStop(again.stopReason)) {
+          blamed[blamed.length - 1] = again;
+          return stopped(again.stopReason!);
+        }
         if (again.target.outcome === 'blamed') blamed[blamed.length - 1] = { ...again, target: { ...again.target, rescuedBy: s.stronger } };
         // A search with the stronger model that stopped part way found nothing either way.
         else if (again.target.outcome === 'stopped') blamed[blamed.length - 1] = again;
@@ -483,7 +495,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     const tryAll = async (list: typeof candidates): Promise<void> => {
       const ordered = [...list].filter((x) => x.c.state === 'untried').sort((a, b) => a.c.size - b.c.size || a.c.id - b.c.id);
       for (const { c, edit } of ordered) {
-        if (accepted || interrupted || outOfBudget()) return;
+        if (accepted || interrupted || outOfBudget() || providerDown) return;
         log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${c.after.length > 100 ? `${c.after.slice(0, 99)}…` : c.after}`);
         const result = await tryCandidate(c, edit);
         if (result) accepted = { c, ...result };
@@ -492,7 +504,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     await tryAll(candidates);
 
     // 3b. The repairer, when nothing cheaper worked.
-    if (!accepted && !interrupted && !outOfBudget()) {
+    if (!accepted && !interrupted && !outOfBudget() && !providerDown) {
       if (s.repairerConfigured === false) {
         report.noRepairer = NO_REPAIRER.unconfigured;
         warnings.push(`${NO_REPAIRER.unconfigured}, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json`);
@@ -535,6 +547,8 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     if (!accepted) {
       if (interrupted) return stopped('interrupted');
       if (outOfBudget()) return stopped(`the budget of $${s.budget!.toFixed(2)} is spent`);
+      // Verify stopped on a provider that stayed unavailable: no candidate was found wanting, and none was tried after.
+      if (providerDown) return stopped(providerDown);
       report.outcome = 'not-fixed';
       const tried = candidates.filter((x) => x.c.state !== 'invalid' && x.c.state !== 'untried').length;
       // Rejected for their growth before verify ran them: no gate decided any of them.
@@ -609,7 +623,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         cost.blame += r.spent;
         judgeSpent(r);
         failures = r.recordedFailures;
-        if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable', ...(unsettledFirst(r) ? { unsettled: true } : {}) }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r) };
+        if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable', ...(unsettledFirst(r) ? { unsettled: true } : {}) }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r), ...(r.outcome === 'stopped' ? { stopReason: r.stopReason } : {}) };
         callNo = r.blamed.callNo;
         rescuedRunId = r.contrast.rescuedRunId;
       } catch (err) {
@@ -670,8 +684,11 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
    * Verifies a candidate, never in the working tree. Its rewrite alone is first held to --max-growth,
    * before anything is spent: a rewrite that already grows the recorded requests past it is rejected
    * without a replay. Then a worktree of the working tree as it is gets the edit and, with --build,
-   * is built; verify replays every run there; and the worktree is removed, whatever came of it.
-   * Returns the file's two versions when the gate accepts it.
+   * is built; verify replays every run there; and the worktree is removed, whatever came of it. A
+   * good run's baseline runs the code without the candidate: that worktree as it was before the edit,
+   * copied into one of its own when a good run first forks, and built the same way, so the two arms
+   * differ by the candidate alone, whatever the working tree holds by then. Returns the file's two
+   * versions when the gate accepts it.
    */
   async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string; sent: string }): Promise<{ original: string; patched: string } | null> {
     const original = readFileSync(join(root, edit.file), 'utf8');
@@ -716,15 +733,34 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
           return null;
         }
       }
+      const candidate = tree;
+      const withoutCandidate = (): BaseCheckout => {
+        const plain = candidateTree(candidate.root, candidate.cwd);
+        try {
+          writeFileSync(join(plain.root, edit.file), original);
+          if (s.build) {
+            const b = runBuild(s.build, plain.cwd);
+            if (!b.ok) throw new Error(`${s.build} failed on the code without the candidate: ${b.tail.split('\n').at(-1) ?? ''}`);
+          }
+        } catch (err) {
+          plain.remove();
+          throw err;
+        }
+        // A run's command as verify is given it, pointed into the candidate's worktree, is pointed into this one.
+        return BaseCheckout.of(plain.cwd, (argv) => plain.argv(argv), plain.remove);
+      };
       const v = await runVerify({
         opts: input.opts,
         runs: runs.map((t) => ({ ...t, argv: tree.argv(t.argv) })),
-        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd },
+        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd, baseCheckout: { label: 'the code without the candidate', open: withoutCandidate } },
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;
       judgeSpent(v);
       c.verify = v;
+      // The provider stayed unavailable for its runs: the candidate is neither accepted nor rejected for
+      // it (verify left those runs inconclusive), and the repair tries no other until it answers.
+      if (unavailableStop(v.stopReason)) providerDown = v.stopReason;
       if (v.verdict === 'rejected') {
         c.state = 'rejected';
         c.reason = v.reasons[0] ?? 'the gate rejected it';

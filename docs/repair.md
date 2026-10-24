@@ -1,6 +1,6 @@
 # Repair
 
-`shadowlap repair` fixes failing runs, and hands the fix over with the evidence that it holds. It finds where each run was lost with [blame](./blame.md), asks a model you choose to rewrite the agent's instructions, and keeps the smallest rewrite that the [verify](./verify.md) gate accepts: the failing runs fixed, runs it never saw fixed too, and the good runs still passing.
+`shadowlap repair` fixes failing runs, and hands the fix over with the evidence that it holds. It finds where each run was lost with [blame](./blame.md), asks a model you choose to rewrite the agent's instructions, and keeps the smallest rewrite that the [verify](./verify.md) gate accepts: the failing runs fixed, runs it never saw fixed too, and the good runs no worse than before the rewrite.
 
 ```sh
 shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -14,7 +14,9 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
   + You are a support agent. Follow the refund policy: escalate every refund above the limit.
 
   Verified: fixes 2 of 2 target runs, 1 of 1 held-out, keeps 1 of 1 good,
-            each by its gate, which tells 90%+ from 70%- at <= 5% risk
+            each failing run by its gate, which tells 90%+ from 70%- at <= 5%
+            risk, and each good one against its baseline, which tells no drop
+            from one of 10+ points at <= 5% risk
 
   Where the failing runs were lost
     01M5FA9VJ6  model call #5 (3 of 5)
@@ -84,7 +86,7 @@ A model shown two failed refunds will happily write "never refund order A-1042".
 
 ## Candidates are tried in a worktree of their own
 
-Each candidate is verified in a temporary git worktree, in the system's temporary folder, never in your working tree: an editor's autosave, a dev server that reloads and a `shadowlap test` running beside the repair never see a candidate. It is checked out without the repository's hooks, and it is your working tree as it is, not HEAD: tracked files with uncommitted changes and untracked files git doesn't ignore are copied in, so verify replays the code you started the repair on, with one change. What git ignores comes along as the agent needs it: `node_modules` is linked package by package (a package of the repository itself is the worktree's own copy, so a candidate in it is the one that runs), a Python virtual environment is linked, packages installed in a folder above the repository are linked in too, Python's caches (`__pycache__`, `.pytest_cache` and the like) are left out, and everything else, such as a `.env` or build output, is copied, up to 256 MB in all and beyond that linked, which the report says. The recorded command runs there as [bisect](./ci.md#find-the-commit-that-broke-it) runs it at a commit: an absolute path into the repository becomes the worktree's copy. `--build "npm run build"` builds in the worktree, once the candidate is in it. The worktree is removed once the candidate is decided, and on Ctrl-C.
+Each candidate is verified in a temporary git worktree, in the system's temporary folder, never in your working tree: an editor's autosave, a dev server that reloads and a `shadowlap test` running beside the repair never see a candidate. It is checked out without the repository's hooks, and it is your working tree as it is, not HEAD: tracked files with uncommitted changes and untracked files git doesn't ignore are copied in, so verify replays the code you started the repair on, with one change. What git ignores comes along as the agent needs it: `node_modules` is linked package by package (a package of the repository itself is the worktree's own copy, so a candidate in it is the one that runs), a Python virtual environment is linked, packages installed in a folder above the repository are linked in too, Python's caches (`__pycache__`, `.pytest_cache` and the like) are left out, and everything else, such as a `.env` or build output, is copied, up to 256 MB in all and beyond that linked, which the report says. The recorded command runs there as [bisect](./ci.md#find-the-commit-that-broke-it) runs it at a commit: an absolute path into the repository becomes the worktree's copy. `--build "npm run build"` builds in the worktree, once the candidate is in it. A good run is kept against [its own baseline](./verify.md#good-runs-against-their-own-baseline), the same run under the code without the candidate, and that runs in a worktree of its own too: the candidate's as it was before the candidate went in, copied when a good run first forks and built the same way, so the two differ by the candidate alone, whatever your working tree holds by then. The worktrees are removed once the candidate is decided, and on Ctrl-C. A provider that stays unavailable while blame or verify runs ([gating](./gating.md#when-the-provider-is-unavailable)) stops the repair there, *stopped* with the provider named, exit 3: a candidate it left unverified is neither rejected nor tried after.
 
 Your working tree changes only at the end, with `--apply`, and only by the accepted candidate: its patch is checked first to be that candidate's rewrite and nothing more, as [`shadowlap fix apply`](./cli.md#fix) checks a patch, and its text to be where it was found. Then `--build` runs in the working tree.
 
@@ -185,7 +187,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](./verify.md#how-a-run-is-judged): by default a run passes at 90% or more and fails at 70% or less, each at 5% risk, up to 80 attempts |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, such as `--attempts 5 --passes 4` |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, its rewrite alone measured before it runs. Default 25 |
-| `--build <command>` | Build the agent in each candidate's worktree, and in the working tree after `--apply` |
+| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` |
 | `--apply`, `--branch <name>`, `--pr`, `--goldens <dir>` | Hand-over, above |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y`, `--json` | As for [verify](./verify.md) |

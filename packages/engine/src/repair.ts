@@ -4,7 +4,7 @@ import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { formatTally } from './stats.js';
 import { quoteArgv, safeLine } from './text.js';
-import { eachRun, footprintDelta, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
+import { eachRun, footprintDelta, keptTally, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
  * The deterministic half of `shadowlap repair`. A model proposes fixes; everything that decides whether
@@ -936,6 +936,20 @@ function verifiedLine(v: VerifyReport): string {
   return `${verifiedCounts(v)}, ${eachRun(v)}`;
 }
 
+/** Words wrapped to lines of at most `width` columns (a longer word has a line of its own). */
+function wrap(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
 export function formatRepair(r: RepairReport, p: Palette = plain): string {
   const lines: string[] = [];
   const accepted = r.candidates.find((c) => c.id === r.accepted) ?? null;
@@ -943,8 +957,8 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     lines.push(`${p.green('✓')} ${p.bold(`Fixed: ${commitTitle(accepted)}`)}`);
     lines.push(`  ${p.dim(`${safeLine(accepted.file)} · ${safeLine(accepted.surface)}`)}`);
     lines.push(`  ${p.red(`- ${one(accepted.before, 200)}`)}`, `  ${p.green(`+ ${one(accepted.after, 200)}`)}`);
-    // The counts, then how each run was decided, under them: each half fits an 80-column terminal.
-    if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, `            ${eachRun(accepted.verify)}`);
+    // The counts, then how each run was decided, under them, wrapped to fit an 80-column terminal.
+    if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, ...wrap(eachRun(accepted.verify), 66).map((l) => `            ${l}`));
   } else {
     const head = r.outcome === 'stopped' ? `${p.yellow('!')} ${p.bold('Stopped')}` : r.outcome === 'no-diagnosis' ? `${p.yellow('!')} ${p.bold('No fix to try')}` : `${p.red('✗')} ${p.bold('Not fixed')}`;
     lines.push(`${head}${r.why ? `: ${safeLine(r.why)}` : ''}`);
@@ -1020,8 +1034,9 @@ export function repairMarkdown(r: RepairReport): string {
     const v = accepted.verify;
     out.push('### Evidence', '', `\`shadowlap verify\` replayed every run under the change: it ${verifiedLine(v)}.${r.holdout.length ? ' The held-out runs were never shown to the repairer.' : ''}`, '');
     out.push('| Role | Run | Outcome | Attempts |', '|---|---|---|---|');
-    // A run its gate decided shows the evidence: the tally, the pass rate's interval and pass^k.
-    for (const x of v.runs) out.push(`| ${x.role === 'holdout' ? 'held-out' : x.role} | \`${short(x.runId)}\` | ${outcomeOf(x)} | ${x.deterministic ? 'clean replay' : x.gate ? formatTally(x.gate) : `${x.passes} of ${x.attempts.length} passed`} |`);
+    // A run its gate decided shows the evidence: the tally, the pass rate's interval and pass^k; a good
+    // run kept against its baseline, both tallies and the bound on the drop.
+    for (const x of v.runs) out.push(`| ${x.role === 'holdout' ? 'held-out' : x.role} | \`${short(x.runId)}\` | ${outcomeOf(x)} | ${x.deterministic ? 'clean replay' : x.baseline && !x.undecided ? keptTally(x, x.baseline) : x.gate ? formatTally(x.gate) : `${x.passes} of ${x.attempts.length} passed`} |`);
     const d = footprintDelta(v.runs);
     if (d) out.push('', `Per run, as it would run live: ${Math.round(d.recorded.inputTokens).toLocaleString('en-US')} → ${Math.round(d.now.inputTokens).toLocaleString('en-US')} input tokens${d.recorded.cost !== null && d.now.cost !== null ? `, ≈${formatUsd(d.recorded.cost)} → ≈${formatUsd(d.now.cost)}` : ''}.`);
     if (r.uncommitted?.length) out.push('', `**${uncommittedNote(r.uncommitted)}**`);

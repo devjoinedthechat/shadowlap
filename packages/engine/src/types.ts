@@ -278,7 +278,14 @@ export interface RunMeta {
    * its verdict, inconclusive when all it fell short on is a check that could not be decided, and
    * unavailable when the agent failed while its provider was (unavailable.ts): retried, never counted.
    */
-  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable' };
+  verify?: {
+    role: 'target' | 'holdout' | 'good';
+    passed: boolean;
+    verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable';
+    /** An attempt of a good run's baseline: the run under the code before the change (its `revision`, or the working tree's), paired with one of the change's. Absent otherwise. */
+    arm?: 'baseline';
+    revision?: string | null;
+  };
   /** Labels people gave the run: `bug`, `good`, `refund-flow`. */
   labels?: string[];
   /** Notes on the run, or on one of its calls. */
@@ -385,6 +392,10 @@ export interface BlameRecord {
   /** The model call whose recorded answer lost the run, or null. */
   callNo: number | null;
   confidence: 'high' | 'medium' | 'low';
+  /** The calls the run was lost between (blame.ts `range`): one call when pinned. Absent from blames kept before ranges. */
+  range?: { from: number; to: number; fromStep?: number; toStep?: number } | null;
+  /** The most that range, or the finding that no call rescues the run, may be wrong; null when nothing bounds it. Absent from blames kept before it. */
+  errorBound?: number | null;
   /** A fork that passed from the blamed call on. */
   rescuedRunId: string | null;
   /** Request fields a probe changed from the probed call on; empty when it only resampled. */

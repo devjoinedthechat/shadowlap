@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, normalizeResponse, probeFinding, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, normalizeResponse, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -206,15 +206,25 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     }
     log(`  ${p.green('✓')} replays as recorded and fails: ${baseline.failures.join('; ')}`);
 
-    // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the fixed count.
-    const limit = s.gate ? s.gate.max : s.attempts;
-    const settle = (passes: number, done: number): GateDecision => (s.gate ? decide(passes, done, s.gate) : decideCount(passes, done, s.attempts, s.needed));
+    // A probe is decided after each attempt: by the gate, rescued at `good` and lost at `bad`, or by the
+    // fixed count. The gate's risk is the whole search's, spent across the most probes it makes: each
+    // probe's gate runs at its share, so every claim of every probe holds together but for that risk.
+    const budget = maxProbes(steps.length, s.scan);
+    const each: SprtGate | null = s.gate ? probeGate(s.gate, budget) : null;
+    const limit = each ? each.max : s.attempts;
+    const settle = (passes: number, done: number): GateDecision => (each ? decide(passes, done, each) : decideCount(passes, done, s.attempts, s.needed));
+    // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
+    const risk = probeRisk(each ? { gate: each } : { attempts: s.attempts, needed: s.needed });
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
       if (!runner.canStart()) return null;
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
       const done: Array<BlameAttempt | undefined> = [];
       const tally = new ProbeTally(settle);
       let prefixBroken: string | null = null;
+      // Attempts the provider was unavailable for: retried by the runner, never counted. Once it stays
+      // unavailable attempt after attempt the runner stops, and the probe decides nothing.
+      let unavailable = 0;
+      let providerDown = false;
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       await probeAttempts({
         concurrency: s.concurrency,
@@ -236,7 +246,15 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }
-          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          unavailable += (a.unavailableBefore ?? 0) + (a.unavailable ? 1 : 0);
+          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.unavailable ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          // The provider was unavailable for it and the attempts before it in a row: it says nothing
+          // about the answer re-asked, and nothing after it is asked (the runner's stopReason says why).
+          if (a.unavailable) {
+            providerDown = true;
+            log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
+            return;
+          }
           done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
           const late = tally.decided !== null;
           // An attempt that all it fell short on is a check that could not be decided says nothing of the answer re-asked.
@@ -246,9 +264,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       });
       if (prefixBroken) throw new BlameError(prefixBroken, 'prefix');
       const attempts = done.filter((a): a is BlameAttempt => a !== undefined);
-      // Interrupted or out of budget with the verdict still open: this probe proves nothing.
+      // Interrupted, out of budget, or the provider unavailable with the verdict still open: this probe
+      // proves nothing, and the search stops, saying why. A provider that never answered is no reason
+      // to call the run rescued, lost or unrescuable.
       const decided = tally.decided;
-      if (!decided) return null;
+      if (!decided || providerDown) {
+        if (providerDown) log(`    ${p.yellow(`stopped · the provider was unavailable for ${unavailable} attempt${unavailable === 1 ? '' : 's'}, none counted`)}`);
+        return null;
+      }
       const decision = decided.decision;
       const passes = attempts.filter((a) => a.passed).length;
       const rescued = decision === 'pass';
@@ -257,14 +280,15 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const stopper = attempts.find((a) => a.verdict === 'inconclusive');
       const undecided = decision === 'inconclusive' ? (stopper?.failures[0] ?? null) : null;
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
-      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(s.gate ? { decision, gate: gateResult(s.gate, tally.decidedOn(), { decision: undecided ? 'continue' : decision }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}) };
-      // Under a gate, its verdict word, tally and Wilson bound; the rule was said once, above.
-      const words = s.gate || undecided ? probeFinding(found, s.gate) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
+      const apart = unavailable ? { unavailable } : {};
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision, ...apart }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk, ...apart };
+      // Under a gate, its verdict word, tally and bound; the rule was said once, above.
+      const words = each || undecided ? probeFinding(found, each) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
       log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
       return found;
     };
 
-    const searched = await searchBlame({ steps, probe, scan: s.scan });
+    const searched = await searchBlame({ steps, probe, scan: s.scan, risk: s.gate?.risk ?? BLAME_DEFAULTS.risk });
 
     // The fork that rescued the run, and what the model answered there: an attempt that passed and
     // answered the blamed call otherwise than the recording, and that no stub carried past a write
@@ -297,7 +321,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           ? `Every attempt that passed at #${at} answered it as the recording did. They passed because ${w.name} was stubbed after the fork, and the recording failed on ${w.name}'s error: ${w.message}.`
           : `Every attempt that passed at #${at} answered it as the recording did, so what made them pass came after that answer: a read that ran live, or a write that was stubbed.`;
         same = { callNo: at, runId: passing[0].runId, why };
-        result = { ...searched, outcome: 'unrescuable', blamed: null, lost: null };
+        result = { ...searched, outcome: 'unrescuable', blamed: null, lost: null, range: null };
       }
     } else if (searched.outcome === 'unrescuable' && failed.size) {
       // No probe rescued the run: when every attempt from the first model call made a write that
@@ -313,8 +337,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       runId: parent.runId,
       steps: steps.length,
       attemptsPerProbe: limit,
-      needed: s.gate ? attemptsToPass(s.gate) : s.needed,
+      needed: each ? attemptsToPass(each) : s.needed,
       gate: s.gate,
+      probeBudget: s.gate ? budget : null,
       rescue: { fields: s.fields },
       oracle,
       recordedFailures: baseline.failures,
@@ -322,6 +347,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       sameAnswer: same,
       failedWrite,
       attempts: runner.attempts,
+      ...(runner.unavailable ? { unavailable: runner.unavailable } : {}),
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
       // Judge checks' calls, apart from the agent's.
@@ -338,6 +364,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
         ...(unsettledFirst(report) ? { unsettled: true } : {}),
         callNo: report.blamed?.callNo ?? null,
         confidence: report.confidence,
+        range: report.range ?? null,
+        errorBound: report.errorBound ?? null,
         rescuedRunId: contrast?.rescuedRunId ?? null,
         fields: s.fields,
         ...(s.scope ? { scope: s.scope } : {}),

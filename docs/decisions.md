@@ -8,17 +8,17 @@ shadowlap decisions goldens/* --model claude-haiku-4-5
 
 ```
 ✗ 1 of 1 run decides a write or when to stop differently, under the model claude-haiku-4-5
-  11 steps asked: 1 rank 1, 1 rank 3, 1 rank 4, 8 the same · no tool ran
+  11 steps asked, 3 samples each and as many as recorded: 1 rank 1, 1 rank 3, 1 rank 4, 8 the same · no tool ran
 
 goldens/research 01M58W8A0Z  11 of 11 model calls asked · 3 changed, most: rank 1 (a write changed)
-  #28   step 10  rank 1  send_email is called with other arguments
+  #28   step 10  rank 1  send_email is called with other arguments · in 3 of 3 samples, 0 of 3 as recorded
          recorded send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)
          now      send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)  +0 tokens · −$0.0028
          send_email.body: "Replay works." → "Replay works; forks fence writes."
-  #14   step 5  rank 3  fetch_page is no longer called
+  #14   step 5  rank 3  fetch_page is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded fetch_page({"url":"https://example.com/c"}) + read_file({"path":"config.json"})
          now      read_file({"path":"config.json"})  +0 tokens · −$0.0026
-  #9    step 3  rank 4  search_web is asked differently
+  #9    step 3  rank 4  search_web is asked differently · in 3 of 3 samples, 0 of 3 as recorded
          recorded search_web({"query":"agent determinism"})
          now      search_web({"query":"determinism in agents"})  +0 tokens · −$0.0025
          search_web.query: "agent determinism" → "determinism in agents"
@@ -27,11 +27,11 @@ goldens/research 01M58W8A0Z  11 of 11 model calls asked · 3 changed, most: rank
 ! claude-sonnet-4-5-20250929 retires on the Claude API on November 30, 2026, in 42 days; Anthropic recommends claude-sonnet-5-5
 
   Later steps are judged in the recorded run's state: after the first changed decision, each step says what the change decides where the recorded run was, not where the changed run would have got to. shadowlap verify runs it end to end.
-  Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.
-  asking: 11 upstream requests · ≈$0.014 spent · per run ≈$0.043 → ≈$0.014 (−67%)
+  Each step was asked 3 times under the change and 3 times as recorded: a change is ranked only when its decisions run more consequential than the recorded request's own, by an exact permutation test at 5% a step.
+  asking: 66 upstream requests · ≈$0.174 spent · per run ≈$0.043 → ≈$0.014 (−67%)
 ```
 
-That is the [reference agent](./quickstart.md) against its mock model, recorded on a Claude model that retires and asked again under another one. The email it sends at step 10 now says something else: a write with other arguments, rank 1. It also stops fetching a page at step 5 and phrases a search differently at step 3.
+That is the [reference agent](./quickstart.md) against its mock model, recorded on a Claude model that retires and asked again under another one. The email it sends at step 10 now says something else, in all 3 samples, where the request as recorded, asked 3 times too, sent it as recorded every time: a write with other arguments, rank 1. It also stops fetching a page at step 5 and phrases a search differently at step 3. Each step was asked six times, three under the change and three as recorded ([below](#reading-the-report)), so asking cost about four times what one run does.
 
 ## The change
 
@@ -77,10 +77,10 @@ AGENT_SYSTEM_SUFFIX="Keep the final answer short." shadowlap decisions goldens/r
 
 ```
 ✗ 1 of 1 run is judged otherwise, under the prompt and tools in the working tree
-  11 steps asked: 1 rank 2, 10 the same · no tool ran
+  11 steps asked, 3 samples each and as many as recorded: 1 rank 2, 10 the same · no tool ran
 
 goldens/research 01M58W8A0Z  11 of 11 model calls asked · 1 changed, most: rank 2 (it stops, hands over or is judged differently)
-  #30   step 11  rank 2  judge "fences" fails what it says now, which passed as recorded
+  #30   step 11  rank 2  judge "fences" fails what it says now, which passed as recorded · in 3 of 3 samples, 0 of 3 as recorded
          recorded answers and stops: "Done. Summary: recorded runs replay deterministically; forks fence writ…"
          now      answers and stops: "Done. Recorded runs replay deterministically."  −8 tokens · −<$0.001
          judge "fences" passed → failed · It no longer says that forks fence writes. (judged live, <$0.001)
@@ -102,7 +102,17 @@ Each run lists its changed steps, the most consequential first: the call number 
 
 The steps don't depend on each other: step 9 is asked with the conversation as recorded up to step 9, whatever step 3 decided. That is what makes them parallel and free of side effects, and it is the report's limit: **after the first changed decision, later steps are judged in the recorded run's state**, which the changed agent may never have reached. Every report says so. It narrows where to look; [`verify`](./verify.md) is the end-to-end check, and `--then-verify` runs it on exactly the runs that need it.
 
-`--samples <n>` asks each step *n* times and reports how often its decision changed (*in 2 of 3 samples*), which tells a changed policy from a model's own variation. A step flags its run only when more than half its samples show a write, stop or judged change; one fewer samples show is listed with how often, and *not flagged*, and the report counts such steps. A judge reads each sample's words, and the step shows the sample with the most consequential change, or among text-only ones, one whose words could not be judged. A step any sample of which a judge could not judge, and that its samples don't flag, waits on the judge, as a step asked once does: the report says how many of its samples were *not judged*, and its run settles nothing unless something else flags it. With one sample and a change, the report says so.
+**Each step is asked 3 times under the change, and 3 times exactly as recorded** (`--samples <n>` sets both; 3 by default). A model asked the same request twice can answer otherwise, and the samples asked as recorded, the control, say how often it does here, with these tools, this conversation and this model. Each sample's decision is compared with the recorded one and ranked, and a step is ranked only when its changed samples run more consequential than its control's by more than chance explains: an exact one-sided permutation test over every way the samples' scores (5 for a write, down to 1 for text only, 0 for the same decision) could have been split between the two sides, at 5% a step. When the change makes no difference to a step, both sides draw from one distribution, and the step is ranked at most 5% of the time, whatever the model does on its own: one that writes otherwise half the time unasked is ranked 1.6% of the time at 3 samples. A ranked step takes the most consequential rank its changed samples show more often than its control's, and flags its run at rank 1 or 2. Its line shows both sides' counts: *in 3 of 3 samples, 0 of 3 as recorded*.
+
+With 3 samples a side, no split comes out less often than 1 in 20, so a change is ranked when every changed sample is more consequential than every sample as recorded. A change the model makes only some of the time takes more samples to tell from its own variation:
+
+| `--samples` | A write that changed is ranked when it shows in… |
+|---|---|
+| 3 | 3 of 3 samples, and in none of 3 as recorded |
+| 5 | 4 of 5, against none as recorded; or 5 of 5, against 1 |
+| 10 | 4 of 10, against none; 6 of 10, against 1 |
+
+A step whose samples decided otherwise no more often than its control's is listed with both counts, *within the model's own variation*, and not ranked; the report counts such steps. Each step is tested on its own, so across a run of many steps one may be ranked by chance: `verify`, which runs the change end to end, settles it. A judge reads each sample's words, on both sides alike, and the step shows the sample with the most consequential change, or among text-only ones, one whose words could not be judged. A step any sample of which a judge could not judge, and that its samples don't flag, waits on the judge, as a step asked once does: the report says how many of its samples were *not judged*, and its run settles nothing unless something else flags it. When the request as recorded can't be asked any more (a model that retired), the step is ranked by its changed samples alone, and the warnings say so. With fewer than 3 samples nothing can reach 5%, so the control isn't asked: a step flags its run when more than half its samples show a write, stop or judged change, and the report says such a change was not told from the model's own variation.
 
 The report shows what the project's [redaction rules](./normalizers-and-redaction.md) leave of a value: the arguments, texts and errors it holds are masked as in every export, pack and share link, and in a pull request's body or a comment on one, while the comparison reads the values themselves. What a judge check reads goes to its model, so it is masked the same way before it is sent, and when a judge read it, the report's notes say so.
 
@@ -116,10 +126,10 @@ AGENT_SYSTEM_SUFFIX="Do not email the summary." shadowlap decisions 01M58VT1J5 -
 
 ```
 ✗ 1 of 1 run decides a write or when to stop differently, under the prompt and tools in the working tree
-  11 steps asked: 1 rank 1, 10 the same · no tool ran
+  11 steps asked, 3 samples each and as many as recorded: 1 rank 1, 10 the same · no tool ran
 
 01M58VT1J5  11 of 11 model calls asked · 1 changed, most: rank 1 (a write changed)
-  #28   step 10  rank 1  send_email is no longer called
+  #28   step 10  rank 1  send_email is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded send_email({"to":"team@example.com","subject":"Research summary","body":"Replay wo…)
          now      answers and stops: "Summary: recorded runs replay deterministically, and forks fence writes…"  −8 tokens · −<$0.001
   the steps asked, as recorded and now: 12,260 → 12,260 input tokens · ≈$0.043 → ≈$0.043 (about the same)
@@ -129,7 +139,7 @@ It refuses a run, saying why, when its first model request differs in more than 
 
 ## Costs, caching and thinking
 
-**It isn't a cost saver per call.** It makes as many model calls as the runs did, more with `--samples`. What it buys is steps in parallel, no side effects, each change attributed to the call that made it, and a live `verify` narrowed to the runs that need one. Usage and cost are read from each answer as for any live call, under the configured prices; `--budget` stops it, and `--concurrency` (4 by default) bounds the requests in flight.
+**It isn't a cost saver per call.** By default it makes six model calls for each one the runs made: three under the change and three as recorded, the control. `--samples 1` asks each step once, with no control, for a sixth of that, and ranks whatever the one answer shows. What it buys is steps in parallel, no side effects, each change attributed to the call that made it and told from the model's own variation, and a live `verify` narrowed to the runs that need one. Usage and cost are read from each answer as for any live call, under the configured prices, the control's under the recorded model's; `--budget` stops it, and `--concurrency` (4 by default) bounds the requests in flight.
 
 **What a run costs under the change** is worked out as a run would spend it, not as asking spent it. A run's steps follow one another, each reading from the prompt cache the prefix the step before it wrote; asking them again caches otherwise (several at once each write the cache, a second sample of a step reads all of it). So a step's cost after the change is its new answer's input, split between cache reads, cache writes and plain input as the recorded call's input was, and its output, priced for the model asked. What asking spent is reported apart (`spent`).
 
@@ -149,7 +159,7 @@ A call is sent with the query it was recorded with, credentials left out: an Azu
 shadowlap decisions goldens/* --from-code --then-verify
 ```
 
-After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Each run is judged by its checks from `shadowlap.config.json` (or `--expect`): a golden's own, and for a run named by id those of the recording it comes from (the golden a test replayed, or the pack it was unpacked from), one verify per set of checks, in the role its recording plays under them: a run that passes them as recorded must keep passing, one that fails them must now pass. The model and fields of the change go to verify as `--model` and `--set`, with `--from` naming the models they change at, so verify changes the same calls the preview did; a `--from-code` change is your working tree, which verify replays. Each run is replayed until verify's [gate](./gating.md) decides, as `verify` decides by default: `--gate` changes its figures, and `--attempts` and `--passes` give a fixed count instead. The verdict is kept like any other, and the report ends with the commands that verify the runs again. Runs with no write, stop or judged change are not replayed.
+After asking, `--then-verify` runs [`verify`](./verify.md) on the runs with a rank 1 or 2 change, and only on those. Each run is judged by its checks from `shadowlap.config.json` (or `--expect`): a golden's own, and for a run named by id those of the recording it comes from (the golden a test replayed, or the pack it was unpacked from), one verify per set of checks, in the role its recording plays under them: a run that passes them as recorded must be kept, no worse than the same run without the change (for a switch, on the model it was recorded with) by 10 points or more, as [verify keeps a good run](./verify.md#good-runs-against-their-own-baseline); one that fails them must now pass. The model and fields of the change go to verify as `--model` and `--set`, with `--from` naming the models they change at, so verify changes the same calls the preview did; a `--from-code` change is your working tree, which verify replays. Each run is replayed until verify's [gate](./gating.md) decides, as `verify` decides by default: `--gate` changes its figures, and `--attempts` and `--passes` give a fixed count instead. The verdict is kept like any other, and the report ends with the commands that verify the runs again. Runs with no write, stop or judged change are not replayed.
 
 A session kept earlier can be verified later, or one run of it: `shadowlap decisions --verify dc-01M58W8A0Z… [run]` verifies the runs it flagged the same way, without asking anything again, and keeps what verify finds in the session, over what an earlier verify found for the others. A run whose gate ran out of attempts between its bounds, or that an attempt it could not judge stopped, is *inconclusive*, and the session stays incomplete until a verify settles it. Each run keeps the rule that decided it, so a session verified again under another gate states each rule once, over the runs it decided. The dashboard runs it as its `decisions-verify` job.
 
@@ -173,12 +183,12 @@ What changes
   besides: 1 read added or removed, 1 read asked differently
 
 What still passes
-  goldens/research             passed · kept, verified · 12 of 12 · rate >= 0.73 (95%)
-  gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts
+  goldens/research             passed · kept, verified · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)
+  kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs
 
 What it costs
   per run      ≈$0.043 → ≈$0.014 (−67%) · 12,700 → 12,700 tokens
-  checking it  ≈$0.014 asking, ≈$0.174 verifying
+  checking it  ≈$0.014 asking, ≈$2.20 verifying
 
 What to set
   only the model: claude-haiku-4-5
@@ -190,7 +200,7 @@ The config change
 It runs `decisions --model` on your goldens (`goldens/*`, or the packs and runs you name), then `verify` on the runs with a rank 1 or 2 change, each decided by verify's gate as `--then-verify` decides it, and compares what a run costs. It switches the agent's calls: those made with the models `--from` names, else those made with a model that retires, by the [retirement table](#model-retirements), else those made with the model the runs use most; a simulated user or a sub-agent on another model keeps its own, in the preview and in verify. The report has four blocks, in order:
 
 - **What changes:** each write, stop and judged change, with the recorded and the new action; the rest counted, the text-only ones with how many a judge check read as recorded and how many it could not judge.
-- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, *inconclusive* when its gate ran out of attempts between its bounds or an attempt could not be judged, or *unsettled* when its attempts stopped before they settled it (the budget, Ctrl-C), with its tally and the bound of its pass rate, under the rule that decided it, each rule stated once; an attempt that could not be judged is counted apart, never as one that failed (*2 of 2, attempt 3 not judged*). A run with no write, stop or judged change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands. One with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
+- **What still passes:** each run's verdict, *passed*, *failed* or *inconclusive*. A run verified says how verify found it: *kept*, *fixed*, *broken*, *not fixed*, *inconclusive* when its gate ran out of attempts between its bounds or an attempt could not be judged, or *unsettled* when its attempts stopped before they settled it (the budget, Ctrl-C), with its tally and the bound of its pass rate, or for a run kept against its baseline both tallies and the bound on its drop, under the rule that decided it, each rule stated once; an attempt that could not be judged is counted apart, never as one that failed (*2 of 2, attempt 3 not judged*). A run with no write, stop or judged change is *unchanged*: it is not re-run, and its recording's own verdict under its checks stands. One with a text-only change a judge check reads that could not be judged is *inconclusive* (`not-judged`): the words might read otherwise.
 - **What it costs:** per run, before and after, from the recorded calls and the new answers, and what checking cost.
 - **What to set:** the fields the switch needs, each with why.
 

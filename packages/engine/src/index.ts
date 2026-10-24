@@ -86,7 +86,16 @@ export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
 export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, ProbeVerdict } from './blame.js';
-export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
+export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
+// Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
+// verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
+export { blameSpan, confidenceOf, confidenceWhy, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';
+export { antitonic, type Fitted } from './isotonic.js';
+export { addPair, baselineShort, clopperPearsonBound, decideAgainstHistory, decidePaired, describeBaselineRule, dropBound, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
+export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, DropBound, PairCounts } from './noninferiority.js';
+// decisions' control arm: a change ranked only beyond the model's own variation, by exact tests.
+export { consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
+export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
 export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson, wilsonBound } from './stats.js';
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';

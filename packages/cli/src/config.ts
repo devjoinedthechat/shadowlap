@@ -35,6 +35,12 @@ export interface ShadowlapConfig {
   providers?: FormatHost[];
   /** `shadowlap repair`: the model that proposes fixes (`provider:model`), its base URL, and how long it may take to answer, in seconds. */
   repair?: { repairer?: string; baseUrl?: string; timeout?: number };
+  /**
+   * `shadowlap verify`: how a good run is kept. Not worse than its baseline by `margin` or more (0.1
+   * is 10 points), the baseline the same run at the base revision (`paired`) or its golden's test
+   * history (`history`), up to `max` pairs or attempts. Flags override each.
+   */
+  verify?: { margin?: number; baseline?: 'paired' | 'history'; max?: number };
   /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
   tools?: ToolTrust;
   /** `tools.unrecorded`: the effect of tools the agent runs without Shadowlap recording them, which decides whether `replay` and `test` may run them again. */
@@ -109,6 +115,8 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     if (timeout !== undefined && !(typeof timeout === 'number' && Number.isInteger(timeout) && timeout > 0)) throw new Error(`${file}: repair.timeout must be a whole number of seconds, such as 600`);
     config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout as number } : {}) };
   }
+  // verify: how a good run is kept against its baseline.
+  if (parsed.verify !== undefined) config.verify = parseVerifyConfig(parsed.verify, file);
   // Team store: taken as written. A typo in the URL can't stop a recording: push, pull and the store
   // commands parse it and say what is wrong.
   if (parsed.store !== undefined) {
@@ -137,6 +145,18 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     config.mcp = { effects };
   }
   return config;
+}
+
+/** The `verify` section: a margin between 0 and 1, `paired` or `history`, a whole number of pairs or attempts. */
+function parseVerifyConfig(raw: unknown, file: string): NonNullable<ShadowlapConfig['verify']> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`${file}: verify must be an object, e.g. { "margin": 0.1 }`);
+  const { margin, baseline, max, ...rest } = raw as Record<string, unknown>;
+  const unknown = Object.keys(rest)[0];
+  if (unknown !== undefined) throw new Error(`${file}: verify has an unknown key "${unknown}" (expected "margin", "baseline", "max")`);
+  if (margin !== undefined && (typeof margin !== 'number' || !(margin > 0 && margin < 1))) throw new Error(`${file}: verify.margin must be a number between 0 and 1, such as 0.1 (a drop of 10 points)`);
+  if (baseline !== undefined && baseline !== 'paired' && baseline !== 'history') throw new Error(`${file}: verify.baseline must be "paired" or "history"`);
+  if (max !== undefined && (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > 1000)) throw new Error(`${file}: verify.max must be a whole number from 1 to 1000`);
+  return { ...(margin !== undefined ? { margin: margin as number } : {}), ...(baseline !== undefined ? { baseline: baseline as 'paired' | 'history' } : {}), ...(max !== undefined ? { max: max as number } : {}) };
 }
 
 /**

@@ -51,7 +51,8 @@ export interface PullRequestPreview {
   branch: string;
   /**
    * As the pull request's body says it: `fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5
-   * good, each by its gate, which tells 90%+ from 70%- at <= 5% risk`, the rule stated once.
+   * good, each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one
+   * against its baseline, which tells no drop from one of 10+ points at <= 5% risk`, each rule stated once.
    */
   verify: string | null;
   /** Where the failing run was lost, as the body's table has it: `lost at model call #5 (3 of 5)`. */
@@ -213,7 +214,7 @@ function examplePreview(budget: string, base: string): PullRequestPreview {
     author: 'github-actions',
     base,
     branch: ciFixBranch('goldens/refund-limit'),
-    verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk',
+    verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk',
     blame: 'lost at model call #5 (3 of 5)',
     change: 'prompts/refund.md +1 −0',
     spent: `≈$0.84 of $${budget}`,

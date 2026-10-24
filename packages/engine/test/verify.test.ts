@@ -204,6 +204,10 @@ describe('runs decided by a gate', () => {
     expect(text).toMatch(/good +01K5GOOD00 +kept +clean replay/);
     expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40 })).toBe('each by its gate, which tells 90%+ from 70%- at <= 5% risk');
     expect(eachRun({ gate: null, needed: 4, attemptsPerRun: 5 })).toBe('each at 4 of 5 attempts');
+    // Good runs kept against their own baseline are decided by its rule, not the gate's: both are said.
+    const kept = { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null };
+    expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40, kept })).toBe('each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk');
+    expect(eachRun({ gate: GATE, needed: 12, attemptsPerRun: 40, kept: { ...kept, source: 'history', margin: 0.05 } })).toBe("each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its golden's history, which tells no drop from one of 5+ points at <= 5% risk");
     expect(verifyRule({ gate: null, needed: 4, attemptsPerRun: 5, fields: {}, oracle: ['the agent exits 0'] })).toBe('A run passes when 4 of 5 attempts meet the oracle: the agent exits 0.');
   });
 });

@@ -93,8 +93,8 @@ describe('the pull request a fix opens', () => {
     recordRepair(store, { repairId: 'repair-golden01', dir: '.shadowlap/repairs/repair-golden01', report: repairReport({ targets: [failing] }), expect: EXPECT, command: 'shadowlap repair', at: 3_000 });
     expect(fixPreview(store, '2.00')?.branch).toBe('shadowlap/fix-refund-over-limit-…');
     const example = ciWorkflows(CI_DEFAULTS, { preview: null, failing: 0, at: null, repository: null, branch: null }).fixOnFailure.preview;
-    expect(example).toMatchObject({ example: true, branch: 'shadowlap/fix-refund-limit-…', blame: 'lost at model call #5 (3 of 5)', verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each by its gate, which tells 90%+ from 70%- at <= 5% risk' });
-    // The gate's rule once, never a claimed rate.
+    expect(example).toMatchObject({ example: true, branch: 'shadowlap/fix-refund-limit-…', blame: 'lost at model call #5 (3 of 5)', verify: 'fixes 3 of 3 target runs, 2 of 2 held-out, keeps 5 of 5 good, each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk' });
+    // Each rule once, never a claimed rate.
     expect(example.verify).not.toMatch(/at least|passes/);
   });
 

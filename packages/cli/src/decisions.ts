@@ -3,6 +3,9 @@ import { join, resolve } from 'node:path';
 import {
   applyNormalizers,
   byConsequence,
+  CONTROL_MIN_SAMPLES,
+  CONTROL_RISK,
+  rankBeyondNoise,
   commandIsImported,
   compareDecisions,
   decisionOfResponse,
@@ -38,7 +41,9 @@ import {
   setRequestFields,
   shownSample,
   unjudgedSample,
+  describeBaselineRule,
   describeGate,
+  dropBound,
   SPRT_DEFAULTS,
   switchModel,
   ulid,
@@ -186,6 +191,12 @@ export interface DecisionsSettings {
   fromCode: boolean;
   /** Times each step is asked. */
   samples: number;
+  /**
+   * Ask each step as recorded as often, the control arm, and rank a step only when the change decides
+   * it otherwise beyond that variation (engine control-arm.ts). Absent: from 3 samples on, the fewest
+   * for which any difference can reach the test's 5%.
+   */
+  control?: boolean;
   /** Requests in flight at once. */
   concurrency: number;
   /** Start no request once this much (USD) is spent. */
@@ -242,6 +253,8 @@ interface Planned {
    * requests in flight are held, never a suite's. It throws only if the recording changed under it.
    */
   build: () => unknown;
+  /** Makes the request as recorded, for the control arm. */
+  buildControl: () => unknown;
   /** The fields a refusal named that were changed in this step's requests, so each is said once per step. */
   fixed: Set<string>;
   /** The request carries cache breakpoints, as the agent placed them. */
@@ -256,6 +269,11 @@ interface Planned {
   answers: Array<{ answer: ModelAnswer; decision: ModelDecision | null }>;
   /** The judge checks that read a text-only answer's words, by the answer's place in `answers`. */
   judged: Map<number, DecisionJudge[]>;
+  /** The path the call was recorded on: a model switch can change the one the change is sent to. */
+  recordedPath: string;
+  /** The control arm: the request exactly as recorded, asked as often as the change, and its judged text, by place. */
+  controlAnswers: Array<{ answer: ModelAnswer; decision: ModelDecision | null }>;
+  controlJudged: Map<number, DecisionJudge[]>;
   /** Why it is not asked; null when it is. */
   skip: string | null;
   /** The change doesn't touch this request: the working tree sends it the same prompt, or it was made with a model the switch leaves. */
@@ -526,6 +544,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       query: typeof call.meta.query === 'string' && call.meta.query ? call.meta.query : undefined,
       headers: { ...((call.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {}) },
       build: () => null,
+      buildControl: () => null,
       fixed: new Set(),
       cacheControl: false,
       recorded,
@@ -537,6 +556,9 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       opts,
       answers: [],
       judged: new Map(),
+      recordedPath: path,
+      controlAnswers: [],
+      controlJudged: new Map(),
       skip: null,
       untouched: false,
       switched,
@@ -646,6 +668,8 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       if ('skip' in again) throw new Error(again.skip);
       return again.body;
     };
+    // The control arm asks the request as the agent sent it: no change, nothing left out.
+    plan.buildControl = () => loadApiRequest(store, call.requestRef!);
     // A recording made before calls kept their query: Gemini streams as server-sent events when asked
     // with alt=sse, as its SDKs ask; an Azure deployment takes the api-version the SDKs read from the environment.
     if (plan.query === undefined) {
@@ -663,9 +687,18 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
  * step can read the prefix the one before it cached. Runs go side by side.
  */
 async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSender, prices: Record<string, Price> | undefined, log: (line: string) => void, stop: () => string | null, remedies: Remedies): Promise<{ spent: number; upstreamRequests: number; unknownModels: Set<string>; stopReason: string | null }> {
-  // A step's samples side by side: after the first, they read what it cached.
-  const queue: Planned[] = [];
-  for (const plan of planned) if (!plan.skip && !plan.untouched) for (let i = 0; i < s.samples; i++) queue.push(plan);
+  // A step's samples side by side: after the first, they read what it cached. With the control arm,
+  // each sample of the change goes with one of the request as recorded, so both see the same moment.
+  const control = controlAsked(s);
+  type Ask = { plan: Planned; arm: 'changed' | 'control'; cacheControl: boolean; target: DecisionTarget };
+  const queue: Ask[] = [];
+  for (const plan of planned) {
+    if (plan.skip || plan.untouched) continue;
+    for (let i = 0; i < s.samples; i++) {
+      queue.push({ plan, arm: 'changed', cacheControl: plan.cacheControl, target: plan.target });
+      if (control) queue.push({ plan, arm: 'control', cacheControl: plan.cacheControl, target: plan.target });
+    }
+  }
   const total = queue.length;
   let spent = 0;
   let upstreamRequests = 0;
@@ -677,12 +710,12 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
   const wake = () => {
     for (const w of waiting.splice(0)) w();
   };
-  const take = (): Planned | 'wait' | null => {
+  const take = (): Ask | 'wait' | null => {
     for (let i = 0; i < queue.length; i++) {
-      const plan = queue[i]!;
-      if (plan.cacheControl && busy.has(plan.target)) continue;
+      const ask = queue[i]!;
+      if (ask.cacheControl && busy.has(ask.target)) continue;
       queue.splice(i, 1);
-      return plan;
+      return ask;
     }
     return queue.length ? 'wait' : null;
   };
@@ -698,6 +731,22 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
       remedies.note('renamedTo' in fix ? { field: fix.field, value: null, leftOut: true, renamedTo: fix.renamedTo, why, source: null } : { field: fix.field, value: fix.value, leftOut: false, renamedTo: null, why, source: null });
     }
     return changed;
+  };
+  /** The request exactly as recorded, on the path it was recorded on: the control arm's. */
+  const askRecorded = async (plan: Planned) => {
+    let body: unknown;
+    try {
+      body = plan.buildControl();
+    } catch (err) {
+      plan.controlAnswers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: (err as Error).message, attempts: 0 }, decision: null });
+      return;
+    }
+    const answer = await sender.send({ provider: plan.provider, method: plan.method, path: plan.recordedPath, ...(plan.query ? { query: plan.query } : {}), headers: plan.headers, body });
+    upstreamRequests += answer.attempts;
+    const cost = estimateCost(plan.recordedModel ?? answer.model, answer.usage ?? undefined, prices);
+    if (cost !== null) spent += cost;
+    else if (answer.usage && (plan.recordedModel ?? answer.model)) unknownModels.add((plan.recordedModel ?? answer.model)!);
+    plan.controlAnswers.push({ answer, decision: answer.error ? null : decisionOfResponse(answer.bytes, answer.contentType, plan.provider, plan.opts) });
   };
   const askOne = async (plan: Planned) => {
     let body: unknown;
@@ -743,7 +792,7 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
       }
       if (next.cacheControl) busy.add(next.target);
       try {
-        await askOne(next);
+        await (next.arm === 'control' ? askRecorded(next.plan) : askOne(next.plan));
       } finally {
         if (next.cacheControl) busy.delete(next.target);
         done++;
@@ -755,6 +804,15 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
   await Promise.all(Array.from({ length: Math.max(1, Math.min(s.concurrency, total)) }, worker));
   return { spent, upstreamRequests, unknownModels, stopReason };
 }
+
+/**
+ * Samples a step by default: 3 under the change and 3 as recorded, six requests a step, the fewest
+ * with which a change can be told from the model's own variation at 5%.
+ */
+export const DECISIONS_SAMPLES = 3;
+
+/** Whether the control arm is asked: as the settings say, else from the fewest samples that can tell a change from noise. */
+export const controlAsked = (s: Pick<DecisionsSettings, 'samples' | 'control'>): boolean => s.control ?? s.samples >= CONTROL_MIN_SAMPLES;
 
 /** Why a judge check got no verdict on a sample's words: the side it got none for, `not judged: ` left off. */
 function notJudgedWhy(j: DecisionJudge): string {
@@ -773,6 +831,14 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
   // The most consequential sample shows the step; of text-only ones, one a judge could not judge (shownSample).
   const worst = compared[shownSample(compared.map((x) => ({ rank: x.c.rank, judge: x.judge })))];
   const ranks = compared.map((x) => x.c.rank ?? 0);
+  // The control arm: the request as recorded, asked as often. How often it decides otherwise is the
+  // model's own variation here, and the change is ranked only beyond it (engine control-arm.ts).
+  const controlled = plan.controlAnswers.flatMap((a, i) => (a.decision ? [{ a, i }] : []));
+  const controlRanks = controlled.map(({ a, i }) => promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), plan.controlJudged.get(i) ?? []).rank ?? 0);
+  const controlError = plan.controlAnswers.find((a) => a.answer.error)?.answer.error ?? null;
+  const control = plan.controlAnswers.length ? { asked: plan.controlAnswers.length, answered: controlled.length, changed: controlRanks.filter((r) => r > 0).length, ranks: controlRanks, error: controlled.length || !controlError ? null : m.text(controlError) } : null;
+  // With no control sample answered, the change's own samples rank it, as without a control.
+  const beyond = control && controlled.length && answered.length ? rankBeyondNoise(ranks, controlRanks) : null;
   const before = tokensOf(plan.recordedUsage);
   // In a run like the recorded one: the first answer's whole input, split as the recorded call's was, and the samples' mean output.
   const measured = answered.map(({ a }) => tokensOf(a.answer.usage)).filter((t): t is TokenCount => t !== null);
@@ -786,8 +852,9 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
     callNo: plan.call.callNo,
     step: plan.step,
     scope: (plan.call.meta.scope ?? null) as string | null,
-    rank: worst?.c.rank ?? null,
-    majority: majorityRank(ranks),
+    rank: beyond ? beyond.rank : (worst?.c.rank ?? null),
+    majority: beyond ? beyond.rank : majorityRank(ranks),
+    ...(control ? { control, noise: beyond ? { p: beyond.p } : null, sampled: worst?.c.rank ?? null } : {}),
     changes: (worst?.c.changes ?? []).map((c) => maskChange(c, m)),
     recorded: maskView(recordedView, m),
     now: worst ? maskView(decisionView(worst.a.decision!, plan.effectOf), m) : null,
@@ -821,7 +888,10 @@ async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], 
   const work: Array<() => Promise<void>> = [];
   for (const t of targets) {
     const spec = expect ?? t.spec;
-    const text = planned.filter((plan) => plan.target === t && plan.answers.some((a) => a.decision && compareDecisions(plan.recorded, a.decision, plan.effectOf).rank === 5));
+    // The control arm's text-only answers are judged as the change's are, so a judge check that reads
+    // the words otherwise counts on both sides alike.
+    const textOnly = (plan: Planned, a: Planned['answers'][number]) => !!a.decision && compareDecisions(plan.recorded, a.decision, plan.effectOf).rank === 5;
+    const text = planned.filter((plan) => plan.target === t && [...plan.answers, ...plan.controlAnswers].some((a) => textOnly(plan, a)));
     if (!spec || !text.length) continue;
     for (const j of TextJudge.readsOutput(spec)) outputJudges.add(j.name);
     const calls = store.getCalls(t.run.runId);
@@ -835,12 +905,17 @@ async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], 
       for (const plan of text) {
         const checks = reads.get(plan.call.callNo);
         if (!checks?.length) continue;
-        for (const [i, a] of plan.answers.entries()) {
-          if (!a.decision || compareDecisions(plan.recorded, a.decision, plan.effectOf).rank !== 5) continue;
-          const given = { bytes: a.answer.bytes, contentType: a.answer.contentType, provider: plan.provider };
-          const found: DecisionJudge[] = [];
-          for (const j of checks) found.push(await judge.compare(t.run, calls, j, plan.call.callNo, given));
-          plan.judged.set(i, found);
+        for (const [answers, judged] of [
+          [plan.answers, plan.judged],
+          [plan.controlAnswers, plan.controlJudged],
+        ] as const) {
+          for (const [i, a] of answers.entries()) {
+            if (!textOnly(plan, a)) continue;
+            const given = { bytes: a.answer.bytes, contentType: a.answer.contentType, provider: plan.provider };
+            const found: DecisionJudge[] = [];
+            for (const j of checks) found.push(await judge.compare(t.run, calls, j, plan.call.callNo, given));
+            judged.set(i, found);
+          }
         }
       }
     });
@@ -861,6 +936,8 @@ function runOf(target: DecisionTarget, planned: Planned[], steps: DecisionStep[]
   let costAfter: number | null = 0;
   for (const s of steps) {
     if (s.rank !== null) counts[String(s.rank) as '1']++;
+    // Changed in some sample, but no more often than as recorded: the model's own variation.
+    else if (s.control && s.sampled) counts.noise = (counts.noise ?? 0) + 1;
     else if (s.samples.answered) counts.same++;
     else if (s.error) counts.notAsked++;
     else counts.untouched++;
@@ -962,10 +1039,19 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     // In verify --json's words: fixed, not-fixed, kept, broken, inconclusive, unsettled; with why its
     // last attempt could not be judged, when one stopped it (no bound then, as verify gives none), and
     // the rule that decided it.
-    for (const r of report.runs) out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, bound: r.gate && !r.deterministic && !r.undecided ? wilsonBound(r.gate) : null, undecided: r.undecided ?? null, rule });
+    // A good run kept against its baseline reads under the baseline test's rule, its bound the drop's.
+    const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
+    for (const r of report.runs) {
+      const against = r.baseline && keptRule;
+      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? wilsonBound(r.gate) : null;
+      out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule });
+    }
     if (report.verdict === 'rejected') out.verdict = 'rejected';
     else if (report.verdict === 'incomplete' && out.verdict !== 'rejected') out.verdict = 'incomplete';
   }
+  // The rule stated once is the one every run was decided by: the gate's, or a good run's baseline test.
+  const rules = new Set(out.runs.map((r) => r.rule ?? rule));
+  out.rule = rules.size === 1 ? [...rules][0]! : rules.size ? null : rule;
   return out;
 }
 
@@ -1073,7 +1159,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       runs.push(runOf(t, mine, steps, runWarnings, refusal === null ? null : mask.text(refusal)));
     }
     const counts = emptyCounts();
-    for (const r of runs) for (const k of Object.keys(counts) as Array<keyof DecisionCounts>) counts[k] += r.counts[k];
+    for (const r of runs) for (const k of Object.keys(counts) as Array<keyof DecisionCounts>) counts[k] = (counts[k] ?? 0) + (r.counts[k] ?? 0);
     // Flagged by what most samples show: a change in fewer than half of them is listed, not flagged.
     const flagged = runs.filter((r) => r.majority !== null && r.majority <= 2).map((r) => r.runId);
     // Per run, each side over the runs it has a price for: a model with no price leaves its side unknown.
@@ -1121,7 +1207,15 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
     if (allSteps.some((x) => x.rank === 5 && !x.judge?.length && !judgeOpen(x))) notes.push(judgedSteps.length ? 'Text-only changes no judge check reads are counted, not judged.' : 'Text-only changes are counted, not judged.');
     // A check on what the agent printed is judged only where the agent runs: by verify, on the runs a change flags.
     if (outputJudges.length) notes.push(`The judge check${outputJudges.length === 1 ? '' : 's'} ${outputJudges.map((n) => `"${n}"`).join(', ')} read${outputJudges.length === 1 ? 's' : ''} what the agent printed, which asking a model call again doesn't make: verify judges ${outputJudges.length === 1 ? 'it' : 'them'} end to end when it takes a run (--then-verify, migrate).`);
-    if (s.samples === 1 && (counts[1] || counts[2] || counts[3] || counts[4])) notes.push('Each step was asked once, and a model varies from one answer to the next: --samples 3 says how often a decision changes.');
+    if (controlAsked(s)) {
+      // The control arm: what the change decides differently, told from what the model does on its own.
+      notes.push(`Each step was asked ${s.samples} times under the change and ${s.samples} times as recorded: a change is ranked only when its decisions run more consequential than the recorded request's own, by an exact permutation test at ${CONTROL_RISK * 100}% a step.`);
+      if (counts.noise) notes.push(`${counts.noise} step${counts.noise === 1 ? '' : 's'} decided otherwise no more often than ${counts.noise === 1 ? 'it' : 'they'} did as recorded: listed with both counts, not ranked, as the model's own variation.`);
+      const unasked = allSteps.filter((x) => x.control && !x.control.answered && x.samples.answered);
+      if (unasked.length) warnings.push(`${unasked.length} step${unasked.length === 1 ? '' : 's'} could not be asked as recorded (${[...new Set(unasked.map((x) => x.control!.error).filter(Boolean))].slice(0, 2).join('; ') || 'no answer'}): ranked by the change's samples alone, not told from the model's own variation`);
+    } else if (counts[1] || counts[2] || counts[3] || counts[4]) {
+      notes.push(s.samples === 1 ? 'Each step was asked once, and a model varies from one answer to the next: --samples 3 asks each step as recorded as often too, and ranks a change only beyond what the model does on its own.' : `Each step was asked ${s.samples} times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.`);
+    }
     if (s.fromCode) notes.push('Nothing ran to read the prompt: each run was replayed offline under the working tree, its model calls matched without their prompt and tools.');
     // What a judge reads goes to its model: the same rules masked it first (decisions-judge.ts). Said
     // only when a judge read something, now, before, or in the recording.
@@ -1274,7 +1368,7 @@ export function decisionsCommand(targets: readonly string[], s: Pick<DecisionsSe
     ...(s.model ? ['--model', s.model] : []),
     ...fields.flatMap(([k, v]) => ['--set', `${k}=${fieldText(v)}`]),
     ...(s.from ?? []).flatMap((m) => ['--from', m]),
-    ...(s.samples !== 1 ? ['--samples', String(s.samples)] : []),
+    ...(s.samples !== DECISIONS_SAMPLES ? ['--samples', String(s.samples)] : []),
     ...(s.scope ? ['--scope', s.scope] : []),
     ...(s.thenVerify ? ['--then-verify'] : []),
     ...askArgs(flags, !!s.thenVerify),

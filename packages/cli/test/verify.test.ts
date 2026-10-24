@@ -114,7 +114,11 @@ describe('shadowlap verify', () => {
     const r = await shadowlap(['verify', '--fixes', failed, '--holdout', heldOut, '--keeps', 'label:good', '--expect', ORACLE, '--json'], { AGENT_SYSTEM: GOOD_FIX });
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Json;
-    expect(report).toMatchObject({ verdict: 'accepted', reasons: [], warnings: [], summary: { targets: { passed: 1, total: 1 }, holdout: { passed: 1, total: 1 }, good: { passed: 1, total: 1 } } });
+    // The change here is the environment, in a folder git doesn't hold: there is no code before the
+    // change to run the good run's baseline at, so it is judged by its gate on its own, and the
+    // report says so (verify-baseline.test.ts verifies against a baseline).
+    expect(report).toMatchObject({ verdict: 'accepted', reasons: [], summary: { targets: { passed: 1, total: 1 }, holdout: { passed: 1, total: 1 }, good: { passed: 1, total: 1 } } });
+    expect(report.warnings).toEqual([`good run ${good.slice(0, 10)} was judged by the gate on its own, not against the code before the change: the working directory is not in a git repository, so there is no code before the change to compare a good run with`]);
     // A changed prompt changes the first request, so every run forks there and runs live: the gate,
     // which tells 90% or more from 70% or less, passes a run that always passes after 12 attempts.
     for (const run of report.runs) expect(run).toMatchObject({ outcome: run.role === 'good' ? 'kept' : 'fixed', passes: 12, attempts: 12, deterministic: false, decision: 'pass', rate: { decision: 'pass', sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' } });

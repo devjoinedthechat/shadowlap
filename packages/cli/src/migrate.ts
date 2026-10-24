@@ -59,9 +59,10 @@ export interface MigrateRunPass {
    * (null for a clean replay or a fixed count), the rule that decided it (null in a session kept
    * before verify said one), and `undecided`, why its last attempt could not be judged, which stopped
    * it: that attempt neither passed nor failed, and there is no bound (null otherwise). Null for a run
-   * it didn't take.
+   * it didn't take. A good run kept against its baseline (the old model) has the baseline's tally too,
+   * and the bound on its drop from it.
    */
-  tally: { passes: number; attempts: number; bound: string | null; rule: string | null; undecided?: string | null } | null;
+  tally: { passes: number; attempts: number; bound: string | null; rule: string | null; undecided?: string | null; baseline?: { passes: number; attempts: number } | null } | null;
 }
 
 /** A place a project file names a model the switch changes. */
@@ -114,7 +115,7 @@ const fieldValue = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v
 const tallyWords = (x: Pick<MigrateRunPass, 'tally'>): string => {
   const t = x.tally;
   if (!t) return '';
-  const tally = t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}`;
+  const tally = t.undecided ? `${t.attempts > 1 ? `${t.passes} of ${t.attempts - 1}, ` : ''}attempt ${t.attempts} not judged` : `${t.passes} of ${t.attempts}${t.baseline ? `, baseline ${t.baseline.passes} of ${t.baseline.attempts}` : ''}`;
   return ` · ${tally}${t.bound ? ` · ${t.bound}` : ''}`;
 };
 
@@ -344,7 +345,7 @@ export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
-    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null } };
+    if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null, ...(v.baseline ? { baseline: v.baseline } : {}) } };
     const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
     if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
     if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };

@@ -122,9 +122,16 @@ for (let i = 0; i < 5; i++) {
 }
 `;
 
+/**
+ * These tests are about how each request is shaped and answered, so a step is asked once unless a
+ * test says otherwise: by default decisions also asks each step as recorded, three times a side (the
+ * control arm, which decisions.test.ts covers).
+ */
+const once = (args: string[]): string[] => (args[0] === 'decisions' && !args.includes('--samples') && !args.includes('--verify') ? [...args, '--samples', '1'] : args);
+
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', db, ...args], {
+    const child = spawn(process.execPath, [CLI, '--db', db, ...once(args)], {
       cwd,
       env: { ...process.env, SHADOWLAP_UPSTREAM_OPENAI: openai.url, SHADOWLAP_UPSTREAM_GEMINI: gemini.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(cwd, 'home'), ...env },
       stdio: ['ignore', 'pipe', 'pipe'],

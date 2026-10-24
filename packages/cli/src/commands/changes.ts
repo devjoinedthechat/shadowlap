@@ -1,6 +1,6 @@
 import { Command, InvalidArgumentError } from 'commander';
 import { byRule, commandIsImported, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
-import { DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
+import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
 import { gateFlags } from '../fixes.js';
@@ -108,7 +108,7 @@ export function register(program: Command): void {
     .option('--from-code', 'the change is the system prompt and tools your working tree sends now, read by replaying each run offline; nothing is sent to read them')
     .option('--set <key=value>', 'the change sets this request field, e.g. temperature=0 (repeatable)', repeat, [] as string[])
     .option('--from <model>', 'the recorded model the change switches from: --model and --set change only the calls made with it (repeatable; default: the model the runs use most)', repeat, [] as string[])
-    .option('--samples <n>', 'ask each model call this many times, and say how often its decision changed', parseIntArg, 1)
+    .option('--samples <n>', "ask each model call this many times under the change and, from 3 on, as many times as recorded, and rank a change only when it decides otherwise beyond the model's own variation: at 3, six requests a step", parseIntArg, DECISIONS_SAMPLES)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--scope <name>', "ask only the model calls made in this scope, such as the agent's and not a simulated user's; none for those made in no scope")
     .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, when the agent stops, or words a judge check reads otherwise), and only on those')
@@ -311,7 +311,7 @@ function verifyLines(v: DecisionsVerify, what: string | null): string {
   const head = v.verdict === 'accepted' ? `${p.green('✓')} Verified` : v.verdict === 'rejected' ? `${p.red('✗')} Verify rejected the change` : `${p.yellow('!')} Verify did not finish`;
   const lines = [``, `${head}: ${v.runs.length} run${v.runs.length === 1 ? '' : 's'} with a write, stop or judged change${what ? ` (${what})` : ''}`];
   // The last attempt of a run it could not judge stopped it: neither passed nor failed, so said apart.
-  const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed`);
+  const tally = (x: DecisionsVerify['runs'][number]) => (x.undecided ? `${x.attempts > 1 ? `${x.passes} of ${x.attempts - 1} passed, ` : ''}attempt ${x.attempts} not judged` : `${x.passes} of ${x.attempts} passed${x.baseline ? `, baseline ${x.baseline.passes} of ${x.baseline.attempts}` : ''}`);
   // Each rule once, then the outcome of each run it decided, its tally and under a gate the Wilson bound.
   for (const g of byRule(v.runs, (x) => x.rule, v.rule ?? null)) {
     if (g.rule) lines.push(p.dim(`  ${g.rule}`));
