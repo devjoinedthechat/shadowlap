@@ -317,7 +317,7 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.alerts.yaml).toContain("if: steps.goldens.outputs.failed != '0' && github.ref == 'refs/heads/main'");
     // The golden marked fork runs live in CI; its pack isn't here to say which providers it calls,
     // so the test step's env says to add the agent's keys, as Fix on failure's does.
-    expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'node-version: 22']);
+    expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'pull-requests: write', 'node-version: 22']);
     expect(ci.alerts.needs[3]!.label).toBe('1 golden runs live (fork)');
     expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
     expect(ci.configError).toBeNull();
@@ -365,7 +365,7 @@ describe('GET /api/ci/workflows', () => {
       expect(store.status?.ciPush).toBe(true);
       const on = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
       expect(on.teamStore).toMatchObject({ push: true, name: 'northwind-agent-runs/support-agent', credentials: 'oidc', note: 'Follows Push from CI: on, so the test runs, and fixes from your branches, go there too.' });
-      expect(on.yaml.split('\n')[0]).toBe('# the job needs: permissions: { contents: write, pull-requests: write, id-token: write }');
+      expect(on.yaml.split('\n')[0]).toBe('# the job needs: permissions: { contents: write, pull-requests: write, actions: write, id-token: write }');
       // The credentials steps go right before the action, after the checkout, Node and the agent's install.
       expect(on.yaml).toContain("# here, the bucket's credentials: the two if: steps shadowlap store ci prints\n- uses: devjoinedthechat/shadowlap@");
       expect(on.yaml).toContain("    recordings: 'goldens/* evals/kept-elsewhere'\n    fix-on-failure: true\n    fix-budget: 2.00\n    repairer: claude-code\n    push: true\n  env:\n");
@@ -381,7 +381,7 @@ describe('GET /api/ci/workflows', () => {
       const off = (await getJson<CiWorkflowsView>(dash, 'ci/workflows?fix=on')).fixOnFailure;
       expect(off.teamStore).toMatchObject({ push: false, note: 'Follows Push from CI: off, so test runs and fixes stay in GitHub.', lands: [] });
       expect(off.yaml).toBe(plain);
-      expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write', 'ref: head_ref', 'node-version: 22']);
+      expect(off.needs.map((r) => r.value)).toEqual(['ANTHROPIC_API_KEY', 'env', 'contents: write', 'pull-requests: write', 'actions: write', 'workflow_dispatch:', 'ref: head_ref', 'node-version: 22']);
     } finally {
       rmSync(config, { force: true });
     }

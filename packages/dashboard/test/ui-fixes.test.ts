@@ -226,14 +226,14 @@ describe('the working tree', () => {
 
   it('counts only jobs in the project’s own tree: its folder, or one inside it or around it', () => {
     const at = (folder: string | null) => ({ ...repairing, worktree: { ...repairing.worktree, folder } });
-    expect(treeBusy([at('/p/one')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p/one/sub')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p/one')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p/one/sub')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
     expect(treeBusy([at('/p/two')], 'reads', 'blame', '/p/one')).toBeNull();
     expect(treeBusy([at('/p/one-two')], 'reads', 'blame', '/p/one')).toBeNull();
     // A job, or a page, with no folder is the dashboard's own: one with every tree.
-    expect(treeBusy([at(null)], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p/two')], 'reads', 'blame')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at(null)], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p/two')], 'reads', 'blame')).toMatch(/^A repair is verifying candidates/);
   });
 
   it('tells folders apart as the server does, whatever their trailing slash', () => {
