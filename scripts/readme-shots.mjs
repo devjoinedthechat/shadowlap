@@ -318,7 +318,7 @@ try {
   const sizes = [
     { size: 'desktop', suffix: '', width: 1280, height: 800, mobile: false, radius: (w) => w / 80 },
     { size: 'medium', suffix: '-medium', width: 640, height: 2000, mobile: false, radius: (w) => w / 53 },
-    { size: 'phone', suffix: '-phone', width: 390, height: 1200, mobile: true, radius: (w) => w / 36 },
+    { size: 'phone', suffix: '-phone', width: 390, height: 2000, mobile: true, radius: (w) => w / 36 },
   ];
   for (const s of sizes) {
     for (const shot of shots) {

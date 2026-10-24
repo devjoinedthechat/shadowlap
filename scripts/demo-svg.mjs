@@ -208,7 +208,7 @@ try {
         // its progress, as it works
         /^⑂ Blaming \w+ /,
         /^ {2}each probe: /,
-        /^ {2}at most \d+ probes /,
+        /^ {2}at most \d+ probes\b/,
         /^ {2}replaying \w+ as recorded/,
         /^ {2}✓ replays as recorded and fails/,
         /^ {2}model call #\d+ \(/,
@@ -299,8 +299,9 @@ const fadeAt = pct(TOTAL - P.fade);
  * A line of runs broken into rows of at most `width` columns, as a narrow terminal would show it, the
  * rows after the first indented two past the line's own indent. A row ends, by preference, where a
  * clause does (a comma, semicolon or colon and the space after it) outside brackets and quotes, then
- * at a space outside them, each only when that leaves the row at least half full; then at a comma
- * between JSON values, before a JSON object or list, or at any other space outside a quoted string.
+ * at a space outside them, then where a clause does inside brackets too long for a row of their own,
+ * each only when that leaves the row at least half full; then at a comma between JSON values, before
+ * a JSON object or list, or at any other space outside a quoted string.
  * It ends inside a quoted string only when that takes fewer rows, since a break there reads as if the
  * string held a line break; and where a piece with no other break in it would not fit beside the
  * indent, the rows after the first are indented less, by an even number of columns. Rows are kept
@@ -310,24 +311,35 @@ const fadeAt = pct(TOTAL - P.fade);
 function wrapRuns(runs, width) {
   const chars = runs.flatMap((r) => [...r.text].map((ch) => ({ ch, fg: r.fg, bold: r.bold, dim: r.dim })));
   if (chars.length <= width) return [runs];
-  // How deep in brackets or a quoted string each character is, and whether it is inside a quoted string.
+  // How deep in brackets or a quoted string each character is, whether it is inside a quoted string,
+  // and how long the innermost brackets around it are, the brackets included.
   const depth = [];
   const inQuotes = [];
+  const group = chars.map(() => 0);
+  const opens = [];
   let level = 0;
   let quoted = false;
   for (const [i, { ch }] of chars.entries()) {
     if (ch === '"' && chars[i - 1]?.ch !== '\\') quoted = !quoted;
-    else if (!quoted && '([{'.includes(ch)) level++;
-    else if (!quoted && ')]}'.includes(ch)) level = Math.max(0, level - 1);
+    else if (!quoted && '([{'.includes(ch)) {
+      level++;
+      opens.push(i);
+    } else if (!quoted && ')]}'.includes(ch)) {
+      level = Math.max(0, level - 1);
+      const from = opens.pop();
+      if (from !== undefined) for (let k = from + 1; k < i; k++) group[k] ||= i - from + 1;
+    }
     depth.push(level + (quoted ? 1 : 0));
     inQuotes.push(quoted && ch !== '"');
   }
+  for (const from of opens) for (let k = from + 1; k < chars.length; k++) group[k] ||= chars.length - from;
   /** The kind of break a row may end with before position e, or null where it may not end. */
   const breakAt = (e) => {
     const prev = chars[e - 1].ch;
     const ch = chars[e].ch;
     if (ch === ' ' && inQuotes[e]) return 'quoted';
-    if (ch === ' ') return !depth[e] ? (',;:'.includes(prev) ? 'clause' : 'space') : 'any';
+    // A clause inside brackets ends a row only when the brackets can't have a row of their own.
+    if (ch === ' ') return !depth[e] ? (',;:'.includes(prev) ? 'clause' : 'space') : ',;:'.includes(prev) && group[e] > width - own - 2 ? 'inner' : 'any';
     if (prev === ',' && ch === '"' && !inQuotes[e - 1]) return 'json';
     if ('{['.includes(ch) && !inQuotes[e] && prev !== ' ') return 'open';
     return null;
@@ -353,15 +365,16 @@ function wrapRuns(runs, width) {
       if (end - start > width - lead) {
         const room = Math.min(width, limit) - lead;
         // The last break of each kind within the row's room.
-        const last = { clause: -1, space: -1, json: -1, open: -1, any: -1, quoted: -1 };
+        const last = { clause: -1, space: -1, inner: -1, json: -1, open: -1, any: -1, quoted: -1 };
         for (let e = start + 1; e <= start + room && e < chars.length; e++) {
           const kind = breakAt(e);
           if (!kind) continue;
           last[kind === 'quoted' && quotes ? 'any' : kind] = e;
           if (kind === 'clause') last.space = e;
+          if (kind === 'inner') last.any = e;
         }
         const full = (e) => e - start >= room / 2;
-        end = [last.clause, last.space].find(full) ?? [Math.max(last.json, last.open), Math.max(last.space, last.any), last.quoted].find((e) => e > start) ?? start + room;
+        end = [last.clause, last.space, last.inner].find(full) ?? [Math.max(last.json, last.open), Math.max(last.space, last.any), last.quoted].find((e) => e > start) ?? start + room;
       }
       out.push({ start, end, lead });
       start = end;
