@@ -37,7 +37,7 @@ function job(over: Partial<JobView> = {}): JobView {
 }
 
 const REPAIR = (over: Partial<JobView> = {}) =>
-  job({ id: 'f00dfeedf00dfeed', kind: 'repair', title: 'Repairing', args: ['repair', '--fixes', 'fx-01M5GS4YK7'], worktree: { use: 'writes', doing: 'a repair is trying candidates in your working tree', folder: PROJECT }, ...over });
+  job({ id: 'f00dfeedf00dfeed', kind: 'repair', title: 'Repairing', args: ['repair', '--fixes', 'fx-01M5GS4YK7'], worktree: { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: PROJECT }, ...over });
 
 function app(over: Partial<AppState> & { client?: Partial<Client> } = {}): AppState {
   const base = {
@@ -97,7 +97,7 @@ describe('Stop in the job drawer', () => {
     r = await render(createElement(AppContext.Provider, { value: app({ client: { stopJob } as unknown as Client, jobs: [watched(j)] }) }, createElement(JobDrawer)));
     await r.click(r.byText('.drawer header button', 'Stop'));
     expect(r.one('.dialog h3').textContent).toBe('Stop the repair?');
-    expect(r.one('.dialog header p').textContent).toContain('puts back the file it changed');
+    expect(r.one('.dialog header p').textContent).toContain('never in your working tree, which it leaves as it is');
     // Keep it running: the dialog goes, the repair goes on.
     await r.click(r.byText('.dialog button', 'Keep it running'));
     expect(r.all('.dialog')).toHaveLength(0);

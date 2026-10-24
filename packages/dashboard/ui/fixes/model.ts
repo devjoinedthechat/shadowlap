@@ -297,7 +297,7 @@ export function sameFolder(a: string | null | undefined, b: string | null | unde
  * Why an action that uses the working tree of `folder` (the project's) as `use` can't start now, as
  * the server would refuse it: in that tree, a job that changes it is running, or, for one that
  * changes it, any job running the agent from it. Jobs in another project's tree don't count. `verb`
- * is what to do once it is free: "A repair is trying candidates in your working tree: blame once it
+ * is what to do once it is free: "A repair is verifying candidates made from your working tree: blame once it
  * is done." Null when it can start.
  */
 export function treeBusy(jobs: readonly TreeJob[], use: 'reads' | 'writes', verb: string, folder: string | null = null): string | null {

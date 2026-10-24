@@ -290,15 +290,15 @@ export interface RunningJob {
 }
 
 /**
- * What Stop asks first, for a job that changes the working tree (a repair trying a candidate there,
- * a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
+ * What Stop asks first, for a job that holds the working tree (a repair verifying candidates made
+ * from it, a patch being applied): stopped part way, the tree is what it says. Null for any other job, which
  * Stop stops at once, as Ctrl-C would: a run it was making ends as interrupted.
  */
 export function stopAsk(job: RunningJob): { title: string; text: string; ok: string } | null {
   if (job.done || job.worktree?.use !== 'writes') return null;
   const [command, sub] = job.args ?? [];
   if (command === 'repair')
-    return { title: 'Stop the repair?', text: 'It is trying candidates in your working tree. Stopped, it puts back the file it changed, as Ctrl-C does, and reports what it found so far.', ok: 'Stop the repair' };
+    return { title: 'Stop the repair?', text: 'It is verifying candidates in temporary worktrees, never in your working tree, which it leaves as it is. Stopped, it reports what it found so far, as Ctrl-C does.', ok: 'Stop the repair' };
   if (command === 'fix' && sub === 'apply')
     return { title: 'Stop applying the patch?', text: 'It is changing your working tree. Stopped part way, the patch may be in while the fix isn’t marked applied: Apply it again to finish.', ok: 'Stop applying' };
   const doing = job.worktree.doing;
