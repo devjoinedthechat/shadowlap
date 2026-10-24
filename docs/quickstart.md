@@ -153,7 +153,7 @@ With npm and pip, the packages are:
 npm install @shadowlap/sdk
 # wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# record tests in Vitest or node:test (Node 22.16+, not 23)
+# record tests in Vitest, Jest or node:test (Node 22.16+, not 23)
 npm install -D @shadowlap/test
 # Python 3.9+: all three in one package
 pip install shadowlap

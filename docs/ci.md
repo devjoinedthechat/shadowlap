@@ -298,7 +298,7 @@ The action reads `tests` from `shadowlap.config.json` in the working directory. 
 
 ### The pull request comment
 
-On a pull request, the action keeps one comment with each golden's verdict on one line, as every report says a verdict ([gating](./gating.md#reading-the-evidence)): the verdict word first, then for a golden with a gate its tally, Wilson bound and rule, and for one without, how its replay went or why it failed. As Markdown, before GitHub renders it:
+On a pull request, the action keeps one comment with each golden's verdict on one line, as every report says a verdict ([gating](./gating.md#reading-the-evidence)): the verdict word first, then for a golden with a gate its tally, bound and rule, and for one without, how its replay went or why it failed. As Markdown, before GitHub renders it:
 
 ```markdown
 <!-- shadowlap-test-comment 0123456789ab -->
@@ -308,7 +308,7 @@ On a pull request, the action keeps one comment with each golden's verdict on on
 |---|---|---|---|
 | ❌ | `goldens/refund-flow` | failed · check failed: issue_refund called 0 times, but called 1 time | ✅ passed |
 | ✅ | `goldens/triage-inbox` | passed · replayed clean | ✅ passed |
-| ✅ | `goldens/refund-gated` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |
+| ✅ | `goldens/refund-gated` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |
 
 Compared with `main` as the test history last tested it, at `e5f6a7b`.
 ```

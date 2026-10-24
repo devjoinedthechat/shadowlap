@@ -4,7 +4,7 @@ A replay forks at the first request that changes. Editing the system prompt chan
 
 Each intervention is classified by what it does to the conversation prefix that [thinking blocks](./how-it-works.md#thinking-blocks) are bound to. The ones below never edit recorded history, so replayed turns stay valid on models that check.
 
-Every intervention works on every provider Shadowlap records: Anthropic, OpenAI (Chat Completions and the Responses API), Gemini, Azure OpenAI, Vertex AI and Amazon Bedrock (InvokeModel and Converse). Each speaks the provider's own wire format. Where a provider's format can't express a change, the replay refuses it before it starts and says why; it never sends a change the provider would ignore or reject later. [What each provider takes](#on-every-provider) is listed at the end.
+Every intervention works on every provider Shadowlap records: Anthropic, OpenAI (Chat Completions and the Responses API), Gemini, Azure OpenAI, Vertex AI and Amazon Bedrock (InvokeModel and Converse), and the hosts recorded in one of their formats: Claude on Microsoft Foundry, OpenAI's SDK on Bedrock, and any host the config [declares](./providers.md#hosts-of-another-providers-format). Each speaks the provider's own wire format. Where a provider's format can't express a change, the replay refuses it before it starts and says why; it never sends a change the provider would ignore or reject later. [What each provider takes](#on-every-provider) is listed at the end.
 
 | Flag | Changes | At |
 |---|---|---|

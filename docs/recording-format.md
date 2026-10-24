@@ -470,7 +470,7 @@ A producer can leave the files to Shadowlap too:
 
 ## The recordings protocol
 
-Shadowlap's pytest, Vitest and node:test integrations are clients of one small HTTP API on `shadowlap serve --recordings`, specified here so that an integration can be written for a test runner Shadowlap doesn't ship: JUnit, Go's `testing`, RSpec, Playwright, anything that can spawn a process and make an HTTP request. A [recorded test](./testing.md) records its agent's calls the first time it runs, as a pack beside the test, and replays them offline afterwards: fast, free and deterministic, failing with a diff when a code change alters a request.
+Shadowlap's pytest, Vitest, Jest and node:test integrations are clients of one small HTTP API on `shadowlap serve --recordings`, specified here so that an integration can be written for a test runner Shadowlap doesn't ship: JUnit, Go's `testing`, RSpec, Playwright, anything that can spawn a process and make an HTTP request. A [recorded test](./testing.md) records its agent's calls the first time it runs, as a pack beside the test, and replays them offline afterwards: fast, free and deterministic, failing with a diff when a code change alters a request.
 
 It is a different API from [the SDK wire protocol](./protocol.md), and a full integration needs both: this one decides *which recording a test uses and what happens to it*, while the wire protocol carries the individual tool, clock and randomness calls.
 
