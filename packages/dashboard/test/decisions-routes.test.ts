@@ -171,8 +171,12 @@ describe('the decision routes', () => {
     const asked = await startJob(dash, { kind: 'decisions', goldens: ['goldens/refund'], runs: [failed], model: 'claude-sonnet-5-5', set: { temperature: 0 }, samples: 3 });
     expect(asked.status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', failed, 'goldens/refund', '--model', 'claude-sonnet-5-5', '--set', 'temperature=0', '--samples', '3']);
+    // One sample is asked for as such: left out, the CLI would ask 3 under the change and 3 as recorded.
+    expect((await startJob(dash, { kind: 'decisions', runs: [failed], model: 'claude-sonnet-5-5', samples: 1 })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['decisions', failed, '--model', 'claude-sonnet-5-5', '--samples', '1']);
     const fromCode = await startJob(dash, { kind: 'decisions', goldens: 'all', fromCode: true, thenVerify: true });
     expect(fromCode.status).toBe(202);
+    // None given: the CLI's own, six requests a step.
     expect(spawned.at(-1)).toEqual(['decisions', 'goldens/refund', '--from-code', '--then-verify']);
     for (const [body, error] of [
       [{ kind: 'decisions', goldens: ['goldens/refund'] }, 'give the change: a model, fields to set, or fromCode for the prompt and tools in the working tree'],

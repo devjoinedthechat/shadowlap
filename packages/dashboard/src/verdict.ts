@@ -1,4 +1,4 @@
-import { decisionWord, describeGate, gateOf, outcomeOf, probeFinding, rescueRule, verdictLine, wilsonBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun } from '@shadowlap/engine';
+import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, verdictLine, wilsonBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
 
 /**
  * A gate's verdict as every page says it (decision 9): the verdict word, the tally and the Wilson
@@ -57,9 +57,10 @@ export function probeLine(p: BlameProbe, r: Pick<BlameReport, 'needed' | 'attemp
 
 /**
  * A run verify took, as its verdict reads: `fixed · 12 of 12 · rate >= 0.76 (95%)`; `kept · clean
- * replay` for one its first attempt settled; with a fixed count, the tally alone; an attempt that
- * could not be judged counted apart, with no bound, as the CLI prints it (`inconclusive · 2 of 2
- * passed, attempt 3 not judged`).
+ * replay` for one its first attempt settled; a good run decided against its own baseline by both
+ * tallies and the bound on its drop, `kept · 38 of 38, baseline 38 of 38 · drop <= 0.10 (95%)`; with a
+ * fixed count, the tally alone; an attempt that could not be judged counted apart, with no bound, as
+ * the CLI prints it (`inconclusive · 2 of 2 passed, attempt 3 not judged`).
  */
 export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone } {
   const word = outcomeOf(x);
@@ -69,6 +70,16 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
     return { line: `${word} · ${judged ? `${x.passes} of ${judged} passed, ` : ''}attempt ${x.attempts.length} not judged`, tone };
   }
   if (x.deterministic) return { line: `${word} · clean replay`, tone };
+  // Against its baseline, its pass rate says nothing alone: both tallies, and the bound on the drop.
+  if (x.baseline) {
+    let drop: string | null = null;
+    try {
+      drop = x.drop ? dropBound(x.drop, x.decision) : null;
+    } catch {
+      drop = null;
+    }
+    return { line: [word, `${x.passes} of ${x.attempts.length}, baseline ${x.baseline.passes} of ${x.baseline.attempts}`, drop].filter(Boolean).join(' · '), tone };
+  }
   let bound: string | null = null;
   try {
     bound = x.gate && x.attempts.length ? wilsonBound(x.gate) : null;
@@ -78,7 +89,14 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
   return { line: [word, `${x.passes} of ${x.attempts.length}`, bound].filter(Boolean).join(' · '), tone };
 }
 
-/** How a verify decided each run: its gate's rule (`gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`), or a fixed count's. */
-export function runsRule(v: { gate?: SprtGate | null; needed: number; attemptsPerRun: number }): string {
+/**
+ * How a verify decided a run: its gate's rule (`gate: tells 90%+ from 70%- at <= 5% risk, up to 80
+ * attempts`), or a fixed count's; a good run decided against its own baseline (`run.baseline`, with
+ * the report's `kept`) by the baseline's (`baseline: kept unless it drops 10+ points below its
+ * baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs`).
+ */
+export function runsRule(v: { gate?: SprtGate | null; needed: number; attemptsPerRun: number; kept?: VerifyReport['kept'] }, run?: Pick<VerifiedRun, 'baseline'>): string {
+  const kept = v.kept ?? null;
+  if (run?.baseline && kept) return `baseline: ${describeBaselineRule({ ...kept, source: run.baseline.source ?? kept.source, revision: kept.label ?? run.baseline.revision ?? kept.revision ?? null })}`;
   return v.gate ? gateRule(v.gate) : `a run passes when ${v.needed} of ${v.attemptsPerRun} attempts pass`;
 }
