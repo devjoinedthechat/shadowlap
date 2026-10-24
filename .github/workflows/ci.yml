@@ -38,8 +38,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      # The provider SDKs the Python agents in testing/ build their clients with (testing/default-clients).
-      - run: python -m pip install --quiet anthropic openai google-genai boto3
+      # The provider SDKs the Python agents in testing/ build their clients with (testing/default-clients),
+      # and the async clients the guard and in-process capture are tested with: without them the Python
+      # cases of guard-udp-async, python-capture-async and realtime-tunnel skip. uvloop runs on macOS
+      # and Linux only.
+      - run: python -m pip install --quiet anthropic openai google-genai boto3 aiohttp websockets aiobotocore
+      - run: python -m pip install --quiet uvloop
+        if: runner.os != 'Windows'
       - run: npm ci
       - run: npm run build
       # Test files are outside the build graph (each package compiles only src), so they get
