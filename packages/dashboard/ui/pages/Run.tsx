@@ -26,10 +26,16 @@ import { askedTools } from '../run/calls.js';
 import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
+import { firstFailedCall, openingCall } from '../run/open-at.js';
+import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
+import { useMarkRun, useRunLabels } from '../components/RunKey.js';
+import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
+import { runNotes } from '../run/notes.js';
+import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { TimelineView } from '../run/TimelineView.js';
 import { TurnsView } from '../run/TurnsView.js';
@@ -41,6 +47,9 @@ import { TurnsView } from '../run/TurnsView.js';
  */
 
 let lastTab: InspectorTab = 'conversation';
+
+/** No group folded. */
+const NO_FOLDS: ReadonlySet<number> = new Set();
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
@@ -165,8 +174,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
   const last = calls.length ? calls[calls.length - 1]!.callNo : null;
-  const first = calls[0]?.callNo ?? null;
-  const fallback = forkAt ?? lostAt ?? (live ? last : first);
+  // A failed run opens where it first failed, every call's origin read while a long run's pages come;
+  // clock and random reads are never where a run opens (open-at.ts).
+  const failed = run.state?.failed ?? run.run.status === 'failed';
+  const failedAt = useMemo(() => (failed ? firstFailedCall(calls, paging?.origins ?? null) : null), [failed, calls, paging?.origins]);
+  const fallback = useMemo(() => openingCall({ forkAt, lostAt, live, failed, calls, origins: paging?.origins ?? null }), [forkAt, lostAt, live, failed, calls, paging?.origins]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
@@ -177,7 +189,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     if (need && selected !== null) need(selected);
   }, [need, selected]);
 
-  // A short id settles on the full one; a run opened without a call lands on its fork, its lost call, or its first call.
+  // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
+  // where it first failed, or its first call (openingCall).
   useEffect(() => {
     if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
   }, [runId, id, call, selected, view]);
@@ -204,7 +217,31 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const asked = useMemo(() => (calls.some((c) => c.kind === 'tool' && c.requestedBy !== undefined) ? askedTools(calls) : null), [calls]);
   // Every call while the pages come, a placeholder for each not read yet; within a scope, those read.
   const listed = useMemo<readonly ListedCall[]>(() => (paging && scope === 'all' ? listedCalls(calls, paging.total, paging.origins) : scopedCalls), [paging, scope, calls, scopedCalls]);
-  const visible = useMemo(() => listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))), [listed, filter, text, asked]);
+  // Light grouping (groups.ts): each call under the call it belongs to, folded where the reader folded
+  // it; a filter lists what it matches flat, since the calls it leaves out are what the groups hang on.
+  const filtering = filter !== 'all' || !!text.trim();
+  const tree = useMemo(() => (filtering ? null : callTree(listed)), [filtering, listed]);
+  const [foldedBy, setFoldedBy] = useState<{ runId: string; set: ReadonlySet<number> }>({ runId, set: NO_FOLDS });
+  const folded = foldedBy.runId === runId ? foldedBy.set : NO_FOLDS;
+  const setFolded = useCallback((next: ReadonlySet<number>) => setFoldedBy({ runId, set: next }), [runId]);
+  const fold = useCallback((callNo: number) => {
+    const next = new Set(folded);
+    if (!next.delete(callNo)) next.add(callNo);
+    setFolded(next);
+  }, [folded, setFolded]);
+  const shown = useMemo(() => (tree && folded.size ? unfolded(listed, tree, folded) : listed), [tree, folded, listed]);
+  const visible = useMemo(() => (filtering ? listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))) : shown), [filtering, listed, shown, filter, text, asked]);
+  // Fold all, and once anything is folded, Unfold all (the selected call's groups stay open, so not every group can be folded).
+  const foldAll = useMemo(() => (tree?.grouped ? { all: folded.size > 0, onAll: (on: boolean) => setFolded(on ? new Set(heads(listed, tree)) : NO_FOLDS) } : null), [tree, listed, folded, setFolded]);
+  // The selected call is always in view: the groups it sits in, folded, open again (j and k step over a folded group's calls).
+  useEffect(() => {
+    if (!tree || selected === null || !folded.size) return;
+    const over = ancestorsOf(tree, selected).filter((h) => folded.has(h));
+    if (!over.length) return;
+    const next = new Set(folded);
+    for (const h of over) next.delete(h);
+    setFolded(next);
+  }, [tree, selected, folded, setFolded]);
   const filterCounts = useMemo(() => {
     // Every call's origin from the run's page while the pages come.
     const all = paging?.origins && scope === 'all' ? paging.origins : null;
@@ -230,9 +267,18 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // None of it applies while the run records, so it is asked for once it has ended, and again as runs change.
   const offers = useLoad(() => (exported || live ? null : client.offers(runId)), `${runId}:offers:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
   const actions = useActionRunner(runId, !!run.source, offers);
+  // The run's labels, and the good/bad key's press (+ and - from the keyboard too).
+  const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
+  const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
+  const canMark = !exported && !actionsOff;
+  const mark = useCallback((m: RunMark) => markRun(runId, labels, m), [markRun, runId, labels]);
   // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
+  // What the run did that Shadowlap did not record, or answered as it went (notes.ts): the tools the
+  // model called that it never recorded are read beside the server once the run has ended.
+  const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
+  const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;
@@ -270,16 +316,38 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted });
+  /** ← and → on the selected call in Calls; false when there is nothing to fold, open or go to. */
+  const foldKey = (open: boolean): boolean => {
+    if (!tree || selected === null) return false;
+    const i = tree.index.get(selected);
+    if (i === undefined) return false;
+    const isHead = tree.kids[i]! > 0;
+    if (!open) {
+      if (isHead && !folded.has(selected)) return fold(selected), true;
+      const up = tree.parent.get(selected);
+      return up !== undefined ? (select(up), true) : false;
+    }
+    if (isHead && folded.has(selected)) return fold(selected), true;
+    const next = isHead ? listed[i + 1] : undefined;
+    return next ? (select(next.callNo), true) : false;
+  };
+  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted, canMark, mark, tree, foldKey });
   useEffect(() => {
     runKeys.current = (e) => {
       const k = keyState.current;
       if (e.key === 'j' || e.key === 'ArrowDown') return k.step(1), true;
       if (e.key === 'k' || e.key === 'ArrowUp') return k.step(-1), true;
       if (/^[1-4]$/.test(e.key)) return k.setTab(TABS[Number(e.key) - 1]!), true;
-      if (e.key === 'n' && (k.forkAt ?? k.lostAt) !== null) return select((k.forkAt ?? k.lostAt)!), true;
+      // The call that needs a look: where it forked, where blame found it lost, else where it first failed.
+      const at = k.forkAt ?? k.lostAt ?? k.failedAt;
+      if (e.key === 'n' && at !== null) return select(at), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
       if (e.key === 'v') return k.setView(nextView(k.v)), true;
+      // The good/bad key: + good, - bad, again to take it off.
+      const m = markKey(e.key);
+      if (m && k.canMark) return k.mark(m), true;
+      // In Calls, as in a tree: ← folds the selected call's group, or goes to the call it sits under; → opens it, or goes to its first call.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return k.foldKey(e.key === 'ArrowRight');
       if (e.key === 'f' && k.canFork) {
         const btn = document.getElementById('forkBtn');
         if (btn) forkMenu.openAt(btn);
@@ -326,10 +394,16 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
         },
       });
     if (!exported && !actionsOff && !live && !run.source && app.hasKind(JOB_KINDS.bisect)) items.push({ group: 'This run', label: `${bisectLabel(offers?.bisect).label}…`, hint: 'shadowlap bisect', job: true, run: () => findCommit.current() });
+    // The good/bad key: what repair keeps working, and what it fixes.
+    if (canMark)
+      for (const m of MARKS) {
+        const on = labels.includes(m);
+        items.push({ group: 'This run', label: on ? `Take off ${m}` : `Label it ${m}`, hint: m === 'good' ? '+ · repair --keeps label:good' : '- · repair --fixes label:bad', run: () => mark(m) });
+      }
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
     if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
-  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed]);
+  }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n')]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 
   const stripCalls = useMemo<StripCall[]>(() => {
@@ -362,10 +436,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   return (
     <div className="rv">
-      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} />
+      <RunHeader run={run} call={detail.data} selected={selected} rescued={!!rescued} offers={offers} forkMenu={forkMenu} onAction={actions.run} onFindCommit={actions.findCommit} preset={preset} labels={labels} setLabels={setLabels} onMark={mark} />
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
       <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
+      <RunNotes notes={notes} onSelect={select} />
       {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
       {run.run.divergence && run.run.parentRunId && !live ? <ForkDifferences runId={runId} /> : null}
       <section className="strip">
@@ -383,7 +458,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               </button>
             ))}
           </div>
-          {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} /> : null}
+          {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
               {paging.error
@@ -393,7 +468,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           ) : null}
           {/* Each view starts at its top; Calls centres the selected call. */}
           <div className="vbody" tabIndex={-1} key={v}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}

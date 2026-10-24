@@ -75,7 +75,10 @@ afterEach(async () => {
 
 describe('the Runs page', () => {
   it('reads only its first page again when runs move, and draws a window of the rows it holds', async () => {
-    vi.stubGlobal('location', { hash: '#/runs', search: '', pathname: '/' });
+    const location = { hash: '#/runs', search: '', pathname: '/' };
+    vi.stubGlobal('location', location);
+    // The words typed go in the address once they settle, in place of the step they were typed in.
+    vi.stubGlobal('history', { state: null, replaceState: (_s: unknown, _t: string, url: string) => void (location.hash = url.slice(url.indexOf('#'))) });
     const all = Array.from({ length: 300 }, (_, i) => row(i));
     const asked: Array<{ cursor: string | null; limit: number }> = [];
     const filters: string[] = [];

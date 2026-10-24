@@ -10,7 +10,9 @@ import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 
 /**
- * Forks: what a fork did differently from its parent (`GET /api/runs/:id/differences`), and a fork
+ * Forks: what a fork did differently from its parent (`GET /api/runs/:id/differences`), the tools
+ * the model called that the run never recorded, which a replay runs for real (`GET
+ * /api/runs/:id/unrecorded`), and a fork
  * from a call's result as a person edited it in the inspector, the `override` job kind: the fork
  * menu's own `--override`, with the edited result sent as an upload rather than a field.
  *
@@ -46,6 +48,25 @@ export function register(router: Router, ctx: RouteContext): void {
       throw new HttpError(no.status, no.message);
     }
     sendAnswer(r, await ctx.reads.run({ kind: 'differences', runId: run.runId, normalizers: [...normalizers()] }, { affinity: run.runId }));
+  });
+
+  // What the run did that Shadowlap never recorded: it reads every model call's answer, so it is worked out beside the server too.
+  const declared = (): Record<string, 'read' | 'write'> => {
+    if (!ctx.options.loadConfig) return {};
+    try {
+      return { ...(ctx.config().unrecorded ?? {}) };
+    } catch {
+      return {};
+    }
+  };
+  router.get('/runs/:id/unrecorded', async (r) => {
+    const store = ctx.store;
+    const run = lookupRun(store, r.params.id!);
+    if (!run) {
+      const no = noSuchRun(store, r.params.id!);
+      throw new HttpError(no.status, no.message);
+    }
+    sendAnswer(r, await ctx.reads.run({ kind: 'unrecorded', runId: run.runId, declared: declared() }, { affinity: run.runId }));
   });
 
   ctx.jobs.registerJobKind('override', {

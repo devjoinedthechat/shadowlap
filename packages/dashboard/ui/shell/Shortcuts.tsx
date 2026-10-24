@@ -72,6 +72,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
       [
         [or('j', '↓'), 'Next call'],
         [or('k', '↑'), 'Previous call'],
+        [or('←', '→'), 'In Calls, fold or open the selected call’s group'],
         [
           <>
             <kbd>1</kbd>
@@ -81,9 +82,15 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
           'Switch the inspector tab',
         ],
         [k('v'), 'Next view'],
-        [k('n'), 'Jump to the fork or lost call'],
+        [k('n'), 'Jump to the fork, the lost call or the first failed one'],
         [k('p'), 'Open the parent run'],
-        ...(exported ? ([[k('/'), 'Filter this run’s calls']] as Array<[ReactNode, string]>) : ([[k('f'), 'Fork at the selected call']] as Array<[ReactNode, string]>)),
+        ...(exported
+          ? ([[k('/'), 'Filter this run’s calls']] as Array<[ReactNode, string]>)
+          : ([
+              [k('f'), 'Fork at the selected call'],
+              // The good/bad key, on a run's page and on the Runs row with the focus.
+              [or('+', '-'), 'Label it good or bad; again to take it off'],
+            ] as Array<[ReactNode, string]>)),
       ],
     ],
   ];

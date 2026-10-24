@@ -601,6 +601,8 @@ export function shortReason(r: TestResult): string {
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');
   if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
   if (r.failure === 'no-calls') return 'made no calls';
+  // Under --guard block, a replay no preload loaded in: the guard never watched it.
+  if (r.failure === 'guard') return 'no preload loaded: the network guard never watched it';
   // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
   if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
   return `couldn't run: ${reason}`;

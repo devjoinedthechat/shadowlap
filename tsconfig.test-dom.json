@@ -47,7 +47,12 @@
     "packages/dashboard/test/ui-render-counts.test.ts",
     "packages/dashboard/test/ui-runs-paging.test.ts",
     "packages/dashboard/test/ui-run-paging.test.ts",
-    "packages/dashboard/test/ui-overview-warming.test.ts"
+    "packages/dashboard/test/ui-overview-warming.test.ts",
+    "packages/dashboard/test/ui-run-open.test.ts",
+    "packages/dashboard/test/ui-runs-url.test.ts",
+    "packages/dashboard/test/ui-run-key.test.ts",
+    "packages/dashboard/test/ui-run-notes.test.ts",
+    "packages/dashboard/test/ui-calls-grouping.test.ts"
   ],
   "exclude": []
 }

@@ -13,6 +13,16 @@ export type ToastKind = 'notice' | 'error';
 export const TOAST_MS: Readonly<Record<ToastKind, number>> = { notice: 2600, error: 8000 };
 
 /**
+ * A notice can carry one thing to do about it, as Undo after a change made in one click: a button
+ * in the toast, which then stays this long, long enough to reach it from the keyboard too.
+ */
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+export const ACTION_TOAST_MS = 7000;
+
+/**
  * A message as a sentence, starting with a capital: the server's reasons start in lower case ("the
  * repairer in shadowlap.config.json changed since this page loaded…"). Only a plain first word is
  * raised: a first word that is a name (`fx-01K…`, `runIds:`, `baseUrl`, `shadowlap`, a file) is left

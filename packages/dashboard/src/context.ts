@@ -20,6 +20,8 @@ export interface ProjectConfig {
   repair?: { repairer?: string; baseUrl?: string };
   /** Tools by name: `trust` marks the reads shadowlap injection plants in (Settings → Tools' Trust column). */
   tools?: Record<string, { trust: 'trusted' | 'untrusted' }>;
+  /** `tools.unrecorded`: the effect of each tool the agent runs without Shadowlap recording it, which decides whether a replay may run it again. */
+  unrecorded?: Record<string, 'read' | 'write'>;
 }
 
 /**

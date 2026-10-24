@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
+import { links } from '@shadowlap/dashboard';
 import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
@@ -257,7 +258,7 @@ export function register(program: Command): void {
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
       else if (verdict === 'inconclusive' && !runner.interrupted) process.stdout.write(p.dim(flags.inconclusive === 'warn' ? 'Inconclusive, let through by --inconclusive warn.\n' : 'Inconclusive fails the run; --inconclusive warn lets it through.\n'));
       emitJobEvent({ type: 'result', data: json });
-      for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open the run' : `Open ${shortId(r.runId)}`, href: `#/run/${r.runId}`, ...(reports.length > 1 ? { secondary: true } : {}) });
+      for (const r of reports) emitJobEvent({ type: 'link', label: reports.length === 1 ? 'Open the run' : `Open ${shortId(r.runId)}`, href: links.run(r.runId), ...(reports.length > 1 ? { secondary: true } : {}) });
       // Cut short by a signal, its status; failed, 1; inconclusive and not let through, 3.
       process.exitCode = runner.interrupted ? interruptedStatus() : passed ? EXIT.ok : verdict === 'failed' ? EXIT.failed : inconclusiveStatus(flags.inconclusive);
     });

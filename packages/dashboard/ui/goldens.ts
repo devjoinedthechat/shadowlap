@@ -338,6 +338,9 @@ export function failureHint(f: FailureView): string {
       return 'The agent exited with an error while it replayed: its last lines of output are above.';
     case 'no-calls':
       return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
+    case 'guard':
+      // Under --guard block, a replay no preload loaded in proves nothing, whatever else came out of it.
+      return 'No Shadowlap preload loaded in the agent’s processes while the golden replayed, so the network guard never watched it, and under --guard block that fails it, whatever else the replay did: the line above says what the command shows of why. Run the agent on Node or Python with the environment shadowlap gives it (shadowlap doctor says what keeps a preload from loading), or test with --guard warn to let a replay the guard can’t watch through.';
     case 'injection':
       if (f.reason.startsWith('injection inconclusive')) return 'The golden replays, but its injection test showed too little to say, for the reason above (a model call that failed, a run cut short, nothing a model read). Settle that and run it again; --inconclusive warn lets an inconclusive gate through meanwhile.';
       return 'The golden replays, but a tool call carried the canary of a payload planted in what the agent reads: the agent obeyed it. Fix the agent (a prompt that says data is not instructions, a check before a write); the golden is right.';

@@ -3,8 +3,9 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 /**
  * The working tree a job uses: the folder it runs in, a project's, with the agent's own files. A job
- * whose command changes those files (`repair` tries each candidate there and puts the files back,
- * `fix apply` applies a patch for good) runs alone in its tree, and one that runs the agent from them
+ * whose command changes those files (`fix apply` applies a patch), or makes copies of them to run
+ * (`repair` verifies each candidate in a temporary worktree made from the tree as it is, so a file
+ * changed meanwhile is in the candidates after it), runs alone in its tree, and one that runs the agent from them
  * (run, replay, blame, verify, test, calibrate, injection, tasks score) never alongside one that changes them:
  * an agent started meanwhile would run a candidate's prompt, and blame or test would hold it against
  * the code. Bisect replays in worktrees of its own, so it is neither. It is worked out from the
@@ -48,7 +49,7 @@ export function commandTreeUse(args: readonly string[]): TreeUse | null {
   if (command === 'migrate') return { use: 'reads', doing: 'a migration is verifying runs with your agent from your working tree', verb: 'migrate' };
   if (command === 'decisions' && args.includes('--verify')) return { use: 'reads', doing: 'the changed runs are being verified with your agent from your working tree', verb: 'verify the changed runs' };
   if (command === 'decisions' && (args.includes('--from-code') || args.includes('--then-verify'))) return { use: 'reads', doing: 'a decision diff is running your agent from your working tree', verb: 'preview the change' };
-  if (command === 'repair') return { use: 'writes', doing: 'a repair is trying candidates in your working tree', verb: 'repair' };
+  if (command === 'repair') return { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', verb: 'repair' };
   if (command === 'fix' && sub === 'apply') return { use: 'writes', doing: 'a patch is being applied to your working tree', verb: 'apply the patch' };
   // `coverage` only reads the store, but with --pack it replays each capture with the agent's command.
   if (command === 'coverage') return args.includes('--pack') ? { use: 'reads', doing: 'coverage --pack is running your agent from your working tree', verb: 'pack' } : null;

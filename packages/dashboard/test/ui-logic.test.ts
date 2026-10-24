@@ -53,6 +53,12 @@ describe('routes', () => {
     expect(readTokenLink('#token=abc_DEF-1&open=/run/01K5CQ4P2R/call/17')).toEqual({ token: 'abc_DEF-1', open: '#/run/01K5CQ4P2R/call/17' });
     expect(readTokenLink('#token=abc')).toEqual({ token: 'abc', open: '#/' });
     expect(readTokenLink('#/runs')).toBeNull();
+    // A view of Runs with its filter, the link's last part.
+    expect(readTokenLink('#token=t&open=/runs?types=failed&sort=spent&from=2026-10-20&to=2026-10-22')).toEqual({ token: 't', open: '#/runs?types=failed&sort=spent&from=2026-10-20&to=2026-10-22' });
+    expect(parseRoute(readTokenLink('#token=t&open=/runs?q=refund%20A&types=fork')!.open)).toEqual({ page: 'runs', filter: { q: 'refund A', types: 'fork', sort: 'when', days: null } });
+    // Only Runs takes one, and only a route's own characters.
+    expect(readTokenLink('#token=t&open=/run/01K5CQ4P2R?x=1')!.open).toBe('#/run/01K5CQ4P2R');
+    expect(readTokenLink('#token=t&open=/runs?q=<script>')!.open).toBe('#/runs');
     expect(parseRoute(readTokenLink('#token=t&open=/run/01K5CQ4P2R/call/17')!.open)).toMatchObject({ page: 'run', call: 17 });
   });
 
@@ -653,12 +659,14 @@ describe('job drawer', () => {
 
   it('asks before stopping a job that changes the working tree, and stops any other at once', () => {
     const tree = (use: 'reads' | 'writes', doing: string) => ({ use, doing });
-    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is trying candidates in your working tree') })).toMatchObject({ title: 'Stop the repair?', ok: 'Stop the repair' });
+    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toMatchObject({ title: 'Stop the repair?', ok: 'Stop the repair' });
+    // Its candidates are in temporary worktrees: stopped, it has nothing to put back.
+    expect(stopAsk({ id: 'j1', done: false, args: ['repair', '--fixes', 'X'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })?.text).toBe('It is verifying candidates in temporary worktrees, never in your working tree, which it leaves as it is. Stopped, it reports what it found so far, as Ctrl-C does.');
     expect(stopAsk({ id: 'j2', done: false, args: ['fix', 'apply', 'fx-1'], worktree: tree('writes', 'a patch is being applied to your working tree') })?.text).toContain('Apply it again to finish');
     // Running the agent from the tree changes nothing in it.
     expect(stopAsk({ id: 'j3', done: false, args: ['test', 'goldens/a'], worktree: tree('reads', 'a test is running your agent from your working tree') })).toBeNull();
     expect(stopAsk({ id: 'j4', done: false, args: ['gc', '--dry-run'], worktree: null })).toBeNull();
-    expect(stopAsk({ id: 'j5', done: true, args: ['repair'], worktree: tree('writes', 'a repair is trying candidates in your working tree') })).toBeNull();
+    expect(stopAsk({ id: 'j5', done: true, args: ['repair'], worktree: tree('writes', 'a repair is verifying candidates made from your working tree') })).toBeNull();
   });
 
   it('counts the jobs running in the top bar, and reopens the newest whose drawer is closed', () => {

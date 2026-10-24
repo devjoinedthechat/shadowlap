@@ -122,6 +122,25 @@ const FIX_UNREADABLE_COMMENT = `# ${CONFIG} can't be read: push (Push from CI) a
 const ALERTS_UNREADABLE_COMMENT = `# ${CONFIG} can't be read: the keys of the goldens that run live are left out`;
 
 /**
+ * What the job's permissions comment names. Fix on failure pushes a branch (`contents: write`), opens
+ * the pull request and keeps the action's comment on one (`pull-requests: write`), and starts the
+ * workflow on the fix's branch so the pull request gets its checks (`actions: write`), since GitHub
+ * starts nothing for a push made with the job's own token. Without it, the job reads the repository
+ * (`contents: read`, which an explicit `permissions:` otherwise takes away) and keeps the comment.
+ * Short-lived bucket credentials add `id-token: write`.
+ */
+function permissionsLine(fix: boolean, push: BucketCredentials | null): string {
+  const names = [...(fix ? ['contents: write', 'pull-requests: write', 'actions: write'] : ['contents: read', 'pull-requests: write']), ...(push === 'oidc' ? ['id-token: write'] : [])];
+  return `# the job needs: permissions: { ${names.join(', ')} }`;
+}
+
+/**
+ * Under Fix on failure's permissions: the trigger the action starts the workflow with on the fix's
+ * branch, which the workflow's `on:` has to name (docs/ci.md, How a fix pull request's checks start).
+ */
+export const DISPATCH_COMMENT = "# and workflow_dispatch: under the workflow's on:, so a fix's pull request gets its checks";
+
+/**
  * With push, where the bucket's credentials come from. Short-lived ones come from the two `if:`
  * steps `shadowlap store ci` prints, which go right before the action (the comment stands in their
  * place): the writer's, and a pull request's own, which write only under pr/ (the rest of what it
@@ -137,9 +156,11 @@ const BUCKET_COMMENT: Record<BucketCredentials, string> = {
 /**
  * The Fix on failure steps, as a job of their own runs them: the branch checked out, so the fix's
  * pull request goes into it; Node 22.16 or later; the agent's own dependencies (a placeholder); then
- * the action. Its job needs contents and pull-requests write permission, which the first comment
- * states. Blame and verify run the agent itself live, so the step's env also needs the agent's own
- * provider keys: those the project's goldens call (`keys`), and a comment that says to add them when
+ * the action. Its job needs contents, pull-requests and actions write permission, which the first
+ * comment states, and a `workflow_dispatch:` trigger, which the second says: the action starts the
+ * workflow on the fix's branch, as GitHub starts nothing for a push made with the job's own token.
+ * Blame and verify run the agent itself live, so the step's env also needs the agent's own provider
+ * keys: those the project's goldens call (`keys`), and a comment that says to add them when
  * there are none or a golden's can't be named (`keysUnknown`). While shadowlap.config.json can't be
  * read (`unreadable`), a comment says what the step leaves out. With `push` (Push from CI is on) the action pushes the test runs and each fix it opens to the
  * team store, so the job also needs the bucket's credentials: short-lived ones (`oidc`) come from
@@ -155,7 +176,7 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   const key = repairerKey(repairer);
   const known = (s.keys ?? []).length > 0 && !s.keysUnknown;
   const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
-  const lines = [`# the job needs: permissions: { contents: write, pull-requests: write${push === 'oidc' ? ', id-token: write' : ''} }`];
+  const lines = [permissionsLine(true, push), DISPATCH_COMMENT];
   if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
   lines.push(...CHECKOUT_BRANCH, ...SETUP_NODE, INSTALL);
   // The claude-code repairer runs Claude Code in print mode, so the runner needs it installed.
@@ -183,6 +204,9 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
   return lines.join('\n');
 }
 
+/** The row a job that opens no fix needs for the action's comment on a pull request. */
+const COMMENT_NEED: NeedRow = ['permission to keep the action’s comment on a pull request', 'pull-requests: write'];
+
 /** The row every step that runs the action needs: the Node it runs on. */
 const NODE_NEED: [string, string] = ['Node 22.16 or later on the runner, not 23', 'node-version: 22'];
 
@@ -202,7 +226,9 @@ export function fixOnFailureNeeds(repairer: string, push: BucketCredentials | nu
     ['a model key for the repairer', repairerKey(repairer)],
     ['your agent’s provider keys: blame and verify run it live', keys.length ? [...new Set(keys)].join(', ') : 'env'],
     ['permission to push a branch', 'contents: write'],
-    ['permission to open the pull request', 'pull-requests: write'],
+    ['permission to open the pull request and keep its comment', 'pull-requests: write'],
+    ['permission to start the pull request’s checks', 'actions: write'],
+    ['the trigger they start from, under the workflow’s on:', 'workflow_dispatch:'],
   ];
   if (push === 'oidc') needs.push(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
   if (push === 'keys') needs.push(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
@@ -283,6 +309,7 @@ export function alertsYaml(s: AlertsSettings): string {
   const keys = [...new Set(s.keys ?? [])];
   const notes = [...(s.keysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
   return [
+    permissionsLine(false, null),
     CHECKOUT,
     ...SETUP_NODE,
     INSTALL,
@@ -340,8 +367,7 @@ export function workflowYaml(s: WorkflowSettings): string {
   const fix = s.fix ? { ...s.fix, repairer: s.fix.repairer.trim() || 'anthropic' } : null;
   const push = s.push ?? null;
   const lines: string[] = [];
-  const permissions = [...(fix ? ['contents: write', 'pull-requests: write'] : push === 'oidc' ? ['contents: read'] : []), ...(push === 'oidc' ? ['id-token: write'] : [])];
-  if (permissions.length) lines.push(`# the job needs: permissions: { ${permissions.join(', ')} }`);
+  lines.push(permissionsLine(!!fix, push), ...(fix ? [DISPATCH_COMMENT] : []));
   if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
   lines.push(...(fix ? CHECKOUT_BRANCH : [CHECKOUT]), ...SETUP_NODE, INSTALL);
   if (fix && (fix.repairer === 'claude-code' || fix.repairer.startsWith('claude-code:'))) lines.push('- run: npm install -g @anthropic-ai/claude-code');
@@ -402,7 +428,9 @@ export function workflowNeeds(o: { fix: NeedRow[] | null; alerts: NeedRow[] | nu
     if (!rows.some((x) => x[0] === r[0] && x[1] === r[1])) rows.push(r);
   };
   for (const r of o.fix ?? []) add(r);
-  for (const r of o.alerts ?? []) add(r);
+  // A fix's rows give pull-requests: write already, for its pull request and the comment; without one, the comment still needs it.
+  for (const r of o.alerts ?? []) if (!(o.fix && r === COMMENT_NEED)) add(r);
+  if (!o.fix) add(COMMENT_NEED);
   if (!o.fix && o.push === 'oidc') add(['the bucket’s credentials: two shadowlap store ci steps', 'id-token: write']);
   if (!o.fix && o.push === 'keys') add(['the bucket’s R2 keys as secrets, kept from pull requests’ jobs', 'secrets']);
   rows.push(NODE_NEED);
@@ -431,6 +459,7 @@ export function alertsNeeds(secret: string, live: LiveGoldens | null = null, unr
     ['its URL as a repository secret', alertsSecret(secret)],
     ['the test step’s outputs, by its id', 'id: goldens'],
     ...(live && live.count ? [[`${live.count} ${live.count === 1 ? 'golden runs' : 'goldens run'} live (${live.why.join(', ')})`, live.keys.length ? live.keys.join(', ') : 'their providers’ keys'] as NeedRow] : []),
+    COMMENT_NEED,
     ...(unreadable ? [[`which goldens run live, and their keys, from ${CONFIG}`, UNREADABLE, 'warn'] as NeedRow] : []),
     NODE_NEED,
   ];

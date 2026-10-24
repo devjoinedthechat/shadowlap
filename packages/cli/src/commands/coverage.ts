@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
+import { links } from '@shadowlap/dashboard';
 import { checkCommandTemplate, recordEvent, resolveAuthor, type CoverageGroup } from '@shadowlap/engine';
 import { loadConfig, loadTests } from '../config.js';
 import { coverageJson, findGroup, formatCoverage, scanCoverage, shortPath } from '../coverage.js';
@@ -89,7 +90,7 @@ export function register(program: Command): void {
         if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
         else process.stdout.write(formatCoverage(result, p, { packed: !!pack?.length }) + '\n');
         emitJobEvent({ type: 'result', data: json });
-        emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests' });
+        emitJobEvent({ type: 'link', label: 'Tests', href: links.tests() });
         const unpacked = pack?.filter((x) => !x.golden).length ?? 0;
         if (unpacked && flags.notPacked === 'warn' && !flags.json) process.stdout.write(p.dim(`${unpacked} not packed: reported, not failed (--not-packed warn)\n`));
         process.exitCode = unpacked && flags.notPacked === 'fail' ? 1 : 0;

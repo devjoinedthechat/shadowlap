@@ -18,7 +18,7 @@ import { commandTreeUse, jobCommands, sameTree, treeClash, treeFolder, treeUse, 
 
 describe('how a command uses the working tree', () => {
   it('changes it to repair or apply a patch, and runs the agent from it to record, replay, blame, verify, test, calibrate or score', () => {
-    expect(commandTreeUse(['repair', '--fixes', 'label:x'])).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree', verb: 'repair' });
+    expect(commandTreeUse(['repair', '--fixes', 'label:x'])).toEqual({ use: 'writes', doing: 'a repair is verifying candidates made from your working tree', verb: 'repair' });
     expect(commandTreeUse(['fix', 'apply', 'fx-1'])).toMatchObject({ use: 'writes', verb: 'apply the patch' });
     for (const [args, verb] of [
       [['run', '--', 'node', 'agent.mjs'], 'record'],
@@ -64,7 +64,7 @@ describe('which jobs share a tree', () => {
   });
 
   it('finds the job a new one would clash with: in its tree, one that changes it, or any when the new one changes it', () => {
-    const repairing: JobTree = { use: 'writes', doing: 'a repair is trying candidates in your working tree', folder: '/p/one' };
+    const repairing: JobTree = { use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: '/p/one' };
     const blaming: JobTree = { use: 'reads', doing: 'a blame is running your agent from your working tree', folder: '/p/one' };
     expect(treeClash([{ tree: repairing, at: '/p/one' }], 'reads', '/p/one')).toBe(repairing);
     expect(treeClash([{ tree: blaming, at: '/p/one' }], 'reads', '/p/one')).toBeNull();
@@ -156,8 +156,8 @@ describe('the job manager’s lock', () => {
   it('holds a repair’s project only: a job in another project starts, one in the same project or around it waits', async () => {
     const { jobs, children } = manager();
     const repair = await jobs.start('repair-in', { dir: 'one' });
-    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree', folder: join(root, 'one') });
-    expect(await refusal(jobs.start('replay-in', { dir: 'one' }))).toEqual({ status: 409, message: 'a repair is trying candidates in your working tree: replay once it is done' });
+    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: join(root, 'one') });
+    expect(await refusal(jobs.start('replay-in', { dir: 'one' }))).toEqual({ status: 409, message: 'a repair is verifying candidates made from your working tree: replay once it is done' });
     // A folder inside the project, and the folder around it, are the same tree.
     expect((await refusal(jobs.start('replay-in', { dir: 'one/goldens' }))).status).toBe(409);
     expect((await refusal(jobs.start('replay-in', {}))).status).toBe(409);
@@ -175,7 +175,7 @@ describe('the job manager’s lock', () => {
   it('holds a job that chains commands by the strongest of them', async () => {
     const { jobs, children } = manager();
     await jobs.start('repair-in', { dir: 'one' });
-    expect(await refusal(jobs.start('normalize-and-test', { dir: 'one' }))).toEqual({ status: 409, message: 'a repair is trying candidates in your working tree: test once it is done' });
+    expect(await refusal(jobs.start('normalize-and-test', { dir: 'one' }))).toEqual({ status: 409, message: 'a repair is verifying candidates made from your working tree: test once it is done' });
     const chained = await jobs.start('normalize-and-test', { dir: 'two' });
     expect(chained.worktree).toMatchObject({ use: 'reads', doing: 'a test is running your agent from your working tree' });
     for (const c of children) c.end(0);

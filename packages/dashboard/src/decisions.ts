@@ -206,7 +206,12 @@ function scopeArgs(raw: unknown): string[] | { error: string } {
   return ['--scope', raw];
 }
 
-/** `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?, thenVerify?, yes? }`. */
+/**
+ * `shadowlap decisions` as a job: `{ runs?, goldens?, model?, set?, from?, scope?, fromCode?, samples?,
+ * thenVerify?, yes? }`. Without `samples`, each step is asked as the CLI asks it by default: 3 times
+ * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
+ * passed on whatever it is, 1 too, which asks once and has no control.
+ */
 export function decisionsJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[]): JobBuildResult {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
@@ -223,7 +228,7 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
   let samples: string[] = [];
   if (req.samples !== undefined) {
     if (typeof req.samples !== 'number' || !Number.isInteger(req.samples) || req.samples < 1 || req.samples > 20) return { error: 'samples is a whole number from 1 to 20' };
-    if (req.samples > 1) samples = ['--samples', String(req.samples)];
+    samples = ['--samples', String(req.samples)];
   }
   const runsAgent = fromCode || req.thenVerify === true;
   if (runsAgent) {

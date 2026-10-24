@@ -28,7 +28,7 @@ that comes from data goes there, everything else is a class.
 | `DatasetDialog` | `DatasetDialog.tsx` | Runs as an eval dataset: a format and which calls become examples, as the `export-dataset` job. A run's Share menu and the Runs page's bulk bar both open it; pass `rules` when the page knows how many redaction rules the copy applies. |
 | `Popover`, `MenuItem`, `useMenu` | `Popover.tsx` | A menu hanging from its button (`.pop`), kept on screen by `placePop` (`place.ts`) and placed again as it or the window changes size (`keepPlaced`), its first item focused once it shows, ↑ ↓ between items (passing over buttons hidden until hovered), closed by Esc, a click outside or the opener. `useMenu()` holds the open state and the anchor. |
 | `JobDrawer` | `Drawer.tsx` | The CLI run the dashboard started: title, output, outcome and exit code, files to download, links to what it made. A Replay that diverged adds **Calibrate** (the calibrate job on its recording) beside Open run. It ends on one primary action: a link the command marks `secondary` (each failing golden's run, beside Tests) shows as a plain link above the buttons. A job of another project than the page shows says which, and its links switch to that project first. Start a job with `useApp().watchJob(client.startJob(kind, fields))` or `client.action(...)`. |
-| `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`, gone after 2.6 seconds. A refusal or a failure is `toast(errorText(err), 'error')` (`toast.ts`): a red dot, read out at once (`role=alert`), and it stays until dismissed or for 8 seconds. |
+| `ToastHost` | `Toast.tsx` | One toast at a time: `useApp().toast(text)`, gone after 2.6 seconds. A refusal or a failure is `toast(errorText(err), 'error')` (`toast.ts`): a red dot, read out at once (`role=alert`), and it stays until dismissed or for 8 seconds. A notice can carry one action, `toast(text, 'notice', { label: 'Undo', run })`: its button, and seven seconds to reach it. |
 | `HoverCardLayer`, `tipText`, `tipCard` | `HoverCard.tsx` | Hover cards in one style, a title and coloured rows. Put `data-tip={tipCard(title, rows)}` on any element; one layer follows the pointer. |
 
 Esc closes the topmost layer: a menu, then a dialog, then a panel, then the phone sidebar. A new
@@ -57,6 +57,7 @@ project in the job, so a server switched since refuses it.
 | `CmdLine`, `CommandLine`, `CodeBlock`, `CopyButton` | `bits.tsx` | A shell command; one long enough to wrap, which breaks only between its words (`shellWords` in `format.ts`); a file with Copy in its header; copy and say so. |
 | `SortTh`, `ShowMore`, `rowOpen` | `Table.tsx` | A sorting header for `table.t`, "Show 50 more", and a row that opens a page unless a control inside it was clicked. |
 | `JsonTree` | `Json.tsx` | A JSON value as a folding tree that draws a branch only when it is opened. |
+| `RunKey`, `useMarkRun`, `useRunLabels` | `RunKey.tsx` | The good/bad key (`runkey.ts`): two toggles that label a run `good` or `bad` in one press, never both, with the change said in a toast with Undo; and a run's labels as a page shows them while the server catches up. |
 
 ## State and logic
 
@@ -106,8 +107,9 @@ and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logi
 the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
-filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
-list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
+in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
+views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one (the top bar's *team* label among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
 own, `#/setup/store` (`pages/settings/StoreSetup.tsx`, with its palette entry), its steps worked out in

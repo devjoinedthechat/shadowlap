@@ -293,7 +293,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
   const ask = repairAsk(fix, fresh);
   const aside = repairAside(fresh?.fix ?? fix);
   const text = ask.who
-    ? `Asks ${ask.who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is tried in your working tree and put back; the one accepted is kept as a patch for you to apply.`
+    ? `Asks ${ask.who} for rewrites of the prompt and tool descriptions, and keeps the smallest one that fixes the failing runs without breaking the good ones. Each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself; the one accepted is kept as a patch for you to apply.`
     : (ask.why ?? 'Reading which repairer shadowlap.config.json names…');
   return (
     <Dialog
@@ -310,7 +310,7 @@ function RepairDialog({ fix, onClose, onRun }: { fix: FixDetail; onClose: () => 
     >
       {/* A repair that ends "No fix to try" runs nothing live, so it bills nothing: the dialog says why instead, whatever else it says. */}
       {aside ? <p className="fxdlg">{aside}</p> : null}
-      {ask.why || aside ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.</p>}
+      {ask.why || aside ? null : <p className="fxdlg">The agent runs live from where each run was lost, writes stubbed: its model calls are billed. A file you change meanwhile is in the candidates made after it.</p>}
       {ask.command ? <CmdLine>{ask.command}</CmdLine> : null}
     </Dialog>
   );

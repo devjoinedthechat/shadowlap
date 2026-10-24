@@ -13,6 +13,7 @@ import { blameStep, runWholeFacts } from './run-summary.js';
 import { bundleOf, runState, runStates, type RunState } from './runs-list.js';
 
 export type { CallFacts, MaskCounter, ProvenanceOptions, RunBlame, RunCheck, RunPageFacts, RunProvenance } from './run-page.js';
+export type { UnrecordedView, WebSocketView } from './run-unrecorded.js';
 
 /**
  * The dashboard's read model: plain JSON built from the store, one function per endpoint, no HTTP.
@@ -102,6 +103,18 @@ export interface CallRow extends CallFacts {
    * in another branch of the agent, so a page following the recording asks for it again.
    */
   retryable?: true;
+  /**
+   * A model call made to a host of another provider's format: one the config declares
+   * (`openrouter.ai`, in `providers`) or one built in (`foundry`, Claude on Microsoft Foundry;
+   * `bedrock-mantle`, OpenAI's API on Amazon Bedrock), as the call keeps it (`meta.via`). Its
+   * `provider` is then the format it speaks.
+   */
+  via?: string;
+  /**
+   * A replay's plain read (a clock read, a random value, a pure tool's call) its recording held no
+   * counterpart for: answered live while the replay went on replaying, never a fork (`meta.extraRead`).
+   */
+  extraRead?: true;
 }
 
 export interface RunDetail extends RunPageFacts {
@@ -252,6 +265,8 @@ function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts
     ...ownFacts(store, c),
     ...facts,
     ...(recording && end?.outcome === 'error' && end.meta.retryable === true ? { retryable: true as const } : {}),
+    ...(c.kind === 'api' && typeof c.meta.via === 'string' && c.meta.via ? { via: c.meta.via.slice(0, 200) } : {}),
+    ...(c.meta.extraRead === true ? { extraRead: true as const } : {}),
   };
 }
 

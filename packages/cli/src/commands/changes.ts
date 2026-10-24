@@ -1,4 +1,5 @@
 import { Command, InvalidArgumentError } from 'commander';
+import { links } from '@shadowlap/dashboard';
 import { byRule, commandIsImported, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
@@ -65,7 +66,7 @@ function failed(err: unknown, json: boolean | undefined, kind: 'decisions' | 'mi
 /** Where a job's drawer goes next: the runs with a write, stop or judged change, the first of them its primary action. */
 function emitDecisions(report: DecisionsReport): void {
   const flagged = report.flagged.slice(0, 3);
-  flagged.forEach((runId, i) => emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: `#/run/${runId}`, ...(i < flagged.length - 1 ? { secondary: true } : {}) }));
+  flagged.forEach((runId, i) => emitJobEvent({ type: 'link', label: `Open ${runId.slice(0, 10)}`, href: links.run(runId), ...(i < flagged.length - 1 ? { secondary: true } : {}) }));
 }
 
 /**

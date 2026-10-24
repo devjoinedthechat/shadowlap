@@ -1,4 +1,4 @@
-import { links, type LinkView } from '../src/links.js';
+import { links, parseRunsQuery, type LinkView, type RunsFilterRead } from '../src/links.js';
 
 /**
  * The dashboard's routes, as the URL fragment holds them. Parsing here, building in `src/links.ts`,
@@ -6,7 +6,7 @@ import { links, type LinkView } from '../src/links.js';
  * `router.ts` holds the hooks that follow the address bar.
  *
  *   #/                                   Overview
- *   #/runs                               Runs
+ *   #/runs[?q=&types=&sort=&from=&to=]   Runs, with what its filter, chips, sort and calendar show
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view (the old #/run/<id>/call/<n> still opens)
  *   #/compare[/<a>/<b>]                  Compare
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
@@ -21,7 +21,8 @@ export const CYCLE_VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timel
 
 export type Route =
   | { page: 'overview' }
-  | { page: 'runs' }
+  /** `filter`: what the address asks Runs to show; absent for `#/runs` alone. */
+  | { page: 'runs'; filter?: RunsFilterRead }
   | { page: 'run'; id: string; call: number | null; view: View | null }
   | { page: 'compare'; a: string | null; b: string | null }
   | { page: 'fixes'; id: string | null; step: string | null; sub: string | null }
@@ -58,6 +59,8 @@ export function isView(s: unknown): s is View {
 
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, '').replace(/^\/+/, '').split(/[?&]/)[0] ?? '';
+  const at = hash.indexOf('?');
+  const query = at >= 0 ? hash.slice(at + 1) : '';
   const parts: string[] = [];
   for (const p of raw.split('/').filter(Boolean)) {
     const d = decode(p);
@@ -67,8 +70,11 @@ export function parseRoute(hash: string): Route {
   const [head, a, b, c] = parts;
   if (!head) return { page: 'overview' };
   switch (head) {
-    case 'runs':
-      return parts.length === 1 ? { page: 'runs' } : { page: 'notfound', path: raw };
+    case 'runs': {
+      if (parts.length !== 1) return { page: 'notfound', path: raw };
+      const filter = parseRunsQuery(query);
+      return filter ? { page: 'runs', filter } : { page: 'runs' };
+    }
     case 'run': {
       if (!a || !RUN_ID.test(a)) return { page: 'notfound', path: raw };
       // The CLI's old deep link: #/run/<id>/call/<n>.
@@ -108,7 +114,7 @@ export function routeHref(r: Route): string {
     case 'overview':
       return href.overview();
     case 'runs':
-      return href.runs();
+      return href.runs(r.filter ? { q: r.filter.q, types: r.filter.types, sort: r.filter.sort, from: r.filter.days?.from ?? null, to: r.filter.days?.to ?? null } : {});
     case 'run':
       return href.run(r.id, r.call, r.view);
     case 'compare':
@@ -134,13 +140,17 @@ export function routeHref(r: Route): string {
 
 /**
  * The link `shadowlap dashboard` prints carries the session token, and a view to open:
- * `#token=…&open=/run/<id>/call/<n>`. The token and the view to open, or null for any other fragment.
+ * `#token=…&open=/run/<id>/call/<n>`. The view may hold a query, as a view of Runs does, and is then
+ * the link's last part: `#token=…&open=/runs?types=failed&sort=spent`. The token and the view to open,
+ * or null for any other fragment.
  */
 export function readTokenLink(hash: string): { token: string; open: string } | null {
   const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(hash)?.[1];
   if (!token) return null;
-  const open = /&open=(\/[A-Za-z0-9/_-]*)/.exec(hash)?.[1];
-  return { token, open: `#${open ?? '/'}` };
+  const path = /&open=(\/[A-Za-z0-9/_-]*)/.exec(hash)?.[1];
+  // A view of Runs with its filter: what follows the path, as long as it is a route's own characters.
+  const query = path === '/runs' ? /&open=\/runs(\?[\w\-.~%=&+:@,!*$]*)$/.exec(hash)?.[1] : undefined;
+  return { token, open: `#${path ?? '/'}${query ?? ''}` };
 }
 
 /**

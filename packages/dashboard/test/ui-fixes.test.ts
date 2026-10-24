@@ -206,12 +206,12 @@ describe('the Repair step', () => {
 });
 
 describe('the working tree', () => {
-  const repairing = { id: 'j1', done: false, worktree: { use: 'writes' as const, doing: 'a repair is trying candidates in your working tree' } };
+  const repairing = { id: 'j1', done: false, worktree: { use: 'writes' as const, doing: 'a repair is verifying candidates made from your working tree' } };
   const blaming = { id: 'j2', done: false, worktree: { use: 'reads' as const, doing: 'a blame is running your agent from your working tree' } };
   const packing = { id: 'j3', done: false, worktree: null };
 
   it('keeps a blame waiting while a repair or an apply changes the tree, as the server would refuse it', () => {
-    expect(treeBusy([repairing], 'reads', 'blame')).toBe('A repair is trying candidates in your working tree: blame once it is done.');
+    expect(treeBusy([repairing], 'reads', 'blame')).toBe('A repair is verifying candidates made from your working tree: blame once it is done.');
     expect(treeBusy([{ ...repairing, done: true }], 'reads', 'blame')).toBeNull();
     // Agents run side by side from a tree nothing changes, and a job that runs no agent never waits.
     expect(treeBusy([blaming, packing], 'reads', 'blame')).toBeNull();
@@ -219,21 +219,21 @@ describe('the working tree', () => {
 
   it('keeps a repair or an apply waiting while anything runs the agent from the tree', () => {
     expect(treeBusy([packing, blaming], 'writes', 'repair')).toBe('A blame is running your agent from your working tree: repair once it is done.');
-    expect(treeBusy([repairing], 'writes', 'apply the patch')).toBe('A repair is trying candidates in your working tree: apply the patch once it is done.');
+    expect(treeBusy([repairing], 'writes', 'apply the patch')).toBe('A repair is verifying candidates made from your working tree: apply the patch once it is done.');
     expect(treeBusy([packing], 'writes', 'repair')).toBeNull();
     expect(treeBusy([], 'writes', 'repair')).toBeNull();
   });
 
   it('counts only jobs in the project’s own tree: its folder, or one inside it or around it', () => {
     const at = (folder: string | null) => ({ ...repairing, worktree: { ...repairing.worktree, folder } });
-    expect(treeBusy([at('/p/one')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p/one/sub')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at('/p/one')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p/one/sub')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p')], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
     expect(treeBusy([at('/p/two')], 'reads', 'blame', '/p/one')).toBeNull();
     expect(treeBusy([at('/p/one-two')], 'reads', 'blame', '/p/one')).toBeNull();
     // A job, or a page, with no folder is the dashboard's own: one with every tree.
-    expect(treeBusy([at(null)], 'reads', 'blame', '/p/one')).toMatch(/^A repair is trying/);
-    expect(treeBusy([at('/p/two')], 'reads', 'blame')).toMatch(/^A repair is trying/);
+    expect(treeBusy([at(null)], 'reads', 'blame', '/p/one')).toMatch(/^A repair is verifying candidates/);
+    expect(treeBusy([at('/p/two')], 'reads', 'blame')).toMatch(/^A repair is verifying candidates/);
   });
 
   it('tells folders apart as the server does, whatever their trailing slash', () => {

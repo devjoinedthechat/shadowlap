@@ -585,16 +585,16 @@ describe('the working tree, one change at a time', () => {
     const { fix } = blame(run, { expect: { tools: { send_email: 1 } } });
     await start({ jobStopGraceMs: 200 });
     const repair = await started({ kind: 'repair', fixId: fix.fixId });
-    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is trying candidates in your working tree', folder: project });
+    expect(repair.worktree).toEqual({ use: 'writes', doing: 'a repair is verifying candidates made from your working tree', folder: project });
     const refused = async (body: Record<string, unknown>, message: string) => {
       const res = await job(body);
       expect(res.status, JSON.stringify(body)).toBe(409);
       expect((await json(res)).error).toBe(message);
     };
-    await refused({ kind: 'blame', runId: run, expect: null }, 'a repair is trying candidates in your working tree: blame once it is done');
-    await refused({ kind: 'action', runId: failing, key: 'r' }, 'a repair is trying candidates in your working tree: replay once it is done');
-    await refused({ kind: 'repair', fixId: fix.fixId }, 'a repair is trying candidates in your working tree: repair once it is done');
-    await refused({ kind: 'apply', fixId }, 'a repair is trying candidates in your working tree: apply the patch once it is done');
+    await refused({ kind: 'blame', runId: run, expect: null }, 'a repair is verifying candidates made from your working tree: blame once it is done');
+    await refused({ kind: 'action', runId: failing, key: 'r' }, 'a repair is verifying candidates made from your working tree: replay once it is done');
+    await refused({ kind: 'repair', fixId: fix.fixId }, 'a repair is verifying candidates made from your working tree: repair once it is done');
+    await refused({ kind: 'apply', fixId }, 'a repair is verifying candidates made from your working tree: apply the patch once it is done');
     expect(spawned).toHaveLength(1);
     // Once it is done, the tree is free again.
     await api(`jobs/${repair.id}/stop`, { method: 'POST' });

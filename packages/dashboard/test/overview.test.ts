@@ -355,7 +355,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       expect(kinds).toEqual(['open', ...Array(11).fill('unblamed'), 'ready']);
       // The panel's count is what needs a look: the line for the rest counts as the three it stands for.
       expect(s.needsLook.total).toBe(1 + 13 + 1);
-      expect(s.needsLook.items[11]).toEqual({ kind: 'unblamed', icon: 'fail', title: '3 more failed runs not blamed yet', detail: 'the failed runs on Runs', action: 'Open', href: '#/runs?type=failed', runId: null, fixId: null, at: expect.any(Number), more: 3 });
+      expect(s.needsLook.items[11]).toEqual({ kind: 'unblamed', icon: 'fail', title: '3 more failed runs not blamed yet', detail: 'the failed runs on Runs', action: 'Open', href: '#/runs?types=failed', runId: null, fixId: null, at: expect.any(Number), more: 3 });
       // The fix ready to apply is still there, after them.
       expect(s.needsLook.items.at(-1)).toMatchObject({ kind: 'ready', fixId });
       makeRun(local, { status: 'failed', startedAt: NOW - 3 * HOUR });
@@ -429,7 +429,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       const s = overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'northwind-agent-runs/support-agent', onlyLocal: 7 } });
       // On Runs, as the design has it: the local tags show which, and the bulk bar pushes them.
       // Push leads to those runs: Runs with Local picked.
-      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?type=local', runId: null, fixId: null, at: 0 });
+      expect(s.needsLook.items.at(-1)).toEqual({ kind: 'local', icon: 'rec', title: '7 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?types=local', runId: null, fixId: null, at: 0 });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 1 } }).needsLook.items.at(-1)).toMatchObject({ title: '1 run is only on this machine', detail: 'push it so the team can open it' });
       expect(overviewSummary(local, { tz: 'UTC', now: NOW, teamStore: { name: 'x', onlyLocal: 0 } }).needsLook.items.some((i) => i.kind === 'local')).toBe(false);
       // A store's setup left unfinished leads back to it, first.

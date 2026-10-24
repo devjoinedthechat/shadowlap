@@ -1,4 +1,4 @@
-import type { RunChip } from '../runs.js';
+import { links, parseRunsQuery, runsFilter, type RunsFilterRead } from '../../src/links.js';
 import type { RunsQuery } from '../types.js';
 
 /** The Runs page's requests as query strings, and the filter a link to it asks for. No DOM here: the tests import it. */
@@ -19,21 +19,35 @@ export function runsQueryString(q: RunsQuery & { tz?: string; weeks?: number }):
   return s ? `?${s}` : '';
 }
 
-/** The chips a link can pick: Local is where Needs a look's Push leads. */
-const LINK_CHIPS: readonly RunChip[] = ['all', 'recording', 'fork', 'clean', 'test', 'capture', 'failed', 'local'];
+/**
+ * What a link to Runs asks it to show, as the page's address holds it: `#/runs?q=<words>&types=failed
+ * &sort=spent&from=2026-10-20&to=2026-10-22` (`type=` too, as links wrote the chip before). Null for
+ * a plain `#/runs`, one asking for nothing Runs knows, or another page's address.
+ */
+export function runsLinkQuery(hash: string): RunsFilterRead | null {
+  const m = /^#\/runs\/?\?(.*)$/.exec(hash);
+  return m ? parseRunsQuery(m[1]!) : null;
+}
+
+/** The link to Runs showing `f`: what the page writes into its address as its filter changes. */
+export function runsHref(f: RunsFilterRead): string {
+  return links.runs({ q: f.q, types: f.types, sort: f.sort, from: f.days?.from ?? null, to: f.days?.to ?? null });
+}
+
+/** Every run, as `#/runs` alone shows them. */
+export const ALL_RUNS: RunsFilterRead = runsFilter();
 
 /**
- * What a link to Runs asks it to show: `#/runs?q=<words>&type=failed`, as an import's drawer links
- * the runs it made and Needs a look the failed runs and the runs only here (`type=local`). Null for a
- * plain `#/runs`, or one asking for nothing Runs knows.
+ * The instants a range of the viewer's days spans, for the table's request: the first day's start,
+ * and the start of the day after the last, in the browser's time zone, the one the calendar's days
+ * are worked out in. Null for a key that is no day.
  */
-export function runsLinkQuery(hash: string): { q: string; chip: RunChip } | null {
-  const m = /^#\/runs\/?\?(.*)$/.exec(hash);
-  if (!m) return null;
-  const p = new URLSearchParams(m[1]);
-  const q = (p.get('q') ?? '').slice(0, 200);
-  const type = p.get('type');
-  const chip = LINK_CHIPS.find((c) => c === type) ?? null;
-  if (!q.trim() && !chip) return null;
-  return { q, chip: chip ?? 'all' };
+export function dayTimes(days: { from: string; to: string }): { from: number; to: number } | null {
+  const at = (key: string, plus = 0) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + plus).getTime() : NaN;
+  };
+  const from = at(days.from);
+  const to = at(days.to, 1);
+  return Number.isFinite(from) && Number.isFinite(to) && from < to ? { from, to } : null;
 }

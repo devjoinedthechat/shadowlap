@@ -35,6 +35,7 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/tui/data';
+import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
 /**
  * The run page's read model beyond the rows themselves: where each conversation starts and which
@@ -419,6 +420,12 @@ export interface RunPageFacts {
    * page names it everywhere, the id without a date stamp (`claude-opus-5`).
    */
   models: Record<string, string>;
+  /**
+   * The WebSockets the run's sidecar tunnelled to a provider (OpenAI's Realtime API), live and never
+   * recorded, or refused (an offline replay), as the run keeps them (run-unrecorded.ts); null when it
+   * keeps none.
+   */
+  websockets: WebSocketView[] | null;
 }
 
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
@@ -544,6 +551,17 @@ function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
   return own.hosts.length || tools.length ? { hosts: own.hosts, tools } : null;
 }
 
+/** The preloads a run keeps (`meta.preloads`), checked field by field: a run can come from someone else's pack. */
+function storedPreloads(run: RunRecord): RunProvenance['preloads'] {
+  const v: unknown = run.meta?.preloads;
+  if (!isObject(v)) return null;
+  const guard = v.guard === 'block' || v.guard === 'off' ? v.guard : v.guard === 'warn' ? 'warn' : null;
+  if (!guard) return null;
+  const hellos: Record<string, number> = {};
+  if (isObject(v.hellos)) for (const [runtime, n] of Object.entries(v.hellos)) if (/^[a-z][a-z0-9-]{0,19}$/.test(runtime) && Number.isInteger(n) && (n as number) > 0) hellos[runtime] = n as number;
+  return { guard, hellos, missing: typeof v.missing === 'string' && v.missing ? v.missing.slice(0, 2000) : null };
+}
+
 /** A model id as the run page names it: the platform's prefixes and suffixes off, and no date stamp (`claude-opus-5`). */
 export function modelName(model: string): string {
   return canonicalModel(model).replace(/-\d{8}$/, '');
@@ -587,6 +605,7 @@ export function runPageFacts(store: Store, run: RunRecord, calls: readonly CallR
     blame: blameOf(run, calls, o.blameStep),
     checks: checksOf(store, run),
     models: o.models ?? modelsOf(store, calls),
+    websockets: runWebSockets(run),
   };
 }
 
@@ -606,8 +625,18 @@ export interface RunProvenance {
   endedUtc: string | null;
   /** Each model as recorded (`claude-sonnet-5-20260101`, the dated snapshot), its short name for display, and the model calls made with it, most used first. */
   models: Array<{ model: string; short: string; calls: number }>;
-  /** The providers the model calls went to (`anthropic`, `openai`, …), most used first. */
-  providers: Array<{ provider: string; calls: number }>;
+  /**
+   * The providers the model calls went to (`anthropic`, `openai`, …), most used first; a call made to
+   * a host of another's format (`meta.via`: one the config declares, or Foundry or Bedrock Mantle)
+   * counts under its format with that host as `via`.
+   */
+  providers: Array<{ provider: string; calls: number; via?: string }>;
+  /**
+   * The preloads in the agent's processes, for a run whose agent the CLI started with them
+   * (`RunMeta.preloads`): the guard they ran, the processes whose preload said it loaded, by runtime,
+   * and why none did when the run made calls with none loaded; null for any other run.
+   */
+  preloads: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null } | null;
   calls: { model: number; tool: number; other: number; scopes: number };
   /** Requests that reached a provider, and what the live ones cost. */
   upstream: { requests: number; spent: number };
@@ -693,8 +722,14 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
     models: tally(models.map((c) => c.end?.meta.model ?? c.meta.model ?? modelOf(c))).map(([model, n]) => ({ model, short: shortModel(model), calls: n })),
     providers: tally(models.map((c) => {
       const p = c.end?.meta.provider ?? c.meta.provider;
-      return typeof p === 'string' ? p : null;
-    })).map(([provider, n]) => ({ provider, calls: n })),
+      if (typeof p !== 'string') return null;
+      // Through a host of another's format: the format, and the host, apart from its own provider's calls.
+      return typeof c.meta.via === 'string' && c.meta.via ? `${p}\n${c.meta.via}` : p;
+    })).map(([key, n]) => {
+      const [provider, via] = key.split('\n') as [string, string | undefined];
+      return { provider, calls: n, ...(via ? { via: via.slice(0, 200) } : {}) };
+    }),
+    preloads: storedPreloads(run),
     calls: {
       model: summary.byKind.api,
       tool: summary.byKind.tool,

@@ -37,6 +37,7 @@ import {
   resolveFix,
   SPRT_DEFAULTS,
   testsEntryFor,
+  unrescuedHead,
   unrescuedWhy,
   verdictCounts,
   wilsonBound,
@@ -577,7 +578,8 @@ function stepsOf(rec: FixRecords): FixStep[] {
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
-    else if (b.outcome === 'unrescuable') blame = unsettledFirst(r) ? { key: 'blame', n: '01', state: 'warn', short: 'not settled', title: 'Not settled from the first model call', meta: cost } : { key: 'blame', n: '01', state: 'warn', short: 'not rescued', title: 'Not rescued from any model call', meta: cost };
+    // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
+    else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: unsettledFirst(r) ? 'not settled' : 'not rescued', title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
     else blame = { key: 'blame', n: '01', state: 'warn', short: 'blame stopped', title: 'Stopped before the search finished', meta: r.stopReason ?? cost };
   }
 
@@ -2033,7 +2035,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       const change = changeName(v);
       // Whether it counts for the fix it leads to, as that fix's Verify step says: kept with the link.
       const counts = fix ? (store.linksTo(v.verifyId, 'verify').find((l) => l.fixId === fix.fixId)?.data?.counts ?? true) : null;
-      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at, runsRule({ gate: sprtGate(v.report.gate), needed: v.report.needed, attemptsPerRun: v.report.attemptsPerRun }));
+      verified(`${v.verifyId}:${x.runId}`, x, change, v.verdict, counts, fix, fix ? fixHref(fix.fixId, 'verify', v.verifyId) : runHref(x.runId), v.at, runsRule({ gate: sprtGate(v.report.gate), needed: v.report.needed, attemptsPerRun: v.report.attemptsPerRun, kept: v.report.kept ?? null }, x));
     }
   }
   const kept = new Set(verdicts.flatMap((v) => (v.repairId !== null && v.candidate !== null ? [`${v.repairId}#${v.candidate}`] : [])));
@@ -2042,7 +2044,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       if (!c.verify || kept.has(`${r.repairId}#${c.id}`)) continue;
       for (const x of inFamily(c.verify.runs)) {
         const fix = linkedFix(r.repairId, 'repair', x.runId);
-        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at, runsRule({ gate: sprtGate(c.verify.gate), needed: c.verify.needed, attemptsPerRun: c.verify.attemptsPerRun }));
+        verified(`${r.repairId}#${c.id}:${x.runId}`, x, `repair candidate ${c.id}`, c.verify.verdict, null, fix, fix ? fixHref(fix.fixId, 'repair') : runHref(x.runId), r.at, runsRule({ gate: sprtGate(c.verify.gate), needed: c.verify.needed, attemptsPerRun: c.verify.attemptsPerRun, kept: c.verify.kept ?? null }, x));
       }
     }
   }

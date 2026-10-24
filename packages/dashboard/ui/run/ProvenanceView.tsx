@@ -17,6 +17,7 @@ import { useApp } from '../state.js';
 import { flagText } from './banner.js';
 import { lineageRunLike, modelLabel, originOf, pulledSpender, runLikeOf } from './model.js';
 import { copyRules, endpointSamples, exportedLine, lineageWords, tallyProviders, upstreamParts } from './provenance.js';
+import { preloadsOf, preloadWords, viaWords } from './notes.js';
 import { useWindow } from './window-hook.js';
 
 /**
@@ -24,9 +25,9 @@ import { useWindow } from './window-hook.js';
  * sends one, else read from one call of each endpoint the run used (a call's details name its
  * provider). Null while it is being worked out or when no call says.
  */
-function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ provider: string; calls: number }> | null {
+function useProviders(run: RunDetail, server: ServerProvenance | null): Array<{ provider: string; calls: number; via?: string }> | null {
   const { client } = useApp();
-  const [found, setFound] = useState<Array<{ provider: string; calls: number }> | null>(null);
+  const [found, setFound] = useState<Array<{ provider: string; calls: number; via?: string }> | null>(null);
   const runId = run.run.runId;
   const known = server?.providers ?? null;
   const sig = JSON.stringify(endpointSamples(run.calls));
@@ -100,6 +101,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     return () => clearTimeout(t);
   }, [counting, times, reload, r.runId]);
   const providers = useProviders(run, prov);
+  const preloads = prov?.preloads ?? preloadsOf(r.meta);
   // Each model as the page names it everywhere (claude-opus-5), counted from the record when it says,
   // else from the calls; the id the provider recorded (a dated one) shows on hover when it says more.
   const models = new Map<string, { calls: number; recorded: string[] }>();
@@ -181,9 +183,17 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
         <span className="muted">…</span>
       ) : providers.length ? (
         providers.map((p, i) => (
-          <span key={p.provider}>
+          // Through a host of another's format: its format, and the host, in words on hover.
+          <span key={`${p.provider}:${p.via ?? ''}`} title={p.via ? `through ${viaWords(p.via, p.provider)}` : undefined}>
             {i ? <br /> : null}
-            {p.provider} <small>{p.calls === 1 ? '1 call' : `${num(p.calls)} calls`}</small>
+            {p.provider}
+            {p.via ? (
+              <>
+                {' '}
+                via <code>{p.via}</code>
+              </>
+            ) : null}{' '}
+            <small>{p.calls === 1 ? '1 call' : `${num(p.calls)} calls`}</small>
           </span>
         ))
       ) : endpoints.size ? (
@@ -193,6 +203,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       ),
     ],
     ['Calls', `${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`],
+    // The network guard and in-process capture the agent's processes loaded, when the CLI started it with them.
+    ...(preloads ? ([['Guard', <span key="g" className={preloads.missing ? (preloads.guard === 'block' ? 'err' : 'warn') : undefined} title={preloads.missing ?? undefined}>{preloadWords(preloads)}</span>]] as Array<[string, React.ReactNode]>) : []),
     ['Upstream', <UpstreamValue key="u" {...upstreamParts(s.upstreamRequests, s.cost.spent, pulledSpender(r))} />],
     ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
   ];

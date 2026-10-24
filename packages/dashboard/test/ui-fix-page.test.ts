@@ -209,7 +209,11 @@ describe('Repair from here', () => {
     expect(button.className).toBe('btn lime');
     await r!.click(button);
     await r!.until('the dialog to read the fix again', () => r!.all('.dialog .fxdlg').length > 0);
-    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['The agent runs live from where each run was lost, writes stubbed: its model calls are billed. Leave those files alone until it is done.']);
+    expect(r!.all('.dialog .fxdlg').map(text)).toEqual(['The agent runs live from where each run was lost, writes stubbed: its model calls are billed. A file you change meanwhile is in the candidates made after it.']);
+    // Candidates are verified in a worktree of their own: the dialog never says they are tried in the working tree.
+    const said = text(r!.one('.dialog header p'));
+    expect(said).toContain('Each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself');
+    expect(said).not.toMatch(/put back|tried in your working tree/);
     // Its command wraps between words, each flag kept with its value: never "--" at a line's end and "repairer" at the next's start.
     const kept = r!.all('.dialog .cmdline span.nw').map((e) => e.textContent);
     expect(kept).toContain('--repairer ');

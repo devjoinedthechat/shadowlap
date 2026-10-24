@@ -208,7 +208,63 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   for (const link of links) {
     const route = parseRoute(link);
     expect(route.page, link).not.toBe('notfound');
+    // A link to Runs with a filter opens that filter, and every link reads back as it was written.
     if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
-    else expect(routeHref(route), link).toBe(link);
+    expect(routeHref(route), link).toBe(link);
   }
+});
+
+test('Runs keeps its filters in the address, Back goes back through them, and it has no serious axe violation', async ({ page }) => {
+  await openPage(page, '/runs?types=recording&sort=calls', 'main#view table.runst tbody tr');
+  const pressed = () => page.locator('main#view .tbar .chips button[aria-pressed="true"]');
+  await expect(pressed()).toHaveCount(1);
+  expect(await pressed().evaluate((b) => b.childNodes[0]?.textContent)).toBe('Recordings');
+  await expect(page.locator('main#view th[aria-sort="descending"]')).toContainText('Calls');
+  expect(await seriousViolations(page)).toEqual([]);
+  // A chip is a step of its own: Back is the view before it.
+  await page.locator('main#view .tbar .chips button', { hasText: /^All/ }).click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?sort=calls');
+  await page.goBack();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#/runs?types=recording&sort=calls');
+  expect(await pressed().evaluate((b) => b.childNodes[0]?.textContent)).toBe('Recordings');
+});
+
+test('the good/bad key labels a run in one press, says so with Undo, and has no serious axe violation', async ({ page }) => {
+  await openPage(page, `/run/${demoId('ticket')}`, 'run');
+  const good = page.locator('.rhead .runkey button', { hasText: 'good' });
+  await expect(good).toHaveAttribute('aria-pressed', 'false');
+  await good.click();
+  await expect(good).toHaveAttribute('aria-pressed', 'true');
+  const undo = page.locator('.toast button', { hasText: 'Undo' });
+  await expect(undo).toBeVisible();
+  expect(await seriousViolations(page)).toEqual([]);
+  await undo.click();
+  await expect(good).toHaveAttribute('aria-pressed', 'false');
+  // On Runs, each row has the key, its buttons named for a screen reader.
+  await openPage(page, '/runs', 'main#view table.runst tbody tr');
+  const key = page.locator('main#view table.runst tbody tr').first().locator('td.keycell .runkey');
+  await expect(key.locator('button')).toHaveCount(2);
+  expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('a run’s calls sit under the call they belong to, each fold mark announced, with no serious axe violation', async ({ page }) => {
+  await openPage(page, `/run/${demoId('eval')}`, 'run');
+  await page.waitForSelector('main#view table.calls.grouped button.tw');
+  const fold = page.locator('main#view table.calls button.tw').first();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  const rows = await page.locator('main#view table.calls tbody tr[data-wi]').count();
+  await fold.click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'false');
+  expect(await page.locator('main#view table.calls tbody tr[data-wi]').count()).toBeLessThan(rows);
+  expect(await seriousViolations(page)).toEqual([]);
+  await page.locator('main#view .toolbar button', { hasText: 'Unfold all' }).click();
+  await expect(fold).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('what a run did that Shadowlap did not record shows under its banner, with no serious axe violation', async ({ page }) => {
+  // The eval's agent hands the policy check to a function it never wrapped: the model called it, and nothing recorded it.
+  await openPage(page, `/run/${demoId('eval')}`, 'run');
+  await page.waitForSelector('main#view .rnotes .rnote');
+  await expect(page.locator('main#view .rnotes .rntools code').first()).toHaveText('check_policy');
+  expect(await seriousViolations(page)).toEqual([]);
 });

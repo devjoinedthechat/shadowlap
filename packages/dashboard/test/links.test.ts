@@ -16,6 +16,8 @@ const OTHER = '01M5MXZ24MS0P1DGD93RKC555R';
 const built: string[] = [
   links.overview(),
   links.runs(),
+  links.runs({ types: 'failed' }),
+  links.runs({ q: 'refund', types: 'local', sort: 'calls', from: '2026-10-20', to: '2026-10-20' }),
   links.run(RUN),
   links.run(RUN, 17),
   links.run(RUN, 17, 'calls'),
@@ -51,15 +53,18 @@ describe('the link builder', () => {
     expect(href).toBe(links);
   });
 
-  it('writes a link to Runs that asks for words and a chip, which the Runs page reads back', () => {
-    expect(parseRoute(links.runs({ type: 'failed' })).page).toBe('runs');
-    expect(runsLinkQuery(links.runs({ type: 'failed' }))).toEqual({ q: '', chip: 'failed' });
-    expect(runsLinkQuery(links.runs({ type: 'local' }))).toEqual({ q: '', chip: 'local' });
-    const words = links.runs({ q: 'refund (A-1042) & more', type: 'fork' });
+  it('writes a link to Runs that asks for words, a chip, a sort and days, which the Runs page reads back', () => {
+    expect(parseRoute(links.runs({ types: 'failed' })).page).toBe('runs');
+    expect(runsLinkQuery(links.runs({ types: 'failed' }))).toEqual({ q: '', types: 'failed', sort: 'when', days: null });
+    expect(runsLinkQuery(links.runs({ types: 'local' }))).toEqual({ q: '', types: 'local', sort: 'when', days: null });
+    // `type`, as callers named the chip before, writes the same link.
+    expect(links.runs({ type: 'local' })).toBe(links.runs({ types: 'local' }));
+    const words = links.runs({ q: 'refund (A-1042) & more', types: 'fork', sort: 'spent', from: '2026-10-20', to: '2026-10-21' });
     expect(parseRoute(words).page).toBe('runs');
-    expect(runsLinkQuery(words)).toEqual({ q: 'refund (A-1042) & more', chip: 'fork' });
+    expect(routeHref(parseRoute(words))).toBe(words);
+    expect(runsLinkQuery(words)).toEqual({ q: 'refund (A-1042) & more', types: 'fork', sort: 'spent', days: { from: '2026-10-20', to: '2026-10-21' } });
     expect(isLink(words)).toBe(true);
-    expect(links.runs({ q: '  ', type: 'all' })).toBe('#/runs');
+    expect(links.runs({ q: '  ', types: 'all' })).toBe('#/runs');
   });
 
   it('keeps a value that would break the route inside its own segment', () => {
@@ -95,5 +100,13 @@ describe('the server’s links', () => {
       return [...code.matchAll(/['"`]#\/[^'"`]*/g)].filter((m) => !(at === 'decisions.ts' && m[0].startsWith('`#/changes/'))).map((m) => `${at}: ${m[0]}`);
     });
     expect(own).toEqual([]);
+  });
+
+  it('and so are the links a command reports to its dashboard job: the CLI writes none of its own', () => {
+    const cli = fileURLToPath(new URL('../../cli/src/', import.meta.url));
+    const own = sources(cli).flatMap(({ file, code }) => [...code.matchAll(/['"`]#\/[^'"`]*/g)].map((m) => `${file.slice(cli.length)}: ${m[0]}`));
+    expect(own).toEqual([]);
+    // The sites that wrote them by hand build them now.
+    for (const file of ['chaos-session.ts', 'run-agent.ts', 'team.ts', 'commands/coverage.ts', 'commands/testing.ts', 'commands/changes.ts', 'commands/injection.ts', 'commands/record.ts', 'commands/training.ts']) expect(readFileSync(join(cli, file), 'utf8'), file).toMatch(/import \{ [^}]*\blinks\b[^}]*\} from '@shadowlap\/dashboard'/);
   });
 });
