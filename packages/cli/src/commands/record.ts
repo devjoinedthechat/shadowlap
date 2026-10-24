@@ -7,6 +7,7 @@ import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../che
 import { EXIT, interruptedStatus, stoppedBy, usageError } from '../exit-codes.js';
 import { allowedUnrecorded, declaredUnrecorded, formatUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
 import type { UnrecordedTool } from '@shadowlap/engine';
+import type { PreloadReport } from '@shadowlap/sidecar';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
 import { checkRequestInterventions, checksOfRun, expectJson, judgeRun, parsePlants, refuseOverlaps, storedResult, UNJUDGED_PLANT } from '../interventions.js';
 import { judgesOf, type Judged } from '../judge.js';
@@ -73,6 +74,15 @@ function unrecordedAfter(opts: GlobalOpts, runIds: readonly string[]): Unrecorde
 /** How a replay's checks came out as a whole: failed when one failed, else inconclusive when one could not be decided, else passed. */
 function judgedOutcome(checks: readonly CheckResult[]): 'passed' | 'failed' | 'inconclusive' {
   return checks.some((c) => c.status === 'failed') ? 'failed' : checks.some((c) => !c.ok) ? 'inconclusive' : 'passed';
+}
+
+/**
+ * A replay's status before its checks have a say: 1 when no preload loaded in the agent's processes
+ * under --guard block, which fails the run whatever the agent did (nothing stopped a connection that
+ * bypassed Shadowlap, so the replay proves nothing); else the agent's own.
+ */
+function agentStatus(code: number, preloads: PreloadReport | null): number {
+  return preloads?.failed ? EXIT.failed : code;
 }
 
 export function register(program: Command): void {
@@ -281,13 +291,14 @@ export function register(program: Command): void {
         // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
         // A signal ends it with the signal's status; then a divergence under --strict, an attempt that
-        // failed or was never run, or a check that failed, 1; a check that could not be decided, 3.
+        // failed, was never run or ran unwatched under --guard block, or a check that failed, 1; a
+        // check that could not be decided, 3.
         const outcome = judgedOutcome(judged.flat());
-        process.exitCode = stoppedBy() ? interruptedStatus() : (flags.strict && anyDiverged) || attempts.length < flags.repeat || attempts.some((a) => a.code !== 0) || outcome === 'failed' ? EXIT.failed : outcome === 'inconclusive' ? EXIT.inconclusive : EXIT.ok;
+        process.exitCode = stoppedBy() ? interruptedStatus() : (flags.strict && anyDiverged) || attempts.length < flags.repeat || attempts.some((a) => agentStatus(a.code, a.preloads) !== 0) || outcome === 'failed' ? EXIT.failed : outcome === 'inconclusive' ? EXIT.inconclusive : EXIT.ok;
         return;
       }
       const once = async (): Promise<void> => {
-        const { code, summary, run, output, started } = await runUnderSidecar(
+        const { code, summary, run, output, started, preloads } = await runUnderSidecar(
           opts,
           argv,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
@@ -309,10 +320,11 @@ export function register(program: Command): void {
         if (unrecorded.length) process.stderr.write(formatUnrecorded(unrecorded, 'replay'));
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
         // A replay that stopped before its recording did is no clean one either: its divergence says so.
-        // A check that failed ends it with 1; then an agent that failed, with its own status; then a
-        // check that could not be decided, with 3.
+        // A check that failed ends it with 1; then an agent that failed, with its own status, or that
+        // no preload watched under --guard block, with 1; then a check that could not be decided, with 3.
         const outcome = judged ? judgedOutcome(judged) : 'passed';
-        process.exitCode = flags.strict && summary.divergence ? EXIT.failed : outcome === 'failed' ? EXIT.failed : code === 0 && outcome === 'inconclusive' ? EXIT.inconclusive : code;
+        const agent = agentStatus(code, preloads);
+        process.exitCode = flags.strict && summary.divergence ? EXIT.failed : outcome === 'failed' ? EXIT.failed : agent === 0 && outcome === 'inconclusive' ? EXIT.inconclusive : agent;
       };
 
       if (!flags.watch) return once();

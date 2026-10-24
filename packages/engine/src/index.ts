@@ -13,7 +13,7 @@ export { calibrationTarget, covered, generalize, proposeNormalizers, type Calibr
 export { isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartView, parseMultipart, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
-export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash, queryPairs } from './fingerprint.js';
+export { BUILTIN_STRIPPED_KEYS, CLAUDE_CODE_SESSION, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isClaudeCodeSession, maskClaudeCodeSession, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';

@@ -64,9 +64,10 @@ async function serveRecordings(store: Store, config: ReturnType<typeof loadConfi
     process.stdin.on('end', done);
     process.stdin.on('close', done);
     process.stdin.resume();
-    process.once('SIGINT', done);
-    process.once('SIGTERM', done);
+    for (const s of STOP_SIGNALS) process.once(s, done);
   });
+  // A stop signal can come while the plugin still holds its end open: nothing more is read from it.
+  process.stdin.destroy();
   host.close();
   await sidecar.close();
   store.close();
@@ -732,10 +733,10 @@ export function register(program: Command): void {
       const env = sidecar.envFor(run.runId);
       process.stdout.write(envLines(env) + '\n');
       process.stderr.write(p.dim(`[shadowlap] recording run ${run.runId}; Ctrl-C to end it\n`));
+      // Recorded until a stop signal: Ctrl-C, a supervisor's stop, or the terminal closing.
       await new Promise<void>((resolve) => {
         const stop = () => resolve();
-        process.once('SIGINT', stop);
-        process.once('SIGTERM', stop);
+        for (const s of STOP_SIGNALS) process.once(s, stop);
       });
       const { summary } = sidecar.endRun(run.runId, 'completed');
       printOutcome(summary);

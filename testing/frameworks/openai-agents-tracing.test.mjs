@@ -8,7 +8,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { after, before, describe, it } from 'node:test';
@@ -101,9 +101,11 @@ async function startProvider() {
   return { url: `http://127.0.0.1:${server.address().port}`, seen, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
+// Run beside its store, in the test's own folder: run and replay keep their active-run file in the one they run in.
 async function shadowlap(db, args, env) {
   try {
     const { stdout, stderr } = await promisify(execFile)(process.execPath, [CLI, '--db', db, ...args], {
+      cwd: dirname(db),
       env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env },
       encoding: 'utf8',
       timeout: 180_000,

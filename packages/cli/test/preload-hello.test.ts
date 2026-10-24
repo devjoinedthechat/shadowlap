@@ -213,8 +213,9 @@ describe.skipIf(process.platform === 'win32')('a run whose agent loads no preloa
     });
   }
 
-  it('says so, naming Bun, and shadowlap test fails its golden under --guard block and passes it under warn', async () => {
-    const cwd = join(dir, 'bun-project');
+  /** A project in `name` with a command named bun that makes one model call, and the path to that command. */
+  function bunProject(name: string): { cwd: string; bun: string } {
+    const cwd = join(dir, name);
     mkdirSync(join(cwd, 'bin'), { recursive: true });
     const bun = join(cwd, 'bin', 'bun');
     writeFileSync(
@@ -225,6 +226,11 @@ echo answered
 `,
     );
     chmodSync(bun, 0o755);
+    return { cwd, bun };
+  }
+
+  it('says so, naming Bun, and shadowlap test fails its golden under --guard block and passes it under warn', async () => {
+    const { cwd, bun } = bunProject('bun-project');
     const recorded = await shadowlap(['run', '--', bun, 'agent.ts'], cwd);
     expect(recorded.code, recorded.out).toBe(0);
     expect(recorded.out).toContain('No Shadowlap preload loaded in the agent');
@@ -245,4 +251,28 @@ echo answered
     expect(preload!.detail).toContain('The command runs Bun');
     expect(preload!.fix).toContain('NODE_OPTIONS');
   });
+
+  it("ends a replay under --guard block with status 1 though the agent exited 0, as every attempt of --repeat, and with the agent's status under warn", async () => {
+    const { cwd, bun } = bunProject('bun-replay');
+    const recorded = await shadowlap(['run', '--', bun, 'agent.ts'], cwd);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const failsBecause = 'under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails';
+
+    const blocked = await shadowlap(['replay', runId, '--guard', 'block'], cwd);
+    expect(blocked.code, blocked.out).toBe(1);
+    expect(blocked.out).toContain('answered');
+    expect(blocked.out).toContain(failsBecause);
+    const warned = await shadowlap(['replay', runId, '--guard', 'warn'], cwd);
+    expect(warned.code, warned.out).toBe(0);
+    expect(warned.out).not.toContain(failsBecause);
+
+    // Every attempt fails for it, and the line that says why is printed once.
+    const repeated = await shadowlap(['replay', runId, '--guard', 'block', '--repeat', '2'], cwd);
+    expect(repeated.code, repeated.out).toBe(1);
+    expect(repeated.out.split(failsBecause).length - 1, repeated.out).toBe(1);
+    expect(repeated.out).toContain('2 of 2 exited 0');
+    const repeatedWarned = await shadowlap(['replay', runId, '--repeat', '2'], cwd);
+    expect(repeatedWarned.code, repeatedWarned.out).toBe(0);
+  }, 60_000);
 });

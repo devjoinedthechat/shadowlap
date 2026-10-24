@@ -23,12 +23,14 @@ cd sdks/python && uv run --no-project --with pytest --with-editable . python -m 
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
 
-`npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs. Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
+`npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
 
 ```sh
-uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic openai google-genai boto3
+uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic openai google-genai boto3 aiohttp websockets aiobotocore uvloop
 SHADOWLAP_PYTHON="$PWD/.venv/bin/python" npx vitest run
 ```
+
+A run fails when a test leaves a `.shadowlap` folder in the repository's root or in `testing/frameworks`, where the suites run: a test runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`).
 
 CI runs all of it on Linux, macOS and Windows with Node 22 and 24, and on Linux the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.16.0 too, the oldest Node the packages support. There the test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes.
 
@@ -61,7 +63,7 @@ The README's "How it works" and "Security" sections state the contract users rel
 
 ## Rules of the road
 
-- **Fingerprints never get fuzzier implicitly.** Anything excluded from matching is an explicit normalizer. A false replay hit is the worst bug this project can have.
+- **Fingerprints never get fuzzier implicitly.** Anything excluded from matching is an explicit normalizer, but for the few built-in exclusions the [design rule](docs/normalizers-and-redaction.md#calibrate) names, each a value that changes nothing the model does. A false replay hit is the worst bug this project can have.
 - **Recordings are append-only.** Never edit or delete rows in place.
 - **Provider modules stay declarative.** Adding a provider must not touch the engine; if it does, the abstraction is wrong.
 - **Nothing in the SDKs computes hashes or matches.** They are clients of the sidecar.

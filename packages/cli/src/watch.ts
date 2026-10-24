@@ -1,5 +1,6 @@
 import { statSync, watch } from 'node:fs';
 import { join, normalize, relative, resolve, sep } from 'node:path';
+import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 
 /**
@@ -117,10 +118,9 @@ export function watchAndRerun(opts: WatchOptions): Promise<void> {
       stopped = true;
       watcher.close();
       clearTimeout(timer);
-      process.off('SIGINT', exit);
-      process.off('SIGTERM', exit);
+      for (const s of STOP_SIGNALS) process.off(s, exit);
     };
-    // Watching ends on a stop signal, with its status: 130 for Ctrl-C.
+    // Watching ends on a stop signal, with its status: 130 for Ctrl-C, 129 for a closed terminal.
     const exit = (signal: NodeJS.Signals) => {
       close();
       process.exit(signalExit(signal));
@@ -135,8 +135,7 @@ export function watchAndRerun(opts: WatchOptions): Promise<void> {
         resolveWatch();
       }, { once: true });
     } else {
-      process.once('SIGINT', exit);
-      process.once('SIGTERM', exit);
+      for (const s of STOP_SIGNALS) process.once(s, exit);
     }
     // Watching starts before the first replay, so what that replay writes is known for its own too.
     replay(false).then(

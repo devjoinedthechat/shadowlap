@@ -25,6 +25,7 @@ import {
   type ReadPolicy,
   type Store,
 } from '@shadowlap/engine';
+import { STOP_SIGNALS } from '../agent-signals.js';
 import { formatBudget } from '../attempts.js';
 import { loadConfig } from '../config.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
@@ -399,9 +400,9 @@ export function register(program: Command): void {
       process.stdout.write(`  token: ${token}\n`);
       process.stdout.write(p.dim(`  POST ${server.url}/v1/tasks/<task>/attempts  ${baseUrl ? `{"model":"my-finetune"} (asks ${baseUrl})` : '{"model":"my-finetune","baseUrl":"http://127.0.0.1:8000/v1"}'}\n  with Authorization: Bearer <token>; GET /v1/tasks lists them. Ctrl-C stops.\n`));
       for (const t of ready) process.stdout.write(p.dim(`  ${safeLine(t.name)}: takes over at #${t.takeover!.callNo}\n`));
+      // Served until a stop signal: Ctrl-C, a supervisor's stop, or the terminal closing.
       await new Promise<void>((done) => {
-        process.once('SIGINT', () => done());
-        process.once('SIGTERM', () => done());
+        for (const s of STOP_SIGNALS) process.once(s, () => done());
       });
       await server.close();
     });

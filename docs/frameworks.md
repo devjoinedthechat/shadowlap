@@ -95,11 +95,7 @@ async for message in query(prompt=prompt, options=with_fence(ClaudeAgentOptions(
     ...
 ```
 
-`withFence` keeps the options' own hooks and adds its own after them. Outside Shadowlap every hook answers at once with nothing to change, so the same options serve production. Claude Code's model calls are recorded through `ANTHROPIC_BASE_URL`, like any Anthropic client's. It names its session in every request's `metadata.user_id`, which changes from one run to the next, so add one normalizer, once:
-
-```sh
-shadowlap normalize add --kind api --path '$.metadata.user_id' --replace '<session>'
-```
+`withFence` keeps the options' own hooks and adds its own after them. Outside Shadowlap every hook answers at once with nothing to change, so the same options serve production. Claude Code's model calls are recorded through `ANTHROPIC_BASE_URL`, like any Anthropic client's. Claude Code names its session, machine and account in every request's `metadata.user_id`, new in every session, and matching leaves that identifier out by itself, so a recording replays in the next session and on another machine with no normalizer. Another agent's `user_id` still counts.
 
 | Tool | Effect | Recording | Replay | After a fork |
 |---|---|---|---|---|

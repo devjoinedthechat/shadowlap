@@ -43,8 +43,8 @@ describe('Claude Agent SDK (Python) with shadowlap.adapters.claude_agent_sdk', {
         ][Math.min(assistantTurns, 5)],
       }),
     });
-    // Claude Code names its session in every request: masked, as docs/frameworks.md says to.
-    h = await startHarness({ upstreams: { anthropic: mock.url }, normalizers: [{ kind: 'api', path: '$.metadata.user_id', replace: '<session>' }] });
+    // Claude Code names its session in every request's metadata.user_id; matching masks it on its own.
+    h = await startHarness({ upstreams: { anthropic: mock.url } });
   });
   after(async () => {
     await h.close();
