@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 --test-timeout=60000 --test-reporter=spec"
+    "test": "node ../no-stray-stores.mjs node --test --test-concurrency=1 --test-timeout=60000 --test-reporter=spec"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.85",

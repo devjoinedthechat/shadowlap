@@ -63,8 +63,9 @@ jobs:
         run: node --test --test-reporter=spec testing/conformance/conformance.test.mjs
       - name: shadowlap test (offline golden replay)
         shell: bash
+        # A store of its own: the default one, in the folder it runs from, is the repository's root.
         run: |
-          node packages/cli/bin/shadowlap.js test testing/golden/reference-agent --junit shadowlap-junit.xml
+          node packages/cli/bin/shadowlap.js --db "$(mktemp -d)/shadowlap.db" test testing/golden/reference-agent --junit shadowlap-junit.xml
           grep -q 'failures="0"' shadowlap-junit.xml
       - name: CLI smoke (record, replay, fork)
         if: runner.os != 'Windows'

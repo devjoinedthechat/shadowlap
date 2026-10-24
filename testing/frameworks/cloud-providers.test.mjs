@@ -30,9 +30,11 @@ after(async () => {
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
+// Run in the test's own folder: run and replay keep their active-run file in the one they run in.
 async function shadowlap(db, args, env) {
   try {
     const { stdout, stderr } = await promisify(execFile)(process.execPath, [CLI, '--db', db, ...args], {
+      cwd: dir,
       env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', AWS_ACCESS_KEY_ID: AWS.accessKeyId, AWS_SECRET_ACCESS_KEY: AWS.secretAccessKey, AWS_REGION: AWS.region, AWS_EC2_METADATA_DISABLED: 'true', ...env },
       encoding: 'utf8',
       timeout: 120_000,
@@ -108,10 +110,11 @@ for (const c of CASES) {
         const pack = join(dir, `pack-${CASES.indexOf(c)}`);
         const packed = await shadowlap(db, ['pack', recordedRun, pack], {});
         assert.equal(packed.code, 0, packed.out);
-        const home = mkdtempSync(join(tmpdir(), 'fp-home-'));
+        const home = mkdtempSync(join(dir, 'home-'));
         const env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', HOME: home, USERPROFILE: home, AWS_REGION: AWS.region, AWS_EC2_METADATA_DISABLED: 'true', PROMPT: 'hello' };
         for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE']) delete env[name];
-        const r = await promisify(execFile)(process.execPath, [CLI, 'test', pack], { env, encoding: 'utf8', timeout: 120_000 }).then(
+        // A store of its own: the session it keeps never lands in a .shadowlap folder here.
+        const r = await promisify(execFile)(process.execPath, [CLI, '--db', join(dir, `test-${CASES.indexOf(c)}.db`), 'test', pack], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 }).then(
           ({ stdout, stderr }) => ({ code: 0, out: stdout + stderr }),
           (err) => ({ code: err.code ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}` }),
         );
