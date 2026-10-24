@@ -111,7 +111,7 @@ function PageFor({ route }: { route: Route }) {
     case 'overview':
       return <OverviewPage />;
     case 'runs':
-      return <RunsPage />;
+      return <RunsPage filter={route.filter} />;
     case 'run':
       // Not keyed on the id: a short id settling on the full one is the run already loaded, which
       // RunPage keeps; another run starts the page empty there.

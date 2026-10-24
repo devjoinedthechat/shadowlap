@@ -618,7 +618,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
             detail: `push ${teamStore.onlyLocal === 1 ? 'it' : 'them'} so the team can open ${teamStore.onlyLocal === 1 ? 'it' : 'them'}`,
             action: 'Push',
             // Runs, showing only those: each tagged local, and Push in the bulk bar sends the ones picked.
-            href: links.runs({ type: 'local' }),
+            href: links.runs({ types: 'local' }),
             runId: null,
             fixId: null,
             at: 0,
@@ -649,7 +649,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
     ...capped(tests.filter((t) => t.icon !== 'fail'), (n) => ({ icon: 'warn', title: `${plural(n, 'more test')} inconclusive`, detail: 'each on Tests', href: links.tests() })),
     ...capped(looks.presetsUnsure, (n) => ({ icon: 'warn', title: `${plural(n, 'more error-path test')} inconclusive`, detail: 'each on its run, under Runs', href: links.runs() })),
     ...capped(of('open').map(fixRow), (n) => ({ icon: 'blame', title: `${plural(n, 'more failure')} with no fix yet`, detail: 'each on Fixes', href: links.fixes() })),
-    ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: links.runs({ type: 'failed' }) })),
+    ...capped(unblamed, (n) => ({ icon: 'fail', title: `${plural(n, 'more failed run')} not blamed yet`, detail: 'the failed runs on Runs', href: links.runs({ types: 'failed' }) })),
     ...capped(looks.decisions, (n) => ({ icon: 'warn', title: `${plural(n, 'more preview')} of a change to look at`, detail: 'each on its run, under Runs', href: links.runs() })),
     ...capped(of('ready').map(fixRow), (n) => ({ icon: 'fixok', title: `${plural(n, 'more verified fix', 'more verified fixes')} ${n === 1 ? 'is' : 'are'} ready`, detail: 'each on Fixes', href: links.fixes() })),
     ...looks.coverage,

@@ -208,7 +208,8 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   for (const link of links) {
     const route = parseRoute(link);
     expect(route.page, link).not.toBe('notfound');
+    // A link to Runs with a filter opens that filter, and every link reads back as it was written.
     if (link.includes('?')) expect(runsLinkQuery(link), link).not.toBeNull();
-    else expect(routeHref(route), link).toBe(link);
+    expect(routeHref(route), link).toBe(link);
   }
 });

@@ -63,13 +63,13 @@ describe('Needs a look’s words', () => {
   const rows: NeedsLookRow[] = [
     { kind: 'test', icon: 'fail', title: 'A test failed: refund-in-limit', detail: 'diverged at call 3', action: 'Open', href: '#/run/01M5H2EWWY8P621C63CJPVEM4A', runId: '01M5H2EWWY8P621C63CJPVEM4A', fixId: null, at: 3 },
     { kind: 'unblamed', icon: 'fail', title: 'A run failed: 01M5H2F2QC digest', detail: 'not blamed yet', action: 'Run blame', href: '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', runId: '01M5H2F2QC9NCJ5PSZ0M4RX7VP', fixId: null, at: 2 },
-    { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?type=local', runId: null, fixId: null, at: 0 },
+    { kind: 'local', icon: 'rec', title: '12 runs are only on this machine', detail: 'push them so the team can open them', action: 'Push', href: '#/runs?types=local', runId: null, fixId: null, at: 0 },
   ];
 
   it('says where each line leads, and Open for every line where nothing runs', async () => {
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 })));
     expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Run blame →', 'Push →']);
-    expect(r.all('.needs .attn a').map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5H2EWWY8P621C63CJPVEM4A', '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', '#/runs?type=local']);
+    expect(r.all('.needs .attn a').map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5H2EWWY8P621C63CJPVEM4A', '#/run/01M5H2F2QC9NCJ5PSZ0M4RX7VP', '#/runs?types=local']);
     await r.unmount();
     r = await render(inApp(createElement(NeedsLook, { items: rows, total: 3 }), 'This dashboard is read-only: it was started with --read-only.'));
     expect(r.all('.needs .go').map(text)).toEqual(['Open →', 'Open →', 'Open →']);

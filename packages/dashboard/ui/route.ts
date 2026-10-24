@@ -1,4 +1,4 @@
-import { links, type LinkView } from '../src/links.js';
+import { links, parseRunsQuery, type LinkView, type RunsFilterRead } from '../src/links.js';
 
 /**
  * The dashboard's routes, as the URL fragment holds them. Parsing here, building in `src/links.ts`,
@@ -6,7 +6,7 @@ import { links, type LinkView } from '../src/links.js';
  * `router.ts` holds the hooks that follow the address bar.
  *
  *   #/                                   Overview
- *   #/runs                               Runs
+ *   #/runs[?q=&types=&sort=&from=&to=]   Runs, with what its filter, chips, sort and calendar show
  *   #/run/<id>[/<call>[/<view>]]         a run, a call, a view (the old #/run/<id>/call/<n> still opens)
  *   #/compare[/<a>/<b>]                  Compare
  *   #/fixes[/<id>[/<step>[/<sub>]]]      Fixes
@@ -21,7 +21,8 @@ export const CYCLE_VIEWS: readonly View[] = ['calls', 'turns', 'context', 'timel
 
 export type Route =
   | { page: 'overview' }
-  | { page: 'runs' }
+  /** `filter`: what the address asks Runs to show; absent for `#/runs` alone. */
+  | { page: 'runs'; filter?: RunsFilterRead }
   | { page: 'run'; id: string; call: number | null; view: View | null }
   | { page: 'compare'; a: string | null; b: string | null }
   | { page: 'fixes'; id: string | null; step: string | null; sub: string | null }
@@ -58,6 +59,8 @@ export function isView(s: unknown): s is View {
 
 export function parseRoute(hash: string): Route {
   const raw = hash.replace(/^#/, '').replace(/^\/+/, '').split(/[?&]/)[0] ?? '';
+  const at = hash.indexOf('?');
+  const query = at >= 0 ? hash.slice(at + 1) : '';
   const parts: string[] = [];
   for (const p of raw.split('/').filter(Boolean)) {
     const d = decode(p);
@@ -67,8 +70,11 @@ export function parseRoute(hash: string): Route {
   const [head, a, b, c] = parts;
   if (!head) return { page: 'overview' };
   switch (head) {
-    case 'runs':
-      return parts.length === 1 ? { page: 'runs' } : { page: 'notfound', path: raw };
+    case 'runs': {
+      if (parts.length !== 1) return { page: 'notfound', path: raw };
+      const filter = parseRunsQuery(query);
+      return filter ? { page: 'runs', filter } : { page: 'runs' };
+    }
     case 'run': {
       if (!a || !RUN_ID.test(a)) return { page: 'notfound', path: raw };
       // The CLI's old deep link: #/run/<id>/call/<n>.
@@ -108,7 +114,7 @@ export function routeHref(r: Route): string {
     case 'overview':
       return href.overview();
     case 'runs':
-      return href.runs();
+      return href.runs(r.filter ? { q: r.filter.q, types: r.filter.types, sort: r.filter.sort, from: r.filter.days?.from ?? null, to: r.filter.days?.to ?? null } : {});
     case 'run':
       return href.run(r.id, r.call, r.view);
     case 'compare':

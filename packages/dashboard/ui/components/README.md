@@ -106,8 +106,9 @@ and the Runs page's parts in `runspage/`: the calendar (`Calendar.tsx`, its logi
 the import dialog (`imports.ts` reads a file's first
 bytes for the engine's `guessImportFormat`, and dates the sample trace in `sample-otel.ts` to end now), Find the commit (`find-commit.ts`, what it asks bisect
 for) and authors; `runspage/query.ts` builds the page's requests and reads the
-filter a link to Runs asks for (`#/runs?q=…&type=failed`), so any screen can link to a filtered
-list. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
+filter its address holds (`#/runs?q=…&types=failed&sort=spent&from=…&to=…`, written by `links.runs`
+in `src/links.ts`), so any screen can link to a filtered list, and Back and Forward go through the
+views Runs showed. `teamstore.ts` has `useTeamStore()`, the team store as `GET /api/store` reports it, for any
 screen that changes with one (the top bar's *team* label among them); it reads again when the change
 feed's `team` counter moves (a push, a pull, a step of the setup). The store's setup is a page of its
 own, `#/setup/store` (`pages/settings/StoreSetup.tsx`, with its palette entry), its steps worked out in
