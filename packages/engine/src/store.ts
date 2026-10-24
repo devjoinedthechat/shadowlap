@@ -6,7 +6,8 @@ import type { RepairOutcome, RepairReport } from './repair.js';
 import type { GateResult } from './stats.js';
 import type { VerifyOutcome, VerifyReport } from './verify.js';
 import { currentOwner, recorderGone, type RunOwner } from './liveness.js';
-import { CACHE_WAIT_MS, inTransaction, parseJsonColumn, prepareStatements, ulidNow, type SqliteDatabase, type SqliteStatement, type SqlValue, type Statements } from './store/core.js';
+import { Activity } from './store/activity.js';
+import { CACHE_WAIT_MS, inTransaction, parseJsonColumn, prepareStatements, StorePart, ulidNow, type SqliteDatabase, type SqliteStatement, type SqlValue, type Statements } from './store/core.js';
 import { openDatabase, openDatabaseReadOnly, SCHEMA_VERSION, storedSchemaVersion } from './store/schema.js';
 import type {
   CallEndRow,
@@ -28,6 +29,7 @@ import type {
   StoredCheck,
 } from './types.js';
 
+export type { NewStoredEvent, StoredEvent } from './store/activity.js';
 export type { SqlValue } from './store/core.js';
 export { noFullTextSearch, SCHEMA_VERSION } from './store/schema.js';
 
@@ -415,22 +417,6 @@ export interface TeamSyncRow {
   data: Record<string, unknown>;
 }
 
-/** One row of the `events` table (v4): something a command did that the runs table doesn't show. */
-export interface StoredEvent {
-  eventId: string;
-  at: number;
-  /** Dotted, e.g. `normalizer.added`, `golden.packed`, `fix.applied`. See events.ts. */
-  kind: string;
-  /** Who did it (resolveAuthor), or null when unknown. */
-  actor: string | null;
-  runId: string | null;
-  /** What else it is about: a fix id, a golden path, a file. */
-  ref: string | null;
-  data: Record<string, unknown> | null;
-}
-
-export type NewStoredEvent = Partial<Pick<StoredEvent, 'eventId' | 'at' | 'actor' | 'runId' | 'ref' | 'data'>> & Pick<StoredEvent, 'kind'>;
-
 /** How much of a run the search index covers (search.ts): a row of `search_state`. */
 export interface SearchState {
   /** Calls indexed. */
@@ -625,6 +611,10 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
+// Store's methods that are a part's (mixIn, below): their signatures and comments are the part's own,
+// where the methods are written.
+export interface Store extends Pick<Activity, keyof Activity> {}
+
 /**
  * The append-only local store: runs, call events and content-addressed blobs in one SQLite file.
  * Every method is synchronous; SQLite on a local disk is fast enough and it
@@ -675,77 +665,6 @@ export class Store {
    */
   transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
     return inTransaction(this.db, fn, mode);
-  }
-
-  // ---- activity events (v4) ----
-
-  /** Appends one activity event; returns it as stored. */
-  addEvent(input: NewStoredEvent): StoredEvent {
-    const event: StoredEvent = {
-      eventId: input.eventId ?? ulidNow(),
-      at: input.at ?? Date.now(),
-      kind: input.kind,
-      actor: input.actor ?? null,
-      runId: input.runId ?? null,
-      ref: input.ref ?? null,
-      data: input.data ?? null,
-    };
-    this.db
-      .prepare(`INSERT INTO events (event_id, at, kind, actor, run_id, ref, data) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(event.eventId, event.at, event.kind, event.actor, event.runId, event.ref, event.data === null ? null : JSON.stringify(event.data));
-    return event;
-  }
-
-  /**
-   * Activity events, newest first (then by id, descending). `before` pages back (exclusive); with
-   * `beforeId`, the events at exactly `before` whose id sorts before it come too, so a cursor made
-   * of the last event's time and id never skips events that share a millisecond. `kinds` keeps only
-   * those kinds, `exceptKinds` leaves those out.
-   */
-  listEvents(options: { limit?: number; before?: number; beforeId?: string; kinds?: string[]; exceptKinds?: string[] } = {}): StoredEvent[] {
-    const where: string[] = [];
-    const params: unknown[] = [];
-    if (options.before !== undefined && options.beforeId !== undefined) {
-      where.push('at <= ? AND (at < ? OR event_id < ?)');
-      params.push(options.before, options.before, options.beforeId);
-    } else if (options.before !== undefined) {
-      where.push('at < ?');
-      params.push(options.before);
-    }
-    if (options.kinds?.length) {
-      where.push(`kind IN (${options.kinds.map(() => '?').join(', ')})`);
-      params.push(...options.kinds);
-    }
-    if (options.exceptKinds?.length) {
-      where.push(`kind NOT IN (${options.exceptKinds.map(() => '?').join(', ')})`);
-      params.push(...options.exceptKinds);
-    }
-    params.push(Math.max(1, Math.min(10_000, options.limit ?? 100)));
-    const rows = this.db.prepare(`SELECT * FROM events ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY at DESC, event_id DESC LIMIT ?`).all(...params);
-    return rows.map((r) => ({
-      eventId: String(r.event_id),
-      at: Number(r.at),
-      kind: String(r.kind),
-      actor: r.actor === null ? null : String(r.actor),
-      runId: r.run_id === null ? null : String(r.run_id),
-      ref: r.ref === null ? null : String(r.ref),
-      data: r.data === null ? null : (JSON.parse(String(r.data)) as Record<string, unknown>),
-    }));
-  }
-
-  // ---- change feed (v4) ----
-
-  /**
-   * How many writes each counted table has seen (`runs`, `events`, and any a feature adds), plus
-   * `calls`, the newest call event's rowid, which goes up as calls are recorded (deleting a run can
-   * lower it, and counts as a write to `runs`). Two readings that differ mean something changed in
-   * between. Cheap: one small table and one index lookup.
-   */
-  changeCounts(): Record<string, number> {
-    const out: Record<string, number> = {};
-    for (const r of this.db.prepare(`SELECT name, n FROM change_counts`).all()) out[String(r.name)] = Number(r.n);
-    out.calls = Number(this.db.prepare(`SELECT COALESCE(MAX(rowid), 0) AS n FROM call_events`).get()?.n ?? 0);
-    return out;
   }
 
   // ---- Fixes (v4): fixes, their links, and the blame, verdict and repair reports behind them ----
@@ -2304,6 +2223,25 @@ export class Store {
       }
     }
     return [...byCall.values()].sort((a, b) => a.callNo - b.callNo);
+  }
+}
+
+mixIn([Activity]);
+
+/**
+ * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call
+ * from one to another goes through the store, as a caller's does, so a view of the store made with
+ * Object.create that replaces a method (getBlob, to count what is read) is what the others call too.
+ * A name two places define stops store.ts loading.
+ */
+function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
+  for (const part of parts) {
+    if (Object.getPrototypeOf(part.prototype) !== StorePart.prototype) throw new Error(`${part.name} must extend StorePart`);
+    for (const key of Reflect.ownKeys(part.prototype)) {
+      if (key === 'constructor') continue;
+      if (Object.hasOwn(Store.prototype, key)) throw new Error(`Store.${String(key)} is defined twice`);
+      Object.defineProperty(Store.prototype, key, Object.getOwnPropertyDescriptor(part.prototype, key)!);
+    }
   }
 }
 

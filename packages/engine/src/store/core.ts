@@ -125,3 +125,19 @@ export function ulidNow(): string {
   lastUlidTime = now > lastUlidTime ? now : lastUlidTime + 1;
   return ulid(lastUlidTime);
 }
+
+/**
+ * A part of the store: the methods over one feature's tables. A part is never made on its own:
+ * Store (store.ts) takes each part's methods as its own, so `this` in them is the store, with the one
+ * connection and the statements it prepared, and a method calls another through the store as any
+ * caller does. What a part reads of the store is declared here; what it calls of another part, in
+ * the part.
+ */
+export abstract class StorePart {
+  /** The store's connection. */
+  protected declare readonly db: SqliteDatabase;
+  /** The statements the store prepared on it when it opened. */
+  protected declare readonly stmts: Statements;
+  /** `Store.transaction`. */
+  protected abstract transaction<T>(fn: () => T, mode?: 'deferred' | 'immediate'): T;
+}
