@@ -221,7 +221,7 @@ Exit status 0 when the change is accepted, 1 when it is rejected, 3 when the ver
 shadowlap repair --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
 ```
 
-Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
+Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree, and a good run against the same run under the code without the candidate, in another; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
 
 | Option | Effect |
 |---|---|
@@ -235,7 +235,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for `verify`. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for `verify` |
 | `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, before verify runs it when its rewrite alone does. Default 25 |
-| `--build <command>` | Build the agent in each candidate's worktree, and in the working tree after `--apply` |
+| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` |
 | `--apply` | Leave the accepted fix in the working tree |
 | `--branch <name>` | Commit it to a new branch without checking anything out |
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
