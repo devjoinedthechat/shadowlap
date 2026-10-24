@@ -104,13 +104,20 @@ export abstract class Team extends StorePart {
     return { pushedAt: row.pushed_at === null ? null : Number(row.pushed_at), pulledAt: row.pulled_at === null ? null : Number(row.pulled_at), data: typeof row.data === 'string' ? (JSON.parse(row.data) as Record<string, unknown>) : {} };
   }
 
-  /** Records a push, a pull, or setup progress (merged into `data`). */
+  /**
+   * Records a push, a pull, or setup progress (merged into `data`). Read and written back under the
+   * write lock, as updateRunMeta is, so a pull's stamp made while a push makes its own is kept.
+   */
   setTeamSync(remote: string, patch: { pushedAt?: number; pulledAt?: number; data?: Record<string, unknown> }): void {
-    const current = this.teamSync(remote) ?? { pushedAt: null, pulledAt: null, data: {} };
-    const next = { pushedAt: patch.pushedAt ?? current.pushedAt, pulledAt: patch.pulledAt ?? current.pulledAt, data: { ...current.data, ...(patch.data ?? {}) } };
-    this.db
-      .prepare(`INSERT INTO team_sync (remote, pushed_at, pulled_at, data) VALUES (?, ?, ?, ?) ON CONFLICT (remote) DO UPDATE SET pushed_at = excluded.pushed_at, pulled_at = excluded.pulled_at, data = excluded.data`)
-      .run(remote, next.pushedAt, next.pulledAt, JSON.stringify(next.data));
+    const merge = () => {
+      const current = this.teamSync(remote) ?? { pushedAt: null, pulledAt: null, data: {} };
+      const next = { pushedAt: patch.pushedAt ?? current.pushedAt, pulledAt: patch.pulledAt ?? current.pulledAt, data: { ...current.data, ...(patch.data ?? {}) } };
+      this.db
+        .prepare(`INSERT INTO team_sync (remote, pushed_at, pulled_at, data) VALUES (?, ?, ?, ?) ON CONFLICT (remote) DO UPDATE SET pushed_at = excluded.pushed_at, pulled_at = excluded.pulled_at, data = excluded.data`)
+        .run(remote, next.pushedAt, next.pulledAt, JSON.stringify(next.data));
+    };
+    if (this.db.isTransaction) merge();
+    else this.transaction(merge);
   }
 
   /** The fixes this machine and a store last agreed on, by fix id. */

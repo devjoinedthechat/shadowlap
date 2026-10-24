@@ -142,11 +142,20 @@ export abstract class Recording extends StorePart {
     return this.stmts.childRuns.all(runId).map(rowToRun);
   }
 
-  /** Merges `patch` into a run's metadata. */
+  /**
+   * Merges `patch` into a run's metadata. The metadata is read and written back under the write lock
+   * (in a transaction of its own, unless the caller has one open), so a change another command makes
+   * to it meanwhile, as the dashboard's label does while the sidecar keeps a run's preloads, waits and
+   * is not written over.
+   */
   updateRunMeta(runId: string, patch: Partial<RunMeta>): void {
-    const run = this.getRun(runId);
-    if (!run) throw new Error(`unknown run ${runId}`);
-    this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify({ ...(run.meta ?? {}), ...patch }), runId);
+    const merge = () => {
+      const run = this.getRun(runId);
+      if (!run) throw new Error(`unknown run ${runId}`);
+      this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify({ ...(run.meta ?? {}), ...patch }), runId);
+    };
+    if (this.db.isTransaction) merge();
+    else this.transaction(merge);
   }
 
   deleteRun(runId: string): void {
