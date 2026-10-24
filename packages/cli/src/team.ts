@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { liveKeys } from '@shadowlap/dashboard';
+import { links, liveKeys } from '@shadowlap/dashboard';
 import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
@@ -589,7 +589,7 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   }
   const out = { store: target.loc.url, pullRequest: target.pr, ...result, onlyLocal: left };
   emitJobEvent({ type: 'result', data: out }, t.env);
-  if (result.pushed.length || result.updated.length || result.repaired.length) emitJobEvent({ type: 'link', label: 'Open Runs', href: '#/runs' }, t.env);
+  if (result.pushed.length || result.updated.length || result.repaired.length) emitJobEvent({ type: 'link', label: 'Open Runs', href: links.runs() }, t.env);
   // Runs that were named and can't go: the command didn't do what it was asked.
   const code = runArgs.length && result.refused.length ? 1 : 0;
   if (flags.json) {

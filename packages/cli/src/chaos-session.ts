@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { links } from '@shadowlap/dashboard';
 import { hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
@@ -174,7 +175,7 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
     }
   } finally {
     const only = results.length === 1 ? results[0]! : null;
-    await endSession(session, results, flags, [...(only?.runId ? [{ label: 'Open the recording', href: `#/run/${only.runId}` }] : []), { label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) }]);
+    await endSession(session, results, flags, [...(only?.runId ? [{ label: 'Open the recording', href: links.run(only.runId) }] : []), { label: 'Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) }]);
   }
 }
 
@@ -209,7 +210,7 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
     if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('--expect')}\n`));
     results.push({ golden: null, runId: parent.runId, outcomes, judge, error: null, skipped: null });
   } finally {
-    await endSession(session, results, flags, [{ label: 'Open the run', href: `#/run/${parent.runId}` }]);
+    await endSession(session, results, flags, [{ label: 'Open the run', href: links.run(parent.runId) }]);
   }
 }
 

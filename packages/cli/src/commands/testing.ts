@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
+import { links } from '@shadowlap/dashboard';
 import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
@@ -575,9 +576,9 @@ export function register(program: Command): void {
       // session over several to the replay of each that failed, the first few, then Tests for them all.
       const only = results.length === 1 && packs.length === 1 ? results[0]! : null;
       // One primary action: the replay of a single golden, else Tests, with the other links beside it.
-      if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: `#/run/${only.runId}` });
-      else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: `#/run/${r.runId}`, secondary: true });
-      emitJobEvent({ type: 'link', label: 'Tests', href: '#/tests', ...(only?.runId ? { secondary: true } : {}) });
+      if (only?.runId) emitJobEvent({ type: 'link', label: only.ok ? 'Open the passing run' : 'Open the run', href: links.run(only.runId) });
+      else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: links.run(r.runId!), secondary: true });
+      emitJobEvent({ type: 'link', label: 'Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
       // Inconclusive ones are counted apart, and what CI does with them is said.
       const inconclusive = report.inconclusive ? `, ${report.inconclusive} inconclusive (${flags.inconclusive === 'warn' ? 'let through: --inconclusive warn' : 'failing the run: --inconclusive warn lets them through'})` : '';
       const passedCount = results.filter((r) => r.verdict === 'passed').length;
@@ -632,7 +633,7 @@ export function register(program: Command): void {
         else process.stdout.write(formatBisect(report, p) + '\n');
         emitJobEvent({ type: 'result', data: report });
         // Where the answer shows: above a golden's buttons on Tests, or on the run's page.
-        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: '#/tests' } : { type: 'link', label: 'Open the run', href: `#/run/${report.target.runId}` });
+        emitJobEvent(report.target.kind === 'golden' ? { type: 'link', label: 'Open Tests', href: links.tests() } : { type: 'link', label: 'Open the run', href: links.run(report.target.runId) });
         // Found, 0; no first bad commit between the two, 1; a commit at either end that couldn't be tested, 3; cut short by a signal, its status.
         process.exitCode = report.outcome === 'found' ? EXIT.ok : report.outcome === 'untestable' ? EXIT.inconclusive : report.outcome === 'stopped' ? interruptedStatus() : EXIT.failed;
       } catch (err) {

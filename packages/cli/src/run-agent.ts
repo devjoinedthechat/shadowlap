@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { links } from '@shadowlap/dashboard';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
@@ -666,7 +667,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await sidecar.close();
   store.close();
   emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary } });
-  emitJobEvent({ type: 'link', label: `Open run ${run.runId.slice(0, 10)}`, href: `#/run/${run.runId}` });
+  emitJobEvent({ type: 'link', label: `Open run ${run.runId.slice(0, 10)}`, href: links.run(run.runId) });
   // Team store: a run someone pushed while it was recording goes to the store now that it has ended.
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });

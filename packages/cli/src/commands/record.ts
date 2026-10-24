@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
+import { links } from '@shadowlap/dashboard';
 import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
@@ -276,7 +277,7 @@ export function register(program: Command): void {
         if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
         emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
-        emitJobEvent({ type: 'link', label: 'Open the attempts', href: `#/run/${parent.runId}/${first?.callNo ?? 1}/forks` });
+        emitJobEvent({ type: 'link', label: 'Open the attempts', href: links.run(parent.runId, first?.callNo ?? 1, 'forks') });
         // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
         // A signal ends it with the signal's status; then a divergence under --strict, an attempt that

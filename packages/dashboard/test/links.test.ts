@@ -96,4 +96,12 @@ describe('the server’s links', () => {
     });
     expect(own).toEqual([]);
   });
+
+  it('and so are the links a command reports to its dashboard job: the CLI writes none of its own', () => {
+    const cli = fileURLToPath(new URL('../../cli/src/', import.meta.url));
+    const own = sources(cli).flatMap(({ file, code }) => [...code.matchAll(/['"`]#\/[^'"`]*/g)].map((m) => `${file.slice(cli.length)}: ${m[0]}`));
+    expect(own).toEqual([]);
+    // The sites that wrote them by hand build them now.
+    for (const file of ['chaos-session.ts', 'run-agent.ts', 'team.ts', 'commands/coverage.ts', 'commands/testing.ts', 'commands/changes.ts', 'commands/injection.ts', 'commands/record.ts', 'commands/training.ts']) expect(readFileSync(join(cli, file), 'utf8'), file).toMatch(/import \{ [^}]*\blinks\b[^}]*\} from '@shadowlap\/dashboard'/);
+  });
 });
