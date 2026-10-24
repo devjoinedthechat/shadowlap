@@ -1,7 +1,8 @@
 /**
  * What every part of the store shares: the one SQLite connection, the statements prepared once for
  * the calls a recording makes most, transactions, ids, and reading a JSON column. Store (store.ts)
- * opens the connection and hands it, with those statements, to each part (store/*.ts).
+ * holds the connection and those statements, and each part's methods (store/*.ts) read them as the
+ * store's own.
  */
 import { createRequire } from 'node:module';
 import { ulid } from '../ids.js';
@@ -131,7 +132,8 @@ export function ulidNow(): string {
  * Store (store.ts) takes each part's methods as its own, so `this` in them is the store, with the one
  * connection and the statements it prepared, and a method calls another through the store as any
  * caller does. What a part reads of the store is declared here; what it calls of another part, in
- * the part.
+ * the part. A part has methods only: what one keeps for as long as the store is open is a field of
+ * Store's, which the part declares (as query's statement cache is).
  */
 export abstract class StorePart {
   /** The store's connection. */

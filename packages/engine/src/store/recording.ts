@@ -9,6 +9,7 @@ import { sha256 } from '../ids.js';
 import { currentOwner, recorderGone, type RunOwner } from '../liveness.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, CallStartRow, DivergenceReport, Effect, Origin, Outcome, RunCommand, RunMeta, RunMode, RunRecord, RunStatus } from '../types.js';
 import { StorePart, ulidNow } from './core.js';
+import type { Search } from './search.js';
 
 const GZIP_THRESHOLD = 512;
 
@@ -24,7 +25,7 @@ export interface CreateRunInput {
 
 export abstract class Recording extends StorePart {
   /** The search index's (store/search.ts): a run deleted takes its documents with it. */
-  protected abstract deleteSearchDocs(runId: string, all?: boolean): void;
+  protected abstract readonly deleteSearchDocs: Search['deleteSearchDocs'];
 
   // ---- runs ----
 
