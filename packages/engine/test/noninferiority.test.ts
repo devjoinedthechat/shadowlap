@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addPair, clopperPearson, decideAgainstHistory, decidePaired, describeBaselineRule, dropBound, historyDrop, historyOdds, KEPT_DEFAULTS, NO_PAIRS, pairedDrop, pairedOdds, pairedWorstCase, type BaselineRule, type PairCounts } from '../src/noninferiority.js';
+import { addPair, clopperPearsonBound, decideAgainstHistory, decidePaired, describeBaselineRule, dropBound, historyDrop, historyOdds, KEPT_DEFAULTS, NO_PAIRS, pairedDrop, pairedOdds, pairedWorstCase, type BaselineRule, type PairCounts } from '../src/noninferiority.js';
 
 /**
  * verify keeps a good run when it is not worse than its own baseline by the margin or more. The
@@ -158,10 +158,10 @@ describe('the paired test, by simulation', () => {
 describe('against history', () => {
   it('bounds a pass rate exactly from its passes (Clopper-Pearson)', () => {
     // 0 of 10: the rule of three's exact form, 1 - 0.05^(1/10).
-    expect(clopperPearson(0, 10, 0.05, 'upper')).toBeCloseTo(1 - 0.05 ** 0.1, 6);
-    expect(clopperPearson(10, 10, 0.05, 'lower')).toBeCloseTo(0.05 ** 0.1, 6);
-    expect(clopperPearson(5, 5, 0.05, 'upper')).toBe(1);
-    expect(clopperPearson(47, 50, 0.025, 'upper')).toBeCloseTo(0.9875, 3);
+    expect(clopperPearsonBound(0, 10, 0.05, 'upper')).toBeCloseTo(1 - 0.05 ** 0.1, 6);
+    expect(clopperPearsonBound(10, 10, 0.05, 'lower')).toBeCloseTo(0.05 ** 0.1, 6);
+    expect(clopperPearsonBound(5, 5, 0.05, 'upper')).toBe(1);
+    expect(clopperPearsonBound(47, 50, 0.025, 'upper')).toBeCloseTo(0.9875, 3);
   });
 
   it('keeps a run that dropped by the margin or more at most `risk` of the time, its history drawn as well', () => {

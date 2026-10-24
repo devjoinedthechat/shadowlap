@@ -122,7 +122,7 @@ describe('shadowlap blame', () => {
     // Each probe is decided by blame's gate, which tells a rescue at 60% or more from lost at 10% or
     // less, its 5% risk spent across the search's five probes, 1% each: six straight failures lose a
     // probe. Each says its verdict, its tally and the Wilson bound at its own confidence, the rule once.
-    expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(99%\\); #${last}, the next model call: lost · 0 of 6 · rate <= 0\\.53 \\(99%\\)\\.`));
+    expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(99%\\); #${last}, the next model call: lost · 0 of 6 · rate <= 0\\.59 \\(99%\\)\\.`));
     expect(r.stdout).toMatch(/Confidence: high \(<= \d\.\d% risk that the call is wrong: 3 probes decided, at <= 0\.\d% risk each\)/);
     // The rule, and under it what a probe changes: each line fits an 80-column terminal.
     // The rule names the search's risk and a probe's cap: 20 attempts at 5%, deepened to 32 at its 1% share.
@@ -133,7 +133,7 @@ describe('shadowlap blame', () => {
     expect(r.stdout).toContain('"Above the limit.", escalate({"reason":"refund of $240 is above $100"})');
     expect(r.stdout).toMatch(new RegExp(`#${first} +1 of 4 .* rescued`));
     expect(r.stdout).toMatch(new RegExp(`#${decision} +3 of 4 .* rescued  ◂ blamed`));
-    expect(r.stdout).toMatch(new RegExp(`#${last} +4 of 4 +0 of 6 passed · rate <= 0\\.53 \\(99%\\) +lost`));
+    expect(r.stdout).toMatch(new RegExp(`#${last} +4 of 4 +0 of 6 passed · rate <= 0\\.59 \\(99%\\) +lost`));
 
     // Nothing a probe did reached the world: every refund and escalation after a fork was stubbed.
     expect(outbox().map((e) => e.tool)).toEqual(['issue_refund']);
@@ -175,7 +175,7 @@ describe('shadowlap blame', () => {
     expect(report.probes).toHaveLength(1);
     // Six straight failures: lost, at the 1% each probe of five gets of the search's 5%.
     expect(report.probes[0]!.runs).toHaveLength(6);
-    expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.53 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts' } });
+    expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.59 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts' } });
 
     const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--json']);
     expect(strong.code, strong.out).toBe(0);
@@ -357,7 +357,7 @@ describe('shadowlap blame', () => {
     expect(report.probes).toHaveLength(1);
     const p = report.probes[0]!;
     expect(p).toMatchObject({ decision: 'fail', rescued: false });
-    expect(p.rate.sentence).toMatch(/^lost · 0 of 6 (\(and 1 more that ended after it decided\) )?· rate <= 0\.53 \(99%\)/);
+    expect(p.rate.sentence).toMatch(/^lost · 0 of 6 (\(and 1 more that ended after it decided\) )?· rate <= 0\.59 \(99%\)/);
     // While it ran, the other worker started an attempt only while fewer than two had started that the
     // gate couldn't read yet, where it used to start one after another until the held one ended: at
     // most one ran past the six decided on.

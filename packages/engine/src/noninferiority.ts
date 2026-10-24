@@ -198,7 +198,7 @@ export function pairedDrop(c: Pick<PairCounts, 'better' | 'worse' | 'same'>, ris
 // ---- Against history --------------------------------------------------------------------------------
 
 /** The exact one-sided Clopper-Pearson bound on a pass rate from `passes` of `attempts`, at 1 - risk. */
-export function clopperPearson(passes: number, attempts: number, risk: number, side: 'upper' | 'lower'): number {
+export function clopperPearsonBound(passes: number, attempts: number, risk: number, side: 'upper' | 'lower'): number {
   if (!(attempts >= 0) || passes < 0 || passes > attempts) throw new RangeError(`passes (${passes}) and attempts (${attempts}) must satisfy 0 <= passes <= attempts`);
   if (side === 'upper' && passes === attempts) return 1;
   if (side === 'lower' && passes === 0) return 0;
@@ -233,7 +233,7 @@ export function historyBrokenLog(changed: Tally, ceiling: number): number {
 
 /** The bounds on the baseline's pass rate a history gives, each at 1 - risk/2. */
 export function historyBounds(history: Tally, risk: number): { lo: number; hi: number } {
-  return { lo: clopperPearson(history.passes, history.attempts, risk / 2, 'lower'), hi: clopperPearson(history.passes, history.attempts, risk / 2, 'upper') };
+  return { lo: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'lower'), hi: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'upper') };
 }
 
 /**
