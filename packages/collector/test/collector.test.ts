@@ -84,6 +84,25 @@ describe('the store', () => {
   });
 });
 
+describe('a full disk', () => {
+  it('fails a batch with the error that says the disk is full, and keeps none of it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'collector-full-'));
+    try {
+      const store = new CollectorStore(join(dir, 'collector.db'));
+      const db = (store as unknown as { db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } } }).db;
+      const pages = (db.prepare('PRAGMA page_count').get() as { page_count: number }).page_count;
+      // Room for a page or two more: a batch of thousands of events can't fit, as on a disk that filled up.
+      db.exec(`PRAGMA max_page_count = ${pages + 2}`);
+      const events = Array.from({ length: 5000 }, (_, i) => event({ calls: i })) as ValidEvent[];
+      expect(() => store.ingest({ v: 1, installId: '123e4567-e89b-12d3-a456-426614174000', sentAt: NOW, events })).toThrow(/full/);
+      expect((db.prepare('SELECT count(*) AS n FROM events').get() as { n: number }).n).toBe(0);
+      store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('dashboard', () => {
   it('shows an empty state, then the numbers, and refreshes cached aggregates when a batch arrives', async () => {
     const c = await startCollector({ db: ':memory:', rateLimitPerMinute: 100, statsCacheMs: 60_000 });

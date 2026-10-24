@@ -17,6 +17,8 @@ interface Stmt {
   all(...p: unknown[]): Record<string, unknown>[];
 }
 interface Db {
+  /** Whether a transaction is open (Node 22.16+). SQLite ends one itself on some errors, such as a full disk. */
+  readonly isTransaction?: boolean;
   exec(sql: string): void;
   prepare(sql: string): Stmt;
   close(): void;
@@ -102,7 +104,9 @@ export class CollectorStore {
       for (const e of batch.events) this.insertEvent(batch.installId, e, receivedAt);
       this.db.exec('COMMIT');
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      // On a full disk SQLite has already rolled the batch back, and a second ROLLBACK would throw
+      // "no transaction is active" in place of the error that says what happened.
+      if (this.db.isTransaction !== false) this.db.exec('ROLLBACK');
       throw err;
     }
     return batch.events.length;
