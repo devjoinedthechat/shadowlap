@@ -140,13 +140,17 @@ export function routeHref(r: Route): string {
 
 /**
  * The link `shadowlap dashboard` prints carries the session token, and a view to open:
- * `#token=…&open=/run/<id>/call/<n>`. The token and the view to open, or null for any other fragment.
+ * `#token=…&open=/run/<id>/call/<n>`. The view may hold a query, as a view of Runs does, and is then
+ * the link's last part: `#token=…&open=/runs?types=failed&sort=spent`. The token and the view to open,
+ * or null for any other fragment.
  */
 export function readTokenLink(hash: string): { token: string; open: string } | null {
   const token = /(?:^#|&)token=([A-Za-z0-9_-]+)/.exec(hash)?.[1];
   if (!token) return null;
-  const open = /&open=(\/[A-Za-z0-9/_-]*)/.exec(hash)?.[1];
-  return { token, open: `#${open ?? '/'}` };
+  const path = /&open=(\/[A-Za-z0-9/_-]*)/.exec(hash)?.[1];
+  // A view of Runs with its filter: what follows the path, as long as it is a route's own characters.
+  const query = path === '/runs' ? /&open=\/runs(\?[\w\-.~%=&+:@,!*$]*)$/.exec(hash)?.[1] : undefined;
+  return { token, open: `#${path ?? '/'}${query ?? ''}` };
 }
 
 /**

@@ -53,6 +53,12 @@ describe('routes', () => {
     expect(readTokenLink('#token=abc_DEF-1&open=/run/01K5CQ4P2R/call/17')).toEqual({ token: 'abc_DEF-1', open: '#/run/01K5CQ4P2R/call/17' });
     expect(readTokenLink('#token=abc')).toEqual({ token: 'abc', open: '#/' });
     expect(readTokenLink('#/runs')).toBeNull();
+    // A view of Runs with its filter, the link's last part.
+    expect(readTokenLink('#token=t&open=/runs?types=failed&sort=spent&from=2026-10-20&to=2026-10-22')).toEqual({ token: 't', open: '#/runs?types=failed&sort=spent&from=2026-10-20&to=2026-10-22' });
+    expect(parseRoute(readTokenLink('#token=t&open=/runs?q=refund%20A&types=fork')!.open)).toEqual({ page: 'runs', filter: { q: 'refund A', types: 'fork', sort: 'when', days: null } });
+    // Only Runs takes one, and only a route's own characters.
+    expect(readTokenLink('#token=t&open=/run/01K5CQ4P2R?x=1')!.open).toBe('#/run/01K5CQ4P2R');
+    expect(readTokenLink('#token=t&open=/runs?q=<script>')!.open).toBe('#/runs');
     expect(parseRoute(readTokenLink('#token=t&open=/run/01K5CQ4P2R/call/17')!.open)).toMatchObject({ page: 'run', call: 17 });
   });
 
