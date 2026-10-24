@@ -51,7 +51,7 @@ Document a new command or flag in `docs/cli.md`, in the section of its command, 
 | `packages/sdk` · `sdks/python` | Thin SDK clients: `tool()`, `now()`, `random()`, `uuid()`, `scope()`. Both implement [the wire protocol](docs/protocol.md); a change to either usually belongs in that spec and in the conformance suite |
 | `packages/adapters` | Framework adapters for TypeScript; the Python ones are in `sdks/python/shadowlap/adapters` |
 | `packages/cli` | The `shadowlap` command. `src/commands/` holds one module per help group; `run-agent.ts` runs an agent under a sidecar; `recordings.ts` is the host behind the pytest and Vitest plugins |
-| `packages/test` | `@shadowlap/test`: recorded tests for Vitest and node:test |
+| `packages/test` | `@shadowlap/test`: recorded tests for Vitest, Jest and node:test |
 | `packages/tui` · `packages/dashboard` | The Ink terminal UI; the local web dashboard (server in `src`, React UI in `ui`) |
 | `packages/collector` | The self-hostable telemetry collector |
 | `sdks/python/shadowlap/_capture.py` · `litellm_callback.py` | Capturing model calls at a gateway already in the request path, for `shadowlap import litellm`. `_capture.py` decides what to keep and imports nothing from LiteLLM, so it is tested without it |

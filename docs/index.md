@@ -22,7 +22,7 @@ Shadowlap is change safety for agents: every change to an agent (its code, its p
 
 1. **A replay forks at the first request that changes, not where the bug is.** Fixes to the code around the model change no request and replay in full. Editing the system prompt changes every request and forks at call 1; you get the diff and a fenced fork, but no savings. See [How it works](./how-it-works.md#where-forks-happen).
 2. **Nothing is matched fuzzily.** Two requests match only if they are identical after the [normalizers](./normalizers-and-redaction.md) you wrote. A false replay hit would be the worst bug this tool could have, so it reports a false divergence instead and shows you how to fix it.
-3. **Side effects that don't go through Shadowlap will run again.** Wrap tools with the [SDK](./sdk.md) or a [framework adapter](./frameworks.md); anything else (a direct database client, an unwrapped HTTP call) is invisible to replay.
+3. **Side effects that don't go through Shadowlap will run again.** Wrap tools with the [SDK](./sdk.md) or a [framework adapter](./frameworks.md). A tool the model called that the run never recorded is [named](./how-it-works.md#tools-shadowlap-did-not-record), and a replay won't run one that writes until you wrap it, declare it a read or allow it; anything else (a direct database client, an unwrapped HTTP call) is invisible to replay.
 
 ## Where to go
 

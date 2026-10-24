@@ -156,12 +156,12 @@ describe('the pull request comment', () => {
 
   /** A test report's result, a golden that replayed clean unless told otherwise. */
   const result = (over: Partial<ReportResult> & Record<string, unknown>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: true, verdict: 'passed', failure: null, message: null, runId: 'R1', runs: [{ runId: 'R1', ok: true, verdict: 'passed' }], ...over }) as ReportResult;
-  const gated = (verdict: 'passed' | 'failed' | 'inconclusive') => ({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80, sentence: `${verdict} · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts` });
+  const gated = (verdict: 'passed' | 'failed' | 'inconclusive') => ({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80, sentence: `${verdict} · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts` });
 
   it('says each golden\'s verdict in one line, as every report says it: the verdict word first, a gate\'s tally, bound and rule', () => {
     expect(verdictLine(result({}))).toBe('passed · replayed clean');
     expect(verdictLine(result({ mode: 'fork', divergence: { type: 'request_changed', callNo: 3 }, checks: [{ ok: true, label: 'a', detail: null, status: 'passed' }, { ok: true, label: 'b', detail: null, status: 'passed' }] }))).toBe('passed · forked at call 3 · 2 checks passed');
-    expect(verdictLine(result({ gate: gated('passed') }))).toBe('passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(verdictLine(result({ gate: gated('passed') }))).toBe('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(verdictLine(result({ ok: false, verdict: 'failed', gate: gated('failed'), message: 'failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts' }))).toBe('failed · 3 of 12 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(verdictLine(result({ ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time' }))).toBe('failed · check failed: issue_refund called 0 times, but called 1 time');
     expect(verdictLine(result({ ok: false, verdict: 'inconclusive', failure: 'injection', message: 'injection inconclusive: 5 of 5 attempts could not be judged' }))).toBe('inconclusive · injection inconclusive: 5 of 5 attempts could not be judged');
@@ -222,7 +222,7 @@ describe('the pull request comment', () => {
       '|---|---|---|---|',
       '| ❌ | `goldens/refund|flow` | failed · check failed: issue_refund called 0 times, but called 1 time | ✅ passed |',
       '| ✅ | `goldens/triage` | passed · replayed clean | ❌ failed |',
-      '| ✅ | `goldens/new-one` | passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |',
+      '| ✅ | `goldens/new-one` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |',
       '',
       'Compared with `main` as the test history last tested it, at `e5f6a7b`.',
       '',

@@ -8,7 +8,9 @@ Shadowlap records your agent's model calls and the tools you wrap, then replays 
 
 ## Quickstart
 
-Install the CLI (Node 22.16 or later, not 23), then let it read your project:
+See the whole loop first, with no key and nothing to clone: `npx shadowlap demo` records a refund agent breaking its policy, replays it with 0 upstream requests, finds the model call that lost the run, and has a fix proposed, proven and applied, against a scripted model on 127.0.0.1.
+
+Then install the CLI (Node 22.16 or later, not 23), and let it read your project:
 
 ```sh
 npm install -g shadowlap
@@ -23,7 +25,7 @@ shadowlap init
 npm install @shadowlap/sdk
 # wrap them in your framework (Node 18.18+)
 npm install @shadowlap/adapters
-# record tests in Vitest or node:test (Node 22.16+, not 23)
+# record tests in Vitest, Jest or node:test (Node 22.16+, not 23)
 npm install -D @shadowlap/test
 # Python 3.9+: all three in one package
 pip install shadowlap
@@ -44,7 +46,7 @@ shadowlap dashboard
 
 - **Reproduce a failure exactly.** `shadowlap replay <run>` serves every call from the recording. A what-if changes the run at one call and replays everything before it: `--override`, `--fail-at`, `--inject`, `--model`.
 - **Find the call that lost the run.** `shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'` asks model calls again, each from a fork, and names the last one whose new answer can still save the run.
-- **Prove the fix.** `shadowlap repair` asks a model you choose, or your own Claude Code, to rewrite the system prompt or a tool description, and keeps the smallest rewrite that fixes the failing runs and breaks no good one. `--repairer anthropic` needs the Anthropic SDK beside the CLI: `npm install -g @anthropic-ai/sdk`. `shadowlap verify` gives a fix you wrote yourself the same proof, and exits 1 unless it accepts the fix.
+- **Prove the fix.** `shadowlap repair` asks a model you choose, or your own Claude Code, to rewrite the system prompt or a tool description, and keeps the smallest rewrite that fixes the failing runs and leaves no good run 10 points or more worse than before. `--repairer anthropic` needs the Anthropic SDK beside the CLI: `npm install -g @anthropic-ai/sdk`. `shadowlap verify` gives a fix you wrote yourself the same proof, and exits 0 only when it accepts the fix: 1 when it rejects it, 3 when it can't decide.
 - **Keep it fixed in CI.** `shadowlap test goldens/*` replays committed recordings offline and fails on a changed request, a live call, an error exit or a failed check. On GitHub it is one step after your checkout, Node and build steps: `uses: devjoinedthechat/shadowlap@v0.1.0`, with `version: 0.1.0` ([the workflow](https://github.com/devjoinedthechat/shadowlap/blob/main/docs/ci.md#github-actions)).
 - **Change models and prompts safely.** `shadowlap decisions <runs or goldens/*> --model <model>` asks the recorded model calls again under the change and ranks what they decide differently, writes first. `shadowlap migrate --to <model>` verifies and prices a switch.
 

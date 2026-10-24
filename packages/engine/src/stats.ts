@@ -96,9 +96,11 @@ export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ g
 
 /**
  * Blame's: a probe tells a re-asked call that passes 60% of the time or more (a rescue) from one
- * that passes 10% or less (the run is lost there). Two straight passes rescue and four straight
- * failures lose, what 2 of 5 cost; up to 20 attempts settle the calls in between, which 10 left
- * inconclusive about a quarter of the time.
+ * that passes 10% or less (the run is lost there). The 5% is the whole search's, never one probe's:
+ * blame spreads it over the most probes the search can make, 1 + ⌈log₂ m⌉ + scan for m model calls,
+ * and runs each probe at its share with `max` deepened to match (`probeGate` in blame.ts). For a
+ * search of 5 to 10 probes that is about 1% to 0.5% a probe and 32 to 36 attempts, where three
+ * straight passes rescue and six or seven straight failures lose.
  */
 export const BLAME_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.6, bad: 0.1, risk: 0.05, max: 20 });
 

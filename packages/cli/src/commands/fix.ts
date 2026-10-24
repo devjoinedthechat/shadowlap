@@ -377,7 +377,7 @@ export function register(program: Command): void {
 
   program
     .command('verify')
-    .description('Check a change before it ships: replay failing runs, which it must now fix, and good runs, which it must not break, under the code as it is now. Exits 1 unless the change is accepted.')
+    .description('Check a change before it ships: replay failing runs, which it must now fix, and good runs, which it must not leave worse than their baseline, under the code as it is now. Exits 0 only when the change is accepted: 1 when it is rejected, 3 when it can\'t be decided.')
     .argument('[command...]', 'run this command instead of each run\'s recorded one (after "--")')
     .option('--fixes <run...>', 'failing runs the change was written to fix: run ids, or label:<name>')
     .option('--holdout <run...>', 'failing runs of the same kind that the change was not written against')

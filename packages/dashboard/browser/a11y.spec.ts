@@ -33,6 +33,20 @@ test('a fork’s page says what it did differently, and has no serious or critic
   expect(await seriousViolations(page)).toEqual([]);
 });
 
+test('a fork’s writes and a kept run’s baseline wrap: a phone shows the fork, and a laptop the fix’s runs, with nothing running past them', async ({ page }) => {
+  // A phone: the fork's page is no wider than the phone, its writes' arguments wrapped.
+  await page.setViewportSize({ width: 390, height: 900 });
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.waitForSelector('.fdiff .fdw code');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  // A laptop: the table of the runs a fix was verified on doesn't scroll sideways for a good run's baseline.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
+  const table = page.locator('main#view section.panel.tscroll', { has: page.locator('.fxbase') }).first();
+  await table.waitFor();
+  expect(await table.evaluate((el) => el.scrollWidth - el.clientWidth)).toBe(0);
+});
+
 test('the fix’s steps group their attempts by what each did, with no serious or critical axe violation', async ({ page }) => {
   await openPage(page, `/fixes/${demoId('refundFix')}/verify`, 'fix');
   await page.waitForSelector('main#view table.t tbody tr');
