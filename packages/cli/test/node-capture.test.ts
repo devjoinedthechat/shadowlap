@@ -248,41 +248,34 @@ console.log('children', execFileSync('sh', ['-c', 'echo "$OPENAI_BASE_URL"']).to
   });
 });
 
-describe('a WebSocket for the sidecar', () => {
-  let server: Server;
-  let base: string;
+/** A server that completes each WebSocket handshake it is offered, then closes the connection, keeping each one's URL and x-shadowlap-upstream. */
+async function handshakes(): Promise<{ origin: string; upgrades: Array<{ url: string; upstream: string | undefined }>; close(): Promise<void> }> {
   const upgrades: Array<{ url: string; upstream: string | undefined }> = [];
   const sockets = new Set<Duplex>();
-  beforeAll(async () => {
-    // Stands in for the sidecar, which speaks plain HTTP: it completes each handshake it is offered,
-    // then closes the connection.
-    server = createServer();
-    server.on('upgrade', (req: IncomingMessage, socket: Duplex) => {
-      sockets.add(socket);
-      upgrades.push({ url: req.url!, upstream: req.headers['x-shadowlap-upstream'] as string | undefined });
-      const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
-      const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0]!.trim();
-      socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
-      socket.end(Buffer.from([0x88, 0x00]));
-    });
-    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
-    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/t/token`;
+  const server = createServer();
+  server.on('upgrade', (req: IncomingMessage, socket: Duplex) => {
+    sockets.add(socket);
+    upgrades.push({ url: req.url!, upstream: req.headers['x-shadowlap-upstream'] as string | undefined });
+    const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+    const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0]!.trim();
+    socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
+    socket.end(Buffer.from([0x88, 0x00]));
   });
-  afterAll(() => {
-    for (const socket of sockets) socket.destroy();
-    server.closeAllConnections();
-    return new Promise<void>((r) => server.close(() => r()));
-  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  return {
+    origin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    upgrades,
+    close: () => {
+      for (const socket of sockets) socket.destroy();
+      server.closeAllConnections();
+      return new Promise<void>((r) => server.close(() => r()));
+    },
+  };
+}
 
-  it("opens as ws:// from Node's WebSocket, the ws package and the OpenAI SDK's Realtime client, and on the sidecar's route from a provider's host", async () => {
-    const env = { ...process.env, ...guardEnv('warn', {}), SHADOWLAP_URL: base, SHADOWLAP_RUN_ID: 'R1', OPENAI_API_KEY: 'sk-test' };
-    const wsBase = base.replace(/^http:/, 'wss:');
-    const { stdout } = await agent(
-      'websocket',
-      `
-import WS from 'ws';
-import OpenAI from 'openai';
-import { OpenAIRealtimeWS } from 'openai/realtime/ws';
+/** An agent's source that opens `opens` ([label, expression] pairs) one after another, printing how each went. */
+const opening = (imports: string, opens: Array<[string, string]>) => `
+${imports}
 const opened = (socket, label) => new Promise((resolve) => {
   const done = (what) => { console.log(label, what); resolve(); };
   if (socket.addEventListener) {
@@ -293,19 +286,60 @@ const opened = (socket, label) => new Promise((resolve) => {
     socket.on('error', (e) => done('error ' + e.message));
   }
 });
-await opened(new WebSocket(${JSON.stringify(wsBase)} + '/openai/v1/realtime?model=m1', ['realtime']), 'native');
-await opened(new WS(${JSON.stringify(wsBase)} + '/openai/v1/realtime?model=m2'), 'ws');
-const rt = new OpenAIRealtimeWS({ model: 'm3' }, new OpenAI({ baseURL: process.env.SHADOWLAP_URL + '/openai/v1' }));
-await opened(rt.socket, 'realtime');
-await opened(new WebSocket('wss://api.openai.com/v1/realtime?model=m4'), 'by-host');
-`,
+${opens.map(([label, expression]) => `await opened(${expression}, ${JSON.stringify(label)});`).join('\n')}
+`;
+
+describe('a WebSocket for the sidecar', () => {
+  // Stands in for the sidecar, which speaks plain HTTP.
+  let sidecar: Awaited<ReturnType<typeof handshakes>>;
+  let base: string;
+  beforeAll(async () => {
+    sidecar = await handshakes();
+    base = `${sidecar.origin}/t/token`;
+  });
+  afterAll(() => sidecar.close());
+
+  it("opens as ws:// from Node's WebSocket, the ws package and the OpenAI SDK's Realtime client, and on the sidecar's route from a provider's host", async () => {
+    const env = { ...process.env, ...guardEnv('warn', {}), SHADOWLAP_URL: base, SHADOWLAP_RUN_ID: 'R1', OPENAI_API_KEY: 'sk-test' };
+    const wsBase = base.replace(/^http:/, 'wss:');
+    const { stdout } = await agent(
+      'websocket',
+      opening("import WS from 'ws';\nimport OpenAI from 'openai';\nimport { OpenAIRealtimeWS } from 'openai/realtime/ws';", [
+        ['native', `new WebSocket(${JSON.stringify(wsBase)} + '/openai/v1/realtime?model=m1', ['realtime'])`],
+        ['ws', `new WS(${JSON.stringify(wsBase)} + '/openai/v1/realtime?model=m2')`],
+        ['realtime', "new OpenAIRealtimeWS({ model: 'm3' }, new OpenAI({ baseURL: process.env.SHADOWLAP_URL + '/openai/v1' })).socket"],
+        ['by-host', "new WebSocket('wss://api.openai.com/v1/realtime?model=m4')"],
+      ]),
       env,
     );
     expect(stdout).toContain('native open');
     expect(stdout).toContain('ws open');
     expect(stdout).toContain('realtime open');
     expect(stdout).toContain('by-host open');
-    expect(upgrades.map((u) => u.url)).toEqual(['/t/token/openai/v1/realtime?model=m1', '/t/token/openai/v1/realtime?model=m2', '/t/token/openai/v1/realtime?model=m3', '/t/token/r/R1/openai/v1/realtime?model=m4']);
-    expect(upgrades[3]!.upstream).toBe('https://api.openai.com');
+    expect(sidecar.upgrades.map((u) => u.url)).toEqual(['/t/token/openai/v1/realtime?model=m1', '/t/token/openai/v1/realtime?model=m2', '/t/token/openai/v1/realtime?model=m3', '/t/token/r/R1/openai/v1/realtime?model=m4']);
+    expect(sidecar.upgrades[3]!.upstream).toBe('https://api.openai.com');
+  });
+
+  it("goes where it was going for a declared HTTP service, as the sidecar tunnels only a model provider's", async () => {
+    const service = await handshakes();
+    try {
+      const host = new URL(service.origin).host;
+      const env = { ...process.env, ...guardEnv('warn', {}, {}, [{ host, effect: 'read' }]), SHADOWLAP_URL: base, SHADOWLAP_RUN_ID: 'R1' };
+      const before = sidecar.upgrades.length;
+      const { stdout } = await agent(
+        'websocket-http',
+        opening("import WS from 'ws';", [
+          ['native', `new WebSocket('ws://${host}/live?via=native')`],
+          ['ws', `new WS('ws://${host}/live?via=ws')`],
+        ]),
+        env,
+      );
+      expect(stdout).toContain('native open');
+      expect(stdout).toContain('ws open');
+      expect(service.upgrades.map((u) => u.url)).toEqual(['/live?via=native', '/live?via=ws']);
+      expect(sidecar.upgrades).toHaveLength(before);
+    } finally {
+      await service.close();
+    }
   });
 });

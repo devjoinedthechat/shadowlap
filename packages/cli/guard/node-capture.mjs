@@ -399,6 +399,9 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       if (!provider && !toSidecar(parsed.url)) return original.apply(this, args);
       const { url, options, callback } = parsed;
       const headers = headerObject(options.headers);
+      // The sidecar tunnels a model provider's WebSocket and no other: a declared HTTP service's
+      // handshake (the ws package's) goes where it was going, as the guard then says.
+      if (provider === 'http' && Object.keys(headers).some((k) => k.toLowerCase() === 'upgrade')) return original.apply(this, args);
       const scoped = currentScope();
       if (scoped) headers['x-shadowlap-scope'] = scoped;
       if (provider) {
@@ -428,15 +431,17 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
 
   // ---- WebSocket: Node's own, as the OpenAI SDK's Realtime client opens it ----
   // A client whose base URL is the sidecar makes a `wss://` URL of it, for a sidecar that speaks no
-  // TLS: it opens as `ws://`. One for a provider's host opens on the sidecar's route for it, the
-  // host named in x-shadowlap-upstream, as a captured HTTP call does.
+  // TLS: it opens as `ws://`. One for a model provider's host opens on the sidecar's route for it,
+  // the host named in x-shadowlap-upstream, as a captured HTTP call does. The sidecar tunnels no
+  // other, so one for a declared HTTP service goes where it was going.
   const NativeWebSocket = globalThis.WebSocket;
   if (typeof NativeWebSocket === 'function') {
     globalThis.WebSocket = class WebSocket extends NativeWebSocket {
       constructor(address, protocols) {
         const url = parseUrl(address instanceof URL ? address.href : String(address));
         const asHttp = url && (url.protocol === 'wss:' || url.protocol === 'ws:') ? new URL(`${url.protocol === 'wss:' ? 'https:' : 'http:'}${url.href.slice(url.protocol.length)}`) : null;
-        const provider = asHttp ? providerFor(asHttp) : null;
+        const found = asHttp ? providerFor(asHttp) : null;
+        const provider = found === 'http' ? null : found;
         if (url && toSidecar(url) && url.protocol === 'wss:') {
           url.protocol = 'ws:';
           super(url.href, protocols);
