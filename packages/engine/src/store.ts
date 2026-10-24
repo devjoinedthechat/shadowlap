@@ -1,14 +1,14 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { manifestRefs } from './manifest.js';
-import { sha256, ulid } from './ids.js';
+import { sha256 } from './ids.js';
 import type { BlameReport } from './blame.js';
 import type { RepairOutcome, RepairReport } from './repair.js';
 import type { GateResult } from './stats.js';
 import type { VerifyOutcome, VerifyReport } from './verify.js';
 import { currentOwner, recorderGone, type RunOwner } from './liveness.js';
+import { CACHE_WAIT_MS, DatabaseSync, inTransaction, parseJsonColumn, prepareStatements, ulidNow, type SqliteDatabase, type SqliteStatement, type SqlValue, type Statements } from './store/core.js';
 import type {
   CallEndRow,
   CallKind,
@@ -29,34 +29,7 @@ import type {
   StoredCheck,
 } from './types.js';
 
-/*
- * `node:sqlite` prints an ExperimentalWarning when loaded. Loading it through `require` (not a
- * hoisted `import`) lets us filter that one warning first; every other warning still surfaces.
- */
-const originalEmitWarning = process.emitWarning;
-process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unknown[]): void {
-  const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
-  if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (this: NodeJS.Process, ...a: unknown[]) => void).call(process, warning, ...rest);
-} as typeof process.emitWarning;
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };
-
-interface SqliteStatement {
-  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
-  get(...params: unknown[]): Record<string, unknown> | undefined;
-  all(...params: unknown[]): Record<string, unknown>[];
-}
-interface SqliteDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  close(): void;
-  /** Whether a transaction is open on this connection. */
-  readonly isTransaction?: boolean;
-}
-
-/** A value a read model's query binds. */
-export type SqlValue = null | number | bigint | string | Uint8Array;
+export type { SqlValue } from './store/core.js';
 
 export const SCHEMA_VERSION = 5;
 const GZIP_THRESHOLD = 512;
@@ -1157,9 +1130,6 @@ export interface CreateRunInput {
   meta?: RunMeta;
 }
 
-/** How long a write that only keeps a cache (saveRunStats, a batch of the search index) waits for another command's lock before it gives up. */
-const CACHE_WAIT_MS = 100;
-
 /** Creates a file readable only by its owner, unless something already exists at the path. */
 /**
  * The schema version a store records, or null when it has never been stamped (a database this
@@ -1219,56 +1189,11 @@ function restrictToOwner(path: string): void {
  */
 export class Store {
   private readonly db: SqliteDatabase;
-  private readonly stmts: {
-    insertRun: SqliteStatement;
-    endRun: SqliteStatement;
-    setDivergence: SqliteStatement;
-    getRun: SqliteStatement;
-    findRunByPrefix: SqliteStatement;
-    listRuns: SqliteStatement;
-    childRuns: SqliteStatement;
-    insertBlob: SqliteStatement;
-    getBlob: SqliteStatement;
-    hasBlob: SqliteStatement;
-    insertEvent: SqliteStatement;
-    eventsForRun: SqliteStatement;
-    maxCallNo: SqliteStatement;
-    countCalls: SqliteStatement;
-    countAgentCalls: SqliteStatement;
-    deleteRun: SqliteStatement;
-  };
+  private readonly stmts: Statements;
 
   private constructor(db: SqliteDatabase) {
     this.db = db;
-    this.stmts = {
-      insertRun: db.prepare(
-        `INSERT INTO runs (run_id, parent_run_id, mode, status, divergence, command, code_version, started_at, ended_at)
-         VALUES (?, ?, ?, 'running', NULL, ?, ?, ?, NULL)`,
-      ),
-      endRun: db.prepare(`UPDATE runs SET status = ?, ended_at = ? WHERE run_id = ?`),
-      setDivergence: db.prepare(`UPDATE runs SET divergence = ? WHERE run_id = ?`),
-      getRun: db.prepare(`SELECT * FROM runs WHERE run_id = ?`),
-      findRunByPrefix: db.prepare(`SELECT * FROM runs WHERE run_id LIKE ? ORDER BY started_at DESC LIMIT 2`),
-      listRuns: db.prepare(`SELECT * FROM runs ORDER BY started_at DESC, run_id DESC LIMIT ?`),
-      childRuns: db.prepare(`SELECT * FROM runs WHERE parent_run_id = ? ORDER BY started_at ASC`),
-      insertBlob: db.prepare(`INSERT OR IGNORE INTO blobs (hash, codec, size, bytes) VALUES (?, ?, ?, ?)`),
-      getBlob: db.prepare(`SELECT codec, size, bytes FROM blobs WHERE hash = ?`),
-      hasBlob: db.prepare(`SELECT 1 AS x FROM blobs WHERE hash = ?`),
-      insertEvent: db.prepare(
-        `INSERT INTO call_events (run_id, call_no, phase, attempt, kind, name, fingerprint, occurrence, origin, effect, request_ref, response_ref, outcome, meta, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ),
-      eventsForRun: db.prepare(`SELECT * FROM call_events WHERE run_id = ? ORDER BY call_no ASC, phase DESC, attempt ASC`),
-      maxCallNo: db.prepare(`SELECT COALESCE(MAX(call_no), 0) AS n FROM call_events WHERE run_id = ?`),
-      countCalls: db.prepare(`SELECT COUNT(*) AS n FROM call_events WHERE run_id = ? AND phase = 'start'`),
-      // The agent's calls: every call but a judge check's (scope `shadowlap:judge`, judge-scope.ts),
-      // which are counted through their own index (call_events_judge, whose condition this repeats).
-      countAgentCalls: db.prepare(
-        `SELECT (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start')
-              - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge') AS n`,
-      ),
-      deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
-    };
+    this.stmts = prepareStatements(db);
   }
 
   /** The schema version recorded in this store, which is what it was last written under. */
@@ -1397,15 +1322,7 @@ export class Store {
    * write. So `deferred` is only for a transaction that never writes.
    */
   transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
-    this.db.exec(mode === 'immediate' ? 'BEGIN IMMEDIATE' : 'BEGIN');
-    try {
-      const result = fn();
-      this.db.exec('COMMIT');
-      return result;
-    } catch (err) {
-      this.db.exec('ROLLBACK');
-      throw err;
-    }
+    return inTransaction(this.db, fn, mode);
   }
 
   // ---- activity events (v4) ----
@@ -3173,15 +3090,6 @@ export function rowToRun(row: Record<string, unknown>): RunRecord {
   };
 }
 
-function parseJsonColumn<T>(raw: unknown, fallback: T): T {
-  if (typeof raw !== 'string' || raw === '') return fallback;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 function rowToTestSession(row: Record<string, unknown>): TestSession {
   const command = parseJsonColumn<unknown>(row.command, []);
   return {
@@ -3271,15 +3179,3 @@ function rowToChaosResult(row: Record<string, unknown>): ChaosResult {
   };
 }
 
-let lastUlidTime = 0;
-/**
- * Monotonic within a process so runs and events created in the same millisecond still sort by
- * creation order. An id made in a burst takes the next millisecond along, and the clock catching up
- * continues after the last one issued rather than from itself, which could sort an id before one
- * made earlier. 80 random bits keep ids unique across processes.
- */
-function ulidNow(): string {
-  const now = Date.now();
-  lastUlidTime = now > lastUlidTime ? now : lastUlidTime + 1;
-  return ulid(lastUlidTime);
-}
