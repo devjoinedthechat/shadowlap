@@ -21,7 +21,7 @@ describe('scripts/set-version.mjs', () => {
   });
 
   it('pins every internal dependency to the exact version', () => {
-    for (const name of readdirSync(join(dir, 'packages'))) {
+    for (const name of readdirSync(join(dir, 'packages'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
       const pkg = JSON.parse(readFileSync(join(dir, 'packages', name, 'package.json'), 'utf8')) as Record<string, unknown> & { version: string };
       expect(pkg.version, name).toBe('9.8.7');
       for (const field of ['dependencies', 'devDependencies', 'peerDependencies']) {

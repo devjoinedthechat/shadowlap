@@ -53,7 +53,7 @@ describe('supply chain', () => {
     // An optional peer still takes part in npm's resolution: a project on an older @anthropic-ai/sdk
     // would fail to install shadowlap beside it (ERESOLVE). The repairer imports the SDK itself, and
     // says how to install it when it is missing.
-    for (const dir of readdirSync(join(ROOT, 'packages'))) {
+    for (const dir of readdirSync(join(ROOT, 'packages'), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)) {
       const m = JSON.parse(readFileSync(join(ROOT, 'packages', dir, 'package.json'), 'utf8')) as { name: string; peerDependencies?: Record<string, string> };
       expect(m.peerDependencies, m.name).toBeUndefined();
     }
