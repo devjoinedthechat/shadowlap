@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, sta
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
 import { defaultDbPath, loadConfig, loadTests } from './config.js';
@@ -337,8 +338,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   const onSignal = () => {
     stopped = true;
   };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
 
   /**
    * Replays the recording at one commit, in a worktree that is removed afterwards. A commit that
@@ -454,8 +454,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     report.untested = [...skipped].filter((i) => i > lo && i < hi).sort((a, b) => a - b).map((i) => commitInfo(root, commits[i]!));
     return report;
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
+    for (const s of STOP_SIGNALS) process.off(s, onSignal);
     rmSync(base, { recursive: true, force: true });
     gitOk(root, ['worktree', 'prune']);
     store.close();

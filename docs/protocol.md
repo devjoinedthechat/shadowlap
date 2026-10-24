@@ -45,7 +45,7 @@ Every request is `POST` with a JSON body and `content-type: application/json`. R
 | `x-shadowlap-run: <run id>` | Whenever `SHADOWLAP_RUN_ID` is set. |
 | `x-shadowlap-scope: <scope>` | When the calling context is inside a scope, `%` and anything outside printable ASCII percent-encoded. See [Scopes](#scopes). |
 | `user-agent` | SHOULD name the language, e.g. `shadowlap-go/0.1`. The sidecar buckets clients by this for telemetry only; it never affects behavior. |
-| `x-shadowlap-sdk: <language>/<version>` | SHOULD name the client and its release, e.g. `go/0.1.0`. The official SDKs send `node/<version>` and `python/<version>` on every call. It never changes how a call is answered. |
+| `x-shadowlap-sdk: <language>/<version>` | SHOULD name the client and its release, e.g. `go/0.1.0`. The official SDKs send `node/<version>` and `python/<version>` on every call. A run's summary names an SDK whose major.minor differs from the sidecar's, once; the header never changes how a call is answered. |
 
 There is no authentication header. The token in the path is the whole of it.
 
@@ -220,8 +220,23 @@ Optional. Reports an outbound connection that bypassed Shadowlap, for the networ
 { "target": "api.example.com:443", "action": "blocked" | "warned" }
 ```
 
-Answers `202`. `target` is truncated to 300 characters. A client that does not intercept the
-network can ignore this endpoint entirely.
+Answers `202`. `target` is truncated to 300 characters; a UDP target is named `udp://host:port`. A
+client that does not intercept the network can ignore this endpoint entirely.
+
+### `POST /v1/hello`
+
+Optional. A preload says it loaded in one process of the agent, once, when it has set itself up:
+
+```json
+{ "runtime": "node", "runtimeVersion": "22.16.0", "pid": 4242, "ppid": 4241, "guard": "warn" | "block" | "off", "capture": true }
+```
+
+Answers `202`, or `409` when the run has ended. The sidecar counts processes by `pid`, so a second
+hello from one process (a worker thread's) changes nothing. A run the CLI started its agent for that
+made model or tool calls with no hello from any process was never watched by the network guard: its
+summary says so, and under `--guard block` it fails. A client that loads no preload sends none. The
+sidecar also reads `x-shadowlap-sdk` (`python/0.1.0`) on a hello, as on every `/v1/calls/*` request,
+and names an SDK whose major.minor differs from its own once per run.
 
 ## Errors
 
@@ -360,4 +375,5 @@ The same tool during a clean replay:
 
 This protocol is pre-1.0 and may change. It is the protocol of the release that runs the sidecar,
 which `shadowlap --version` reports: a client sends no protocol version, and the sidecar asks for
-none. A client names its own release in `x-shadowlap-sdk`.
+none. A client names its own release in `x-shadowlap-sdk`, and a run's summary says when an SDK's
+major.minor differs from the sidecar's, since an SDK and the CLI work together at the same one.

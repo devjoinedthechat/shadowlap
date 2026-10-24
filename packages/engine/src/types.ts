@@ -293,6 +293,14 @@ export interface RunMeta {
   expect?: Record<string, unknown>;
   /** What the run did that Shadowlap did not record, so a replay runs it for real (run-facts.ts). */
   notRecorded?: NotRecorded;
+  // ---- the preloads in the agent's processes (the network guard and in-process capture) ----
+  /**
+   * For a run whose agent the CLI started with Shadowlap's preloads: the guard it ran under, the
+   * processes whose preload said it loaded (`POST /v1/hello`), by runtime (`{ node: 2, python: 1 }`),
+   * and, when the run made model or tool calls with none loaded, why (`missing`, the line its
+   * summary carries): the network guard never watched it.
+   */
+  preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing?: string };
   /**
    * One attempt of `shadowlap tasks score` or `tasks serve`: the golden replayed up to the takeover
    * call, the model that answered from there (and its endpoint), and the share of checks it passed.

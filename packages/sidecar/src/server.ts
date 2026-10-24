@@ -65,6 +65,8 @@ import { isTelemetry } from './telemetry.js';
 import { asResponse, requestUpstream } from './upstream.js';
 import { refuseUpgrade, tunnelWebSocket } from './websocket.js';
 import { StoreWriter, type StoreWrites } from './writer.js';
+// The preloads' hellos and the SDKs' versions: rv-guard's part of the sidecar.
+import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
 
 export type { Interventions } from './interventions.js';
 export { requestUpstream } from './upstream.js';
@@ -157,6 +159,11 @@ export interface EndRunResult {
   unguarded: Array<{ target: string; count: number; action: 'warned' | 'blocked' }>;
   /** WebSockets under a provider, by provider and path: tunnelled live and never recorded, or refused (an offline replay). */
   websockets: WebSocketUse[];
+  /**
+   * What the preloads in the agent's processes said (`POST /v1/hello`), for a run whose agent the
+   * CLI started with them (expectPreloads); null for any other run.
+   */
+  preloads: PreloadReport | null;
 }
 
 export interface WebSocketUse {
@@ -211,6 +218,14 @@ class RunContext {
   readonly providersUsed = new Set<string>();
   readonly sdksSeen = new Set<string>();
   readonly unguarded = new Map<string, { count: number; action: 'warned' | 'blocked' }>();
+  // ---- the preloads' hellos and the SDKs' versions (preloads.ts) ----
+  /** The guard the CLI started the run's agent with, preloads and all (expectPreloads); null when it started none. */
+  preloadGuard: GuardMode | null = null;
+  /** Each process whose preload said it loaded, by process id (at most MAX_HELLOS kept), and how many in all. */
+  readonly hellos = new Map<number, Hello>();
+  readonly hellosBeyond = new Map<string, number>();
+  /** SDK versions already warned about, `node/0.2`. */
+  readonly sdkWarned = new Set<string>();
   private readonly warnedTools = new Set<string>();
   /**
    * An ended run opened again for its judge's calls alone (openForJudge): it takes nothing else, and
@@ -712,6 +727,16 @@ export class Sidecar {
     return summarizeJudge(ctx.run, made, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store), imported: false });
   }
 
+  /**
+   * Says the CLI starts this run's agent with Shadowlap's preloads, under `guard`: each of its Node
+   * and Python processes then says it loaded (`POST /v1/hello`), and a run that made model or tool
+   * calls with none loaded is one the guard never watched, which endRun says, and fails under block.
+   */
+  expectPreloads(runId: string, guard: GuardMode): void {
+    const ctx = this.runs.get(runId);
+    if (ctx) ctx.preloadGuard = guard;
+  }
+
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
@@ -721,6 +746,11 @@ export class Sidecar {
     if (ctx.session.end()) this.noteDivergence(ctx);
     // Every call written before the run is read back (and any that couldn't be, in its warnings).
     this.writer.flush();
+    const calls = this.store.getCalls(runId);
+    // A run that made model or tool calls with no preload loaded was never watched by the guard:
+    // under --guard block it fails, whatever its agent did.
+    const preloads = this.preloadReport(ctx, calls);
+    if (preloads?.failed && status === 'completed') status = 'failed';
     this.store.endRun(runId, status);
     this.runs.delete(runId);
     if (this.activeRunId === runId) this.activeRunId = null;
@@ -730,6 +760,7 @@ export class Sidecar {
     // Kept on the run as well as printed: its page says what a replay runs for real.
     if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
     const warnings = [...ctx.warnings];
+    if (preloads?.missing) warnings.push(preloads.missing);
     if (unguarded.length) {
       const list = unguarded.map((u) => `${u.target} (${u.count})`).join(', ');
       const blocked = unguarded.some((u) => u.action === 'blocked');
@@ -741,7 +772,6 @@ export class Sidecar {
             : `${unguarded.length} outbound connection target${unguarded.length === 1 ? '' : 's'} bypassed Shadowlap during the recording: ${list}. They were not recorded and will run again on replay; wrap them as tools.`,
       );
     }
-    const calls = this.store.getCalls(runId);
     // An intervention that never took effect leaves a run that looks like an answer to a question nobody asked.
     warnings.push(...ctx.session.unapplied(), ...(ctx.interventions?.unapplied() ?? []), ...(ctx.interventions?.warnings ?? []));
     // A model call --fail-at named, by its place among the recording's model calls, that the replay never made.
@@ -758,7 +788,35 @@ export class Sidecar {
     }
     const summary = summarizeRun(run, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
     this.log(`run ${runId} ended (${status})`);
-    return { run, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets };
+    return { run, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
+  }
+
+  /**
+   * What the run's preloads said, kept on the run for its page (`RunMeta.preloads`), or null when the
+   * CLI started its agent with none (expectPreloads). A run that made model or tool calls (a judge's
+   * are the CLI's own) with no hello is `missing` one, unless the guard was turned off.
+   */
+  private preloadReport(ctx: RunContext, calls: readonly CallRecord[]): PreloadReport | null {
+    const guard = ctx.preloadGuard;
+    if (guard === null) return null;
+    const hellos = countHellos(ctx.hellos.values());
+    for (const [runtime, n] of ctx.hellosBeyond) hellos[runtime] = (hellos[runtime] ?? 0) + n;
+    const agent = calls.filter((c) => !isJudgeCall(c));
+    const made = { api: agent.filter((c) => c.kind === 'api').length, tool: agent.filter((c) => c.kind === 'tool').length };
+    const missing = guard !== 'off' && Object.keys(hellos).length === 0 && made.api + made.tool > 0 ? missingPreload(ctx.run.command.argv, made, guard) : null;
+    this.store.updateRunMeta(ctx.run.runId, { preloads: { guard, hellos, ...(missing ? { missing } : {}) } });
+    return { guard, hellos, missing, failed: missing !== null && guard === 'block' };
+  }
+
+  /** An SDK whose major.minor differs from this CLI's, named once per run and SDK (`x-shadowlap-sdk`). */
+  private noteSdk(ctx: RunContext, req: IncomingMessage): void {
+    const sdk = parseSdkHeader(headerValue(req, 'x-shadowlap-sdk'));
+    if (!sdk) return;
+    const key = `${sdk.family}/${sdk.majorMinor}`;
+    if (ctx.sdkWarned.has(key) || ctx.sdkWarned.size >= 16) return;
+    ctx.sdkWarned.add(key);
+    const line = sdkMismatch(`${sdk.family}/${sdk.version}`);
+    if (line) ctx.warnings.push(line);
   }
 
   get activeRun(): RunRecord | null {
@@ -889,9 +947,22 @@ export class Sidecar {
       // Numbers kept as the SDK wrote them: a 64-bit id or a Python 20.0 is stored and served exactly.
       const body = (await readJson(req, true)) as ResolveBody;
       const ctx = this.contextFor(req, pinned);
+      this.noteSdk(ctx, req);
       const { scope } = this.callScope(req, ctx, 'tool');
       ctx.sdksSeen.add(sdkFamily(req.headers['user-agent']));
       return json(res, 200, this.resolveCall(ctx, body, scope));
+    }
+
+    // A preload says it loaded in one of the agent's processes, once per process (preloads.ts).
+    if (rest === 'v1/hello' && method === 'POST') {
+      const hello = parseHello(await readJson(req));
+      const ctx = this.contextFor(req, pinned);
+      this.noteSdk(ctx, req);
+      if (hello) {
+        if (ctx.hellos.has(hello.pid) || ctx.hellos.size < MAX_HELLOS) ctx.hellos.set(hello.pid, hello);
+        else ctx.hellosBeyond.set(hello.runtime, (ctx.hellosBeyond.get(hello.runtime) ?? 0) + 1);
+      }
+      return json(res, 202, { ok: true });
     }
 
     if (rest === 'v1/guard' && method === 'POST') {
@@ -909,7 +980,9 @@ export class Sidecar {
     const completeMatch = /^v1\/calls\/(\d+)\/complete$/.exec(rest);
     if (completeMatch && method === 'POST') {
       const body = (await readJson(req, true)) as CompleteBody;
-      this.completeCall(this.contextFor(req, pinned), Number(completeMatch[1]), body);
+      const ctx = this.contextFor(req, pinned);
+      this.noteSdk(ctx, req);
+      this.completeCall(ctx, Number(completeMatch[1]), body);
       return json(res, 200, { ok: true });
     }
 

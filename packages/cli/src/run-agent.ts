@@ -8,11 +8,11 @@ import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
+import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
-import { signalExit } from './exit-codes.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
@@ -187,10 +187,21 @@ export async function testAttempt(
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
   // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
-  // Ctrl-C itself, so a signal that reaches this process is passed on to the group. Windows has no
-  // groups: there the agent's whole process tree is ended while it runs.
-  const group = process.platform !== 'win32';
+  // Ctrl-C itself, so a signal that reaches this process is passed on to the group, once (AgentStop).
+  // Windows has no groups: there the agent's whole process tree is ended while it runs.
+  const group = GROUPS;
+  // The run ends once: as it came out, or as interrupted when a second signal doesn't wait for it.
+  let endedRun: ReturnType<Sidecar['endRun']> | null = null;
+  const endRun = (status: Exclude<RunStatus, 'running'>) => (endedRun ??= sidecar.endRun(run.runId, status));
+  let interrupted = null as NodeJS.Signals | null;
+  // Heard until the run has ended, its judge checks included: a signal never leaves it running.
+  const stop = new AgentStop({ group, onSignal: (sig) => void (interrupted ??= sig), abandon: () => endRun('crashed') }).start();
+  // Each Node and Python process of the agent says its preload loaded: one that made calls with none
+  // was never watched by the guard, which fails it under block.
+  sidecar.expectPreloads(run.runId, o.guard);
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
+  trackAgent(child, group);
+  stop.add(child);
   // What a judge reads as the output is stdout alone: interleaved with stderr it could differ on every run.
   let stdout = '';
   child.stdout!.on('data', (d: Buffer) => {
@@ -199,14 +210,6 @@ export async function testAttempt(
   });
   child.stderr!.on('data', (d: Buffer) => (output += d.toString()));
   const kill = (sig: NodeJS.Signals) => killTree(child, sig, { group });
-  let interrupted = null as NodeJS.Signals | null;
-  const forward = (sig: NodeJS.Signals) => {
-    // A second signal doesn't wait for the agent to wind down.
-    kill(interrupted ? 'SIGKILL' : sig);
-    interrupted ??= sig;
-  };
-  process.on('SIGINT', forward);
-  process.on('SIGTERM', forward);
   let timedOut = false;
   const timer = o.timeoutMs
     ? setTimeout(() => {
@@ -223,11 +226,9 @@ export async function testAttempt(
       output += `failed to start ${argv[0]}: ${err.message}\n`;
       res(127);
     });
-    child.on('exit', (c, signal) => res(c ?? (signal ? 128 : 1)));
+    child.on('exit', (c, signal) => res(exitStatus(c, signal)));
   });
   if (timer) clearTimeout(timer);
-  process.off('SIGINT', forward);
-  process.off('SIGTERM', forward);
   // Whatever the agent left running in its group goes with it.
   if (group) kill('SIGKILL');
   // An agent on a Node before 18.18 never started either: its Node refused the preload and exited 9.
@@ -242,10 +243,12 @@ export async function testAttempt(
   // printed is read to its end first: `exit` can come before the last of it.
   if (o.spec && judgesOf(o.spec).length) await outputDrained(child);
   const judged = o.spec && judgesOf(o.spec).length ? await judgeAttempt(store, sidecar, run.runId, o.spec, { code, timedOut, interrupted: interrupted !== null, stdout, upstreams: o.upstreams, redact: o.redact ?? [], normalize: o.normalizers, clock: o.clock, prices: o.prices, forkFails: !o.spec.fork }) : null;
-  const ended = sidecar.endRun(run.runId, timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
+  // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
+  const ended = endRun(timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
+  stop.stop();
   await sidecar.close();
   // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
-  if (interrupted && o.onSignal !== 'return') process.kill(process.pid, interrupted);
+  if (interrupted && o.onSignal !== 'return') exitBySignal(interrupted);
   const { summary } = ended;
 
   let checks: CheckResult[] | null = null;
@@ -271,6 +274,10 @@ export async function testAttempt(
     // Never a pass, whatever the agent did with the signal: an update must not keep it.
     kind = 'exit';
     failure = { message: `the replay was interrupted (${interrupted})`, details: divergence + formatSummary(summary) };
+  } else if (ended.preloads?.failed) {
+    // Nothing watched the agent's connections under --guard block: whatever else came out, it proves nothing.
+    kind = 'guard';
+    failure = { message: ended.preloads.missing!, details: divergence + formatSummary(summary) };
   } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
@@ -456,11 +463,11 @@ export function parseInterventions(flags: { inject?: string; injectAs: 'system' 
 }
 
 /**
- * Signals that ask a process to stop. An agent that ends on one was interrupted, whoever sent it: a
- * dashboard stopping a job signals the job's whole process group, so the agent can end on it before
- * this process has heard its own, and a terminal's Ctrl-C reaches both alike.
+ * Whether an agent ended on a signal that asks a process to stop. It was interrupted, whoever sent
+ * it: a terminal's Ctrl-C reaches an agent that shares the terminal and this process alike, and the
+ * agent can end on it before this process has heard its own.
  */
-const STOP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGTERM', 'SIGHUP']);
+const stoppedBy = (signal: NodeJS.Signals | null): boolean => signal !== null && (STOP_SIGNALS as readonly string[]).includes(signal);
 
 /**
  * Resolves once a child with piped output has exited and its output has been read to the end: `exit`
@@ -469,9 +476,8 @@ const STOP_SIGNALS: ReadonlySet<string> = new Set(['SIGINT', 'SIGTERM', 'SIGHUP'
  */
 function onDrained(child: ReturnType<typeof spawn>, resolve: (code: number) => void): void {
   // An agent a signal stopped ends with 128 + the signal's number, as a shell reports it: `run` and `replay` pass that on.
-  const status = (c: number | null, signal: NodeJS.Signals | null) => c ?? (signal ? signalExit(signal) : 1);
-  child.on('close', (c, signal) => resolve(status(c, signal)));
-  child.on('exit', (c, signal) => setTimeout(() => resolve(status(c, signal)), 2_000).unref());
+  child.on('close', (c, signal) => resolve(exitStatus(c, signal)));
+  child.on('exit', (c, signal) => setTimeout(() => resolve(exitStatus(c, signal)), 2_000).unref());
 }
 
 /**
@@ -552,7 +558,13 @@ export function startFailure(err: NodeJS.ErrnoException, argv0: string, cwd: str
   return { notFound: false, message: `failed to start ${argv0}: ${err.message}` };
 }
 
-export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean }> {
+/**
+ * Runs an agent under a sidecar, as `run` and `replay` do. `code` is the agent's exit status (128 + n
+ * when signal n ended it); `signal` the stop signal this process heard while it waited, if any, which
+ * the command ends on in turn (status 128 + n); `preloads` what the preloads in the agent's processes
+ * said, with `failed` when the run failed for having none under --guard block.
+ */
+export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (sidecar: Sidecar) => RunRecord, guard: GuardMode = 'warn', extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<{ code: number; run: RunRecord; summary: ReturnType<Sidecar['endRun']>['summary']; output: string; started: boolean; signal: NodeJS.Signals | null; preloads: ReturnType<Sidecar['endRun']>['preloads'] }> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
@@ -576,22 +588,37 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     // read-only working directory: the environment still carries SHADOWLAP_URL
   }
 
-  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env } }, { url: sidecar.url, runId: run.runId });
+  // Only while it still names this run: another run that started here since has written its own.
+  const clearActive = () => {
+    try {
+      clearActiveRun(process.cwd(), run.runId);
+    } catch {
+      // never written here (a read-only folder), or another run kept it busy
+    }
+  };
+  // The run ends once: as it came out, or as interrupted when a second signal doesn't wait for it.
+  let ended: ReturnType<Sidecar['endRun']> | null = null;
+  const endRun = (status: Exclude<RunStatus, 'running'>) => (ended ??= sidecar.endRun(run.runId, status));
+  let interrupted = false;
+  // The agent reads this process's stdin. In a terminal it shares the terminal's process group, where
+  // the terminal's own Ctrl-C reaches it once, and in a dashboard job the job's group, which the
+  // dashboard signals and kills as a whole; elsewhere it leads a group of its own, which a stop signal
+  // is passed on to, once (AgentStop). Heard until the run has ended, its judge checks included.
+  const shared = sharedGroup(true);
+  const group = GROUPS && !shared;
+  const stop = new AgentStop({ group, shared, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
+  sidecar.expectPreloads(run.runId, guard);
+  const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: group }, { url: sidecar.url, runId: run.runId });
+  trackAgent(child, group);
+  stop.add(child);
   // A dashboard job links to the run once its agent has started: one whose command isn't found is not kept.
   child.once('spawn', () => emitJobEvent({ type: 'run', runId: run.runId, role: 'new' }));
   const tee = extra.capture ? teeOutput(child) : null;
   const output = () => tee?.all() ?? '';
-  let interrupted = false;
   // Heard before the run's status is settled: the listener that settles it comes after this one.
   child.once('exit', (_c, signal) => {
-    if (signal && STOP_SIGNALS.has(signal)) interrupted = true;
+    if (stoppedBy(signal)) interrupted = true;
   });
-  const onSignal = (sig: NodeJS.Signals) => {
-    interrupted = true;
-    child.kill(sig);
-  };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
   // A command that never started (it isn't there, or can't be run): nothing ran, so nothing is kept of it.
   let notStarted: ReturnType<typeof startFailure> | null = null;
   const code = await new Promise<number>((resolve) => {
@@ -600,10 +627,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
       resolve(127);
     });
     if (extra.capture) onDrained(child, resolve);
-    else child.on('exit', (c, signal) => resolve(c ?? (signal ? signalExit(signal) : 1)));
+    else child.on('exit', (c, signal) => resolve(exitStatus(c, signal)));
   });
-  process.off('SIGINT', onSignal);
-  process.off('SIGTERM', onSignal);
   // An agent on a Node before 18.18 never started either: its Node refused the preload and exited 9.
   // Its words went to the terminal unless a check captured them, so that Node is asked again. One a
   // launcher or a script picked can't be: its run is kept, and its summary says what Node's words mean.
@@ -613,15 +638,11 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     else unasked = !tee && !namesNode(argv[0]!);
   }
 
-  const status: Exclude<RunStatus, 'running'> = interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
-  // Only while it still names this run: another run that started here since has written its own.
-  try {
-    clearActiveRun(process.cwd(), run.runId);
-  } catch {
-    // never written here (a read-only folder), or another run kept it busy
-  }
+  clearActive();
   if (extra.beforeEnd && !notStarted) await extra.beforeEnd(sidecar, store, run, { code, interrupted, stdout: tee?.stdout() ?? '' });
-  const result = sidecar.endRun(run.runId, status);
+  // A signal heard while the judge was asked interrupted the run too: it is read after the judge.
+  const result = endRun(interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
+  stop.stop();
   if (unasked) result.summary.warnings.push(AGENT_NODE_MAYBE_TOO_OLD);
   const why = notStarted as ReturnType<typeof startFailure> | null;
   if (why) {
@@ -634,7 +655,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     const said = why.notFound && !/[\\/]/.test(argv[0]!) ? notFoundMessage(argv, again) : `${p.red('✗')} ${why.message}`;
     process.stderr.write(`${said}\n${p.dim(`  nothing ran, so run ${shortId(run.runId)} is not kept`)}\n`);
     emitJobEvent({ type: 'result', data: { exitCode: code, summary: result.summary, started: false } });
-    return { code, run, summary: result.summary, output: output(), started: false };
+    return { code, run, summary: result.summary, output: output(), started: false, signal: stop.signal, preloads: result.preloads };
   }
   if (run.mode === 'record') noteUnrecordedTools(store, run.runId, process.cwd());
   await sidecar.close();
@@ -645,7 +666,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   await pushIfQueued(teamEnv(opts.db));
   telemetry().record({ type: run.mode === 'record' ? 'run' : 'replay', ...usageOf(result, Date.now() - run.startedAt, code) });
   await telemetry().flush();
-  return { code, run, summary: result.summary, output: output(), started: true };
+  return { code, run, summary: result.summary, output: output(), started: true, signal: stop.signal, preloads: result.preloads };
 }
 
 export interface AttemptResult {
@@ -674,14 +695,25 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const results: AttemptResult[] = new Array(count);
-  const running = new Set<ReturnType<typeof spawn>>();
   let stopped = false;
-  const onSignal = (sig: NodeJS.Signals) => {
-    stopped = true;
-    for (const child of running) child.kill(sig);
-  };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  // Streamed one at a time, an attempt reads this process's stdin: in a terminal it shares the
+  // terminal's process group, where the terminal's own Ctrl-C reaches it once. In a dashboard job
+  // each shares the job's group, which the dashboard signals and kills as a whole. Otherwise each
+  // leads a group of its own, which a stop signal is passed on to, once (AgentStop). Heard until the
+  // last run has ended: a second signal while only judge checks are left ends those runs as interrupted.
+  const streaming = concurrency === 1;
+  const shared = sharedGroup(streaming);
+  const agentGroup = GROUPS && !shared;
+  const open = new Set<string>();
+  const stop = new AgentStop({
+    group: agentGroup,
+    shared,
+    onSignal: () => void (stopped = true),
+    abandon: () => {
+      for (const runId of open) sidecar.endRun(runId, 'crashed');
+      open.clear();
+    },
+  }).start();
   let next = 0;
   // Attempts of this invocation, so the dashboard can show them as one bundle.
   const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -698,14 +730,15 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       recordsInput(store, run.runId);
       emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
-      const streaming = concurrency === 1;
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
-      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env } }, { url: sidecar.url, runId: run.runId });
-      running.add(child);
+      sidecar.expectPreloads(run.runId, guard);
+      const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: agentGroup }, { url: sidecar.url, runId: run.runId });
+      trackAgent(child, agentGroup);
+      stop.add(child);
       let stoppedBySignal = false;
       child.once('exit', (_c, signal) => {
-        if (signal && STOP_SIGNALS.has(signal)) stoppedBySignal = true;
+        if (stoppedBy(signal)) stoppedBySignal = true;
       });
       let output = '';
       let stdout = '';
@@ -724,9 +757,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         });
         // Piped output is read to the end before it is printed or checked.
         if (!streaming || tee) onDrained(child, resolveCode);
-        else child.on('exit', (c, signal) => resolveCode(c ?? (signal ? signalExit(signal) : 1)));
+        else child.on('exit', (c, signal) => resolveCode(exitStatus(c, signal)));
       });
-      running.delete(child);
       if (shown) {
         output = shown.all();
         stdout = shown.stdout();
@@ -742,9 +774,12 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
         }
         unasked = streaming && !tee && !namesNode(argv[0]!);
       }
-      const status: Exclude<RunStatus, 'running'> = stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed';
+      open.add(run.runId);
       if (extra.beforeEnd) await extra.beforeEnd(sidecar, store, run, { code, interrupted: stopped || stoppedBySignal, stdout });
-      const ended = sidecar.endRun(run.runId, status);
+      // Ended as interrupted already, when a second signal didn't wait for its judge.
+      if (!open.delete(run.runId)) continue;
+      // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
+      const ended = sidecar.endRun(run.runId, stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed');
       results[i] = { run, code, summary: ended.summary, output };
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
       if (!streaming) process.stderr.write(`${header}\n${output}${output.endsWith('\n') || !output ? '' : '\n'}`);
@@ -760,8 +795,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
-  process.off('SIGINT', onSignal);
-  process.off('SIGTERM', onSignal);
+  stop.stop();
   // Nothing ran in them, so they are not kept, and no report is made of the attempts.
   for (const runId of refused) store.deleteRun(runId);
   await sidecar.close();

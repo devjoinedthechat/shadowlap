@@ -9,14 +9,19 @@ recording on replay.
 
 Patched when first imported, so an agent that never loads them pays nothing: httpx and its fork
 httpx2 (the Anthropic, OpenAI and Google clients, and many vector database clients), requests,
-botocore (boto3, including bedrock-runtime), and urllib3 for clients that use it directly (Pinecone,
-Elasticsearch, OpenSearch).
+botocore (boto3, including bedrock-runtime), urllib3 for clients that use it directly (Pinecone,
+Elasticsearch, OpenSearch), and aiohttp (LiteLLM's async transport, aiobotocore, and the
+Anthropic and OpenAI SDKs' aiohttp backends).
+
+A WebSocket for the sidecar opens as ``ws://``: a client whose base URL is the sidecar makes a
+``wss://`` URL of it (the OpenAI SDK's Realtime client does), and the sidecar speaks no TLS. That
+holds for websockets' clients, which the OpenAI SDK uses, and for aiohttp's.
 
 A replay can fail a captured HTTP call with a timeout or an error (``--fail-at <call>=timeout``). A
 request to such a host says it can take one (``x-shadowlap-failures: raise``), the sidecar answers by
 naming the failure, and the call raises what the library raises for the real thing: httpx's
 ReadTimeout or ReadError, urllib3's ReadTimeoutError or ProtocolError (which requests and botocore turn
-into their own), so the agent's error path runs.
+into their own), aiohttp's ServerTimeoutError or ClientOSError, so the agent's error path runs.
 """
 
 import contextvars
@@ -343,12 +348,135 @@ def _patch_requests(module):
     adapter.send = captured_send
 
 
+def _with_headers(headers, extra):
+    """`headers` (a dict, a multidict, a list of pairs, or None) with `extra` set in a copy of them."""
+    if headers is None:
+        return dict(extra)
+    if isinstance(headers, (list, tuple)):
+        return list(headers) + list(extra.items())
+    try:
+        out = headers.copy()
+    except AttributeError:
+        out = dict(headers)
+    for name, value in extra.items():
+        out[name] = value
+    return out
+
+
+def _sidecar_ws(url):
+    """A ``wss://`` URL for the sidecar as ``ws://``, or None for any other."""
+    text = str(url)
+    if text[:6].lower() == "wss://" and _to_sidecar("https://" + text[6:]):
+        return "ws://" + text[6:]
+    return None
+
+
+def _patch_aiohttp(module):
+    """aiohttp: a request is redirected where aiohttp makes it (ClientRequest), so a session's base
+    URL, its redirects and ws_connect all come through here, and a proxy it was given (trust_env and
+    HTTP_PROXY) is left out for the sidecar, which is on this machine's loopback."""
+    request = getattr(module, "ClientRequest", None)
+    if request is None or getattr(request, "_shadowlap_capture", False):
+        return
+    request._shadowlap_capture = True
+    url_type = getattr(module, "URL", None)
+    init = request.__init__
+
+    def captured_init(self, method, url, *args, **kwargs):
+        try:
+            full = str(url)
+            target = None
+            extra = {}
+            rewritten = _rewrite(full)
+            if rewritten is not None:
+                target, origin, provider = rewritten
+                extra["x-shadowlap-upstream"] = origin
+                if provider == "http":
+                    extra[_FAILURES] = "raise"
+            else:
+                target = _sidecar_ws(full)
+            if target is not None or _to_sidecar(full):
+                scoped = _scope_header()
+                if scoped:
+                    extra["x-shadowlap-scope"] = scoped
+                if target is not None:
+                    url = url_type(target, encoded=True) if url_type is not None and not isinstance(url, str) else target
+                if extra:
+                    kwargs["headers"] = _with_headers(kwargs.get("headers"), extra)
+                for name in ("proxy", "proxy_auth", "proxy_headers"):
+                    if kwargs.get(name) is not None:
+                        kwargs[name] = None
+        except Exception:  # never break the agent: the request goes as it was asked
+            pass
+        init(self, method, url, *args, **kwargs)
+
+    request.__init__ = captured_init
+
+    response = getattr(module, "ClientResponse", None)
+    if response is None or getattr(response, "_shadowlap_capture", False):
+        return
+    response._shadowlap_capture = True
+    start = response.start
+
+    async def captured_start(self, connection):
+        started = await start(self, connection)
+        injected = _injected(self.request_info.headers, self.headers)
+        if injected is None:
+            return started
+        self.close()
+        from aiohttp import client_exceptions
+
+        kind, message = injected
+        if kind == "timeout":
+            raise client_exceptions.ServerTimeoutError(message or "Timeout on reading data from socket")
+        raise client_exceptions.ClientOSError(errno.ECONNRESET, message or os.strerror(errno.ECONNRESET))
+
+    response.start = captured_start
+
+
+def _patch_websockets(module):
+    """websockets' clients, the OpenAI SDK's among them: a ``wss://`` URI for the sidecar connects as
+    ``ws://``, without the TLS settings a ``ws://`` URI refuses."""
+    connect = getattr(module, "connect", None)
+    if connect is None or getattr(connect, "_shadowlap_capture", False):
+        return
+
+    def plain(uri, kwargs):
+        target = _sidecar_ws(uri)
+        if target is None:
+            return uri
+        kwargs.pop("ssl", None)
+        kwargs.pop("server_hostname", None)
+        return target
+
+    if isinstance(connect, type):
+        # The asyncio client's connect and the legacy Connect are classes.
+        init = connect.__init__
+
+        def captured_init(self, uri, *args, **kwargs):
+            init(self, plain(uri, kwargs), *args, **kwargs)
+
+        connect.__init__ = captured_init
+        connect._shadowlap_capture = True
+    else:
+
+        def captured_connect(uri, *args, **kwargs):
+            return connect(plain(uri, kwargs), *args, **kwargs)
+
+        captured_connect._shadowlap_capture = True
+        module.connect = captured_connect
+
+
 _PATCHES = {
     "httpx": _patch_httpx,
     "httpx2": _patch_httpx,
     "botocore.httpsession": _patch_botocore,
     "requests.adapters": _patch_requests,
     "urllib3.connectionpool": _patch_urllib3,
+    "aiohttp.client_reqrep": _patch_aiohttp,
+    "websockets.asyncio.client": _patch_websockets,
+    "websockets.sync.client": _patch_websockets,
+    "websockets.legacy.client": _patch_websockets,
 }
 
 

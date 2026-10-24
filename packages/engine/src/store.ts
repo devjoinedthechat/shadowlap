@@ -624,9 +624,11 @@ export type NewTestSession = Partial<Pick<TestSession, 'sessionId' | 'startedAt'
  * agent exited non-zero, it made no calls, it couldn't run at all, or (`injection`) its injection
  * gate saw more attempts obey a planted instruction than it allows; or why it didn't pass:
  * `inconclusive`, its gate ran out of attempts between its bounds, or a check couldn't be decided (a
- * judge check with no verdict, and no way to ask the judge).
+ * judge check with no verdict, and no way to ask the judge). `guard`: under `--guard block`, the
+ * replay made calls with no Shadowlap preload loaded in the agent's processes, so the network guard
+ * never watched it.
  */
-export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | 'injection';
+export type TestFailure = 'diverged' | 'check' | 'exit' | 'no-calls' | 'error' | 'inconclusive' | 'injection' | 'guard';
 
 /** What a result keeps besides its verdict, for the Tests screen. Every field is optional to readers. */
 export interface TestResultData {

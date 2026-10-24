@@ -23,7 +23,7 @@ In `shadowlap.config.json`, name its host and what a call to it does:
 
 A host takes one effect for every call to it, so a service that answers some calls and acts on others is a `write`: a replay never does again what it did. A host is a name like `api.example.com`, or `*.example.com` for any of its subdomains, with an optional `:port`, over `http` or `https`.
 
-In Node and Python agents the calls are captured in the process, whatever client makes them: `fetch` and `http(s)` in Node, and httpx, requests, botocore and urllib3 in Python ([in-process capture](./providers.md#in-process-capture)). An agent in another language wraps its calls to the service as a tool, through its SDK or [the wire protocol](./protocol.md).
+In Node and Python agents the calls are captured in the process, whatever client makes them: `fetch` and `http(s)` in Node, and httpx, requests, botocore, urllib3 and aiohttp in Python ([in-process capture](./providers.md#in-process-capture)). An agent in another language wraps its calls to the service as a tool, through its SDK or [the wire protocol](./protocol.md).
 
 ## What the recording holds
 

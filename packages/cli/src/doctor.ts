@@ -152,6 +152,8 @@ export function runDoctor(options: DoctorOptions): Check[] {
       push('store', 'ok', `${dbPath}: ${runs.length} run${runs.length === 1 ? '' : 's'}, ${bytes(size)}, schema v${schema}${schema === SCHEMA_VERSION ? '' : ` (this build writes v${SCHEMA_VERSION})`}`);
       if (abandoned.length) push('runs still marked running', 'warn', abandoned.map((r) => r.runId.slice(0, 10)).join(', '), 'Their recording process stopped without ending them (killed, or out of memory). shadowlap gc marks them interrupted; shadowlap rm <run> removes one.');
       if (size > 512 * 1024 * 1024) push('store size', 'warn', `${bytes(size)}`, 'shadowlap gc --older-than 30 deletes old runs and compacts the file.');
+      const preload = preloadCheck(runs);
+      if (preload) checks.push(preload);
     } catch (err) {
       push('store', 'fail', `${dbPath}: ${err instanceof Error ? err.message : String(err)}`, 'The file is not a Shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');
     }
@@ -241,6 +243,26 @@ export function runDoctor(options: DoctorOptions): Check[] {
   if ((env.PYTHONPATH ?? '').split(delimiter).some((p) => p.endsWith('guard'))) push('PYTHONPATH', 'warn', 'contains the Shadowlap guard directory', 'Unset it outside agent processes.');
 
   return checks;
+}
+
+/** How Shadowlap's preloads reach an agent, and what keeps them out: the fix for a run none loaded in. */
+export const PRELOAD_FIX =
+  "Shadowlap loads its network guard into Node agents through NODE_OPTIONS (--import, Node 18.18 or later) and into Python agents through a sitecustomize on PYTHONPATH. Start the agent with the environment shadowlap gives it: not through env -i, sudo or docker exec, without a script that sets NODE_OPTIONS or PYTHONPATH anew, and without python -I, -E or -S. opentelemetry-instrument's own sitecustomize comes first and loads no other: instrument in code instead. An agent on another runtime (Go, Rust, Java, Bun, Deno) gets no guard: wrap what it does to the world as tools, and test it with --guard warn.";
+
+/**
+ * Whether the preloads loaded in the newest run that says (`RunMeta.preloads`): the processes they
+ * loaded in, or, for a run that made calls with none, why, and how to get them in. Null when no run
+ * says, as runs made before the preloads said hello don't.
+ */
+export function preloadCheck(runs: readonly RunRecord[]): Check | null {
+  const last = runs.find((r) => r.meta?.preloads && r.status !== 'running');
+  const preloads = last?.meta?.preloads;
+  if (!last || !preloads) return null;
+  const id = last.runId.slice(0, 10);
+  if (preloads.missing) return { name: 'preload', verdict: 'warn', detail: `run ${id} (${quoteArgv(last.command.argv)}): ${preloads.missing}`, fix: PRELOAD_FIX };
+  const runtime = (r: string) => (r === 'node' ? 'Node' : r === 'python' ? 'Python' : r);
+  const loaded = Object.entries(preloads.hellos).map(([r, n]) => `${n} ${runtime(r)} process${n === 1 ? '' : 'es'}`);
+  return loaded.length ? { name: 'preload', verdict: 'ok', detail: `loaded in run ${id}'s ${loaded.join(' and ')}` } : null;
 }
 
 /** The tools a run's model was offered: in any of its requests, or in its first that names them (empty when none says). */

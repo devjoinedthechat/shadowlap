@@ -4,6 +4,7 @@ import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { stampAuthor } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
+import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -88,10 +89,10 @@ export const BYPASSED =
  * Each attempt's agent gets a process group of its own where there are groups, as `test`'s replays
  * do: stopping it (at the time limit, on Ctrl-C) stops what it started too (`npm start` runs node,
  * `sh -c` its command), and whatever it leaves running in the group goes once it exits. It no
- * longer hears the terminal's Ctrl-C itself, so the signal is passed on. Windows has no groups: there
- * the agent's whole process tree is ended while it runs (killTree).
+ * longer hears the terminal's Ctrl-C itself, so the signal is passed on, once (AgentStop). Windows
+ * has no groups: there the agent's whole process tree is ended while it runs (killTree).
  */
-const GROUP = process.platform !== 'win32';
+const GROUP = GROUPS;
 
 export class AttemptRunner {
   /** Attempts run and tallied, and what they sent upstream and cost: the agent's, and apart, its judge checks'. */
@@ -109,20 +110,26 @@ export class AttemptRunner {
   stopReason: string | null = null;
 
   private readonly running = new Set<ChildProcess>();
-  private readonly onSignal = (sig: NodeJS.Signals) => {
-    // A second signal doesn't wait for the agents to wind down, and nor does the first for long: an
-    // agent that ignores it is killed before whoever sent it (a dashboard stopping its job, 5 s
-    // later) kills this process, which would leave the agent's group running with nobody to end it.
-    const now = this.interrupted ? 'SIGKILL' : sig;
-    if (!this.interrupted) {
-      const agents = [...this.running];
-      // Only those still running: one that has exited took its group with it (attempt), and its id may be another's by now.
-      setTimeout(() => agents.filter((child) => this.running.has(child)).forEach((child) => killTree(child, 'SIGKILL', { group: GROUP })), 3_000).unref();
-    }
-    this.interrupted = true;
-    this.stopReason = 'interrupted';
-    for (const child of this.running) killTree(child, now, { group: GROUP });
-  };
+  /** Runs whose agent has exited and whose judge checks are being asked: still open. */
+  private readonly judging = new Set<string>();
+  /**
+   * SIGINT, SIGTERM and SIGHUP, for as long as the runner is open: the first is passed on to every
+   * agent running, which has a moment to end before it is killed, so whoever sent the signal (a
+   * dashboard stopping its job, 5 s later) never kills this process first and leaves an agent's group
+   * running with nobody to end it; a second kills them at once. With no agent left, a second ends the
+   * runs whose judge is being asked as interrupted, and this process with them.
+   */
+  private readonly stopSignals = new AgentStop({
+    group: GROUP,
+    onSignal: () => {
+      this.interrupted = true;
+      this.stopReason = 'interrupted';
+    },
+    abandon: () => {
+      for (const runId of this.judging) this.sidecar.endRun(runId, 'crashed');
+      this.judging.clear();
+    },
+  });
 
   private constructor(
     readonly store: Store,
@@ -131,8 +138,7 @@ export class AttemptRunner {
     private readonly settings: AttemptSettings,
     private readonly upstreams: Record<string, string>,
   ) {
-    process.on('SIGINT', this.onSignal);
-    process.on('SIGTERM', this.onSignal);
+    this.stopSignals.start();
   }
 
   /**
@@ -219,8 +225,13 @@ export class AttemptRunner {
     stampAuthor(this.store, run.runId);
     stampKeyEnv(this.store, run.runId);
     recordsInput(this.store, run.runId);
+    // Each Node and Python process of the agent says its preload loaded: an attempt that made calls
+    // with none was never watched by the guard, and fails under --guard block.
+    this.sidecar.expectPreloads(run.runId, s.guard);
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
+    trackAgent(child, GROUP);
+    this.stopSignals.add(child);
     let output = '';
     // What a judge check reads as the output: stdout alone, which interleaving with stderr can't change.
     let stdout = '';
@@ -244,7 +255,7 @@ export class AttemptRunner {
         output += `failed to start ${argv[0]}: ${err.message}\n`;
         resolveCode(127);
       });
-      child.on('exit', (c, signal) => resolveCode(c ?? (signal ? 128 : 1)));
+      child.on('exit', (c, signal) => resolveCode(exitStatus(c, signal)));
     });
     if (timer) clearTimeout(timer);
     this.running.delete(child);
@@ -262,11 +273,14 @@ export class AttemptRunner {
         throw new Error(AGENT_NODE_TOO_OLD);
       }
     }
-    const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
     // Judge checks once the agent has exited, while the run is open: an attempt is a fork, so its
     // judge runs live, through the judge's own upstream (never a model under test), and is recorded.
     if (s.spec && judgesOf(s.spec).length) await outputDrained(child);
+    this.judging.add(run.runId);
     const judged = s.spec && judgesOf(s.spec).length ? await judgeAttempt(this.store, this.sidecar, run.runId, s.spec, { code, timedOut, interrupted: this.interrupted, stdout, upstreams: upstreamOverrides(process.env), redact: this.config.redact, normalize: this.config.normalize, clock: this.config.clock, prices: this.config.prices }) : null;
+    this.judging.delete(run.runId);
+    // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
+    const status: Exclude<RunStatus, 'running'> = timedOut || this.interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed';
     const ended = this.sidecar.endRun(run.runId, status);
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
 
@@ -274,7 +288,7 @@ export class AttemptRunner {
     const bypassed = !calls.some((c) => c.kind === 'api' && !isJudgeCall(c)) && this.recordedModelCalls(parent.runId) > 0;
     if (bypassed) this.warnings.add(BYPASSED);
     const checks = this.check(calls, output, s.spec, judged);
-    const failures = [...(bypassed ? [BYPASSED] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
+    const failures = [...(bypassed ? [BYPASSED] : []), ...(ended.preloads?.failed ? [ended.preloads.missing!] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
     if (tally && !this.interrupted) {
       this.attempts++;
       this.spent += ended.summary.cost.spent;
@@ -289,7 +303,7 @@ export class AttemptRunner {
     for (const m of ended.summary.judge?.unknownModels ?? []) this.unknownModels.add(m);
     for (const w of ended.summary.warnings) this.warnings.add(w);
     // The agent exited 0 in time, through Shadowlap, and failed no check: only an undecided check kept it from passing.
-    const undecided = !bypassed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
+    const undecided = !bypassed && !ended.preloads?.failed && !timedOut && code === 0 && checks.some((c) => !c.ok) && checks.every((c) => c.ok || c.status === 'inconclusive');
     const verdict = failures.length === 0 ? 'passed' : undecided ? 'inconclusive' : 'failed';
     return { run, code, summary: ended.summary, calls, checks, failures, passed: failures.length === 0, verdict, bypassed, ms: Date.now() - started };
   }
@@ -320,8 +334,7 @@ export class AttemptRunner {
   private ownsStore = true;
 
   async close(): Promise<void> {
-    process.off('SIGINT', this.onSignal);
-    process.off('SIGTERM', this.onSignal);
+    this.stopSignals.stop();
     await this.sidecar.close();
     if (this.ownsStore) this.store.close();
     // Team store: attempts someone pushed while they were recording go to the store now that they have ended.
