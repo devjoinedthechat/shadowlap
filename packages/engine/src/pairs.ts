@@ -868,9 +868,11 @@ function readPairs(store: Store, runs: RunRecord[]): PairsResult {
     let undecided = 0;
     for (const [runId, list] of byRun) {
       // An attempt verify could not judge (a judge that could not answer, a condition it could not
-      // read) neither passed nor failed: it is no answer to prefer another to, and is counted apart.
-      const unsure = list.filter((a) => a.meta?.verify?.verdict === 'inconclusive');
-      const failing = list.filter((a) => a.meta?.verify?.passed === false && a.meta.verify.verdict !== 'inconclusive');
+      // read), or one its provider was unavailable for, neither passed nor failed: it is no answer to
+      // prefer another to, and is counted apart.
+      const unjudged = (a: RunRecord) => a.meta?.verify?.verdict === 'inconclusive' || a.meta?.verify?.verdict === 'unavailable';
+      const unsure = list.filter(unjudged);
+      const failing = list.filter((a) => a.meta?.verify?.passed === false && !unjudged(a));
       const passing = list.filter((a) => a.meta?.verify?.passed === true);
       undecided += unsure.length;
       if (!failing.length || !passing.length) continue;

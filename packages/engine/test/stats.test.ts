@@ -43,6 +43,8 @@ const sprt = (o: Partial<Omit<SprtGate, 'kind'>> = {}): SprtGate => ({ kind: 'sp
 const baseline = (o: Partial<Omit<BaselineGate, 'kind'>> = {}): BaselineGate => ({ kind: 'baseline', ...BASELINE_DEFAULTS, ...o });
 /** The figures docs/gating.md opens with: tell 90% or more from 70% or less, 5% risk each, give up after 20. */
 const SPEC = sprt({ good: 0.9, bad: 0.7, risk: 0.05, max: 20 });
+/** Attempts in order, T for a pass and F for a failure. */
+const path = (s: string): boolean[] => [...s].map((c) => c === 'T');
 
 describe('the binomial table: what a fixed 4 of 5 lets through', () => {
   // Exact figures, not measurements: P(at least 4 passes in 5) for an agent that passes p of the time.
@@ -518,17 +520,20 @@ describe('parseGate', () => {
 });
 
 describe('what the reports say', () => {
-  // The verdict word, the tally, the Wilson bound and the rule, stated once: never a claimed rate,
-  // since a gate bounds its error only at its two rates.
+  // The verdict word, the tally, the bound and the rule, stated once: never a claimed rate, since a
+  // gate bounds its error only at its two rates. The bound is exact under the gate's stopping
+  // (stats-bounds.test.ts proves its coverage).
   it('in one line, for each verdict', () => {
-    expect(gateResult(SPEC, Array(12).fill(true)).sentence).toBe('passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
-    expect(gateResult(SPEC, [false, false, false]).sentence).toBe('failed · 0 of 3 · rate <= 0.56 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
-    const mixed = [...Array(16).fill(true), false, false, false, false];
-    expect(gateResult(SPEC, mixed).sentence).toBe('inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateResult(SPEC, Array(12).fill(true)).sentence).toBe('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateResult(SPEC, [false, false, false]).sentence).toBe('failed · 0 of 3 · rate <= 0.71 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    // An order the gate reaches 20 attempts by: 16 straight passes would have passed it at 12.
+    const mixed = path('FFTTFTTTTFTTTTTTTTTT');
+    expect(gateResult(SPEC, mixed).sentence).toBe('inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     expect(gateResult(SPEC, [true], { clean: true }).sentence).toBe('passed · 1 of 1 · a clean replay, the same every time, so its one attempt settles it');
-    expect(gateResult(SPEC, [true, true], { decision: 'continue' }).sentence).toBe('undecided · 2 of 2 · rate 0.34 to 1.00 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    // Cut short, it stopped by no rule of its own: the interval holds however the attempts stopped.
+    expect(gateResult(SPEC, [true, true], { decision: 'continue' }).sentence).toBe('undecided · 2 of 2 · rate 0.12 to 1.00 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     // Without the rule, for a report that states it once above its lines.
-    expect(verdictLine(gateResult(SPEC, Array(12).fill(true)))).toBe('passed · 12 of 12 · rate >= 0.76 (95%)');
+    expect(verdictLine(gateResult(SPEC, Array(12).fill(true)))).toBe('passed · 12 of 12 · rate >= 0.73 (95%)');
     for (const r of [gateResult(SPEC, Array(12).fill(true)), gateResult(SPEC, mixed), gateResult(baseline(), Array(5).fill(true))]) expect(r.sentence).not.toMatch(/at least|at most|of the time|confidence/);
   });
 
@@ -536,12 +541,12 @@ describe('what the reports say', () => {
     const history = { passes: 47, attempts: 50, sessions: 10 };
     const g = baseline();
     const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
-    expect(gateResult(g, Array(5).fill(true), { history }).sentence).toBe(`passed · 5 of 5 · rate >= 0.57 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
-    expect(gateResult(g, [true, false, true, false, false], { history }).sentence).toBe(`failed · 2 of 5 · rate <= 0.77 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
-    expect(gateResult(g, [...Array(29).fill(true), ...Array(11).fill(false)], { history }).sentence).toBe(`inconclusive · 29 of 40 · rate 0.57 to 0.84 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
-    expect(gateResult(g, [true, true, true, true, false], { history }).sentence).toBe(`undecided · 4 of 5 · rate 0.38 to 0.96 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
-    expect(gateResult(g, [true, true], { history }).sentence).toBe(`undecided · 2 of 2 · rate 0.34 to 1.00 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
-    expect(gateResult(g, Array(5).fill(true)).sentence).toBe(`passed · 5 of 5 · rate >= 0.57 (95%) · against its recording (no history yet) · ${rule}`);
+    expect(gateResult(g, Array(5).fill(true), { history }).sentence).toBe(`passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, false, true, false, false], { history }).sentence).toBe(`failed · 2 of 5 · rate <= 0.86 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, path('FFTTTFTTFTTFTTFTTFTTFTTFTTFTTFTTTTTTTTTT'), { history }).sentence).toBe(`inconclusive · 29 of 40 · rate 0.40 to 0.88 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, true, true, true, false], { history }).sentence).toBe(`undecided · 4 of 5 · rate 0.21 to 1.00 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, [true, true], { history }).sentence).toBe(`undecided · 2 of 2 · rate 0.12 to 1.00 (95%) · against 0.94 over the last 10 sessions (47 of 50) · ${rule}`);
+    expect(gateResult(g, Array(5).fill(true)).sentence).toBe(`passed · 5 of 5 · rate >= 0.47 (95%) · against its recording (no history yet) · ${rule}`);
     expect(gateResult(g, Array(5).fill(true), { history: { ...history, sessions: 1 } }).sentence).toContain('against 0.94 over its last session (47 of 50)');
   });
 
@@ -551,22 +556,37 @@ describe('what the reports say', () => {
     expect(r.outcomes).toHaveLength(22);
     expect(r.attempts).toBe(22);
     expect(gateResult(SPEC, [true]).carried).toBeUndefined();
-    expect(gateResult(sprt({ max: 40 }), [...Array(16).fill(true), false, false, false, false, ...Array(22).fill(true)].slice(0, 26), { carried: 20, decision: 'continue' }).sentence).toBe('undecided · 22 of 26 (20 carried over) · rate 0.66 to 0.94 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts');
+    // Carried over from another session, it gets the interval that holds however the attempts stopped.
+    expect(gateResult(sprt({ max: 40 }), [...Array(16).fill(true), false, false, false, false, ...Array(22).fill(true)].slice(0, 26), { carried: 20, decision: 'continue' }).sentence).toBe('undecided · 22 of 26 (20 carried over) · rate 0.56 to 0.98 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 40 attempts');
+  });
+
+  it('counts apart the attempts the provider was unavailable for, which its tally and bound leave out', () => {
+    const r = gateResult(SPEC, Array(12).fill(true), { unavailable: 2 });
+    expect(r).toMatchObject({ unavailable: 2, passes: 12, attempts: 12, decision: 'pass' });
+    // The same bound as without them: they are no evidence either way.
+    expect(r.interval).toEqual(gateResult(SPEC, Array(12).fill(true)).interval);
+    expect(r.sentence).toBe('passed · 12 of 12 (2 unavailable, not counted) · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(verdictLine({ ...r, carried: 4 })).toBe('passed · 12 of 12 (4 carried over; 2 unavailable, not counted) · rate >= 0.73 (95%)');
+    expect(gateResult(SPEC, Array(12).fill(true)).unavailable).toBeUndefined();
+    // Three in a row before any counted: nothing decided, and no rate to show.
+    expect(gateResult(SPEC, [], { unavailable: 3, decision: 'continue' }).sentence).toBe('undecided · 0 of 0 (3 unavailable, not counted) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
   });
 
   it('shows the evidence: the tally, the interval and pass^k', () => {
-    const r = gateResult(SPEC, [...Array(18).fill(true), false, false]);
+    // Two failures first, then passes: the gate reaches its 20th attempt still between its bounds.
+    const r = gateResult(SPEC, path('FFTTTTTTTTTTTTTTTTTT'));
     // The end of the interval that explains the verdict: the low end for a pass, the high end for a failure, both otherwise.
-    expect(formatTally({ ...r, decision: 'pass' })).toBe('18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55');
+    expect(formatTally({ ...r, decision: 'pass' })).toBe('18 of 20 passed · rate >= 0.67 (95%) · pass^5 0.55');
     expect(r.decision).toBe('inconclusive');
-    expect(formatTally(r)).toBe('18 of 20 passed · rate 0.70 to 0.97 (95%) · pass^5 0.55');
+    expect(formatTally(r)).toBe('18 of 20 passed · rate 0.67 to 0.99 (95%) · pass^5 0.55');
     expect(formatPassK(r)).toBe('pass^5 0.55');
     expect(formatPassK(gateResult(SPEC, [true, true]))).toBeNull();
-    expect(formatTally(gateResult(SPEC, [false, false, false]))).toBe('0 of 3 passed · rate <= 0.56 (95%)');
+    expect(formatTally(gateResult(SPEC, [false, false, false]))).toBe('0 of 3 passed · rate <= 0.71 (95%)');
     expect(formatTally(gateResult(SPEC, [true], { clean: true }))).toBe('1 of 1 passed · a clean replay, the same every time');
     expect(r.passK.map((x) => x.k)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    expect(r.interval).toEqual({ lo: expect.closeTo(0.699, 3), hi: expect.closeTo(0.972, 3), confidence: 0.95 });
-    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · rate 0.21 to 0.94 (95%)');
+    expect(r.interval).toEqual({ lo: expect.closeTo(0.6727, 4), hi: expect.closeTo(0.9855, 4), confidence: 0.95 });
+    expect(r.bound).toEqual({ lo: r.interval.lo, hi: r.interval.hi, confidence: 0.95, method: 'stagewise' });
+    expect(formatTally(gateResult(SPEC, [true, true, false]))).toBe('2 of 3 passed · rate 0.06 to 1.00 (95%)');
   });
 
   it('keeps the running score after each attempt, against both bounds', () => {
@@ -603,7 +623,7 @@ describe('what the reports say', () => {
     expect(describeGate(sprt({ good: 0.875, bad: 0.5, risk: 0.1, max: 1 }))).toBe('tells 87.5%+ from 50%- at <= 10% risk, up to 1 attempt');
     expect(describeGate(baseline())).toBe('fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40');
     const one = gateResult(SPEC, [true]);
-    expect(gateSentence(SPEC, { ...one, decision: 'pass' })).toBe('passed · 1 of 1 · rate >= 0.21 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
+    expect(gateSentence(SPEC, { ...one, decision: 'pass' })).toBe('passed · 1 of 1 · rate >= 0.02 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
     expect(wilsonBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
   });
 });

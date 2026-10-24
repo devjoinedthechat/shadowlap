@@ -647,8 +647,9 @@ export interface TestResultData {
    * Attempts run, passed and needed, and each attempt's run: kept for every result since gates
    * pool them, one attempt included (a result kept before has it only for a recording that
    * repeats). `inconclusive`: attempts a check couldn't judge, which count neither way.
+   * `unavailable`: attempts the provider was unavailable for, retried and never counted (`total` leaves them out).
    */
-  attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number };
+  attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number; unavailable?: number };
   /** How the golden came out: passed, failed, or inconclusive (its gate ran out between its bounds, or a check couldn't be decided). Absent before results said. */
   verdict?: 'passed' | 'failed' | 'inconclusive';
   /** A golden with a gate: its decision, interval, pass^k, evidence path and sentence (stats.ts), as the reports show it. */
@@ -692,6 +693,17 @@ export interface TestResultData {
    * nothing, when it didn't.
    */
   injection?: InjectionGateData;
+
+  // ---- where the session ran (gate-history.ts reads these: only a result that passed on the
+  // baseline branch, outside any pull request, on a committed revision, is part of a baseline) ----
+  /** The branch the session tested, from CI's variables or git; null when none could be told. */
+  branch?: string | null;
+  /** The revision it tested, as `revision` says it: a short sha, `+dirty` with uncommitted changes. */
+  revision?: string | null;
+  /** The session ran for a pull or merge request. */
+  pullRequest?: boolean;
+  /** The branch baselines came from as the session saw it (`tests.baselineBranch`, CI's default branch, origin/HEAD); null when unknown. */
+  baselineBranch?: string | null;
 }
 
 /**

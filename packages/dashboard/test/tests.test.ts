@@ -1002,7 +1002,8 @@ describe('goldens with a gate', () => {
       { golden: 'goldens/flaky', ok: true, runId: 'R2', data: result(sprt, Array(12).fill(true)) },
       { golden: 'goldens/drops', ok: true, runId: 'R3', data: result(history, [true, true, true]) },
     ]);
-    const unsure = [...Array(16).fill(true), false, false, false, false];
+    // Four passes and a failure, four times: attempts the gate ends on at its limit, between its bounds.
+    const unsure = Array.from({ length: 4 }, () => [true, true, true, true, false]).flat();
     // Kept in the words results had before a verdict stated its test and showed its tally (a claimed
     // rate): the screen says them in today's.
     const kept = (d: TestResultData, sentence: string): TestResultData => ({ ...d, gate: { ...d.gate!, sentence } });
@@ -1021,14 +1022,16 @@ describe('goldens with a gate', () => {
     expect(escalates!.gate).toEqual({ gate: sprt, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', toPass: 12, toFail: 3 });
     expect(escalates!.modeLabel).toBe('fork · gate');
     expect(drops!.modeLabel).toBe('fork · history');
-    // Decision 9: the tally and the Wilson bound under the verdict word, and against history the
+    // Decision 9: the tally and the bound under the verdict word, and against history the
     // baseline; the rule is said once under the table, never on each row, and never a claimed rate.
-    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: '12 of 12 · rate >= 0.76 (95%)' });
-    expect(drops!.last).toMatchObject({ result: 'fail', verdict: 'failed', line: '0 of 3 · rate <= 0.56 (95%) · against 1.00 over the last 10 sessions (30 of 30)' });
+    expect(escalates!.last).toMatchObject({ result: 'pass', verdict: 'passed', line: '12 of 12 · rate >= 0.73 (95%)' });
+    expect(drops!.last).toMatchObject({ result: 'fail', verdict: 'failed', line: '0 of 3 · rate <= 0.71 (95%) · against 1.00 over the last 10 sessions (30 of 30)' });
     const g = escalates!.last.gate!;
-    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · rate >= 0.76 (95%) · pass^5 1.00', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', perAttempt: 0.02, more: null });
+    expect(g).toMatchObject({ kind: 'sprt', decision: 'pass', passes: 12, attempts: 12, tally: '12 of 12 passed · rate >= 0.73 (95%) · pass^5 1.00', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', perAttempt: 0.02, more: null });
     expect(drops!.last.gate!.rule).toBe('gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 3 attempts up to 40');
-    expect(g.interval.lo).toBeCloseTo(0.7575, 4);
+    // Exact under the gate's stopping: 12 straight passes, the rate whose twelfth power is 2.5%.
+    expect(g.interval.lo).toBeCloseTo(0.7354, 4);
+    expect(g.bound).toMatchObject({ method: 'stagewise' });
     if (g.evidence.kind !== 'sprt') throw new Error('an SPRT gate keeps its scores');
     expect(g.evidence.scores).toHaveLength(12);
     expect(g.evidence.scores.at(-1)).toBeGreaterThanOrEqual(g.evidence.upper);
@@ -1045,7 +1048,7 @@ describe('goldens with a gate', () => {
     // A golden whose judge checks are asked live on each attempt: their cost is an attempt's too.
     const judged = Store.open(':memory:');
     const judge = { calls: 20, replayed: 0, live: 20, notAsked: 0, upstreamRequests: 20, spent: 0.2, saved: 0, unknownModels: [] };
-    session(judged, 'e4f5a6b', T0, [{ golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive', runId: 'R7', data: { ...result(sprt, [...Array(16).fill(true), false, false, false, false], { spent: 0.4 }), judge } }]);
+    session(judged, 'e4f5a6b', T0, [{ golden: 'goldens/flaky', ok: false, failure: 'inconclusive' as never, reason: 'inconclusive', runId: 'R7', data: { ...result(sprt, Array.from({ length: 4 }, () => [true, true, true, true, false]).flat(), { spent: 0.4 }), judge } }]);
     expect(testsView(judged, gated).rows.find((r) => r.name === 'flaky')!.last.gate!.perAttempt).toBeCloseTo(0.03, 6);
     judged.close();
     // History cells: shaded by their pass rate, ringed where a gate against history found a drop.
@@ -1061,7 +1064,7 @@ describe('goldens with a gate', () => {
     const store = gatedStore();
     const view = testsView(store, gated);
     expect(view.verdict).toMatchObject({ state: 'failing', failing: 1, inconclusive: 1, passing: 1, untested: 0 });
-    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: 'inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
+    expect(view.inconclusive).toEqual([expect.objectContaining({ golden: 'goldens/flaky', reason: 'inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', gate: expect.objectContaining({ decision: 'inconclusive' }) })]);
     // Nothing to bisect or fix there: only the golden that failed is a failure.
     expect(view.failures.map((f) => f.golden)).toEqual(['goldens/drops']);
     expect(testsView(store, gated.slice(0, 2)).verdict).toMatchObject({ state: 'inconclusive', failing: 0, inconclusive: 1, passing: 1, title: 'flaky inconclusive after 20 attempts' });
@@ -1074,8 +1077,8 @@ describe('goldens with a gate', () => {
     // Needs a look says a gate's verdict as the gate does: the word, the tally and the bound (and the
     // baseline), whole, with the rule apart for the line's hover, never cut off after it.
     expect(failingTests(store, { goldens: gated }).map((t) => [t.line, t.rule])).toEqual([
-      ['failed · 0 of 3 · rate <= 0.56 (95%) · against 1.00 over the last 10 sessions (30 of 30)', 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 3 attempts up to 40'],
-      ['inconclusive · 16 of 20 · rate 0.58 to 0.92 (95%)', 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts'],
+      ['failed · 0 of 3 · rate <= 0.71 (95%) · against 1.00 over the last 10 sessions (30 of 30)', 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 3 attempts up to 40'],
+      ['inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%)', 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts'],
     ]);
     store.close();
   });

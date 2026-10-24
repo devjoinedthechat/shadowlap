@@ -120,7 +120,8 @@ describe('Tests’ Last result', () => {
     try {
       const t = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], revision: 'a1b2c3d', startedAt: 100 });
       store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/escalates', ok: true, runId: null, revision: 'a1b2c3d', at: 101, data: result(Array(12).fill(true)) });
-      const unsure = [...Array(16).fill(true), false, false, false, false];
+      // Four passes and a failure, four times: attempts the gate ends on at its limit, between its bounds.
+      const unsure = Array.from({ length: 4 }, () => [true, true, true, true, false]).flat();
       store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive', runId: null, revision: 'a1b2c3d', at: 102, data: result(unsure) });
       store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/plain', ok: true, runId: null, revision: 'a1b2c3d', at: 103, data: { mode: 'replay' } });
       store.finishTestSession(t.sessionId, { passed: 2, failed: 0, upstreamRequests: 0, endedAt: 110 });
@@ -144,13 +145,13 @@ describe('Tests’ Last result', () => {
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
       const [escalates, flaky, plain] = r.all('td.glast');
       expect(escalates!.querySelector('.st')!.textContent).toBe('passed');
-      expect(escalates!.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.76 (95%)');
-      expect(escalates!.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.76 (95%)']);
-      expect(flaky!.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.58 to 0.92 (95%)']);
+      expect(escalates!.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.73 (95%)');
+      expect(escalates!.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      expect(flaky!.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.56 to 0.95 (95%)']);
       expect(escalates!.querySelector('.gev .wib')!.className).toBe('wib ok');
       expect(escalates!.querySelector('.gev small')!.textContent).toBe('against .70 and .90');
       expect(flaky!.querySelector('.st')!.textContent).toBe('inconclusive');
-      expect(flaky!.querySelector('.rsub')!.textContent).toBe('16 of 20 · rate 0.58 to 0.92 (95%)');
+      expect(flaky!.querySelector('.rsub')!.textContent).toBe('16 of 20 · rate 0.56 to 0.95 (95%)');
       expect(flaky!.querySelector('.gev .wib')!.className).toBe('wib y');
       // A golden no gate decided: its line as before, and no bar.
       expect(plain!.querySelector('.gev')).toBeNull();

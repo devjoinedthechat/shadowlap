@@ -234,8 +234,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.verify.map((v: { verdict: string }) => v.verdict)).toEqual(['accepted', 'rejected']);
     expect(shown.defaultVerify).toBe(shown.verify[0].verifyId);
     expect(shown.verify[0]).toMatchObject({ headline: 'Every failing run fixed, every good run kept', oracle: "a run's attempts must meet the check: the agent exits 0; issue_refund with {\"amount\":240} called 0 times; its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts" });
-    // Each run shows its tally and the Wilson bound, at the confidence it was decided at.
-    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.76 (95%)' });
+    // Each run shows its tally and the bound, at the confidence it was decided at.
+    expect(shown.verify[0].rows[0].rate).toMatchObject({ decision: 'pass', confidence: 0.95, sentence: 'passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', bound: 'rate >= 0.73 (95%)' });
     expect(shown.verify[0].rows.map((r: { role: string; outcome: string }) => [r.role, r.outcome])).toEqual([
       ['target', 'fixed'],
       ['target', 'fixed'],
@@ -246,7 +246,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
     expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
-    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(95%\\); #\\d+, the next model call: lost · 0 of 4 · rate <= 0\\.49 \\(95%\\)\\.$`));
+    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(95%\\); #\\d+, the next model call: lost · 0 of 4 · rate <= 0\\.61 \\(95%\\)\\.$`));
     expect(shown.blame.answers).toMatchObject({ callNo: decision, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"above the refund limit"})' });
     expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', bound: expect.stringMatching(/^rate >= 0\.\d\d \(95%\)$/), href: `#/run/${failed[1]}/${decision}` });
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
@@ -260,10 +260,10 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(human).toMatch(/✓ 01 blame +Lost at model call/);
     expect(human).toContain('✓ accepted');
     expect(human).toContain('✗ rejected');
-    // Each probe and each verified run with its tally and Wilson bound, under its gate's rule.
+    // Each probe and each verified run with its tally and bound, under its gate's rule.
     expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts');
-    expect(human).toMatch(/0 of 4 passed · rate <= 0\.49 \(95%\) +lost/);
-    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.76 \(95%\)/);
+    expect(human).toMatch(/0 of 4 passed · rate <= 0\.61 \(95%\) +lost/);
+    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.73 \(95%\)/);
     expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);

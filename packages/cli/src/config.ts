@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
-import { parseTests, type TestEntry } from './checks.js';
+import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
 
 // The file itself (reading it, and every edit to it) is the engine's, shared with the dashboard.
 export { CONFIG_FILE };
@@ -185,6 +185,13 @@ export function loadTests(cwd: string): TestEntry[] {
   const stored = readConfigFile(cwd);
   if (!stored.exists) return [];
   return parseTests((stored.data as { tests?: unknown }).tests);
+}
+
+/** `shadowlap test`'s own settings under `tests`: `suiteRisk` and `baselineBranch`. */
+export function loadTestSettings(cwd: string): TestSettings {
+  const stored = readConfigFile(cwd);
+  if (!stored.exists) return {};
+  return parseTestSettings((stored.data as { tests?: unknown }).tests);
 }
 
 /** The store for a project: `.shadowlap/shadowlap.db` in its folder. */

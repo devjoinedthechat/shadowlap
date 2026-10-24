@@ -183,8 +183,21 @@
       "type": "boolean"
     },
     "tests": {
-      "description": "Outcome checks for `shadowlap test`, by recording directory relative to this file. `*` is allowed in the last path segment.",
+      "description": "Outcome checks for `shadowlap test`, by recording directory relative to this file. `*` is allowed in the last path segment. Two keys set the test session instead: suiteRisk and baselineBranch.",
       "type": "object",
+      "properties": {
+        "suiteRisk": {
+          "description": "The most a healthy suite may go red for nothing, split across its gated goldens: each fails a golden at its good rate, or runs out of attempts there, at most suiteRisk divided by their number of the time. Default 0.05; `shadowlap test --suite-risk` overrides it for one session.",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 0.5
+        },
+        "baselineBranch": {
+          "description": "The branch a gate against history takes its baseline from: only sessions that passed on it, for no pull request, count. Default: the default branch, from CI's variables or git's origin/HEAD.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,

@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { attemptsOf, gateHistory, judgedUnder, testResultVerdict } from '../src/gate-history.js';
+import { attemptsOf, gateHistory, judgedUnder, notBaseline, testResultVerdict } from '../src/gate-history.js';
 import { Store, type TestFailure, type TestResultData } from '../src/store.js';
 
 /**
  * A golden's baseline for a gate against history: its last sessions' attempts, pooled, only those
- * that speak to the agent as it is tested now.
+ * that speak to the agent as it is tested now, and only those that are a standard to keep: the
+ * golden passed, on the baseline branch, outside any pull request, on a committed revision.
  */
 const T0 = Date.UTC(2026, 9, 1);
 const CHECKS = [{ ok: true, label: 'issue_refund called 0 times', detail: null }];
-const fork = (passed: number, total: number, extra: Partial<TestResultData> = {}): TestResultData => ({ mode: 'fork', checks: CHECKS, attempts: { total, passed, required: null, runs: [] }, ...extra });
+/** Where a session on the default branch ran: what a baseline is made of. */
+const MAIN: Partial<TestResultData> = { branch: 'main', pullRequest: false, baselineBranch: 'main', revision: 'a1b2c3d' };
+const fork = (passed: number, total: number, extra: Partial<TestResultData> = {}): TestResultData => ({ mode: 'fork', checks: CHECKS, attempts: { total, passed, required: null, runs: [] }, ...MAIN, verdict: 'passed', ...extra });
 
-function store(results: Array<{ ok: boolean; at: number; data?: TestResultData | null; failure?: TestFailure; goldenRunId?: string; golden?: string }>): { store: Store; sessions: string[] } {
+function store(results: Array<{ ok: boolean; at: number; data?: TestResultData | null; failure?: TestFailure; goldenRunId?: string; golden?: string; revision?: string }>): { store: Store; sessions: string[] } {
   const s = Store.open(':memory:');
   const sessions = results.map((r) => {
     const session = s.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: r.at, owner: null });
-    s.addTestResult({ sessionId: session.sessionId, golden: r.golden ?? 'goldens/refund', ok: r.ok, ...(r.failure ? { failure: r.failure } : {}), goldenRunId: r.goldenRunId ?? 'REC', at: r.at, data: r.data ?? null });
+    s.addTestResult({ sessionId: session.sessionId, golden: r.golden ?? 'goldens/refund', ok: r.ok, ...(r.failure ? { failure: r.failure } : {}), goldenRunId: r.goldenRunId ?? 'REC', at: r.at, revision: r.revision ?? 'a1b2c3d', data: r.data ?? null });
     return session.sessionId;
   });
   return { store: s, sessions };
@@ -50,22 +53,62 @@ describe('gateHistory', () => {
     const { store: s, sessions } = store([
       { ok: true, at: T0, data: fork(5, 5) },
       { ok: true, at: T0 + 1, data: fork(4, 5) },
-      { ok: false, at: T0 + 2, failure: 'check', data: fork(1, 5) },
+      { ok: true, at: T0 + 2, data: fork(9, 10) },
       { ok: true, at: T0 + 3, data: fork(5, 5) },
     ]);
     const h = gateHistory(s, 'goldens/refund', { window: 2, mode: 'fork', checks: ['issue_refund called 0 times'], goldenRunId: 'REC', excludeSession: sessions[3] });
-    expect(h).toMatchObject({ passes: 5, attempts: 10, sessions: 2 });
+    expect(h).toMatchObject({ passes: 13, attempts: 15, sessions: 2 });
     expect(h.pooled.map((x) => x.sessionId)).toEqual([sessions[2], sessions[1]]);
-    expect(gateHistory(s, 'goldens/refund', { window: 10 })).toMatchObject({ passes: 15, attempts: 20, sessions: 4 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10 })).toMatchObject({ passes: 23, attempts: 25, sessions: 4 });
     s.close();
+  });
+
+  it('pools only sessions that passed, on the baseline branch, for no pull request, on a committed revision', () => {
+    const { store: s, sessions } = store([
+      { ok: true, at: T0, data: fork(5, 5) },
+      // A session the golden failed: a regression's, which must never become the standard.
+      { ok: false, at: T0 + 1, failure: 'check', data: fork(1, 5, { verdict: 'failed' }) },
+      // Inconclusive is no pass either.
+      { ok: false, at: T0 + 2, failure: 'inconclusive', data: fork(30, 40, { verdict: 'inconclusive' }) },
+      // A pull request's, and a feature branch's, which passed: not the baseline branch's.
+      { ok: true, at: T0 + 3, data: fork(5, 5, { branch: 'fix-refunds', pullRequest: true }) },
+      { ok: true, at: T0 + 4, data: fork(5, 5, { branch: 'fix-refunds' }) },
+      // Uncommitted changes on main: not main's code.
+      { ok: true, at: T0 + 5, data: fork(5, 5), revision: 'a1b2c3d+dirty' },
+      // Kept before sessions said where they ran.
+      { ok: true, at: T0 + 6, data: { mode: 'fork', checks: CHECKS, attempts: { total: 5, passed: 5, required: null, runs: [] }, verdict: 'passed' } },
+      { ok: true, at: T0 + 7, data: fork(4, 5) },
+    ]);
+    const h = gateHistory(s, 'goldens/refund', { window: 10, branch: 'main' });
+    expect(h.pooled.map((x) => x.sessionId)).toEqual([sessions[7], sessions[0]]);
+    expect(h).toMatchObject({ passes: 9, attempts: 10, sessions: 2 });
+    // Each result's own baseline branch, when the caller names none; none known, nothing pools.
+    expect(gateHistory(s, 'goldens/refund', { window: 10 }).sessions).toBe(2);
+    expect(gateHistory(s, 'goldens/refund', { window: 10, branch: null }).sessions).toBe(0);
+    // A pull request into a release branch takes that branch's sessions.
+    expect(gateHistory(s, 'goldens/refund', { window: 10, branch: 'fix-refunds' }).pooled.map((x) => x.sessionId)).toEqual([sessions[4]]);
+    s.close();
+  });
+
+  it('says why a result is no baseline', () => {
+    const r = (data: Partial<TestResultData>, o: { ok?: boolean; revision?: string } = {}) => ({ ok: o.ok ?? true, failure: o.ok === false ? ('check' as const) : null, revision: o.revision ?? 'abc', data: fork(5, 5, data) });
+    expect(notBaseline(r({}), 'main')).toBeNull();
+    expect(notBaseline(r({ verdict: 'failed' }, { ok: false }), 'main')).toBe('its golden did not pass');
+    expect(notBaseline(r({ pullRequest: true }), 'main')).toBe('its session ran for a pull request');
+    expect(notBaseline(r({ branch: 'dev' }), 'main')).toBe('its session ran on dev, not main');
+    expect(notBaseline(r({}, { revision: 'abc+dirty' }), 'main')).toBe('its session tested uncommitted changes');
+    expect(notBaseline(r({ branch: null }), 'main')).toBe('its session recorded no branch');
+    // A result kept before results said where their session ran: it passed, but on no branch it can show.
+    expect(notBaseline({ ok: true, failure: null, revision: 'abc', data: { mode: 'fork', checks: CHECKS, attempts: { total: 5, passed: 5, required: null, runs: [] }, verdict: 'passed' } }, 'main')).toBe('its session recorded no branch');
+    expect(notBaseline(r({}), null)).toBe('no baseline branch is known');
   });
 
   it('pools only results under the same recording, the same checks and the same mode, that ran', () => {
     const { store: s } = store([
       { ok: true, at: T0, data: fork(5, 5), goldenRunId: 'OLD' },
       { ok: true, at: T0 + 1, data: fork(5, 5, { checks: [{ ok: true, label: 'escalate called 1 time', detail: null }] }) },
-      { ok: true, at: T0 + 2, data: { mode: 'replay', checks: CHECKS } },
-      { ok: false, at: T0 + 3, failure: 'error', data: { mode: 'fork', checks: CHECKS } },
+      { ok: true, at: T0 + 2, data: { mode: 'replay', checks: CHECKS, ...MAIN } },
+      { ok: false, at: T0 + 3, failure: 'error', data: { mode: 'fork', checks: CHECKS, ...MAIN } },
       { ok: true, at: T0 + 4, data: fork(3, 3), golden: 'goldens/other' },
       { ok: true, at: T0 + 5, data: fork(2, 3) },
     ]);
@@ -77,11 +120,12 @@ describe('gateHistory', () => {
   it('leaves out every session a continued result carries attempts over from, besides the one deciding now', () => {
     const { store: s, sessions } = store([
       { ok: true, at: T0, data: fork(5, 5) },
-      { ok: false, at: T0 + 1, failure: 'inconclusive', data: fork(30, 40) },
+      // An inconclusive session continued later, that then passed.
+      { ok: true, at: T0 + 1, data: fork(36, 40) },
       { ok: true, at: T0 + 2, data: fork(4, 5) },
     ]);
     expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: [sessions[2]!, sessions[1]!] })).toMatchObject({ passes: 5, attempts: 5, sessions: 1 });
-    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: sessions[2]! })).toMatchObject({ passes: 35, attempts: 45, sessions: 2 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: sessions[2]! })).toMatchObject({ passes: 41, attempts: 45, sessions: 2 });
     s.close();
   });
 

@@ -21,27 +21,36 @@
  *     that chance is 1/2 or less (no drop shows), and otherwise runs another attempt, up to `max`.
  *     Without history the baseline is the golden's recording: the one attempt it was packed from,
  *     which passed.
- * - `wilson`: the Wilson score interval, for display only. Checking an interval after every attempt
- *   and stopping when it clears a bar inflates the error rate ("peeking"); the per-attempt decision
- *   is the gate's, whose odds `gateOdds` computes with every look counted.
+ * - `gateInterval`: the pass rate's interval at 1 − risk, exact under the gate's own stopping rule
+ *   (the stagewise ordering of where it can stop, Siegmund's), so that a bound shown beside a verdict
+ *   covers the true rate as often as it says, every look counted. A fixed count's is Clopper–Pearson
+ *   (`clopperPearson`), and attempts a gate did not stop on by its own rule (cut short, carried over
+ *   from another session) get a confidence sequence (`confidenceSequence`), valid however they stopped.
+ *   `wilson` stays for display elsewhere: checking it after every attempt inflates its error ("peeking").
  * - `passHatK`: the chance an agent passes all of k tries, from c passes in n, as C(c,k)/C(n,k) (the
  *   τ-bench estimator), which matters more than one success for an agent that runs unattended.
  *
- * Plus what the reports say: the verdict line (`passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells
- * 90%+ from 70%- at <= 5% risk, up to 80 attempts`: the verdict word, the tally, the Wilson bound and
- * the rule), the evidence path (the score after each attempt, against both bounds), and the exact
- * odds of each verdict for an agent with a given pass rate (`gateOdds`), which the docs' tables and
- * Settings' preview are made from.
+ * Plus what the reports say: the verdict line (`passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells
+ * 90%+ from 70%- at <= 5% risk, up to 80 attempts`: the verdict word, the tally, the bound and the
+ * rule), the evidence path (the score after each attempt, against both bounds), and the exact odds of
+ * each verdict for an agent with a given pass rate (`gateOdds`), which the docs' tables and Settings'
+ * preview are made from.
  */
 
 export interface SprtGate {
   kind: 'sprt';
-  /** A pass rate the gate should pass: at or above it, it fails at most about `risk` of the time. */
+  /** A pass rate the gate should pass: at or above it, it fails at most about `failRisk` (else `risk`) of the time. */
   good: number;
   /** A pass rate the gate should fail: at or below it, it passes at most about `risk` of the time. */
   bad: number;
-  /** The most a verdict may be wrong at `good` or `bad`, each way. */
+  /** The most a pass may be wrong, at `bad`; and a failure, at `good`, unless `failRisk` says otherwise. */
   risk: number;
+  /**
+   * The most a failure may be wrong at `good`, when it is lower than `risk`: `shadowlap test` sets it
+   * to a golden's share of the suite's risk (suite.ts), so a healthy suite goes red at most that
+   * often. Absent: `risk`, each way.
+   */
+  failRisk?: number;
   /** The most attempts it runs; between the bounds then, it is inconclusive. */
   max: number;
 }
@@ -192,37 +201,43 @@ export interface SprtBounds {
   pass: number;
   /** Added for each failure: ln((1−good)/(1−bad)), below 0. */
   fail: number;
-  /** It passes at or above this: ln((1−risk)/risk). */
+  /** It passes at or above this: ln((1−failRisk)/risk), ln((1−risk)/risk) with one risk each way. */
   upper: number;
-  /** It fails at or below this: the negative of `upper`. */
+  /** It fails at or below this: ln(failRisk/(1−risk)), the negative of `upper` with one risk each way. */
   lower: number;
 }
 
-export function sprtBounds(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): SprtBounds {
-  const upper = Math.log((1 - g.risk) / g.risk);
-  return { pass: Math.log(g.good / g.bad), fail: Math.log((1 - g.good) / (1 - g.bad)), upper, lower: -upper };
+/** The figures an SPRT's score and bounds are made of. */
+export type SprtFigures = Pick<SprtGate, 'good' | 'bad' | 'risk'> & { failRisk?: number | undefined };
+
+/** Wald's bounds with a pass wrong at most α = risk of the time at `bad`, and a failure β = failRisk at `good`. */
+export function sprtBounds(g: SprtFigures): SprtBounds {
+  const a = g.risk;
+  const b = g.failRisk ?? g.risk;
+  const upper = Math.log((1 - b) / a);
+  return { pass: Math.log(g.good / g.bad), fail: Math.log((1 - g.good) / (1 - g.bad)), upper, lower: b === a ? -upper : Math.log(b / (1 - a)) };
 }
 
 /** The SPRT's step: the score after one more attempt. */
-export function sprtStep(score: number, passed: boolean, g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): number {
+export function sprtStep(score: number, passed: boolean, g: SprtFigures): number {
   const b = sprtBounds(g);
   return score + (passed ? b.pass : b.fail);
 }
 
 /** The score after `passes` of `attempts`: order doesn't matter, only the counts. */
-export function sprtScore(passes: number, attempts: number, g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): number {
+export function sprtScore(passes: number, attempts: number, g: SprtFigures): number {
   const b = sprtBounds(g);
   return passes * b.pass + (attempts - passes) * b.fail;
 }
 
 /** The fewest attempts an agent that always passes needs to pass the gate: 12 at 0.9, 0.7 and 0.05. */
-export function attemptsToPass(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): number {
+export function attemptsToPass(g: SprtFigures): number {
   const b = sprtBounds(g);
   return Math.max(1, Math.ceil(b.upper / b.pass - EPS));
 }
 
 /** The fewest attempts an agent that always fails needs to fail it: 3 at 0.9, 0.7 and 0.05. */
-export function attemptsToFail(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): number {
+export function attemptsToFail(g: SprtFigures): number {
   const b = sprtBounds(g);
   return Math.max(1, Math.ceil(b.lower / b.fail - EPS));
 }
@@ -361,6 +376,26 @@ export function betaPdf(x: number, a: number, b: number): number {
 const SIMPSON_STEPS = 4000;
 
 /**
+ * What one baseline contributes at each Simpson node, P(baseline > x + drop), kept for the baselines
+ * used last: a gate asks for the same baseline after every attempt, and the odds and bounds walk
+ * every tally against it. The values are the ones the sum would compute, so caching changes nothing.
+ */
+const baselineFactors = new Map<string, Float64Array>();
+const BASELINE_FACTORS_KEPT = 64;
+
+function baselineFactor(a2: number, b2: number, drop: number, h: number): Float64Array {
+  const key = `${a2}/${b2}/${drop}`;
+  let f = baselineFactors.get(key);
+  if (f) return f;
+  const lnB2 = lnBeta(a2, b2);
+  f = new Float64Array(SIMPSON_STEPS + 1);
+  for (let i = 0; i <= SIMPSON_STEPS; i++) f[i] = 1 - incompleteBeta(i * h + drop, a2, b2, lnB2);
+  if (baselineFactors.size >= BASELINE_FACTORS_KEPT) baselineFactors.delete(baselineFactors.keys().next().value!);
+  baselineFactors.set(key, f);
+  return f;
+}
+
+/**
  * P(now < baseline − drop): the chance a golden's pass rate now is below its baseline's by `drop`
  * or more. Each rate is a Beta posterior under a uniform prior (Beta(1 + passes, 1 + failures));
  * with no baseline given, the baseline is 1, a golden that always passes. Integrated exactly enough
@@ -376,18 +411,29 @@ export function dropProbability(now: Tally, baseline: Tally | null, drop: number
   checkTally(baseline.passes, baseline.attempts);
   const a2 = 1 + baseline.passes;
   const b2 = 1 + baseline.attempts - baseline.passes;
+  // The odds and the bounds of a gate against history ask for the same few hundred tallies again and again.
+  const key = `${a1}/${b1}/${a2}/${b2}/${drop}`;
+  const known = drops.get(key);
+  if (known !== undefined) return known;
   // ∫_0^top f_now(x) · P(baseline > x + drop) dx
   const lnB1 = lnBeta(a1, b1);
-  const lnB2 = lnBeta(a2, b2);
   const h = top / SIMPSON_STEPS;
+  const above = baselineFactor(a2, b2, drop, h);
   let sum = 0;
   for (let i = 0; i <= SIMPSON_STEPS; i++) {
     const x = i * h;
     const w = i === 0 || i === SIMPSON_STEPS ? 1 : i % 2 ? 4 : 2;
-    sum += w * densityBeta(x, a1, b1, lnB1) * (1 - incompleteBeta(x + drop, a2, b2, lnB2));
+    sum += w * densityBeta(x, a1, b1, lnB1) * above[i]!;
   }
-  return Math.min(1, Math.max(0, (sum * h) / 3));
+  const q = Math.min(1, Math.max(0, (sum * h) / 3));
+  if (drops.size >= DROPS_KEPT) drops.clear();
+  drops.set(key, q);
+  return q;
 }
+
+/** dropProbability's answers already worked out: it is pure, so they are the same every time. */
+const drops = new Map<string, number>();
+const DROPS_KEPT = 200_000;
 
 /** The standard normal quantile, z with Φ(z) = p (Acklam's rational approximation: relative error below 1.2e-9). */
 export function normalQuantile(p: number): number {
@@ -536,21 +582,303 @@ export function runsRed(odds: Pick<GateOdds, 'fail' | 'inconclusive'>, goldens: 
   return 1 - (1 - Math.min(1, red)) ** goldens;
 }
 
+// ---- Bounds that hold however the gate stopped ------------------------------------------------
+//
+// A gate stops as soon as its evidence suffices, so its tally is no fixed-count sample: 12 of 12 is
+// where it stops for every agent that passes its first 12 attempts, whatever that agent's rate. An
+// interval computed from the tally as if its count had been fixed (Wilson's, or Clopper–Pearson's)
+// misses the true rate more often than it says. These count every way the gate could have stopped.
+
+/**
+ * How a bound was worked out: `stagewise`, exact under the gate's own stopping rule (Siegmund's
+ * ordering of where it can stop); `clopper-pearson`, a fixed count's; `confidence-sequence`, valid
+ * however the attempts stopped (a gate cut short, attempts carried over from another session).
+ */
+export type BoundMethod = 'stagewise' | 'clopper-pearson' | 'confidence-sequence';
+
+/** A pass rate's two-sided interval at `confidence`: each end is wrong at most (1 − confidence)/2 of the time. */
+export interface RateInterval {
+  lo: number;
+  hi: number;
+  confidence: number;
+  method: BoundMethod;
+}
+
+/**
+ * The end, or the ends, of a rate's interval that bear on a verdict, as every report carries it: `lo`
+ * for a pass, `hi` for a failure, both otherwise. Whichever is shown, it is wrong at most 1 −
+ * confidence of the time, since each end alone is wrong at most half that.
+ */
+export interface RateBound {
+  lo?: number;
+  hi?: number;
+  confidence: number;
+  method: BoundMethod;
+}
+
+/** Where a gate stopped by its own rule: the tally, and what it decided there. */
+export interface GateStop {
+  passes: number;
+  attempts: number;
+  decision: 'pass' | 'fail' | 'inconclusive';
+}
+
+type Rule = (passes: number, attempts: number) => GateDecision;
+
+/** Halvings of [0, 1] a bound's bisection takes: its end is within 2^-42 of the exact one, on the safe side. */
+const HALVINGS = 42;
+
+/** The lowest p in [0, 1] at which a nondecreasing `f` exceeds `level`, from below: never above the exact one. */
+function firstAbove(f: (p: number) => number, level: number): number {
+  if (f(0) > level) return 0;
+  let a = 0;
+  let b = 1;
+  for (let i = 0; i < HALVINGS; i++) {
+    const m = (a + b) / 2;
+    if (f(m) > level) b = m;
+    else a = m;
+  }
+  return a;
+}
+
+/** The highest p in [0, 1] at which a nonincreasing `f` exceeds `level`, from above: never below the exact one. */
+function lastAbove(f: (p: number) => number, level: number): number {
+  if (f(1) > level) return 1;
+  let a = 0;
+  let b = 1;
+  for (let i = 0; i < HALVINGS; i++) {
+    const m = (a + b) / 2;
+    if (f(m) > level) a = m;
+    else b = m;
+  }
+  return b;
+}
+
+/**
+ * The chances, at pass rate p, that a rule stops higher than `t` and lower than `t` in the stagewise
+ * order: a pass ranks higher the sooner it came, a failure lower the sooner it came, and stops after
+ * the same attempt rank by their passes. Only the attempts up to t's are walked: whatever stops later
+ * ranks below a pass at t, and above a failure at t.
+ */
+function stagewiseTails(rule: Rule, t: GateStop, p: number): { above: number; below: number } {
+  let walking = new Map<number, number>([[0, 1]]);
+  let above = 0;
+  let below = 0;
+  for (let n = 1; n <= t.attempts; n++) {
+    const next = new Map<number, number>();
+    for (const [s, mass] of walking) {
+      for (const [passes, q] of [
+        [s + 1, p],
+        [s, 1 - p],
+      ] as const) {
+        if (q === 0) continue;
+        const m = mass * q;
+        const d = rule(passes, n);
+        if (d === 'continue') next.set(passes, (next.get(passes) ?? 0) + m);
+        else if (n < t.attempts) {
+          // A gate is inconclusive only at its limit, which t's attempt doesn't come after.
+          if (d === 'pass') above += m;
+          else below += m;
+        } else if (passes > t.passes) above += m;
+        else if (passes < t.passes) below += m;
+      }
+    }
+    walking = next;
+  }
+  let going = 0;
+  for (const m of walking.values()) going += m;
+  if (t.decision === 'pass') below += going;
+  else if (t.decision === 'fail') above += going;
+  return { above, below };
+}
+
+/**
+ * A pass rate's two-sided interval at `confidence`, exact under a rule that stopped at `t`: the low
+ * end is the lowest rate at which stopping as high as t or higher has more than (1 − confidence)/2
+ * chance, the high end the highest at which stopping as low or lower has. Both chances move one way
+ * with the rate (an agent that passes more often stops no lower, attempt by attempt), so each end is
+ * a bisection, and each is wrong at most (1 − confidence)/2 of the time, over every way the rule can stop.
+ */
+export function stagewiseInterval(rule: Rule, t: GateStop, confidence: number): { lo: number; hi: number } {
+  const tail = (1 - confidence) / 2;
+  const memo = new Map<number, { above: number; below: number }>();
+  const tails = (p: number) => {
+    let x = memo.get(p);
+    if (!x) {
+      x = stagewiseTails(rule, t, p);
+      memo.set(p, x);
+    }
+    return x;
+  };
+  return { lo: firstAbove((p) => 1 - tails(p).below, tail), hi: lastAbove((p) => 1 - tails(p).above, tail) };
+}
+
+/** P(X ≤ k) for X ~ Binomial(n, p), summed from the nearer end. */
+function binomialAtMost(n: number, k: number, p: number): number {
+  if (k < 0) return 0;
+  if (k >= n) return 1;
+  return Math.max(0, Math.min(1, 1 - binomialTail(n, k + 1, p)));
+}
+
+/**
+ * The Clopper–Pearson interval for `passes` of a fixed `n`, two-sided at `confidence`: each end is
+ * wrong at most (1 − confidence)/2 of the time, at every rate. It holds for a fixed count stopped as
+ * soon as it is settled too (decideCount): the end that bears on the verdict is then exactly the
+ * stagewise one, and the other end is wider than it.
+ */
+export function clopperPearson(passes: number, n: number, confidence = 0.95): { lo: number; hi: number } {
+  checkTally(passes, n);
+  if (!(confidence > 0 && confidence < 1)) throw new RangeError('confidence must be between 0 and 1');
+  if (n === 0) return { lo: 0, hi: 1 };
+  const tail = (1 - confidence) / 2;
+  const lo = passes === 0 ? 0 : firstAbove((p) => binomialTail(n, passes, p), tail);
+  const hi = passes === n ? 1 : lastAbove((p) => binomialAtMost(n, passes, p), tail);
+  return { lo, hi };
+}
+
+/**
+ * A confidence sequence for the pass rate: the rates p at which (n + 1)·C(n, k)·p^k·(1 − p)^(n−k)
+ * is above 1 − confidence, the uniform mixture of likelihood ratios that Ville's inequality bounds.
+ * It covers the true rate at every attempt at once, at least `confidence` of the time, so it holds
+ * however the attempts stopped: cut short by a signal or a budget, or carried over from another
+ * session. Wider than the stagewise interval, which needs the gate to have stopped by its own rule.
+ */
+export function confidenceSequence(passes: number, n: number, confidence = 0.95): { lo: number; hi: number } {
+  checkTally(passes, n);
+  if (!(confidence > 0 && confidence < 1)) throw new RangeError('confidence must be between 0 and 1');
+  if (n === 0) return { lo: 0, hi: 1 };
+  const k = passes;
+  const base = Math.log(n + 1) + lnGamma(n + 1) - lnGamma(k + 1) - lnGamma(n - k + 1) - Math.log(1 - confidence);
+  const inside = (p: number) => (p <= 0 ? (k === 0 ? Infinity : -Infinity) : p >= 1 ? (k === n ? Infinity : -Infinity) : base + k * Math.log(p) + (n - k) * Math.log(1 - p));
+  const mode = k / n;
+  // Inside rises up to the mode and falls after it: one bisection on each side.
+  let lo = 0;
+  if (k > 0) {
+    let a = 0;
+    let b = mode;
+    for (let i = 0; i < HALVINGS; i++) {
+      const m = (a + b) / 2;
+      if (inside(m) > 0) b = m;
+      else a = m;
+    }
+    lo = a;
+  }
+  let hi = 1;
+  if (k < n) {
+    let a = mode;
+    let b = 1;
+    for (let i = 0; i < HALVINGS; i++) {
+      const m = (a + b) / 2;
+      if (inside(m) > 0) a = m;
+      else b = m;
+    }
+    hi = b;
+  }
+  return { lo, hi };
+}
+
+/** Where a rule first decides over attempts that came out as `outcomes`, or null when it never did. */
+function firstStop(rule: Rule, outcomes: readonly boolean[]): GateStop | null {
+  let passes = 0;
+  for (let i = 0; i < outcomes.length; i++) {
+    if (outcomes[i]) passes++;
+    const d = rule(passes, i + 1);
+    if (d !== 'continue') return { passes, attempts: i + 1, decision: d };
+  }
+  return null;
+}
+
+/** Whether a rule can stop at `t` at all: some path of attempts reaches it without stopping before. */
+function reachable(rule: Rule, t: GateStop): boolean {
+  if (rule(t.passes, t.attempts) !== t.decision) return false;
+  let walking = new Set<number>([0]);
+  for (let n = 1; n < t.attempts; n++) {
+    const next = new Set<number>();
+    for (const s of walking) for (const passes of [s, s + 1]) if (rule(passes, n) === 'continue') next.add(passes);
+    walking = next;
+  }
+  return walking.has(t.passes) || walking.has(t.passes - 1);
+}
+
+/**
+ * A gate's interval for the pass rate, at 1 − risk, on attempts that came out as `outcomes`: exact
+ * under the gate's own stopping rule when the gate stopped on them by that rule, with `decision`
+ * there (stagewise); otherwise a confidence sequence, valid wherever they stopped: a gate cut short
+ * (`continue`), attempts `carried` over from another session, a verdict frozen before every attempt
+ * had ended, a `clean` replay that settled it alone. For a gate against history, `history` is its
+ * baseline (none: the golden's recording), which its rule depends on.
+ */
+export function gateInterval(gate: Gate, outcomes: readonly boolean[], o: { decision?: GateDecision | undefined; history?: Tally | null | undefined; carried?: number | undefined; clean?: boolean | undefined } = {}): RateInterval {
+  const confidence = 1 - gate.risk;
+  const passes = outcomes.filter(Boolean).length;
+  if (!o.carried && !o.clean && outcomes.length > 0) {
+    const rule = decider(gate, o.history ?? null);
+    const stop = firstStop(rule, outcomes);
+    if (stop && stop.attempts === outcomes.length && (o.decision === undefined || o.decision === stop.decision)) {
+      return { ...stagewiseInterval(rule, stop, confidence), confidence, method: 'stagewise' };
+    }
+  }
+  return { ...confidenceSequence(passes, outcomes.length, confidence), confidence, method: 'confidence-sequence' };
+}
+
+/**
+ * The same from a tally alone, for a report that kept only the counts: stagewise when the gate's rule
+ * can stop at `passes` of `attempts` with `decision` (an SPRT's stop depends on the counts alone),
+ * otherwise a confidence sequence.
+ */
+export function tallyInterval(gate: Gate, tally: Tally, decision: GateDecision, history?: Tally | null): RateInterval {
+  checkTally(tally.passes, tally.attempts);
+  const confidence = 1 - gate.risk;
+  const rule = decider(gate, history ?? null);
+  const stop: GateStop | null = decision === 'continue' ? null : { passes: tally.passes, attempts: tally.attempts, decision };
+  if (stop && tally.attempts > 0 && reachable(rule, stop)) return { ...stagewiseInterval(rule, stop, confidence), confidence, method: 'stagewise' };
+  return { ...confidenceSequence(tally.passes, tally.attempts, confidence), confidence, method: 'confidence-sequence' };
+}
+
+/** A fixed count's interval, `passes` of `attempts` at `confidence`: Clopper–Pearson. */
+export function countInterval(tally: Tally, confidence: number): RateInterval {
+  return { ...clopperPearson(tally.passes, tally.attempts, confidence), confidence, method: 'clopper-pearson' };
+}
+
+/** The ends of an interval that bear on a decision: the low end for a pass, the high end for a failure, both otherwise. */
+export function boundOf(i: RateInterval, decision: GateDecision | undefined): RateBound {
+  const at = { confidence: i.confidence, method: i.method };
+  if (decision === undefined || decision === 'pass') return { lo: i.lo, ...at };
+  if (decision === 'fail') return { hi: i.hi, ...at };
+  return { lo: i.lo, hi: i.hi, ...at };
+}
+
 // ---- What the reports say ---------------------------------------------------------------------
 //
 // A gate's verdict states the test and shows the tally, never a claimed rate. An SPRT gate bounds its
 // error only at its two rates: an agent between them gets either verdict, so "passed" can't mean
-// "passes at least 90% of the time". Every report says the verdict word, the tally, the Wilson bound
-// and the rule, the rule stated once: `passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+
-// from 70%- at <= 5% risk, up to 80 attempts`.
+// "passes at least 90% of the time". Every report says the verdict word, the tally, the bound and
+// the rule, the rule stated once: `passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from
+// 70%- at <= 5% risk, up to 80 attempts`. The bound is the end of the gate's interval that bears on
+// the verdict, rounded away from the rate it bounds, so it never says more than was worked out.
 
 /** A share as a percentage, as few digits as it needs: 0.9 is 90%, 0.875 is 87.5%. */
 export function percent(x: number): string {
   return `${+(x * 100).toFixed(1)}%`;
 }
 
+/**
+ * A risk as a percentage: as `percent` from 1% up, and to two significant digits below it, rounded
+ * up so it never reads as less than it is: 0.0005 is 0.05%, 0.000437 is 0.044%.
+ */
+export function riskPercent(x: number): string {
+  const v = x * 100;
+  if (!(v > 0) || v >= 1) return percent(x);
+  const places = 1 - Math.floor(Math.log10(v));
+  const scale = 10 ** places;
+  return `${+(Math.ceil(+(v * scale).toPrecision(12)) / scale).toFixed(places)}%`;
+}
+
 /** A rate to two places: 0.7 is 0.70. */
 const rate = (x: number) => x.toFixed(2);
+/** A bound's end to two places, rounded away from the rate it bounds: a low end down, a high end up. */
+const lowEnd = (x: number) => (Math.floor(x * 100) / 100).toFixed(2);
+const highEnd = (x: number) => (Math.ceil(x * 100) / 100).toFixed(2);
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
 /** A gate's rate as its rule names it: 0.9 is `90%+`, 90% or more; 0.7, below, is `70%-`, 70% or less. */
@@ -560,29 +888,48 @@ export const atMost = (x: number): string => `${percent(x)}-`;
 /** Points of a drop: 0.15 is `15`. */
 const points = (drop: number) => `${+(drop * 100).toFixed(1)}`;
 
-/**
- * A gate's rule in one line, what its verdicts are decided by: `tells 90%+ from 70%- at <= 5% risk,
- * up to 80 attempts` (an agent at 90% or more passes, and one at 70% or less fails, each verdict
- * wrong at most 5% of the time; between the two nothing is promised), or for history `fails a drop
- * of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40`.
- */
-export function describeGate(gate: Gate): string {
-  if (gate.kind === 'sprt') return `tells ${atLeast(gate.good)} from ${atMost(gate.bad)} at <= ${percent(gate.risk)} risk, up to ${plural(gate.max, 'attempt')}`;
-  return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${percent(1 - gate.risk)} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
+/** An SPRT gate's risks in words: `5% risk`, or with a lower risk for a failure, `5% risk to pass and <= 0.05% to fail`. */
+function risks(g: SprtFigures): string {
+  const fail = g.failRisk ?? g.risk;
+  return fail === g.risk ? `${percent(g.risk)} risk` : `${percent(g.risk)} risk to pass and <= ${riskPercent(fail)} to fail`;
 }
 
 /**
- * The pass rate's Wilson bound that bears on a verdict, at the gate's confidence: `rate >= 0.76
- * (95%)` for a pass, `rate <= 0.56 (95%)` for a failure, both ends otherwise (`rate 0.21 to 0.94
- * (95%)`). What the attempts show, beside the verdict, which the gate decided: null with none.
+ * A gate's rule in one line, what its verdicts are decided by: `tells 90%+ from 70%- at <= 5% risk,
+ * up to 80 attempts` (an agent at 90% or more passes, and one at 70% or less fails, each verdict
+ * wrong at most 5% of the time; between the two nothing is promised); with its suite's share of the
+ * risk for a failure, `tells 90%+ from 70%- at <= 5% risk to pass and <= 0.05% to fail, up to 190
+ * attempts`; for history `fails a drop of 15+ points from its last 10 sessions once 95% likely, from
+ * 5 attempts up to 40`.
  */
-export function wilsonBound(r: Pick<GateResult, 'attempts' | 'interval'> & { decision?: GateDecision | undefined }): string | null {
+export function describeGate(gate: Gate): string {
+  if (gate.kind === 'sprt') return `tells ${atLeast(gate.good)} from ${atMost(gate.bad)} at <= ${risks(gate)}, up to ${plural(gate.max, 'attempt')}`;
+  const sure = 1 - gate.risk;
+  // A share of a suite's risk can be finer than a tenth of a point: 99.95% likely.
+  const likely = gate.risk >= 0.01 ? percent(sure) : `${+(sure * 100).toFixed(Math.min(6, 2 - Math.floor(Math.log10(gate.risk * 100))))}%`;
+  return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${likely} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
+}
+
+/**
+ * The bound that bears on a verdict, at its confidence: `rate >= 0.73 (95%)` for a pass, `rate <=
+ * 0.53 (95%)` for a failure, both ends otherwise (`rate 0.21 to 0.94 (95%)`): the end, or ends, of
+ * the gate's interval (`gateInterval`), each rounded away from the rate it bounds. Whichever is shown
+ * is wrong at most 1 − confidence of the time, over every way the gate can end. Null with no attempts.
+ */
+export function rateBound(r: Pick<GateResult, 'attempts' | 'interval'> & { decision?: GateDecision | undefined }): string | null {
   if (r.attempts === 0) return null;
   const at = `(${percent(r.interval.confidence)})`;
-  if (r.decision === undefined || r.decision === 'pass') return `rate >= ${rate(r.interval.lo)} ${at}`;
-  if (r.decision === 'fail') return `rate <= ${rate(r.interval.hi)} ${at}`;
-  return `rate ${rate(r.interval.lo)} to ${rate(r.interval.hi)} ${at}`;
+  if (r.decision === undefined || r.decision === 'pass') return `rate >= ${lowEnd(r.interval.lo)} ${at}`;
+  if (r.decision === 'fail') return `rate <= ${highEnd(r.interval.hi)} ${at}`;
+  return `rate ${lowEnd(r.interval.lo)} to ${highEnd(r.interval.hi)} ${at}`;
 }
+
+/**
+ * The name the bound had when it was Wilson's: it prints `rateBound`, from whatever interval it is
+ * given. A gate result's interval is exact under its gate's stopping (`gateInterval`).
+ * @deprecated use `rateBound`.
+ */
+export const wilsonBound = rateBound;
 
 /** The running score after each attempt, against both bounds: why the gate stopped where it did. */
 export interface SprtEvidence extends SprtBounds {
@@ -615,8 +962,16 @@ export interface GateOutcome {
   attempts: number;
   /** Each attempt in order: true for one that passed. */
   outcomes: boolean[];
-  /** The Wilson interval of the pass rate at 1 − risk, for display. */
+  /**
+   * The pass rate's two-sided interval at 1 − risk (`gateInterval`): exact under the gate's own
+   * stopping rule, or for attempts it didn't stop on by that rule, a confidence sequence. A result
+   * kept before had the Wilson interval here, for display only.
+   */
   interval: { lo: number; hi: number; confidence: number };
+  /** The end, or ends, of `interval` that bear on the verdict, and how it was worked out: what the verdict line shows. Absent for a clean replay, and on results kept before. */
+  bound?: RateBound;
+  /** Attempts the provider was unavailable for (`unavailable.ts`): retried, never counted in `outcomes`. Absent when there were none. */
+  unavailable?: number;
   /** pass^k for k = 1, 2, … up to the attempts run (at most 8). */
   passK: Array<{ k: number; value: number }>;
   evidence: SprtEvidence | BaselineEvidence;
@@ -624,7 +979,7 @@ export interface GateOutcome {
   clean: boolean;
   /** Attempts carried over from an earlier session this one continued: the first `carried` of `outcomes`. Absent when none were. */
   carried?: number;
-  /** The verdict line, rule included: `passed · 12 of 12 · rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
+  /** The verdict line, rule included: `passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. */
   sentence: string;
 }
 
@@ -636,7 +991,8 @@ export type GateResult = Gate & GateOutcome;
 
 /** The gate a result was decided by, without what it made of the attempts. */
 export function gateOf(r: Gate): Gate {
-  return r.kind === 'sprt' ? { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, max: r.max } : { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min, max: r.max };
+  if (r.kind === 'sprt') return { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, ...(r.failRisk !== undefined && r.failRisk !== r.risk ? { failRisk: r.failRisk } : {}), max: r.max };
+  return { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min, max: r.max };
 }
 
 /** The largest k a report lists pass^k for. */
@@ -650,15 +1006,21 @@ export const PASS_K_SHOWN = 5;
  * gate says after the last attempt; a caller stopped early (a signal, a budget) passes `continue`,
  * and one whose decision came before attempts still running had ended passes the decision it froze.
  * `carried`: how many of the outcomes came from an earlier session this one continued.
+ * `unavailable`: attempts the provider was unavailable for, which `outcomes` leaves out.
+ *
+ * Its interval is exact under the gate's own stopping rule when the gate stopped on these outcomes by
+ * that rule (`gateInterval`); a clean replay's, a cut-short gate's and a continued one's is a
+ * confidence sequence, which holds however the attempts stopped.
  */
-export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision; carried?: number } = {}): GateResult {
+export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision; carried?: number; unavailable?: number } = {}): GateResult {
   const attempts = outcomes.length;
   const passes = outcomes.filter(Boolean).length;
   const history = o.history && o.history.attempts > 0 ? o.history : null;
   const clean = !!o.clean && attempts > 0;
   const decision = o.decision ?? (clean ? (outcomes[0] ? 'pass' : 'fail') : decide(passes, attempts, gate, history));
-  const confidence = 1 - gate.risk;
-  const w = wilson(passes, attempts, confidence);
+  const carried = o.carried && o.carried > 0 ? Math.min(o.carried, attempts) : 0;
+  const exact = gateInterval(gate, outcomes, { decision, history, carried, clean });
+  const interval = { lo: exact.lo, hi: exact.hi, confidence: exact.confidence };
   const passK: GateResult['passK'] = [];
   for (let k = 1; k <= Math.min(attempts, PASS_K_MAX); k++) passK.push({ k, value: passHatK(passes, attempts, k)! });
   let evidence: GateResult['evidence'];
@@ -683,19 +1045,21 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
       passAt: BASELINE_PASS_AT,
     };
   }
-  const carried = o.carried && o.carried > 0 ? Math.min(o.carried, attempts) : 0;
+  const unavailable = o.unavailable && o.unavailable > 0 ? o.unavailable : 0;
   return {
     ...gateOf(gate),
     decision,
     passes,
     attempts,
     outcomes: [...outcomes],
-    interval: { ...w, confidence },
+    interval,
+    ...(clean || !attempts ? {} : { bound: boundOf(exact, decision) }),
+    ...(unavailable ? { unavailable } : {}),
     passK,
     evidence,
     clean,
     ...(carried ? { carried } : {}),
-    sentence: gateSentence(gate, { decision, passes, attempts, interval: { ...w, confidence }, clean, evidence, ...(carried ? { carried } : {}) }),
+    sentence: gateSentence(gate, { decision, passes, attempts, interval, clean, evidence, ...(carried ? { carried } : {}), ...(unavailable ? { unavailable } : {}) }),
   };
 }
 
@@ -713,26 +1077,28 @@ function baselineWords(e: BaselineEvidence): string {
 
 /**
  * A gate's verdict without its rule, for a report that states the rule once above its lines: the
- * verdict word, the tally and the Wilson bound, `passed · 12 of 12 · rate >= 0.76 (95%)`; against
- * history, the baseline after them. A clean replay's one attempt has no rate to show: it is the same
- * every time.
+ * verdict word, the tally and the bound, `passed · 12 of 12 · rate >= 0.73 (95%)`; against history,
+ * the baseline after them. A clean replay's one attempt has no rate to show: it is the same every time.
+ * The tally says what it left out or took in apart: attempts carried over from a session it continued,
+ * and attempts the provider was unavailable for, never counted (`12 of 12 (2 unavailable, not counted)`).
  */
-export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
-  const tally = `${r.passes} of ${r.attempts}${r.carried ? ` (${r.carried} carried over)` : ''}`;
+export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
+  const apart = [r.carried ? `${r.carried} carried over` : null, r.unavailable ? `${r.unavailable} unavailable, not counted` : null].filter(Boolean).join('; ');
+  const tally = `${r.passes} of ${r.attempts}${apart ? ` (${apart})` : ''}`;
   if (r.clean) return `${decisionWord(r.decision)} · ${tally} · a clean replay, the same every time`;
-  const parts = [decisionWord(r.decision), tally, wilsonBound(r)];
+  const parts = [decisionWord(r.decision), tally, rateBound(r)];
   if (r.evidence.kind === 'baseline') parts.push(baselineWords(r.evidence));
   return parts.filter(Boolean).join(' · ');
 }
 
 /**
  * The verdict line every report says, the rule stated once after the evidence: `passed · 12 of 12 ·
- * rate >= 0.76 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, `failed · 0 of
- * 3 · rate <= 0.56 (95%) · gate: …`, `inconclusive · 14 of 20 · rate 0.48 to 0.86 (95%) · gate: …`;
- * against history, `passed · 5 of 5 · rate >= 0.57 (95%) · against 0.94 over the last 10 sessions
+ * rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`, `failed · 0 of
+ * 3 · rate <= 0.71 (95%) · gate: …`, `inconclusive · 64 of 80 · rate 0.67 to 0.91 (95%) · gate: …`;
+ * against history, `passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions
  * (47 of 50) · gate: fails a drop of 15+ points …`. A clean replay is settled by its one attempt.
  */
-export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined }): string {
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
   if (r.clean) return `${verdictLine(r)}, so its one attempt settles it`;
   return `${verdictLine(r)} · gate: ${describeGate(g)}`;
 }
@@ -744,7 +1110,7 @@ export function formatPassK(r: Pick<GateResult, 'passK'> & { clean?: boolean }):
 }
 
 /**
- * The evidence in one line: `18 of 20 passed · rate >= 0.70 (95%) · pass^5 0.55`. The interval's end
+ * The evidence in one line: `18 of 20 passed · rate >= 0.68 (95%) · pass^5 0.55`. The interval's end
  * that bears on the verdict: the low end for a pass, the high end for a failure, both otherwise. A
  * clean replay's one attempt has no rate to estimate: it is the same every time.
  */
@@ -752,7 +1118,7 @@ export function formatTally(r: Pick<GateResult, 'passes' | 'attempts' | 'interva
   const parts = [`${r.passes} of ${r.attempts} passed`];
   if (r.clean) parts.push('a clean replay, the same every time');
   else {
-    const bound = wilsonBound(r);
+    const bound = rateBound(r);
     if (bound) parts.push(bound);
   }
   const k = formatPassK(r);

@@ -103,7 +103,7 @@ describe('a run’s page and lineage', () => {
       const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 3 };
       local.addTestResult({ sessionId: session, golden: 'goldens/refund', ok: false, failure: 'inconclusive', runId: runs[2]!, goldenRunId: rec, data: { verdict: 'inconclusive', gate: gateResult(gate, [true, false, true], { decision: 'inconclusive' }) } });
       const tests = lineage(local, runs[0]!)!.filter((n) => n.test).map((n) => n.test!.gate);
-      expect(tests).toEqual([1, 2, 3].map(() => ({ verdict: 'inconclusive · 2 of 3 · rate 0.21 to 0.94 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 3 attempts' })));
+      expect(tests).toEqual([1, 2, 3].map(() => ({ verdict: 'inconclusive · 2 of 3 · rate 0.09 to 1.00 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 3 attempts' })));
       // Never "passes at least": the verdict word, the tally and the bound.
       expect(JSON.stringify(tests)).not.toContain('at least');
     } finally {

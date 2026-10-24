@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatPassK, formatTokens, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatPassK, formatTokens, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -37,10 +37,11 @@ export interface PackResult {
   /**
    * The replay shown (the passing attempt, or the one that failed), and every attempt's run: `ok` for
    * one that passed, and its `verdict`, inconclusive when all it fell short on is a check that could
-   * not be decided (the attempt test stops at, as no attempt after it would decide it either).
+   * not be decided (the attempt test stops at, as no attempt after it would decide it either), and
+   * unavailable when the agent failed while its provider was (retried, never counted).
    */
   runId: string | null;
-  runs: Array<{ runId: string; ok: boolean; verdict: 'passed' | 'failed' | 'inconclusive' }>;
+  runs: Array<{ runId: string; ok: boolean; verdict: 'passed' | 'failed' | 'inconclusive' | 'unavailable' }>;
   /** The recording that was replayed. */
   goldenRunId: string | null;
   calls: { total: number; replayed: number; live: number; blocked: number; stubbed: number } | null;
@@ -54,8 +55,9 @@ export interface PackResult {
    * For a recording that repeats, or one with a gate: how many attempts ran, passed, were
    * inconclusive (a check could not decide them: neither passed nor failed) and had to pass (null
    * with a gate). Reports made before attempts were counted apart have no `inconclusive`.
+   * `unavailable`: attempts the provider was unavailable for, which `total` leaves out.
    */
-  attempts: { total: number; passed: number; inconclusive?: number; required: number | null } | null;
+  attempts: { total: number; passed: number; inconclusive?: number; required: number | null; unavailable?: number } | null;
   /**
    * A golden with a gate: its figures, its decision and sentence, the interval, pass^k and the
    * evidence path (stats.ts). Null for one an attempt a check could not decide stopped before its
@@ -85,12 +87,19 @@ export interface TestReport {
   /** A signal stopped the session: `results` has the goldens that finished before it. */
   interrupted: boolean;
   results: PackResult[];
+  /**
+   * With a gated golden: the session's one risk of going red for nothing, each gated golden's share
+   * of it (Bonferroni), how many shared it, what inconclusive verdicts did, the chance the session
+   * went red for nothing at most as planned, and the forecast made before it ran: attempts on
+   * average and at most, and their cost on average (null with no price; `unpriced` goldens had none).
+   */
+  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number } };
 }
 
-export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null): TestReport {
+export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
   const failed = results.filter((r) => !r.ok).length;
   const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
-  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results };
+  return { version: 1, session: session?.id ?? null, revision: session?.revision ?? null, passed: results.length - failed, failed, inconclusive, interrupted: !!session?.interrupted, results, ...(suite ? { suite } : {}) };
 }
 
 /** A pack's verdict, as CI's `ok` says for a result made before results had one. */
@@ -129,7 +138,7 @@ const passKAfter = (g: PackResult['gate']): string => {
   return k ? ` · ${k}` : '';
 };
 
-/** The result cell for a passing recording; one with a gate leads with its verdict line (the tally, the Wilson bound and the rule) and pass^k. */
+/** The result cell for a passing recording; one with a gate leads with its verdict line (the tally, the bound and the rule) and pass^k. */
 function passedLabel(r: PackResult): string {
   const parts = [r.updated ? 'updated' : r.divergence ? `${r.divergence.type === 'ended_early' ? 'ended early' : 'forked'} at call ${r.divergence.callNo}` : 'clean'];
   if (r.checks?.length) parts.push(statusTally(r.checks));
@@ -155,7 +164,10 @@ export function markdownReport(report: TestReport): string {
       : !failed
         ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive`
         : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-  lines.push(`### Shadowlap: ${head}`, '', '| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
+  lines.push(`### Shadowlap: ${head}`, '');
+  // The session's one risk, when gated goldens shared it.
+  if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), so a healthy suite goes red for nothing in ${riskPercent(report.suite.risk)} of runs or fewer.`, '');
+  lines.push('| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;

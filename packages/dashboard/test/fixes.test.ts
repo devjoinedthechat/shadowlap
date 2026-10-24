@@ -149,9 +149,9 @@ describe('the Fixes list', () => {
     const first = { ...base.probes[0]!, passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0]!.attempts[0]!, runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
     const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
     const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
-    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.18 to 0.57 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
+    expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
     expect(b.look).toContain('Not settled: resampled from #1');
-    expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive', bound: 'rate 0.18 to 0.57 (95%)' });
+    expect(b.probes[0]).toMatchObject({ verdict: 'inconclusive', bound: 'rate 0.10 to 0.64 (95%)' });
     expect(b.callRow.find((c) => c.callNo === 1)).toMatchObject({ verdict: 'inconclusive' });
 
     // A report a store holds with its gate malformed reads as a fixed count's, and a run's rate as none.
@@ -409,6 +409,14 @@ describe('a fix', () => {
     expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
     // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
     expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'not settled', meta: 'a run it verified is inconclusive' });
+  });
+
+  it('reads an attempt its provider was unavailable for as inconclusive, never failed', () => {
+    const good = makeRun(store, { labels: ['good'], status: 'completed' });
+    // Retried by verify and never counted (attempts.ts in the CLI): no report names it, its run's mark says why.
+    const retried = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'unavailable' } } });
+    const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
+    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: retried, passed: false, verdict: 'inconclusive' })]);
   });
 
   it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {

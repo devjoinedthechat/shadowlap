@@ -2,16 +2,18 @@ import { writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
-import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, stampAuthor } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.js';
 import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
-import { codeVersion, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from '../config.js';
+import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, upstreamOverrides } from '../config.js';
 import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.js';
 import { allowedUnrecorded, unrecordedInGoldens } from '../unrecorded.js';
+import { sessionSource } from '../baseline-branch.js';
+import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
@@ -122,6 +124,13 @@ function isTestPack(dir: string): boolean {
 }
 
 
+/** `--suite-risk`: a share above 0 and below 0.5. */
+function parseSuiteRisk(value: string): number {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v <= 0 || v >= 0.5) throw new InvalidArgumentError('must be a number above 0 and below 0.5, such as 0.05: the most a healthy suite may go red for nothing');
+  return v;
+}
+
 /**
  * The store a test session keeps its history in: the one `--db` names (`:memory:` keeps nothing),
  * else the project's, created if needed. A project store that can't be opened (a read-only
@@ -177,7 +186,9 @@ export function passedLine(o: GoldenOutcome): string {
     ...(s.extraReads?.length ? [`${s.extraReads.length} extra read${s.extraReads.length === 1 ? '' : 's'} answered live`] : []),
     ...(r.shown.checks?.length ? [statusTally(r.shown.checks)] : []),
     // An attempt a check could not decide, after the count was met, is counted apart: it did not fail.
-    ...(r.attempts.length > 1 && !r.gate ? [`${r.passed}/${r.attempts.length} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
+    ...(r.attempts.length - r.unavailable > 1 && !r.gate ? [`${r.passed}/${r.attempts.length - r.unavailable} attempts passed${r.inconclusive ? ` (${r.inconclusive} inconclusive)` : ''}`] : []),
+    // Attempts the provider was unavailable for: run, and not counted. A gate's verdict line says so in its tally.
+    ...(r.unavailable && !r.gate ? [`${r.unavailable} attempt${r.unavailable === 1 ? '' : 's'} not counted: the provider was unavailable`] : []),
   ].join(', ');
 }
 
@@ -202,7 +213,7 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
     for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
   };
   if (!o.failure) {
-    // A gate's verdict line leads (the verdict word, the tally, the Wilson bound, the rule), with pass^k and the rest under it.
+    // A gate's verdict line leads (the verdict word, the tally, the bound, the rule), with pass^k and the rest under it.
     if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${[formatPassK(gate), passedLine(o)].filter(Boolean).join(' · ')}`)}\n`);
     else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
     // A judge's verdict and reason are worth reading on a golden that passed too.
@@ -243,13 +254,14 @@ export function register(program: Command): void {
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
     .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's, a check's or, with --chaos, a preset's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
     .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
+    .option('--suite-risk <r>', 'the most a healthy suite may go red for nothing, split across its gated goldens (default: tests.suiteRisk in the config, else 0.05)', parseSuiteRisk)
     .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
     // Error-path presets: each golden forked where a tool or the provider fails, instead of the session above.
     .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--allow-unrecorded <names>', 'run these tools again for real though a golden never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
       const opts = program.opts<GlobalOpts>();
       // A golden whose model called a tool its recording never recorded, which writes, would run it
       // again for real: refused before anything runs, every such golden named. Reads only warn.
@@ -260,7 +272,7 @@ export function register(program: Command): void {
         for (const w of looked.warnings) process.stderr.write(`${w}\n`);
       }
       if (flags.chaos) {
-        if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts and --continue are for a test session');
+        if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue || flags.suiteRisk !== undefined) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts, --suite-risk and --continue are for a test session');
         const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}) };
         await testChaos(opts, packArgs, chaosFlags, givenCommand(process.argv, 'test'));
         return;
@@ -283,7 +295,16 @@ export function register(program: Command): void {
       const store = openTestStore(opts, projectDir);
       const actor = resolveAuthor({ cwd: projectDir });
       const revision = codeVersion(cwd);
+      // Where the session runs, kept with every result: only a session that passed on the baseline
+      // branch, for no pull request, is part of a gate's baseline against history (gate-history.ts).
+      const settings = loadTestSettings(projectDir);
+      const source = sessionSource({ cwd, configured: settings.baselineBranch ?? null });
+      const ran = { branch: source.branch, revision, pullRequest: source.pullRequest, baselineBranch: source.baselineBranch };
       const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
+      // One risk for the session, split across its gated goldens before any runs (suite-plan.ts):
+      // each gate takes its share, and the forecast says what the session costs.
+      const planned = planSession(packs, { store, tests, projectDir, prices: config.prices, baselineBranch: source.baselineBranch, risk: flags.suiteRisk ?? settings.suiteRisk ?? SUITE_RISK, inconclusive: flags.inconclusive, maxAttempts: flags.maxAttempts });
+      if (planned) for (const line of suiteLines(planned.plan)) process.stdout.write(p.dim(`${safe(line)}\n`));
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
       let upstreamRequests = 0;
@@ -315,7 +336,10 @@ export function register(program: Command): void {
           if (signal) break;
           const golden = goldenName(packDir, projectDir);
           current = golden;
-          const spec = specFor(tests, packDir, projectDir);
+          const configured = specFor(tests, packDir, projectDir);
+          // Its gate with its share of the session's risk.
+          const share = planned?.gates.get(golden);
+          const spec = configured && share ? { ...configured, gate: share } : configured;
           const expect = rawExpectFor(tests, packDir, projectDir);
           const ctx: RecordingTestContext = {
             store,
@@ -325,8 +349,12 @@ export function register(program: Command): void {
             guard: flags.guard,
             online: !!flags.online,
             test: { golden, session: session.sessionId },
+            branch: source.branch,
+            baselineBranch: source.baselineBranch,
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
+            // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
+            onUnavailable: (u, waitMs) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: the provider was unavailable (${u.reason}), so that attempt isn't counted; running it again in ${formatDuration(waitMs)}\n`)),
             stopped,
             ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
             ...(flags.continue ? { continue: true } : {}),
@@ -491,7 +519,7 @@ export function register(program: Command): void {
             runId: outcome.result?.shown.ended.summary.runId ?? null,
             goldenRunId: outcome.parent?.runId ?? null,
             revision,
-            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}) },
+            data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}), ...ran },
           });
           cases.push(junitCase(outcome, flags.inconclusive));
           results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive, injection }));
@@ -537,7 +565,7 @@ export function register(program: Command): void {
       const notRun = packs.length - results.length;
       if (cut) process.stdout.write(`${p.yellow('⏹')} ${safe(cut)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null });
+      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null }, planned ? suiteJson(planned.plan) : null);
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');

@@ -266,15 +266,19 @@ export interface RunMeta {
   repeat?: { group: string; attempt: number; of: number };
   /** Outcome checks from `shadowlap test` or `shadowlap blame`, as they came out for this run: a judge check's with its verdict and reason. Older runs' carry no `status`: read it with `checkStatus`. */
   checks?: StoredCheck[];
-  /** One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed. */
-  probe?: { of: string; callNo: number; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' };
+  /**
+   * One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed.
+   * Its verdict is `unavailable` when the agent failed while its provider was (unavailable.ts): retried, never counted.
+   */
+  probe?: { of: string; callNo: number; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable' };
   /** The last `shadowlap blame` of this run. */
   blame?: BlameRecord;
   /**
    * One attempt of `shadowlap verify`: the role its recording played, whether the attempt passed and
-   * its verdict, inconclusive when all it fell short on is a check that could not be decided.
+   * its verdict, inconclusive when all it fell short on is a check that could not be decided, and
+   * unavailable when the agent failed while its provider was (unavailable.ts): retried, never counted.
    */
-  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' };
+  verify?: { role: 'target' | 'holdout' | 'good'; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable' };
   /** Labels people gave the run: `bug`, `good`, `refund-flow`. */
   labels?: string[];
   /** Notes on the run, or on one of its calls. */
