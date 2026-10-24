@@ -72,6 +72,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
       [
         [or('j', '↓'), 'Next call'],
         [or('k', '↑'), 'Previous call'],
+        [or('←', '→'), 'In Calls, fold or open the selected call’s group'],
         [
           <>
             <kbd>1</kbd>

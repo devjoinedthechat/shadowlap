@@ -27,6 +27,7 @@ import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
 import { firstFailedCall, openingCall } from '../run/open-at.js';
+import { ancestorsOf, callTree, heads, unfolded } from '../run/groups.js';
 import { useMarkRun, useRunLabels } from '../components/RunKey.js';
 import { markKey, MARKS, type RunMark } from '../runkey.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
@@ -46,6 +47,9 @@ import { TurnsView } from '../run/TurnsView.js';
  */
 
 let lastTab: InspectorTab = 'conversation';
+
+/** No group folded. */
+const NO_FOLDS: ReadonlySet<number> = new Set();
 
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
@@ -213,7 +217,31 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const asked = useMemo(() => (calls.some((c) => c.kind === 'tool' && c.requestedBy !== undefined) ? askedTools(calls) : null), [calls]);
   // Every call while the pages come, a placeholder for each not read yet; within a scope, those read.
   const listed = useMemo<readonly ListedCall[]>(() => (paging && scope === 'all' ? listedCalls(calls, paging.total, paging.origins) : scopedCalls), [paging, scope, calls, scopedCalls]);
-  const visible = useMemo(() => listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))), [listed, filter, text, asked]);
+  // Light grouping (groups.ts): each call under the call it belongs to, folded where the reader folded
+  // it; a filter lists what it matches flat, since the calls it leaves out are what the groups hang on.
+  const filtering = filter !== 'all' || !!text.trim();
+  const tree = useMemo(() => (filtering ? null : callTree(listed)), [filtering, listed]);
+  const [foldedBy, setFoldedBy] = useState<{ runId: string; set: ReadonlySet<number> }>({ runId, set: NO_FOLDS });
+  const folded = foldedBy.runId === runId ? foldedBy.set : NO_FOLDS;
+  const setFolded = useCallback((next: ReadonlySet<number>) => setFoldedBy({ runId, set: next }), [runId]);
+  const fold = useCallback((callNo: number) => {
+    const next = new Set(folded);
+    if (!next.delete(callNo)) next.add(callNo);
+    setFolded(next);
+  }, [folded, setFolded]);
+  const shown = useMemo(() => (tree && folded.size ? unfolded(listed, tree, folded) : listed), [tree, folded, listed]);
+  const visible = useMemo(() => (filtering ? listed.filter((c) => (isPending(c) ? pendingMatches(c, filter, text.trim()) : matchesFilter(c, filter, text.trim(), c.kind === 'api' && asked ? (asked.get(c.callNo) ?? null) : undefined))) : shown), [filtering, listed, shown, filter, text, asked]);
+  // Fold all, and once anything is folded, Unfold all (the selected call's groups stay open, so not every group can be folded).
+  const foldAll = useMemo(() => (tree?.grouped ? { all: folded.size > 0, onAll: (on: boolean) => setFolded(on ? new Set(heads(listed, tree)) : NO_FOLDS) } : null), [tree, listed, folded, setFolded]);
+  // The selected call is always in view: the groups it sits in, folded, open again (j and k step over a folded group's calls).
+  useEffect(() => {
+    if (!tree || selected === null || !folded.size) return;
+    const over = ancestorsOf(tree, selected).filter((h) => folded.has(h));
+    if (!over.length) return;
+    const next = new Set(folded);
+    for (const h of over) next.delete(h);
+    setFolded(next);
+  }, [tree, selected, folded, setFolded]);
   const filterCounts = useMemo(() => {
     // Every call's origin from the run's page while the pages come.
     const all = paging?.origins && scope === 'all' ? paging.origins : null;
@@ -288,7 +316,22 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted, canMark, mark });
+  /** ← and → on the selected call in Calls; false when there is nothing to fold, open or go to. */
+  const foldKey = (open: boolean): boolean => {
+    if (!tree || selected === null) return false;
+    const i = tree.index.get(selected);
+    if (i === undefined) return false;
+    const isHead = tree.kids[i]! > 0;
+    if (!open) {
+      if (isHead && !folded.has(selected)) return fold(selected), true;
+      const up = tree.parent.get(selected);
+      return up !== undefined ? (select(up), true) : false;
+    }
+    if (isHead && folded.has(selected)) return fold(selected), true;
+    const next = isHead ? listed[i + 1] : undefined;
+    return next ? (select(next.callNo), true) : false;
+  };
+  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted, canMark, mark, tree, foldKey });
   useEffect(() => {
     runKeys.current = (e) => {
       const k = keyState.current;
@@ -303,6 +346,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       // The good/bad key: + good, - bad, again to take it off.
       const m = markKey(e.key);
       if (m && k.canMark) return k.mark(m), true;
+      // In Calls, as in a tree: ← folds the selected call's group, or goes to the call it sits under; → opens it, or goes to its first call.
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && k.v === 'calls' && k.tree) return k.foldKey(e.key === 'ArrowRight');
       if (e.key === 'f' && k.canFork) {
         const btn = document.getElementById('forkBtn');
         if (btn) forkMenu.openAt(btn);
@@ -413,7 +458,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
               </button>
             ))}
           </div>
-          {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} /> : null}
+          {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
               {paging.error
@@ -423,7 +468,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           ) : null}
           {/* Each view starts at its top; Calls centres the selected call. */}
           <div className="vbody" tabIndex={-1} key={v}>
-            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} /> : null}
+            {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}
             {v === 'timeline' ? <TimelineView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}

@@ -468,6 +468,16 @@ table.calls .det { font: 12px var(--mono); font-weight: 400; color: var(--faint)
 /* a tool's result sits under its call: the request on one line, what came back on the next */
 table.calls .res { display: block; margin: 1px 0 0 37px; font: 11.5px var(--mono); font-weight: 400; color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 table.calls .res.err { color: var(--err); }
+/* light grouping: a call under the call it belongs to, its fold mark in the room before its kind */
+table.calls .lead { display: inline-flex; justify-content: flex-end; align-items: center; height: 16px; vertical-align: -3px; margin-right: 4px; }
+table.calls .tw { width: 16px; height: 16px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--dim); cursor: pointer; }
+table.calls .tw svg { width: 10px; height: 10px; transition: transform .12s ease; }
+table.calls .tw[aria-expanded="false"] svg { transform: rotate(-90deg); }
+table.calls .tw:hover { color: var(--ink); background: var(--hover); }
+table.calls .gitem { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; }
+table.calls .gfold { font: 11px var(--mono); font-weight: 400; color: var(--dim); margin-left: 10px; padding: 0 5px; border: 1px solid var(--line2); border-radius: 5px; }
+table.calls.grouped .res { margin-left: calc(37px + var(--lead, 0px)); }
+.toolbar .foldall { white-space: nowrap; }
 table.calls .num.was { color: var(--faint); }
 table.calls .num { text-align: right; font: 12px var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 table.calls .rowact { width: 36px; padding: 0 8px 0 0; text-align: right; }
