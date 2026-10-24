@@ -335,7 +335,7 @@ describe('shadowlap decisions', () => {
     // attempt passes), inconclusive too. Each run keeps the rule that decided it, so its tally and bound
     // read under their own rule: none is stated for both.
     const other = await shadowlap(['decisions', '--verify', session.decisionsId!, two, '--gate', '{"bad":0.1,"max":4}']);
-    expect(other.code, other.out).toBe(1);
+    expect(other.code, other.out).toBe(3);
     const otherRule = keptRule(4);
     expect(other.stdout).toContain(`  ${otherRule}\n  ${two.slice(0, 10)}  inconclusive  4 of 4 passed, baseline 4 of 4 · drop `);
     const store = Store.open(db);

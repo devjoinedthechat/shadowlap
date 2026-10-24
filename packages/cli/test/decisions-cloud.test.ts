@@ -67,11 +67,18 @@ if (which === 'azure') {
 }
 `;
 
+/**
+ * These tests are about how each request is signed, addressed and answered, so a step is asked once:
+ * by default decisions also asks each step as recorded, three times a side (the control arm, which
+ * decisions.test.ts covers).
+ */
+const once = (args: string[]): string[] => (args[0] === 'decisions' && !args.includes('--samples') && !args.includes('--verify') ? [...args, '--samples', '1'] : args);
+
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {
   // This machine's own cloud settings stay out: the mock's test credentials are the only ones.
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(AWS_|AZURE_OPENAI_|OPENAI_API_VERSION$|GOOGLE_)/.test(k)));
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', db, ...args], {
+    const child = spawn(process.execPath, [CLI, '--db', db, ...once(args)], {
       cwd,
       env: {
         ...inherited,

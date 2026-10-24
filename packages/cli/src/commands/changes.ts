@@ -108,7 +108,7 @@ export function register(program: Command): void {
     .option('--from-code', 'the change is the system prompt and tools your working tree sends now, read by replaying each run offline; nothing is sent to read them')
     .option('--set <key=value>', 'the change sets this request field, e.g. temperature=0 (repeatable)', repeat, [] as string[])
     .option('--from <model>', 'the recorded model the change switches from: --model and --set change only the calls made with it (repeatable; default: the model the runs use most)', repeat, [] as string[])
-    .option('--samples <n>', `ask each model call this many times under the change and, from 3 on, as many times as recorded, and rank a change only when it decides otherwise beyond the model's own variation (default ${DECISIONS_SAMPLES}: six requests a step)`, parseIntArg, DECISIONS_SAMPLES)
+    .option('--samples <n>', "ask each model call this many times under the change and, from 3 on, as many times as recorded, and rank a change only when it decides otherwise beyond the model's own variation: at 3, six requests a step", parseIntArg, DECISIONS_SAMPLES)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--scope <name>', "ask only the model calls made in this scope, such as the agent's and not a simulated user's; none for those made in no scope")
     .option('--then-verify', 'then run shadowlap verify on the runs with a rank 1 or 2 change (a write, when the agent stops, or words a judge check reads otherwise), and only on those')

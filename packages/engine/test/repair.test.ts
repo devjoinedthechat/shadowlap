@@ -183,8 +183,8 @@ describe('repairMarkdown', () => {
     const candidate = report.candidates.find((c) => c.id === 3)!;
     const v = candidate.verify!;
     const pairs = Array.from({ length: 38 }, () => ({ ...v.runs[1]!.attempts[0]! }));
-    const good = { ...v.runs[1]!, attempts: pairs, passes: 38, decision: 'kept' as const, baseline: { passes: 38, attempts: 38, source: 'paired' as const, revision: null }, margin: 0.1, drop: { lo: null, hi: 0.1, confidence: 0.95, method: 'betting' as const }, baselineRuns: pairs };
-    const verify = { ...v, runs: [v.runs[0]!, good], gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null } };
+    const good = { ...v.runs[1]!, attempts: pairs, passes: 38, verdict: 'pass' as const, decision: 'pass' as const, baseline: { passes: 38, attempts: 38, source: 'paired' as const, revision: null }, margin: 0.1, drop: { lo: null, hi: 0.1, confidence: 0.95, method: 'betting' as const }, baselineRuns: pairs };
+    const verify = { ...v, runs: [v.runs[0]!, good], gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null } };
     const kept = { ...report, candidates: report.candidates.map((c) => (c.id === 3 ? { ...c, verify } : c)) };
     const md = repairMarkdown(kept);
     expect(md).toContain('| good | `01M540RG00` | kept | 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%) |');
