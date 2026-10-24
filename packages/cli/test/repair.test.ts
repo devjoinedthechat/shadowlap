@@ -742,7 +742,8 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     }
   });
 
-  it.skipIf(process.platform === 'win32')('stops a repairer still being asked on Ctrl-C, and reports the repair stopped', async () => {
+  // A closed terminal sends SIGHUP: before, it ended the repair at once and left the repairer running.
+  for (const [signal, what, status] of [['SIGINT', 'Ctrl-C', 130], ['SIGHUP', 'a closed terminal', 129]] as const) it.skipIf(process.platform === 'win32')(`stops a repairer still being asked on ${what}, reports the repair stopped and exits ${status}`, async () => {
     const failed = await record();
     mode = 'alternate';
     const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
@@ -756,12 +757,12 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
       });
       let stdout = '';
       child.stdout.on('data', (d: Buffer) => (stdout += d.toString()));
-      const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()));
-      // Once the repairer is being asked, Ctrl-C.
+      const exited = new Promise<number | null>((resolve) => child.on('exit', (code) => resolve(code)));
+      // Once the repairer is being asked, the signal.
       for (let i = 0; i < 600 && !existsSync(join(bin, 'pid')); i++) await new Promise((resolve) => setTimeout(resolve, 100));
       expect(existsSync(join(bin, 'pid'))).toBe(true);
-      child.kill('SIGINT');
-      await exited;
+      child.kill(signal);
+      expect(await exited).toBe(status);
       const report = JSON.parse(stdout) as Report & { noRepairer: string | null };
       expect(report).toMatchObject({ outcome: 'stopped', why: 'interrupted', noRepairer: null });
       expect(report.warnings.some((w) => w.startsWith('the repairer could not be asked'))).toBe(false);

@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
@@ -344,14 +345,14 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
   const store = openStore(input.opts);
   const shown = rules.length ? maskedView(store, rules) : null;
   let interrupted = false;
-  // Ctrl-C stops a repairer that is still being asked, as it stops verify's attempts.
+  // A stop signal (Ctrl-C, SIGTERM, a closed terminal) stops a repairer that is still being asked,
+  // as it stops verify's attempts, and the repair ends as interrupted.
   const asking = new AbortController();
   const onSignal = () => {
     interrupted = true;
     asking.abort();
   };
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  for (const sig of STOP_SIGNALS) process.on(sig, onSignal);
 
   const oracle = oracleLabels(s.spec);
   const warnings: string[] = [];
@@ -571,8 +572,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     report.patch = unifiedDiff(won.c.file, won.original, won.patched);
     return report;
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
+    for (const sig of STOP_SIGNALS) process.off(sig, onSignal);
     shown?.close();
     store.close();
   }
