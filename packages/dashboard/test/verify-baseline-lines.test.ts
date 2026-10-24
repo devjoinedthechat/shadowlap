@@ -55,7 +55,7 @@ describe('a good run kept against its baseline', () => {
     // From the golden's history.
     expect(runsRule({ gate, needed: 4, attemptsPerRun: 5, kept: { ...KEPT, source: 'history' } }, { baseline: { passes: 47, attempts: 50, source: 'history' } })).toBe("baseline: kept unless it drops 10+ points below its golden's history, <= 5% risk, up to 200 attempts");
     // A run with no baseline, in the same report: its gate.
-    expect(runsRule({ gate, needed: 4, attemptsPerRun: 5, kept: KEPT }, { baseline: undefined } as Pick<VerifiedRun, 'baseline'>)).toBe('gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(runsRule({ gate, needed: 4, attemptsPerRun: 5, kept: KEPT }, {})).toBe('gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(runsRule({ gate: null, needed: 4, attemptsPerRun: 5 })).toBe('a run passes when 4 of 5 attempts pass');
   });
 
@@ -91,8 +91,8 @@ describe('a blame that rescued the run from no call', () => {
     const loose: BlameReport = { ...blameReport(a, 'unrescuable'), confidence: 'low', errorBound: 0.3 } as BlameReport;
     record(a, loose);
     record(b, { ...blameReport(b, 'unrescuable'), confidence: 'high', errorBound: 0.04 } as BlameReport);
-    const titles = Object.fromEntries(fixList(store).fixes.map((f) => [f.failing?.[0] ?? f.fixId, f.steps[0]!.title]));
-    expect(Object.values(titles).sort()).toEqual(['Not rescued from any model call', 'Not rescued from the first model call']);
+    const titles = fixList(store).fixes.map((f) => f.steps[0]!.title);
+    expect(titles.sort()).toEqual(['Not rescued from any model call', 'Not rescued from the first model call']);
     expect(fixList(store).fixes.every((f) => f.steps[0]!.short === 'not rescued')).toBe(true);
   });
 });
