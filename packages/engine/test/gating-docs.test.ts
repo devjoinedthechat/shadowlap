@@ -17,6 +17,7 @@ import {
   gateResult,
   passHatK,
   passesPerFailure,
+  rateBound,
   riskPercent,
   runsRed,
   sprtBounds,
@@ -28,6 +29,8 @@ import {
   type SprtGate,
   type Tally,
 } from '../src/stats.js';
+import { maxProbes, probeFinding, probeGate, rescueRule } from '../src/blame.js';
+import { addPair, decidePaired, dropBound, KEPT_DEFAULTS, NO_PAIRS, pairedDrop } from '../src/noninferiority.js';
 import { planSuite } from '../src/suite.js';
 
 /**
@@ -220,11 +223,50 @@ describe('docs/gating.md, figure by figure', () => {
     says(`means pass^5 is at least 0.73⁵ = ${(Math.floor(1000 * 0.73 ** 5) / 1000).toFixed(3)}, at the same confidence`);
   });
 
-  it('verify and blame: the default gate on a run, and blame’s on a probe', () => {
+  it('verify and blame: the default gate on a failing run, a good run against its baseline, and blame’s gate spread over its probes', () => {
+    // A failing run that forks: the default gate, its line, and what the limit does.
+    says(`\`fixed · 12 of 12 · ${rateBound(gateResult(sprt(), Array(12).fill(true)))}\``);
     says(`A run that passes 90% of the time ends inconclusive ${pct(gateOdds(sprt(), 0.9).inconclusive)} of the time at 80 attempts, where 40 left it so ${whole(gateOdds(sprt({ max: 40 }), 0.9).inconclusive)}.`);
-    says(`a call the model gets right 30% of the time is rescued ${whole(gateOdds(BLAME, 0.3).pass)} of the time`);
-    says(`A call the model gets right 30% of the time ends inconclusive ${pct(gateOdds(BLAME, 0.3).inconclusive)} of the time, where 10 attempts left it so ${whole(gateOdds({ ...BLAME, max: 10 }, 0.3).inconclusive)}.`);
+
+    // A good run that forks, against its baseline at the gate's risk: the margin, the pairs, its line.
+    const kept = { ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk };
+    let pairs = NO_PAIRS;
+    let n = 0;
+    while (decidePaired(pairs, kept) === 'continue') {
+      pairs = addPair(pairs, true, true);
+      n++;
+    }
+    expect(decidePaired(pairs, kept)).toBe('kept');
+    says(`*kept* unless its pass rate drops ${Math.round(100 * kept.margin)} points or more below the baseline's`);
+    says(`*inconclusive* after ${kept.max} pairs with neither`);
+    says(`each at most ${riskPercent(kept.risk)} of the time`);
+    says(`when both arms pass every attempt, it is kept after ${n} pairs`);
+    says(`\`kept · ${n} of ${n} passed, baseline ${n} of ${n} · ${dropBound(pairedDrop(pairs, kept.risk), 'kept')}\``);
+
+    // Blame: the search's 5% spread over its probes, each probe's gate at its share and its max deepened.
+    const share = (probes: number) => probeGate(BLAME, probes);
+    expect([maxProbes(2, 2), maxProbes(3, 2), maxProbes(128, 2), maxProbes(129, 2)]).toEqual([3, 5, 10, 11]);
+    expect([maxProbes(5, 2), maxProbes(16, 2), maxProbes(17, 2), maxProbes(32, 2), maxProbes(33, 2)]).toEqual([6, 7, 8, 8, 9]);
+    const searches = [5, 6, 7, 8, 9, 10];
+    expect(share(5).risk).toBeCloseTo(0.01, 3);
+    expect(share(10).risk).toBeCloseTo(0.005, 3);
+    says('about 1% to 0.5% for a search of 5 to 10 probes (a run of 3 to 128 model calls)');
+    expect(searches.map((p) => share(p).max)).toEqual([32, 33, 34, 35, 36, 36]);
+    says(`${BLAME.max} becomes ${share(5).max} to ${share(10).max} attempts`);
+    expect(searches.map((p) => attemptsToPass(share(p)))).toEqual([3, 3, 3, 3, 3, 3]);
+    expect(searches.map((p) => attemptsToFail(share(p)))).toEqual([6, 6, 7, 7, 7, 7]);
     expect([attemptsToPass(BLAME), attemptsToFail(BLAME)]).toEqual([2, 4]);
-    says('Two straight passes rescue and four straight failures lose');
+    says('three straight passes rescue and six or seven straight failures lose, where two and four did at the full 5%');
+    // A run of 5 model calls: 6 probes, its rule, and a probe rescued on 5 of 10 that alternated.
+    expect(maxProbes(5, 2)).toBe(6);
+    says(`\`${rescueRule({ needed: 2, attemptsPerProbe: BLAME.max, gate: BLAME, probeBudget: 6 })}\` for a search of 6 probes`);
+    const order = Array.from({ length: 10 }, (_, i) => i % 2 === 1);
+    const result = gateResult(share(6), order);
+    expect(result.decision).toBe('pass');
+    const probe = { rescued: true, decision: 'pass' as const, passes: 5, attempts: order.map((passed) => ({ runId: 'r', passed, exitCode: 0, failures: [], spent: 0, upstreamRequests: 1 })), gate: result };
+    says(`\`${probeFinding(probe, share(6))}\``);
+    // Between the two rates, at the share of 8 probes.
+    const between = gateOdds(share(8), 0.3);
+    says(`at the share of 8 probes (a run of 17 to 32 model calls), a call the model gets right 30% of the time is rescued ${whole(between.pass)} of the time, lost ${whole(between.fail)} of the time and left inconclusive ${whole(between.inconclusive)}`);
   });
 });

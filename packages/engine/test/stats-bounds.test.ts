@@ -11,6 +11,7 @@ import {
   decideCount,
   gateInterval,
   gateResult,
+  percent,
   rateBound,
   stagewiseInterval,
   tallyInterval,
@@ -21,6 +22,7 @@ import {
   type SprtGate,
   type Tally,
 } from '../src/stats.js';
+import { probeGate } from '../src/blame.js';
 import { planSuite } from '../src/suite.js';
 
 /**
@@ -166,11 +168,13 @@ const once = <T>(f: () => T): (() => T) => {
   let v: { value: T } | null = null;
   return () => (v ??= { value: f() }).value;
 };
+/** The gate each probe of a blame of 17 to 32 model calls runs under: 8 probes, each with its share of the search's 5% and its max deepened to it (blame.ts). */
+const PROBE = probeGate({ kind: 'sprt', ...BLAME_DEFAULTS }, 8);
 /** The gate a session that splits its 5% 100 ways gives each golden of `"gate": {}` (suite.ts): its share for a failure, its max sized for it. */
 const SPLIT = once(() => planSuite(Array.from({ length: 100 }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!.planned[0]!.gate as SprtGate);
 const COVERED = {
   default: once(() => coverage(sprt())),
-  blame: once(() => coverage({ kind: 'sprt', ...BLAME_DEFAULTS })),
+  blame: once(() => coverage(PROBE)),
   split: once(() => coverage(SPLIT())),
   history: once(() => coverage(history(), { passes: 47, attempts: 50 })),
 };
@@ -191,11 +195,13 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
     expect(c.worst).toBeLessThan(0.97);
   });
 
-  it("under blame's gate, 0.6 / 0.1 / 0.05 / 20", () => {
+  it("under a blame probe's gate, at its share of the search's 5%: 0.6 / 0.1 at 0.62%, up to 35 attempts, its bound at 99.4%", () => {
+    expect(PROBE).toMatchObject({ good: 0.6, bad: 0.1, max: 35 });
+    expect(PROBE.risk).toBeCloseTo(0.0062, 4);
     const c = COVERED.blame();
-    expect(c.worst).toBeGreaterThanOrEqual(0.95);
-    expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
-    expect(c.worstHigh).toBeGreaterThanOrEqual(0.975);
+    expect(c.worst).toBeGreaterThanOrEqual(1 - PROBE.risk);
+    expect(c.worstLow).toBeGreaterThanOrEqual(1 - PROBE.risk / 2);
+    expect(c.worstHigh).toBeGreaterThanOrEqual(1 - PROBE.risk / 2);
   });
 
   it('under a gate with its suite share of the risk for a failure, and the max sized for it', () => {
@@ -226,7 +232,7 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
   });
 
   it('as the page states it: the worst the printed bound does under each gate', () => {
-    says(`The worst the printed bound does is ${pct(COVERED.default().worst)} under the default gate, ${pct(COVERED.blame().worst)} under blame's, ${pct(COVERED.split().worst)} under a gate split 100 ways, and ${pct(COVERED.history().worst)} under the gate against history against 47 of 50.`);
+    says(`The worst the printed bound does is ${pct(COVERED.default().worst)} under the default gate, ${pct(COVERED.split().worst)} under a gate split 100 ways, ${pct(COVERED.history().worst)} under the gate against history against 47 of 50, and ${pct(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${percent(1 - PROBE.risk)}.`);
   });
 
   it("doesn't say how often one kind of verdict is wrong: among an agent's passes at 70%, the bound is wrong a third of the time, within the 5% overall", () => {

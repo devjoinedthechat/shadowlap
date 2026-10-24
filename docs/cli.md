@@ -167,7 +167,7 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | Option | Effect |
 |---|---|
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0: the `expect` object of an [outcome check](./ci.md#outcome-checks), such as `'{"tools":{"send_email":0}}'` |
-| `--gate <json\|@file>` | How a probe decides, after each attempt ([gating](./gating.md)): a gate that tells a re-asked call that passes `good` of the time or more (a rescue) from one that passes `bad` or less (lost), each verdict wrong at most `risk` of the time at those two rates, up to `max` attempts. A probe's verdict shows its tally and bound under the rule, stated once: `rescued · 3 of 4 · rate >= 0.14 (95%)` under `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts`. Default `{"good":0.6,"bad":0.1,"risk":0.05,"max":20}`, which costs what 2 of 5 did at the extremes: two straight passes rescue, four straight failures lose. Give any of the four |
+| `--gate <json\|@file>` | How a probe decides, after each attempt ([gating](./gating.md#verify-and-blame)): a gate that tells a re-asked call that passes `good` of the time or more (a rescue) from one that passes `bad` or less (lost), up to `max` attempts. `risk` is the whole search's, spread over the most probes it can make, so each probe runs at its share with its `max` deepened to match ([the search](./blame.md#how-it-works)). A probe's verdict shows its tally and its bound at its own confidence under the rule, stated once: `rescued · 5 of 10 · rate >= 0.10 (99.2%)` under `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 33 attempts`, in a search of 6 probes. Default `{"good":0.6,"bad":0.1,"risk":0.05,"max":20}`: for a search of 5 to 10 probes, three straight passes rescue and six or seven straight failures lose. Give any of the four |
 | `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate: attempts per probed call (5 with `--passes` alone), and how many passing make a rescue (default 2, or 1 with one attempt) |
 | `--model <model>` | Rescue with this model from the probed call on, instead of asking the recorded one again |
 | `--set <key=value>` | Set a request field from the probed call on, such as `temperature=1` (repeatable) |
@@ -181,7 +181,7 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | `--json` | The report as JSON on stdout ([fields](./blame.md#json)) |
 | `--guard`, `-y` | As for `replay` |
 
-Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, or `--budget` with a model that has no price; 3 when it stops before a verdict, the budget spent, or what the replay as recorded showed could not be decided; 130 for Ctrl-C.
+Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, or `--budget` with a model that has no price; 3 when it stops before a verdict, the budget spent or the provider unavailable, or what the replay as recorded showed could not be decided; 128 + n for a stop signal, 130 for Ctrl-C.
 
 Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
 
@@ -215,7 +215,7 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--json` | The report as JSON on stdout ([fields](./verify.md#json)) |
 | `--guard`, `-y` | As for `replay` |
 
-Exit status 0 when the change is accepted, 1 when it is rejected, 3 when the verification did not finish (a run's gate inconclusive, the budget spent). The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
+Exit status 0 when the change is accepted, 1 when it is rejected, 3 when the verification did not finish (a run's gate or baseline inconclusive, the budget spent, the provider unavailable), 128 + n for a stop signal. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
 
 ## repair
 
@@ -246,7 +246,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y` | As for `verify` |
 | `--json` | The report as JSON on stdout ([fields](./repair.md#json)) |
 
-Exit status 0 when a candidate is accepted and handed over as asked; 1 when none is accepted, or the hand-over fails; 2 when it can't start: outside a git repository, another repair running in the folder, a branch it can't make; 3 when it stops before a verdict, the budget spent. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
+Exit status 0 when a candidate is accepted and handed over as asked; 1 when none is accepted, or the hand-over fails; 2 when it can't start: outside a git repository, another repair running in the folder, a branch it can't make; 3 when it stops before a verdict, the budget spent or the provider unavailable; 128 + n for a stop signal. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
 
 ## fix
 
