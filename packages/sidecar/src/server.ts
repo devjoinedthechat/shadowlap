@@ -817,6 +817,8 @@ export class Sidecar {
     // WebSockets (OpenAI Realtime): what went over them is in no recording.
     const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
     warnings.push(...webSocketWarnings(websockets, run.mode));
+    // Kept on the run for its page, as the preloads are: the summary goes, the run stays.
+    if (websockets.length) this.store.updateRunMeta(runId, { websockets });
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api') && !websockets.some((u) => u.action === 'tunnelled')) {
       warnings.push(
         calls.length === 0

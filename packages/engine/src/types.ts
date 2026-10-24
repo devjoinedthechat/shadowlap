@@ -318,6 +318,8 @@ export interface RunMeta {
    * summary carries): the network guard never watched it.
    */
   preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing?: string };
+  /** The WebSockets the run opened through the sidecar (OpenAI Realtime and the like), each target with how many went to the provider live or were refused offline; nothing that went over them is recorded. */
+  websockets?: Array<{ target: string; count: number; action: 'tunnelled' | 'refused' }>;
   /**
    * One attempt of `shadowlap tasks score` or `tasks serve`: the golden replayed up to the takeover
    * call, the model that answered from there (and its endpoint), and the share of checks it passed.

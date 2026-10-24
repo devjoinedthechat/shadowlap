@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Store } from '@shadowlap/engine';
 import { pythonWith } from './python-with.js';
 
 /**
@@ -207,6 +208,13 @@ console.log(JSON.stringify(said));
     expect(handshakes.flatMap((h) => Object.keys(h.headers).filter((k) => k.startsWith('x-shadowlap')))).toEqual([]);
     expect(out).toContain('3 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (3)');
     expect(out).not.toContain('bypassed Shadowlap');
+    // The run keeps them, for its page in the dashboard.
+    const store = Store.open(join(cwd, 'store.db'));
+    try {
+      expect(store.listRuns(1)[0]?.meta?.websockets).toEqual([{ target: 'openai /v1/realtime', count: 3, action: 'tunnelled' }]);
+    } finally {
+      store.close();
+    }
   }, 90_000);
 });
 
