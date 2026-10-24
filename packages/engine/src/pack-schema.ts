@@ -124,6 +124,14 @@ export function validateRun(v: unknown, where: string): RunRecord {
     }
     if (d.reason !== undefined) text(d.reason, `${where}.divergence.reason`, 2048);
     if (d.recorded !== undefined) int(d.recorded, `${where}.divergence.recorded`);
+    // The extra reads answered live before the divergence (session.ts): shown in its report.
+    if (d.extraReads !== undefined && (!Array.isArray(d.extraReads) || d.extraReads.length > 100_000)) fail(`${where}.divergence.extraReads`, 'must be an array of at most 100000 entries');
+    for (const [i, e] of ((d.extraReads as unknown[] | undefined) ?? []).entries()) {
+      if (!isObject(e)) fail(`${where}.divergence.extraReads[${i}]`, 'must be an object');
+      int(e.callNo, `${where}.divergence.extraReads[${i}].callNo`, 1);
+      oneOf(e.kind, KINDS, `${where}.divergence.extraReads[${i}].kind`);
+      text(e.name, `${where}.divergence.extraReads[${i}].name`, 512);
+    }
   }
   const m = meta(v.meta, `${where}.meta`);
   // Labels and notes are shown in terminals and dashboards and used to select runs: checked like any text.

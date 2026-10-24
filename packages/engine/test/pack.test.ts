@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { storeApiRequest } from '../src/manifest.js';
 import { packRun, unpackRun } from '../src/pack.js';
+import { ACCOUNT_HEADERS } from '../src/account-headers.js';
+import { credentialFreeHeaders } from '../src/http.js';
 import { Store } from '../src/store.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
@@ -173,5 +175,32 @@ describe('pack / unpack', () => {
     expect(() => unpackRun(Store.open(':memory:'), dir)).toThrow(/argv\[3\]: contains control characters/);
     src.close();
     dst.close();
+  });
+});
+
+describe('a copy of a run recorded before the organization id was left out', () => {
+  it('leaves it out of the pack', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-org-id-'));
+    const store = Store.open(':memory:');
+    try {
+      const run = store.createRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'f'.repeat(64), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef: store.putJson({ v: 1, kind: 'whole', blob: store.putJson({}), encoding: 'json' }), meta: { provider: 'anthropic' }, at: run.startedAt });
+      store.appendCallEnd(identity, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from('{}')), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json', 'anthropic-organization-id': 'org-1a2b3c' } }, at: run.startedAt + 1 });
+      store.endRun(run.runId, 'completed');
+      // As it is, and redacted: every copy leaves it out.
+      packRun(store, run.runId, join(dir, 'pack'));
+      packRun(store, run.runId, join(dir, 'redacted'), { redact: [{ kind: 'api', pattern: 'email', replace: '<EMAIL>' }] });
+      for (const pack of ['pack', 'redacted']) {
+        const lines = readFileSync(join(dir, pack, 'calls.jsonl'), 'utf8');
+        expect(lines, pack).not.toContain('org-1a2b3c');
+        expect(lines, pack).toContain('"content-type":"application/json"');
+      }
+      expect(credentialFreeHeaders({ 'Anthropic-Organization-Id': 'org-1a2b3c', 'request-id': 'req_1' })).toEqual({ 'request-id': 'req_1' });
+      expect(ACCOUNT_HEADERS).toEqual(['anthropic-organization-id']);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

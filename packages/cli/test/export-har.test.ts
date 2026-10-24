@@ -59,6 +59,19 @@ describe('export har', () => {
     store.close();
   });
 
+  it('never writes the organization a key belonged to, which a run recorded before it was left out holds', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'f'.repeat(64), occurrence: 1 };
+    store.appendCallStart({ runId: run.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, { model: 'claude-haiku-4-5', messages: [{ role: 'user', content: 'hi' }] }), meta: { provider: 'anthropic' }, at: run.startedAt });
+    store.appendCallEnd(identity, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from('{"content":[]}')), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json', 'anthropic-organization-id': 'org-1a2b3c' } }, at: run.startedAt + 1 });
+    store.endRun(run.runId, 'completed');
+    const { har: out } = runToHar(store, store.getRun(run.runId)!, store.getCalls(run.runId));
+    expect(JSON.stringify(out)).not.toContain('org-1a2b3c');
+    expect(JSON.stringify(out)).toContain('application/json');
+    store.close();
+  });
+
   it('round-trips: importing what it exported gives the same fingerprints', () => {
     const a = Store.open(':memory:');
     const first = importHar(a, har(entry(1), entry(2), entry(1)), { source: 'in.har' });

@@ -57,7 +57,7 @@ An agent can stop before its recording did and still exit 0: an exception it cat
       20 recorded calls not reached: #11 POST /v1/messages, #12 read_file, #13 read_file, …
 ```
 
-Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `ended_early` and `recorded`, the calls the recording holds, so the GitHub Action and `bisect` treat it as one. The run keeps it too: `shadowlap ls` and the dashboard list it as `ended early @11`, not as a clean replay. Clock and random reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
+Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `ended_early` and `recorded`, the calls the recording holds, so the GitHub Action and `bisect` treat it as one. The run keeps it too: `shadowlap ls` and the dashboard list it as `ended early @11`, not as a clean replay. Clock, random and pure reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
 
 ### Keys
 

@@ -128,6 +128,8 @@ export function summarizeRun(run: RunRecord, allCalls: CallRecord[], notReached:
     cost,
     durationMs: run.endedAt !== null ? run.endedAt - run.startedAt : null,
     notReached,
+    // Answered live while the replay went on: no change to what the agent did, said all the same.
+    extraReads: calls.filter((c) => c.meta.extraRead === true).map((c) => ({ callNo: c.callNo, kind: c.kind, name: c.name })),
     warnings,
     divergence: run.divergence,
     ...(judged.length ? { judge: summarizeJudge(run, judged, options) } : {}),
@@ -223,6 +225,8 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     const what = s.divergence && s.divergence.type !== 'ended_early' ? 'left unused after the fork' : 'not reached';
     lines.push(p.dim(`  ${unused.length} recorded call${unused.length === 1 ? '' : 's'} ${what}: ${preview}${unused.length > 3 ? ', …' : ''}`));
   }
+  const extra = s.extraReads ?? [];
+  if (extra.length) lines.push(p.dim(`  ${extraReadsLine(extra)}`));
   for (const w of s.warnings) lines.push(p.yellow(`  ! ${safeText(w)}`));
   return lines.join('\n');
 }
@@ -246,6 +250,19 @@ function renderValue(v: unknown, other?: unknown): string {
   }
   const json = JSON.stringify(v);
   return json === undefined ? String(v) : json.length > MAX_STR ? json.slice(0, MAX_STR) + '…' : json;
+}
+
+/**
+ * The plain reads a replay answered live because its recording held no counterpart for them, in
+ * one line: `2 extra reads answered live, with no recorded counterpart: #3 clock now, #4 random uuid`.
+ */
+export function extraReadsLine(extra: readonly NotReached[]): string {
+  const preview = extra
+    .filter((n) => typeof n === 'object' && n !== null)
+    .slice(0, 3)
+    .map((n) => `#${Number(n.callNo)} ${safeLine(String(n.kind))} ${safeLine(String(n.name))}`)
+    .join(', ');
+  return `${extra.length} extra read${extra.length === 1 ? '' : 's'} answered live, with no recorded counterpart: ${preview}${extra.length > 3 ? ', …' : ''}`;
 }
 
 /** How much of its recording a replay that ended early made: `10 of 30 recorded calls`. */
@@ -286,6 +303,7 @@ export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEnt
   if (d.type === 'ended_early') {
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${endedEarlyCount(d)} replayed`);
     lines.push(p.dim(`  every request the agent sent matched, but it stopped before its recording did, without making #${d.callNo}`));
+    if (d.extraReads?.length) lines.push(p.dim(`  ${extraReadsLine(d.extraReads)}`));
     return lines.join('\n');
   }
   const head = `${p.red('✗')} Diverged at call ${d.callNo} (${d.kind} ${safeLine(d.name)}): ${replayedBeforeWords(d, calls)} before divergence`;
@@ -320,5 +338,7 @@ export function formatDivergence(d: DivergenceReport, p: Palette = plain, maxEnt
       break;
     }
   }
+  // A value one of them returned may be what changed this call's request.
+  if (d.extraReads?.length) lines.push(p.dim(`  before it, ${extraReadsLine(d.extraReads)}`));
   return lines.join('\n');
 }

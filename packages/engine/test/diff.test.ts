@@ -13,6 +13,12 @@ describe('structuralDiff', () => {
       { path: '$.d', op: 'added', after: true },
     ]);
   });
+  it('reads a member named like an inherited one (toString, __proto__) as a member', () => {
+    expect(structuralDiff({}, { toString: 'x' })).toEqual([{ path: '$.toString', op: 'added', after: 'x' }]);
+    expect(structuralDiff({ constructor: 1 }, {})).toEqual([{ path: '$.constructor', op: 'removed', before: 1 }]);
+    expect(structuralDiff(JSON.parse('{"__proto__":{"a":1}}'), {})).toEqual([{ path: '$.__proto__', op: 'removed', before: { a: 1 } }]);
+  });
+
   it('is empty for deep-equal values regardless of key order', () => {
     expect(structuralDiff({ a: { b: [1, { c: 2 }] } }, { a: { b: [1, { c: 2 }] } })).toEqual([]);
   });
@@ -56,6 +62,26 @@ describe('report formatting', () => {
     expect(s.upstreamRequests).toBe(0);
     expect(s.tokensNotRespent.inputTokens).toBe(1000);
     expect(formatSummary(s, plain)).toContain('Replay clean: 2/2 calls replayed (1 api, 1 tool), 0 upstream requests, 1.0k input tokens not re-spent');
+  });
+
+  it('says which reads a clean replay answered live, with no recorded counterpart', () => {
+    const extra = (callNo: number, kind: CallRecord['kind'], name: string) => call({ callNo, kind, name, origin: 'live', meta: { extraRead: true }, end: { runId: run.runId, callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: {}, at: 0 } });
+    const s = summarizeRun(run, [extra(1, 'clock', 'now'), call({ callNo: 2 }), extra(3, 'random', 'uuid')]);
+    expect(s.divergence).toBeNull();
+    expect(s.extraReads).toEqual([
+      { callNo: 1, kind: 'clock', name: 'now' },
+      { callNo: 3, kind: 'random', name: 'uuid' },
+    ]);
+    const text = formatSummary(s, plain);
+    expect(text).toContain('Replay clean: 1/3 calls replayed (1 api, 0 tool, 2 clock/random)');
+    expect(text).toContain('2 extra reads answered live, with no recorded counterpart: #1 clock now, #3 random uuid');
+  });
+
+  it('names the extra reads before a divergence, in its report', () => {
+    const text = formatDivergence({ type: 'request_changed', callNo: 2, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0, extraReads: [{ callNo: 1, kind: 'random', name: 'uuid' }] }, plain);
+    expect(text).toContain('before it, 1 extra read answered live, with no recorded counterpart: #1 random uuid');
+    const early = formatDivergence({ type: 'ended_early', callNo: 5, kind: 'api', name: 'POST /v1/messages', replayedBefore: 3, recorded: 6, extraReads: [{ callNo: 2, kind: 'tool', name: 'format_date' }] }, plain);
+    expect(early).toContain('1 extra read answered live, with no recorded counterpart: #2 tool format_date');
   });
 
   it('formats a divergence with a diff and a hint', () => {

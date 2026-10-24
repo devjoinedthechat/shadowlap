@@ -1,3 +1,5 @@
+import { setOwn } from './canonical.js';
+
 /**
  * Dates and times near a run's start, masked for matching. An agent that puts "Today is 2026-09-16"
  * in its prompt sends a different request tomorrow, so a replay would fork at the first call for a
@@ -133,7 +135,7 @@ export function maskClock(value: unknown, reference: ClockReference, seen?: Cloc
   if (Array.isArray(value)) return value.map((v) => maskClock(v, reference, seen));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskClock(v, reference, seen);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, maskClock(v, reference, seen));
     return out;
   }
   return value;

@@ -29,7 +29,7 @@ Every intercepted operation is a **call**: `api` (a model request), `tool`, `clo
 (kind, fingerprint, occurrence)
 ```
 
-- The **fingerprint** is a SHA-256 of the canonical request: method and path (a Vertex AI path without its `/projects/<project>/locations/<region>`, which come from each developer's or CI's environment, so a recording replays in another project; the call keeps its full path as its name), the few headers that change model behavior (`anthropic-version`, `anthropic-beta`, `openai-beta`; a divergence report shows a change to one as `headers.<name>`, and a recording that names no API version, such as one [imported from a trace](./cli.md#traces), matches whatever version the agent's SDK names), and the body serialized with the JSON Canonicalization Scheme (RFC 8785), after your [normalizers](./normalizers-and-redaction.md). Key order, whitespace and string escaping don't matter; any semantic change does. Exactly one built-in exclusion exists: `cache_control` markers, which the provider documents as behavior-neutral. A multipart upload (an audio transcription, a file upload, an image edit) is read as its parts, not its bytes: each part's name, filename and content type, a field's text, and a file's SHA-256, so the random boundary its client picks for every request doesn't count, and a divergence report shows a changed part as `$.multipart[n]`. The upload is stored and sent upstream as it was.
+- The **fingerprint** is a SHA-256 of the canonical request: method and path (a Vertex AI path without its `/projects/<project>/locations/<region>`, which come from each developer's or CI's environment, so a recording replays in another project; a path under the root of a host that serves another provider's format read as that format's own API names it, such as `/api/v1/chat/completions` on a [declared](./providers.md#hosts-of-another-providers-format) OpenRouter as `/v1/chat/completions`; either way the call keeps its full path as its name), the few headers that change model behavior (`anthropic-version`, `anthropic-beta`, `openai-beta`; a divergence report shows a change to one as `headers.<name>`, and a recording that names no API version, such as one [imported from a trace](./cli.md#traces), matches whatever version the agent's SDK names), the query string's parameters, sorted (Gemini's `alt=sse`, Azure's `api-version`, a page cursor; never a credential such as Gemini's `?key=`, which no recording keeps, so a rotated key still replays; a change shows as `query.<name>`, and a recording whose calls to a provider kept no query, made before calls kept one or imported from a trace, matches whatever query a replay sends), and the body serialized with the JSON Canonicalization Scheme (RFC 8785), after your [normalizers](./normalizers-and-redaction.md). Key order, whitespace and string escaping don't matter; any semantic change does. Exactly one built-in exclusion exists: `cache_control` markers, which the provider documents as behavior-neutral. A multipart upload (an audio transcription, a file upload, an image edit) is read as its parts, not its bytes: each part's name, filename and content type, a field's text, and a file's SHA-256, so the random boundary its client picks for every request doesn't count, and a divergence report shows a changed part as `$.multipart[n]`. The upload is stored and sent upstream as it was.
 - The **occurrence** is *n* for the *n*-th call in the run with the same kind and fingerprint, counted within the call's [scope](./sdk.md#scopes) when the recording has scopes. The third identical `read_file("config.json")` matches the third recorded one.
 
 Arrival order is never part of the identity. Parallel tool calls (`Promise.all`, `asyncio.gather`) interleave differently on replay, because replayed responses return instantly, and they still match. The one known limit: identical requests issued *concurrently* (say, two sub-agents that start with the same prompt) may receive each other's recorded responses; the set is right, the assignment is not guaranteed. Run each branch in a [scope](./sdk.md#scopes) and each keeps its own answers. Within one scope the limit remains, which only matters when the identical requests' answers are used differently.
@@ -38,7 +38,7 @@ Around a fork, arrival order does matter, and only there. Calls that reach Shado
 
 ## The replay state machine
 
-A replay is `REPLAYING` until the first call whose key has no unconsumed recorded counterpart, then `DIVERGED`.
+A replay is `REPLAYING` until the first call whose key has no unconsumed recorded counterpart, then `DIVERGED`, with one exception: a plain read (a clock read, a random value, a `pure` tool's call) that has none is answered live and the replay stays `REPLAYING`.
 
 ```
 resolve(kind, request):
@@ -47,11 +47,16 @@ resolve(kind, request):
   if REPLAYING and not forced_live:
     rec = parent.find(kind, fp, occ)
     if rec exists and is complete:      serve rec.response      (origin: replayed)
+    elif kind is clock, random or pure: execute live; stay REPLAYING  (an extra read)
     else:                               DIVERGED; explain
   # live region
   if kind == tool and effect == write:  block | stub | allow    (--writes)
   execute live; store                                           (origin: live)
 ```
+
+**The divergence report.** A changed request is compared with the closest of a few recorded calls of its kind and name, in its scope when it has one, nearest its place in the run (the earliest one it could be always among them), and the report shows the diff against it with hints for what to mask. The comparison runs once the call has been answered and before the run ends, so a fork of a long run never holds the agent's calls up: at the fork of a 1,000-call run whose requests carry about half a gigabyte of conversation, the changed call is answered in milliseconds.
+
+**Extra reads.** A plain read changes nothing outside the agent, so one the recording never held (an agent changed to log a timestamp, to tag a request with a fresh id) is no change to what the agent did. It runs live, and every call after it is still matched against the recording. What the agent does with the value shows in the next request that carries it, which is matched as strictly as ever, so a timestamp that reaches a prompt still forks there. The run marks each one (`extraRead` on the call), its summary lists them (`2 extra reads answered live, with no recorded counterpart: #3 clock now, #4 random uuid`), `shadowlap test` counts them on the golden's line, and a later divergence names those before it, since one of their values may be what changed its request. Leftover reads are the other side of the same rule: a replay that never makes a recorded clock, random or pure read hasn't ended early. An extra `read` tool call still forks, since what it returns may have changed in the world, and so does an extra `write`. A plain read a flag forces live (`--diverge-at`, `--live-tool`) forks as before.
 
 **Prefix semantics.** Once diverged, every later model call and `read` tool runs live, so live results never mix with stale reads of a world that may have changed. `pure` tools are the exception: a pure result is a function of its arguments by declaration, so matching pure calls are still served from the recording. `--reads replay` extends that to `read` tools for offline forks, with the staleness caveat.
 
@@ -67,7 +72,7 @@ Tools declare what they do to the world outside their arguments:
 
 | Effect | Recording | Replay, before divergence | Replay, after divergence |
 |---|---|---|---|
-| `pure` | execute, store | serve recorded | serve recorded when identical, otherwise execute |
+| `pure` | execute, store | serve recorded; one with no recorded counterpart runs live and the replay goes on | serve recorded when identical, otherwise execute |
 | `read` | execute, store | serve recorded | execute live (`--reads replay` serves recorded matches) |
 | `write` | execute, store | serve recorded (never executed) | `block` (default, throws `ShadowlapWriteBlocked` into the agent), `stub` (returns `onFork(args)`), or `allow` |
 
@@ -167,6 +172,8 @@ A replay forks at the first **request** that changes, not where the bug is. That
 
 Class 3 is why [interventions](./interventions.md) exist, and why the [decision diff](./decisions.md) does: it asks each recorded model call again with only the changed prompt or model, so the change's effect on every step shows before a live run of anything.
 
+**State kept on the provider's side.** OpenAI's Responses API can keep a conversation for the agent: a request continues one by naming the response it follows (`previous_response_id`) or a conversation (`conversation`). A replay serves the recorded responses, so a fork's first live call names a response the recording made, which OpenAI holds only for the key and organization that made it, only for as long as it keeps responses, and never for one made with `store: false`. Such a call is sent with the whole conversation it continues instead, rebuilt from the recorded requests and their answers: each turn's input, then its output, as the stateless Responses pattern sends them (a reasoning item goes along when it carries its encrypted content, and is left out when only OpenAI's side can read it), and the run's summary says which call was sent so. Its recording keeps the request as the agent sent it, so a replay of the fork matches it. A call that names a conversation the recording used is refused instead, with OpenAI's error shape and a line in the summary: the conversation holds every turn of the recorded run, those after the fork too, so the model would read what the agent hasn't done yet. Fork from the call that made the conversation (`--diverge-at`), and the fork makes its own.
+
 ## Partial recordings
 
 A recording made by `shadowlap run` contains every call the agent made: model calls, tool calls,
@@ -209,7 +216,7 @@ Local-first: `.shadowlap/shadowlap.db`, one SQLite file in WAL mode, created wit
 - **Call events** are append-only: a `start` row when a call is resolved and an `end` row when it completes, so a crash leaves a visible pending call rather than a half-written record. Retries are extra end rows.
 - **Writes never hold an answer up.** When another process holds the store (the dashboard, `gc`, another recording), a call's rows wait their turn, in order, and are written once it is free. One that still can't be written after 10 seconds is kept as an error end where it can be, and the run's summary says so.
 - **Fingerprints** a replay matches by are cached with the dates each request holds, keyed by the request and every rule that went into them (the fingerprint version, normalizers and redaction rules, the clock setting). The recording fills the cache, so a replay of a 1,000-call run starts in well under a second however large its requests. A replay whose start masks a request's dates differently works that fingerprint out again, and `gc` drops the entries of requests it deletes.
-- **Blobs** are content-addressed by SHA-256. Every model request resends the whole conversation, so whole-request blobs would never deduplicate; a request is stored as a manifest that references `system`, `tools` and each message separately. A 30-call run stores 77 unique chunks, not 11 full copies.
+- **Blobs** are content-addressed by SHA-256. Every model request resends the whole conversation, so whole-request blobs would never deduplicate; a request is stored as a manifest that references its system prompt, its tools and each turn of its conversation separately: Anthropic's and Chat Completions' messages, Gemini's contents, the Responses API's input items. A 30-call run stores 77 unique chunks, not 11 full copies.
 - Responses are stored raw (JSON or SSE bytes) with status, filtered headers and per-event timing, which is what makes the TUI's play mode possible.
 
 Every run is self-contained: a replay stores a row for every call, including replayed ones, pointing at the same blobs. Reading a fork never requires stitching a parent onto it, and deleting a parent doesn't break its children. [`shadowlap pack`](./cli.md#pack-unpack) exports a run as a git-friendly directory.

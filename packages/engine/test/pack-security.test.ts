@@ -151,6 +151,26 @@ describe('unpack: a pack is untrusted input', () => {
     other.close();
   });
 
+  it('reads the extra reads a divergence names, and rejects malformed ones', () => {
+    const withExtras = (extraReads: unknown) => {
+      const dir = copyGolden();
+      const m = manifest(dir);
+      m.runs[0]!.divergence = { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, extraReads };
+      writeManifest(dir, m);
+      return dir;
+    };
+    const store = Store.open(':memory:');
+    try {
+      const { imported } = unpackRun(store, withExtras([{ callNo: 1, kind: 'clock', name: 'now' }]));
+      expect(store.getRun(imported[0]!)?.divergence?.extraReads).toEqual([{ callNo: 1, kind: 'clock', name: 'now' }]);
+    } finally {
+      store.close();
+    }
+    rejects(withExtras('#1 clock now'), /divergence\.extraReads/);
+    rejects(withExtras([null]), /divergence\.extraReads\[0\]/);
+    rejects(withExtras([{ callNo: 1, kind: 'clock', name: `now${ESC}[2J` }]), /divergence\.extraReads\[0\]\.name/);
+  });
+
   it('rejects a pack whose calls need blobs it does not contain', () => {
     const dir = copyGolden();
     const calls = callLines(dir);

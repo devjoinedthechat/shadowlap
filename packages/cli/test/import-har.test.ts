@@ -124,6 +124,35 @@ describe('import har', () => {
     store.close();
   });
 
+  it('keeps a call\'s query without its key, and replays it by the query it was sent with', async () => {
+    const path = '/v1beta/models/gemini-2.5-flash:streamGenerateContent';
+    const geminiBody = { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] };
+    const sse = 'data: {"candidates":[{"content":{"parts":[{"text":"hello"}],"role":"model"},"finishReason":"STOP"}]}\r\n\r\n';
+    const streamed = entry({
+      request: { method: 'POST', url: `https://generativelanguage.googleapis.com${path}?alt=sse&key=AIzaSyA-captured-key-1234567890`, headers: [{ name: 'content-type', value: 'application/json' }], postData: { mimeType: 'application/json', text: JSON.stringify(geminiBody) } },
+      response: { status: 200, headers: [{ name: 'content-type', value: 'text/event-stream' }], content: { mimeType: 'text/event-stream', text: sse } },
+    });
+    const store = open();
+    const { run } = importHar(store, har(streamed), { source: 'gemini.har' });
+    const [call] = store.getCalls(run.runId);
+    expect(call!.meta.query).toBe('alt=sse');
+    expect(JSON.stringify(store.getCalls(run.runId))).not.toContain('AIzaSyA');
+    // Nothing listens there: a call that missed the recording would fail, not reach a server.
+    const sidecar = await Sidecar.start({ store, clock: 'exact', upstreams: { gemini: 'http://127.0.0.1:9' } });
+    try {
+      for (const [query, clean] of [['alt=sse&key=AIzaSyB-another-key-0987654321', true], ['', false]] as const) {
+        const rep = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['agent'], cwd: '.' }, offline: true });
+        await (await fetch(`${sidecar.url}/r/${rep.runId}/gemini${path}${query ? `?${query}` : ''}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(geminiBody) })).arrayBuffer();
+        const divergence = sidecar.endRun(rep.runId, 'completed').summary.divergence;
+        if (clean) expect(divergence, query).toBeNull();
+        else expect(divergence, 'without alt=sse').toMatchObject({ type: 'request_changed', diff: [{ path: 'query.alt', op: 'removed', before: 'sse' }] });
+      }
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
   it('replays an imported Vertex AI call under either clock, as the sidecar names it without its project and region', async () => {
     const vertexPath = '/v1/projects/dev-alice-123/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:rawPredict';
     const vertexBody = { anthropic_version: 'vertex-2023-10-16', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] };

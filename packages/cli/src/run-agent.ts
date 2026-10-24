@@ -3,7 +3,7 @@ import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
-import { httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
+import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta, stampAuthor } from './activity.js';
 import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from './agent-node.js';
@@ -39,7 +39,10 @@ export type GuardMode = 'warn' | 'block' | 'off';
  * recorded too. JSON, read by the Node and Python preloads.
  */
 export function captureConfig(upstreams: Record<string, string>, http: readonly HttpRule[] = []): string {
-  const routes = providers.map((pr) => [pr.hosts.source, pr.id]);
+  // The built-in providers and the hosts the config declares (`providers`), as every sidecar serves them.
+  const routes = activeProviders()
+    .filter((pr) => !(pr.format && pr.id.includes(':')))
+    .map((pr) => [pr.hosts.source, pr.id]);
   const hosts: Record<string, string> = {};
   for (const [id, value] of Object.entries(upstreams)) {
     try {
@@ -49,6 +52,8 @@ export function captureConfig(upstreams: Record<string, string>, http: readonly 
       // "offline" and other non-URLs
     }
   }
+  // A declared host with a port is taken there, over http too: its own server, as the agent names it.
+  for (const pr of activeProviders()) if (pr.format && /^[^*]+:\d+$/.test(pr.id)) hosts[pr.id] ??= pr.id;
   // HTTP hosts recorded as tools: [hostname regex, port or null], any scheme.
   return JSON.stringify({ routes, hosts, http: http.map(httpRuleMatcher) });
 }

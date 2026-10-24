@@ -29,7 +29,7 @@ export interface Shape {
 
 export const SHAPES = {
   summaryJson: { section: 'run', fields: ['exitCode', 'summary', 'unrecordedTools'] },
-  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'warnings', 'divergence'] },
+  summary: { section: 'run', fields: ['runId', 'mode', 'status', 'total', 'byOrigin', 'byKind', 'upstreamRequests', 'injected', 'refused', 'imported', 'tokensNotRespent', 'cost', 'durationMs', 'notReached', 'extraReads', 'warnings', 'divergence'] },
   cost: { section: 'run', fields: ['spent', 'saved', 'captured', 'unknownModels'] },
   // A run with judge checks: what the judge's calls did and cost, apart from the agent's (summary.judge).
   summaryJudge: { section: 'run', fields: ['calls', 'replayed', 'live', 'notAsked', 'upstreamRequests', 'spent', 'saved', 'unknownModels'] },

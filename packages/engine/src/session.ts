@@ -1,7 +1,8 @@
-import { CLOCK_PLACEHOLDERS, maskClock } from './clock.js';
+import { CLOCK_PLACEHOLDERS, maskClock, maskClockText } from './clock.js';
+import { queryPairs } from './fingerprint.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
-import { headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
+import { headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
 import { formatToolFailure, type ToolFailure } from './interventions.js';
 import { isJudgeCall, JUDGE_SCOPE } from './judge-scope.js';
 import type { CallKind, CallRecord, Coverage, DivergenceReport, Effect, NotReached, ReadPolicy, RunMode, WritePolicy } from './types.js';
@@ -105,6 +106,11 @@ export interface ResolveInput {
    * so the report shows it too.
    */
   headers?: Record<string, string>;
+  /**
+   * A model call's query parameters that its fingerprint includes, URL-encoded (the sidecar's
+   * `identityQuery`): a change to one is a divergence like any other, so the report shows it too.
+   */
+  query?: string;
   /** Reuse an occurrence instead of allocating one: this attempt retries an earlier call. */
   occurrence?: number;
   /**
@@ -141,9 +147,24 @@ export type Decision =
   | { origin: 'planted'; occurrence: number; record: CallRecord; text: string }
   /** The tool fails as `--fail-at` asked, without running. Stored as live, with the failure marked injected. */
   | { origin: 'injected'; occurrence: number; record: CallRecord; failure: ToolFailure }
-  | { origin: 'live'; occurrence: number }
+  /**
+   * Run live. `extra`: a clock or random read, or a pure tool's call, that the recording holds no
+   * counterpart for, answered live while the replay goes on replaying (`isPlainRead`).
+   */
+  | { origin: 'live'; occurrence: number; extra?: true }
   | { origin: 'blocked'; occurrence: number }
   | { origin: 'stubbed'; occurrence: number };
+
+/**
+ * A clock read, a random value or a pure tool's call: a read that changes nothing outside the agent.
+ * One the recording holds no counterpart for (an agent that now logs a timestamp) is answered live
+ * without ending the replay, and one the replay never makes is no change either: what the agent does
+ * with the value shows in the next request that carries it, which is matched as strictly as ever. A
+ * `read` tool's extra call still forks, since what it returns may have changed in the world.
+ */
+export function isPlainRead(kind: CallKind, effect: Effect | null | undefined): boolean {
+  return kind === 'clock' || kind === 'random' || (kind === 'tool' && effect === 'pure');
+}
 
 export interface SessionOptions {
   mode: RunMode;
@@ -157,8 +178,19 @@ export interface SessionOptions {
    * changed request is compared with. Defaults to its name.
    */
   matchName?: (record: CallRecord) => string;
+  /**
+   * A recorded model call's query as its fingerprint reads it (`ResolveInput.query`), for the
+   * divergence report. Defaults to none.
+   */
+  matchQuery?: (record: CallRecord) => string | undefined;
   /** Start times of the parent run and this one, when dates near either are masked for matching, on both sides (clock.ts). */
   clock?: { parent: number; run: number };
+  /**
+   * Leave a changed request's diff for later: `divergence` holds the divergence at once, compared
+   * with no recorded call yet, and `explainPending` works the diff out, as the sidecar does once the
+   * call is answered, so loading recorded requests never holds the proxy up.
+   */
+  deferExplain?: boolean;
   /**
    * The parent run was made with what a person types recorded (`RunMeta.inputs`). One that wasn't
    * and holds no input call either predates recorded input: it never saw the agent's reads, so they
@@ -168,6 +200,9 @@ export interface SessionOptions {
 }
 
 const key = (kind: CallKind, fingerprint: string, occurrence: number, scope = '') => `${kind}\n${scope}\n${fingerprint}\n${occurrence}`;
+
+/** How many recorded calls a changed request is compared with (`Session.nearby`). */
+export const EXPLAIN_CANDIDATES = 8;
 
 export class Session {
   readonly mode: RunMode;
@@ -199,14 +234,20 @@ export class Session {
   private readonly injected = new Map<number, { status: number; target: number }>();
   /** What forced the call being resolved live, for its divergence report. */
   private forcing: { by: string; counterpart?: number } | null = null;
+  /** Explain divergences after the call is answered (`deferExplain`), and the one waiting now. */
+  private readonly deferExplain: boolean;
+  private pending: { input: ResolveInput; candidates: CallRecord[]; base: Pick<DivergenceReport, 'callNo' | 'kind' | 'name' | 'replayedBefore'> } | null = null;
   private readonly loadRequest: (record: CallRecord) => unknown;
   private readonly matchName: (record: CallRecord) => string;
+  private readonly matchQuery: (record: CallRecord) => string | undefined;
   private readonly clock: SessionOptions['clock'];
   /** Whether the recording used scopes. If it didn't, scopes are ignored, so adding them later still replays. */
   private readonly scoped: boolean;
   /** Whether the recording holds what a person typed (see `SessionOptions.parentRecordsInput`). */
   private readonly holdsInput: boolean;
   private replayedCount = 0;
+  /** Plain reads the recording held no counterpart for, answered live while the replay went on (`isPlainRead`). */
+  private readonly extras: NotReached[] = [];
 
   constructor(opts: SessionOptions) {
     this.mode = opts.mode;
@@ -215,6 +256,8 @@ export class Session {
     this.parentCalls = opts.parentCalls ?? [];
     this.loadRequest = opts.loadRequest ?? (() => undefined);
     this.matchName = opts.matchName ?? ((record) => record.name);
+    this.matchQuery = opts.matchQuery ?? (() => undefined);
+    this.deferExplain = opts.deferExplain === true;
     this.clock = opts.clock;
     this.state = this.mode === 'replay' ? 'replaying' : 'diverged';
     // The judge's scope is Shadowlap's, not the agent's: a recording whose only scope is the judge's has none of its own.
@@ -286,13 +329,20 @@ export class Session {
     if (this.state === 'replaying') {
       const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
       if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
+      // A plain read the recording has no counterpart for changes nothing the replay is checking:
+      // answered live, and the replay goes on. One a flag forces or changed still forks.
+      if (!forced && !input.changedBy && !input.input && isPlainRead(input.kind, effect)) {
+        this.extras.push({ callNo: input.callNo, kind: input.kind, name: input.name });
+        return { origin: 'live', occurrence, extra: true };
+      }
       this.state = 'diverged';
       // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
       // the change for matching. The flag named this call, so it still forks here.
-      this.divergence =
+      this.divergence = this.withExtras(
         record && !this.consumed.has(record.callNo) && input.changedBy
           ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
-          : this.explain(input, forced, occurrence);
+          : this.explain(input, forced, occurrence),
+      );
     } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
       // After divergence only declared-pure results (and reads, on request) may come from the
       // recording, and the writes it made, when asked: what the world answered them, never a fence
@@ -375,7 +425,7 @@ export class Session {
         this.applied.add(record.callNo);
         if (this.state === 'replaying') {
           this.state = 'diverged';
-          this.divergence = {
+          this.divergence = this.withExtras({
             type: 'forced',
             callNo: input.callNo,
             kind: input.kind,
@@ -383,7 +433,7 @@ export class Session {
             replayedBefore: this.replayedCount,
             reason: `forced by --fail-at ${record.callNo}=${formatToolFailure(failure)}: ${input.name} did not run, and the agent got ${failure.kind === 'timeout' ? 'a timeout' : failure.kind === 'status' ? `an HTTP ${failure.status}` : 'an error'} instead, so its error path runs`,
             counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo },
-          };
+          });
         }
         return { origin: 'injected', occurrence, record, failure };
       }
@@ -404,17 +454,18 @@ export class Session {
    * The run has ended. A replay that never diverged, yet left recorded model or tool calls unmade,
    * stopped before its recording did: every request it sent matched, but what it never sent (the
    * last model turn, a write) is as much a change, so it leaves the recording there, at the first
-   * such call. Clock and random reads left over never make it one. Returns that divergence, which
-   * `divergence` holds from now on, or null.
+   * such call. Plain reads left over (clock, random, a pure tool's call) never make it one, as an
+   * extra one never forks a replay (`isPlainRead`). Returns that divergence, which `divergence`
+   * holds from now on, or null.
    */
   end(): DivergenceReport | null {
     if (this.mode !== 'replay' || this.state !== 'replaying') return null;
     // The judge's calls are none of the agent's: one never asked again is judged live, not missing.
     const recorded = this.parentCalls.filter((c) => c.end && !isJudgeCall(c));
-    const first = recorded.filter((c) => (c.kind === 'api' || c.kind === 'tool') && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
+    const first = recorded.filter((c) => !isPlainRead(c.kind, c.effect) && !this.consumed.has(c.callNo)).reduce<CallRecord | null>((a, c) => (a && a.callNo < c.callNo ? a : c), null);
     if (!first) return null;
     this.state = 'diverged';
-    this.divergence = {
+    this.divergence = this.withExtras({
       type: 'ended_early',
       callNo: first.callNo,
       kind: first.kind,
@@ -423,8 +474,18 @@ export class Session {
       recorded: recorded.length,
       reason: `the agent stopped after ${this.replayedCount} of the ${recorded.length} recorded calls, before making #${first.callNo}`,
       counterpart: { runId: this.parentRunId ?? first.runId, callNo: first.callNo },
-    };
+    });
     return this.divergence;
+  }
+
+  /** Plain reads the recording held no counterpart for, answered live while the replay went on replaying, in the order they came. */
+  extraReads(): NotReached[] {
+    return [...this.extras];
+  }
+
+  /** A divergence with the plain reads answered live before it, which may be what changed its request. */
+  private withExtras(d: DivergenceReport): DivergenceReport {
+    return this.extras.length ? { ...d, extraReads: [...this.extras] } : d;
   }
 
   /** Recorded calls this replay never reached. Meaningful once the run has ended. */
@@ -541,15 +602,59 @@ export class Session {
     if (remaining.length === 0) {
       return { ...base, type: 'beyond_recording', reason: 'the agent made more calls than the recording contains' };
     }
-    const name = input.matchName ?? input.name;
-    const sameName = remaining.filter((c) => c.kind === input.kind && (this.matchName(c) === name || (input.recordedName !== undefined && c.name === input.recordedName)));
-    // Within the same scope first: the closest call is most likely the same branch's.
-    const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
-    const candidates = sameScope.length ? sameScope : sameName;
+    const candidates = this.nearby(input, remaining);
     if (candidates.length === 0) {
       return { ...base, type: 'new_call', reason: `${changedBy ? `${changedBy}; ` : ''}no recorded ${input.kind} call named "${input.name}" remains unconsumed` };
     }
+    if (this.deferExplain) {
+      // Compared later (explainPending), once the call is answered: for now, the nearest of them.
+      this.pending = { input, candidates, base };
+      const nearest = candidates[0]!;
+      return { ...base, type: 'request_changed', counterpart: { runId: this.parentRunId ?? nearest.runId, callNo: nearest.callNo }, ...(changedBy ? { reason: changedBy } : {}) };
+    }
+    return this.compare(input, candidates, base);
+  }
 
+  /**
+   * The recorded calls a changed request is compared with, at most EXPLAIN_CANDIDATES of them: of its
+   * kind and name, within its scope when any are (the closest call is most likely the same branch's),
+   * nearest its place in the run first, and the earliest of them always among them, as a replay
+   * consumes a recording in order. Loading and diffing every remaining call of a long run would stall
+   * the proxy for seconds; the counterpart is one of these.
+   */
+  private nearby(input: ResolveInput, remaining: CallRecord[]): CallRecord[] {
+    const name = input.matchName ?? input.name;
+    const sameName = remaining.filter((c) => c.kind === input.kind && (this.matchName(c) === name || (input.recordedName !== undefined && c.name === input.recordedName)));
+    const sameScope = sameName.filter((c) => this.scopeOf(c.meta.scope) === this.scopeOf(input.scope));
+    const pool = sameScope.length ? sameScope : sameName;
+    const distance = (c: CallRecord) => Math.abs(c.callNo - input.callNo);
+    const chosen = [...pool].sort((a, b) => distance(a) - distance(b) || a.callNo - b.callNo).slice(0, EXPLAIN_CANDIDATES);
+    const earliest = pool.reduce<CallRecord | undefined>((a, c) => (!a || c.callNo < a.callNo ? c : a), undefined);
+    if (earliest && !chosen.includes(earliest)) chosen[chosen.length - 1] = earliest;
+    return chosen;
+  }
+
+  /**
+   * The divergence's report with its diff, when it was left for later (`SessionOptions.deferExplain`):
+   * worked out now, against the candidates chosen when it happened, and kept as `divergence`. Null
+   * when none waits.
+   */
+  explainPending(): DivergenceReport | null {
+    const p = this.pending;
+    if (!p) return null;
+    this.pending = null;
+    this.divergence = this.withExtras(this.compare(p.input, p.candidates, p.base));
+    return this.divergence;
+  }
+
+  /** Whether a divergence waits for its diff (`explainPending`). */
+  get explaining(): boolean {
+    return this.pending !== null;
+  }
+
+  /** The divergence's report: the diff against the closest of `candidates`, with hints for what changed. */
+  private compare(input: ResolveInput, candidates: readonly CallRecord[], base: Pick<DivergenceReport, 'callNo' | 'kind' | 'name' | 'replayedBefore'>): DivergenceReport {
+    const changedBy = input.changedBy ? `changed by ${input.changedBy}` : null;
     // Among the unconsumed calls of the same kind and name, the one with the smallest structural diff.
     let best: { record: CallRecord; diff: ReturnType<typeof structuralDiff> } | null = null;
     for (const record of candidates) {
@@ -568,7 +673,13 @@ export class Session {
         const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(view) : view;
         return refs === undefined ? p : maskClock(p, refs);
       };
-      const diff = [...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []), ...structuralDiff(mask(recorded), mask(input.request))];
+      // The query as it was matched too: dates near either run's start masked, as in the body.
+      const query = (q: string | undefined) => queryPairs(q).map(([k, v]): [string, string] => [k, refs === undefined ? v : maskClockText(v, refs)]);
+      const diff = [
+        ...(input.kind === 'api' && input.headers ? headerDiff(record.meta.fingerprintHeaders as Record<string, string> | undefined, input.headers) : []),
+        ...(input.kind === 'api' ? queryDiff(query(this.matchQuery(record)), query(input.query)) : []),
+        ...structuralDiff(mask(recorded), mask(input.request)),
+      ];
       if (!best || diff.length < best.diff.length) best = { record, diff };
     }
     if (!best) {
@@ -578,9 +689,13 @@ export class Session {
     // A change a flag made is the point of the fork, not a value to mask: no normalizer hints for it.
     if (changedBy) return { ...base, type: 'request_changed', reason: changedBy, counterpart: { runId: this.parentRunId ?? best.record.runId, callNo: best.record.callNo }, diff: best.diff };
     const hints = best.diff.flatMap((e) => (isHeaderEntry(e) ? [] : hintsFor(e, input.kind, input.name)));
-    const headers = best.diff.filter(isHeaderEntry).map((e) => e.path.slice('headers.'.length));
+    const headers = best.diff.filter((e) => isHeaderEntry(e) && !isQueryEntry(e)).map((e) => e.path.slice('headers.'.length));
     if (headers.length) {
       hints.push({ message: `the ${headers.join(' and ')} header${headers.length === 1 ? ' is' : 's are'} part of what makes a model call the same call, and no normalizer masks ${headers.length === 1 ? 'it' : 'them'}: send the recorded value, or record again with the new one` });
+    }
+    const params = best.diff.filter(isQueryEntry).map((e) => e.path.slice('query.'.length));
+    if (params.length) {
+      hints.push({ message: `the ${params.join(' and ')} query parameter${params.length === 1 ? ' is' : 's are'} part of what makes a model call the same call (a credential in the query never is): send the recorded value, mask a value made anew on every run with a normalizer that has no path, or record again with the new one` });
     }
     if (this.clock && best.diff.some((e) => [e.before, e.after].some((v) => typeof v === 'string' && CLOCK_PLACEHOLDERS.some((p) => v.includes(p))))) {
       hints.push({ message: 'dates and timestamps within a day of either run\'s start match as <date>, <datetime> or <epoch>, so "today" in the recording matches "today" now; one side here is further from both. If it is a fixed date, set "clock": "exact" in shadowlap.config.json' });

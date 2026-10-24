@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
-import { loadApiRequest, manifestRefs } from './manifest.js';
+import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { carriesCredentials, redactRun } from './redact.js';
 import { Store } from './store.js';
@@ -125,13 +125,9 @@ function blobRefs(call: CallRecord): string[] {
   return refs;
 }
 
-/** Follows request manifests to the blobs they reference. */
+/** Follows request manifests to the blobs they reference, of every version (manifest.ts). */
 function manifestChildren(store: Store, hash: string): string[] {
-  const m = store.getJson<{ v?: number; kind?: string; system?: string | null; tools?: string | null; messages?: string[]; blob?: string }>(hash);
-  if (!m || typeof m !== 'object' || m.v !== 1) return [];
-  if (m.kind === 'chunked') return [m.system, m.tools, ...(m.messages ?? [])].filter((h): h is string => typeof h === 'string');
-  if (m.kind === 'whole' && m.blob) return [m.blob];
-  return [];
+  return manifestRefs(store, hash);
 }
 
 export function packRun(source: Store, runId: string, dir: string, opts: PackOptions = {}): PackResult {
@@ -336,7 +332,7 @@ function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls
           from.importRun(asImportedRun(packed, theirs));
           for (const c of theirs) {
             for (const h of callRefs(c)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
-            if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(from, c.requestRef)) if (blobs.has(h)) from.putBlob(blobs.get(h)!);
+            if (c.kind === 'api' && c.requestRef) bringRequest(from, c.requestRef, (h) => (blobs.has(h) && from.putBlob(blobs.get(h)!), from.hasBlob(h)));
           }
           appendCalls(from, theirs);
         });
@@ -378,7 +374,7 @@ function mergeJudgeCalls(store: Store, runId: string, theirs: readonly CallRecor
       return store.hasBlob(h);
     };
     if (!callRefs(c).every(bring)) continue;
-    if (c.kind === 'api' && c.requestRef && !manifestRefs(store, c.requestRef).every(bring)) continue;
+    if (c.kind === 'api' && c.requestRef && !bringRequest(store, c.requestRef, bring)) continue;
     const callNo = taken.has(c.callNo) ? next++ : c.callNo;
     taken.add(callNo);
     held.add(sig(c));
@@ -529,7 +525,7 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
       if (bytes && !store.hasBlob(h)) store.putBlob(bytes);
     };
     for (const c of needed) for (const h of callRefs(c)) bring(h);
-    for (const c of needed) if (c.kind === 'api' && c.requestRef) for (const h of manifestRefs(store, c.requestRef)) bring(h);
+    for (const c of needed) if (c.kind === 'api' && c.requestRef) bringRequest(store, c.requestRef, (h) => (bring(h), store.hasBlob(h)));
     // Every blob a call needs must now exist, including the parts of a chunked request.
     for (const c of needed) {
       for (const h of callRefs(c)) if (!store.getBlob(h)) throw new PackError(`calls.jsonl: call #${c.callNo} of run ${c.runId} needs blob ${h}, which the pack does not contain`);

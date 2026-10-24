@@ -1,7 +1,7 @@
 import { crc32 } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { normalizeConversation } from '../src/conversation.js';
-import { eventStreamMessages } from '../src/eventstream.js';
+import { encodeEventStreamFrame, eventStreamMessages } from '../src/eventstream.js';
 import { canonicalModel, priceFor, shortModel } from '../src/prices.js';
 import { normalizeResponse } from '../src/responses.js';
 
@@ -59,6 +59,34 @@ describe('Bedrock event streams', () => {
       frame('metadata', { usage: { inputTokens: 12, outputTokens: 5 } }),
     ]);
     expect(normalizeResponse(bytes, STREAM)).toMatchObject({ blocks: [{ type: 'text', text: 'Looking' }, { type: 'tool_call', name: 'search_web', input: { query: 'replay' } }], stopReason: 'tool_use' });
+  });
+
+  it('reads past headers of every fixed-size type, a 16-byte UUID among them, to the event type', () => {
+    /** A header with a value of `type` and the given bytes; a string's and a byte array's get their length. */
+    const header = (name: string, type: number, value: Buffer) => {
+      const n = Buffer.from(name);
+      const sized = type === 6 || type === 7 ? Buffer.concat([Buffer.from([value.length >> 8, value.length & 0xff]), value]) : value;
+      return Buffer.concat([Buffer.from([n.length]), n, Buffer.from([type]), sized]);
+    };
+    const headers = Buffer.concat([
+      header(':message-id', 9, Buffer.alloc(16, 0xab)),
+      header(':date', 8, Buffer.alloc(8, 1)),
+      header('flag', 0, Buffer.alloc(0)),
+      header('count', 4, Buffer.alloc(4, 2)),
+      header('blob', 6, Buffer.from([1, 2, 3])),
+      header(':event-type', 7, Buffer.from('messageStop')),
+    ]);
+    const bytes = Buffer.concat([encodeEventStreamFrame(headers, Buffer.from(JSON.stringify({ stopReason: 'end_turn' }))), frame('metadata', { usage: { inputTokens: 3, outputTokens: 1 } })]);
+    expect([...eventStreamMessages(bytes)]).toEqual([
+      { type: 'messageStop', payload: { stopReason: 'end_turn' } },
+      { type: 'metadata', payload: { usage: { inputTokens: 3, outputTokens: 1 } } },
+    ]);
+  });
+
+  it('stops reading headers at a value type it cannot size, keeping the payload', () => {
+    const name = Buffer.from('odd');
+    const headers = Buffer.concat([Buffer.from([name.length]), name, Buffer.from([42]), Buffer.alloc(5, 7)]);
+    expect([...eventStreamMessages(encodeEventStreamFrame(headers, Buffer.from(JSON.stringify({ ok: true }))))]).toEqual([{ type: null, payload: { ok: true } }]);
   });
 
   it('stops at a truncated frame instead of reading past it', () => {

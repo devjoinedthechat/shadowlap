@@ -13,7 +13,7 @@ export { calibrationTarget, covered, generalize, proposeNormalizers, type Calibr
 export { isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartView, parseMultipart, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
-export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash } from './fingerprint.js';
+export { BUILTIN_STRIPPED_KEYS, FINGERPRINT_VERSION, apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
@@ -48,16 +48,17 @@ export type { AddedProject, ConfirmedCommand, ProjectContext, ProjectCounts, Pro
 export type { FolderCheck, FolderKind, FolderSuggestion, FolderSuggestions, SuggestOptions } from './projects/index.js';
 export type { GoldenPathResult, ModelServer, RecordConfirmation, RecordPlan, RecordPlanResult } from './projects/index.js';
 export type { CalibrationOutcome, EffectiveSetup, GoldenTestFact, Inspection, PackFact, RunFact, RunTotals, SetupFindings, SetupStage, SetupState, SetupTool, StoreFacts, WrapSnippet } from './projects/index.js';
-export { loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
+export { bringRequest, loadApiRequest, manifestRefs, storeApiRequest } from './manifest.js';
+export { ACCOUNT_HEADERS } from './account-headers.js';
 export { compareRuns, formatComparison, runChanges, runsDiffer, toolDefinitions, type RunCourse } from './compare.js';
 export { requestPathLabel } from './request-paths.js';
 export { describeChanges, type RunChanges } from './changes.js';
 export type { CallDifference, ComparedIntervention, RunComparison } from './compare.js';
 export type { RequestManifest } from './manifest.js';
-export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, structuralDiff } from './diff.js';
-export { DEFAULT_REPLAY_OPTIONS, Session } from './session.js';
+export { deepEqual, firstDifference, headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
+export { DEFAULT_REPLAY_OPTIONS, isPlainRead, Session } from './session.js';
 export type { Decision, ReplayOptions, ResolveInput, SessionOptions } from './session.js';
-export { divergenceLine, endedEarlyCount, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
+export { divergenceLine, endedEarlyCount, extraReadsLine, formatDivergence, formatSummary, formatTokens, plain, replayedBeforeWords, storedModelResolver, summarizeRun } from './report.js';
 export type { ModelResolver, SummaryOptions } from './report.js';
 // Judge checks: the reserved scope replay strictness leaves out, what a judge reads, the request it is sent, its verdict and its cost.
 export { JUDGE_INSTRUCTIONS, JUDGE_KEYS, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, MATERIAL_LIMIT, RESERVED_SCOPE_PREFIX, VERDICT_SCHEMA, agentCallsOf, claudeTakes, escapeMaterial, isJudgeCall, judgeAskId, judgeCallsOf, judgedAnswers, judgeMaterial, judgePrompt, judgeRequest, judgeRules, judgeTarget, matchedClockOf, materialDifference, materialOfRequest, openaiTakesReasoningEffort, openaiTakesTemperature, reachesJudgeRequest, readVerdict } from './judge.js';

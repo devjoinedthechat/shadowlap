@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
-import { validHttpHost, type HttpRule } from '@shadowlap/sidecar';
+import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, type TestEntry } from './checks.js';
 
 // The file itself (reading it, and every edit to it) is the engine's, shared with the dashboard.
@@ -27,6 +27,12 @@ export interface ShadowlapConfig {
   clock?: ClockMode;
   /** HTTP hosts recorded as tools, from `"http": { "<host>": "<effect>" }`. */
   http?: HttpRule[];
+  /**
+   * Hosts of a provider's wire format, recorded as that provider's calls: `"providers": [{ "host":
+   * "openrouter.ai", "format": "openai", "root": "/api/v1" }]`. Every sidecar the command starts
+   * serves them, and capture sends their calls there (declareFormatHosts).
+   */
+  providers?: FormatHost[];
   /** `shadowlap repair`: the model that proposes fixes (`provider:model`), its base URL, and how long it may take to answer, in seconds. */
   repair?: { repairer?: string; baseUrl?: string; timeout?: number };
   /** Tools by name (or a captured HTTP call's host): `trust` marks the reads `shadowlap injection` plants in, over what the SDK or an MCP server declared. */
@@ -55,6 +61,8 @@ export function configPath(cwd: string): string {
  */
 export function loadConfig(cwd: string): ShadowlapConfig {
   const stored = readConfigFile(cwd);
+  // The hosts a config declares are this process's: none until a config says so.
+  declareFormatHosts([]);
   if (!stored.exists) return { normalize: [], redact: [] };
   const file = CONFIG_FILE;
   const parsed = stored.data as Partial<ShadowlapConfig>;
@@ -73,6 +81,23 @@ export function loadConfig(cwd: string): ShadowlapConfig {
       if (effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new Error(`${file}: http["${host}"] must be pure, read or write`);
       return { host: host.toLowerCase(), effect };
     });
+  }
+  // Hosts of a provider's wire format: checked here, since capture and every sidecar take them.
+  if (parsed.providers !== undefined) {
+    const raw = parsed.providers as unknown;
+    if (!Array.isArray(raw)) throw new Error(`${file}: providers must be a list, such as [{ "host": "openrouter.ai", "format": "openai", "root": "/api/v1" }]`);
+    const seen = new Set<string>();
+    config.providers = raw.map((given, i) => {
+      // Host names read in any case, as under http.
+      const entry = typeof given === 'object' && given !== null && typeof (given as { host?: unknown }).host === 'string' ? { ...(given as object), host: (given as { host: string }).host.toLowerCase() } : given;
+      const problem = formatHostProblem(entry, `providers[${i}]`);
+      if (problem) throw new Error(`${file}: ${problem}`);
+      const { host, format, root } = entry as FormatHost;
+      if (seen.has(host)) throw new Error(`${file}: providers[${i}].host "${host}" is declared twice`);
+      seen.add(host);
+      return { host, format, ...(root !== undefined ? { root } : {}) };
+    });
+    declareFormatHosts(config.providers);
   }
   if (parsed.repair !== undefined) {
     const r = parsed.repair as unknown;

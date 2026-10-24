@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isReservedScope, type CallRecord, type Store } from '@shadowlap/engine';
-import { providers, type Provider } from '@shadowlap/sidecar';
+import { hostedProviders, providers as routed, type Provider } from '@shadowlap/sidecar';
+
+/** Every provider whose SDKs take a key from the environment, the hosts of another's format among them (Claude on Foundry). */
+const providers: readonly Provider[] = [...routed, ...hostedProviders];
 
 /**
  * Placeholder keys for a replay's agent, and the note a run keeps of the keys its environment held.
@@ -79,9 +82,9 @@ function azureCliSignIn(env: Env, home: string): boolean {
 export function hasCredentials(provider: Provider, env: Env, home = homedir()): boolean {
   if (!provider.keys) return false;
   if (provider.keys.credentials.some((name) => held(env, name))) return true;
-  if (provider.id === 'bedrock') return [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')].some((f) => existsSync(f));
+  if (provider.id === 'bedrock' || provider.id === 'bedrock-mantle') return [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')].some((f) => existsSync(f));
   if (provider.id === 'anthropic') return anthropicProfile(env, home);
-  if (provider.id === 'azure') return azureCliSignIn(env, home);
+  if (provider.id === 'azure' || provider.id === 'foundry') return azureCliSignIn(env, home);
   return false;
 }
 
@@ -121,7 +124,8 @@ export function keyEnvNote(value: unknown): Record<string, string[]> | null {
  * SDKs don't warn that both are set.
  */
 export function placeholderKeys(env: Env, recording: { calls: readonly Pick<CallRecord, 'meta'>[]; keyEnv?: unknown }, mode: 'offline' | 'replay', home = homedir()): Record<string, string> {
-  const used = new Set(recording.calls.filter((c) => !isReservedScope(c.meta.scope)).map((c) => c.meta.provider));
+  // A call through a host of another's format (Claude on Foundry) takes that host's key, not the format's.
+  const used = new Set(recording.calls.filter((c) => !isReservedScope(c.meta.scope)).map((c) => c.meta.via ?? c.meta.provider));
   const note = keyEnvNote(recording.keyEnv);
   const out: Record<string, string> = {};
   for (const p of providers) {

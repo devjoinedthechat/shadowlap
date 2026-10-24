@@ -51,7 +51,7 @@ refund-flow/
 | `codeVersion` | no | The git revision the run was made at, up to 128 characters, or `null` |
 | `startedAt` | yes | When the run started |
 | `endedAt` | no | When it ended, or `null` |
-| `divergence` | no | Where a replay forked, or `null`: its `type` (`request_changed`, `new_call`, `forced`, `beyond_recording` or `ended_early`), `callNo`, `kind`, `name` and the calls `replayedBefore` it |
+| `divergence` | no | Where a replay forked, or `null`: its `type` (`request_changed`, `new_call`, `forced`, `beyond_recording` or `ended_early`), `callNo`, `kind`, `name`, the calls `replayedBefore` it, and the [extra reads](./how-it-works.md#the-replay-state-machine) it answered live before it (`extraReads`, each `callNo`, `kind` and `name`), when there were any |
 | `meta` | no | An object of the keys below and any others: a reader MUST keep keys it doesn't know |
 
 A run made where nothing knows what started the agent, such as a capture of production traffic, has `["<no-recorded-command>"]` as its `argv`: replaying it then takes the agent's command after `--`.
@@ -103,9 +103,12 @@ An end, in `end` and in `attempts`:
 | Call `meta` key | Where | |
 |---|---|---|
 | `provider` | start, `api` | The API the request was for: `anthropic`, `openai`, `gemini`, `bedrock`, `vertex` or `azure`. A reader needs it to compute the call's fingerprint again |
+| `via` | start, `api` | The host of another provider's wire format the call went through, when it went through one, its `provider` being that format's: `foundry` (Claude on Microsoft Foundry), `bedrock-mantle` (OpenAI's SDK on Amazon Bedrock), or a host the project's config declares under `providers`, as declared ([Providers](./providers.md#hosts-of-another-providers-format)) |
 | `fingerprintHeaders` | start, `api` | The request's [fingerprint headers](#identity) as it sent them, names in lower case |
+| `query` | start, `api` | The query string it was sent with, without `?` and without credentials (`alt=sse`, `api-version=2024-10-21`), `""` when it had none: part of its [identity](#identity). A call that has no `query` was made before calls kept one, or comes from a source that never knew it |
 | `scope` | start | The branch of the agent the call was made in ([scopes](./sdk.md#scopes)) |
 | `implHash` | start, `tool` | A hash of the tool's source, for the warning that it changed since the recording |
+| `extraRead` | start | `true` on a replay's clock read, random value or pure tool call that its recording held no counterpart for: answered live while the replay went on ([extra reads](./how-it-works.md#the-replay-state-machine)) |
 | `status`, `headers` | end, `api` | The response's HTTP status (200 when left out) and headers, served with its body on replay: `content-type` tells the client a stream (`text/event-stream`) from JSON |
 | `chunks` | end, `api` | A stream's events as `[byteOffset, msSinceFirstByte]` pairs, to play it back at its recorded pace |
 | `retryable` | end, `api` | The failure was one a client retries (429, 5xx) |
@@ -118,7 +121,7 @@ An end, in `end` and in `attempts`:
 Every request and every answer is a blob: a file in `blobs/` whose name is the SHA-256 of its bytes, in lowercase hex, stored uncompressed.
 
 - A reader MUST refuse a blob whose bytes don't hash to its name.
-- Every blob a call names, and every blob a request manifest names, MUST be in the pack.
+- Every blob a call names, and every blob a request manifest names, the turns its runs name included, MUST be in the pack.
 - A JSON blob is UTF-8. Its numbers are kept as written, so an id past 2^53 stays exact.
 
 | Kind | The request, at `requestRef` | The answer, at `end.responseRef` |
@@ -148,6 +151,26 @@ A model request resends the whole conversation, so its parts are stored apart, a
 - `system`, `tools` and each of `messages` name a JSON blob that holds that member of the body; `system` and `tools` are `null` when the body has none.
 - `fields` holds every other member of the body.
 
+A body that is a JSON object whose conversation is Gemini's `contents` or the Responses API's `input` items, an array, is a *list*, a version 2 manifest:
+
+```json
+{
+  "v": 2,
+  "kind": "list",
+  "fields": { "generationConfig": { "temperature": 0 } },
+  "parts": { "systemInstruction": "…" },
+  "list": "contents",
+  "runs": ["…", "…"]
+}
+```
+
+- `list` names the member that holds the conversation: `contents`, `input` or `messages`.
+- `parts` names the members stored apart, each by the JSON blob that holds it: for `contents`, `systemInstruction`, `system_instruction` and `tools`; for `input`, `instructions` and `tools`; for `messages`, `system` and `tools`. A reader refuses any other.
+- `runs` names blobs that each hold a JSON array of blob hashes, and the conversation is the JSON blobs those name, run after run. A writer SHOULD make the runs' lengths the binary digits of the conversation's length, largest first (13 turns: runs of 8, 4 and 1), so that every call of a conversation shares each run that lies within the turns it has in common with an earlier call: the manifests of a run of n calls then grow as n·log n, not n², as a list of every turn's hash in each manifest does.
+- `fields` holds every other member of the body.
+
+Shadowlap writes version 1 for a `messages` body and version 2 for the others. A reader MUST read both, and MUST refuse a manifest of a version it doesn't know.
+
 Any other body is *whole*: `{ "v": 1, "kind": "whole", "blob": "…", "encoding": "json" }`, where the blob holds the body and `encoding` says how to read it: `json`, `utf8`, or `base64` for bytes. A reader rebuilds a request as the same JSON, not the same bytes: only answers are served as they were recorded.
 
 ## Identity
@@ -158,26 +181,30 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 
 | Kind | Object | Example |
 |---|---|---|
-| `api` | `kind`, `method`, `path`, `headers` and `body` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
+| `api` | `kind`, `method`, `path`, `headers`, `body` and, when it has one, `query` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
 | `tool` | `kind`, `name` and `args` | `{"args":{"id":"A-17"},"kind":"tool","name":"lookup_order"}` |
 | `clock`, `random` | `kind` and `label` | `{"kind":"clock","label":"start"}` |
 
 - `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
 - `path` is the path the request was sent to under its provider's root, without the query. A Vertex AI path leaves out its `/projects/<project>/locations/<location>`, which differ from one machine to the next.
+- `query` is the request's query parameters as `[name, value]` pairs, decoded, sorted by name (a name sent more than once keeps its values in the order sent), and left out when there are none. A parameter that carries a credential (an API key such as Gemini's `key`, a token, a signature, a password) is never part of it, nor is a value a copy masked as `<CREDENTIAL>`. Its values are masked as the body's strings are: dates near the run's start, and the normalizers that have no path. A recording a copy redacted holds its query with the copy's rules applied, each `name=value` as a whole, so a live call's query is read with those rules applied the same way before it is matched. A reader computes it from the call's `meta.query`.
+- A recording none of whose calls to a provider kept a `query`, such as one built from a trace, is matched whatever query a replay's calls to it carry: the replay leaves the query out of their fingerprints and keeps none on them, so its own replays match the same way.
 - `headers` are the request's fingerprint headers, named in lower case: the few headers that change what the model does. An `anthropic` call's `anthropic-beta` counts without the betas that only say how the call signed in, those starting `oauth-` (a profile's sign-in sends `oauth-2025-04-20`, a key none), and is left out when nothing else is in it. `fingerprintHeaders` keeps it as it was sent.
 - A recording none of whose `anthropic` calls names an `anthropic-version`, such as one built from a trace (which keeps what was asked, not the headers it was sent with), is matched whatever version a replay's requests name: the replay leaves the version out of its own calls' fingerprints and `fingerprintHeaders`, so it names none either and holds the same calls.
 - The project's [normalizers](./normalizers-and-redaction.md) apply first, and under `"clock": "auto"` (the default) so does masking the dates and timestamps near the run's start.
 
 | Provider | Fingerprint headers |
 |---|---|
-| `anthropic` | `anthropic-version`, `anthropic-beta` |
-| `openai`, `azure` | `openai-beta` |
+| `anthropic`, `foundry` | `anthropic-version`, `anthropic-beta` |
+| `openai`, `azure`, `bedrock-mantle` | `openai-beta` |
 | `vertex` | `anthropic-beta` |
 | `gemini`, `bedrock` | none |
 
+A call that went through a host of another's format (`via`) is fingerprinted with its format's headers, and with the part of its path under the host's root read as the format's own API names it: `/anthropic/v1/messages` through `foundry` as `/v1/messages`, `/openai/v1/responses` through `bedrock-mantle` as `/v1/responses`, and a call under a declared host's `root` so too.
+
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 
-A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 5), and fingerprints made under another are computed again, so older packs keep replaying.
+A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 6), and fingerprints made under another are computed again, so older packs keep replaying.
 
 ## Partial recordings
 
@@ -582,6 +609,7 @@ The default that makes recorded tests pleasant: read an explicit setting from th
 This page is version 1, for packs and the protocol alike.
 
 - A pack says its version in `run.json`'s `version`, and a reader refuses a version it doesn't know. A change that would make a pack mean something else to a reader that doesn't know it, or keep a reader from reading it, comes with a new version.
+- A [request manifest](#request-manifests) says its own version in `v`, so a new way to store a request comes as a new manifest version, which a reader that doesn't know it refuses, naming the request, as it refuses a pack of a version it doesn't know.
 - The protocol says its version in its routes, `/v1/recordings/…`. A change that would break an integration written to this page comes with routes under a new version. `shadowlap` in the handshake is the CLI's version, for an integration to report alongside its own.
 - What a reader or an integration can ignore comes without a new version: a new key under a run's or a call's `meta`, a new provider, whose calls keep the fingerprints they were written with in a reader that doesn't know it, or a new field in a response.
 - Shadowlap is pre-1.0, and of everything it has, the format is what changes least: build on it where you have the choice.

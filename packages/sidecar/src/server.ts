@@ -57,8 +57,10 @@ import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJ
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
+import { identityQuery } from './query.js';
+import { isResponsesCreate, ResponsesState } from './responses-state.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
-import { providers as defaultProviders, sdkBasesFromEnvironment, type Provider } from './providers.js';
+import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
 import { isTelemetry } from './telemetry.js';
@@ -76,6 +78,11 @@ export interface SidecarOptions {
   host?: string;
   port?: number;
   providers?: Provider[];
+  /**
+   * Hosts of another provider's wire format to serve besides the built-in providers (`providers` in
+   * shadowlap.config.json). Defaults to those the config declared (declareFormatHosts).
+   */
+  formats?: FormatHost[];
   normalizers?: Normalizer[];
   /** Per-provider upstream overrides, e.g. `{ anthropic: 'http://127.0.0.1:9999' }` for a mock. */
   upstreams?: Record<string, string>;
@@ -232,6 +239,8 @@ class RunContext {
    * closing it leaves the run's status and end as they were. The first call number it gave out.
    */
   judgeOnly: { from: number } | null = null;
+  /** What the recording kept on OpenAI's side, for a live Responses call that continues it (responses-state.ts); null without one. */
+  responses: ResponsesState | null = null;
 
   constructor(
     readonly run: RunRecord,
@@ -259,6 +268,12 @@ class RunContext {
      * trace's never do: a live call to one is matched and kept without the version it names.
      */
     readonly unversioned: ReadonlySet<string> = new Set(),
+    /**
+     * The providers none of whose model calls in the parent kept a query (`meta.query`), as a
+     * recording made before calls kept one, or a trace's, never does: a live call to one is matched,
+     * and kept, without its query.
+     */
+    readonly unqueried: ReadonlySet<string> = new Set(),
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -410,7 +425,10 @@ export class Sidecar {
   readonly token: string;
   private readonly server: Server;
   private readonly store: Store;
+  /** The providers calls are routed to, `/<id>/…`. */
   private readonly providers: Map<string, Provider>;
+  /** Every provider by id, the hosts reached through another's route among them (hostedProviders), for reading a recorded call's `via`. */
+  private readonly byId: Map<string, Provider>;
   private readonly normalizers: Normalizer[];
   private readonly upstreams: Record<string, string>;
   private readonly sdkBases: Record<string, string>;
@@ -463,7 +481,8 @@ export class Sidecar {
     this.http2Url = http2Url;
     this.url = url;
     this.token = token;
-    this.providers = new Map((opts.providers ?? defaultProviders).map((p) => [p.id, p]));
+    this.providers = new Map((opts.providers ?? (opts.formats ? [...defaultProviders, ...opts.formats.map(formatHostProvider)] : activeProviders())).map((p) => [p.id, p]));
+    this.byId = new Map([...hostedProviders, ...this.providers.values()].map((p) => [p.id, p]));
     this.normalizers = opts.normalizers ?? [];
     this.upstreams = opts.upstreams ?? {};
     this.sdkBases = opts.sdkBases ?? sdkBasesFromEnvironment(process.env);
@@ -500,17 +519,21 @@ export class Sidecar {
     // The HTTP/2 compatibility API gives request and response objects the HTTP/1 handler understands.
     http2Server.on('request', (req, res) => server.emit('request', req as unknown as IncomingMessage, res as unknown as ServerResponse));
     server.on('request', (req, res) => {
-      sidecar.handle(req, res).catch((err: unknown) => {
-        const status = err instanceof HttpError ? err.status : 500;
-        const message = err instanceof Error ? err.message : String(err);
-        if (!res.headersSent) {
-          res.writeHead(status, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
-        } else {
-          res.destroy();
-        }
-        sidecar.log(`error: ${message}`);
-      });
+      sidecar
+        .handle(req, res)
+        .catch((err: unknown) => {
+          const status = err instanceof HttpError ? err.status : 500;
+          const message = err instanceof Error ? err.message : String(err);
+          if (!res.headersSent) {
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
+          } else {
+            res.destroy();
+          }
+          sidecar.log(`error: ${message}`);
+        })
+        // The call is answered: a divergence it made is compared with the recording now, off its path.
+        .finally(() => sidecar.explainWaiting());
     });
     // A WebSocket under a provider (OpenAI Realtime), tunnelled to it.
     server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => sidecar.upgrade(req, socket, head));
@@ -675,13 +698,26 @@ export class Sidecar {
       mode: input.mode,
       parentRunId: input.parentRunId ?? null,
       ...(parentCalls ? { parentCalls } : {}),
+      // A divergence's diff is worked out once its call is answered (explainWaiting), never on its path.
+      deferExplain: true,
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec),
       matchName: (rec) => this.matchName(rec),
+      // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
+      matchQuery: (rec) => storedQuery(rec, redactions),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    this.runs.set(run.runId, new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined));
+    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined);
+    // A fork's live Responses call may continue a response or a conversation the recording made: read when one does.
+    if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
+      const recorded = parentCalls;
+      ctx.responses = new ResponsesState(recorded, {
+        request: (rec) => this.loadRequest(rec),
+        response: (rec) => ({ bytes: rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
+      });
+    }
+    this.runs.set(run.runId, ctx);
     if (input.slot !== undefined) this.slots.set(input.slot, run.runId);
     this.activeRunId = run.runId;
     this.log(`run ${run.runId} started (${input.mode})`);
@@ -741,6 +777,8 @@ export class Sidecar {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
     if (ctx.judgeOnly) throw new HttpError(409, `run ${runId} has ended; it is open for its judge's calls only`);
+    // A divergence still waiting for its diff gets it before the run ends.
+    this.explainWaiting(ctx);
     // A replay that never diverged but stopped before its recording did leaves it there: kept on
     // the run, so everything that reads the store tells it from a clean replay.
     if (ctx.session.end()) this.noteDivergence(ctx);
@@ -853,9 +891,12 @@ export class Sidecar {
 
     if (head === 'v1') return this.handleApi(req, res, rest, url, pinned);
     if (head === 'http') return this.proxyHttp(req, res, rest.slice(head.length) || '/', url.search, pinned);
-    const provider = head ? this.providers.get(head) : undefined;
-    if (!provider) throw new HttpError(404, `unknown route ${rest}`);
+    // A declared host's route (`*.example.com`) as a client may have percent-encoded it.
+    const route = head ? (this.providers.get(head) ?? this.providers.get(decodedSegment(head))) : undefined;
+    if (!route) throw new HttpError(404, `unknown route ${rest}`);
     const sent = rest.slice(head.length) || '/';
+    // A host that serves another wire format under part of its paths (Claude on Foundry, under Azure's).
+    const provider = route.forPath?.(sent) ?? route;
     return this.proxy(req, res, provider, provider.apiPath?.(sent) ?? sent, url.search, pinned);
   }
 
@@ -1043,7 +1084,7 @@ export class Sidecar {
    */
   private requestedUpstream(req: IncomingMessage, provider: Provider, ctx: RunContext, websocket = false): string | undefined {
     // A configured upstream (a mock, a local server, or "offline" in shadowlap test) takes precedence.
-    if (this.upstreams[provider.id] || ctx.offline) return undefined;
+    if (this.upstreamOf(provider) || ctx.offline) return undefined;
     const raw = req.headers['x-shadowlap-upstream'];
     const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     if (!value) return undefined;
@@ -1053,12 +1094,13 @@ export class Sidecar {
     } catch {
       throw new HttpError(400, `x-shadowlap-upstream is not a URL: ${value}`);
     }
-    // A WebSocket's host may be named wss:; it is reached over TLS either way.
+    // A WebSocket's host may be named wss:; it is reached over TLS either way. A host the config
+    // declares with a port says what it takes itself, http included (Provider.accepts).
     const secure = url.protocol === 'https:' || (websocket && url.protocol === 'wss:');
-    if (!secure || !provider.hosts.test(url.hostname)) {
-      throw new HttpError(403, `${provider.id} cannot forward to ${url.origin}. Point it at a mock with SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()} instead.`);
+    if (!(provider.accepts?.(url) ?? (secure && provider.hosts.test(url.hostname)))) {
+      throw new HttpError(403, `${provider.id} cannot forward to ${url.origin}. Point it at a mock with ${upstreamVariable(provider)} instead.`);
     }
-    return `https://${url.host}`;
+    return url.protocol === 'http:' ? url.origin : `https://${url.host}`;
   }
 
   /**
@@ -1103,8 +1145,9 @@ export class Sidecar {
     }
     // Gone before its request was all here: nothing was asked.
     if (client.gone) return null;
-    // The providers the agent used: a judge's is none of them.
-    if (!judge) ctx.providersUsed.add(provider.id);
+    // The providers the agent used: a judge's is none of them. A host the config declares is named by
+    // its format: its name is the project's own, and this list goes into telemetry.
+    if (!judge) ctx.providersUsed.add(provider.format && !hostedProviders.includes(provider) ? provider.format : provider.id);
     const headers = lowerHeaders(req.headers);
     let body: unknown;
     if (rawBody.length === 0) body = null;
@@ -1137,7 +1180,7 @@ export class Sidecar {
     // A request that carries planted text (shadowlap injection's canary) forks the replay there, even
     // when a normalizer masks the text into a match: the point of the plant is a model reading it.
     if (refusal === undefined && !forced && !changedBy && ctx.session.state === 'replaying' && ctx.session.options.plantMarks && ctx.session.carriesPlant(call.rawBody.toString('utf8'))) changedBy = ctx.session.options.plantMarks.by;
-    const { name, matchName, kept, asked, fingerprint } = this.identifyModelCall(call);
+    const { name, matchName, kept, asked, fingerprint, query, unqueried } = this.identifyModelCall(call);
 
     // A judge that may not be asked live, whose very request the recording never answered, is
     // answered by no one: nothing is kept of it, since a call no one answered holds no verdict, and
@@ -1159,11 +1202,11 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
     const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: call.body, headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: call.body, headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
     const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
-    this.recordModelStart(call, callNo, tracked, kept, asked);
+    this.recordModelStart(call, callNo, tracked, kept, asked, unqueried);
     return { callNo, tracked, ...(refusal !== undefined ? { refusal } : {}) };
   }
 
@@ -1179,11 +1222,11 @@ export class Sidecar {
   private rewriteForInterventions(call: ModelCall): Rewritten {
     const { ctx, provider, scope } = call;
     if (!ctx.interventions?.active || call.judge) return {};
-    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body })}`;
+    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
-    const rewrite = ctx.interventions.apply(place, provider.id, call.sent, call.body);
+    const rewrite = ctx.interventions.apply(place, recordedId(provider), call.sent, call.body);
     if ('refused' in rewrite) return { ...done, refusal: rewrite.refused };
     // At the call a flag named: a changed body diverges on its own, and its diff shows the change; a
     // model switched in the path, or a setting the request already had, is forced.
@@ -1207,8 +1250,13 @@ export class Sidecar {
     return done;
   }
 
-  /** Resolve: what identifies a model call, as its request is matched, and the headers it keeps. */
-  private identifyModelCall(call: ModelCall): { name: string; matchName: string | undefined; kept: Record<string, string>; asked: Record<string, string>; fingerprint: string } {
+  /**
+   * Resolve: what identifies a model call, as its request is matched, and the headers it keeps. Its
+   * query takes part, but for its credentials (identityQuery), unless the parent's calls to the
+   * provider kept no query (`unqueried`), as a trace's never do: it is then matched, and kept,
+   * without it.
+   */
+  private identifyModelCall(call: ModelCall): { name: string; matchName: string | undefined; kept: Record<string, string>; asked: Record<string, string>; fingerprint: string; query: string; unqueried: boolean } {
     const { ctx, provider, judge } = call;
     const name = apiCallName(call.method, call.path);
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
@@ -1221,16 +1269,19 @@ export class Sidecar {
     const kept = version !== undefined ? withoutHeader(call.headers, version) : call.headers;
     // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
     const asked = matchedHeaders(provider, kept);
-    const request = { method: call.method, path: call.path, headers: asked, body: call.body };
+    const unqueried = !judge && ctx.unqueried.has(provider.id);
+    // Read as the recording's copy keeps its query: a parameter a redaction rule masked there is masked here too.
+    const query = unqueried ? '' : identityQuery(call.search, ctx.redactions, name);
+    const request = { method: call.method, path: call.path, headers: asked, body: call.body, query };
     const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
-    return { name, matchName, kept, asked, fingerprint };
+    return { name, matchName, kept, asked, fingerprint, query, unqueried };
   }
 
   /**
    * A model request's fingerprint under a run's matching rules: the one place an agent's model call
    * is fingerprinted, as it arrives and from its record (refingerprint).
    */
-  private apiFingerprint(rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown }): string {
+  private apiFingerprint(rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }): string {
     return fingerprintApi(req, rules.normalizers, provider.fingerprintHeaders, rules.clockRef, { withoutPrompt: rules.withoutPrompt, matchPath: provider.matchPath?.(req.path) }).fingerprint;
   }
 
@@ -1244,11 +1295,15 @@ export class Sidecar {
    * Record: a new model call's start with its request, and its fingerprint in the cache for the next
    * replay to start from, with the dates the request holds (fingerprint-cache.ts).
    */
-  private recordModelStart(call: ModelCall, callNo: number, tracked: TrackedCall, kept: Record<string, string>, asked: Record<string, string>): void {
+  private recordModelStart(call: ModelCall, callNo: number, tracked: TrackedCall, kept: Record<string, string>, asked: Record<string, string>, unqueried: boolean): void {
     const { ctx, provider, scope, judge, body } = call;
-    // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the agent did.
-    const query = credentialFreeQuery(call.search.replace(/^\?/, ''));
-    const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: provider.id, fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
+    // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the
+    // agent did, and it is part of the call's identity. Kept empty when there is none, so a replay
+    // tells a call that had none from one recorded before calls kept it; not kept when it was matched
+    // without one (unqueried), so this run's own replays match it the same way.
+    const query = unqueried ? undefined : (credentialFreeQuery(call.search.replace(/^\?/, '')) ?? '');
+    // Under the format's provider when it went through a host of another's, that host kept as `via`.
+    const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: recordedId(provider), ...(provider.format ? { via: provider.id } : {}), fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query !== undefined ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
     const at = Date.now();
     const start = (requestRef: string | null) => this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: null, requestRef, meta, at });
     let requestRef: string | null = null;
@@ -1299,6 +1354,40 @@ export class Sidecar {
       this.serveReplayed(ctx, res, callNo, tracked);
       return true;
     }
+    return this.continueRecordedState(call, placed);
+  }
+
+  /**
+   * Serve recorded, for a live Responses API call: one that continues a response the recording made
+   * (responses-state.ts), which OpenAI keeps only for the key that made it and only while it keeps
+   * it, is sent with the whole conversation it continues instead, signed again where AWS signs it;
+   * one that names a conversation the recording used is refused, since the conversation holds the
+   * recorded run's later turns too. True when it was answered here.
+   */
+  private continueRecordedState(call: ModelCall, placed: PlacedCall): boolean {
+    const { ctx, res, provider, judge } = call;
+    const { callNo, tracked } = placed;
+    const continued = !judge && !ctx.offline && ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(call.body) : null;
+    if (!continued) return false;
+    if ('refuse' in continued) {
+      this.serveStateRefusal(ctx, res, provider, callNo, tracked, continued.refuse, continued.param);
+      return true;
+    }
+    if (continued.send === 'as-is') return false;
+    // The call's recording keeps the request as the agent sent it; only what goes upstream changes.
+    call.rawBody = Buffer.from(JSON.stringify(continued.body), 'utf8');
+    const keyId = signingKeyId(call.headers.authorization);
+    if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
+      const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
+      if ('error' in signed) {
+        this.serveRefusal(ctx, res, provider, callNo, tracked, `the whole conversation in place of previous_response_id ${continued.previous}: ${signed.error}`);
+        return true;
+      }
+      call.headers = signed.headers;
+    }
+    const from = continued.from.map((n) => `#${n}`).join(', ');
+    ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: sent whole in place of previous_response_id ${continued.previous}`);
     return false;
   }
 
@@ -1337,6 +1426,23 @@ export class Sidecar {
     this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
     ctx.warnOnce(`refused:${reason}`, `Not applied: ${reason}. Call ${callNo} was answered with that reason instead of being sent.`);
     this.log(`run ${ctx.run.runId} call ${callNo}: refused ${reason}`);
+  }
+
+  /**
+   * Answers a live call that would read state the recording left on the provider's side (a recorded
+   * Responses conversation) instead of sending it: in OpenAI's error shape, naming the request's
+   * field, so its client raises a BadRequestError with the reason; the run's summary says so too.
+   */
+  private serveStateRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, why: string, param: string): void {
+    const message = `shadowlap did not send this call: ${why}`;
+    const bytes = Buffer.from(JSON.stringify({ error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } }), 'utf8');
+    const attempt = this.beginAttempt(tracked);
+    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
+    res.end(bytes);
+    const error: SerializedError = { name: 'ShadowlapRecordedState', message };
+    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
+    ctx.warnOnce(`state:${why}`, `Call ${callNo} was not sent: ${why}`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: refused, it would read state the recording left on ${provider.id}'s side`);
   }
 
   /**
@@ -1402,7 +1508,7 @@ export class Sidecar {
     res.end(bytes);
     const error = { name: 'ShadowlapInjectedFailure', message };
     // Retryable by the provider's own rule, so the client's retry logic runs — and fails again.
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status, injected: true, retryable, error, provider: provider.id, bytes: bytes.length, latencyMs: 0 } }, retryable);
+    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status, injected: true, retryable, error, provider: recordedId(provider), bytes: bytes.length, latencyMs: 0 } }, retryable);
     this.log(`run ${ctx.run.runId} call ${callNo}: injected HTTP ${status}`);
   }
 
@@ -1470,9 +1576,9 @@ export class Sidecar {
     const { callNo, tracked } = placed;
     const judging = call.judge?.upstream !== undefined;
     const requested = call.judge?.upstream ?? call.requested;
-    const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreams[provider.id] || requested || provider.upstream).replace(/\/$/, '');
+    const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreamOf(provider) || requested || provider.upstream).replace(/\/$/, '');
     if (!upstream) {
-      const message = `no upstream for ${provider.id}: set SHADOWLAP_UPSTREAM_${provider.id.toUpperCase()}, or let Shadowlap capture the call in the agent's process`;
+      const message = `no upstream for ${provider.id}: set ${upstreamVariable(provider)}, or let Shadowlap capture the call in the agent's process`;
       const attempt = this.beginAttempt(tracked);
       res.writeHead(400, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_upstream', message } }));
@@ -1575,7 +1681,7 @@ export class Sidecar {
     const retryable = gone || streamError !== undefined || provider.isRetryableStatus(status);
     const outcome = status < 400 && !streamError && !gone ? 'ok' : 'error';
     attempt.settle(outcome === 'error' && retryable);
-    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: provider.id };
+    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
     const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(call.path, call.body);
     if (requestedModel) meta.model = requestedModel;
@@ -1731,7 +1837,8 @@ export class Sidecar {
     const tracked: TrackedCall = { identity, effect, origin: stored, decision, attempts: 0, inFlight: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
-    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: origin.host, ...(scope ? { scope } : {}), ...this.trustMeta(name, origin.host, null) });
+    // A plain read the recording held no counterpart for, answered live while the replay goes on.
+    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: origin.host, ...(scope ? { scope } : {}), ...(decision.origin === 'live' && decision.extra ? { extraRead: true } : {}), ...this.trustMeta(name, origin.host, null) });
     this.cacheToolFingerprint(ctx, callNo, matched, true, fingerprint, args, requestRef);
 
     /** The call's end: `response` the bytes to store, or the ref of what is stored already. */
@@ -1883,6 +1990,8 @@ export class Sidecar {
     if (body.implHash) meta.implHash = body.implHash;
     if (scope) meta.scope = scope;
     if (input) meta.input = true;
+    // A plain read the recording held no counterpart for, answered live while the replay goes on.
+    if (decision.origin === 'live' && decision.extra) meta.extraRead = true;
     const mcp = kind === 'tool' ? mcpCallMeta(body.mcp) : undefined;
     if (mcp) meta.mcp = mcp;
     // A tool that brings outside text in, as the config's `tools`, the SDK's `trust` or an MCP
@@ -2024,17 +2133,42 @@ export class Sidecar {
   private noteDivergence(ctx: RunContext): void {
     const found = ctx.session.divergence;
     if (found && !ctx.run.divergence) {
-      // A hint for a change the run's rules mask would ask for a rule the config has: the report
-      // still lists the change, as the request carried it, but it didn't make the replay diverge.
-      const hints = found.hints?.length ? unmaskedHints(found, ctx.normalizers) : null;
-      const d = hints && hints.length !== found.hints!.length ? Sidecar.withHints(found, hints) : found;
-      ctx.run.divergence = d;
-      this.writer.write({
-        what: `run ${ctx.run.runId}'s divergence`,
-        run: () => this.store.setDivergence(ctx.run.runId, d),
-        failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
-      });
+      const d = this.keepDivergence(ctx, found);
       this.log(`run ${ctx.run.runId} diverged at call ${d.callNo} (${d.type})`);
+    }
+  }
+
+  /** Keeps a run's divergence on it, in memory and in the store, through the store writer. */
+  private keepDivergence(ctx: RunContext, found: DivergenceReport): DivergenceReport {
+    // A hint for a change the run's rules mask would ask for a rule the config has: the report
+    // still lists the change, as the request carried it, but it didn't make the replay diverge.
+    const hints = found.hints?.length ? unmaskedHints(found, ctx.normalizers) : null;
+    const d = hints && hints.length !== found.hints!.length ? Sidecar.withHints(found, hints) : found;
+    ctx.run.divergence = d;
+    this.writer.write({
+      what: `run ${ctx.run.runId}'s divergence`,
+      run: () => this.store.setDivergence(ctx.run.runId, d),
+      failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
+    });
+    return d;
+  }
+
+  /**
+   * Works out the diff of a divergence that waits for one (Session.explainPending), for `only` or for
+   * every run: called once each request has been answered, so no agent waits on recorded requests
+   * being loaded and compared, and by endRun before a run ends. A failure leaves the divergence as it
+   * was first kept, compared with its nearest recorded call.
+   */
+  private explainWaiting(only?: RunContext): void {
+    if (this.closed) return;
+    for (const ctx of only ? [only] : this.runs.values()) {
+      if (!ctx.session.explaining) continue;
+      try {
+        const d = ctx.session.explainPending();
+        if (d) this.keepDivergence(ctx, d);
+      } catch (err) {
+        this.log(`run ${ctx.run.runId}: its divergence was kept without a diff: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -2044,9 +2178,26 @@ export class Sidecar {
     return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;
   }
 
+  /**
+   * The upstream configured for a provider, by its id or by its id as SHADOWLAP_UPSTREAM_<NAME>
+   * spells it (`bedrock_mantle` for bedrock-mantle, `openrouter_ai` for a declared openrouter.ai).
+   */
+  private upstreamOf(provider: Provider): string | undefined {
+    return this.upstreams[provider.id] || this.upstreams[provider.id.toLowerCase().replace(/[^a-z0-9]/g, '_')] || undefined;
+  }
+
+  /**
+   * The provider a recorded model call went through: the host of another's format it was for
+   * (`meta.via`, Claude on Foundry), else the one it is recorded under.
+   */
+  private providerOf(rec: Pick<CallRecord, 'meta'>): Provider | undefined {
+    const via = typeof rec.meta.via === 'string' ? this.byId.get(rec.meta.via) : undefined;
+    return via ?? this.byId.get(String(rec.meta.provider ?? ''));
+  }
+
   /** A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without its project and region. */
   private matchName(rec: CallRecord): string {
-    const provider = rec.kind === 'api' && typeof rec.meta.provider === 'string' ? this.providers.get(rec.meta.provider) : undefined;
+    const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
     if (!provider?.matchPath) return rec.name;
     const [method = 'POST', ...pathParts] = rec.name.split(' ');
     return apiCallName(method, provider.matchPath(pathParts.join(' ')));
@@ -2067,7 +2218,7 @@ export class Sidecar {
   private unversioned(calls: readonly CallRecord[]): Set<string> {
     const named = new Map<string, boolean>();
     for (const c of calls) {
-      const provider = c.kind === 'api' && !isJudgeCall(c) ? this.providers.get(String(c.meta.provider ?? '')) : undefined;
+      const provider = c.kind === 'api' && !isJudgeCall(c) ? this.providerOf(c) : undefined;
       if (!provider?.apiVersion) continue;
       const version = (c.meta.fingerprintHeaders as Record<string, string> | undefined)?.[provider.apiVersion.header];
       named.set(provider.id, named.get(provider.id) === true || version !== undefined);
@@ -2075,9 +2226,25 @@ export class Sidecar {
     return new Set([...named].filter(([, some]) => !some).map(([id]) => id));
   }
 
+  /**
+   * The providers none of whose model calls in a parent kept a query (`meta.query`), as a recording
+   * made before calls kept one, or a trace's, never does: a replay matches its calls to them whatever
+   * query they carry, as it does a version none of them named (`unversioned`), and keeps no query on
+   * them, so its own replays match them the same way. A call that kept an empty query had none.
+   */
+  private unqueried(calls: readonly CallRecord[]): Set<string> {
+    const kept = new Map<string, boolean>();
+    for (const c of calls) {
+      if (c.kind !== 'api' || isJudgeCall(c)) continue;
+      const id = this.providerOf(c)?.id ?? String(c.meta.provider ?? '');
+      kept.set(id, kept.get(id) === true || typeof c.meta.query === 'string');
+    }
+    return new Set([...kept].filter(([, some]) => !some).map(([id]) => id));
+  }
+
   /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */
   private asMatched(rec: CallRecord): CallRecord {
-    const provider = rec.kind === 'api' ? this.providers.get(String(rec.meta.provider ?? '')) : undefined;
+    const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
     const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
     if (!provider?.matchHeaders || !headers) return rec;
     return { ...rec, meta: { ...rec.meta, fingerprintHeaders: provider.matchHeaders(headers) } };
@@ -2142,7 +2309,8 @@ export class Sidecar {
     const ref = rec.requestRef;
     if (!ref) return null;
     if (rec.kind === 'api') {
-      const provider = this.providers.get(String(rec.meta.provider ?? ''));
+      // The host of another's format it went through (`via`), whose root it is matched under.
+      const provider = this.providerOf(rec);
       if (!provider) return null;
       const [method = 'POST', ...pathParts] = rec.name.split(' ');
       const path = pathParts.join(' ');
@@ -2154,7 +2322,8 @@ export class Sidecar {
         key: fingerprintKey(this.modelRules(rules, provider, method, path, headers, query, judge), ref),
         requestRef: ref,
         compute: () => {
-          const request = { method, path, headers, body: loadApiRequest(this.store, ref) };
+          // From the query it kept: none for a call recorded before calls kept one.
+          const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec, rules.redactions) };
           if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path)).fingerprint, marks: [] };
           return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), query ?? '', ...Object.values(headers)], rules.clockRef) };
         },
@@ -2272,6 +2441,26 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   return decision.origin;
 }
 
+/** A path segment decoded, or as it is when it doesn't decode. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** The variable that sends a provider's calls elsewhere: SHADOWLAP_UPSTREAM_BEDROCK_MANTLE for bedrock-mantle. */
+const upstreamVariable = (provider: Provider): string => `SHADOWLAP_UPSTREAM_${provider.id.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
+
+/** The id a provider's calls are recorded under: the format's, for a host of another's (Provider.format). */
+const recordedId = (provider: Provider): string => provider.format ?? provider.id;
+
+/** A model call's query as its identity reads it, from what its recording kept (none when it kept none), under the rules that redacted the recording. */
+function storedQuery(rec: Pick<CallRecord, 'meta' | 'name'>, redactions: readonly Normalizer[] = []): string {
+  return identityQuery(typeof rec.meta.query === 'string' ? rec.meta.query : undefined, redactions, rec.name);
+}
+
 /** A call to a host under `http` in the config, recorded as a tool (proxyHttp). */
 function capturedHttp(rec: Pick<CallRecord, 'kind' | 'meta'>): boolean {
   return rec.kind === 'tool' && typeof rec.meta.http === 'string';
@@ -2326,7 +2515,7 @@ function withoutHeader(headers: Readonly<Record<string, string>>, name: string):
  * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
  * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
  */
-function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
+function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
   return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
 }
 

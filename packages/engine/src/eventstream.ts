@@ -43,6 +43,37 @@ export function encodeEventStreamFrame(headers: Buffer, payload: Buffer): Buffer
 }
 
 /**
+ * The width of a header value of a fixed-size type, by type: true and false (none), a byte, a
+ * short, an integer, a long, then a timestamp (8) and a UUID (16). A byte array (6) and a string (7)
+ * carry their own length.
+ */
+const FIXED_WIDTH: Readonly<Record<number, number>> = { 0: 0, 1: 0, 2: 1, 3: 2, 4: 4, 5: 8, 8: 8, 9: 16 };
+
+/** The `:event-type` (or `:exception-type`) a frame's header bytes name, or null. A header of a type no reader knows ends the walk: its width is unknown. */
+function frameType(body: Buffer, from: number, to: number): string | null {
+  let type: string | null = null;
+  let h = from;
+  while (h < to) {
+    const nameLength = body.readUInt8(h);
+    if (h + 2 + nameLength > to) return type;
+    const name = body.toString('utf8', h + 1, h + 1 + nameLength);
+    const valueType = body.readUInt8(h + 1 + nameLength);
+    const v = h + 2 + nameLength;
+    if (valueType === 6 || valueType === 7) {
+      if (v + 2 > to) return type;
+      const valueLength = body.readUInt16BE(v);
+      if (valueType === 7 && (name === ':event-type' || name === ':exception-type')) type = body.toString('utf8', v + 2, Math.min(v + 2 + valueLength, to));
+      h = v + 2 + valueLength;
+    } else {
+      const width = FIXED_WIDTH[valueType];
+      if (width === undefined) return type;
+      h = v + width;
+    }
+  }
+  return type;
+}
+
+/**
  * AWS event stream frames: a 12-byte prelude (total length, header length, CRC), headers, payload,
  * and a trailing CRC. Checksums are not verified here; the bytes are stored as received, and this
  * only reads what the timeline shows.
@@ -53,28 +84,9 @@ export function* eventStreamMessages(body: Buffer): Generator<{ type: string | n
     const total = body.readUInt32BE(at);
     const headerLength = body.readUInt32BE(at + 4);
     if (total < 16 || at + total > body.length) return;
-    let h = at + 12;
-    const headersEnd = h + headerLength;
-    let type: string | null = null;
-    while (h < headersEnd && h < body.length) {
-      const nameLength = body.readUInt8(h);
-      const name = body.toString('utf8', h + 1, h + 1 + nameLength);
-      const valueType = body.readUInt8(h + 1 + nameLength);
-      let v = h + 2 + nameLength;
-      if (valueType === 7) {
-        // string
-        const valueLength = body.readUInt16BE(v);
-        const value = body.toString('utf8', v + 2, v + 2 + valueLength);
-        if (name === ':event-type' || name === ':exception-type') type = value;
-        v += 2 + valueLength;
-      } else if (valueType === 6) {
-        v += 2 + body.readUInt16BE(v); // byte buffer
-      } else {
-        v += [0, 0, 1, 2, 4, 8, 16, 0, 8, 4][valueType] ?? 0;
-      }
-      h = v;
-    }
-    const payloadBuf = body.subarray(headersEnd, at + total - 4);
+    const headersEnd = Math.min(at + 12 + headerLength, at + total - 4);
+    let type = frameType(body, at + 12, headersEnd);
+    const payloadBuf = body.subarray(at + 12 + headerLength, at + total - 4);
     let payload: Record<string, unknown> | null = null;
     try {
       const parsed = JSON.parse(payloadBuf.toString('utf8')) as unknown;

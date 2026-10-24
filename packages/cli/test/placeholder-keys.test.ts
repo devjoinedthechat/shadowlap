@@ -42,6 +42,16 @@ describe('placeholder keys on an offline replay', () => {
     expect(placeholderKeys({}, { calls: calls('azure') }, 'offline', emptyHome())).toEqual({});
   });
 
+  it("give Claude on Foundry its own key, only where the recording's environment held it, and not Anthropic's", () => {
+    // Recorded as Anthropic's calls, through foundry: the key is Foundry's.
+    const foundry = [{ meta: { provider: 'anthropic', via: 'foundry' } }] as never[];
+    expect(placeholderKeys({}, { calls: foundry, keyEnv: { foundry: ['ANTHROPIC_FOUNDRY_API_KEY'] } }, 'offline', emptyHome())).toEqual({ ANTHROPIC_FOUNDRY_API_KEY: PLACEHOLDER_KEY });
+    // A client signed in with a Microsoft Entra token refuses a key beside it: none unless the recording's key was one.
+    expect(placeholderKeys({}, { calls: foundry }, 'offline', emptyHome())).toEqual({});
+    expect(placeholderKeys({ ANTHROPIC_FOUNDRY_API_KEY: 'real' }, { calls: foundry, keyEnv: { foundry: ['ANTHROPIC_FOUNDRY_API_KEY'] } }, 'offline', emptyHome())).toEqual({});
+    expect(keyEnvOf({ ANTHROPIC_FOUNDRY_API_KEY: 'real' }, emptyHome())).toMatchObject({ foundry: ['ANTHROPIC_FOUNDRY_API_KEY'] });
+  });
+
   it('are not given for a provider only the judge called, or one the recording never called', () => {
     const judged = [{ meta: { provider: 'anthropic' } }, { meta: { provider: 'gemini', scope: 'shadowlap:judge' } }] as never[];
     expect(placeholderKeys({}, { calls: judged }, 'offline', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY });
@@ -162,7 +172,7 @@ describe('placeholder keys on shadowlap replay, which goes live from a fork', ()
 describe('the note a run keeps of the keys its environment held', () => {
   it('names the providers and variables, never a value', () => {
     const home = emptyHome();
-    expect(keyEnvOf({ ANTHROPIC_API_KEY: 'sk-secret', GOOGLE_API_KEY: 'g-secret', AWS_PROFILE: 'ci', OPENAI_API_KEY: '' }, home)).toEqual({ anthropic: ['ANTHROPIC_API_KEY'], gemini: ['GOOGLE_API_KEY'], bedrock: [] });
+    expect(keyEnvOf({ ANTHROPIC_API_KEY: 'sk-secret', GOOGLE_API_KEY: 'g-secret', AWS_PROFILE: 'ci', OPENAI_API_KEY: '' }, home)).toEqual({ anthropic: ['ANTHROPIC_API_KEY'], gemini: ['GOOGLE_API_KEY'], bedrock: [], 'bedrock-mantle': [] });
     expect(JSON.stringify(keyEnvOf({ ANTHROPIC_API_KEY: 'sk-secret' }, home))).not.toContain('sk-secret');
     expect(hasCredentials({ id: 'vertex' } as never, {}, home)).toBe(false);
   });

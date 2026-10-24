@@ -66,6 +66,12 @@ export interface CallMeta {
   /** A person's input: a `user_input` tool call whose argument is the prompt and whose result is `{ text }`. */
   input?: boolean;
   /**
+   * A replay's plain read (a clock read, a random value, a pure tool's call) that its recording held
+   * no counterpart for: answered live while the replay went on replaying, never a fork (session.ts
+   * `isPlainRead`). On its start row.
+   */
+  extraRead?: boolean;
+  /**
    * A tool call made through `shadowlap mcp`: the server's transport and its host (`--url`) or
    * command, and, on the first call to it in a run and whenever they change, the tools it offers.
    */
@@ -428,6 +434,12 @@ export interface DivergenceReport {
    * tool call it never made, numbered as the recording numbers it (`counterpart` names it too).
    */
   recorded?: number;
+  /**
+   * The plain reads (clock, random, a pure tool's call) the replay answered live before this
+   * divergence because its recording held no counterpart for them: a value one of them returned may
+   * be what changed this call's request.
+   */
+  extraReads?: NotReached[];
 }
 
 export interface NotReached {
@@ -470,6 +482,12 @@ export interface RunSummary {
   /** Wall-clock milliseconds of the run, when it has ended. */
   durationMs: number | null;
   notReached: NotReached[];
+  /**
+   * The plain reads (clock, random, a pure tool's call) a replay answered live because its recording
+   * held no counterpart for them, while it went on replaying (`CallMeta.extraRead`). `summarizeRun`
+   * always lists them; a summary built or saved elsewhere may not.
+   */
+  extraReads?: NotReached[];
   warnings: string[];
   divergence: DivergenceReport | null;
   /**

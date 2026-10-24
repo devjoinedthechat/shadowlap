@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { FINGERPRINT_VERSION, PACK_FORMAT, PACK_LIMITS, PACK_VERSION, PackError, canonicalize, fingerprintApi, fingerprintTool, validateCall, validateRun } from '@shadowlap/engine';
-import { providers } from '../../../packages/sidecar/src/providers.js';
+import { hostedProviders, providers } from '../../../packages/sidecar/src/providers.js';
 import { ARGS, REQUEST, examplePack, exampleAgent } from './recording-format-example.js';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -92,13 +92,15 @@ describe('the recording format', () => {
 
   it('names every provider, with the headers that take part in its fingerprints', () => {
     expect(listed('| `provider` |').sort()).toEqual(providers.map((p) => p.id).sort());
+    // A call through a host of another's format is recorded under the format's provider, and names the host as `via`.
+    for (const p of hostedProviders) expect(listed('| `via` |'), p.id).toContain(p.id);
     const table = new Map<string, string[]>();
     for (const line of spec.slice(spec.indexOf('| Provider | Fingerprint headers |')).split('\n').slice(2)) {
       if (!line.startsWith('|')) break;
       const [ids, headers] = line.split(' | ').map((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]!));
       for (const id of ids!) table.set(id, headers!);
     }
-    for (const p of providers) expect(table.get(p.id), p.id).toEqual([...p.fingerprintHeaders]);
+    for (const p of [...providers, ...hostedProviders]) expect(table.get(p.id), p.id).toEqual([...p.fingerprintHeaders]);
   });
 });
 
