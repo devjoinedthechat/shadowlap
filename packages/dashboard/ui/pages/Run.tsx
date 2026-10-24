@@ -33,6 +33,8 @@ import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.j
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
 import { ProvenanceView } from '../run/ProvenanceView.js';
+import { runNotes } from '../run/notes.js';
+import { RunNotes } from '../run/RunNotes.js';
 import { RunHeader } from '../run/RunHeader.js';
 import { TimelineView } from '../run/TimelineView.js';
 import { TurnsView } from '../run/TurnsView.js';
@@ -245,6 +247,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
+  // What the run did that Shadowlap did not record, or answered as it went (notes.ts): the tools the
+  // model called that it never recorded are read beside the server once the run has ended.
+  const unrecorded = useLoad(() => (live ? null : client.unrecorded(runId)), `${runId}:unrecorded:${live ? 'live' : 'ended'}`, live ? 0 : runsTick).data ?? null;
+  const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;
@@ -389,6 +395,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
       <Metrics run={run} notWaitedMs={waited.ms || null} notWaitedUnknown={waited.unknown} />
       <Banner run={run} blame={blame} rescued={rescued} checks={checksOf(run)} offers={offers} showDiff={showDiff} onToggleDiff={() => setShowDiff(!showDiff)} onSelect={select} onAction={actions.run} preset={preset} />
       {showDiff ? <DiffPanel run={run} test={offers?.test ?? null} /> : null}
+      <RunNotes notes={notes} onSelect={select} />
       {/* What a fork did differently from its parent, ranked as decisions ranks a change. */}
       {run.run.divergence && run.run.parentRunId && !live ? <ForkDifferences runId={runId} /> : null}
       <section className="strip">

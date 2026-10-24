@@ -100,6 +100,7 @@ function server(total: number, first: number, status = 'completed') {
     offers: () => Promise.resolve(null),
     runChaos: () => Promise.resolve(null),
     forkDifferences: () => Promise.resolve(null),
+    unrecorded: () => Promise.resolve(null),
     lineage: () => Promise.resolve([]),
   } as unknown as Client;
   return { client, asked, details };

@@ -6,6 +6,7 @@ import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareView } from './compare.js';
 import { patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
+import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
 import { localRunIds } from './routes/store.js';
@@ -54,6 +55,8 @@ export type ReadJob =
   | { kind: 'recent'; read: ReadOptions }
   /** What a fork did differently from its parent (fork-differences.ts), masked by the project's normalizers. */
   | { kind: 'differences'; runId: string; normalizers: Normalizer[] }
+  /** The tools the model called that the run never recorded (run-unrecorded.ts), under the effects the project's config declares. */
+  | { kind: 'unrecorded'; runId: string; declared: Record<string, 'read' | 'write'> }
   /** A fix's attempts grouped by what each did (attempt-groups.ts). */
   | { kind: 'groups'; fixId: string }
   /** A page of the activity feed (activity.ts). */
@@ -188,6 +191,11 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         const run = lookupRun(store, job.runId);
         if (!run) return noRun(store, job.runId);
         return answer({ differences: forkDifferences(store, run.runId, { normalizers: job.normalizers }) }, { tagged: true });
+      }
+      case 'unrecorded': {
+        const run = lookupRun(store, job.runId);
+        if (!run) return noRun(store, job.runId);
+        return answer({ unrecorded: runUnrecorded(store, run, job.declared) }, { tagged: true });
       }
       case 'groups': {
         const groups = fixAttemptGroups(store, job.fixId);

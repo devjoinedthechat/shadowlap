@@ -1640,6 +1640,9 @@ ol.setup .sb > .plist { margin: 12px 0 0; }
 /* Goldens and bisect. An updated golden's history cell gets a ring. */
 td.hist i.upd::after { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px; border-radius: 50%; box-shadow: 0 0 0 1.5px var(--o-rep); }
 .eff.input { color: var(--accent); }
+/* a replay's read its recording had no counterpart for, answered live while it went on replaying */
+.eff.extra { color: var(--dim); }
+.prov .err { color: var(--err); } .prov .warn { color: var(--warn); }
 .chip.ci { color: var(--accent); border-color: color-mix(in srgb, var(--accent-line) 45%, transparent); margin-left: 6px; }
 .bisect { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; }
 .bisect .k { font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
@@ -1800,6 +1803,28 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .eyebrow .n { color: var(--dim); }
 .attempts span i.n { background: var(--faint); }
 .banner.n { background: color-mix(in srgb, var(--dim) 4%, transparent); }
+/* under the banner: what the run did that Shadowlap did not record, a line each, wrapping, never cut */
+.rnotes { border-top: 1px solid var(--line); }
+.rnote { display: flex; align-items: baseline; gap: 12px; padding: 8px 24px; font-size: 13px; }
+.rnote + .rnote { border-top: 1px solid var(--line); }
+.rnote.err { background: color-mix(in srgb, var(--err) 5%, transparent); }
+.rnote.warn { background: color-mix(in srgb, var(--warn) 5%, transparent); }
+.rnote .bk { flex: none; font: 500 10.5px var(--mono); letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.rnote.err .bk { color: var(--err); }
+.rnote.warn .bk { color: var(--warn); }
+.rnote .rnw { min-width: 0; flex: 1; }
+.rnote .why { margin: 0; color: var(--dim); text-wrap: pretty; overflow-wrap: anywhere; }
+.rnote code { font-size: 12.5px; color: var(--ink); }
+.rnote .bn { font: 600 13px var(--mono); color: var(--ink); cursor: pointer; border: 0; background: none; padding: 0; }
+.rnote .bn:hover { color: var(--accent); }
+.rntools { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; }
+.rntools li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; color: var(--dim); font-size: 12.5px; }
+.rntools .eff { font: 10.5px var(--mono); margin: 0; }
+.rntools .eff.write { color: var(--k-write); } .rntools .eff.read { color: var(--dim); } .rntools .eff.unknown { color: var(--warn); }
+.rntools .rnwhy { color: var(--faint); }
+.rnhint { margin: 6px 0 0; color: var(--faint); font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.rnhint code.rncopy { color: var(--ink); background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .rnote { flex-direction: column; gap: 4px; padding: 8px 16px; } }
 .banner.n .bk { color: var(--dim); }
 /* a run's page at a phone's width: the origin filters wrap under each other, why a run failed
    wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and

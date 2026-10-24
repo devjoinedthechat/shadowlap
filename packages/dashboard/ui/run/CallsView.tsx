@@ -191,6 +191,11 @@ const Row = memo(function Row({ at, c, asked, selected, scoped, mark, ancestors,
         <small>{kindShort(c.kind)}</small>
         {callName(c.kind, c.name)}
         {c.input ? <span className="eff input">input</span> : c.effect ? <span className={`eff ${c.effect}`}>{c.effect}</span> : null}
+        {c.extraRead ? (
+          <span className="eff extra" title="An extra read: answered live, as its recording held no counterpart, while the replay went on replaying">
+            extra
+          </span>
+        ) : null}
         {c.attempts ? <span className="det" title={`${c.attempts} ${c.attempts === 1 ? 'retry' : 'retries'} before the final outcome`}>+{c.attempts}</span> : null}
         {d.text ? <span className={`det${d.err ? ' err' : ''}`}>{d.text}</span> : null}
         {res ? <span className={`res${res.err ? ' err' : ''}`}>→ {res.text}</span> : null}

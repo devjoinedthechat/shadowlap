@@ -16,6 +16,7 @@ import type { DecisionSessionDetail, DecisionsListView, RetirementsView, RunDeci
 import type { ChaosMatrix, ChaosView, CoverageView } from './types.js';
 import type { FixAttemptGroups } from '../src/attempt-groups.js';
 import type { ForkDifferences } from '../src/fork-differences.js';
+import type { UnrecordedView } from '../src/run-unrecorded.js';
 import { copyAmbiguous, copyRunId } from './runs.js';
 import { runsQueryString } from './runspage/query.js';
 
@@ -256,6 +257,8 @@ export interface Client {
   // ---- What a fork did differently, and a fix's attempts grouped by what each did
   /** What a fork did differently from its parent (`/api/runs/:id/differences`); null for a run that isn't a fork of a run in the store. */
   forkDifferences(id: string): Promise<ForkDifferences | null>;
+  /** The tools the model called that the run never recorded, which a replay runs for real (`GET /api/runs/:id/unrecorded`). */
+  unrecorded(id: string): Promise<UnrecordedView | null>;
   /** A fix's blame probes and verified runs, their attempts grouped by what each did (`/api/fixes/:id/groups`). */
   attemptGroups(fixId: string): Promise<FixAttemptGroups>;
 }
@@ -487,6 +490,7 @@ export function createClient(token: string): Client {
     chaos: () => request<ChaosView>('chaos').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
+    unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),
   };
 }
@@ -581,6 +585,8 @@ export function createExportedClient(data: StaticPayload): Client {
     runChaos: () => Promise.resolve(null),
     // Held for a fork whose parent the file holds too; otherwise its run page leaves the panel out.
     forkDifferences: (runId) => Promise.resolve((data.responses[`runs/${full(runId)}/differences`] as { differences: ForkDifferences | null } | undefined)?.differences ?? null),
+    // A copy replays nothing: what its replay would run for real is the store's to say, and reading it would read the run twice.
+    unrecorded: () => Promise.resolve(null),
     attemptGroups: () => Promise.reject(new ApiError(404, 'this is an exported copy, and Fixes are not part of it')),
   };
 }

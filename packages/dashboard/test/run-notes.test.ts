@@ -1,0 +1,166 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { storeApiRequest, Store, type RunMeta } from '@shadowlap/engine';
+import { RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
+import { callDetail, provenance, runDetail } from '../src/api.js';
+import { startDashboard, type Dashboard } from '../src/index.js';
+import { runUnrecorded, runWebSockets } from '../src/run-unrecorded.js';
+import { shortReason } from '../src/tests.js';
+import { failureHint } from '../ui/goldens.js';
+import { declareSnippet, noteText, preloadsOf, preloadWords, runNotes, viaWords } from '../ui/run/notes.js';
+
+/**
+ * What a run's page says of what the run did that Shadowlap did not record, or answered as it went:
+ * the tools the model called that it never recorded (contract 10), a run no preload loaded in, the
+ * WebSockets that went live, a replay's extra reads, and the host a model call went through.
+ */
+
+const BASH = { name: 'Bash', count: 14, firstCallNo: 3, effect: 'write' as const, why: 'a built-in that writes' };
+const SEARCH = { name: 'WebSearch', count: 2, firstCallNo: 7, effect: 'read' as const, why: 'a built-in that only reads' };
+
+describe('the notes under a run’s banner', () => {
+  it('names the tools the model called that the run never recorded, what a replay does with them, and how to have them recorded', () => {
+    const [n] = runNotes({ unrecorded: { tools: [BASH, SEARCH], partial: false }, mode: 'record' });
+    expect(n).toMatchObject({ kind: 'unrecorded', tone: 'err', label: 'not recorded', tools: [BASH, SEARCH] });
+    expect(noteText(n!.parts)).toBe(
+      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+    );
+    expect(noteText(n!.hint!.parts)).toBe("Wrap each where your agent runs it, so it is recorded and replayed: tool('Bash', { effect: 'write' }, fn) with @shadowlap/sdk. Or declare what each does in shadowlap.config.json: ");
+    expect(n!.hint!.copy).toBe('"tools": { "unrecorded": { "Bash": "write", "WebSearch": "read" } }');
+    // Reads alone: amber, nothing refused; a replay says it ran them itself.
+    const [reads] = runNotes({ unrecorded: { tools: [SEARCH], partial: false }, mode: 'replay' });
+    expect(reads!.tone).toBe('warn');
+    expect(noteText(reads!.parts)).toBe('The model called a tool Shadowlap did not record: this replay ran it for real.');
+    // A tool whose effect nothing says is declared a write, the safe guess.
+    expect(declareSnippet([{ name: 'frobnicate', effect: 'unknown' }])).toBe('"tools": { "unrecorded": { "frobnicate": "write" } }');
+  });
+
+  it('says a run that holds its model calls alone runs the tools they asked for live, refusing nothing', () => {
+    const [n] = runNotes({ unrecorded: { tools: [BASH], partial: true }, mode: 'record' });
+    expect(n).toMatchObject({ tone: 'n', label: 'not recorded' });
+    expect(n!.hint).toBeUndefined();
+    expect(noteText(n!.parts)).toBe('This run holds its model calls alone, as a capture or a trace does: a replay runs the tool they asked for live, Bash.');
+  });
+
+  it('says a run no preload loaded in, in red where --guard block failed it, and nothing when one did', () => {
+    const missing = "No Shadowlap preload loaded in the agent's processes, though the run made 3 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.";
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: {}, missing }, mode: 'record' })).toEqual([{ kind: 'preload', tone: 'err', label: 'no preload', parts: [missing] }]);
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …' }, mode: 'record' })[0]!.tone).toBe('warn');
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: { node: 2 } }, mode: 'record' })).toEqual([]);
+  });
+
+  it('names the WebSockets that went to a provider live, and those an offline replay refused, as the run’s summary does', () => {
+    const notes = runNotes({ unrecorded: null, websockets: [{ target: 'openai /v1/realtime', count: 2, action: 'tunnelled' }, { target: 'openai /v1/realtime/sessions', count: 1, action: 'refused' }], mode: 'record' });
+    expect(notes.map((n) => [n.tone, noteText(n.parts)])).toEqual([
+      ['warn', '2 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (2). A replay connects again for real; an offline replay (shadowlap test) refuses them.'],
+      ['n', '1 WebSocket connection was refused: the replay is offline, and a recording holds no WebSocket to answer from: openai /v1/realtime/sessions (1).'],
+    ]);
+    expect(noteText(runNotes({ unrecorded: null, websockets: [{ target: 'openai /v1/realtime', count: 1, action: 'tunnelled' }], mode: 'replay' })[0]!.parts)).toContain('It ran for real during the replay, as it does on every replay');
+  });
+
+  it('lists a replay’s extra reads, each opening its call, after what is more pressing', () => {
+    const extra = [1, 4, 6, 9].map((callNo) => ({ callNo, kind: 'clock', name: 'now' }));
+    const notes = runNotes({ unrecorded: { tools: [SEARCH], partial: false }, extraReads: extra, preloads: { guard: 'block', hellos: {}, missing: 'No Shadowlap preload loaded.' }, mode: 'replay' });
+    expect(notes.map((n) => n.kind)).toEqual(['preload', 'unrecorded', 'extra']);
+    const e = notes[2]!;
+    expect(e.parts.filter((p) => typeof p === 'object' && 'call' in p)).toEqual([{ call: 1 }, { call: 4 }, { call: 6 }]);
+    expect(noteText(e.parts)).toBe('4 extra reads answered live, with no recorded counterpart: #1 clock now, #4 clock now, #6 clock now, …. The replay went on replaying: a value one of them gave may be what changed a request after it.');
+  });
+
+  it('says the host a model call went through, and the preloads that loaded', () => {
+    expect(viaWords('openrouter.ai', 'openai')).toBe('openrouter.ai, a host your config declares, in OpenAI’s format');
+    expect(viaWords('foundry', 'anthropic')).toBe('Claude on Microsoft Foundry');
+    expect(viaWords('bedrock-mantle', 'openai')).toBe('OpenAI’s API on Amazon Bedrock');
+    expect(preloadWords({ guard: 'block', hellos: { python: 1, node: 2 } })).toBe('block · loaded in 2 Node processes and 1 Python process');
+    expect(preloadWords({ guard: 'warn', hellos: {}, missing: 'x' })).toBe('warn · no preload loaded');
+    expect(preloadWords({ guard: 'off', hellos: {} })).toBe('off · no guard');
+    // From someone else's pack: only what is well formed.
+    expect(preloadsOf({ preloads: { guard: 'block', hellos: { node: 2, 'Bad Name': 3, deno: -1 }, missing: 7 } })).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null });
+    expect(preloadsOf({ preloads: { guard: 'loud' } })).toBeNull();
+  });
+});
+
+let store: Store | null = null;
+let dash: Dashboard | null = null;
+afterEach(async () => {
+  await dash?.close();
+  dash = null;
+  store?.close();
+  store = null;
+});
+
+/** A recording whose model asked for Bash twice and lookup_order once, of which the agent wrapped only lookup_order. */
+function recording(s: Store, meta?: RunMeta): string {
+  const b = RunBuilder.start(s, meta ? { meta } : {});
+  b.model({ messages: [user('Fix the build.')] }, [text('Looking.'), toolUse('Bash', { command: 'npm test' }, 't1'), toolUse('lookup_order', { id: 'A-1' }, 't2')]);
+  b.tool('lookup_order', { id: 'A-1' }, { amount: 40 });
+  b.model({ messages: [user('more')] }, [toolUse('Bash', { command: 'git status' }, 't3')]);
+  return b.end();
+}
+
+describe('what a run never recorded, from the server', () => {
+  it('reads the tools the model called that the run recorded no call of, under the effects the config declares', () => {
+    store = Store.open(':memory:');
+    const runId = recording(store);
+    const run = store.getRun(runId)!;
+    expect(runUnrecorded(store, run)).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'write', why: 'a built-in that writes' }], partial: false });
+    expect(runUnrecorded(store, run, { Bash: 'read' }).tools[0]).toMatchObject({ effect: 'read', why: 'declared read in shadowlap.config.json' });
+    // A run that holds its model calls alone says so.
+    const partial = recording(store, { covers: ['api'] });
+    expect(runUnrecorded(store, store.getRun(partial)!).partial).toBe(true);
+  });
+
+  it('answers GET /api/runs/:id/unrecorded beside the server, with what the project’s config declares', async () => {
+    store = Store.open(':memory:');
+    const runId = recording(store);
+    dash = await startDashboard({ store, loadConfig: () => ({ normalize: [], redact: [], unrecorded: { Bash: 'read' } }) });
+    const get = (path: string) => fetch(`${dash!.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash!.token } });
+    const res = await get(`runs/${runId}/unrecorded`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { unrecorded: unknown }).unrecorded).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'read', why: 'declared read in shadowlap.config.json' }], partial: false });
+    // By a short id too, and a run the store doesn't hold is named.
+    expect((await get(`runs/${runId.slice(0, 10)}/unrecorded`)).status).toBe(200);
+    expect((await get('runs/01NOPE0000000000000000000Z/unrecorded')).status).toBe(404);
+  });
+
+  it('gives a call the host it went through and a replay’s extra read, the run its WebSockets, and Provenance its guard', () => {
+    store = Store.open(':memory:');
+    const b = RunBuilder.start(store, { meta: { preloads: { guard: 'block', hellos: { node: 2 } }, websockets: [{ target: 'openai /v1/realtime', count: 2, action: 'tunnelled' }, { bogus: true }] } as unknown as RunMeta });
+    b.model({ messages: [user('hi')] }, [text('Hello.')]);
+    // Through OpenRouter, a host the config declares, in OpenAI's format.
+    const s = store;
+    s.appendCallStart({ runId: b.runId, callNo: 2, kind: 'api', name: 'POST /api/v1/chat/completions', fingerprint: 'fp-2', occurrence: 1, origin: 'live', effect: null, requestRef: storeApiRequest(s, { messages: [user('again')] }), meta: { provider: 'openai', via: 'openrouter.ai' }, at: b.at + 10 });
+    s.appendCallEnd({ kind: 'api', name: 'POST /api/v1/chat/completions', fingerprint: 'fp-2', occurrence: 1 }, { runId: b.runId, callNo: 2, attempt: 0, responseRef: s.putBlob(Buffer.from(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'Hi.' }, finish_reason: 'stop' }] }))), outcome: 'ok', meta: { status: 200, provider: 'openai', model: 'gpt-5' }, at: b.at + 20 });
+    b.callNo = 2;
+    b.at += 30;
+    b.tool('lookup_policy', { region: 'EU' }, { limit: 100 }, { meta: { extraRead: true } });
+    const runId = b.end();
+    const d = runDetail(store, runId)!;
+    expect(d.calls.map((c) => [c.callNo, c.via ?? null, c.extraRead ?? null])).toEqual([
+      [1, null, null],
+      [2, 'openrouter.ai', null],
+      [3, null, true],
+    ]);
+    expect(d.websockets).toEqual([{ target: 'openai /v1/realtime', count: 2, action: 'tunnelled' }]);
+    expect(callDetail(store, runId, 2)!.call).toMatchObject({ provider: 'openai', via: 'openrouter.ai' });
+    const p = provenance(store, runId)!;
+    expect(p.providers).toEqual([
+      { provider: 'anthropic', calls: 1 },
+      { provider: 'openai', calls: 1, via: 'openrouter.ai' },
+    ]);
+    expect(p.preloads).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null });
+    // A run that keeps none, or keeps them malformed: none.
+    expect(runWebSockets({ meta: {} })).toBeNull();
+    expect(runWebSockets({ meta: { websockets: [{ target: 7, count: 1 }] } as unknown as RunMeta })).toBeNull();
+  });
+});
+
+describe('a golden the guard never watched, on Tests', () => {
+  it('says so in a few words and what to do, never that it couldn’t run', () => {
+    const r = { ok: false, failure: 'guard', reason: "No Shadowlap preload loaded in the agent's processes, though the run made 2 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.", data: {} } as unknown as Parameters<typeof shortReason>[0];
+    expect(shortReason(r)).toBe('no preload loaded: the network guard never watched it');
+    const hint = failureHint({ failure: 'guard', reason: r.reason!, blocked: null } as unknown as Parameters<typeof failureHint>[0]);
+    expect(hint).toContain('No Shadowlap preload loaded in the agent’s processes while the golden replayed');
+    expect(hint).toContain('--guard warn');
+    expect(hint).not.toBe('The golden could not be replayed.');
+  });
+});

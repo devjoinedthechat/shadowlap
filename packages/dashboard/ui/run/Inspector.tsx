@@ -10,6 +10,7 @@ import { useApp } from '../state.js';
 import { errorText } from '../toast.js';
 import { refusedOffline } from './calls.js';
 import { EditAndFork } from './EditAndFork.js';
+import { viaWords } from './notes.js';
 import { conversationLink, modelLabel, originOf, tokensText, turnCalls } from './model.js';
 
 /**
@@ -486,7 +487,19 @@ function DetailsTab({ runId, detail, models }: { runId: string; detail: CallDeta
   rows.push(['Outcome', c.outcome === null ? 'pending' : c.outcome === 'ok' ? `ok${c.status ? ` · HTTP ${c.status}` : ''}` : <>error{c.status ? ` · HTTP ${c.status}` : ''}{origin === 'inject' ? <small> never sent</small> : null}</>]);
   if (c.effect) rows.push(['Effect', c.effect]);
   if (c.scope) rows.push(['Scope', c.scope]);
-  if (c.provider) rows.push(['Provider', c.provider]);
+  // A call made to a host of another's format: the format it speaks, and the host it went to.
+  if (c.provider)
+    rows.push([
+      'Provider',
+      c.via ? (
+        <>
+          {c.provider} <small>via {viaWords(c.via, c.provider)}</small>
+        </>
+      ) : (
+        c.provider
+      ),
+    ]);
+  if (c.extraRead) rows.push(['Extra read', <small key="x">answered live: the recording held no counterpart, and the replay went on replaying, as a clock, random or pure read may</small>]);
   if (c.model) rows.push(['Model', modelLabel(models, c.model)]);
   if (c.stopReason) rows.push(['Stop reason', c.stopReason]);
   if (c.usage)
