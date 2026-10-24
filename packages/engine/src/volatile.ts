@@ -1,5 +1,5 @@
 import { hintsFor, isHeaderEntry } from './diff.js';
-import { BUILTIN_STRIPPED_KEYS } from './fingerprint.js';
+import { BUILTIN_STRIPPED_KEYS, isClaudeCodeSession } from './fingerprint.js';
 import { applyNormalizers, compilePattern, parsePath } from './normalize.js';
 import type { DiffEntry, DivergenceReport, Hint, Normalizer } from './types.js';
 
@@ -169,9 +169,10 @@ function addedLeaves(entry: DiffEntry): DiffEntry[] {
 }
 
 /**
- * A change that matching already ignores: the normalizers in force read both sides the same, or it
- * is in a key fingerprints leave out. A divergence report lists every change in the request as sent,
- * these too, so they say nothing about why it diverged.
+ * A change that matching already ignores: the normalizers in force read both sides the same, it is
+ * in a key fingerprints leave out, or it is Claude Code's session identifier, which fingerprints mask.
+ * A divergence report lists every change in the request as sent, these too, so they say nothing
+ * about why it diverged.
  */
 export function maskedChange(entry: DiffEntry, normalizers: readonly Normalizer[], d: Pick<DivergenceReport, 'kind' | 'name'>): boolean {
   let segs: ReturnType<typeof parsePath>;
@@ -181,6 +182,7 @@ export function maskedChange(entry: DiffEntry, normalizers: readonly Normalizer[
     return false;
   }
   if (segs.some((s) => s.type === 'key' && BUILTIN_STRIPPED_KEYS.includes(s.key))) return true;
+  if (d.kind === 'api' && entry.op === 'changed' && entry.path === '$.metadata.user_id' && isClaudeCodeSession(entry.before) && isClaudeCodeSession(entry.after)) return true;
   if (entry.op !== 'changed' || !normalizers.length || segs.some((s) => s.type === 'wild' || (s.type === 'index' && (s.index < 0 || s.index > 10_000)))) return false;
   // Each side alone at its path, so a rule's path and pattern apply as they do to the whole request.
   const place = (leaf: unknown): unknown =>

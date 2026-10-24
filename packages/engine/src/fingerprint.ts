@@ -12,14 +12,63 @@ import type { CallKind, Normalizer } from './types.js';
  * Fingerprints are computed only here (in the engine); SDKs never reimplement hashing.
  */
 
-/** The one built-in exclusion: documented by the provider as behavior-neutral and moved routinely. */
+/** The one built-in exclusion of a key: documented by the provider as behavior-neutral and moved routinely. */
 export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 
 /**
  * Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on
- * replay. 6: a model call's query string takes part (`ApiRequestShape.query`).
+ * replay. 6: a model call's query string takes part (`ApiRequestShape.query`). 7: Claude Code's
+ * session identifier in `metadata.user_id` is masked (`maskClaudeCodeSession`).
  */
-export const FINGERPRINT_VERSION = 6;
+export const FINGERPRINT_VERSION = 7;
+
+// ---- Claude Code's session identifier ----
+
+/** What a request's Claude Code session identifier reads as when it is matched. */
+export const CLAUDE_CODE_SESSION = '<claude-code-session>';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DEVICE = /^[0-9a-f]{16,128}$/i;
+/** The form earlier versions of Claude Code sent: `user_<device>_account_<account>_session_<session>`. */
+const UNDERSCORED = /^user_[0-9a-f]{16,128}_account_[0-9a-f-]{0,64}_session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether `value` is the identifier Claude Code sends as `metadata.user_id` in every model request,
+ * the Claude Agent SDK's too, which runs Claude Code: a JSON object naming the device, the account
+ * and the session (`{"device_id":"…","account_uuid":"","session_id":"…"}`, with keys of
+ * `CLAUDE_CODE_EXTRA_METADATA` and a parent session beside them), or, as earlier versions sent it,
+ * `user_<device>_account_<account>_session_<session>`. Nothing else sends either form, so no other
+ * agent's metadata reads as one.
+ */
+export function isClaudeCodeSession(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length > 8192) return false;
+  if (UNDERSCORED.test(value)) return true;
+  if (!value.startsWith('{')) return false;
+  let id: unknown;
+  try {
+    id = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  if (typeof id !== 'object' || id === null || Array.isArray(id)) return false;
+  const { device_id, account_uuid, session_id } = id as Record<string, unknown>;
+  return typeof device_id === 'string' && DEVICE.test(device_id) && typeof account_uuid === 'string' && typeof session_id === 'string' && UUID.test(session_id);
+}
+
+/**
+ * A request body with Claude Code's session identifier masked, as matching reads it: it changes with
+ * every session, machine and account, and is no part of the prompt (the API takes `user_id` as an
+ * opaque id of the user, which Anthropic may use to help detect abuse), so a recording made in one
+ * session replays in the next. The body itself when it holds none.
+ */
+export function maskClaudeCodeSession(body: unknown): unknown {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
+  const metadata = (body as Record<string, unknown>).metadata;
+  if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) return body;
+  if (!isClaudeCodeSession((metadata as Record<string, unknown>).user_id)) return body;
+  // Spread defines its keys, so a `__proto__` key in the body stays a key.
+  return { ...body, metadata: { ...metadata, user_id: CLAUDE_CODE_SESSION } };
+}
 
 export interface ApiRequestShape {
   method: string;
@@ -94,7 +143,7 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   }
   // A form's parts, not its bytes: its client picks a new boundary for every request.
   const view = multipartView(req.body);
-  const stripped = stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS);
+  const stripped = maskClaudeCodeSession(stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS));
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
   // Left out when there is none, so a call without a query keeps the fingerprint it always had.
   const query = queryIdentity(req.query, normalizers, name, clock);
