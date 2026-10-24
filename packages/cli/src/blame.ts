@@ -221,6 +221,10 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const done: Array<BlameAttempt | undefined> = [];
       const tally = new ProbeTally(settle);
       let prefixBroken: string | null = null;
+      // Attempts the provider was unavailable for: retried by the runner, never counted. Once it stays
+      // unavailable attempt after attempt the runner stops, and the probe decides nothing.
+      let unavailable = 0;
+      let providerDown = false;
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       await probeAttempts({
         concurrency: s.concurrency,
@@ -242,7 +246,15 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }
-          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          unavailable += (a.unavailableBefore ?? 0) + (a.unavailable ? 1 : 0);
+          store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.unavailable ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+          // The provider was unavailable for it and the attempts before it in a row: it says nothing
+          // about the answer re-asked, and nothing after it is asked (the runner's stopReason says why).
+          if (a.unavailable) {
+            providerDown = true;
+            log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
+            return;
+          }
           done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
           const late = tally.decided !== null;
           // An attempt that all it fell short on is a check that could not be decided says nothing of the answer re-asked.
@@ -252,9 +264,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       });
       if (prefixBroken) throw new BlameError(prefixBroken, 'prefix');
       const attempts = done.filter((a): a is BlameAttempt => a !== undefined);
-      // Interrupted or out of budget with the verdict still open: this probe proves nothing.
+      // Interrupted, out of budget, or the provider unavailable with the verdict still open: this probe
+      // proves nothing, and the search stops, saying why. A provider that never answered is no reason
+      // to call the run rescued, lost or unrescuable.
       const decided = tally.decided;
-      if (!decided) return null;
+      if (!decided || providerDown) {
+        if (providerDown) log(`    ${p.yellow(`stopped · the provider was unavailable for ${unavailable} attempt${unavailable === 1 ? '' : 's'}, none counted`)}`);
+        return null;
+      }
       const decision = decided.decision;
       const passes = attempts.filter((a) => a.passed).length;
       const rescued = decision === 'pass';
@@ -263,8 +280,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const stopper = attempts.find((a) => a.verdict === 'inconclusive');
       const undecided = decision === 'inconclusive' ? (stopper?.failures[0] ?? null) : null;
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
-      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk };
-      // Under a gate, its verdict word, tally and Wilson bound; the rule was said once, above.
+      const apart = unavailable ? { unavailable } : {};
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision, ...apart }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk, ...apart };
+      // Under a gate, its verdict word, tally and bound; the rule was said once, above.
       const words = each || undecided ? probeFinding(found, each) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
       log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
       return found;
@@ -329,6 +347,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       sameAnswer: same,
       failedWrite,
       attempts: runner.attempts,
+      ...(runner.unavailable ? { unavailable: runner.unavailable } : {}),
       spent: runner.spent,
       upstreamRequests: runner.upstreamRequests,
       // Judge checks' calls, apart from the agent's.

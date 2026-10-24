@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, wilsonBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, wilsonBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -84,6 +84,7 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
     runId: a.run.runId,
     passed: a.passed,
     verdict: a.verdict,
+    ...(a.unavailable ? { unavailable: true } : {}),
     exitCode: a.code,
     failures: a.failures,
     forkedAt: a.summary.divergence?.callNo ?? null,
@@ -159,6 +160,12 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       runner.stopReason ??= 'interrupted';
       return false;
     }
+    // The provider stayed unavailable for the baseline's arm: it is the change's provider too.
+    const down = baseRunner()?.stopReason;
+    if (unavailableStop(down)) {
+      runner.stopReason ??= down!;
+      return false;
+    }
     if (s.budget !== null && spentBoth() >= s.budget) {
       runner.stopReason ??= `the budget of ${formatBudget(s.budget)} is spent`;
       return false;
@@ -189,16 +196,26 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const limit = s.gate ? s.gate.max : s.attempts;
       const of = role === 'good' && baseline.source !== 'none' ? Math.max(limit, rule.max) : limit;
 
+      /**
+       * Attempts the provider was unavailable for, the change's and the baseline's: the runner retried
+       * each and never counted it; the one it returns after too many in a row is unavailable itself.
+       */
+      const countUnavailable = (a: Attempt) => {
+        const n = (a.unavailableBefore ?? 0) + (a.unavailable ? 1 : 0);
+        if (n) result.unavailable = (result.unavailable ?? 0) + n;
+      };
+
       /** One attempt of the change, kept in the run's report. */
       const changed = async (n: number): Promise<Attempt | null> => {
         const marks = { repeat: { group: `${group}-${parent.runId}`, attempt: n, of }, verify: { role, passed: false } };
         const a = await runner.attempt(target, { ...(interventions ? { interventions } : {}), meta: marks });
         // Stopped by Ctrl-C part way: what it did is no evidence either way.
         if (interrupted()) return null;
-        if (n === 1) result.deterministic = !a.summary.divergence && !a.bypassed;
+        countUnavailable(a);
+        if (n === 1) result.deterministic = !a.summary.divergence && !a.bypassed && !a.unavailable;
         if (a.passed) result.passes++;
         result.attempts.push(kept(a, runner.costOf));
-        store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed, verdict: a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+        store.updateRunMeta(a.run.runId, { verify: { role, passed: a.passed, verdict: a.unavailable ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
         return a;
       };
 
@@ -252,8 +269,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           const marks = { repeat: { group: `${group}-${parent.runId}-baseline`, attempt: n, of: rule.max }, verify: { role, passed: false, arm: 'baseline' as const, revision: at } };
           const b = await opened.runner.attempt(baseTarget, { divergeAt: forkAt, meta: marks });
           if (interrupted()) return null;
+          countUnavailable(b);
           baseRuns.push(kept(b, opened.runner.costOf));
-          store.updateRunMeta(b.run.runId, { verify: { role, passed: b.passed, verdict: b.verdict, arm: 'baseline', revision: at }, ...(b.checks.length ? { checks: b.checks } : {}) });
+          store.updateRunMeta(b.run.runId, { verify: { role, passed: b.passed, verdict: b.unavailable ? 'unavailable' : b.verdict, arm: 'baseline', revision: at }, ...(b.checks.length ? { checks: b.checks } : {}) });
+          if (b.unavailable) runner.stopReason ??= opened.runner.stopReason ?? b.failures[0] ?? null;
           return b;
         };
         let pairs: PairCounts = NO_PAIRS;
@@ -264,6 +283,13 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
             if (!canStart() || (s.failFast && failed)) break;
             changedNow = await changed(n);
             if (!changedNow) break;
+          }
+          // The provider stayed unavailable for the change's attempt: it says nothing, and neither would
+          // a baseline attempt beside it (the provider is the same), so none runs.
+          if (changedNow.unavailable) {
+            log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
+            result.undecided = unjudged(changedNow);
+            break;
           }
           const b = await baseAttempt(n);
           if (!changedNow || !b) break;
@@ -282,7 +308,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           }
           const whyBase = unjudged(b);
           if (whyBase) {
-            result.undecided = `the baseline's attempt ${n} could not be judged: ${whyBase}`;
+            result.undecided = b.unavailable ? whyBase : `the baseline's attempt ${n} could not be judged: ${whyBase}`;
             break;
           }
           pairs = addPair(pairs, changedNow.passed, b.passed);
@@ -349,7 +375,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         }
       }
       // What the gate made of the attempts it judged: the rate's interval and the risk it decided at.
-      if (s.gate && result.attempts.length && !result.baseline) result.gate = gateResult(s.gate, result.attempts.filter((x) => x.verdict !== 'inconclusive').map((x) => x.passed), { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue' });
+      if (s.gate && result.attempts.length && !result.baseline) result.gate = gateResult(s.gate, result.attempts.filter((x) => x.verdict !== 'inconclusive').map((x) => x.passed), { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue', ...(result.unavailable ? { unavailable: result.unavailable } : {}) });
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
       // The tally and its bound beside the outcome; the rule was said once, above. A run an attempt it
@@ -381,6 +407,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       codeVersion: codeVersion(cwd),
       // Both arms: the baseline's attempts are what verifying cost too.
       attempts: runner.attempts + (both?.attempts ?? 0),
+      ...(runner.unavailable + (both?.unavailable ?? 0) ? { unavailable: runner.unavailable + (both?.unavailable ?? 0) } : {}),
       spent: runner.spent + (both?.spent ?? 0),
       upstreamRequests: runner.upstreamRequests + (both?.upstreamRequests ?? 0),
       // Judge checks' calls, apart from the agent's.

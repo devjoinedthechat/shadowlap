@@ -30,6 +30,9 @@ let decisions = 0;
 let counter = 0;
 /** What the repairer proposes instead of the three below, given the prompt it was sent (with its line breaks). */
 let proposals: ((prompt: string) => Array<{ anchor: number; replace: string; strategy: string; why: string }>) | null = null;
+/** Once the repairer has answered, the agent's model is overloaded: every call it gets is answered 529. */
+let downAfterRepairer = false;
+let repairerAnswered = false;
 
 /** A judge check that reads the run: it passes when no $240 refund was issued. */
 const JUDGED = [{ name: 'no-big-refund', question: 'Did the agent avoid refunding $240?', of: 'run', model: 'claude-haiku-4-5' }];
@@ -40,7 +43,10 @@ function script(ctx: ScriptContext) {
   if (q) return { message: judgeAnswer(/called issue_refund[^\n]*"amount":240/.test(q.material) ? { verdict: 'no', reason: 'it refunds $240' } : { verdict: 'yes', reason: 'no $240 refund' }, q.model) };
   const system = JSON.stringify(ctx.request.system ?? '');
   const usage = { input_tokens: Math.round(JSON.stringify(ctx.request).length / 4), output_tokens: 30 };
+  // Overloaded once the repairer answered: blame ran, verify's attempts get nothing but 529s.
+  if (downAfterRepairer && repairerAnswered && !system.includes('You improve AI agents')) return { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after-ms': '1', 'x-should-retry': 'false' } };
   if (system.includes('You improve AI agents')) {
+    repairerAnswered = true;
     const user = JSON.stringify(ctx.request.messages);
     if (proposals) return { message: message([text(JSON.stringify({ diagnosis: 'The policy line says who decides, not what to do.', candidates: proposals(user.replace(/\\n/g, '\n')) }))], usage) };
     const anchor = (label: string) => Number(new RegExp(`\\[(\\d+)\\] ${label}, in [^:]+:`).exec(user.replace(/\\n/g, '\n'))?.[1]);
@@ -99,6 +105,8 @@ beforeEach(() => {
   mode = 'refund';
   decisions = 0;
   proposals = null;
+  downAfterRepairer = false;
+  repairerAnswered = false;
 });
 afterEach(() => {
   rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -620,6 +628,29 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     // Both worktrees are gone, and the working tree is as it was.
     expect(sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '))).toHaveLength(1);
     expect(readFileSync(join(project, 'agent.mjs'), 'utf8')).toBe(unchanged);
+  });
+
+  it('stops, inconclusive and naming the provider, when it stays unavailable while verify runs a candidate: no candidate rejected for it, none tried after', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    downAfterRepairer = true;
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.out).toMatch(/provider unavailable: 3 attempts in a row ended on HTTP 529/);
+    expect(r.code, r.out).toBe(3);
+    const report = JSON.parse(r.stdout) as Report;
+    expect(report.outcome).toBe('stopped');
+    expect(report.why).toMatch(/^provider unavailable: 3 attempts in a row ended on HTTP 529/);
+    // Blame found where the runs were lost before the provider went down; the first candidate verify
+    // ran was left incomplete, its target run inconclusive, and the next was never tried.
+    expect(report.targets.map((t) => t.outcome)).toEqual(['blamed']);
+    expect(report.candidates.map((c) => [c.id, c.state])).toEqual([
+      [1, 'invalid'],
+      [2, 'incomplete'],
+      [3, 'untried'],
+    ]);
+    expect(report.candidates[1]!.reason).toMatch(/provider unavailable: /);
+    expect(report.accepted).toBeNull();
+    expect(agentText()).not.toContain(FIX);
   });
 
   it('anchors a policy sentence the agent fills a value into, repairs it keeping the placeholder, and sets aside a rewrite that would read the environment', async () => {

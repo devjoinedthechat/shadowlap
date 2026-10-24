@@ -88,6 +88,12 @@ export interface BlameProbe {
    * reports made before probes had one.
    */
   risk?: number;
+  /**
+   * Attempts the provider was unavailable for (unavailable.ts): the agent failed while one of its
+   * live model calls ended on an overload, a rate limit or a 5xx. Each was retried and none counted,
+   * so they say nothing about the answer. Absent when there were none.
+   */
+  unavailable?: number;
 }
 
 export type ProbeVerdict = 'rescued' | 'lost' | 'open';
@@ -442,6 +448,12 @@ export interface BlameReport extends BlameSearchResult {
   failedWrite?: { name: string; message: string; callNo: number } | null;
   /** Every attempt run, including those of a probe the search stopped before it settled. */
   attempts: number;
+  /**
+   * Attempts the provider was unavailable for, over the whole search: retried, never counted. When
+   * it was unavailable for several in a row the search stops there, `stopped`, with `stopReason`
+   * saying so (`unavailableStop`). Absent when there were none.
+   */
+  unavailable?: number;
   spent: number;
   upstreamRequests: number;
   /** What its judge checks' calls cost, apart from `spent` and `upstreamRequests`: only when a judge was asked. */
@@ -712,7 +724,9 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   const attempts = r.attempts;
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
-  lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged} · every call before a probe replayed from the recording`));
+  // Attempts the provider was unavailable for ran and were paid for, but never counted.
+  const down = r.unavailable ? ` (and ${r.unavailable} the provider was unavailable for, not counted)` : '';
+  lines.push('', p.dim(`  ${attempts} attempt${attempts === 1 ? '' : 's'}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged} · every call before a probe replayed from the recording`));
   lines.push(p.dim(`  oracle: ${r.oracle.map(safeLine).join('; ')}`));
   if (r.contrast) lines.push(p.dim(`  rescued fork: shadowlap diff ${short(r.runId)} ${short(r.contrast.rescuedRunId)}    shadowlap ui ${short(r.contrast.rescuedRunId)} --call ${r.contrast.callNo}`));
   else if (r.outcome === 'unrescuable' && r.sameAnswer) lines.push(p.dim(`  an attempt that passed: shadowlap diff ${short(r.runId)} ${short(r.sameAnswer.runId)}    shadowlap ui ${short(r.sameAnswer.runId)} --call ${r.sameAnswer.callNo}`));

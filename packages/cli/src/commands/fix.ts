@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, describeBaselineRule, dropBound, KEPT_DEFAULTS, percent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, unavailableStop, describeBaselineRule, dropBound, KEPT_DEFAULTS, percent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -169,12 +169,14 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     contrast: r.contrast,
     sameAnswer: r.sameAnswer ?? null,
     failedWrite: r.failedWrite ?? null,
-    // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the Wilson bound and the rule.
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, risk: x.risk ?? null, runs: x.attempts })),
+    // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the bound and the rule;
+    // and the attempts the provider was unavailable for, retried and never counted.
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, risk: x.risk ?? null, unavailable: x.unavailable ?? 0, runs: x.attempts })),
     // The probes' rescue rates fitted non-increasing, in call order.
     fit: r.fit ?? [],
     nonMonotone: r.nonMonotone,
-    cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
+    // Attempts the provider was unavailable for over the search, retried and never counted, beside those that were.
+    cost: { attempts: r.attempts, unavailable: r.unavailable ?? 0, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
     judge: r.judge ?? null,
     stopReason: r.stopReason,
@@ -237,11 +239,14 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
       ...(x.baseline ? { baseline: x.baseline, margin: x.margin ?? null, drop: x.drop ?? null } : {}),
       ...(x.baselineRuns ? { baselineRuns: x.baselineRuns } : {}),
       ...(x.noBaseline ? { noBaseline: x.noBaseline } : {}),
+      // Attempts the provider was unavailable for, the change's and the baseline's: retried, never counted.
+      unavailable: x.unavailable ?? 0,
       runs: x.attempts,
     })),
     // The rule good runs were kept by: against what, the margin, the risk and the most pairs or attempts.
     kept: r.kept ?? null,
-    cost: { attempts: r.attempts, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
+    // Attempts the provider was unavailable for, both arms', retried and never counted, beside those that were.
+    cost: { attempts: r.attempts, unavailable: r.unavailable ?? 0, spent: r.spent, upstreamRequests: r.upstreamRequests, unknownModels: r.unknownModels },
     // Judge checks' calls, apart from the agent's: what they sent upstream and spent. Null when no judge was asked live.
     judge: r.judge ?? null,
     stopReason: r.stopReason,
@@ -641,11 +646,14 @@ export function register(program: Command): void {
 
 /**
  * The status of a blame, verify or repair that stopped before its verdict, by why: a stop signal's
- * own; 3 for a budget spent; 2 for an agent whose Node is too old for the guard; 1 otherwise.
+ * own; 3 for a budget spent or a provider that stayed unavailable; 2 for an agent whose Node is too
+ * old for the guard; 1 otherwise.
  */
 function stoppedStatus(reason: string | null): number {
   if (stoppedBy() || reason === 'interrupted') return interruptedStatus();
   if (reason?.includes('budget')) return EXIT.inconclusive;
+  // The provider never answered: nothing was decided about the agent, so inconclusive, never failed.
+  if (unavailableStop(reason)) return EXIT.inconclusive;
   if (reason === AGENT_NODE_TOO_OLD) return EXIT.usage;
   return EXIT.failed;
 }

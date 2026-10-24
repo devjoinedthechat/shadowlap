@@ -7,6 +7,7 @@ import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
 import type { CallRecord } from './types.js';
+import { unavailableStop } from './unavailable.js';
 
 /**
  * Whether a change does what it was made for without breaking what worked. Three kinds of recorded
@@ -75,6 +76,8 @@ export interface VerifyAttempt {
    * Absent from reports made before attempts had one.
    */
   verdict?: 'passed' | 'failed' | 'inconclusive';
+  /** The provider was unavailable for it and the attempts before it in a row (unavailable.ts): inconclusive, and none counted. Absent otherwise. */
+  unavailable?: boolean;
   exitCode: number;
   failures: string[];
   /** Where the attempt forked, or null when it replayed clean. */
@@ -120,6 +123,12 @@ export interface VerifiedRun {
   baselineRuns?: VerifyAttempt[];
   /** A good run judged by its gate on its own: why it had no baseline. Absent otherwise. */
   noBaseline?: string | null;
+  /**
+   * Attempts the provider was unavailable for (unavailable.ts), the change's and its baseline's:
+   * retried, never counted. When it stayed unavailable attempt after attempt, `undecided` says so
+   * (`unavailableStop`) and the run is inconclusive, never not fixed or broken. Absent when none.
+   */
+  unavailable?: number;
 }
 
 /** A run's verdict after `done` attempts. A deterministic run is settled by its first. */
@@ -186,7 +195,7 @@ export function keptTally(r: Pick<VerifiedRun, 'passes' | 'attempts' | 'drop' | 
 function tally(r: VerifiedRun): string {
   if (r.undecided) {
     const judged = r.attempts.filter((a) => a.verdict !== 'inconclusive').length;
-    return `${judged ? `${r.passes} of ${judged} passed, ` : ''}attempt ${r.attempts.length} not judged`;
+    return `${judged ? `${r.passes} of ${judged} passed, ` : ''}${unavailableStop(r.undecided) ? 'the provider unavailable' : `attempt ${r.attempts.length} not judged`}`;
   }
   if (r.deterministic) return 'clean replay';
   if (r.baseline) return keptTally(r, r.baseline);
@@ -213,7 +222,7 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   // A gate that ran out of attempts between its bounds settled nothing either, and says so apart; so
   // does a run whose attempt could not be judged, which is no failure of the change.
   for (const r of runs) if (r.decision === 'inconclusive' && !r.undecided) reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${tally(r)}, ${r.baseline ? 'neither kept nor broken against its baseline when its pairs ran out' : "between the gate's bounds when its attempts ran out"}`);
-  for (const r of runs) if (r.undecided) reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: attempt ${r.attempts.length} could not be judged: ${r.undecided}`);
+  for (const r of runs) if (r.undecided) reasons.push(`${ROLE[r.role]} run ${short(r.runId)} inconclusive: ${unavailableStop(r.undecided) ? r.undecided : `attempt ${r.attempts.length} could not be judged: ${r.undecided}`}`);
   const open = runs.filter((r) => r.verdict === 'open' && r.decision !== 'inconclusive' && !r.undecided);
   if (open.length) reasons.push(`${open.length} run${open.length === 1 ? '' : 's'} not settled${stopReason ? `: ${stopReason}` : ''}`);
 
@@ -248,6 +257,8 @@ export interface VerifyReport extends VerifyDecision {
   /** The code the change was verified at. */
   codeVersion: string | null;
   attempts: number;
+  /** Attempts the provider was unavailable for, both arms': retried, never counted, apart from `attempts`. Absent when none. */
+  unavailable?: number;
   spent: number;
   upstreamRequests: number;
   /** What its judge checks' calls cost, apart from `spent` and `upstreamRequests`: only when a judge was asked. */
@@ -266,7 +277,8 @@ export interface VerifyReport extends VerifyDecision {
 
 /** What the settled runs would cost live, as recorded and under the change (the mean of each run's attempts). */
 export function footprintDelta(runs: readonly VerifiedRun[]): { runs: number; recorded: Footprint; now: Footprint } | null {
-  const measured = runs.filter((r) => r.attempts.length > 0);
+  // An attempt the provider never answered ran no agent's worth of calls: it says nothing of the cost either.
+  const measured = runs.map((r) => ({ ...r, attempts: r.attempts.filter((a) => !a.unavailable) })).filter((r) => r.attempts.length > 0);
   if (!measured.length) return null;
   const add = (a: Footprint, b: Footprint): Footprint => ({ inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens, cost: a.cost === null || b.cost === null ? null : a.cost + b.cost });
   const zero: Footprint = { inputTokens: 0, outputTokens: 0, cost: 0 };
@@ -375,6 +387,8 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   }
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
-  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
+  // Attempts the provider was unavailable for ran and were paid for, but never counted.
+  const down = r.unavailable ? ` (and ${r.unavailable} the provider was unavailable for, not counted)` : '';
+  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
   return lines.join('\n');
 }
