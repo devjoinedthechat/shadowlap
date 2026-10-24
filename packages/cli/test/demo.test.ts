@@ -19,11 +19,12 @@ const fresh = (): string => {
 };
 afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })));
 
+// This machine's own model keys and endpoints point nowhere the demo could use: it brings its own.
+const demoEnv = () => ({ ...process.env, NO_COLOR: '1', SHADOWLAP_HOME: fresh(), ANTHROPIC_API_KEY: 'sk-ant-not-for-the-demo', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', OPENAI_BASE_URL: 'http://127.0.0.1:9/v1', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9' });
+
 function demo(args: string[]): Promise<{ code: number | null; out: string; err: string }> {
-  // This machine's own model keys and endpoints point nowhere the demo could use: it brings its own.
-  const env = { ...process.env, NO_COLOR: '1', SHADOWLAP_HOME: fresh(), ANTHROPIC_API_KEY: 'sk-ant-not-for-the-demo', ANTHROPIC_BASE_URL: 'http://127.0.0.1:9', OPENAI_BASE_URL: 'http://127.0.0.1:9/v1', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9' };
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, 'demo', ...args], { cwd: fresh(), env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, 'demo', ...args], { cwd: fresh(), env: demoEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
@@ -61,6 +62,24 @@ describe('shadowlap demo', () => {
     const dir = /Working in (.+), a git repository removed at the end/.exec(r.out)![1]!;
     expect(existsSync(dir)).toBe(false);
   }, 180_000);
+
+  // The signal goes to the demo alone: the command it runs then finishes, and the demo stops after it.
+  it.skipIf(process.platform === 'win32')('removes its folder and ends with 129 when its terminal closes (SIGHUP)', async () => {
+    const child = spawn(process.execPath, [CLI, 'demo'], { cwd: fresh(), env: demoEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    const ended = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
+    for (let i = 0; i < 600 && !out.includes('$ shadowlap run --'); i++) await new Promise((r) => setTimeout(r, 50));
+    const dir = /Working in (.+), a git repository removed at the end/.exec(out)?.[1];
+    expect(dir, out).toBeDefined();
+    if (dir) dirs.push(dir);
+    expect(existsSync(dir!)).toBe(true);
+    child.kill('SIGHUP');
+    expect(await ended, out).toEqual({ code: 129, signal: null });
+    expect(out).toContain('shadowlap: stopped by SIGHUP');
+    expect(existsSync(dir!)).toBe(false);
+  }, 60_000);
 
   it('keeps its folder only where --keep names a new or an empty one', async () => {
     const full = fresh();

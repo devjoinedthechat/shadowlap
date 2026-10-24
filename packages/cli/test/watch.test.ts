@@ -113,8 +113,9 @@ describe('--watch and what a replay writes itself', () => {
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
-/** One model call, then the report the agent writes into the project on every run. */
+/** One model call, then the report the agent writes into the project on every run. AGENT_WAIT_MS holds it up first. */
 const AGENT = `import { writeFileSync } from 'node:fs';
+if (process.env.AGENT_WAIT_MS) await new Promise((r) => setTimeout(r, Number(process.env.AGENT_WAIT_MS)));
 const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', {
   method: 'POST',
   headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' },
@@ -162,6 +163,34 @@ describe('shadowlap replay --watch', () => {
       expect(replays(), out).toBe(2);
     } finally {
       watcher.kill('SIGTERM');
+      await exited;
+    }
+  }, 60_000);
+
+  // Before, the replay's agent was stopped and the watch went on, with no terminal left to stop it.
+  it.skipIf(process.platform === 'win32')('ends with 129 when its terminal closes while a replay runs', async () => {
+    const env = { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' };
+    const recorded = await new Promise<string>((resolve) => {
+      const child = spawn(process.execPath, [CLI, '--db', 'hup.db', 'run', '--', process.execPath, 'agent.mjs'], { cwd: project, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+      child.on('exit', () => resolve(out));
+    });
+    const runId = /recording run (\w{26})/.exec(recorded)![1]!;
+    const watcher = spawn(process.execPath, [CLI, '--db', 'hup.db', 'replay', runId, '--watch'], { cwd: project, env: { ...env, AGENT_WAIT_MS: '5000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    watcher.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    watcher.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => watcher.on('close', (code, signal) => resolve({ code, signal })));
+    try {
+      await until(() => out.includes(`replaying run`), 20_000, 'the first replay');
+      await sleep(500);
+      watcher.kill('SIGHUP');
+      const ended = await Promise.race([exited, sleep(15_000).then(() => 'still watching')]);
+      expect(ended, out).toEqual({ code: 129, signal: null });
+    } finally {
+      watcher.kill('SIGKILL');
       await exited;
     }
   }, 60_000);

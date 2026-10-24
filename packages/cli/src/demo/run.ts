@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { Store } from '@shadowlap/engine';
+import { STOP_SIGNALS } from '../agent-signals.js';
 import { CliError, EXIT, signalExit, usageError } from '../exit-codes.js';
 import { shortFixId } from '../fix-format.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
@@ -51,12 +52,11 @@ export async function runDemo(o: DemoOptions): Promise<number> {
   if (spawnSync('git', ['--version'], { stdio: 'ignore' }).status !== 0) throw usageError('shadowlap demo needs git: repair rewrites the agent in a git repository. Install git, then run it again');
   const dir = o.keep ? keepFolder(o.keep) : realpathSync(mkdtempSync(join(tmpdir(), 'shadowlap-demo-')));
   const model = await startScriptedModel();
-  // Ctrl-C stops the command running then (it has the terminal too); the demo waits for it, then
-  // removes its folder and ends as the signal would have ended it.
+  // Ctrl-C stops the command running then (it has the terminal too), and so does a closed terminal;
+  // the demo waits for it, then removes its folder and ends as the signal would have ended it.
   let stopped: NodeJS.Signals | null = null;
   const onSignal = (signal: NodeJS.Signals) => void (stopped ??= signal);
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
   try {
     for (const [name, text] of Object.entries(demoFiles(model.url))) writeFileSync(join(dir, name), text);
     const git = (...args: string[]) => {
@@ -133,8 +133,7 @@ export async function runDemo(o: DemoOptions): Promise<number> {
     write(p.dim('  Your own agent: npm install -g shadowlap, then shadowlap init in its folder.\n'));
     return EXIT.ok;
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
+    for (const s of STOP_SIGNALS) process.off(s, onSignal);
     await model.close();
     if (!o.keep) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }

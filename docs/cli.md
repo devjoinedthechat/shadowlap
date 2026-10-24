@@ -17,7 +17,7 @@ A store is created by the first command that records into it. Commands that only
 | `2` | Usage or configuration: a flag, argument or command it doesn't take, a run or fix it can't find or can't use yet (one still recording), a file it can't read, an invalid `shadowlap.config.json`, a live command with no key, a recorded command it needs `--yes` to run, a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again |
 | `3` | Inconclusive: a gate or check that could not decide (`0` when `--inconclusive warn` lets it through), a budget spent before a verdict, the provider unavailable |
 | `70` | Internal error: a bug in Shadowlap. The message says so: run the command again with `SHADOWLAP_DEBUG=1` to see where it happened, and report it |
-| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve` and `replay --watch` too) |
+| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too) |
 
 `run` and `replay` end with the agent's own status where none of these applies, as the agent would have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a signal stopped. Each command's section says which statuses it ends with. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
 
@@ -38,7 +38,9 @@ scripted model answered. Your own model keys and endpoints are left out of its e
 [telemetry](./telemetry.md) is off for it. `--keep <dir>` runs it in that folder, a new or an empty
 one, and keeps it, to look around with `shadowlap dashboard`. It needs git. It ends with 0 when
 every step did what the demo expects; otherwise with the status of the step that didn't, which it
-names; 2 for a `--keep` folder that isn't empty, or without git.
+names; 2 for a `--keep` folder that isn't empty, or without git. A stop signal (Ctrl-C, SIGTERM, or
+the SIGHUP of a closed terminal) ends it once the command it runs then has ended, which a
+terminal's signal stops too: it removes its folder and ends with 128 + the signal's number.
 
 ## init
 
@@ -1045,7 +1047,7 @@ Each add and rm is recorded in the project's activity, in a store that exists.
 shadowlap serve
 ```
 
-Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C. Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
+Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C, SIGTERM or a closed terminal (SIGHUP). Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
 
 ## mcp
 

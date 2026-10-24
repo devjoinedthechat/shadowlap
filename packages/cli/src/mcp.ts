@@ -8,6 +8,8 @@ import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 import { isLoopbackUrl, lookupRegistration, parentRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
+import { STOP_SIGNALS } from './agent-signals.js';
+import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
 import { startCommand } from './start-command.js';
 
@@ -1247,10 +1249,8 @@ async function listen(url: URL, at: { host: string; port: number }, headers: Rec
   const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, log });
   log(`serving ${url.host} at ${listener.url}`);
   return new Promise((resolve) => {
-    const stop = (signal: NodeJS.Signals) => void listener.close().then(() => resolve(signal === 'SIGINT' ? 130 : signal === 'SIGHUP' ? 129 : 143));
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    process.once('SIGHUP', stop);
+    const stop = (signal: NodeJS.Signals) => void listener.close().then(() => resolve(signalExit(signal)));
+    for (const s of STOP_SIGNALS) process.once(s, stop);
   });
 }
 
@@ -1299,8 +1299,12 @@ export async function runMcp(argv: string[], flags: { url?: string; header: stri
   } else log('no active run (no SHADOWLAP_URL, and no Shadowlap command started this process): passing everything through');
   if (url) return startMcpHttpProxy({ clientIn: process.stdin, clientOut: process.stdout, url: url.href, headers, sidecar, effects, log }).done;
   const { child, done } = startMcpProxy({ clientIn: process.stdin, clientOut: process.stdout, server: { command: argv[0]!, args: argv.slice(1) }, sidecar, effects, log });
+  // A stop signal reaches the server too, a closed terminal's as well. The proxy ends with its
+  // server: once it has exited, nothing more is read from a client that holds its end open.
   const onSignal = (sig: NodeJS.Signals) => child.kill(sig);
-  process.on('SIGINT', onSignal);
-  process.on('SIGTERM', onSignal);
-  return done;
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
+  return done.finally(() => {
+    for (const s of STOP_SIGNALS) process.off(s, onSignal);
+    process.stdin.destroy();
+  });
 }
