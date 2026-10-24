@@ -58,7 +58,7 @@ Node ≥ 18.18, as for any Node agent under Shadowlap: `run`, `replay`, `test` a
 
 The SDK runs in an Edge runtime (Vercel's, Cloudflare Workers) or a browser bundle as it is: it loads none of Node's modules until a call goes to Shadowlap's sidecar, which only happens under Shadowlap, so outside it a wrapped tool calls straight through wherever it is deployed. Node itself loads the package's `node` entry, which brings `AsyncLocalStorage` with it, so scopes hold on every Node it supports.
 
-Every call to the sidecar names the SDK and its release: `x-shadowlap-sdk: node/<version>`, or `python/<version>` from Python.
+Every call to the sidecar names the SDK and its release: `x-shadowlap-sdk: node/<version>`, or `python/<version>` from Python. When its major.minor differs from the CLI's, the run's summary says so once, with the install that matches.
 
 ## Python
 

@@ -45,7 +45,7 @@ Every request is `POST` with a JSON body and `content-type: application/json`. R
 | `x-shadowlap-run: <run id>` | Whenever `SHADOWLAP_RUN_ID` is set. |
 | `x-shadowlap-scope: <scope>` | When the calling context is inside a scope, `%` and anything outside printable ASCII percent-encoded. See [Scopes](#scopes). |
 | `user-agent` | SHOULD name the language, e.g. `shadowlap-go/0.1`. The sidecar buckets clients by this for telemetry only; it never affects behavior. |
-| `x-shadowlap-sdk: <language>/<version>` | SHOULD name the client and its release, e.g. `go/0.1.0`. The official SDKs send `node/<version>` and `python/<version>` on every call. It never changes how a call is answered. |
+| `x-shadowlap-sdk: <language>/<version>` | SHOULD name the client and its release, e.g. `go/0.1.0`. The official SDKs send `node/<version>` and `python/<version>` on every call. A run's summary names an SDK whose major.minor differs from the sidecar's, once; the header never changes how a call is answered. |
 
 There is no authentication header. The token in the path is the whole of it.
 
@@ -375,4 +375,5 @@ The same tool during a clean replay:
 
 This protocol is pre-1.0 and may change. It is the protocol of the release that runs the sidecar,
 which `shadowlap --version` reports: a client sends no protocol version, and the sidecar asks for
-none. A client names its own release in `x-shadowlap-sdk`.
+none. A client names its own release in `x-shadowlap-sdk`, and a run's summary says when an SDK's
+major.minor differs from the sidecar's, since an SDK and the CLI work together at the same one.
