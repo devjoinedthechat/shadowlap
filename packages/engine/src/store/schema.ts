@@ -7,7 +7,7 @@
  */
 import { chmodSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { DatabaseSync, type SqliteDatabase } from './core.js';
+import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
 export const SCHEMA_VERSION = 5;
 
@@ -646,7 +646,7 @@ export function openDatabase(path: string): SqliteDatabase {
     db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(String(SCHEMA_VERSION));
     db.exec('COMMIT');
   } catch (err) {
-    db.exec('ROLLBACK');
+    rollBack(db);
     throw err;
   }
   return db;

@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { sha256 } from '../ids.js';
 import { currentOwner, recorderGone, type RunOwner } from '../liveness.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, CallStartRow, DivergenceReport, Effect, Origin, Outcome, RunCommand, RunMeta, RunMode, RunRecord, RunStatus } from '../types.js';
-import { StorePart, ulidNow } from './core.js';
+import { rollBack, StorePart, ulidNow } from './core.js';
 import type { Search } from './search.js';
 
 const GZIP_THRESHOLD = 512;
@@ -163,8 +163,7 @@ export abstract class Recording extends StorePart {
       this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
       this.db.exec('RELEASE delete_run');
     } catch (err) {
-      this.db.exec('ROLLBACK TO delete_run');
-      this.db.exec('RELEASE delete_run');
+      rollBack(this.db, 'delete_run');
       throw err;
     }
   }

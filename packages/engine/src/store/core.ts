@@ -100,9 +100,25 @@ export function inTransaction<T>(db: SqliteDatabase, fn: () => T, mode: 'deferre
     db.exec('COMMIT');
     return result;
   } catch (err) {
-    db.exec('ROLLBACK');
+    rollBack(db);
     throw err;
   }
+}
+
+/**
+ * Undoes a failed write's transaction, or with `savepoint` what it did since that savepoint, unless
+ * SQLite already undid the whole transaction itself: it does on some errors (a full disk, an I/O
+ * error), and a ROLLBACK then fails with "no transaction is active" in place of the error that
+ * ended it, which is the one to report.
+ */
+export function rollBack(db: SqliteDatabase, savepoint?: string): void {
+  if (db.isTransaction === false) return;
+  if (savepoint === undefined) {
+    db.exec('ROLLBACK');
+    return;
+  }
+  db.exec(`ROLLBACK TO ${savepoint}`);
+  db.exec(`RELEASE ${savepoint}`);
 }
 
 export function parseJsonColumn<T>(raw: unknown, fallback: T): T {

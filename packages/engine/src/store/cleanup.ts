@@ -6,7 +6,7 @@
 import { manifestRefs } from '../manifest.js';
 import type { Store } from '../store.js';
 import type { RunRecord } from '../types.js';
-import { StorePart } from './core.js';
+import { rollBack, StorePart } from './core.js';
 import type { Recording } from './recording.js';
 
 export abstract class Cleanup extends StorePart {
@@ -58,7 +58,7 @@ export abstract class Cleanup extends StorePart {
       this.db.exec('COMMIT');
       return { removed, bytes, stored, recording };
     } catch (err) {
-      this.db.exec('ROLLBACK');
+      rollBack(this.db);
       throw err;
     }
   }
