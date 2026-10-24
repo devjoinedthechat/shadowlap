@@ -245,10 +245,11 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(shown.verify[1].rows[0]).toMatchObject({ outcome: 'not fixed', deterministic: true, note: 'issue_refund called' });
     // The Blame step shows the latest blame that found the call; both are kept.
     expect(shown.blames).toHaveLength(2);
-    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 2, attemptsPerProbe: 20, rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
-    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(95%\\); #\\d+, the next model call: lost · 0 of 4 · rate <= 0\\.61 \\(95%\\)\\.$`));
+    // Its probes ran at their share of the search's risk, 5% over up to 5 probes, as deep into the evidence.
+    expect(shown.blame).toMatchObject({ runId: failed[1], outcome: 'blamed', lostAt: decision, step: 3, steps: 4, confidence: 'high', needed: 3, attemptsPerProbe: 32, rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts' });
+    expect(shown.blame.boundary).toMatch(new RegExp(`^The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(99%\\); #\\d+, the next model call: lost · 0 of 6 · rate <= 0\\.53 \\(99%\\)\\.$`));
     expect(shown.blame.answers).toMatchObject({ callNo: decision, recorded: 'issue_refund({"order_id":"A-1042","amount":240})', rescued: '"Above the limit.", escalate({"reason":"above the refund limit"})' });
-    expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', bound: expect.stringMatching(/^rate >= 0\.\d\d \(95%\)$/), href: `#/run/${failed[1]}/${decision}` });
+    expect(shown.blame.probes.find((x: { blamed: boolean }) => x.blamed)).toMatchObject({ callNo: decision, verdict: 'rescued · blamed', bound: expect.stringMatching(/^rate >= 0\.\d\d \(99%\)$/), href: `#/run/${failed[1]}/${decision}` });
     expect(shown.blame.command).toBe(`shadowlap blame ${failed[1].slice(0, 10)} --expect '${ORACLE}'`);
     expect(shown.blame.callRow.filter((c: { kind: string }) => c.kind === 'api')).toHaveLength(4);
     // Verified on the working tree, with no repair behind it: applying it only marks it.
@@ -261,9 +262,11 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     expect(human).toContain('✓ accepted');
     expect(human).toContain('✗ rejected');
     // Each probe and each verified run with its tally and bound, under its gate's rule.
-    expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts');
-    expect(human).toMatch(/0 of 4 passed · rate <= 0\.61 \(95%\) +lost/);
-    expect(human).toMatch(/kept +12 of 12 · rate >= 0\.73 \(95%\)/);
+    expect(human).toContain('probes: gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts');
+    expect(human).toMatch(/0 of 6 passed · rate <= 0\.53 \(99%\) +lost/);
+    // The failing runs by their gate; the good one against its own baseline at HEAD, pair by pair.
+    expect(human).toMatch(/fixed +12 of 12 · rate >= 0\.73 \(95%\)/);
+    expect(human).toMatch(/kept +38 of 38/);
     expect(human).toContain('its gate decides after each one: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(human).not.toMatch(/at least|at most|of the time/);
     expect(human).toContain(`next: shadowlap fix apply ${fixId.slice(0, 13)}`);
