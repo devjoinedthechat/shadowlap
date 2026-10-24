@@ -26,6 +26,7 @@ import { askedTools } from '../run/calls.js';
 import { bisectLabel } from '../run/offers.js';
 import { presetAttempt } from '../run/preset.js';
 import { blameOf, checksOf, forkAtOf, forkMarkOf, originOf, withModelNames } from '../run/model.js';
+import { firstFailedCall, openingCall } from '../run/open-at.js';
 import { Banner, DiffPanel, Metrics, RunLoading, ScopeBar } from '../run/parts.js';
 import { usePagedRun } from '../run/paged-run.js';
 import { followPages, isPending, listedCalls, type ListedCall } from '../run/paging.js';
@@ -165,8 +166,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
   const last = calls.length ? calls[calls.length - 1]!.callNo : null;
-  const first = calls[0]?.callNo ?? null;
-  const fallback = forkAt ?? lostAt ?? (live ? last : first);
+  // A failed run opens where it first failed, every call's origin read while a long run's pages come;
+  // clock and random reads are never where a run opens (open-at.ts).
+  const failed = run.state?.failed ?? run.run.status === 'failed';
+  const failedAt = useMemo(() => (failed ? firstFailedCall(calls, paging?.origins ?? null) : null), [failed, calls, paging?.origins]);
+  const fallback = useMemo(() => openingCall({ forkAt, lostAt, live, failed, calls, origins: paging?.origins ?? null }), [forkAt, lostAt, live, failed, calls, paging?.origins]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;
@@ -177,7 +181,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     if (need && selected !== null) need(selected);
   }, [need, selected]);
 
-  // A short id settles on the full one; a run opened without a call lands on its fork, its lost call, or its first call.
+  // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
+  // where it first failed, or its first call (openingCall).
   useEffect(() => {
     if (runId !== id || (call === null && selected !== null)) navigate(href.run(runId, call ?? selected, view), true);
   }, [runId, id, call, selected, view]);
@@ -270,14 +275,16 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   );
 
   // The run's keys, while this page is open.
-  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted });
+  const keyState = useLatest({ step, setTab, v, forkAt, lostAt, failedAt, parentId: run.run.parentRunId, canFork, setView, setFilterWanted });
   useEffect(() => {
     runKeys.current = (e) => {
       const k = keyState.current;
       if (e.key === 'j' || e.key === 'ArrowDown') return k.step(1), true;
       if (e.key === 'k' || e.key === 'ArrowUp') return k.step(-1), true;
       if (/^[1-4]$/.test(e.key)) return k.setTab(TABS[Number(e.key) - 1]!), true;
-      if (e.key === 'n' && (k.forkAt ?? k.lostAt) !== null) return select((k.forkAt ?? k.lostAt)!), true;
+      // The call that needs a look: where it forked, where blame found it lost, else where it first failed.
+      const at = k.forkAt ?? k.lostAt ?? k.failedAt;
+      if (e.key === 'n' && at !== null) return select(at), true;
       if (e.key === 'p' && k.parentId) return navigate(href.run(k.parentId)), true;
       if (e.key === 'v') return k.setView(nextView(k.v)), true;
       if (e.key === 'f' && k.canFork) {
