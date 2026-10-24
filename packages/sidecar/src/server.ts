@@ -160,7 +160,7 @@ export interface EndRunResult {
   summary: RunSummary;
   /** Provider ids that received model calls during the run. */
   providers: string[];
-  /** SDK languages seen on the call resolution API, from their user agents: typescript | python | other. */
+  /** SDK languages seen on the call resolution API, from the SDK header each sends (else a user agent): typescript | python | mcp | other. */
   sdks: string[];
   /** Outbound connections the network guard saw bypassing Shadowlap, by host:port. */
   unguarded: Array<{ target: string; count: number; action: 'warned' | 'blocked' }>;
@@ -990,7 +990,7 @@ export class Sidecar {
       const ctx = this.contextFor(req, pinned);
       this.noteSdk(ctx, req);
       const { scope } = this.callScope(req, ctx, 'tool');
-      ctx.sdksSeen.add(sdkFamily(req.headers['user-agent']));
+      ctx.sdksSeen.add(sdkFamily(headerValue(req, 'x-shadowlap-sdk'), req.headers['user-agent']));
       return json(res, 200, this.resolveCall(ctx, body, scope));
     }
 
@@ -2400,8 +2400,15 @@ export interface CompleteBody {
 
 // ---- helpers ----
 
-/** Coarse SDK language from a user agent; only ever used as a telemetry category. */
-function sdkFamily(userAgent: string | undefined): string {
+/**
+ * Coarse SDK language, only ever used as a telemetry category: from the `x-shadowlap-sdk` header
+ * both SDKs send on every call (`node/0.1.0`, `python/0.1.0`), else from the user agent, which the
+ * MCP proxy names itself in and the Node SDK sends none of.
+ */
+function sdkFamily(sdkHeader: string | undefined, userAgent: string | undefined): string {
+  const family = parseSdkHeader(sdkHeader)?.family;
+  if (family === 'node') return 'typescript';
+  if (family === 'python') return 'python';
   const ua = (userAgent ?? '').toLowerCase();
   if (ua.includes('shadowlap-mcp')) return 'mcp';
   if (ua.includes('python')) return 'python';
