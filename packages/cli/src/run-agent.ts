@@ -680,6 +680,8 @@ export interface AttemptResult {
   summary: ReturnType<Sidecar['endRun']>['summary'];
   /** What the agent printed, when it was captured for a check on it. */
   output: string;
+  /** What the preloads in the attempt's agent said, with `failed` when it ran unwatched under --guard block. */
+  preloads: ReturnType<Sidecar['endRun']>['preloads'];
 }
 
 /**
@@ -726,6 +728,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   const refused: string[] = [];
   // Whether the line for an agent whose Node couldn't be asked has been printed.
   let hinted = false;
+  // Whether the line for an attempt no preload watched under --guard block has been printed.
+  let unwatched = false;
   const worker = async () => {
     while (!stopped && !refused.length && next < count) {
       const i = next++;
@@ -785,7 +789,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       if (!open.delete(run.runId)) continue;
       // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
       const ended = sidecar.endRun(run.runId, stopped || stoppedBySignal ? 'crashed' : code === 0 ? 'completed' : 'failed');
-      results[i] = { run, code, summary: ended.summary, output };
+      results[i] = { run, code, summary: ended.summary, output, preloads: ended.preloads };
       telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
       if (!streaming) process.stderr.write(`${header}\n${output}${output.endsWith('\n') || !output ? '' : '\n'}`);
       const s = ended.summary;
@@ -796,6 +800,11 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       if (unasked && !hinted) {
         hinted = true;
         process.stderr.write(p.yellow(`   ! ${AGENT_NODE_MAYBE_TOO_OLD}`) + '\n');
+      }
+      // Once too: the command is the same for every attempt, and so is why no preload loaded in it.
+      if (ended.preloads?.failed && !unwatched) {
+        unwatched = true;
+        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing}`) + '\n');
       }
     }
   };
