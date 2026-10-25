@@ -21,6 +21,7 @@ import { noteUnrecordedTools } from './not-recorded.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p, shortId } from './ui.js';
+import { refuseUnrecorded } from './unrecorded.js';
 
 /** Running an agent command under a sidecar: its environment (base URLs, capture, the network guard), interventions, repeated attempts, and the offline replays of `shadowlap test` and `calibrate`. */
 
@@ -171,8 +172,13 @@ export async function testAttempt(
      * without Shadowlap in between.
      */
     onSignal?: 'return' | 'exit';
+    /** The tools `--allow-unrecorded` lets run again though the recording never recorded them and they write. */
+    allowUnrecorded?: ReadonlySet<string>;
   },
 ): Promise<TestAttempt> {
+  // A tool the model called that the recording never recorded runs again for real: one that writes
+  // is refused before anything starts, whichever command asked for the replay.
+  refuseUnrecorded(store, parent, o.allowUnrecorded);
   const started = Date.now();
   let output = '';
   const argv = o.argv ?? parent.command.argv;
@@ -684,13 +690,21 @@ export interface AttemptResult {
 }
 
 /**
- * The same replay, `count` times, on one sidecar: each attempt is its own run and process. With a
- * concurrency of 1 the agent's output streams as usual under a header per attempt; with more, each
- * attempt's output is collected and printed whole when it finishes, so attempts never interleave.
+ * The same replay of `extra.recording`, `count` times, on one sidecar: each attempt is its own run
+ * and process. With a concurrency of 1 the agent's output streams as usual under a header per
+ * attempt; with more, each attempt's output is collected and printed whole when it finishes, so
+ * attempts never interleave. A recording whose model called a tool it never recorded that writes is
+ * refused before any attempt starts, unless `extra.allowUnrecorded` names it.
  */
-export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> } = {}): Promise<AttemptResult[]> {
+export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count: number, concurrency: number, start: (sidecar: Sidecar) => RunRecord, guard: GuardMode, extra: { recording: RunRecord; allowUnrecorded?: ReadonlySet<string>; capture?: boolean; beforeEnd?: BeforeEnd; env?: Record<string, string> }): Promise<AttemptResult[]> {
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
+  try {
+    refuseUnrecorded(store, extra.recording, extra.allowUnrecorded);
+  } catch (err) {
+    store.close();
+    throw err;
+  }
   const config = loadConfig(process.cwd());
   const sidecar = await Sidecar.start({
     store,

@@ -15,6 +15,7 @@ import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
 import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, safe, shortId } from '../ui.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
 
 /** `shadowlap injection`: causal prompt-injection tests on recorded runs and goldens (injection.ts). */
 
@@ -155,9 +156,10 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
       if (flags.listTemplates) {
         const set = injectionTemplates();
         if (flags.json) process.stdout.write(JSON.stringify(set, null, 2) + '\n');
@@ -191,6 +193,8 @@ export function register(program: Command): void {
         for (const t of targets) {
           requireEnded(store, t.run, 'test it for injection');
           if (!hasRecordedCommand(t.run)) throw new InvalidArgumentError(`${shortId(t.run.runId)} ${withoutCommand(t.run)} and has no command to re-run: replay it once with yours (shadowlap replay ${shortId(t.run.runId)} -- <command>) and test that run`);
+          // Every attempt replays it: a tool its model called that it never recorded, which writes, would run again for real.
+          refuseUnrecorded(store, t.run, allowedUnrecorded(flags.allowUnrecorded));
         }
       } finally {
         store.close();
@@ -210,7 +214,7 @@ export function register(program: Command): void {
       const actor = resolveAuthor({ cwd: projectDir });
       // Writes stubbed, reads served from the recording when they are the same call, and the rest
       // fenced unless --live-reads (injection.ts): a model a payload steers may ask a read to carry data out.
-      const runner = await AttemptRunner.start(opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard });
+      const runner = await AttemptRunner.start(opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] });
       const reports: InjectionReport[] = [];
       try {
         for (const [i, t] of targets.entries()) {

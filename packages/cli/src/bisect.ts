@@ -13,6 +13,7 @@ import { type GuardMode } from './run-agent.js';
 import { physicalPath, realPath } from './real-path.js';
 import { openStore, withoutCommand, type GlobalOpts } from './shared.js';
 import { shortId } from './ui.js';
+import { refuseUnrecorded } from './unrecorded.js';
 
 /**
  * `shadowlap bisect`: the commit that broke a golden or a run. The recording is replayed at commits
@@ -59,6 +60,8 @@ export interface BisectInput {
    * the team store) is run at every commit; false refuses. Without it, such a run is refused.
    */
   confirm?: (run: RunRecord, argv: string[]) => Promise<boolean>;
+  /** The tools `--allow-unrecorded` lets each replay run again though the recording never recorded them and they write. */
+  allowUnrecorded?: ReadonlySet<string>;
 }
 
 /** The recorded command of a run from someone else was not run: the person said no, or could not be asked. */
@@ -299,6 +302,13 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     store.close();
     throw new BisectError(`${target.name} ${withoutCommand(target.run)} and has no command to run at each commit. Give your agent's command after --, or replay it once with your agent (shadowlap replay <run> -- <command>) and bisect that run`);
   }
+  // Every commit replays it: a tool its model called that it never recorded, which writes, would run again for real.
+  try {
+    refuseUnrecorded(store, target.run, input.allowUnrecorded);
+  } catch (err) {
+    store.close();
+    throw new BisectError((err as Error).message);
+  }
   // A run from someone else's pack, or pulled from the team store, carries a command someone else
   // chose, and it would run at every commit: it needs consent, as a replay of it does.
   if (!own && target.imported) {
@@ -379,7 +389,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       const argv = mapArgv(own ?? target.run.command.argv, { root, worktree, cwd, worktreeCwd });
       let outcome: Awaited<ReturnType<typeof testRecording>>;
       try {
-        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped });
+        outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped, ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) });
       } catch (err) {
         if (err instanceof ReplayInterrupted) return done(false, true, 'interrupted');
         throw new BisectError(`the replay at ${info.short} could not run: ${(err as Error).message}`);

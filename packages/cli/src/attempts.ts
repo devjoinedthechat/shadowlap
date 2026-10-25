@@ -14,6 +14,7 @@ import { agentEnv, judgeAttempt, outputDrained, recordsInput, type GuardMode } f
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
+import { refuseUnrecorded } from './unrecorded.js';
 
 /**
  * Replays of recorded runs under one sidecar, each judged by an oracle: the probes of `shadowlap blame`
@@ -47,6 +48,8 @@ export interface AttemptSettings {
   upstreams?: Record<string, string>;
   /** Where the agent runs (`test --cwd`); the current folder by default. */
   cwd?: string;
+  /** The tools `--allow-unrecorded` lets run again though the recording never recorded them and they write. */
+  allowUnrecorded?: readonly string[];
 }
 
 /** A recorded run to replay, and the command that replays it. */
@@ -135,6 +138,8 @@ export class AttemptRunner {
   private readonly running = new Set<ChildProcess>();
   /** Runs whose agent has exited and whose judge checks are being asked: still open. */
   private readonly judging = new Set<string>();
+  /** Recordings already checked for unrecorded writes: each is checked once, before its first attempt. */
+  private readonly refusalChecked = new Set<string>();
   /**
    * SIGINT, SIGTERM and SIGHUP, for as long as the runner is open: the first is passed on to every
    * agent running, which has a moment to end before it is killed, so whoever sent the signal (a
@@ -221,6 +226,12 @@ export class AttemptRunner {
    * attempt returned says how many unavailable ones it was run in place of (`unavailableBefore`).
    */
   async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true): Promise<Attempt> {
+    // A tool the model called that the recording never recorded runs again for real in every
+    // attempt: one that writes is refused before the first starts (the commands check first too).
+    if (!this.refusalChecked.has(target.parent.runId)) {
+      refuseUnrecorded(this.store, target.parent, this.settings.allowUnrecorded ? new Set(this.settings.allowUnrecorded) : undefined);
+      this.refusalChecked.add(target.parent.runId);
+    }
     const before = (a: Attempt, n: number): Attempt => (n ? { ...a, unavailableBefore: n } : a);
     for (let inARow = 1; ; inARow++) {
       const a = await this.once(target, extra, tally);

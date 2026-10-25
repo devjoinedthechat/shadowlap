@@ -7,6 +7,7 @@ import { codeVersion, type ShadowlapConfig } from './config.js';
 import { killTree } from './kill-tree.js';
 import { placeholderKeys } from './placeholder-keys.js';
 import { agentEnv, outputDrained, providerIds, type GuardMode } from './run-agent.js';
+import { declaredUnrecorded, unrecordedOf, unrecordedRefusal } from './unrecorded.js';
 
 /**
  * `shadowlap decisions --from-code`: the prompt and tools the working tree sends now, read without
@@ -72,6 +73,9 @@ export async function captureFromCode(input: CaptureInput): Promise<FromCodeCapt
   if (parent.meta?.covers?.length && !parent.meta.covers.some((c) => c === 'tool' || c.startsWith('tool:'))) {
     return none('the recording holds no tool calls (it was imported from captured traffic), so replaying it would run its tools for real: replay it once with your agent and preview that run');
   }
+  // A tool the model called that the recording never recorded would run for real in the replay: one that writes is refused.
+  const unrecorded = unrecordedRefusal(parent, unrecordedOf(store, parent.runId, declaredUnrecorded(process.cwd())), new Set(), null);
+  if (unrecorded) return none(unrecorded);
   const last = recorded.at(-1)!;
   const upstreams = Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
   const sidecar = await Sidecar.start({ store, normalizers: input.config.normalize, upstreams, ...(input.config.prices ? { prices: input.config.prices } : {}), ...(input.config.clock ? { clock: input.config.clock } : {}), ...(input.config.http ? { http: input.config.http } : {}) });

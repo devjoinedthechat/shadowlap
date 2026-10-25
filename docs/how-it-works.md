@@ -93,13 +93,13 @@ A recording keeps every model answer, and each answer names the tools the model 
 
 A tool's effect is, in order: what `tools.unrecorded` in `shadowlap.config.json` declares; a built-in's (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`, computer use, Anthropic's bash and text editor and the Responses API's shell and `apply_patch` write; `Read`, `Glob`, `Grep`, `WebFetch` and `WebSearch` only read); the verb its name leads with, as [`shadowlap init`](./cli.md#init) suggests effects (`send_email` writes, `lookup_order` reads); else unknown.
 
-`replay` and `test` refuse a recording whose unrecorded tools include a write, before anything runs, naming each (exit status 2). Wrap the tool where the agent runs it, so it is recorded and replayed. If running it again is safe, declare it a read:
+Every command that replays a recording refuses one whose unrecorded tools include a write, before anything runs, naming each (exit status 2): `replay` (with `--repeat` and `--chaos` too), `test`, `blame`, `verify`, `repair`, `calibrate`, `bisect` and `injection`. `decisions --from-code` and `tasks score` leave such a run out and say why. Wrap the tool where the agent runs it, so it is recorded and replayed. If running it again is safe, declare it a read:
 
 ```json
 { "tools": { "unrecorded": { "Bash": "write", "lookup_kb": "read" } } }
 ```
 
-Or let one replay run it anyway: `--allow-unrecorded Bash` (names separated by commas, repeatable). A read, and a tool of unknown effect, are only named. A partial recording, such as an [import](./cli.md#import), holds a trace's model calls and the tools it kept, and runs every other tool live by design, so it is never refused.
+Or let one command run it anyway: `--allow-unrecorded Bash` (names separated by commas, repeatable), which every one of them but `decisions` and `tasks score` takes. A read, and a tool of unknown effect, are only named. A partial recording, such as an [import](./cli.md#import), holds a trace's model calls and the tools it kept, and runs every other tool live by design, so it is never refused.
 
 ## The network guard
 

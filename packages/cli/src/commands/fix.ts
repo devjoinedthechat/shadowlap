@@ -20,6 +20,7 @@ import { resolveBase } from '../verify-base.js';
 import { HandOverError, RepairError, runRepair, splitHoldout } from '../repair.js';
 import { parseRepairer, type Repairer } from '../repairer.js';
 import { loadConfig } from '../config.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
 
 /** Finding where a failed run went wrong (blame), and checking that a change fixes it (verify). */
 
@@ -312,9 +313,10 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (runArg: string, command: string[], flags: { expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; scope?: string; scan: number; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (runArg: string, command: string[], flags: { expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; scope?: string; scan: number; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const rule = attemptRule(flags, { defaults: BLAME_DEFAULTS, passes: (n) => Math.min(2, n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
@@ -324,9 +326,16 @@ export function register(program: Command): void {
       const fields = parseFields(flags.set, flags.model);
 
       const store = readStore(opts);
-      const parent = requireRun(store, runArg);
-      const steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
-      store.close();
+      let parent: RunRecord;
+      let steps: number;
+      try {
+        parent = requireRun(store, runArg);
+        steps = store.getCalls(parent.runId).filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, flags.scope)).length;
+        // Every probe replays the run: a tool its model called that it never recorded, which writes, would run again for real.
+        refuseUnrecorded(store, parent, allowedUnrecorded(flags.allowUnrecorded));
+      } finally {
+        store.close();
+      }
       if (!command.length && !hasRecordedCommand(parent)) {
         throw new InvalidArgumentError(`${shortId(parent.runId)} ${withoutCommand(parent)} and has no command to re-run. Give yours after --:\n  shadowlap blame ${shortId(parent.runId)} -- python agent.py`);
       }
@@ -350,7 +359,7 @@ export function register(program: Command): void {
       );
 
       try {
-        const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, scan: flags.scan, scope: flags.scope ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], fields, spec, expect: expect?.json ?? null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
+        const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, scan: flags.scan, scope: flags.scope ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], fields, spec, expect: expect?.json ?? null, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
         const report = await runBlame({
           opts,
           parent,
@@ -401,9 +410,10 @@ export function register(program: Command): void {
     .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
     .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; from: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; margin?: number; baseline?: 'paired' | 'history'; base?: string; build?: string; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; gate?: string; attempts?: number; passes?: number; model?: string; set: string[]; from: string[]; liveTool: string[]; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; failFast?: boolean; margin?: number; baseline?: 'paired' | 'history'; base?: string; build?: string; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const rule = attemptRule(flags, { defaults: SPRT_DEFAULTS, passes: (n) => Math.ceil(0.8 * n) });
       const expect = flags.expect !== undefined ? readExpectJson(flags.expect) : null;
@@ -440,6 +450,8 @@ export function register(program: Command): void {
             chosen.set(run.runId, { run, role, flag });
           }
         }
+        // Every attempt replays its run: a tool the model called that the run never recorded, which writes, would run again for real.
+        for (const { run } of chosen.values()) refuseUnrecorded(store, run, allowedUnrecorded(flags.allowUnrecorded));
       } finally {
         store.close();
       }
@@ -469,7 +481,7 @@ export function register(program: Command): void {
       const report = await runVerify({
         opts,
         runs,
-        settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
+        settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
         log,
       });
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
@@ -517,9 +529,10 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'stop once this much is spent on live model calls and the repairer', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; repairerTimeout?: number; candidates: number; stronger?: string; scope?: string; set: string[]; gate?: string; attempts?: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (command: string[], flags: { fixes?: string[]; holdout?: string[]; keeps?: string[]; expect?: string; repairer?: string; repairerTimeout?: number; candidates: number; stronger?: string; scope?: string; set: string[]; gate?: string; attempts?: number; passes?: number; maxGrowth: number; build?: string; apply?: boolean; branch?: string; pr?: boolean; goldens?: string; writes: 'stub' | 'block'; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       if (!flags.fixes?.length) throw new InvalidArgumentError('give the failing runs to repair: --fixes <runs>');
       if (flags.pr && !flags.branch) throw new InvalidArgumentError('--pr opens a pull request from the branch --branch <name> makes; give both');
@@ -546,6 +559,8 @@ export function register(program: Command): void {
         fixes = selectRuns(store, flags.fixes, '--fixes');
         holdout = selectRuns(store, flags.holdout ?? [], '--holdout');
         keeps = selectRuns(store, flags.keeps ?? [], '--keeps');
+        // Blame and verify replay every one of them: a tool the model called that a run never recorded, which writes, would run again for real.
+        for (const run of [...fixes, ...holdout, ...keeps]) refuseUnrecorded(store, run, allowedUnrecorded(flags.allowUnrecorded));
       } finally {
         store.close();
       }
@@ -574,7 +589,7 @@ export function register(program: Command): void {
       log(`${p.yellow('⑂')} Repairing ${targets.length} failing run${targets.length === 1 ? '' : 's'}${held.length ? `, with ${held.length} held out from the repairer${heldOutAutomatically ? ' (every other one)' : ''}` : ''}${good.length ? `, keeping ${good.length} good run${good.length === 1 ? '' : 's'}` : ''}`);
       log(p.dim(`  repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${rule.gate ? describeGate(rule.gate) : `${rule.needed} of ${rule.attempts} attempts per run`} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
 
-      const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard };
+      const settings = { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, candidates: flags.candidates, stronger: flags.stronger ?? null, scope: flags.scope ?? null, rescueFields: parseFields(flags.set, undefined), maxGrowth: flags.maxGrowth, build: flags.build ?? null, repairer: repairer ?? { provider: 'anthropic' as const, model: '' }, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] };
       const outputs = { apply: !!flags.apply, branch: flags.branch ?? null, pr: !!flags.pr, goldens: flags.goldens ?? null };
       try {
         // The repair, and its hand-over. One that fails part way (a push or `gh` refused, a file changed)

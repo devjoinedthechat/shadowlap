@@ -5,7 +5,7 @@ import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDiv
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
 import { EXIT, interruptedStatus, stoppedBy, usageError } from '../exit-codes.js';
-import { allowedUnrecorded, declaredUnrecorded, formatUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, declaredUnrecorded, formatUnrecorded, refuseUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
 import type { UnrecordedTool } from '@shadowlap/engine';
 import type { PreloadReport } from '@shadowlap/sidecar';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
@@ -134,7 +134,7 @@ export function register(program: Command): void {
     .option('--set <call:key=value>', 'set a request field from model call <call> on, where the provider keeps it: 15:max_tokens=2048, 15:temperature=0 (repeatable; value is JSON or a string; a dotted key is a path)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--model <call:model>', 'switch the model from model call <call> on, in the body or, on Gemini, Vertex, Bedrock and Azure, the path: 15:claude-opus-5')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('--allow-unrecorded <names>', 'run these tools again for real though the recording never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
@@ -209,7 +209,7 @@ export function register(program: Command): void {
         return;
       }
       if (flags.chaos) {
-        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.summaryJson ? { json: flags.summaryJson } : {}) };
+        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.summaryJson ? { json: flags.summaryJson } : {}), allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded) };
         await replayChaos(opts, parent, checks, chaosFlags, givenCommand(process.argv, 'replay'), command.length ? command : undefined);
         return;
       }
@@ -259,7 +259,7 @@ export function register(program: Command): void {
           flags.concurrency,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
+          { recording: parent, allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded), capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         const judged = checks ? attempts.map((a) => judge(a.run.runId, a.output)) : [];
         const reader = openStore(opts);
@@ -350,8 +350,9 @@ export function register(program: Command): void {
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--guard <mode>', 'network guard: warn, block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('--json', 'machine-readable output, printed when calibration ends')
-    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; json?: boolean }) => {
+    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; allowUnrecorded: string[]; json?: boolean }) => {
       const say = (text: string) => {
         if (!flags.json) process.stdout.write(text);
       };
@@ -369,6 +370,9 @@ export function register(program: Command): void {
         if (!target) throw new Error(recordFirst);
         const parent = target.run;
         requireEnded(store, parent, 'calibrate');
+        // Each round replays the run: a tool its model called that it never recorded, which writes, would run again for real.
+        const allowed = allowedUnrecorded(flags.allowUnrecorded);
+        refuseUnrecorded(store, parent, allowed);
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent, parent.command.argv))) {
           process.exitCode = EXIT.usage;
           return;
@@ -383,7 +387,7 @@ export function register(program: Command): void {
         let outcome: { clean: true; total: number } | { clean: false; why: string; details: string } | null = null;
         for (let round = 1; round <= flags.maxRounds && !outcome; round++) {
           const normalizers = [...config.normalize, ...proposals.map((x) => x.normalizer)];
-          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: placeholders, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null });
+          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: placeholders, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null, allowUnrecorded: allowed });
           const s = attempt.ended.summary;
           for (const hash of store.runBlobRefs(attempt.ended.run.runId)) written.add(hash);
           store.deleteRun(attempt.ended.run.runId);

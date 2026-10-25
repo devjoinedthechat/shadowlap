@@ -12,7 +12,8 @@ import { testChaos } from '../chaos-session.js';
 import { checkLine, judgeResults, specFor, type JudgeCheck, type TestSpec } from '../checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests, loadTestSettings, upstreamOverrides } from '../config.js';
 import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.js';
-import { allowedUnrecorded, unrecordedInGoldens } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
+import { unrecordedInGoldens } from '../unrecorded-goldens.js';
 import { sessionSource } from '../baseline-branch.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
@@ -275,7 +276,7 @@ export function register(program: Command): void {
       }
       if (flags.chaos) {
         if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue || flags.suiteRisk !== undefined) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts, --suite-risk and --continue are for a test session');
-        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}) };
+        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}), allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded) };
         await testChaos(opts, packArgs, chaosFlags, givenCommand(process.argv, 'test'));
         return;
       }
@@ -360,6 +361,7 @@ export function register(program: Command): void {
             stopped,
             ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
             ...(flags.continue ? { continue: true } : {}),
+            allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
           };
           // Every run this golden makes, for --push: its replays, and a re-recording with --update.
           const made: string[] = [];
@@ -393,7 +395,7 @@ export function register(program: Command): void {
             let data: InjectionGateData;
             let proof: string | null = null;
             try {
-              const gate = await injectionGate({ opts, store, parent: o.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard }, (line) => process.stderr.write(`${line}\n`));
+              const gate = await injectionGate({ opts, store, parent: o.parent, golden, entry: spec.injection, configDir: projectDir, cwd, sessionId: session.sessionId, actor, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)] }, (line) => process.stderr.write(`${line}\n`));
               upstreamRequests += gate.report.cost.upstreamRequests;
               if (signal) return null;
               data = gate.data;
@@ -475,6 +477,7 @@ export function register(program: Command): void {
                   emitJobEvent({ type: 'run', runId, role: 'new' });
                 },
                 stopped,
+                allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
               });
               upstreamRequests += (u.summary?.upstreamRequests ?? 0) + (u.summary?.judge?.upstreamRequests ?? 0);
               if (u.run) made.push(u.run.runId);
@@ -609,9 +612,10 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
     .option('-y, --yes', 'run the recorded command of a run from a pack or the team store at each commit without asking')
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
-    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
         const report = await runBisect({
@@ -628,6 +632,7 @@ export function register(program: Command): void {
           cwd: resolve(flags.cwd ?? process.cwd()),
           timeoutMs: flags.timeout * 1000,
           guard: flags.guard,
+          allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
           log: (line) => process.stderr.write(`${line}\n`),
         });
         if (flags.json) process.stdout.write(JSON.stringify(report, null, 2) + '\n');

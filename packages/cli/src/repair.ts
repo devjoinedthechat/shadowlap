@@ -617,7 +617,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
           argv: t.argv,
           commandFromImport: t.commandFromImport,
           // Blame's own gate decides its probes, as shadowlap blame's does without --gate.
-          settings: { attempts: BLAME_DEFAULTS.max, needed: 0, gate: { kind: 'sprt', ...BLAME_DEFAULTS }, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, expect: s.expect, budget: left, timeoutMs: s.timeoutMs, guard: s.guard },
+          settings: { attempts: BLAME_DEFAULTS.max, needed: 0, gate: { kind: 'sprt', ...BLAME_DEFAULTS }, concurrency: s.concurrency, scan: 2, scope: s.scope ?? null, fields, writes: s.writes, reads: s.reads, liveTools: [], spec: s.spec, expect: s.expect, budget: left, timeoutMs: s.timeoutMs, guard: s.guard, ...(s.allowUnrecorded ? { allowUnrecorded: s.allowUnrecorded } : {}) },
           log: (line) => log(`  ${line}`),
         });
         cost.blame += r.spent;
@@ -752,7 +752,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       const v = await runVerify({
         opts: input.opts,
         runs: runs.map((t) => ({ ...t, argv: tree.argv(t.argv) })),
-        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, cwd: tree.cwd, baseCheckout: { label: 'the code without the candidate', open: withoutCandidate } },
+        settings: { attempts: s.attempts, needed: s.needed, gate: s.gate, concurrency: s.concurrency, fields: {}, failFast: true, spec: s.spec, writes: s.writes, reads: s.reads, liveTools: [], budget: budgetLeft(), timeoutMs: s.timeoutMs, guard: s.guard, ...(s.allowUnrecorded ? { allowUnrecorded: s.allowUnrecorded } : {}), cwd: tree.cwd, baseCheckout: { label: 'the code without the candidate', open: withoutCandidate } },
         log: (line) => log(`  ${line}`),
       });
       cost.verify += v.spent;

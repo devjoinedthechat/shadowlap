@@ -29,6 +29,8 @@ export interface UpdateContext {
   onRun?: (runId: string) => void;
   /** For a caller that winds down on a signal by itself: a re-recording a signal cuts short returns, and replaces nothing. */
   stopped?: () => boolean;
+  /** The tools `--allow-unrecorded` lets the re-recording run again though the golden never recorded them and they write. */
+  allowUnrecorded?: ReadonlySet<string>;
 }
 
 export interface UpdateResult {
@@ -199,6 +201,7 @@ export async function rerecordGolden(dir: string, parent: RunRecord, spec: TestS
     divergeAt: 1,
     ...(ctx.onRun ? { onRun: ctx.onRun } : {}),
     ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
+    ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
   });
   telemetry().record({ type: 'replay', ...usageOf(attempt.ended, attempt.ms, attempt.code) });
   const runId = attempt.ended.summary.runId;

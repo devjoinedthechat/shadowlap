@@ -33,6 +33,8 @@ export interface ChaosFlags {
   junit?: string;
   markdown?: string;
   cwd?: string;
+  /** The tools `--allow-unrecorded` lets a preset run again though the recording never recorded them and they write. */
+  allowUnrecorded?: ReadonlySet<string>;
 }
 
 /** What the presets asked for on the command line change in a recording's own: which ones, and the tool they hit. */
@@ -168,6 +170,7 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         golden,
         onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, golden, preset, attempt)),
         stopped: session.stopped,
+        ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
       });
       if (outcomes.length) process.stdout.write(`${formatPresets(golden, outcomes, p, judge)}\n`);
       if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('chaos.expect')}\n`));
@@ -205,6 +208,7 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
       ...(argv?.length ? { argv } : {}),
       onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, shortId(parent.runId), preset, attempt)),
       stopped: session.stopped,
+      ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
     });
     if (outcomes.length) process.stdout.write(`${formatPresets(`run ${shortId(parent.runId)}`, outcomes, p, judge)}\n`);
     if (judge.source === 'exit' && outcomes.some((o) => o.attempts > 0)) process.stdout.write(p.dim(`${judgedOnExit('--expect')}\n`));

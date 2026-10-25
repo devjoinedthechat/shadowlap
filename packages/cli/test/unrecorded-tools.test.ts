@@ -1,9 +1,10 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { quoteArgv } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { departures } from './json-shapes.js';
 
@@ -160,6 +161,48 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     const allowed = await shadowlap(['test', 'goldens/cleanup', '--allow-unrecorded', 'Bash']);
     expect(allowed.code, allowed.out).toBe(0);
     expect(allowed.stderr).toContain('! goldens/cleanup: the model called lookup_kb (3 calls), Bash (14 calls), which Shadowlap never recorded: its replay runs them for real');
+    expect(ran()).toBe(before + 14);
+  }, 60_000);
+
+  // Every command that replays the run would run Bash again: each refuses before its agent starts,
+  // and each takes --allow-unrecorded, put before the command's `--` in what it suggests.
+  it.each([
+    ['blame', () => ['blame', runId]],
+    ['verify', () => ['verify', '--keeps', runId]],
+    ['repair', () => ['repair', '--fixes', runId]],
+    ['calibrate', () => ['calibrate', runId]],
+    ['replay --repeat', () => ['replay', runId, '--repeat', '2']],
+    ['injection', () => ['injection', runId]],
+    ['blame with a command after --', () => ['blame', runId, '--', process.execPath, 'agent.mjs']],
+  ])('refuses %s before anything runs', async (_name, args) => {
+    const before = ran();
+    const given = args();
+    const r = await shadowlap(given);
+    expect(r.code, r.out).toBe(2);
+    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.`);
+    const dash = given.indexOf('--');
+    const suggested = ['shadowlap', ...(dash === -1 ? [...given, '--allow-unrecorded', 'Bash'] : [...given.slice(0, dash), '--allow-unrecorded', 'Bash', ...given.slice(dash)])];
+    expect(r.stderr).toContain(quoteArgv(suggested));
+    expect(ran()).toBe(before);
+  }, 60_000);
+
+  it('refuses bisect before any commit is checked out', async () => {
+    const git = (...a: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...a], { cwd: project, stdio: 'ignore' });
+    git('init', '-q');
+    git('commit', '-q', '--allow-empty', '-m', 'one');
+    git('commit', '-q', '--allow-empty', '-m', 'two');
+    const before = ran();
+    const r = await shadowlap(['bisect', runId, '--good', 'HEAD~1']);
+    expect(r.code, r.out).toBe(2);
+    expect(r.stderr).toContain(`${runId.slice(0, 10)} holds model calls of a tool Shadowlap never recorded, which writes`);
+    expect(r.stderr).toContain(quoteArgv(['shadowlap', 'bisect', runId, '--good', 'HEAD~1', '--allow-unrecorded', 'Bash']));
+    expect(ran()).toBe(before);
+  }, 60_000);
+
+  it('runs it again for real in verify with --allow-unrecorded', async () => {
+    const before = ran();
+    const r = await shadowlap(['verify', '--keeps', runId, '--allow-unrecorded', 'Bash']);
+    expect(r.code, r.out).toBe(0);
     expect(ran()).toBe(before + 14);
   }, 60_000);
 });
