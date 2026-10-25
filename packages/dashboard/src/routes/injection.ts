@@ -1,4 +1,3 @@
-import type { InjectionReport } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';

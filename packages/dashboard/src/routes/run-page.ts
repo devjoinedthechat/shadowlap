@@ -54,7 +54,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/runs/:id/offers', async (r) => {
     // A config that can't be read stops the copies when they run, with its reason; it doesn't stop the page.
-    let redact: readonly Normalizer[] = [];
+    let redact: readonly Normalizer[];
     try {
       redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     } catch {

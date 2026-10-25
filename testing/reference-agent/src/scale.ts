@@ -38,9 +38,8 @@ async function agent(runId: string): Promise<{ modelCalls: number; lastRequestBy
   const client = new Anthropic({ apiKey: 'k', baseURL: `${sidecar.url}/anthropic`, defaultHeaders: { 'x-shadowlap-run': runId }, maxRetries: 0 });
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: 'Read every note.' }];
   let modelCalls = 0;
-  let lastRequestBytes = 0;
   for (;;) {
-    lastRequestBytes = Buffer.byteLength(JSON.stringify(messages));
+    const lastRequestBytes = Buffer.byteLength(JSON.stringify(messages));
     const res = await client.messages.create({ model: 'claude-opus-5', max_tokens: 64, messages, tools: [{ name: 'read_file', input_schema: { type: 'object', properties: { path: { type: 'string' } } } }] });
     modelCalls++;
     const uses = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');

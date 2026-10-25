@@ -327,7 +327,7 @@ export function createClient(token: string): Client {
     // drops it, and shows as (canceled) among the page's requests.
     const text = await res.text();
     if (res.status === 304 && cached) return cached.body as T;
-    let body: unknown = null;
+    let body: unknown;
     try {
       body = text ? JSON.parse(text) : null;
     } catch {
@@ -443,7 +443,7 @@ export function createClient(token: string): Client {
     upload: async (file, name) => {
       const res = await fetch('/api/uploads', { method: 'POST', body: file, headers: { 'x-shadowlap-token': token, ...projectHeader(), 'x-filename': encodeURIComponent(name), 'content-type': 'application/octet-stream' } });
       const text = await res.text();
-      let body: unknown = null;
+      let body: unknown;
       try {
         body = text ? JSON.parse(text) : null;
       } catch {

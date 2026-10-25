@@ -176,7 +176,7 @@ function required(store: Store, hash: string): unknown {
 
 /** The blob hashes a stored request references (none when the manifest is missing or malformed). */
 export function manifestRefs(store: Store, manifestRef: string): string[] {
-  let manifest: RequestManifest | null = null;
+  let manifest: RequestManifest | null;
   try {
     manifest = store.getJson<RequestManifest>(manifestRef);
   } catch {

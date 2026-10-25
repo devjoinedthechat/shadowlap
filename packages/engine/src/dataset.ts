@@ -158,7 +158,7 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
     const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !isJudgeCall(c));
     const chosen = opts.calls === 'final' ? models.slice(-1) : models;
     for (const call of chosen) {
-      let e: DatasetExample | null = null;
+      let e: DatasetExample | null;
       try {
         e = example(store, run, call, redact);
       } catch {

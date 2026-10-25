@@ -44,7 +44,7 @@ describe('unpack: a pack is untrusted input', () => {
     const store = Store.open(':memory:');
     const dir = copyGolden();
     const m = manifest(dir);
-    (m.runs[0].meta as Record<string, unknown> | undefined) ?? (m.runs[0].meta = {});
+    (m.runs[0] as { meta?: Record<string, unknown> }).meta ??= {};
     (m.runs[0].meta as Record<string, unknown>).imported = undefined; // a pack cannot pretend to be local
     writeManifest(dir, m);
     const r = unpackRun(store, dir);

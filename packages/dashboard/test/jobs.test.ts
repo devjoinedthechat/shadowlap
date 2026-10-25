@@ -424,7 +424,7 @@ describe('uploads', () => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     utimesSync(stale, twoHoursAgo, twoHoursAgo);
     const idle = await startDashboard({ store, spawnCli: cliSpawner({ command: [process.execPath, FAKE], cwd: other }), project: { path: other } });
-    let kept = '';
+    let kept: string;
     try {
       expect(existsSync(stale)).toBe(false);
       expect(existsSync(recent)).toBe(true);

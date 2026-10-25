@@ -266,7 +266,7 @@ function idField(v: unknown): string | null {
 function digest(store: Store, call: CallRecord, cache: StoreCaches): Digest | null {
   if (!conversationRequest(call)) return null;
   const ref = call.requestRef!;
-  let manifest: RequestManifest | null = null;
+  let manifest: RequestManifest | null;
   try {
     manifest = store.getJson<RequestManifest>(ref);
   } catch {

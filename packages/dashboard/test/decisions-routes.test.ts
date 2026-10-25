@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
-import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
+import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';

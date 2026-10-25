@@ -7,7 +7,6 @@ import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { TeamStoreRow } from '../ui/pages/settings/CiTeamStore.js';
 import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
-import { settingsApi } from '../ui/settings-api.js';
 import {
   MCP_FORMS,
   SETTINGS_TABS,

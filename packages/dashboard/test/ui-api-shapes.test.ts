@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeAction, normalizeActions, normalizeMeta, normalizeRunDetail, normalizeRuns, sentence } from '../ui/normalize.js';
 import { copyAmbiguous, copyRunId, exportStartRun, familyLine, isAttempt, isFailed, repeatBundle, runOutcome, runType, type RepeatAttempt, type RunLike } from '../ui/runs.js';
-import type { ActionItem, Meta, RunDetail, RunListItem } from '../ui/types.js';
+import type { ActionItem, RunDetail, RunListItem } from '../ui/types.js';
 
 // The dashboard reads what other parts of the API send in their own shapes: these turn each into
 // the one the views read, and leave a server that sends none of it as it was.

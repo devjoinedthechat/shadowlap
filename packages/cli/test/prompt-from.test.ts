@@ -43,7 +43,7 @@ describe('--prompt-from', () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
-    let store = Store.open(db);
+    const store = Store.open(db);
     const models = store.getCalls(runId).filter((c) => c.kind === 'api').map((c) => c.callNo);
     store.close();
     const from = models[5];

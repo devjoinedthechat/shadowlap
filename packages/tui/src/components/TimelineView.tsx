@@ -3,7 +3,7 @@ import type { ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CallRecord, Origin, RunRecord, Store } from '@shadowlap/engine';
+import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
 import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';

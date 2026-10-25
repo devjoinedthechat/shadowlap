@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { confidenceWhy, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { confidenceWhy, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /**

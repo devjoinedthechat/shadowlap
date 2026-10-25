@@ -23,8 +23,8 @@ function parseOutput(stdout, stderr, step) {
 
 async function invoke(client, step, env) {
   const [cmd, ...args] = client.argv;
-  let stdout = '';
-  let stderr = '';
+  let stdout;
+  let stderr;
   try {
     ({ stdout, stderr } = await run(cmd, [...args, step], {
       cwd: client.cwd,

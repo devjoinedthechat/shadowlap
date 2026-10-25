@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, delimiter, join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -42,7 +42,7 @@ const MIN_NODE = [22, 16] as const;
 
 /** Why this Node's built-in SQLite can't hold a store, or null: no `node:sqlite`, or no full-text search in it. */
 function defaultSqlite(): string | null {
-  let db: { exec(sql: string): void; close(): void } | null = null;
+  let db: { exec(sql: string): void; close(): void };
   try {
     const { DatabaseSync } = (globalThis as { process: { getBuiltinModule?: (id: string) => unknown } }).process.getBuiltinModule?.('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
     db = new DatabaseSync(':memory:');

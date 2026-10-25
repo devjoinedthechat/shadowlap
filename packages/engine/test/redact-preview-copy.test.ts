@@ -227,7 +227,7 @@ function expected(src: Store, runId: string, rules: Normalizer[]) {
         const key = shown(c.before);
         if (seen.has(key)) continue;
         seen.add(key);
-        regex && (regex.lastIndex = 0);
+        if (regex) regex.lastIndex = 0;
         count += regex ? (shown(c.before).match(regex)?.length ?? 0) : 1;
         if (samples.length < 2) samples.push(clipChange(shown(c.before), shown(c.after)));
       }

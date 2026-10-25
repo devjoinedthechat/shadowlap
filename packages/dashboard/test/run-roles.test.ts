@@ -12,7 +12,7 @@ import { normalizeRunDetail, normalizeRuns } from '../ui/normalize.js';
 import { nextStepOf } from '../ui/run/next-step.js';
 import { isAttempt } from '../ui/runs.js';
 import type { MetaView } from '../src/views.js';
-import type { RunDetail, RunListItem } from '../ui/types.js';
+import type { RunDetail } from '../ui/types.js';
 import { addRun, blameOf, DAY, HOUR } from './read-model-store.js';
 
 // Which runs are attempts is one rule (the engine's run-roles.ts): the server's counts, the cached

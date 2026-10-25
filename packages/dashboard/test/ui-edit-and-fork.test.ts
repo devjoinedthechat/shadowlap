@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CallDetail, JobView } from '../ui/api.js';
 import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { render, type Rendered } from './ui-render.js';
 
 /**
  * Edit and fork, from the inspector: a tool's recorded result, or what a person answered, opens to

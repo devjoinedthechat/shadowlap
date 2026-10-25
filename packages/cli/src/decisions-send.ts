@@ -217,7 +217,7 @@ function exchange(url: URL, method: string, headers: Record<string, string>, bod
 /** What an error answer says, in its provider's shape: `error.message`, a top-level `message`, or its first line. */
 export function errorText(status: number, bytes: Buffer): string {
   const text = bytes.toString('utf8');
-  let message = '';
+  let message: string;
   try {
     const parsed = JSON.parse(text) as { error?: { message?: unknown } | string; message?: unknown } | Array<{ error?: { message?: unknown } }>;
     const one = Array.isArray(parsed) ? parsed[0] : parsed;

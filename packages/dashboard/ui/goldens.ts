@@ -201,8 +201,8 @@ export function checkMark(c: GoldenCheck, ran: boolean): CheckMarkView {
   }
   const word = STATUS_WORD[c.status];
   const detail = c.detail ?? '';
-  let sub: string | null = null;
-  let value = '';
+  let sub: string | null;
+  let value: string;
   if (c.status === 'failed') {
     sub = t ? `${t.passed} of ${t.of} attempts passed · the others: ${detail || 'failed'}` : detail || null;
     value = t ? `${t.passed} of ${t.of} attempts passed; the others: ${detail || 'failed'}` : detail || 'failed';

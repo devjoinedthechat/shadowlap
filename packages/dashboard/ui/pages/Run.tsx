@@ -163,7 +163,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     setOpenRunAbout(run.run.runId, run.about ?? null);
   }, [run.run.runId, run.about?.text, run.about?.from]);
   useEffect(() => () => setOpenRunAbout(null), []);
-  const { client, exported, actionsOff, setRunCommands, runKeys, setPalette, runsTick } = app;
+  const { client, exported, actionsOff, setRunCommands, runKeys, runsTick } = app;
   const runId = run.run.runId;
   const live = run.run.status === 'running';
   // Each model named as the page names it everywhere: claude-opus-5, not opus-5 here and the full id there.

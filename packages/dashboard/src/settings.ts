@@ -531,7 +531,7 @@ export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options:
       return { path, agents, found: false, type: null, mentions: false };
     }
     if (st.isDirectory()) {
-      let walk = true;
+      let walk: boolean;
       try {
         walk = !lstatSync(full).isSymbolicLink() || inside(realpathSync(full), realpathSync(ctx.cwd));
       } catch {

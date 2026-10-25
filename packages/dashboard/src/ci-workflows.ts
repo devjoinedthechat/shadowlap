@@ -268,7 +268,7 @@ export function fixPreview(store: Store, budget: string): PullRequestPreview | n
 export function ciTeamStore(input: Pick<TeamStoreInput, 'store' | 'ciPush'> | null, unreadable = false): CiTeamStore {
   // The config names the store: while it can't be read, there is no telling whether the step pushes.
   if (unreadable) return { push: false, name: null, credentials: null, note: 'shadowlap.config.json can’t be read, so whether fixes go to a team store isn’t known until it is fixed.', lands: [] };
-  let loc: StoreLocation | null = null;
+  let loc: StoreLocation | null;
   try {
     loc = input?.store ? parseStoreUrl(input.store) : null;
   } catch {
@@ -431,7 +431,7 @@ function packProviders(dir: string): string[] | null {
   }
   const kept = calledBy.get(file);
   if (kept && kept.mtimeMs === st.mtimeMs && kept.size === st.size) return kept.providers;
-  let text = '';
+  let text: string;
   try {
     text = st.size > CALLS_READ ? readFileSync(file).subarray(0, CALLS_READ).toString('utf8') : readFileSync(file, 'utf8');
   } catch {

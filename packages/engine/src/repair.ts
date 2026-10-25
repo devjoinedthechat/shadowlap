@@ -709,8 +709,14 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
     if (old <= 0 && now <= 0) break;
     const kind = l[0];
     if (kind !== ' ' && kind !== '-' && kind !== '+') return 'a line in its hunk is neither context, removed nor added';
-    if (kind !== '+') sides['-'].push({ text: l.slice(1), eol: true }), old--;
-    if (kind !== '-') sides['+'].push({ text: l.slice(1), eol: true }), now--;
+    if (kind !== '+') {
+      sides['-'].push({ text: l.slice(1), eol: true });
+      old--;
+    }
+    if (kind !== '-') {
+      sides['+'].push({ text: l.slice(1), eol: true });
+      now--;
+    }
     last = kind;
   }
   if (old !== 0 || now !== 0) return 'its hunk holds a different number of lines than its header says';

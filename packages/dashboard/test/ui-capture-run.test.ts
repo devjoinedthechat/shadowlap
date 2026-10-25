@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countOrigins, type Origin7 } from '../ui/origins.js';
+import { countOrigins } from '../ui/origins.js';
 import { metricItems, type MetricInput } from '../ui/run/metrics.js';
 import { runDuration } from '../ui/run/model.js';
 

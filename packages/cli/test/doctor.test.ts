@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, judgeAskId, packRun, Store } from '@shadowlap/engine';
 import { startMockOpenAI, turn as openaiTurn, withJudge as openaiJudge, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
 import { Sidecar } from '@shadowlap/sidecar';
-import { defaultDbPath, loadConfig, loadTests } from '../src/config.js';
+import { loadTests } from '../src/config.js';
 import { formatDoctor, pythonCheck, runDoctor } from '../src/doctor.js';
 import { askJudges } from '../src/judge.js';
 

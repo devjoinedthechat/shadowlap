@@ -29,8 +29,6 @@ function inStore(store: Store, ...runIds: string[]): void {
   for (const runId of runIds) store.setTeamRun(KEY, { runId, state: 'pushed', at: 1, base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId } });
 }
 
-const fixPuts = (remote: MemoryStore) => remote.log.filter((l) => l.op === 'put' && l.key.startsWith('fixes/')).length;
-
 describe('a fix in the team store', () => {
   it('goes with the runs it is about, and a teammate pulls it with its steps', async () => {
     const remote = new MemoryStore(loc);

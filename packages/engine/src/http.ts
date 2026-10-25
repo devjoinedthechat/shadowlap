@@ -253,7 +253,7 @@ export function rawJsonMember(text: string, path: readonly string[]): string | n
     ws();
     if (text[i] !== '{') return null;
     i++;
-    let found = false;
+    // Left only by the break at the key (or a return): past the loop, the key was found.
     for (;;) {
       ws();
       if (text[i] === '}') return null;
@@ -267,16 +267,12 @@ export function rawJsonMember(text: string, path: readonly string[]): string | n
       } catch {
         return null;
       }
-      if (name === path[depth]) {
-        found = true;
-        break;
-      }
+      if (name === path[depth]) break;
       if (!value()) return null;
       ws();
       if (text[i] === ',') i++;
       else return null;
     }
-    if (!found) return null;
     if (depth === path.length - 1) {
       const start = i;
       if (!value()) return null;

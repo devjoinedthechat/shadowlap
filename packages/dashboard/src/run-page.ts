@@ -281,7 +281,7 @@ function resultShortOf(store: Store, c: CallRecord): string | null {
   const key = `${c.end.responseRef ?? ''}\n${c.origin}\n${c.end.outcome}\n${typeof c.meta.http === 'string' ? 'http' : ''}\n${c.end.meta.error?.message ?? ''}`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let payload: unknown = null;
+  let payload: unknown;
   try {
     payload = c.end.responseRef ? store.getJson(c.end.responseRef) : null;
   } catch {
@@ -309,7 +309,7 @@ function saidLineOf(store: Store, c: CallRecord): string | null {
   const key = `${ref}\nsaid`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let line: string | null = null;
+  let line: string | null;
   try {
     const provider = c.end.meta.provider ?? c.meta.provider;
     const r = normalizeResponse(store.getBlob(ref), c.end.meta.headers?.['content-type'], c.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
@@ -334,7 +334,7 @@ function valueLineOf(store: Store, c: CallRecord): string | null {
   const key = `${c.end.responseRef}\nvalue`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let line: string | null = null;
+  let line: string | null;
   try {
     const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
     const v = payload && typeof payload === 'object' && 'result' in payload ? payload.result : undefined;

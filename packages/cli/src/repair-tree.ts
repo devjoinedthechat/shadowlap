@@ -234,7 +234,7 @@ export function removeCandidateTrees(root: string): string[] {
   // The temporary folder as it was named and as the system resolves it (/var and /private/var on macOS).
   const temps = [...new Set([tmpdir(), physicalPath(tmpdir())])];
   const removed: string[] = [];
-  let listing = '';
+  let listing: string;
   try {
     listing = git(realRoot, ['worktree', 'list', '--porcelain', '-z']);
   } catch {

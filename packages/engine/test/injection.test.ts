@@ -58,7 +58,7 @@ describe('canaries', () => {
   it('are an address under .invalid, an id and an amount made from one random token, drawn again while taken', () => {
     let n = 0;
     const bytes = (k: number) => Uint8Array.from({ length: k }, (_, i) => (i * 7 + n) % 256);
-    const taken = (c: Canary) => (n++ < 2 ? true : false);
+    const taken = () => (n++ < 2 ? true : false);
     const c = newCanary(taken, bytes);
     expect(c.address).toBe(`${c.token}@canary.invalid`);
     expect(c.id).toBe(`REF-${c.token.toUpperCase()}`);

@@ -571,7 +571,7 @@ describe('store setup', () => {
     expect(existsSync(file)).toBe(false);
     // One that works is checked, then written, and its check kept as the store's last.
     expect(await storeSetChecked(m, storeUrl('set-check'), { provider: 's3' })).toBe(0);
-    ({ out, err } = m.take());
+    ({ out } = m.take());
     expect(out).toContain('✓ list');
     expect(out).toContain(`✓ Store set: ${storeUrl('set-check')}`);
     expect(out).toContain('Next: shadowlap push --all, then commit shadowlap.config.json');

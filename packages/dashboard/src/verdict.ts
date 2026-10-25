@@ -72,7 +72,7 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
   if (x.deterministic) return { line: `${word} · clean replay`, tone };
   // Against its baseline, its pass rate says nothing alone: both tallies, and the bound on the drop.
   if (x.baseline) {
-    let drop: string | null = null;
+    let drop: string | null;
     try {
       drop = x.drop ? dropBound(x.drop, x.decision) : null;
     } catch {
@@ -80,7 +80,7 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
     }
     return { line: [word, `${x.passes} of ${x.attempts.length}, baseline ${x.baseline.passes} of ${x.baseline.attempts}`, drop].filter(Boolean).join(' · '), tone };
   }
-  let bound: string | null = null;
+  let bound: string | null;
   try {
     bound = x.gate && x.attempts.length ? wilsonBound(x.gate) : null;
   } catch {

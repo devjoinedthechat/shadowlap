@@ -1,4 +1,4 @@
-import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict, type VerdictStanding } from '@shadowlap/engine';
+import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**

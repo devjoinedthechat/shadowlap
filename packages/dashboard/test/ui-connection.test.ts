@@ -52,7 +52,7 @@ describe('the connection to the dashboard server', () => {
     expect(s).toEqual({ conn: 'ok', attempt: 0, retryAt: null, preview: true });
     s = connStep(s, { type: 'unreachable', now: 0 });
     const seen: number[] = [secondsLeft(s, 0)];
-    let now = 0;
+    let now: number;
     for (let i = 0; i < 4; i++) {
       now = s.retryAt!;
       expect(onTick(s, now, false)).toBe('advance');

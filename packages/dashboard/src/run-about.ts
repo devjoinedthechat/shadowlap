@@ -25,7 +25,7 @@ function answered(store: Store, parentRunId: string | null, callNo: number | nul
   const key = `${parentRunId}#${callNo}`;
   const hit = kept.get(key);
   if (hit !== undefined) return hit;
-  let yes = false;
+  let yes: boolean;
   try {
     yes = store.query(ANSWERED_SQL, parentRunId, callNo).length > 0;
   } catch {

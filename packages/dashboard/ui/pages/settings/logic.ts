@@ -581,7 +581,7 @@ const NAME_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'co
 export function serverNameFor(transport: 'stdio' | 'http', target: string): string {
   const pick = (words: string[]) => words.map((w) => w.toLowerCase()).find((w) => /^[a-z][a-z0-9-]*$/.test(w) && !NAME_NOISE.has(w)) ?? 'server';
   if (transport === 'http') {
-    let host = '';
+    let host: string;
     try {
       host = new URL(target.trim()).hostname;
     } catch {

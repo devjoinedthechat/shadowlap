@@ -120,7 +120,7 @@ export function callTree(calls: readonly GroupCall[]): CallTree {
     }
     const s = scopeOf(c);
     const item = itemOf.get(convKey(s, c.conversation)) ?? null;
-    let want: number | null = null;
+    let want: number | null;
     if (heads.has(c.callNo)) want = null;
     else if (c.kind === 'tool' && typeof c.requestedBy === 'number') want = c.requestedBy;
     else if (c.kind === 'api') want = s.includes('/') ? callerOf(s) : item;

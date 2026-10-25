@@ -84,7 +84,11 @@ const parses = (v: unknown) => {
 /** Every `$ref` in the schema, wherever it is. */
 function refs(node: unknown, out: string[] = []): string[] {
   if (Array.isArray(node)) node.forEach((x) => refs(x, out));
-  else if (isObject(node)) for (const [k, v] of Object.entries(node)) k === '$ref' && typeof v === 'string' ? out.push(v) : refs(v, out);
+  else if (isObject(node))
+    for (const [k, v] of Object.entries(node)) {
+      if (k === '$ref' && typeof v === 'string') out.push(v);
+      else refs(v, out);
+    }
   return out;
 }
 
