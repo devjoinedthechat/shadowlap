@@ -181,7 +181,7 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | `--json` | The report as JSON on stdout ([fields](./blame.md#json)) |
 | `--guard`, `--allow-unrecorded`, `-y` | As for `replay` |
 
-Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, `--budget` with a model that has no price, or a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict, the budget spent or the provider unavailable, or what the replay as recorded showed could not be decided; 128 + n for a stop signal, 130 for Ctrl-C.
+Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, `--budget` with a model that has no price, or a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict, the budget spent or the provider unavailable, when what the replay as recorded showed could not be decided, or when its first probe could not tell a rescue from a loss (*Not settled from the first model call*); 128 + n for a stop signal, 130 for Ctrl-C.
 
 Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
 

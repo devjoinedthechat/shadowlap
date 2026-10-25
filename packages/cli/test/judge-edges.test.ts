@@ -416,12 +416,15 @@ describe('a blame probe whose attempt a judge could not answer', () => {
     const rec = await record({ VARIANT: 'n' });
     const expect_ = JSON.stringify({ judge: [judge({ question: 'Did the agent issue the refund? (first answer only)' })] });
     const b = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1', '--json'], { VARIANT: 'n' });
+    // No verdict: inconclusive, exit status 3.
+    expect(b.code, b.out).toBe(3);
     const blame = JSON.parse(b.stdout) as { outcome: string; confidence: string; probes: Array<{ callNo: number; rescued: boolean; decision?: string; undecided?: string | null; runs: Array<{ passed: boolean; verdict?: string }> }> };
     expect(blame).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
     expect(blame.probes).toEqual([expect.objectContaining({ callNo: 1, rescued: false, decision: 'inconclusive', undecided: expect.stringMatching(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) })]);
     // It stopped at the attempt it could not judge, which is no failure.
     expect(blame.probes[0].runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
     const text = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1'], { VARIANT: 'n' });
+    expect(text.code, text.out).toBe(3);
     expect(text.out).toContain('? Not settled from the first model call');
     expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');
     expect(text.out).toMatch(/inconclusive · an attempt not judged/);
