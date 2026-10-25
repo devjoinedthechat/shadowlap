@@ -7,6 +7,7 @@ import { RunBuilder, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { AttemptRunner } from '../src/attempts.js';
 import { CliError, EXIT } from '../src/exit-codes.js';
 import { repeatUnderSidecar, testAttempt } from '../src/run-agent.js';
+import { formatUnrecorded, unrecordedRefusal, unrecordedRunAnyway } from '../src/unrecorded.js';
 
 /**
  * The runners every command that replays a recording shares (`testAttempt` for test, bisect and
@@ -101,4 +102,26 @@ describe('the runners every replaying command shares', () => {
       await allowed.close();
     }
   }, 30_000);
+});
+
+describe('a tool of unknown effect', () => {
+  const run = { runId: '01K0UNKNOWN0000000000000000', meta: {} } as unknown as RunRecord;
+  const tool = (name: string, effect: 'write' | 'read' | 'unknown', why: string) => ({ name, count: 1, firstCallNo: 2, effect, why });
+
+  it('is refused as a write is, as the MCP proxy takes a tool its server leaves unannotated', () => {
+    const refusal = unrecordedRefusal(run, [tool('frobnicate', 'unknown', 'its name says nothing of what it does')], new Set(), ['shadowlap', 'replay', run.runId]);
+    expect(refusal).toContain("01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.");
+    expect(refusal).toContain('    frobnicate  1 call from model call #2 · its name says nothing of what it does');
+    expect(refusal).toContain(`shadowlap replay ${run.runId} --allow-unrecorded frobnicate`);
+    expect(unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…')], new Set(['frobnicate']), null)).toBeNull();
+    // With a write beside it, both are named.
+    const both = unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…'), tool('Bash', 'write', 'a built-in that writes')], new Set(), null);
+    expect(both).toContain('which write, or may:');
+    expect(unrecordedRunAnyway([tool('frobnicate', 'unknown', '…'), tool('lookup_kb', 'read', '…')], new Set()).map((t) => t.name)).toEqual(['lookup_kb']);
+  });
+
+  it('says at the end of a run that it may write, so a replay refuses it', () => {
+    const said = formatUnrecorded([tool('frobnicate', 'unknown', 'its name says nothing of what it does')], 'recording');
+    expect(said).toContain('  frobnicate may write, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.');
+  });
 });

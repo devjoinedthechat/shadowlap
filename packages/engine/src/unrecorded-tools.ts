@@ -59,14 +59,22 @@ export function parseUnrecordedConfig(tools: unknown, file = 'shadowlap.config.j
 
 // ---- effects by name ----
 
-const WRITE_WORDS = new Set(['send', 'post', 'create', 'write', 'delete', 'remove', 'update', 'upsert', 'set', 'put', 'insert', 'save', 'submit', 'pay', 'charge', 'refund', 'transfer', 'book', 'order', 'publish', 'deploy', 'notify', 'execute', 'exec', 'run', 'commit', 'push', 'merge', 'approve', 'cancel', 'archive', 'move', 'rename', 'upload', 'add', 'email', 'reply', 'schedule', 'invite', 'assign', 'close', 'apply', 'install', 'kill', 'restart', 'trigger', 'tweet', 'comment']);
-const READ_WORDS = new Set(['get', 'read', 'fetch', 'search', 'list', 'find', 'lookup', 'query', 'load', 'browse', 'retrieve', 'check', 'describe', 'view', 'show', 'count', 'download', 'inspect', 'weather', 'scrape', 'crawl', 'grep', 'ls', 'cat', 'tail', 'head', 'watch', 'poll', 'price', 'quote']);
-const PURE_WORDS = new Set(['calc', 'calculate', 'compute', 'parse', 'format', 'convert', 'validate', 'math', 'add_numbers', 'sum', 'multiply', 'divide', 'round', 'hash', 'encode', 'decode', 'tokenize', 'sort', 'diff', 'render']);
+/** Verbs that change something wherever they stand in a name: `get_or_create_user` creates, `search_and_replace` replaces. */
+const WRITE_VERBS = new Set(['send', 'create', 'write', 'delete', 'remove', 'update', 'upsert', 'insert', 'save', 'submit', 'pay', 'charge', 'refund', 'transfer', 'publish', 'deploy', 'notify', 'execute', 'exec', 'commit', 'push', 'merge', 'approve', 'cancel', 'move', 'rename', 'upload', 'add', 'invite', 'assign', 'apply', 'install', 'uninstall', 'kill', 'restart', 'trigger', 'tweet', 'edit', 'replace', 'modify', 'patch', 'checkout', 'purchase', 'buy', 'sell', 'click', 'fill', 'press', 'drag', 'navigate', 'repl', 'eval', 'overwrite', 'append', 'erase', 'purge', 'destroy', 'terminate', 'revoke', 'grant', 'escalate', 'enable', 'disable', 'subscribe', 'unsubscribe', 'reboot', 'shutdown', 'rollback', 'revert', 'truncate', 'wipe']);
+/**
+ * Words that change something as a name's verb, where names put it, first, but are as often nouns
+ * after it: `run_query` runs, `get_run_status` reads; `open_pull_request` opens, `lookup_order` reads.
+ */
+const WRITE_FIRST = new Set(['post', 'set', 'put', 'book', 'order', 'run', 'email', 'mail', 'reply', 'schedule', 'archive', 'comment', 'close', 'open', 'type', 'select', 'start', 'stop', 'message', 'text', 'share', 'like', 'tag', 'label', 'mark', 'pin', 'star', 'follow', 'reset', 'clear', 'call', 'invoke', 'command', 'script', 'shell', 'bash', 'python', 'drop', 'sync', 'import', 'export', 'link', 'note', 'issue', 'file', 'log', 'record', 'store']);
+const READ_WORDS = new Set(['get', 'read', 'fetch', 'search', 'list', 'find', 'lookup', 'query', 'load', 'browse', 'retrieve', 'check', 'describe', 'view', 'show', 'count', 'download', 'inspect', 'weather', 'scrape', 'crawl', 'grep', 'ls', 'cat', 'tail', 'head', 'watch', 'poll', 'price', 'quote', 'snapshot', 'screenshot', 'status', 'info', 'exists', 'peek', 'preview', 'scan']);
+const PURE_WORDS = new Set(['calc', 'calculate', 'compute', 'parse', 'format', 'convert', 'validate', 'math', 'sum', 'multiply', 'divide', 'round', 'hash', 'encode', 'decode', 'tokenize', 'sort', 'diff', 'render']);
 
 /**
- * A tool's effect as its name says it, or null when the name gives no hint. Tool names usually lead
- * with their verb (`read_file`, `send_email`, `lookupOrder`), so the first known word decides.
- * `shadowlap init` suggests an effect for an unwrapped tool the same way.
+ * A tool's effect as its name says it, or null when the name gives no hint. A verb that changes
+ * something decides wherever it stands (`get_or_create_user`, `search_and_replace`); a word that is
+ * as often a noun decides only as the name's first, where names put their verb (`send_email`,
+ * `lookupOrder`); then the first word that only looks, or depends only on its input. `shadowlap init`
+ * suggests an effect for an unwrapped tool the same way.
  */
 export function toolNameEffect(name: string): { effect: 'write' | 'read' | 'pure'; word: string } | null {
   const words = name
@@ -74,8 +82,9 @@ export function toolNameEffect(name: string): { effect: 'write' | 'read' | 'pure
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
+  const changes = words.find((w) => WRITE_VERBS.has(w)) ?? (words[0] !== undefined && WRITE_FIRST.has(words[0]) ? words[0] : undefined);
+  if (changes) return { effect: 'write', word: changes };
   for (const word of words) {
-    if (WRITE_WORDS.has(word)) return { effect: 'write', word };
     if (READ_WORDS.has(word)) return { effect: 'read', word };
     if (PURE_WORDS.has(word)) return { effect: 'pure', word };
   }
