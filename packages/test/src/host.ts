@@ -31,7 +31,8 @@ export function startHost(root: string = process.cwd(), opts: { keepProcessAlive
       reject(err);
     };
     child.once('error', (err) => fail(new Error(`could not start the shadowlap CLI: ${err.message}`)));
-    child.once('exit', (code) => fail(new Error(`shadowlap serve --recordings exited before it was ready (exit code ${code})`)));
+    // One a signal ended has no exit code, only the signal.
+    child.once('exit', (code, signal) => fail(new Error(`shadowlap serve --recordings exited before it was ready (${code === null ? `signal ${signal!}` : `exit code ${code}`})`)));
     child.stdout!.on('data', (chunk: Buffer) => {
       out += chunk.toString();
       const nl = out.indexOf('\n');
