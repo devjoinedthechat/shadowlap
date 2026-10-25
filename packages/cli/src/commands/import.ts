@@ -185,7 +185,7 @@ function hostFor(address: Address, what: string, allowHttp: boolean, secret?: st
 
 /** The flags that import the traces in a window instead of one trace. */
 const WINDOW_FLAGS = { since: '--since', until: '--until', limit: '--limit', traceName: '--trace-name' } as const;
-type WindowFlags = { [K in keyof typeof WINDOW_FLAGS]?: string };
+export type WindowFlags = { [K in keyof typeof WINDOW_FLAGS]?: string };
 
 const WINDOW_HELP = {
   since: 'without a trace id: import the traces that started from then on, a date, a time, or how long ago (default: 30d)',
@@ -218,7 +218,7 @@ const stamp = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UT
  * The window an import without a trace id reads, or null for one trace. `--since` also goes with a
  * trace id where the store needs a start to look from (Logfire); the other flags never do.
  */
-function windowOf(format: string, rawId: string | undefined, flags: WindowFlags, sinceWithId = false): BulkWindow | null {
+export function windowOf(format: string, rawId: string | undefined, flags: WindowFlags, sinceWithId = false): BulkWindow | null {
   const given = (Object.keys(WINDOW_FLAGS) as Array<keyof WindowFlags>).filter((k) => flags[k] !== undefined);
   if (rawId !== undefined) {
     const many = given.filter((k) => !(sinceWithId && k === 'since')).map((k) => WINDOW_FLAGS[k]);
@@ -228,7 +228,9 @@ function windowOf(format: string, rawId: string | undefined, flags: WindowFlags,
   if (!given.length) throw new InvalidArgumentError(`import ${format}: give a trace id, or --since, --until, --limit or --trace-name to import the traces that started in a window`);
   const since = sinceOf(flags.since);
   const until = flags.until === undefined ? new Date() : momentOf('--until', flags.until);
-  if (until.getTime() <= since.getTime()) throw new InvalidArgumentError(`--until: "${flags.until}" is not after --since (${stamp(since)})`);
+  // Without --until the window ends now, so an empty one is --since's: it was now, not a moment before.
+  if (until.getTime() <= since.getTime())
+    throw new InvalidArgumentError(flags.until === undefined ? `--since: "${flags.since!}" is not a moment in the past` : `--until: "${flags.until}" is not after --since (${stamp(since)})`);
   return { since, until, limit: limitOf(flags.limit), name: traceNameOf(flags.traceName) };
 }
 

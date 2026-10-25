@@ -5,8 +5,9 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { windowOf } from '../src/commands/import.js';
 import { fields, keys } from './json-shapes.js';
 
 /**
@@ -369,5 +370,22 @@ describe('shadowlap import logfire, the traces in a window', () => {
     // Each trace's spans from a minute before its root started, not from the window's start.
     expect(bodies.slice(1).map((b) => b.min_timestamp)).toEqual(['2026-10-22T16:09:33.587Z', '2026-10-22T16:00:00.185Z']);
     expect(importedKeys(db).map((x) => x.from).sort()).toEqual(['logfire:01a16458', 'logfire:01a16460']);
+  });
+});
+
+describe('the window of an import', () => {
+  it('says --since leaves no time before now, without naming an --until that was never given', () => {
+    // --since 0h is now: with no --until, the window ends now too, in the same millisecond.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-24T12:00:00Z'));
+    try {
+      expect(() => windowOf('langfuse', undefined, { since: '0h' })).toThrow(/^--since: "0h" is not a moment in the past$/);
+      expect(() => windowOf('langfuse', undefined, { since: '2026-10-24T12:00:00Z' })).toThrow(/^--since: "2026-10-24T12:00:00Z" is not a moment in the past$/);
+      // Given, --until is named as before.
+      expect(() => windowOf('langfuse', undefined, { since: '2026-10-05', until: '2026-10-01' })).toThrow(/^--until: "2026-10-01" is not after --since \(2026-10-05 00:00 UTC\)$/);
+      expect(windowOf('langfuse', undefined, { since: '1h' })).toMatchObject({ since: new Date('2026-10-24T11:00:00Z'), until: new Date('2026-10-24T12:00:00Z') });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
