@@ -176,3 +176,52 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
     }
   });
 });
+
+describe("a candidate's worktree, its size and a build", () => {
+  it("copies the working tree's untracked files within the limit, as what git ignores, and links what is past it, naming it", () => {
+    const root = repository();
+    write(join(root, 'agent', 'dump.bin'), 'x'.repeat(5000));
+    const tree = candidateTree(root, join(root, 'agent'), { copyLimit: 1000 });
+    try {
+      // The small untracked note is copied; the dump past the limit is linked, and said.
+      expect(lstatSync(join(tree.cwd, 'notes.txt')).isFile()).toBe(true);
+      expect(lstatSync(join(tree.cwd, 'dump.bin')).isSymbolicLink()).toBe(true);
+      expect(tree.linked).toEqual(expect.arrayContaining(['agent/dump.bin']));
+    } finally {
+      tree.remove();
+    }
+    expect(readFileSync(join(root, 'agent', 'dump.bin'), 'utf8')).toHaveLength(5000);
+  });
+
+  it("gives a build node_modules of its own, so what it writes there never reaches the working tree's, and no virtual environment to write into", () => {
+    const root = repository();
+    // A package of the repository itself, linked into node_modules as a workspace's is.
+    write(join(root, 'packages', 'tools', 'index.js'), 'module.exports = "tools";\n');
+    sh(root, 'add', 'packages');
+    sh(root, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'tools');
+    symlinkSync('../packages/tools', join(root, 'node_modules', 'tools'));
+    const tree = candidateTree(root, join(root, 'agent'), { copyLimit: 1_000_000, build: true });
+    try {
+      // Copied, not linked: a build writing a cache or a generated client there writes the worktree's.
+      expect(lstatSync(join(tree.root, 'node_modules', 'left-pad')).isSymbolicLink()).toBe(false);
+      writeFileSync(join(tree.root, 'node_modules', 'left-pad', 'index.js'), 'module.exports = 2;\n');
+      mkdirSync(join(tree.root, 'node_modules', '.cache'));
+      // The workspace package is the worktree's own copy, as without a build.
+      expect(realpathSync(join(tree.root, 'node_modules', 'tools'))).toBe(realpathSync(join(tree.root, 'packages', 'tools')));
+      // The build makes its own environment: the working tree's isn't there to write into.
+      expect(existsSync(join(tree.root, '.venv'))).toBe(false);
+    } finally {
+      tree.remove();
+    }
+    expect(readFileSync(join(root, 'node_modules', 'left-pad', 'index.js'), 'utf8')).toBe('module.exports = 1;\n');
+    expect(existsSync(join(root, 'node_modules', '.cache'))).toBe(false);
+    // Without a build, they are linked as before.
+    const plain = candidateTree(root, join(root, 'agent'), { copyLimit: 1_000_000 });
+    try {
+      expect(realpathSync(join(plain.root, 'node_modules', 'left-pad'))).toBe(join(root, 'node_modules', 'left-pad'));
+      expect(readlinkSync(join(plain.root, '.venv'))).toBe(join(root, '.venv'));
+    } finally {
+      plain.remove();
+    }
+  });
+});

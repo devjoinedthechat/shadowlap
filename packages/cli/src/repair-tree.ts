@@ -19,11 +19,18 @@ import { physicalPath, realPath } from './real-path.js';
  * along as the agent needs it: `node_modules` is linked entry by entry as bisect links it (a package
  * of the repository itself is the worktree's own copy), a Python virtual environment is linked whole,
  * caches a runtime makes again are left out, and everything else (a `.env`, build output, data) is
- * copied, cloned where the file system can, up to COPY_LIMIT in all. Past that it is linked, and
- * `linked` names it: a `--build` that writes there writes the working tree's copy.
+ * copied, cloned where the file system can. The working tree's own files and what git ignores are
+ * copied up to COPY_LIMIT in all; past that they are linked, and `linked` names them: a `--build`
+ * that writes there writes the working tree's copy.
+ *
+ * With `build` (repair's `--build`), which writes into what it builds with, nothing it builds with is
+ * linked from the repository: `node_modules` is copied whole (cloned where the file system can), a
+ * package of the repository itself still linked to the worktree's own copy, and a virtual environment
+ * is left for the build to make, as it can't be copied (its scripts name the original's interpreter).
+ * Packages installed above the repository are linked either way.
  */
 
-/** What is copied of the files git ignores, at most, before the rest is linked instead. */
+/** What is copied of the working tree's files and of those git ignores, at most, before the rest is linked instead. */
 export const COPY_LIMIT = 256 * 1024 * 1024;
 
 /** Caches Python and its tools make again: neither copied nor linked. */
@@ -167,11 +174,45 @@ export function writeInside(root: string, rel: string, text: string): void {
 }
 
 /**
- * A worktree for one candidate, as the working tree is now: see the module's comment. `root` is the
- * repository's root and `cwd` the folder repair runs in; `copyLimit` is what is copied of the files
- * git ignores, at most (COPY_LIMIT). Throws when git can't make it.
+ * Gives a worktree a copy of the working tree's installed packages, for a build that writes into
+ * them: each entry of `from/node_modules` is copied into `to/node_modules` as it is, links and all,
+ * except a package linked from this repository itself (a workspace package), which is linked to the
+ * worktree's own copy, as linkDependencies links it.
  */
-export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMIT }: { copyLimit?: number } = {}): CandidateTree {
+function copyDependencies(root: string, from: string, to: string, worktree: string): void {
+  const src = join(from, 'node_modules');
+  const dst = join(to, 'node_modules');
+  if (!existsSync(src) || existsSync(dst)) return;
+  const one = (entry: string, path: string) => {
+    try {
+      if (lstatSync(entry).isSymbolicLink()) {
+        const rel = relative(root, realPath(entry));
+        if (rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[\\/]/).includes('node_modules')) {
+          link(join(worktree, rel), path, true);
+          return;
+        }
+      }
+      copy(entry, path);
+    } catch {
+      // a dangling link, or one that can't be made: that package is missing in the worktree, as in bisect
+    }
+  };
+  mkdirSync(dst, { recursive: true });
+  for (const name of readdirSync(src)) {
+    if (name.startsWith('@') && statSync(join(src, name)).isDirectory() && !lstatSync(join(src, name)).isSymbolicLink()) {
+      mkdirSync(join(dst, name), { recursive: true });
+      for (const sub of readdirSync(join(src, name))) one(join(src, name, sub), join(dst, name, sub));
+    } else one(join(src, name), join(dst, name));
+  }
+}
+
+/**
+ * A worktree for one candidate, as the working tree is now: see the module's comment. `root` is the
+ * repository's root and `cwd` the folder repair runs in; `copyLimit` is what is copied of the working
+ * tree's own files and of those git ignores, at most (COPY_LIMIT); `build`, that repair builds the
+ * agent there. Throws when git can't make it.
+ */
+export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMIT, build = false }: { copyLimit?: number; build?: boolean } = {}): CandidateTree {
   const realRoot = physicalPath(root);
   const realCwd = physicalPath(cwd);
   const inRepo = relative(realRoot, realCwd);
@@ -192,6 +233,24 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       git(realRoot, ['-c', `core.hooksPath=${hooks}`, 'worktree', 'add', '--detach', '--force', tree, 'HEAD']);
       made = true;
     } else mkdirSync(tree);
+    const linked: string[] = [];
+    let copied = 0;
+    /** Copies a file or folder of the working tree's within the limit; past it, links it and names it. */
+    const bring = (p: string, from: string, to: string, size: number, dir: boolean) => {
+      if (copied + size <= copyLimit) {
+        copy(from, to);
+        copied += size;
+        return;
+      }
+      mkdirSync(dirname(to), { recursive: true });
+      try {
+        link(from, to, dir);
+        linked.push(p);
+      } catch {
+        // A file Windows won't link without privileges a runner may not have: copied after all.
+        copy(from, to);
+      }
+    };
     // The working tree's own files: the ones changed since HEAD (or, with no commit yet, every one)
     // and the untracked ones git doesn't ignore. A file deleted here is deleted there.
     const changed = head ? listed(realRoot, ['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--']) : listed(realRoot, ['ls-files', '-z', '--cached']);
@@ -211,7 +270,7 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
         continue;
       }
       if (st.isDirectory()) continue;
-      copy(from, to);
+      bring(p, from, to, st.size, false);
     }
     // A submodule is linked as it is checked out here: a worktree has its folder, empty.
     for (const line of git(realRoot, ['ls-files', '-z', '--stage']).split('\0')) {
@@ -222,8 +281,6 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       link(join(realRoot, m[1]!), join(tree, m[1]!), true);
     }
     // What git ignores, as the agent needs it.
-    const linked: string[] = [];
-    let copied = 0;
     for (const entry of listed(realRoot, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])) {
       const p = entry.replace(/\/$/, '');
       const from = join(realRoot, p);
@@ -236,29 +293,20 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       } catch {
         continue;
       }
-      if (name === 'node_modules' && st.isDirectory()) {
-        linkDependencies(realRoot, dirname(from), dirname(to), tree);
+      // Under a build, a node_modules that is itself a link is copied too: what the build writes there would reach what it links to.
+      if (name === 'node_modules' && (st.isDirectory() || (build && st.isSymbolicLink() && statSync(from).isDirectory()))) {
+        if (build) copyDependencies(realRoot, dirname(from), dirname(to), tree);
+        else linkDependencies(realRoot, dirname(from), dirname(to), tree);
         continue;
       }
       if (st.isDirectory() && existsSync(join(from, 'pyvenv.cfg'))) {
+        // A build makes the environment it needs: one linked here is the working tree's, which it would write into.
+        if (build) continue;
         mkdirSync(dirname(to), { recursive: true });
         link(from, to, true);
         continue;
       }
-      const size = st.isDirectory() ? sizeOf(from, copyLimit) : st.size;
-      if (copied + size <= copyLimit) {
-        copy(from, to);
-        copied += size;
-      } else {
-        mkdirSync(dirname(to), { recursive: true });
-        try {
-          link(from, to, st.isDirectory());
-          linked.push(p);
-        } catch {
-          // A file Windows won't link without privileges a runner may not have: copied after all.
-          copy(from, to);
-        }
-      }
+      bring(p, from, to, st.isDirectory() ? sizeOf(from, copyLimit) : st.size, st.isDirectory());
     }
     linkModulesAbove(realRoot, tree);
     const treeCwd = join(tree, inRepo);

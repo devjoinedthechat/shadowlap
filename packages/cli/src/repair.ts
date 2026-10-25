@@ -732,7 +732,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     }
     let tree: ReturnType<typeof candidateTree>;
     try {
-      tree = candidateTree(root, cwd);
+      tree = candidateTree(root, cwd, { build: !!s.build });
     } catch (err) {
       c.state = 'incomplete';
       c.reason = `the worktree to verify it in could not be made: ${safeLine(((err as { stderr?: Buffer }).stderr?.toString() || (err as Error).message).trim().split('\n')[0]!)}`;
@@ -761,7 +761,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       }
       const candidate = tree;
       const withoutCandidate = (): BaseCheckout => {
-        const plain = candidateTree(candidate.root, candidate.cwd);
+        const plain = candidateTree(candidate.root, candidate.cwd, { build: !!s.build });
         try {
           writeInside(plain.root, edit.file, original);
           if (s.build) {
