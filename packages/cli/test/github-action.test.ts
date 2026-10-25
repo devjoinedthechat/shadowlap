@@ -519,4 +519,13 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
   });
 
+  it('refuses to run on pull_request_target, before anything runs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-target-'));
+    dirs.push(dir);
+    const fake = fakeCli(dir);
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: 'true' }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'pull_request_target' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("::error title=Shadowlap::the action does not run on pull_request_target, which runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request");
+    expect(() => fake.seen()).toThrow();
+  });
 });

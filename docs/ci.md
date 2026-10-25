@@ -271,6 +271,8 @@ The step names a release twice: the action at its tag, and in `version:` the `sh
 
 The CLI, and the agent it runs, get none of GitHub's tokens. The action takes the job's own `GITHUB_TOKEN`, `github-token`, a `GH_TOKEN` or `GITHUB_TOKEN` in the step's `env`, the token the job asks GitHub for OIDC tokens with, and any other variable that holds one of them, out of their environment, so the agent can't send one to a model or write it into a recording. It pushes a fix's branch with the token in git's environment for that push alone, never in a command line. `actions/checkout` leaves the job's token in the repository's git config, where the agent could read it from the disk, unless the step says `persist-credentials: false`, as every step on this page does: nothing after the checkout needs it. On a runner GitHub hosts, code in a job can still reach the job's token another way (the runner holds it, and a job may use `sudo`), so it is the job's `permissions` that bound what an agent with a tool that runs code could do with it: give a job no more than its steps need.
 
+The action refuses to run on `pull_request_target`, which runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it. Run it on `pull_request`: a pull request from a fork then gets no secrets and a token that may only read, and the goldens that replay offline need neither.
+
 | Input | Default | Effect |
 |---|---|---|
 | `recordings` | `goldens/*` | Recording directories, separated by spaces or new lines; `*` is allowed in the last part of a path. As with `shadowlap test`, a path that names no pack fails as a test, and a pattern that matches none fails the step |

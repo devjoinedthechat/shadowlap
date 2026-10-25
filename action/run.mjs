@@ -50,6 +50,9 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     process.exit(1);
   }
 
+  // pull_request_target runs a pull request's workflow with the base repository's secrets and a token
+  // that may write: an agent the pull request changed, run there, would have both.
+  if (env.GITHUB_EVENT_NAME === 'pull_request_target') fail('the action does not run on pull_request_target, which runs a pull request\'s workflow with the base repository\'s secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request');
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
