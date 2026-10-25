@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store } from '@shadowlap/engine';
+import { setPatternBudget, Store } from '@shadowlap/engine';
 import type { ExportAnswer, ExportWork } from './export-apart.js';
 import { BUSY } from './redaction-preview.js';
 import { exportHtml } from './static.js';
@@ -12,6 +12,9 @@ import { exportHtml } from './static.js';
  */
 
 const work = workerData as ExportWork;
+// The server ends this thread when making the file takes longer than its hard limit, and says a
+// rule may: the engine's own budget would only end it sooner, with less to say.
+setPatternBudget(Infinity);
 const post = (m: ExportAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 let answer: ExportAnswer;

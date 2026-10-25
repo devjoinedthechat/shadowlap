@@ -1,4 +1,5 @@
 import { compilePattern, countMatches, normalizerApplies, parsePath, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
+import { withinPatternBudget } from './safe-regex.js';
 import { mayHoldSigned, placeKey, signedParts, signedTexts } from './signed.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -311,6 +312,15 @@ export function untouched(text: string, rules: readonly Normalizer[], call: Call
  * thinking text is told where the stream's pieces add up (redact-stream.ts).
  */
 export function rewriteJsonDocument(text: string, rules: readonly Normalizer[], call: CallScope | null, observer?: RewriteObserver, signed?: { stream: boolean }): string | null {
+  // Its rules' patterns run within the time budget, as everywhere a document is rewritten (safe-regex.ts).
+  return withinPatternBudget(
+    text.length,
+    () => rules.flatMap((r) => (r.pattern !== undefined ? [r.pattern] : [])),
+    () => rewriteJsonDocumentNow(text, rules, call, observer, signed),
+  );
+}
+
+function rewriteJsonDocumentNow(text: string, rules: readonly Normalizer[], call: CallScope | null, observer?: RewriteObserver, signed?: { stream: boolean }): string | null {
   if (!isJsonText(text)) return null;
   const { pathless, pathed, free } = prepare(rules, call, text);
   if (!pathed.length && (!pathless.length || (free && !text.includes('\\') && !pathless.some((r) => r.hits)))) return text;

@@ -28,10 +28,11 @@ const savedWait = { ...MASK_WAIT };
 const EMAIL: Normalizer = { pattern: 'email', replace: '<EMAIL>' };
 /**
  * A pattern the engine's pattern check takes (no exponential backtracking), whose time still grows
- * with the cube of a text it reads: minutes on SLOW_TEXT, an x every other character and no y.
+ * with the square of a text it reads: most of a minute on SLOW_TEXT, a long run of the one character
+ * it repeats and no x, which the email rule ends on at once.
  */
-const SLOW: Normalizer = { pattern: '/\\w*x\\w*y/', replace: '<A>' };
-const SLOW_TEXT = 'ax'.repeat(3000);
+const SLOW: Normalizer = { pattern: '/!*x/', replace: '<A>' };
+const SLOW_TEXT = '!'.repeat(300_000);
 
 beforeEach(() => {
   project = realpathSync(mkdtempSync(join(tmpdir(), 'sl-run-apart-')));

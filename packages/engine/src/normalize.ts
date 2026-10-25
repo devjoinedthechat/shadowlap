@@ -1,5 +1,5 @@
 import { setOwn } from './canonical.js';
-import { patternProblem } from './safe-regex.js';
+import { patternProblem, textSize, withinPatternBudget } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
 /**
@@ -119,8 +119,22 @@ export interface UnmaskedAt {
   signed?: true;
 }
 
-/** Returns a deep copy of `value` with every applicable normalizer applied. */
+/**
+ * Returns a deep copy of `value` with every applicable normalizer applied, within the time budget
+ * when any applies a pattern (withinPatternBudget): rules from a pack or the team store run here, on
+ * every request a replay matches.
+ */
 export function applyNormalizers(value: unknown, normalizers: Normalizer[], kind: CallKind, name: string, observer?: RewriteObserver): unknown {
+  const patterned = normalizers.filter((n) => n.pattern !== undefined && normalizerApplies(n, kind, name));
+  if (!patterned.length) return applyNormalizersNow(value, normalizers, kind, name, observer);
+  return withinPatternBudget(
+    textSize(value),
+    () => patterned.map((n) => n.pattern!),
+    () => applyNormalizersNow(value, normalizers, kind, name, observer),
+  );
+}
+
+function applyNormalizersNow(value: unknown, normalizers: Normalizer[], kind: CallKind, name: string, observer?: RewriteObserver): unknown {
   let copy: unknown = value;
   let cloned = false;
   normalizers.forEach((n, i) => {
@@ -224,8 +238,16 @@ function visitPaths(node: unknown, segs: Segment[], path: Array<string | number>
   down(node, 0, path);
 }
 
-/** Applies a pattern to every string value in a (JSON-like) value. Bytes (a request sent as a binary body) hold no string, and stay as they are. */
+/** Applies a pattern to every string value in a (JSON-like) value, within the time budget. Bytes (a request sent as a binary body) hold no string, and stay as they are. */
 export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
+  return withinPatternBudget(
+    textSize(value),
+    () => [`/${regex.source}/${regex.flags}`],
+    () => rewriteStringsDeepNow(value, regex, replace, onChange),
+  );
+}
+
+function rewriteStringsDeepNow(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
   if (ArrayBuffer.isView(value)) return value;
   if (typeof value === 'string') {
     regex.lastIndex = 0;
@@ -233,17 +255,27 @@ export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: strin
     if (onChange && out !== value) onChange(value, out, countMatches(value, regex));
     return out;
   }
-  if (Array.isArray(value)) return value.map((v) => rewriteStringsDeep(v, regex, replace, onChange));
+  if (Array.isArray(value)) return value.map((v) => rewriteStringsDeepNow(v, regex, replace, onChange));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, rewriteStringsDeep(v, regex, replace, onChange));
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, rewriteStringsDeepNow(v, regex, replace, onChange));
     return out;
   }
   return value;
 }
 
-/** Applies every pathless pattern rule to raw text (responses are stored as bytes, not JSON). */
+/** Applies every pathless pattern rule to raw text (responses are stored as bytes, not JSON), within the time budget. */
 export function rewriteText(text: string, rules: Normalizer[], observer?: RewriteObserver): string {
+  const patterned = rules.filter((n) => n.path === undefined && n.pattern !== undefined);
+  if (!patterned.length) return text;
+  return withinPatternBudget(
+    text.length,
+    () => patterned.map((n) => n.pattern!),
+    () => rewriteTextNow(text, rules, observer),
+  );
+}
+
+function rewriteTextNow(text: string, rules: Normalizer[], observer?: RewriteObserver): string {
   let out = text;
   rules.forEach((n, i) => {
     if (n.path !== undefined || n.pattern === undefined) return;
