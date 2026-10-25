@@ -689,9 +689,17 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
     calls.push(call);
     if (calls.length > PACK_LIMITS.calls) throw new LayoutError(`runs/${runId} has more than ${PACK_LIMITS.calls} calls`);
   }
-  // Direct references first; the parts of each chunked request are listed in its manifest.
+  // Direct references first, then what each request's manifest lists, as a pack's reader brings a
+  // request (bringRequest): a version 2 manifest names its items through runs, which list them only
+  // once they are here, so the manifests are read again until they list nothing new.
   await downloadBlobs(ctx, runId, calls.flatMap((c) => callRefs(c)), tally);
-  await downloadBlobs(ctx, runId, calls.flatMap((c) => (c.kind === 'api' && c.requestRef ? manifestRefs(ctx.store, c.requestRef) : [])), tally);
+  const listed = new Set<string>();
+  for (;;) {
+    const more = calls.flatMap((c) => (c.kind === 'api' && c.requestRef ? manifestRefs(ctx.store, c.requestRef) : [])).filter((h) => !listed.has(h));
+    if (!more.length) break;
+    for (const h of more) listed.add(h);
+    await downloadBlobs(ctx, runId, more, tally);
+  }
   for (const c of calls) {
     for (const h of callRefs(c)) if (!ctx.store.hasBlob(h)) throw new LayoutError(`call #${c.callNo} of ${runId} needs blob ${h}, which the store doesn't have`);
     if (c.kind === 'api' && c.requestRef) {

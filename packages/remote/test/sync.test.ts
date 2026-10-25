@@ -1,6 +1,6 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
-import { classifyRun, commandIsImported, importedCommandSource, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
+import { classifyRun, commandIsImported, importedCommandSource, loadApiRequest, pulledRun, sha256, storeApiRequest, Store, summarizeRun, type BlameRecord, type RunRecord } from '@shadowlap/engine';
 import { INDEX_FORMAT, keys, LAYOUT_VERSION, metaHash, parseSegment, parseStoreUrl, pull, pullRequestLocation, push, queuedRuns, reconcile, runBlobs, SCHEMES, StoreError, syncedMeta, teamRunInStore, type IndexEntry, type ObjectStore, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 
@@ -397,6 +397,41 @@ describe('pull', () => {
     expect(again.pulled).toEqual([]);
     expect(again.segments).toBe(0);
     expect(remote.log.filter((l) => l.op === 'get' && l.key.startsWith('index/'))).toEqual([]);
+  });
+
+  it('brings a run whose requests list their turns through runs of items, in every wire format', async () => {
+    // Gemini's contents and the Responses API's input are stored as a version 2 manifest, which names
+    // its items through runs: a puller can list the items only once it has the runs.
+    const turns = (n: number, item: (i: number) => unknown) => Array.from({ length: n }, (_, i) => item(i));
+    const formats = {
+      'Anthropic messages': { name: 'POST /v1/messages', provider: 'anthropic', body: (n: number) => ({ model: 'm', system: 'Be brief.', messages: turns(n, (i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn ${i}` })) }) },
+      'Gemini contents': { name: 'POST /v1beta/models/gemini-2.5-flash:generateContent', provider: 'gemini', body: (n: number) => ({ systemInstruction: { parts: [{ text: 'Be brief.' }] }, contents: turns(n, (i) => ({ role: i % 2 ? 'model' : 'user', parts: [{ text: `turn ${i}` }] })) }) },
+      'Responses input': { name: 'POST /v1/responses', provider: 'openai', body: (n: number) => ({ model: 'gpt-5', instructions: 'Be brief.', input: turns(n, (i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn ${i}` })) }) },
+    };
+    for (const [format, { name, provider, body }] of Object.entries(formats)) {
+      const remote = new MemoryStore(loc);
+      const a = machine(remote, 'maya@northwind.example');
+      const run = a.store.createRun({ mode: 'record', command: cmd });
+      // 13 turns are held in runs of 8, 4 and 1; the second call repeats the first's 13 and adds two.
+      const bodies = [body(13), body(15)];
+      bodies.forEach((sent, i) => {
+        const call = { kind: 'api' as const, name, fingerprint: String(i + 1).repeat(64), occurrence: 1 };
+        a.store.appendCallStart({ runId: run.runId, callNo: i + 1, ...call, origin: 'live', effect: null, requestRef: storeApiRequest(a.store, sent), meta: { provider }, at: i });
+        a.store.appendCallEnd(call, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: a.store.putBlob(Buffer.from('{}')), outcome: 'ok', meta: { status: 200 }, at: i });
+      });
+      a.store.endRun(run.runId, 'completed');
+      await push(a, { all: true });
+
+      const b = machine(remote, 'dana@northwind.example');
+      const pulled = await pull(b);
+      expect(pulled.failed, format).toEqual([]);
+      expect(pulled.pulled, format).toEqual([run.runId]);
+      const calls = b.store.getCalls(run.runId);
+      expect(calls.map((c) => loadApiRequest(b.store, c.requestRef!)), format).toEqual(bodies);
+      // Every blob the run needs came down, and each once.
+      expect(runBlobs(b.store, calls).every((h) => b.store.hasBlob(h)), format).toBe(true);
+      expect(pulled.blobs.downloaded, format).toBe(runBlobs(a.store, a.store.getCalls(run.runId)).length);
+    }
   });
 
   it('pulls one run by a prefix of its id, with its ancestors, and says which names match nothing', async () => {
