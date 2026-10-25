@@ -60,6 +60,7 @@ import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, r
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { identityQuery } from './query.js';
+import { ProviderState } from './provider-state.js';
 import { isResponsesCreate, ResponsesState } from './responses-state.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
 import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
@@ -249,6 +250,8 @@ class RunContext {
   judgeOnly: { from: number } | null = null;
   /** What the recording kept on OpenAI's side, for a live Responses call that continues it (responses-state.ts); null without one. */
   responses: ResponsesState | null = null;
+  /** The Gemini caches the recording made and the files it uploaded, for a live call that names one (provider-state.ts); null without any. */
+  providerState: ProviderState | null = null;
   /** Why the run itself could not be written to the store, when it couldn't: none of its calls can be then. */
   lost: string | null = null;
 
@@ -793,6 +796,13 @@ export class Sidecar {
       ctx.responses = new ResponsesState(recorded, {
         request: (rec) => this.loadRequest(rec),
         response: (rec) => ({ bytes: rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
+      });
+    }
+    // A fork's live call may name a Gemini cache the recording made, or a file it uploaded: read when one does.
+    if (parentCalls && ProviderState.applies(parentCalls)) {
+      ctx.providerState = new ProviderState(parentCalls, {
+        request: (rec) => this.loadRequest(rec),
+        response: (rec) => (rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null),
       });
     }
     this.runs.set(run.runId, ctx);
@@ -1522,36 +1532,55 @@ export class Sidecar {
   }
 
   /**
-   * Serve recorded, for a live Responses API call: one that continues a response the recording made
-   * (responses-state.ts), which OpenAI keeps only for the key that made it and only while it keeps
-   * it, is sent with the whole conversation it continues instead, signed again where AWS signs it;
-   * one that names a conversation the recording used is refused, since the conversation holds the
-   * recorded run's later turns too. True when it was answered here.
+   * Serve recorded, for a live call that names state the recording left on the provider's side,
+   * which the provider keeps only for the account that made it and only for a while. A Responses
+   * call that continues a recorded response (responses-state.ts) is sent with the whole conversation
+   * it continues instead; one that names a conversation the recording used is refused, since the
+   * conversation holds the recorded run's later turns too. A call that names a Gemini cache the
+   * recording made, or a file it uploaded (provider-state.ts), is sent with the cache's contents or
+   * the file's bytes in its place, and one that reads a file Gemini has deleted is refused. What is
+   * sent in place of the agent's request is signed again where AWS signs it; the call's recording
+   * keeps the request as the agent sent it. True when it was answered here.
    */
   private continueRecordedState(call: ModelCall, placed: PlacedCall): boolean {
     const { ctx, res, provider, judge } = call;
     const { callNo, tracked } = placed;
-    const continued = !judge && !ctx.offline && ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(call.body) : null;
-    if (!continued) return false;
-    if ('refuse' in continued) {
+    if (judge || ctx.offline) return false;
+    let body = call.body;
+    const instead: string[] = [];
+    const continued = ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(body) : null;
+    if (continued && 'refuse' in continued) {
       this.serveStateRefusal(ctx, res, provider, callNo, tracked, continued.refuse, continued.param);
       return true;
     }
-    if (continued.send === 'as-is') return false;
-    // The call's recording keeps the request as the agent sent it; only what goes upstream changes.
-    call.rawBody = Buffer.from(JSON.stringify(continued.body), 'utf8');
+    if (continued?.send === 'whole') {
+      body = continued.body;
+      instead.push(`the whole conversation in place of previous_response_id ${continued.previous}`);
+      const from = continued.from.map((n) => `#${n}`).join(', ');
+      ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
+    }
+    const rebuilt = ctx.providerState?.rebuild(recordedId(provider), callNo, body);
+    if (rebuilt?.refuse) {
+      this.serveStateRefusal(ctx, res, provider, callNo, tracked, rebuilt.refuse.why, rebuilt.refuse.param);
+      return true;
+    }
+    for (const note of rebuilt?.notes ?? []) ctx.warnOnce(note.key, note.text);
+    if (rebuilt?.body) {
+      body = rebuilt.body;
+      instead.push('the cache or file the recording made in the request');
+    }
+    if (!instead.length) return false;
+    call.rawBody = Buffer.from(JSON.stringify(body), 'utf8');
     const keyId = signingKeyId(call.headers.authorization);
     if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
       const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
       if ('error' in signed) {
-        this.serveRefusal(ctx, res, provider, callNo, tracked, `the whole conversation in place of previous_response_id ${continued.previous}: ${signed.error}`);
+        this.serveRefusal(ctx, res, provider, callNo, tracked, `${instead.join(' and ')}: ${signed.error}`);
         return true;
       }
       call.headers = signed.headers;
     }
-    const from = continued.from.map((n) => `#${n}`).join(', ');
-    ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
-    this.log(`run ${ctx.run.runId} call ${callNo}: sent whole in place of previous_response_id ${continued.previous}`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: sent with ${instead.join(' and ')}`);
     return false;
   }
 
@@ -1600,13 +1629,16 @@ export class Sidecar {
 
   /**
    * Answers a live call that would read state the recording left on the provider's side (a recorded
-   * Responses conversation) instead of sending it: in OpenAI's error shape, naming the request's
-   * field, so its client raises a BadRequestError with the reason; the run's summary says so too.
+   * Responses conversation, a file Gemini has deleted) instead of sending it: in the provider's error
+   * shape, OpenAI's naming the request's field, so its client raises its bad-request error with the
+   * reason; the run's summary says so too.
    */
   private serveStateRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, why: string, param: string): void {
     const message = `shadowlap did not send this call: ${why}`;
     const error: SerializedError = { name: 'ShadowlapRecordedState', message };
-    this.answerOwn(ctx, res, callNo, tracked, { status: 400, body: { error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } }, origin: 'refused' }, { refused: true, error });
+    const format = recordedId(provider);
+    const body = format === 'gemini' ? { error: { code: 400, message, status: 'FAILED_PRECONDITION' } } : format === 'anthropic' ? { type: 'error', error: { type: 'invalid_request_error', message } } : { error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } };
+    this.answerOwn(ctx, res, callNo, tracked, { status: 400, body, origin: 'refused' }, { refused: true, error });
     ctx.warnOnce(`state:${why}`, `Call ${callNo} was not sent: ${why}`);
     this.log(`run ${ctx.run.runId} call ${callNo}: refused, it would read state the recording left on ${provider.id}'s side`);
   }
