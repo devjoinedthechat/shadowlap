@@ -2,10 +2,10 @@ import { shortId } from './format.js';
 
 /**
  * The good/bad key: one press labels a run `good` or `bad`, the two labels a run can't hold at once,
- * and a press of the one it holds takes it off. `good` is what a repair keeps working
- * (`repair --keeps label:good`, and Repair from here keeps a fix's good runs from it); `bad` names a
- * run that went wrong, for `repair --fixes label:bad`. Each press can be undone: the change it made,
- * taken back. No DOM here: the tests import it.
+ * and a press of the one it holds takes it off. `good` is a run a fix must not make worse than its
+ * own baseline (`repair --keeps label:good`, and Repair from here takes a fix's good runs from it);
+ * `bad` names a run that went wrong, for `repair --fixes label:bad`. Each press can be undone: the
+ * change it made, taken back. No DOM here: the tests import it.
  */
 
 export type RunMark = 'good' | 'bad';
@@ -35,17 +35,17 @@ export function undoChange(before: readonly string[], c: { add: readonly string[
   return { add: c.remove.filter((l) => before.includes(l)), remove: c.add.filter((l) => !before.includes(l)) };
 }
 
-/** The toast a press says: `01M5GRX8K4 is good: a repair keeps it working`, or that it no longer is. */
+/** The toast a press says: `01M5GRX8K4 is good: a fix must not make it worse than its own baseline`, or that it no longer is. */
 export function markToast(runId: string, m: RunMark, on: boolean): string {
   const id = shortId(runId);
   if (!on) return `${id} is no longer marked ${m}`;
-  return m === 'good' ? `${id} is good: a repair keeps it working (--keeps label:good)` : `${id} is bad: one to fix (--fixes label:bad)`;
+  return m === 'good' ? `${id} is good: a fix must not make it worse than its own baseline (--keeps label:good)` : `${id} is bad: one to fix (--fixes label:bad)`;
 }
 
 /** The hover of a key's button, by what pressing it does. */
 export function markTitle(m: RunMark, on: boolean): string {
   if (on) return `Labelled ${m}: press to take the label off`;
-  return m === 'good' ? 'Label it good: a repair keeps it working, as repair --keeps label:good does' : 'Label it bad: a run that went wrong, for repair --fixes label:bad';
+  return m === 'good' ? 'Label it good: a fix must not make it worse than its own baseline, as repair --keeps label:good checks' : 'Label it bad: a run that went wrong, for repair --fixes label:bad';
 }
 
 /** The key a press of which marks a run where a run's keys are heard: + (or =) good, - bad. */

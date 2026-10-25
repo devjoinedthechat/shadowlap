@@ -272,7 +272,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
   const canMark = !exported && !actionsOff;
-  const mark = useCallback((m: RunMark) => markRun(runId, labels, m), [markRun, runId, labels]);
+  const mark = useCallback((m: RunMark, from?: HTMLElement) => markRun(runId, labels, m, from), [markRun, runId, labels]);
   // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);

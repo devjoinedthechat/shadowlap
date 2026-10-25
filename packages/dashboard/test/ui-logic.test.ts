@@ -478,6 +478,13 @@ describe('runs', () => {
     // A replay that never finished is no clean replay.
     expect(kindWord({ ...clean, status: 'failed', origins: 'rrr' })).toBe('replay');
     expect(matchesText(clean, 'clean replay')).toBe(true);
+    // label:<name> is that label exactly, as the server's filter and the CLI take it.
+    const labelled = { ...clean, labels: ['good', 'refund-flow'] };
+    expect(matchesText(labelled, 'label:good')).toBe(true);
+    expect(matchesText({ ...clean, labels: ['goodbye'] }, 'label:good')).toBe(false);
+    expect(matchesText(labelled, 'label:refund')).toBe(false);
+    expect(matchesText(labelled, 'clean label:refund-flow')).toBe(true);
+    expect(matchesText(labelled, 'label:Good')).toBe(false);
   });
 
   it('says attempts are bundled only when the run list tells them apart', () => {

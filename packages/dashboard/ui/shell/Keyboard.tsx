@@ -5,11 +5,12 @@ import { GO_KEYS, GO_WINDOW_MS } from '../route.js';
 import { copyCompares } from '../runs.js';
 import { navigate } from '../router.js';
 import { useApp } from '../state.js';
+import { toastKey, UNDO_KEY } from '../toast.js';
 
 /**
  * The keys that work anywhere: ⌘K (Ctrl K) for the palette, / to search (on a run it filters the
- * calls), ? for the shortcuts, g then a letter to go to a page, and Esc, which closes a menu, then a
- * dialog, then a panel, then the phone sidebar. While a modal dialog is open, Tab and Shift+Tab go
+ * calls), ? for the shortcuts, g then a letter to go to a page, u for what the toast on screen offers
+ * (its Undo), and Esc, which closes a menu, then a dialog, then a panel, then the phone sidebar. While a modal dialog is open, Tab and Shift+Tab go
  * round its own controls (`keepTabInModal`). A run's own keys are its page's (`runKeys`). No
  * shortcut works while the link has expired.
  */
@@ -55,6 +56,11 @@ export function Keyboard() {
       }
       if (e.key === 'g') {
         gAt.current = Date.now();
+        return;
+      }
+      // The undo key: what the toast on screen offers (its Undo), before a page's own keys.
+      if (e.key === UNDO_KEY && toastKey.current?.()) {
+        e.preventDefault();
         return;
       }
       if (a.runKeys.current?.(e)) {

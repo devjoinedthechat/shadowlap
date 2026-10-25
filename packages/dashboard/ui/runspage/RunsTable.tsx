@@ -118,7 +118,7 @@ export function RunsTable({
    * The good/bad key on each row (runkey.ts), heard on + and - from a row with the focus too; null for
    * a table that changes nothing (an exported copy). Good and bad are then the key's, never chips.
    */
-  onMark?: ((run: TableRun, m: RunMark) => void) | null;
+  onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null;
   /** Why the key can't change anything here (a read-only dashboard): its buttons are off, with this on hover. */
   markOff?: string | null;
 }) {
@@ -153,8 +153,17 @@ export function RunsTable({
             When
           </SortTh>
           {onMark ? (
+            // Said, not only read out: the marks under it label a run good or bad, and each word lists the runs that are.
             <th className="keycell hide-sm">
-              <span className="sr">Good or bad</span>
+              <span className="kh">
+                <a href={href.runs({ q: 'label:good' })} title="List the runs labelled good">
+                  good
+                </a>
+                <span aria-hidden="true">·</span>
+                <a href={href.runs({ q: 'label:bad' })} title="List the runs labelled bad">
+                  bad
+                </a>
+              </span>
             </th>
           ) : null}
         </tr>
@@ -187,7 +196,7 @@ const typedIn = (t: EventTarget | null) => {
   return (el.tagName === 'INPUT' && type !== 'checkbox') || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || !!el.isContentEditable;
 };
 
-const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark) => void) | null; markOff?: string | null }) {
+const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPick, now, onMark = null, markOff = null }: { at: number; run: TableRun; on: boolean; selectable: boolean; byColumn: boolean; you: boolean; onPick: (run: TableRun, on: boolean) => void; now: number; onMark?: ((run: TableRun, m: RunMark, from?: HTMLElement) => void) | null; markOff?: string | null }) {
   const out = runStatus(r);
   const spent = runSpent(r);
   const origins = runOrigins(r);
@@ -210,7 +219,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
               if (!m || markOff || typedIn(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
               e.preventDefault();
               e.stopPropagation();
-              onMark(r, m);
+              onMark(r, m, e.currentTarget);
             }
           : undefined
       }
@@ -249,9 +258,9 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
           {chips.length ? (
             <span className="labs">
               {chips.map((l) => (
-                <span className="chip" key={l}>
+                <a className="chip" key={l} href={href.runs({ q: `label:${l}` })} title={`List the runs labelled ${l}`}>
                   {l}
-                </span>
+                </a>
               ))}
             </span>
           ) : null}
@@ -291,7 +300,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
       <td className="num">{whenShort(r.startedAt, now)}</td>
       {onMark ? (
         <td className="keycell hide-sm">
-          <RunKey runId={r.runId} labels={r.labels} onMark={(m) => onMark(r, m)} off={markOff} compact />
+          <RunKey runId={r.runId} labels={r.labels} onMark={(m, from) => onMark(r, m, from)} off={markOff} compact />
         </td>
       ) : null}
     </tr>

@@ -375,7 +375,11 @@ export function matchesChip(r: RunLike, chip: RunChip): boolean {
 
 /** The filter field: every word must appear in the id, about line, command, labels or revision, as the server matches it. */
 export function matchesText(r: RunLike, query: string): boolean {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  // As the server's filter reads it (runs-list.ts `filterTerms`): a `label:<name>` term is that label exactly, as typed.
+  const parts = query.trim().split(/\s+/).filter(Boolean);
+  const label = (w: string) => /^label:./i.test(w);
+  if (!parts.filter(label).every((w) => r.labels.includes(w.slice('label:'.length)))) return false;
+  const words = parts.filter((w) => !label(w)).map((w) => w.toLowerCase());
   if (!words.length) return true;
   const hay = `${r.runId} ${r.about?.text ?? ''} ${runSource(r)} ${r.labels.join(' ')} ${r.codeVersion ?? ''} ${kindWord(r)}`.toLowerCase();
   return words.every((w) => hay.includes(w));
