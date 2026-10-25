@@ -293,6 +293,16 @@ describe('test reports', () => {
     expect(md).not.toContain("the gate's stated risk");
   });
 
+  it('puts what the run did in the job summary as text GitHub links, mentions and renders nothing in', () => {
+    const planted = '![x](https://evil.example/t.png) @alice <img src=x> #1 [docs](https://evil.example)';
+    const hostile: PackResult = { ...failed, name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', failure: 'check', message: `check failed: send_email with {"to":"${planted}"}`, details: null, output: null, divergence: null, checks: [{ ok: false, status: 'failed', label: `send_email with {"to":"${planted}"} called 0 times`, detail: 'called 1 time' }] };
+    const md = markdownReport(testReport([hostile]));
+    // Outside fenced blocks and code spans, nothing is left that GitHub would render, link or mention.
+    const text = md.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1$/gm, '').replace(/(`+)[^`]*?\1/g, '');
+    expect(text).not.toMatch(/!\[|\]\(|<img|@alice|https?:\/\/|(?<!&)#1\b/);
+    expect(md).toContain('<details open><summary><b>refund-flow</b>: check failed: send_email with {"to":"!&#91;x&#93;(https:<!-- -->//evil.example/t.png) @<!-- -->alice &lt;img src=x> #<!-- -->1 &#91;docs&#93;(https:<!-- -->//evil.example)"}</summary>');
+  });
+
   it('escapes GitHub annotation properties and data', () => {
     expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=Shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
   });

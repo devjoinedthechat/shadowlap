@@ -1,4 +1,4 @@
-import { aboutUsd, checkStatus, formatPassK, formatTokens, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
+import { aboutUsd, checkStatus, formatPassK, formatTokens, markdownCode, markdownText, riskPercent, safeText, statusTally, type CheckStatus, type DivergenceType, type GateResult, type InjectionGateData, type JudgeSummary, type StoredCheck, type TestFailure } from '@shadowlap/engine';
 import { judgeSource } from './checks.js';
 
 /**
@@ -108,9 +108,13 @@ const verdictOf = (r: Pick<PackResult, 'verdict' | 'ok'>): NonNullable<PackResul
 /** A pack's mark in a report: passed, failed, or inconclusive (amber), whatever CI does with it. */
 const mark = (r: Pick<PackResult, 'verdict' | 'ok'>) => ({ inconclusive: '🟡', passed: '✅', failed: '❌' })[verdictOf(r)];
 
-/** Text safe to put in a Markdown table cell: no control characters, pipes or line breaks. */
+/**
+ * Text safe to put in a Markdown table cell, and in the summary's other lines: one line, and nothing
+ * GitHub renders, links or mentions in it (markdownText). A failure's message and a check's detail
+ * hold what the run did, its tools' arguments among it, which can be anyone's words.
+ */
 function cell(s: string): string {
-  return safeText(s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  return markdownText(safeText(s));
 }
 
 /** A fenced block whose fence is longer than any backtick run inside it. */
@@ -173,13 +177,13 @@ export function markdownReport(report: TestReport): string {
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;
     const replayed = r.calls ? `${r.calls.replayed}/${of!}` : '';
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
-    lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${verdictOf(r) === 'passed' ? cell(passedLabel(r)) : cell(notPassedLabel(r))} | ${replayed} | ${tokens} |`);
+    lines.push(`| ${mark(r)} | ${markdownCode(safeText(r.name), { cell: true })} | ${verdictOf(r) === 'passed' ? cell(passedLabel(r)) : cell(notPassedLabel(r))} | ${replayed} | ${tokens} |`);
   }
   // A judge's verdict and reason are worth reading on a recording that passed too.
   const judged = report.results.filter((r) => verdictOf(r) === 'passed' && r.checks?.some((c) => c.judge));
   if (judged.length) {
     lines.push('', 'Judge checks:', '');
-    for (const r of judged) lines.push(...r.checks!.filter((c) => c.judge).map((c) => markdownCheck(c).replace(/^- /, `- \`${cell(r.name)}\` `)));
+    for (const r of judged) lines.push(...r.checks!.filter((c) => c.judge).map((c) => markdownCheck(c).replace(/^- /, () => `- ${markdownCode(safeText(r.name))} `)));
   }
   const totals = judgeTotals(report.results);
   if (totals) lines.push('', totals);
@@ -197,7 +201,7 @@ export function markdownReport(report: TestReport): string {
     const dirs = diverged.map((r) => r.dir.replace(/\\/g, '/').replace(/\/+$/, '')).map((d) => (/^[\w./*@%+=:,-]+$/.test(d) ? d : `'${d.replace(/'/g, `'\\''`)}'`));
     lines.push(
       '',
-      `An intended change fails the test on purpose. Once you mean it, update the golden${diverged.length === 1 ? '' : 's'}: \`shadowlap test ${safeText(dirs.join(' '))} --update\` re-records ${diverged.length === 1 ? 'it' : 'each'} live with writes stubbed, and replaces ${diverged.length === 1 ? 'it' : 'each'} when ${diverged.length === 1 ? 'its' : 'their'} checks pass; review the new recording in this pull request. A value that changes every run, such as a date or a request id, needs a normalizer instead; the report suggests one. To keep the recording and judge the change by what the agent does, mark it \`fork\` and give it checks under \`tests\` in \`shadowlap.config.json\`.`,
+      `An intended change fails the test on purpose. Once you mean it, update the golden${diverged.length === 1 ? '' : 's'}: ${markdownCode(safeText(`shadowlap test ${dirs.join(' ')} --update`))} re-records ${diverged.length === 1 ? 'it' : 'each'} live with writes stubbed, and replaces ${diverged.length === 1 ? 'it' : 'each'} when ${diverged.length === 1 ? 'its' : 'their'} checks pass; review the new recording in this pull request. A value that changes every run, such as a date or a request id, needs a normalizer instead; the report suggests one. To keep the recording and judge the change by what the agent does, mark it \`fork\` and give it checks under \`tests\` in \`shadowlap.config.json\`.`,
     );
   }
   if (failures.some((r) => r.checks?.some((c) => checkStatus(c) === 'failed'))) {
@@ -225,7 +229,7 @@ export function markdownReport(report: TestReport): string {
   if (report.interrupted) lines.push('', 'The session was interrupted: only the recordings above finished, and the rest did not run.');
   const updated = report.results.filter((r) => r.updated);
   if (updated.length) {
-    lines.push('', `Updated: ${updated.map((r) => `\`${cell(r.name)}\``).join(', ')}, re-recorded live with writes stubbed and replaced because ${updated.length === 1 ? 'its checks pass' : 'their checks pass'}. Review the new recording${updated.length === 1 ? '' : 's'} in this pull request.`);
+    lines.push('', `Updated: ${updated.map((r) => markdownCode(safeText(r.name))).join(', ')}, re-recorded live with writes stubbed and replaced because ${updated.length === 1 ? 'its checks pass' : 'their checks pass'}. Review the new recording${updated.length === 1 ? '' : 's'} in this pull request.`);
   }
   return lines.join('\n') + '\n';
 }

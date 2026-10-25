@@ -191,7 +191,8 @@ describe('a when rule through shadowlap test', () => {
     expect(r.out).toMatch(/✗ when lookup_order has result\.amount > 100: issue_refund called 0 times: called 1 time; the condition held at lookup_order #\d+ \(result\.amount 240 > 100\)/);
     expect(r.out).toMatch(/✓ escalated: .*, 2 checks passed/);
     const md = readFileSync(join(work, 'over.md'), 'utf8');
-    expect(md).toMatch(/- ❌ when lookup_order has result\.amount > 100: issue_refund called 0 times: called 1 time; the condition held at lookup_order #\d+ \(result\.amount 240 > 100\)/);
+    // `#2` is the call's place, not an issue: split from its digits, GitHub links no issue at it.
+    expect(md).toMatch(/- ❌ when lookup_order has result\.amount > 100: issue_refund called 0 times: called 1 time; the condition held at lookup_order #<!-- -->\d+ \(result\.amount 240 > 100\)/);
     // The JUnit failure carries the checks in its CDATA, as the terminal shows them.
     expect(readFileSync(join(work, 'over.xml'), 'utf8')).toContain('✗ when lookup_order has result.amount > 100: escalate called at least 1 time: called 0 times');
   }, 60_000);

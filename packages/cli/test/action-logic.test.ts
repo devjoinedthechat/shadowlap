@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
+import { HOSTILE } from '../../engine/test/markdown-cases.js';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
-import { cannotFix, checksNote, evidenceNote, goldenGate, groupFixes, KEEPS_AT_MOST, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
 import { dispatchWorkflow, githubToken, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
 
@@ -299,7 +301,8 @@ describe('the pull request comment', () => {
       '',
       '| | Golden | Verdict | On `main` |',
       '|---|---|---|---|',
-      '| ❌ | `goldens/refund|flow` | failed · check failed: issue_refund called 0 times, but called 1 time | ✅ passed |',
+      // A pipe in a golden's name, escaped in its code span as a table needs, would otherwise end the cell.
+      '| ❌ | `goldens/refund\\|flow` | failed · check failed: issue_refund called 0 times, but called 1 time | ✅ passed |',
       '| ✅ | `goldens/triage` | passed · replayed clean | ❌ failed |',
       '| ✅ | `goldens/new-one` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts | not tested |',
       '',
@@ -515,3 +518,45 @@ describe('the inputs in action.yml', () => {
   });
 });
 
+describe("what the Action posts, in the Markdown GitHub renders", () => {
+  it("escapes as the engine's pull request body does, case for case", () => {
+    for (const raw of HOSTILE) {
+      expect(markdownText(raw), raw).toBe(engineText(raw));
+      expect(markdownCode(raw), raw).toBe(engineCode(raw));
+      expect(markdownCode(raw, { cell: true }), raw).toBe(engineCode(raw, { cell: true }));
+      expect(markdownFence(raw, 'sh'), raw).toBe(engineFence(raw, 'sh'));
+    }
+  });
+
+  /** What GitHub would render, link or mention in Markdown, outside fenced blocks and code spans. */
+  const live = (md: string) => {
+    const text = md.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1$/gm, '').replace(/(`+)[^`]*?\1/g, '');
+    return [/!\[|\]\(/, /<img|<svg|<a /i, /@(?:alice|security)/, /https?:\/\//, /(?<!&)#1\b/].filter((re) => re.test(text)).map(String);
+  };
+  const planted = 'check failed: send_email with {"to":"@alice ![x](https://evil.example/t.png) <img src=x> #1"}';
+
+  it('makes nothing of what a run, the repairer or GitHub wrote, in the comment, the pull request and the job summary', () => {
+    const marker = commentMarker({ workflow: 'CI', job: 'goldens', workdir: '.', recordings: 'goldens/*' });
+    const report = { session: 'S', results: [{ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: false, verdict: 'failed' as const, failure: 'check' as const, message: planted, runId: 'R1', runs: [] }] };
+    const fix = { name: 'refund-flow', golden: 'goldens/refund-flow', outcome: 'opened' as const, pr: 'https://github.test/northwind/agent/pull/13', title: 'Ask @security first, see [docs](https://evil.example)', why: null, spent: 1 };
+    const comment = commentBody({ report, marker, fixes: [fix] });
+    expect(live(comment)).toEqual([String(/https?:\/\//)]);
+    // The one link is the pull request's own, which the Action wrote.
+    expect(comment.match(/https?:\/\//g)).toHaveLength(1);
+    expect(comment).toContain('https://github.test/northwind/agent/pull/13');
+
+    // A run's message reaches a golden's note through refreshGoldens, which escapes it at the source; the notes show the safe why as it is.
+    const safe = markdownText(planted);
+    const pr = [goldenNote({ state: 'stale', golden: 'goldens/refund-flow', why: `the recording verify accepted does not replay clean on the branch (${safe})` }), branchNote({ goldens: [{ state: 'recorded', golden: 'goldens/a', why: null }], others: { diverging: [], failing: [], unreplayed: [], unchecked: ['goldens/c'], replayed: 0 }, checked: false, why: safe }), checksNote({ auth: githubToken(ACTIONS), dispatch: { dispatched: false, workflow: 'ci.yml', why: planted } })].join('\n');
+    expect(live(pr)).toEqual([]);
+
+    // The summary's untrusted leaves are the repairer's title and an external store or GitHub error; a no-fix reason is Shadowlap's own.
+    const summary = fixSummary([{ ...fix, title: 'Ask @security, see [docs](https://evil.example)' }, { ...fix, name: 'x', outcome: 'no-fix', pr: null, why: 'the gate accepted none of the 2 candidates tried', pushed: { state: 'off', why: planted, pr: null } }, { ...fix, name: 'y', checks: { state: 'not-started', workflow: 'ci.yml', why: planted } }], 2);
+    // The repairer's title, escaped, is the link text of the fix's own pull request.
+    expect(summary).toContain(`[Ask @<!-- -->security, see &#91;docs&#93;(https:<!-- -->//evil.example)](${fix.pr})`);
+    // With the fixes' own pull request links taken out, nothing else renders, links or mentions.
+    const ours = summary.replace(/\[([^\]]*)\]\(https:\/\/github\.test\/northwind\/agent\/pull\/13\)/g, '$1');
+    expect(live(ours)).toEqual([]);
+    expect(commentNote({ state: 'denied', url: null, why: planted })).not.toMatch(/!\[|<img|@alice|(?<!&)#1\b|https?:\/\//);
+  });
+});

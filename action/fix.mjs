@@ -28,6 +28,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { dispatchWorkflow, githubToken, tokenEnv } from './github.mjs';
+import { markdownCode, markdownFence, markdownText } from './markdown.mjs';
 
 /** Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports. */
 const NOT_FIXED = {
@@ -224,7 +225,7 @@ export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = 
  * alone, exactly that.
  */
 export function evidenceNote({ goldens, gate }) {
-  const code = (dirs) => listed(dirs.map((d) => `\`${d}\``));
+  const code = (dirs) => listed(dirs.map((d) => markdownCode(d)));
   const parts = ['### What the fix was verified on\n'];
   const one = goldens.shown.length === 1;
   if (!goldens.heldOut.length && !goldens.kept.length) {
@@ -251,8 +252,9 @@ export function evidenceNote({ goldens, gate }) {
 export function checksNote({ auth, dispatch = null }) {
   if (auth?.startsWorkflows) return `### Its checks\n\nThis pull request was opened with the token the action was given${auth.source === 'input' ? ' (`github-token`)' : ' (`GH_TOKEN`)'}, so GitHub starts its workflows as for any pull request.\n`;
   const start = 'give the action a `github-token` (a GitHub App\'s token or a personal access token), and the next fix pull request starts them itself';
-  if (dispatch?.dispatched) return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, so the job started \`${dispatch.workflow}\` on its branch (\`workflow_dispatch\`); that run checks this branch. Other workflows that run on pull requests have not started: ${start}.\n`;
-  return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, and the job could not start ${dispatch?.workflow ? `\`${dispatch.workflow}\`` : 'its workflow'} on its branch: ${dispatch?.why ?? 'it was not asked to'}. No check has run on this branch: push a commit to it, or close and reopen this pull request, to start them; or ${start}.\n`;
+  if (dispatch?.dispatched) return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, so the job started ${markdownCode(dispatch.workflow)} on its branch (\`workflow_dispatch\`); that run checks this branch. Other workflows that run on pull requests have not started: ${start}.\n`;
+  // Why it could not, in GitHub's own words, as text: none of it renders.
+  return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, and the job could not start ${dispatch?.workflow ? markdownCode(dispatch.workflow) : 'its workflow'} on its branch: ${markdownText(dispatch?.why ?? 'it was not asked to')}. No check has run on this branch: push a commit to it, or close and reopen this pull request, to start them; or ${start}.\n`;
 }
 
 const run = (cmd, args, cwd, env, input) => spawnSync(cmd, args, { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...(input !== undefined ? { input } : {}) });
@@ -493,13 +495,15 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, repair.output.patch), guard, build, env, scratch });
     out.warning = tried.warning;
     if (tried.why) {
-      cannot(tried.why);
+      // tried.why can carry the agent's output: escaped here, so branchNote shows it as it is.
+      cannot(markdownText(tried.why));
       return out;
     }
     const clean = [];
     for (const c of swaps) {
       const t = tried.results.get(c.golden);
-      const said = t?.message ? ` (${t.name}: ${t.message})` : '';
+      // The run's own name and message, which can be anyone's words: escaped here, so goldenNote shows the why as it is.
+      const said = t?.message ? ` (${markdownText(t.name)}: ${markdownText(t.message)})` : '';
       if (t && verdictOf(t) === 'passed') clean.push(c);
       else c.state.why = t && verdictOf(t) === 'inconclusive' ? `the recording verify accepted is inconclusive on the branch, neither passed nor failed${said}` : `the recording verify accepted does not replay clean on the branch${said}`;
     }
@@ -514,7 +518,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
       for (const c of clean) Object.assign(c.state, { state: 'recorded', why: null });
     }
   } catch (err) {
-    cannot(err.message.split('\n')[0]);
+    cannot(markdownText(err.message.split('\n')[0]));
   }
   return out;
 }
@@ -536,16 +540,21 @@ export function otherOnBranch(before, now) {
   return was === 'passed' ? 'diverging' : was === 'failed' ? 'failing' : 'unsettled';
 }
 
-/** What the pull request says about one of the fix's goldens. */
+/**
+ * What the pull request says about one of the fix's goldens. Why it is as it is can hold what a check
+ * found in a run, or a command's output: it is text, in which nothing renders (markdown.mjs).
+ */
 export function goldenNote(g) {
+  const name = markdownCode(g.golden);
+  const update = markdownFence(`shadowlap test ${g.golden} --update`, 'sh');
   if (g.state === 'unfixed') {
-    const head = `\`${g.golden}\` fails the same check, but this fix is not verified for it${g.why ? `: ${g.why}` : ''}.`;
+    const head = `${name} fails the same check, but this fix is not verified for it${g.why ? `: ${g.why}` : ''}.`;
     if (g.fork) return `${head} It may fork, so on this branch it runs live from where it diverges, and its checks say whether the fix repairs it too.\n`;
-    return `${head} It still holds the recording made before the fix, so it diverges on this branch. Re-recording it here keeps the new recording only when it passes its checks, which says whether the fix repairs it too; if it fails them, it is left as it is, and it needs a fix of its own:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n`;
+    return `${head} It still holds the recording made before the fix, so it diverges on this branch. Re-recording it here keeps the new recording only when it passes its checks, which says whether the fix repairs it too; if it fails them, it is left as it is, and it needs a fix of its own:\n\n${update}\n`;
   }
-  if (g.state === 'recorded') return `\`${g.golden}\` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here. Review the new recording like any other change to a golden.\n`;
-  if (g.state === 'fork') return `\`${g.golden}\` may fork, so it passes on its checks with the fix as it is.\n`;
-  return `\`${g.golden}\` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch. Re-record it here and commit the change:\n\n\`\`\`sh\nshadowlap test ${g.golden} --update\n\`\`\`\n\nIt was not re-recorded automatically: ${g.why}.\n`;
+  if (g.state === 'recorded') return `${name} is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here. Review the new recording like any other change to a golden.\n`;
+  if (g.state === 'fork') return `${name} may fork, so it passes on its checks with the fix as it is.\n`;
+  return `${name} still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch. Re-record it here and commit the change:\n\n${update}\n\nIt was not re-recorded automatically: ${String(g.why ?? '')}.\n`;
 }
 
 /**
@@ -554,18 +563,18 @@ export function goldenNote(g) {
  * that its own checks pass only when every golden replayed there replays clean.
  */
 export function branchNote({ goldens, others = { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: [], unchecked: [], replayed: 0 }, checked = false, why = null }) {
-  const code = (dirs) => listed(dirs.map((d) => `\`${d}\``));
+  const code = (dirs) => listed(dirs.map((d) => markdownCode(d)));
   const parts = [`### The golden${goldens.length === 1 ? '' : 's'}\n`, ...goldens.map(goldenNote)];
   const d = others.diverging;
-  if (d.length) parts.push(`The fix changes what the agent sends, so ${d.length === 1 ? 'another golden, which passed before it, diverges' : `${d.length} other goldens, which passed before it, diverge`} on this branch: ${code(d)}. Re-record ${d.length === 1 ? 'it' : 'them'} here once the change is what you meant, and commit the change:\n\n\`\`\`sh\nshadowlap test ${d.join(' ')} --update\n\`\`\`\n`);
+  if (d.length) parts.push(`The fix changes what the agent sends, so ${d.length === 1 ? 'another golden, which passed before it, diverges' : `${d.length} other goldens, which passed before it, diverge`} on this branch: ${code(d)}. Re-record ${d.length === 1 ? 'it' : 'them'} here once the change is what you meant, and commit the change:\n\n${markdownFence(`shadowlap test ${d.join(' ')} --update`, 'sh')}\n`);
   if (others.failing.length) parts.push(`${code(others.failing)} failed before the fix too, and ${others.failing.length === 1 ? 'fails' : 'fail'} on this branch as well.\n`);
   // Neither passed nor failed: never counted as a golden the fix broke, nor as one that replays clean.
   const unsettled = others.unsettled ?? [];
   if (unsettled.length) parts.push(`${code(unsettled)} ${unsettled.length === 1 ? 'was' : 'were'} inconclusive before the fix, and ${unsettled.length === 1 ? 'fails' : 'fail'} on this branch.\n`);
   const inconclusive = others.inconclusive ?? [];
-  if (inconclusive.length) parts.push(`${code(inconclusive)} ${inconclusive.length === 1 ? 'is' : 'are'} inconclusive on this branch, neither passed nor failed, so whether the fix changes ${inconclusive.length === 1 ? 'it' : 'them'} is not known: run \`shadowlap test ${inconclusive.join(' ')}\` on it to see why.\n`);
+  if (inconclusive.length) parts.push(`${code(inconclusive)} ${inconclusive.length === 1 ? 'is' : 'are'} inconclusive on this branch, neither passed nor failed, so whether the fix changes ${inconclusive.length === 1 ? 'it' : 'them'} is not known: run ${markdownCode(`shadowlap test ${inconclusive.join(' ')}`)} on it to see why.\n`);
   const unchecked = others.unchecked ?? [];
-  if (unchecked.length) parts.push(`${code(unchecked)} could not be replayed under the fix here${why ? ` (${why})` : ''}, so whether ${unchecked.length === 1 ? 'it diverges' : 'they diverge'} on this branch is not known: run \`shadowlap test ${unchecked.join(' ')}\` on it to see.\n`);
+  if (unchecked.length) parts.push(`${code(unchecked)} could not be replayed under the fix here${why ? ` (${why})` : ''}, so whether ${unchecked.length === 1 ? 'it diverges' : 'they diverge'} on this branch is not known: run ${markdownCode(`shadowlap test ${unchecked.join(' ')}`)} on it to see.\n`);
   if (others.unreplayed.length) parts.push(`${code(others.unreplayed)} may fork, so ${others.unreplayed.length === 1 ? 'it was' : 'they were'} not replayed here: ${others.unreplayed.length === 1 ? 'it runs' : 'they run'} live from where ${others.unreplayed.length === 1 ? 'it diverges' : 'they diverge'}, and ${others.unreplayed.length === 1 ? 'its' : 'their'} checks decide.\n`);
   const replayed = goldens.filter((g) => g.state === 'recorded').length + (checked ? others.replayed : 0);
   const clean = checked && !goldens.some((g) => g.state === 'stale' || g.state === 'unfixed') && !d.length && !others.failing.length && !unsettled.length && !inconclusive.length && !unchecked.length;
@@ -867,7 +876,12 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
   return out;
 }
 
-const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+/**
+ * Text safe in the job summary's table, for Shadowlap's own composed reasons: a stray pipe escaped, a
+ * line break and control characters flattened. The untrusted leaves it is built from (the repairer's
+ * title, a golden's name, a run's message) are escaped where they enter, not here.
+ */
+const cell = (s) => String(s ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\|/g, '\\|');
 
 /** What the summary says about the goldens on a fix's branch: its own, re-recorded or not, and the others it leaves diverging. */
 function goldenCell(f) {
@@ -875,7 +889,7 @@ function goldenCell(f) {
   const recorded = states.filter((g) => g.state === 'recorded');
   const stale = states.filter((g) => g.state === 'stale');
   const unfixed = states.filter((g) => g.state === 'unfixed');
-  const update = (dirs) => `run \`shadowlap test ${dirs.map(cell).join(' ')} --update\` on the branch`;
+  const update = (dirs) => `run ${markdownCode(`shadowlap test ${dirs.join(' ')} --update`, { cell: true })} on the branch`;
   const parts = [];
   // By name when the goldens on the branch fare differently.
   const named = [recorded, stale, unfixed].filter((x) => x.length).length > 1;
@@ -899,8 +913,8 @@ function goldenCell(f) {
 function pushCell(p) {
   if (!p) return '';
   if (p.state === 'sent') return ' · in the team store';
-  if (p.state === 'pr') return ` · not on the team's Fixes page: a pull request's job writes only to its own folder, \`pr/${cell(p.pr)}/\``;
-  if (p.state === 'off') return ` · not in the team store: ${cell(p.why)}`;
+  if (p.state === 'pr') return ` · not on the team's Fixes page: a pull request's job writes only to its own folder, ${markdownCode(`pr/${p.pr}/`, { cell: true })}`;
+  if (p.state === 'off') return ` · not in the team store: ${markdownText(p.why)}`;
   return ' · ⚠️ not in the team store';
 }
 
@@ -908,7 +922,7 @@ function pushCell(p) {
 function checksCell(c) {
   if (!c) return '';
   if (c.state === 'token') return ' · its workflows start as for any pull request';
-  if (c.state === 'dispatched') return ` · \`${cell(c.workflow)}\` started on its branch`;
+  if (c.state === 'dispatched') return ` · ${markdownCode(c.workflow, { cell: true })} started on its branch`;
   return ' · ⚠️ no check started on its branch';
 }
 
@@ -925,25 +939,25 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${cell(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
+        ? `[${markdownText(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
           ? cell(f.why)
           : `no fix: ${cell(f.why)}${goldenCell(f)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
-    lines.push(`| ${icon} | \`${cell(f.name)}\` | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(f.budget ?? budget).toFixed(2)}`} |`);
+    lines.push(`| ${icon} | ${markdownCode(f.name, { cell: true })} | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(f.budget ?? budget).toFixed(2)}`} |`);
   }
   // A push that couldn't happen: each fix with why, under the table where the reasons have room.
   const unsent = fixes.filter((f) => f.pushed?.state === 'failed');
   if (unsent.length) {
     const one = unsent.length === 1;
     lines.push('', `⚠️ ${one ? 'A fix' : `${unsent.length} fixes`} couldn't go to the team store, so teammates won't see ${one ? 'it' : 'them'} on their Fixes page. ${one ? 'Its pull request is' : 'Their pull requests are'} open all the same.`, '');
-    for (const f of unsent) lines.push(`- \`${String(f.name).replace(/`/g, "'")}\`: ${String(f.pushed.why ?? '').replace(/\s*\r?\n\s*/g, ' ')}`);
+    for (const f of unsent) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.pushed.why ?? ''))}`);
   }
   // A pull request whose checks never started: why, and what starts them.
   const unchecked = fixes.filter((f) => f.outcome === 'opened' && f.checks?.state === 'not-started');
   if (unchecked.length) {
     lines.push('', `⚠️ No check started on ${unchecked.length === 1 ? 'a fix pull request' : `${unchecked.length} fix pull requests`}: GitHub starts no workflow for one the job's \`GITHUB_TOKEN\` opens, and the job couldn't start it on the branch. Give the action a \`github-token\` (a GitHub App's token or a personal access token), or let the workflow be started on a branch: a \`workflow_dispatch:\` trigger, and \`actions: write\` in the job's permissions.`, '');
-    for (const f of unchecked) lines.push(`- \`${String(f.name).replace(/`/g, "'")}\`: ${String(f.checks.why ?? '').replace(/\s*\r?\n\s*/g, ' ')}`);
+    for (const f of unchecked) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.checks.why ?? ''))}`);
   }
   lines.push('', 'Each pull request carries the patch verify accepted, its report and, for a golden that must replay exactly, the golden re-recorded under the fix. Nothing is merged: review each one like any other change.');
   return lines.join('\n') + '\n';

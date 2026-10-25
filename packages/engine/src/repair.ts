@@ -1,4 +1,5 @@
 import { unrescuedWords } from './blame.js';
+import { markdownCode, markdownFence, markdownText } from './markdown.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
@@ -916,7 +917,7 @@ const one = (s: string, n = 90) => {
 
 /** What a fix's report says when verify replayed uncommitted changes that its branch doesn't hold. */
 function uncommittedNote(files: readonly string[]): string {
-  const named = files.slice(0, 5).map((f) => `\`${one(f, 120)}\``).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '');
+  const named = files.slice(0, 5).map((f) => markdownCode(one(f, 120))).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '');
   return `The runs were replayed on a working tree with uncommitted changes to ${named}. The branch holds HEAD with the fix, without them, so check that it passes as committed.`;
 }
 
@@ -1007,21 +1008,31 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
   return lines.join('\n');
 }
 
-const cell = (s: string) => one(s, 160).replace(/\|/g, '\\|');
+/**
+ * Text of a run's, a model's or the repairer's, on one line and cut to `n`, as the Markdown GitHub
+ * renders shows it and makes nothing of (markdownText): a pull request's body is posted by the bot,
+ * and what failing runs read can be anyone's words.
+ */
+const md = (s: string, n = 90) => markdownText(one(s, n));
+const cell = (s: string) => md(s, 160);
 
-/** The report as Markdown, for a pull request: the change, why it was needed, and the evidence that it holds. */
+/**
+ * The report as Markdown, for a pull request: the change, why it was needed, and the evidence that it
+ * holds. Whatever came from a run, the repairer or the agent's source is written as text GitHub links,
+ * mentions and renders nothing in (`md`, `cell`), as a code span (markdownCode) or in a fenced block.
+ */
 export function repairMarkdown(r: RepairReport): string {
   const accepted = r.candidates.find((c) => c.id === r.accepted) ?? null;
   const out: string[] = [];
   if (accepted) {
-    out.push(`## ${commitTitle(accepted)}`, '');
-    if (accepted.why.trim()) out.push(one(accepted.why, 600), '');
-    out.push(`A change to the ${accepted.surface} in \`${accepted.file}\`:`, '', '```diff', `- ${one(accepted.before, 400)}`, `+ ${one(accepted.after, 400)}`, '```', '');
+    out.push(`## ${markdownText(commitTitle(accepted))}`, '');
+    if (accepted.why.trim()) out.push(md(accepted.why, 600), '');
+    out.push(`A change to the ${md(accepted.surface, 200)} in ${markdownCode(one(accepted.file, 400))}:`, '', markdownFence(`- ${one(accepted.before, 400)}\n+ ${one(accepted.after, 400)}`, 'diff'), '');
   } else {
-    out.push(`## Not fixed${r.why ? `: ${one(r.why, 200)}` : ''}`, '');
+    out.push(`## Not fixed${r.why ? `: ${md(r.why, 200)}` : ''}`, '');
   }
 
-  out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => one(o, 120)).join('; ')}.`, '');
+  out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => md(o, 120)).join('; ')}.`, '');
   if (r.targets.length) {
     out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
@@ -1031,9 +1042,9 @@ export function repairMarkdown(r: RepairReport): string {
     }
   } else {
     // Found out before blame ran, as a repairer that can't sign in is.
-    out.push(`No failing run was blamed${r.noRepairer ? `: ${one(r.noRepairer, 200)}` : ''}.`);
+    out.push(`No failing run was blamed${r.noRepairer ? `: ${md(r.noRepairer, 200)}` : ''}.`);
   }
-  if (r.diagnosis) out.push('', `The repairer's diagnosis: ${one(r.diagnosis, 600)}`);
+  if (r.diagnosis) out.push('', `The repairer's diagnosis: ${md(r.diagnosis, 600)}`);
   out.push('');
 
   if (accepted?.verify) {
@@ -1055,7 +1066,7 @@ export function repairMarkdown(r: RepairReport): string {
     out.push('');
   }
 
-  const repairer = r.repairer ? `, the repairer (${r.repairer.served ?? r.repairer.model}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
+  const repairer = r.repairer ? `, the repairer (${md(r.repairer.served ?? r.repairer.model, 120)}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
   // The write policy the replays ran under, when the report kept it: an older report says nothing it can't know.
   const writes = r.writes === 'block' ? ' Writes were blocked in every replay.' : r.writes === 'stub' ? ' Writes were stubbed in every replay.' : '';
   const judged = r.cost.judge ? `, judge checks ≈${formatUsd(r.cost.judge)}` : '';
