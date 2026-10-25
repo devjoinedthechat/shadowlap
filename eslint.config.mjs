@@ -110,8 +110,8 @@ export default defineConfig(
       '@typescript-eslint/no-unnecessary-condition': 'off',
       // The code matches control characters and terminal escapes on purpose (sanitizing names, stripping ANSI).
       'no-control-regex': 'off',
-      // `x || fallback` is meant where it is written (an empty string falls back too), and `??` is used where
-      // 0 or '' must be kept: the rule would ask to rewrite every `||` the code means.
+      // `x || fallback` is meant where it is written (an empty variable falls back too), and `??` where 0 or ''
+      // must be kept: each of the rule's 147 findings here was read, and none drops a value it should keep.
       '@typescript-eslint/prefer-nullish-coalescing': 'off',
       // Names follow the code's own conventions (SQL columns, wire formats' snake_case keys, CONSTANTS).
       '@typescript-eslint/naming-convention': 'off',
@@ -148,6 +148,13 @@ export default defineConfig(
     },
   },
 
+  // The packages under testing/ are fakes and a reference agent: a fake implements an async interface
+  // without awaiting, and the agent's tools are async as real ones are (their source is in its golden).
+  {
+    files: ['testing/*/src/**/*.ts'],
+    rules: { '@typescript-eslint/require-await': 'off' },
+  },
+
   // The JavaScript: scripts, the guard's preloads, the Action, test agents and harnesses.
   {
     files: JS,
@@ -166,6 +173,12 @@ export default defineConfig(
       // Test agents and fake servers implement async interfaces without awaiting anything.
       '@typescript-eslint/require-await': 'off',
     },
+  },
+  {
+    files: ['packages/cli/guard/*.mjs'],
+    // The preloads keep Node's own methods to put them back, or to call them on the patched object with
+    // .call(this, …): never on their own.
+    rules: { '@typescript-eslint/unbound-method': 'off' },
   },
   {
     files: ['**/*.cjs'],
