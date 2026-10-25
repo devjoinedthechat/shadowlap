@@ -105,6 +105,36 @@ console.log('streamed', streamed.headers.get('content-type'), events.includes('m
   });
 });
 
+describe("fetch, captured, given a Host header of the agent's own", () => {
+  it('names the sidecar by its loopback address, as fetch sends no Host of the caller’s, so the sidecar answers it', async () => {
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    try {
+      const r = sidecar.startRun({ mode: 'record', command: { argv: ['node'], cwd: dir } });
+      const env = { ...agentEnv(sidecar, r.runId, 'warn', { anthropic: mock.url }), MOCK: mock.url };
+      const { stdout } = await agent(
+        'own-host',
+        `
+// The headers of a request the agent was answering, passed on whole, its Host among them: fetch
+// itself sends the host of the URL instead.
+const headers = { host: 'agent.example:3000', 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-test' };
+const body = JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] });
+for (const [label, base] of [['captured', process.env.MOCK], ['based', process.env.ANTHROPIC_BASE_URL]]) {
+  const res = await fetch(base + '/v1/messages', { method: 'POST', headers, body });
+  console.log(label, res.status, res.ok ? (await res.json()).content[0].text : await res.text());
+}
+`,
+        env,
+      );
+      expect(stdout).toContain('captured 200 hi there');
+      expect(stdout).toContain('based 200 hi there');
+      expect(store.getCalls(r.runId).filter((c) => c.kind === 'api')).toHaveLength(2);
+      sidecar.endRun(r.runId, 'completed');
+    } finally {
+      await sidecar.close();
+    }
+  });
+});
+
 describe("the preload's own requests", () => {
   it("leave the agent's connections alone: a model call slower than a second is still waited for", async () => {
     // The hello and the guard's reports go on agents of their own; on the sidecar's pooled

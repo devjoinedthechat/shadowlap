@@ -262,6 +262,10 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     const { signal } = request;
     if (signal.aborted) throw signal.reason;
     const headers = new Headers(request.headers);
+    // A Host of the agent's own (one passed on from a request it was answering) goes nowhere, as
+    // fetch sends none: the sidecar is named by its loopback address, as its Host check asks, and
+    // takes the host a call is for from x-shadowlap-upstream.
+    headers.delete('host');
     fetchDefaults(headers, url);
     if (provider) {
       headers.set('x-shadowlap-upstream', url.origin);
@@ -298,7 +302,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       for (const name of ['x-shadowlap-upstream', 'x-shadowlap-failures', 'x-shadowlap-scope']) headers.delete(name);
       // Off the origin the agent sent it to, its credentials go no further, as fetch's own redirects
       // drop them: an answer that moves the request elsewhere never takes its key or session along.
-      if (next.origin !== url.origin) for (const name of ['authorization', 'proxy-authorization', 'cookie', 'host']) headers.delete(name);
+      if (next.origin !== url.origin) for (const name of ['authorization', 'proxy-authorization', 'cookie']) headers.delete(name);
       // Counted across every hop, as fetch counts them: a loop of redirects ends at the twentieth.
       const followed = await routedFetch(next, { method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal }, redirects + 1);
       Object.defineProperty(followed, 'redirected', { value: true });
