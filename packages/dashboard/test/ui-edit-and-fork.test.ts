@@ -148,7 +148,7 @@ describe('Edit and fork in the inspector', () => {
       r = await render(createElement(AppContext.Provider, { value: app({ uploads: [], jobs: [] }) }, createElement(Inspector, { runId: RUN, call, calls: [call], detail: { ...d, call: { ...d.call, ...call }, conversation: null, request: { args: { region: 'EU' } }, response: null, notes: [], forkTitle: 'At #16' } as unknown as CallDetail, error: null, tab, onTab: () => undefined, onStep: () => undefined, change: null, live: false })));
       const buttons = r.all('.insp button').filter((b) => b.textContent === 'Edit and fork…');
       expect(buttons, tab).toHaveLength(1);
-      expect(buttons[0]!.closest('.isumrow'), tab).not.toBeNull();
+      expect(buttons[0].closest('.isumrow'), tab).not.toBeNull();
       await r.unmount();
       r = null;
     }

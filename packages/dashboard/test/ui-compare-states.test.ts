@@ -152,7 +152,7 @@ describe('two runs named', () => {
     expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#19977 in 01M5GRVTKS', '#19977 in 01M5GRXFM1']);
     expect(page.one('.cmpwait[role="status"]').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
     // The whole comparison takes its place once it comes.
-    whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null } as unknown as CompareView);
+    whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null });
     await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.changes').length > 0);
   });
 

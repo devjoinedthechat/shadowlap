@@ -81,13 +81,13 @@ function sessionHref(store: Store, sessionId: string): string {
 
 /** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
 function runHref(runId: string, data: unknown): string {
-  let run: DecisionRun | null = null;
+  let run: DecisionRun | null;
   try {
     run = typeof data === 'string' ? (JSON.parse(data) as DecisionRun) : (data as DecisionRun);
   } catch {
     run = null;
   }
-  const cells = Array.isArray(run?.decisions) ? decisionRow(run).cells : [];
+  const cells = run && Array.isArray(run.decisions) ? decisionRow(run).cells : [];
   const ranked = cells.filter((c) => typeof c.rank === 'number' && c.rank > 0).sort((a, b) => a.rank! - b.rank! || a.callNo - b.callNo)[0];
   return links.run(runId, ranked?.callNo ?? null);
 }
