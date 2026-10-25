@@ -165,9 +165,13 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const active = join(cwd, '.shadowlap', 'active.json');
   if (existsSync(active)) {
     try {
-      const j = JSON.parse(readFileSync(active, 'utf8')) as { runId?: string; pid?: number; url?: string };
-      const stale = typeof j.pid === 'number' && !alive(j.pid);
-      push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId?.slice(0, 10)} from a process that is gone` : `run ${j.runId?.slice(0, 10)} at ${j.url} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
+      const j = JSON.parse(readFileSync(active, 'utf8')) as { runId?: unknown; pid?: unknown; url?: unknown };
+      // Read as shadowlap mcp reads it: without its run, its process or the sidecar's address, it is no use.
+      if (typeof j.runId !== 'string' || typeof j.pid !== 'number' || typeof j.url !== 'string') push('active run', 'warn', `${active} is incomplete`, 'Delete it.');
+      else {
+        const stale = !alive(j.pid);
+        push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId.slice(0, 10)} from a process that is gone` : `run ${j.runId.slice(0, 10)} at ${j.url} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
+      }
     } catch {
       push('active run', 'warn', `${active} is unreadable`, 'Delete it.');
     }
