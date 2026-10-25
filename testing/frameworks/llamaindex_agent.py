@@ -11,12 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from llama_index.core.agent.workflow import FunctionAgent, ToolCallResult  # noqa: E402
-from llama_index.core.tools import FunctionTool  # noqa: E402
-from llama_index.core.workflow import Context  # noqa: E402
-from llama_index.llms.anthropic import Anthropic  # noqa: E402
+from llama_index.core.agent.workflow import FunctionAgent, ToolCallResult
+from llama_index.core.tools import FunctionTool
+from llama_index.core.workflow import Context
+from llama_index.llms.anthropic import Anthropic
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

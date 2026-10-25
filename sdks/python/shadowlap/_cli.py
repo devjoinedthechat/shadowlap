@@ -16,7 +16,8 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Callable, List, Mapping, NoReturn, Optional, Sequence, Tuple
+from collections.abc import Mapping, Sequence
+from typing import Callable, NoReturn, Optional
 
 from shadowlap import __version__
 
@@ -34,7 +35,7 @@ class NoRuntime(Exception):
     """The CLI can't be run here; the message says why and what to do."""
 
 
-def node_version(node: str) -> Optional[Tuple[int, int, int]]:
+def node_version(node: str) -> Optional[tuple[int, int, int]]:
     """The version ``node --version`` prints, or None when it can't be run or read."""
     try:
         out = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=30).stdout.strip()
@@ -44,7 +45,7 @@ def node_version(node: str) -> Optional[Tuple[int, int, int]]:
     return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
 
 
-def node_supported(version: Tuple[int, int, int]) -> bool:
+def node_supported(version: tuple[int, int, int]) -> bool:
     major, minor, _ = version
     return (major == 22 and minor >= 16) or major >= 24
 
@@ -94,7 +95,7 @@ def installed_cli(path: Optional[str] = None, me: Optional[str] = None) -> Optio
     return None
 
 
-def _npx(node: str, which: Which) -> List[str]:
+def _npx(node: str, which: Which) -> list[str]:
     """npx, as a command to run. On Windows npx is a batch file, so npm's own script is run with node
     when it is where npm puts it, which keeps cmd.exe out of the arguments."""
     if os.name == "nt":
@@ -107,7 +108,7 @@ def _npx(node: str, which: Which) -> List[str]:
     return [npx]
 
 
-def command(args: Sequence[str], env: Optional[Mapping[str, str]] = None, which: Which = shutil.which, path: Optional[str] = None) -> List[str]:
+def command(args: Sequence[str], env: Optional[Mapping[str, str]] = None, which: Which = shutil.which, path: Optional[str] = None) -> list[str]:
     """The command that runs the CLI with ``args``. Raises NoRuntime when there is none to run."""
     env = os.environ if env is None else env
     override = env.get("SHADOWLAP_CLI")

@@ -11,10 +11,10 @@ from typing import Annotated
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from agent_framework import Agent  # noqa: E402
-from agent_framework.openai import OpenAIChatCompletionClient  # noqa: E402
+from agent_framework import Agent
+from agent_framework.openai import OpenAIChatCompletionClient
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

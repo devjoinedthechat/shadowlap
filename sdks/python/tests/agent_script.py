@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from shadowlap import ShadowlapInjectedFailure, ShadowlapWriteBlocked, ReplayedError, is_active, now, random, tool, uuid  # noqa: E402
+from shadowlap import ReplayedError, ShadowlapInjectedFailure, ShadowlapWriteBlocked, is_active, now, random, tool, uuid
 
 executed = []
 

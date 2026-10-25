@@ -11,9 +11,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query  # noqa: E402
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 
-from shadowlap.adapters.claude_agent_sdk import with_fence  # noqa: E402
+from shadowlap.adapters.claude_agent_sdk import with_fence
 
 PROJECT = os.environ["PROJECT"]
 

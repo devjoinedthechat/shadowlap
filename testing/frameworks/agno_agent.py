@@ -9,10 +9,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from agno.agent import Agent  # noqa: E402
-from agno.models.anthropic import Claude  # noqa: E402
+from agno.agent import Agent
+from agno.models.anthropic import Claude
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

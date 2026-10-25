@@ -14,8 +14,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-import shadowlap  # noqa: E402
-from shadowlap import ReplayedError, ShadowlapWriteBlocked, tool  # noqa: E402
+import shadowlap
+from shadowlap import ShadowlapWriteBlocked, tool
 
 try:
     import trio
@@ -193,7 +193,7 @@ class Generators(Stubbed):
 
         @tool(effect="read")
         def pages(n: int):
-            for i in range(n):
+            for i in range(n):  # noqa: UP028 -- a generator tool as a user writes one, which a send() reaches
                 yield i
             return "done"
 

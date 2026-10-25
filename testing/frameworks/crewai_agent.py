@@ -8,11 +8,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from crewai.tools import BaseTool, tool  # noqa: E402
-from pydantic import BaseModel  # noqa: E402
+from crewai.tools import BaseTool, tool
+from pydantic import BaseModel
 
-from shadowlap import ShadowlapWriteBlocked  # noqa: E402
-from shadowlap.adapters.crewai import with_effect  # noqa: E402
+from shadowlap import ShadowlapWriteBlocked
+from shadowlap.adapters.crewai import with_effect
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

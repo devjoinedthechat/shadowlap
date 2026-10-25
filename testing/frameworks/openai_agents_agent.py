@@ -11,13 +11,13 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from agents import Agent, RunContextWrapper, Runner, set_tracing_disabled  # noqa: E402
-from agents.items import ModelResponse  # noqa: E402
-from agents.models.interface import Model  # noqa: E402
-from agents.usage import Usage  # noqa: E402
-from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText  # noqa: E402
+from agents import Agent, RunContextWrapper, Runner, set_tracing_disabled
+from agents.items import ModelResponse
+from agents.models.interface import Model
+from agents.usage import Usage
+from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText
 
-from shadowlap.adapters.openai_agents import function_tool  # noqa: E402
+from shadowlap.adapters.openai_agents import function_tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

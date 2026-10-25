@@ -10,8 +10,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-import shadowlap  # noqa: E402
-from shadowlap import tool  # noqa: E402
+import shadowlap
+from shadowlap import tool
 
 
 class Sidecar:
@@ -107,11 +107,11 @@ class Cancelled(unittest.TestCase):
 
             @tool(effect="write")
             def send(to: str) -> str:
-                raise raised()
+                raise raised()  # noqa: B023 -- called in this iteration, before the loop moves on
 
             @tool(effect="write")
             async def asend(to: str) -> str:
-                raise raised()
+                raise raised()  # noqa: B023 -- called in this iteration, before the loop moves on
 
             with self.assertRaises(raised):
                 send("ops")

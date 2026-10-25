@@ -18,9 +18,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "sdks", "python"))
 
-import anthropic  # noqa: E402
+import anthropic
 
-from shadowlap import ShadowlapWriteBlocked, now, tool, uuid  # noqa: E402
+from shadowlap import ShadowlapWriteBlocked, now, tool, uuid
 
 MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 TOOLS = [
@@ -94,7 +94,7 @@ def main() -> dict:
                 tool_errors.append(f"{use.name}: ShadowlapWriteBlocked")
                 log(f"tool {use.name} failed: ShadowlapWriteBlocked: {err}")
                 results.append({"type": "tool_result", "tool_use_id": use.id, "content": f"error: {err}", "is_error": True})
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 tool_errors.append(f"{use.name}: {type(err).__name__}")
                 log(f"tool {use.name} failed: {type(err).__name__}: {err}")
                 results.append({"type": "tool_result", "tool_use_id": use.id, "content": f"error: {err}", "is_error": True})

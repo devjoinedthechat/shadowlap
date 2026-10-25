@@ -20,14 +20,14 @@ Any other error is ADK's to handle, as it was.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from shadowlap import ShadowlapInjectedFailure, ShadowlapWriteBlocked
 
 __all__ = ["report_to_model", "shadowlap_plugin"]
 
 
-def report_to_model(*, error: Exception, **_: Any) -> Optional[Dict[str, Any]]:
+def report_to_model(*, error: Exception, **_: Any) -> Optional[dict[str, Any]]:
     """An ``on_tool_error_callback``: the refusal of a write after a fork, or a failure ``--fail-at``
     injected, as the tool's answer (``{"error": message}``); None for any other error."""
     if isinstance(error, (ShadowlapWriteBlocked, ShadowlapInjectedFailure)):
@@ -40,7 +40,7 @@ def shadowlap_plugin(name: str = "shadowlap") -> Any:
     from google.adk.plugins.base_plugin import BasePlugin
 
     class ShadowlapPlugin(BasePlugin):  # type: ignore[misc]
-        async def on_tool_error_callback(self, *, error: Exception, **_: Any) -> Optional[Dict[str, Any]]:
+        async def on_tool_error_callback(self, *, error: Exception, **_: Any) -> Optional[dict[str, Any]]:
             return report_to_model(error=error)
 
     return ShadowlapPlugin(name=name)

@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "sdks", "python"))
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 
 @tool(effect="read")

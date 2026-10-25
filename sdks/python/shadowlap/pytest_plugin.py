@@ -26,8 +26,9 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator, Optional
+from typing import Any, Optional
 
 import pytest
 

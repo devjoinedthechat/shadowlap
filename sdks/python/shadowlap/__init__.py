@@ -23,7 +23,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid as _uuid
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Generator, Iterator, List, Optional, Tuple, Type, TypeVar, cast
+from collections.abc import AsyncGenerator, Awaitable, Generator, Iterator
+from typing import Any, Callable, Optional, TypeVar, cast
 
 __all__ = [
     "tool",
@@ -52,22 +53,22 @@ _EFFECTS = ("pure", "read", "write")
 _TRUST = ("trusted", "untrusted")
 
 #: What the sidecar answers ``/v1/calls/resolve`` with, as JSON.
-Resolution = Dict[str, Any]
+Resolution = dict[str, Any]
 #: The sidecar's address and the run this process records into.
-Config = Tuple[str, Optional[str]]
+Config = tuple[str, Optional[str]]
 
 
 class ShadowlapWriteBlocked(RuntimeError):
     """Raised when a `write` tool is reached after divergence under the default `--writes block`.
     `tool` is the tool's name and `tool_args` the arguments it was called with."""
 
-    def __init__(self, tool: str, args: Dict[str, Any], message: Optional[str] = None):
+    def __init__(self, tool: str, args: dict[str, Any], message: Optional[str] = None):
         super().__init__(message or f"write tool {tool} blocked after divergence")
         self.tool = tool
         # Not `self.args`: that is the exception's own message tuple, which str() and copy() use.
         self.tool_args = args
 
-    def __reduce__(self) -> Tuple[Any, ...]:
+    def __reduce__(self) -> tuple[Any, ...]:
         # copy, pickle and multiprocessing rebuild an exception from its constructor arguments.
         return (type(self), (self.tool, self.tool_args, str(self)))
 
@@ -81,13 +82,13 @@ class ReplayedError(Exception):
     the call was recorded. An agent that hands a tool's error to the model hands it the same text on
     replay, and ``except ReplayedError`` still catches it."""
 
-    def __new__(cls, error: Optional[Dict[str, Any]] = None, *args: Any, **kwargs: Any) -> "ReplayedError":
+    def __new__(cls, error: Optional[dict[str, Any]] = None, *args: Any, **kwargs: Any) -> ReplayedError:
         if cls is ReplayedError and isinstance(error, dict):
             module = error.get("module")
             cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
         return super().__new__(cls)
 
-    def __init__(self, error: Dict[str, Any]):
+    def __init__(self, error: dict[str, Any]):
         message = error.get("message", "recorded error")
         args = error.get("args")
         # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
@@ -103,20 +104,20 @@ class ReplayedError(Exception):
         # "'A-17'", and an OSError's names its errno and file.
         return self._message
 
-    def __reduce__(self) -> Tuple[Any, ...]:
+    def __reduce__(self) -> tuple[Any, ...]:
         # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
         # made at run time, and pickle would look it up by its name (ValueError) and find another.
-        error: Dict[str, Any] = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
+        error: dict[str, Any] = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
         module = type(self).__module__
         if module != __name__:
             error["module"] = module
         return (ReplayedError, (error,))
 
 
-_REPLAYED_CLASSES: Dict[Tuple[str, str], Type[ReplayedError]] = {}
+_REPLAYED_CLASSES: dict[tuple[str, str], type[ReplayedError]] = {}
 
 
-def _replayed_class(name: str, module: Optional[str] = None) -> Type[ReplayedError]:
+def _replayed_class(name: str, module: Optional[str] = None) -> type[ReplayedError]:
     """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
     the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
     and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
@@ -126,7 +127,7 @@ def _replayed_class(name: str, module: Optional[str] = None) -> Type[ReplayedErr
         module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
     cls = _REPLAYED_CLASSES.get((name, module))
     if cls is None:
-        cls = cast(Type[ReplayedError], type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}))
+        cls = cast(type[ReplayedError], type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}))
         _REPLAYED_CLASSES[(name, module)] = cls
     return cls
 
@@ -140,7 +141,7 @@ class ShadowlapInjectedFailure(Exception):
 
     injected = True
 
-    def __init__(self, tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]):
+    def __init__(self, tool: str, args: dict[str, Any], failure: dict[str, Any], error: dict[str, Any]):
         super().__init__(error.get("message", "injected failure"))
         self.tool = tool
         self.tool_args = args
@@ -149,17 +150,17 @@ class ShadowlapInjectedFailure(Exception):
         self.name: str = error.get("name", "Error")
         self.code: Optional[str] = error.get("code")
 
-    def __reduce__(self) -> Tuple[Any, ...]:
+    def __reduce__(self) -> tuple[Any, ...]:
         return (type(self), (self.tool, self.tool_args, self.failure, {"name": self.name, "message": str(self), "code": self.code}))
 
 
-def _timeout_classes() -> Tuple[type, ...]:
+def _timeout_classes() -> tuple[type, ...]:
     """The classes an agent may catch a timeout as. From Python 3.11 ``asyncio.TimeoutError`` and
     ``socket.timeout`` are ``TimeoutError`` itself; before that they are classes of their own, and an
     agent's ``except asyncio.TimeoutError`` around ``asyncio.wait_for`` must catch the injected one too."""
     import socket
 
-    classes: List[type] = [ShadowlapInjectedFailure, TimeoutError]
+    classes: list[type] = [ShadowlapInjectedFailure, TimeoutError]
     for cls in (asyncio.TimeoutError, socket.timeout):
         if not any(issubclass(c, cls) for c in classes):
             classes.append(cls)
@@ -177,11 +178,11 @@ class _InjectedResponse:
     def __init__(self, status: int, text: str):
         self.status_code = status
         self.status = status
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
         self.text = text
         self.reason_phrase = text.split(" ", 2)[-1] if text.startswith("HTTP ") else ""
 
-    def json(self) -> Dict[str, Any]:
+    def json(self) -> dict[str, Any]:
         return {"error": {"message": self.text}}
 
 
@@ -189,16 +190,16 @@ class ShadowlapInjectedHTTPError(ShadowlapInjectedFailure):
     """An HTTP failure ``--fail-at <call>=<status>`` asked for, shaped like the errors HTTP clients
     raise: ``status_code`` and ``status`` on the error and on its ``response``."""
 
-    def __init__(self, tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]):
+    def __init__(self, tool: str, args: dict[str, Any], failure: dict[str, Any], error: dict[str, Any]):
         super().__init__(tool, args, failure, error)
         self.status_code = int(failure.get("status", 500))
         self.status = self.status_code
         self.response = _InjectedResponse(self.status_code, str(self))
 
 
-def _injected(tool: str, args: Dict[str, Any], failure: Dict[str, Any], error: Dict[str, Any]) -> ShadowlapInjectedFailure:
+def _injected(tool: str, args: dict[str, Any], failure: dict[str, Any], error: dict[str, Any]) -> ShadowlapInjectedFailure:
     kind = failure.get("kind")
-    cls: Type[ShadowlapInjectedFailure] = ShadowlapInjectedTimeout if kind == "timeout" else ShadowlapInjectedHTTPError if kind == "status" else ShadowlapInjectedFailure
+    cls: type[ShadowlapInjectedFailure] = ShadowlapInjectedTimeout if kind == "timeout" else ShadowlapInjectedHTTPError if kind == "status" else ShadowlapInjectedFailure
     return cls(tool, args, failure, error)
 
 
@@ -219,7 +220,7 @@ def is_active() -> bool:
 
 
 # One variable per process, shared with Shadowlap's capture module, which may be imported first.
-_SCOPE: "contextvars.ContextVar[Optional[str]]" = getattr(sys, "_shadowlap_scope_var", None) or contextvars.ContextVar("shadowlap_scope", default=None)
+_SCOPE: contextvars.ContextVar[Optional[str]] = getattr(sys, "_shadowlap_scope_var", None) or contextvars.ContextVar("shadowlap_scope", default=None)
 setattr(sys, "_shadowlap_scope_var", _SCOPE)
 
 
@@ -278,7 +279,7 @@ _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 SDK_HEADER = "python/" + __version__
 
 
-def _post(cfg: Config, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+def _post(cfg: Config, path: str, body: dict[str, Any]) -> dict[str, Any]:
     url, run_id = cfg
     # JSON has no NaN or Infinity, and the sidecar refuses a body with them: what reaches here has been
     # made JSON already (see _json_form), and anything else fails here rather than at the sidecar.
@@ -292,7 +293,7 @@ def _post(cfg: Config, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
     req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")
     try:
         with _DIRECT.open(req, timeout=30) as res:
-            return cast(Dict[str, Any], json.loads(res.read().decode("utf-8")))
+            return cast(dict[str, Any], json.loads(res.read().decode("utf-8")))
     except urllib.error.HTTPError as e:
         text = e.read().decode("utf-8", "replace")
         try:
@@ -368,12 +369,12 @@ async def _wait_forever() -> None:
         await asyncio.get_running_loop().create_future()  # never resolves; the caller's cancel ends it
 
 
-def serialize_error(err: BaseException) -> Dict[str, Any]:
+def serialize_error(err: BaseException) -> dict[str, Any]:
     """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
     so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
     and its arguments when they aren't the message alone and survive JSON as they are."""
     message = str(err)
-    out: Dict[str, Any] = {"name": type(err).__name__, "message": message}
+    out: dict[str, Any] = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
     if isinstance(code, str):
         out["code"] = code
@@ -408,7 +409,7 @@ def _same_types(a: Any, b: Any) -> bool:
 _STOPPING = (KeyboardInterrupt, SystemExit)
 
 
-def _cancelled_error(err: BaseException) -> Dict[str, Any]:
+def _cancelled_error(err: BaseException) -> dict[str, Any]:
     """A cancelled call as it is recorded: ``data.cancelled`` is true when the caller cancelled it (a
     deadline in ``asyncio.wait_for`` or a trio cancel scope, a task cancelled), false when the tool
     raised CancelledError from an awaitable of its own. Before Python 3.11 an asyncio task can't
@@ -426,7 +427,7 @@ def _cancelled_error(err: BaseException) -> Dict[str, Any]:
     return out
 
 
-def _cancellation(error: Dict[str, Any]) -> Optional[bool]:
+def _cancellation(error: dict[str, Any]) -> Optional[bool]:
     """Whether a recorded error is a cancellation: True when the caller cancelled the call, False when
     the tool raised CancelledError itself, None when it is an ordinary error. A CancelledError
     recorded before cancellations were marked is taken as the caller's."""
@@ -437,7 +438,7 @@ def _cancellation(error: Dict[str, Any]) -> Optional[bool]:
     return True if error.get("name") == "CancelledError" else None
 
 
-async def _replay_cancellation(error: Dict[str, Any]) -> None:
+async def _replay_cancellation(error: dict[str, Any]) -> None:
     """A replayed cancellation. The caller cancelled the call while it was recorded, so the replay
     waits until the caller cancels it again, as its deadline or cancel did then: the agent takes the
     path it took. A CancelledError the tool raised itself is raised again as one under asyncio."""
@@ -463,7 +464,7 @@ def _implementation(fn: Callable[..., Any]) -> Any:
         fn = fn.func
     if inspect.isfunction(fn) or inspect.ismethod(fn) or inspect.isbuiltin(fn) or isinstance(fn, type):
         return fn
-    call = getattr(type(fn), "__call__", None)
+    call = getattr(type(fn), "__call__", None)  # noqa: B004 -- the method itself, whose source is read; not a check that fn can be called
     return call if call is not None else fn
 
 
@@ -481,7 +482,7 @@ def _call_of(fn: Callable[..., Any]) -> Any:
     """The function that runs when ``fn`` is called: ``fn``, or a callable object's ``__call__``."""
     if inspect.isfunction(fn) or inspect.ismethod(fn) or isinstance(fn, functools.partial):
         return fn
-    return getattr(fn, "__call__", fn)
+    return getattr(fn, "__call__", fn)  # noqa: B004 -- the method a callable object runs; not a check that fn can be called
 
 
 def _is_async_stream(fn: Callable[..., Any]) -> bool:
@@ -519,8 +520,7 @@ def _type_names(annotation: Any, depth: int = 0) -> Iterator[str]:
     if isinstance(annotation, typing.ForwardRef):
         annotation = annotation.__forward_arg__
     if isinstance(annotation, str):
-        for name in _IDENTIFIER.findall(_QUOTED.sub("", annotation)):
-            yield name
+        yield from _IDENTIFIER.findall(_QUOTED.sub("", annotation))
         return
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
@@ -581,7 +581,7 @@ def _is_literal(origin: Any) -> bool:
     return origin is not None and (origin is typing.Literal or getattr(origin, "_name", None) == "Literal" or repr(origin).endswith(".Literal"))
 
 
-def context_params(fn: Callable[..., Any]) -> Tuple[str, ...]:
+def context_params(fn: Callable[..., Any]) -> tuple[str, ...]:
     """The parameters of `fn` that a framework injects: annotated with a Pydantic AI `RunContext`,
     an OpenAI Agents `RunContextWrapper` or `ToolContext`, a LangChain `RunnableConfig`, callback
     manager or `Injected…` marker, a LangChain `ToolRuntime`, Google ADK's `ToolContext`, or a
@@ -602,7 +602,7 @@ def context_params(fn: Callable[..., Any]) -> Tuple[str, ...]:
     return tuple(out)
 
 
-def _bind_args(fn: Callable[..., Any], args: Tuple[Any, ...], kwargs: Dict[str, Any], exclude: Tuple[str, ...] = ()) -> Dict[str, Any]:
+def _bind_args(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], exclude: tuple[str, ...] = ()) -> dict[str, Any]:
     """Tool arguments are recorded by name, however the tool was called. `exclude` drops
     framework context parameters that are neither JSON nor part of the call's identity."""
     try:
@@ -621,7 +621,7 @@ def _is_json(value: Any) -> bool:
         return False
 
 
-def _jsonable(value: Any, path: "set[int]") -> Any:
+def _jsonable(value: Any, path: set[int]) -> Any:
     """``value`` converted, recursively, by the rules in ``_json_form``; whatever has no rule is
     left as it is, for the caller's check to refuse."""
     import dataclasses
@@ -686,7 +686,7 @@ def _json_form(value: Any) -> Any:
     return converted
 
 
-def _check_args(tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+def _check_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """The arguments as they are recorded, by the rules results follow (``_json_form``). Fails before
     the tool runs, naming the argument, when something can't be recorded."""
     if _is_json(args):
@@ -733,7 +733,7 @@ def _recordable(tool_name: str, value: Any) -> Any:
     return converted
 
 
-Complete = Callable[[Config, int, Dict[str, Any]], None]
+Complete = Callable[[Config, int, dict[str, Any]], None]
 
 
 def _complete_ok(complete: Complete, cfg: Config, call_no: int, tool_name: str, result: Any, latency: int) -> None:
@@ -764,23 +764,23 @@ class _Tool:
     (a function, a coroutine function, a generator function, an async generator function, or an
     object whose ``__call__`` is one of them)."""
 
-    def __init__(self, fn: Callable[..., Any], name: str, effect: str, on_fork: Optional[Callable[..., Any]], exclude: Tuple[str, ...], trust: Optional[str]):
+    def __init__(self, fn: Callable[..., Any], name: str, effect: str, on_fork: Optional[Callable[..., Any]], exclude: tuple[str, ...], trust: Optional[str]):
         self.fn = fn
         self.name = name
         self.effect = effect
         self.on_fork = on_fork
         self.exclude = exclude
         # Sent only for a tool that brings outside text in.
-        self.marked: Dict[str, str] = {"trust": "untrusted"} if trust == "untrusted" else {}
+        self.marked: dict[str, str] = {"trust": "untrusted"} if trust == "untrusted" else {}
         self.impl_hash = _impl_hash(fn)
 
-    def resolve(self, cfg: Config, args: Dict[str, Any]) -> Resolution:
+    def resolve(self, cfg: Config, args: dict[str, Any]) -> Resolution:
         return _post(cfg, "/v1/calls/resolve", {"kind": "tool", "name": self.name, "effect": self.effect, "args": args, "implHash": self.impl_hash, **self.marked})
 
-    def complete(self, cfg: Config, call_no: int, body: Dict[str, Any]) -> None:
+    def complete(self, cfg: Config, call_no: int, body: dict[str, Any]) -> None:
         _post(cfg, f"/v1/calls/{call_no}/complete", body)
 
-    def replayed(self, r: Resolution, bound: Dict[str, Any]) -> Any:
+    def replayed(self, r: Resolution, bound: dict[str, Any]) -> Any:
         """A recorded call's answer: its result, or its error raised again."""
         if r["outcome"] == "ok":
             return r.get("result")
@@ -788,12 +788,12 @@ class _Tool:
             raise _injected(self.name, bound, r["injected"], r["error"])
         raise ReplayedError(r["error"])
 
-    async def replayed_async(self, r: Resolution, bound: Dict[str, Any]) -> Any:
+    async def replayed_async(self, r: Resolution, bound: dict[str, Any]) -> Any:
         if r["outcome"] != "ok" and not r.get("injected"):
             await _replay_cancellation(r["error"])
         return self.replayed(r, bound)
 
-    def refuse(self, r: Resolution, bound: Dict[str, Any]) -> None:
+    def refuse(self, r: Resolution, bound: dict[str, Any]) -> None:
         """Raises for an answer that runs nothing: a write blocked after the fork, or an origin this SDK doesn't know."""
         origin = r["origin"]
         if origin == "blocked":
@@ -801,7 +801,7 @@ class _Tool:
         if origin not in ("stubbed", "live"):
             raise _unknown_origin(self.name, origin)
 
-    def failed(self, err: BaseException, started: float) -> Dict[str, Any]:
+    def failed(self, err: BaseException, started: float) -> dict[str, Any]:
         """The end of a call that raised: a cancellation is the caller's doing, not the tool's error."""
         return {"outcome": "error", "error": _cancelled_error(err) if _is_cancellation(err) else serialize_error(err), "latencyMs": _since(started)}
 
@@ -871,7 +871,7 @@ class _Tool:
 
         return wrapper
 
-    async def stub_async(self, bound: Dict[str, Any]) -> Any:
+    async def stub_async(self, bound: dict[str, Any]) -> Any:
         stub = self.on_fork(**bound) if self.on_fork else None
         return await stub if inspect.isawaitable(stub) else stub
 
@@ -1040,7 +1040,7 @@ def tool(
     *,
     effect: str,
     on_fork: Optional[Callable[..., Any]] = None,
-    exclude: Tuple[str, ...] = (),
+    exclude: tuple[str, ...] = (),
     trust: Optional[str] = None,
 ) -> Callable[[F], F]:
     """Wraps a tool implementation. `effect` is required: "pure", "read" or "write".
@@ -1097,13 +1097,13 @@ def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None
         return None
     if effect not in _EFFECTS:
         raise TypeError(f'effect must be "pure", "read" or "write", not {effect!r}')
-    body: Dict[str, Any] = {"kind": "tool", "name": name, "effect": effect, "args": args}
+    body: dict[str, Any] = {"kind": "tool", "name": name, "effect": effect, "args": args}
     if trust == "untrusted":
         body["trust"] = "untrusted"
     return _post(cfg, "/v1/calls/resolve", body)
 
 
-def _complete_call(call_no: int, body: Dict[str, Any]) -> None:
+def _complete_call(call_no: int, body: dict[str, Any]) -> None:
     """Records how a call ``_resolve_tool`` answered ``live`` or ``stubbed`` ended: ``{"outcome": "ok",
     "result": ...}`` or ``{"outcome": "error", "error": {...}}``, with ``latencyMs``."""
     cfg = _config()

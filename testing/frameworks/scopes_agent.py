@@ -9,9 +9,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-import anthropic  # noqa: E402
+import anthropic
 
-from shadowlap import scope  # noqa: E402
+from shadowlap import scope
 
 client = anthropic.AsyncAnthropic(api_key="k", max_retries=0)
 

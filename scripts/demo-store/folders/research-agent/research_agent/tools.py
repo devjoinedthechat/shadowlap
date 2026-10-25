@@ -2,6 +2,7 @@
 write, saving a report and posting to Slack, aren't yet."""
 
 from pydantic_ai import Agent
+
 from shadowlap import tool
 
 agent = Agent(

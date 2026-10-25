@@ -13,8 +13,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-import shadowlap  # noqa: E402
-from shadowlap import ReplayedError, ShadowlapInjectedFailure, ShadowlapInjectedHTTPError, ShadowlapInjectedTimeout, tool  # noqa: E402
+import shadowlap
+from shadowlap import ReplayedError, ShadowlapInjectedFailure, ShadowlapInjectedHTTPError, ShadowlapInjectedTimeout, tool
 
 
 class Sidecar:

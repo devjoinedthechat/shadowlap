@@ -9,8 +9,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-import shadowlap  # noqa: E402
-from shadowlap import ShadowlapWriteBlocked, context_params, tool  # noqa: E402
+import shadowlap
+from shadowlap import ShadowlapWriteBlocked, context_params, tool
 
 
 class Sidecar:
@@ -36,7 +36,7 @@ class RecordingRules(unittest.TestCase):
         os.environ.pop("SHADOWLAP_URL", None)
 
     def test_framework_context_parameters_are_detected_by_annotation(self):
-        def fn(ctx: "RunContextWrapper[Deps]", tc: "ToolContext", run: "RunContext[None]", config: "RunnableConfig", state: "Annotated[dict, InjectedState]", call_id: "Annotated[str, InjectedToolCallId]", run_manager: "Optional[CallbackManagerForToolRun]", query: str, context: dict, limit: int = 3):
+        def fn(ctx: "RunContextWrapper[Deps]", tc: "ToolContext", run: "RunContext[None]", config: "RunnableConfig", state: "Annotated[dict, InjectedState]", call_id: "Annotated[str, InjectedToolCallId]", run_manager: "Optional[CallbackManagerForToolRun]", query: str, context: dict, limit: int = 3):  # noqa: F821 -- framework types named as text, as a tool annotates them, never imported here
             pass
 
         self.assertEqual(context_params(fn), ("ctx", "tc", "run", "config", "state", "call_id", "run_manager"))
@@ -113,7 +113,7 @@ class RecordingRules(unittest.TestCase):
             pass
 
         @tool(effect="read")
-        def search(ctx: "RunContextWrapper[dict]", query: str) -> str:
+        def search(ctx: "RunContextWrapper[dict]", query: str) -> str:  # noqa: F821 -- a framework type named as text, never imported here
             return "hit " + query
 
         self.assertEqual(search(Wrapper(), "x"), "hit x")
@@ -355,7 +355,7 @@ class RecordingRules(unittest.TestCase):
 
                 @tool(effect="read")
                 def lookup(order: str):
-                    raise original
+                    raise original  # noqa: B023 -- called in this iteration, before the loop moves on
 
                 live = Sidecar({"origin": "live", "callNo": 1})
                 shadowlap._post = live

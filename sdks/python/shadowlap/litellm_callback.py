@@ -45,16 +45,17 @@ Three things to know, all of them deliberate:
 import json
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from ._capture import FORMAT, VERSION, _agent_body, _headers, _lock, _capture_path, _millis, _response_text, _run_key
+from ._capture import FORMAT, VERSION, _agent_body, _capture_path, _headers, _lock, _millis, _response_text, _run_key
+
 
 class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no types
     """Writes each completed model call as one line of JSON."""
 
-    def _write(self, record: Dict[str, Any]) -> None:
+    def _write(self, record: dict[str, Any]) -> None:
         path = _capture_path()
         if not path:
             return
@@ -64,7 +65,7 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
             with open(path, "a", encoding="utf-8") as handle:
                 handle.write(line)
 
-    def _record(self, kwargs: Dict[str, Any], response: Any, start: Any, end: Any, failed: bool) -> None:
+    def _record(self, kwargs: dict[str, Any], response: Any, start: Any, end: Any, failed: bool) -> None:
         params = kwargs.get("litellm_params") or {}
         request = params.get("proxy_server_request") or {}
         body = request.get("body")
@@ -80,7 +81,7 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
 
         headers = _headers(request.get("headers"))
         run_key = _run_key(headers)
-        record: Dict[str, Any] = {
+        record: dict[str, Any] = {
             "format": FORMAT,
             "v": VERSION,
             "url": request.get("url"),
@@ -98,7 +99,7 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
             record["timeMs"] = finished - started
         self._write(record)
 
-    async def async_log_success_event(self, kwargs: Dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:  # noqa: D102
+    async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
         # The only hook that fires for both streamed and non-streamed calls, and it carries the
         # inbound request in litellm_params for both.
         try:
@@ -106,7 +107,7 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
         except Exception:
             pass
 
-    async def async_log_failure_event(self, kwargs: Dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:  # noqa: D102
+    async def async_log_failure_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
         try:
             self._record(kwargs, response_obj, start_time, end_time, failed=True)
         except Exception:

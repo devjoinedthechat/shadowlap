@@ -11,12 +11,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from pydantic import BaseModel  # noqa: E402
-from pydantic_ai import Agent  # noqa: E402
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
-from pydantic_ai.models.function import AgentInfo, FunctionModel  # noqa: E402
+from pydantic import BaseModel
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 SUBJECT = os.environ.get("SUBJECT", "refund A-17")
 executed = []

@@ -9,7 +9,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    import mypy  # noqa: F401
+    import mypy
 except ImportError:
     mypy = None
 

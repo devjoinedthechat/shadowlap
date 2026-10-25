@@ -11,11 +11,11 @@ from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from pydantic_ai import Agent, RunContext  # noqa: E402
-from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart  # noqa: E402
-from pydantic_ai.models.function import AgentInfo, FunctionModel  # noqa: E402
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart, ToolCallPart, ToolReturnPart
+from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-from shadowlap import ShadowlapWriteBlocked, tool  # noqa: E402
+from shadowlap import ShadowlapWriteBlocked, tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

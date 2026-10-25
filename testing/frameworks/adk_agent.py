@@ -12,14 +12,14 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from google.adk.agents import LlmAgent  # noqa: E402
-from google.adk.runners import Runner  # noqa: E402
-from google.adk.sessions import InMemorySessionService  # noqa: E402
-from google.adk.tools import ToolContext  # noqa: E402
-from google.genai import types  # noqa: E402
+from google.adk.agents import LlmAgent
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.tools import ToolContext
+from google.genai import types
 
-from shadowlap import tool  # noqa: E402
-from shadowlap.adapters.google_adk import report_to_model  # noqa: E402
+from shadowlap import tool
+from shadowlap.adapters.google_adk import report_to_model
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []
