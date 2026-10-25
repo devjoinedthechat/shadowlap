@@ -64,7 +64,8 @@ describe('Settings → CI', () => {
     expect(toast).toHaveBeenCalledWith('Fix pull requests are on · your workflow has the step');
     // The action still runs once: the fix's branch checked out, its inputs beside fail-on-divergence.
     expect(code().match(/- uses: devjoinedthechat\/shadowlap@/g)).toHaveLength(1);
-    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
+    // A fork's pull request has no branch here: its job checks out the merge ref, as without the fix.
+    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}\n    persist-credentials: false\n');
     expect(r.one('#fix-on-failure').className).toBe('panel set cip');
     await r.click(r.one('#workflow .switch[aria-label="Tell Slack"]'));
     await r.until('the workflow without Slack', () => !code().includes('Tell Slack'));

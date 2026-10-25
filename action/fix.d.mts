@@ -145,7 +145,7 @@ export function repairPlan(members: FixPlan[], results?: ReportResult[]): Repair
 export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null }): string[];
 export function evidenceNote(plan: Pick<RepairPlan, 'goldens' | 'gate'>): string;
 export function checksNote(o: { auth: GitHubAuth; dispatch?: Dispatch | null }): string;
-export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | null;
+export function cannotFix(workdir: string, env: NodeJS.ProcessEnv, read?: (path: string) => string): string | null;
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
 export function goldenNote(golden: GoldenState): string;

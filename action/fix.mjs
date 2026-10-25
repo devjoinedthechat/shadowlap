@@ -259,15 +259,21 @@ function git(cwd, args, env, input) {
   return r.stdout;
 }
 
+/** The checkout's ref that gives a pull request's job its branch when it is one of this repository's (docs/ci.md). */
+const BRANCH_REF = '${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}';
+
 /**
  * Why fixes can't be opened from this checkout, or null. A pull request needs a branch to target;
- * a pull request's own workflow checks out a detached merge commit unless told otherwise.
+ * a pull request's own workflow checks out a detached merge commit unless told otherwise. A pull
+ * request from a fork gets a token from GitHub that may not push a branch, and its branch is the
+ * fork's, so it gets no fix whatever is checked out.
  */
-export function cannotFix(workdir, env) {
+export function cannotFix(workdir, env, read) {
+  if (forkPullRequest(env, read)) return "a pull request from a fork gets a token from GitHub that may not push a branch, and its branch is the fork's, so no fix is opened from its job";
   const head = run('git', ['rev-parse', '--abbrev-ref', 'HEAD'], workdir, env);
   if (head.status !== 0) return 'the working directory is not a git repository';
   const branch = head.stdout.trim();
-  if (branch === 'HEAD') return 'HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.head_ref }})';
+  if (branch === 'HEAD') return `HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${BRANCH_REF})`;
   // The workflow this action started on a fix's branch, or a fix's own pull request: its checks say
   // whether the fix holds, and a fix of the fix would stack one pull request on another.
   if (branch.startsWith('shadowlap/fix-')) return `${branch} is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it`;

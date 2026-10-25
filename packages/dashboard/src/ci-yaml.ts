@@ -42,10 +42,15 @@ const INSTALL = '- run: npm ci && npm run build   # whatever your agent needs to
 const NO_CREDENTIALS = '    persist-credentials: false';
 const CHECKOUT = ['- uses: actions/checkout@v7', '  with:', NO_CREDENTIALS];
 /**
- * Fix on failure's checkout: the branch itself, which the fix's pull request goes into. A pull
- * request's own job checks out a detached merge commit otherwise, which no fix can be opened against.
+ * A pull request's own branch, when it is one of this repository's: the fix's pull request goes into
+ * it. A pull request's job checks out a detached merge commit otherwise, which no fix can be opened
+ * against. A fork's branch name means nothing here (this repository may have a branch of the same
+ * name, with other code), so a fork's pull request, and every other event, checks out `github.ref`:
+ * for a fork's that is the merge commit, which the action tests and opens no fix from.
  */
-const CHECKOUT_BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}', NO_CREDENTIALS];
+export const BRANCH_REF = '${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}';
+/** Fix on failure's checkout: the branch itself, which the fix's pull request goes into. */
+const CHECKOUT_BRANCH = ['- uses: actions/checkout@v7', '  with:', `    ref: ${BRANCH_REF}`, NO_CREDENTIALS];
 
 /** The secret a key variable is kept in, as the step's env takes it: `ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`. */
 const keyLine = (key: string) => `    ${key}: \${{ secrets.${key} }}`;

@@ -608,8 +608,9 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     sh(project, 'git', ['checkout', '-q', '--detach']);
     const r = await action({ FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic' });
     expect(r.outputs.fixes).toBe('0');
-    expect(r.out).toContain('HEAD is detached, so there is no branch to open a fix against');
-    expect(r.summary).toContain('ref: ${{ github.head_ref }}');
+    // The checkout that gives a pull request's job its branch, from this repository alone; in the summary's table, its pipes escaped.
+    expect(r.out).toContain('HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }})');
+    expect(r.summary).toContain('ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref \\|\\| github.ref }}');
   });
 });
 

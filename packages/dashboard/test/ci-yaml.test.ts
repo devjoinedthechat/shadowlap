@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACTION, alertFailures, DISPATCH_COMMENT, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION, workflowNeeds, workflowYaml } from '../src/ci-yaml.js';
+import { ACTION, alertFailures, BRANCH_REF, DISPATCH_COMMENT, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, repairerKey, scalar, VERSION, workflowNeeds, workflowYaml } from '../src/ci-yaml.js';
 
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -30,8 +30,8 @@ describe('the version the steps pin', () => {
 
 /** What every step needs before the action in a job of its own: Node 22.16 or later, and the agent's dependencies. */
 const SETUP = ['- uses: actions/setup-node@v7', '  with:', '    node-version: 22', '- run: npm ci && npm run build   # whatever your agent needs to run'];
-/** Fix on failure's checkout: the branch itself, which its pull request goes into; the job's token left off the disk. */
-const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}', '    persist-credentials: false'];
+/** Fix on failure's checkout: a pull request's own branch, which its pull request goes into, from this repository alone; the job's token left off the disk. */
+const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}', '    persist-credentials: false'];
 /** Every other checkout: the job's token left off the disk, where the agent could read it. */
 const CHECKOUT = ['- uses: actions/checkout@v7', '  with:', '    persist-credentials: false'];
 
@@ -444,6 +444,15 @@ describe('the job’s tokens in the steps', () => {
     for (const yaml of every()) expect(checkoutOf(yaml), yaml).toContain('    persist-credentials: false');
   });
 
+  it('check out a pull request’s branch only when it is one of this repository’s', () => {
+    for (const yaml of every()) {
+      // A fork's branch name may name another branch of this repository, with other code: never checked out.
+      const ref = checkoutOf(yaml).find((l) => l.startsWith('    ref: '));
+      if (ref) expect(ref).toBe(`    ref: ${BRANCH_REF}`);
+    }
+    // head_ref only when the pull request's head is this repository; github.ref (a fork's merge commit, a push's branch) otherwise.
+    expect(BRANCH_REF).toBe('${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}');
+  });
 });
 
 describe('docs/ci.md', () => {

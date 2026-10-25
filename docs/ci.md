@@ -353,7 +353,7 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
 # and workflow_dispatch: under the workflow's on:, so a fix's pull request gets its checks
 - uses: actions/checkout@v7
   with:
-    ref: ${{ github.head_ref || github.ref }}
+    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}
     persist-credentials: false
 - uses: actions/setup-node@v7
   with:
@@ -379,7 +379,7 @@ They are the steps of a job of their own: the branch checked out, Node 22.16 or 
 - permission to push a branch (`contents: write`) and to open the pull request and keep the [comment](#the-pull-request-comment) on it (`pull-requests: write`), in the job's `permissions`, as the first comment says. The action pushes the branch and runs `gh` with the job's token, or `github-token`: neither goes in the step's `env`, and the CLI and your agent get neither;
 - for the pull request's checks to start, either `github-token`, or `actions: write` in the job's `permissions` and a `workflow_dispatch:` trigger in the workflow, as the first two comments say ([below](#how-a-fix-pull-requests-checks-start));
 - with Push from CI on, the bucket's credentials, so each fix reaches the [team store](#fixes-in-the-team-store) too;
-- a branch checked out, as the first step does (`ref: ${{ github.head_ref || github.ref }}`). A pull request's own workflow checks out a detached merge commit, so it checks out its branch, and the fix becomes a pull request into it;
+- a branch checked out, as the first step does: on a pull request from this repository, its branch (`github.head_ref`), as its job checks out a detached merge commit otherwise, so the fix becomes a pull request into it. A pull request from a fork checks out its merge commit (`github.ref`): a fork's branch name could name another branch here, with other code, and its job's token may not push one, so its job tests the pull request and opens no fix;
 - Node 22.16 or later on the runner, not 23, as the second step sets up.
 
 The dashboard's Settings → CI writes the agent's provider keys into the step's `env` by name, from the providers its goldens' recordings called, in place of that last comment; the comment stays after them when a golden's keys can't be named (its pack can't be read, or it calls Vertex AI, which signs in with a token).
@@ -412,7 +412,7 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 # and workflow_dispatch: under the workflow's on:, so a fix's pull request gets its checks
 - uses: actions/checkout@v7
   with:
-    ref: ${{ github.head_ref || github.ref }}
+    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}
     persist-credentials: false
 - uses: actions/setup-node@v7
   with:
@@ -445,7 +445,7 @@ Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's fol
 # and R2 keys as secrets: they can't be kept to pr/, so pull requests don't push
 - uses: actions/checkout@v7
   with:
-    ref: ${{ github.head_ref || github.ref }}
+    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}
     persist-credentials: false
 - uses: actions/setup-node@v7
   with:
@@ -519,7 +519,7 @@ Fix on failure, Alerts and the team store's push are inputs and steps around one
 # and workflow_dispatch: under the workflow's on:, so a fix's pull request gets its checks
 - uses: actions/checkout@v7
   with:
-    ref: ${{ github.head_ref || github.ref }}
+    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}
     persist-credentials: false
 - uses: actions/setup-node@v7
   with:
