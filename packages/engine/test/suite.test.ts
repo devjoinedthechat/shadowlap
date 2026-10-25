@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BASELINE_DEFAULTS, SPRT_DEFAULTS, describeGate, gateOdds, type BaselineGate, type SprtGate } from '../src/stats.js';
-import { INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, type SuiteGolden } from '../src/suite.js';
+import { clopperPearsonBound } from '../src/noninferiority.js';
+import { HISTORY_SIZED_AT, INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, type SuiteGolden } from '../src/suite.js';
 
 /**
  * A test session's one risk, split across its gated goldens: what each gate becomes, that every
@@ -66,19 +67,26 @@ describe('planSuite', () => {
     expect(plan.planned[0].red).toBeCloseTo(odds.fail, 12);
   });
 
-  it('gives a gate against history its share as its risk, and works out its red rate at its baseline\'s pass rate', () => {
+  it('gives a gate against history its share as its risk, and works out its red rate at the low end of its baseline\'s pass rate', () => {
     const base = { passes: 47, attempts: 50 };
     const one = planSuite([{ golden: 'goldens/h', gate: history(), maxGiven: false, history: base }])!.planned[0];
-    // One golden: unchanged.
+    // One golden: unchanged, its red rate worked out where 90 baselines in 100 put the agent at least.
     expect(one.gate).toEqual(history());
-    expect(one.at).toBeCloseTo(0.94, 12);
+    expect(HISTORY_SIZED_AT).toBe(0.9);
+    expect(one.at).toBeCloseTo(clopperPearsonBound(47, 50, 0.1, 'lower'), 12);
+    expect(one.at).toBeCloseTo(0.8712, 4);
+    // What it costs is forecast at the rate the baseline shows.
+    expect(one.forecastAt).toBeCloseTo(0.94, 12);
+    expect(one.attempts).toBeCloseTo(gateOdds(one.gate, 0.94, base).attempts, 12);
     const plan = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: history(), maxGiven: false, history: base })))!;
     const g = plan.planned[0].gate as BaselineGate;
     expect(g.risk).toBeLessThanOrEqual(0.0025);
-    const odds = gateOdds(g, 0.94, base);
+    const odds = gateOdds(g, plan.planned[0].at, base);
     expect(odds.fail + odds.inconclusive).toBeLessThanOrEqual(0.0025);
     expect(plan.planned[0].red).toBeCloseTo(odds.fail + odds.inconclusive, 12);
     expect(describeGate(g)).toMatch(/once 99\.\d+% likely/);
+    // With no history, its baseline is its recording, and it is sized for an agent that always passes.
+    expect(planSuite([{ golden: 'goldens/h', gate: history(), maxGiven: false }])!.planned[0].at).toBe(1);
   });
 
   it('forecasts the attempts on average and at most, and their cost, at each golden\'s recent rate', () => {

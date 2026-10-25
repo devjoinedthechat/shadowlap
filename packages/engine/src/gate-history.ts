@@ -13,6 +13,12 @@ import type { Store, TestResult } from './store.js';
  * regression is judged against the agent as it was before it, on every run until it is fixed,
  * instead of becoming the baseline it is judged by. A result kept before sessions recorded their
  * branch can't show it was the baseline branch's, and doesn't count.
+ *
+ * Of each session, a gate against history pools its first `min` attempts (`first`), the ones every
+ * session runs whatever they show. Its gate stops as soon as it is sure, so a session that ran on had
+ * a bad start, and the ones that went red, which are left out, are long: pooled whole, the passing
+ * sessions overstated the agent (0.8175 for one at 0.80, in 20 goldens), and every gate judged by
+ * them failed it more often than its share allowed.
  */
 
 export interface HistoryFilter {
@@ -33,6 +39,11 @@ export interface HistoryFilter {
   excludeSession?: string | readonly string[] | null;
   /** Only results kept before this time. */
   before?: number;
+  /**
+   * Of each session, only its first this many attempts, in the order they ran: a gate against
+   * history's `min`. A result kept before results kept their order counts whole. Absent: every attempt.
+   */
+  first?: number;
 }
 
 /** One session's part of a baseline. */
@@ -131,6 +142,22 @@ export function judgedUnder(r: Pick<TestResult, 'data'>, checks: readonly string
 /** How many of a golden's results are read to find `window` that qualify. */
 const READ_LIMIT = 5000;
 
+/**
+ * A session's attempts as a baseline takes them: with `first`, the first that many it ran itself, in
+ * order (a gate's outcomes, after any it carried over from a session it continued), else all it kept
+ * (`attemptsOf`), as for a result kept before its gate kept its outcomes, or one with no gate.
+ */
+export function sessionAttempts(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, first?: number): Tally | null {
+  const all = attemptsOf(r);
+  if (!all || first === undefined) return all;
+  const g = r.data?.gate;
+  const outcomes = Array.isArray(g?.outcomes) ? g.outcomes : null;
+  if (!outcomes) return all;
+  const carried = typeof g?.carried === 'number' && g.carried > 0 ? g.carried : 0;
+  const own = outcomes.slice(carried, carried + first);
+  return own.length ? { passes: own.filter(Boolean).length, attempts: own.length } : null;
+}
+
 /** The baseline a gate against history compares with: the golden's last `window` sessions that qualify, pooled. */
 export function gateHistory(store: Store, golden: string, f: HistoryFilter): PooledHistory {
   const pooled: HistorySession[] = [];
@@ -143,7 +170,7 @@ export function gateHistory(store: Store, golden: string, f: HistoryFilter): Poo
     if (f.mode && r.data?.mode && r.data.mode !== f.mode) continue;
     if (f.checks && !judgedUnder(r, f.checks)) continue;
     if (notBaseline(r, f.branch) !== null) continue;
-    const t = attemptsOf(r);
+    const t = sessionAttempts(r, f.first);
     if (!t) continue;
     pooled.push({ sessionId: r.sessionId, at: r.at, revision: r.revision, ...t });
   }

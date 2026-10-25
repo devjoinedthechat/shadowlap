@@ -496,7 +496,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     // A gate against history compares with this golden's last sessions: under the same recording
     // and checks, this session's own result left out, and those whose attempts carry over.
     // Only sessions that passed on the baseline branch, for no pull request, are a baseline (gate-history.ts).
-    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, goldenRunId: parent.runId, checks, mode: 'fork', excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])], ...(ctx.baselineBranch !== undefined ? { branch: ctx.baselineBranch } : {}) }) : null;
+    const history = gate?.kind === 'baseline' ? gateHistory(ctx.store, golden, { window: gate.window, first: gate.min, goldenRunId: parent.runId, checks, mode: 'fork', excludeSession: [...(ctx.test?.session ? [ctx.test.session] : []), ...(carry?.sessions ?? [])], ...(ctx.baselineBranch !== undefined ? { branch: ctx.baselineBranch } : {}) }) : null;
     if (gate?.kind === 'baseline' && !history?.attempts) notes.push(ctx.baselineBranch === null ? `${NO_HISTORY_YET}: ${NO_BASELINE_BRANCH}` : NO_HISTORY);
     const tested: RecordingTestContext = { ...ctx, ...(packed.length ? { config: { ...ctx.config, normalize: [...ctx.config.normalize, ...packed] } } : {}), ...(history ? { history } : {}), carry };
     const result = await testRecording(parent, spec, tested);

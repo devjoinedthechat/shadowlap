@@ -49,7 +49,7 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
       continue;
     }
     const checks = oracleLabels(spec).slice(1);
-    const history = spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { window: spec.gate.window, goldenRunId: parent.runId, checks, mode: 'fork', ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) }) : null;
+    const history = spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { window: spec.gate.window, first: spec.gate.min, goldenRunId: parent.runId, checks, mode: 'fork', ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) }) : null;
     const recent = recentAttempts(o.store, golden, { window: RECENT, goldenRunId: parent.runId, checks });
     goldens.push({
       golden,

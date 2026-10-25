@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { attemptsOf, gateHistory, judgedUnder, notBaseline, testResultVerdict } from '../src/gate-history.js';
+import { attemptsOf, gateHistory, judgedUnder, notBaseline, sessionAttempts, testResultVerdict } from '../src/gate-history.js';
+import type { GateResult } from '../src/stats.js';
 import { Store, type TestFailure, type TestResultData } from '../src/store.js';
 
 /**
@@ -33,6 +34,35 @@ describe('attemptsOf', () => {
   it('counts no attempt a check couldn\'t judge, and nothing for a golden that couldn\'t run', () => {
     expect(attemptsOf({ ok: false, failure: 'inconclusive', data: fork(2, 3, { attempts: { total: 3, passed: 2, required: null, runs: [], inconclusive: 1 } }) })).toEqual({ passes: 2, attempts: 2 });
     expect(attemptsOf({ ok: false, failure: 'error', data: { mode: 'fork' } })).toBeNull();
+  });
+});
+
+describe('sessionAttempts', () => {
+  const gated = (outcomes: boolean[], carried = 0): TestResultData => fork(outcomes.filter(Boolean).length - (carried ? outcomes.slice(0, carried).filter(Boolean).length : 0), outcomes.length - carried, { gate: { outcomes, ...(carried ? { carried } : {}) } as unknown as GateResult });
+
+  it('takes a session by its first attempts, in the order it ran them, so its gate stopping early or late tilts nothing', () => {
+    // Passed at its fifth attempt, or after a bad start and five more: each is its first five.
+    expect(sessionAttempts({ ok: true, failure: null, data: gated([true, true, true, true, true]) }, 5)).toEqual({ passes: 5, attempts: 5 });
+    expect(sessionAttempts({ ok: true, failure: null, data: gated([false, true, false, true, true, true, true, true, true, true]) }, 5)).toEqual({ passes: 3, attempts: 5 });
+    // Without `first`, every attempt it kept, as before.
+    expect(sessionAttempts({ ok: true, failure: null, data: gated([false, true, false, true, true, true, true, true, true, true]) })).toEqual({ passes: 8, attempts: 10 });
+  });
+
+  it('leaves out attempts carried over from a session it continued, which that session pooled, and reads a result with no order whole', () => {
+    // 6 carried over, then its own: false, true, true, …
+    const continued = gated([true, true, true, true, true, false, false, true, true, true, true, true, true], 6);
+    expect(sessionAttempts({ ok: true, failure: null, data: continued }, 5)).toEqual({ passes: 4, attempts: 5 });
+    expect(sessionAttempts({ ok: true, failure: null, data: fork(9, 10) }, 5)).toEqual({ passes: 9, attempts: 10 });
+    expect(sessionAttempts({ ok: false, failure: 'error', data: { mode: 'fork' } }, 5)).toBeNull();
+  });
+
+  it('is how gateHistory pools a gate against history, given its min', () => {
+    const { store: s } = store([
+      { ok: true, at: T0, data: gated([false, true, true, true, true, true, true, true, true, true]) },
+      { ok: true, at: T0 + 1, data: gated([true, true, true, true, true]) },
+    ]);
+    expect(gateHistory(s, 'goldens/refund', { window: 10, first: 5, mode: 'fork', checks: ['issue_refund called 0 times'], goldenRunId: 'REC' })).toMatchObject({ passes: 9, attempts: 10, sessions: 2 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10, mode: 'fork', checks: ['issue_refund called 0 times'], goldenRunId: 'REC' })).toMatchObject({ passes: 14, attempts: 15, sessions: 2 });
   });
 });
 
