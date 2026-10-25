@@ -6,7 +6,7 @@ import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
-import { candidateTree, COPY_LIMIT, removeCandidateTrees } from './repair-tree.js';
+import { candidateTree, COPY_LIMIT, fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -167,17 +167,25 @@ export function goldensInRepo(root: string, cwd: string, goldens: string): strin
 const git = (root: string, args: string[], o: { input?: string; env?: NodeJS.ProcessEnv } = {}) =>
   execFileSync('git', args, { cwd: root, stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024, ...(o.input !== undefined ? { input: o.input } : {}), ...(o.env ? { env: o.env } : {}) }).toString();
 
-/** The project's text files: tracked, and untracked but not ignored. */
-function projectFiles(root: string): SourceFile[] {
+/**
+ * The project's text files: tracked, and untracked but not ignored. A link is read as the file it
+ * ends at, under that file's own path, and only when that file is in the repository too (fileInside):
+ * a rewrite is only ever written to a file of the repository's, never through a link to another.
+ */
+export function projectFiles(root: string): SourceFile[] {
   const out: SourceFile[] = [];
-  for (const path of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
-    if (!path) continue;
+  const seen = new Set<string>();
+  const real = physicalPath(root);
+  for (const listed of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
+    if (!listed) continue;
     // A committed recording (a golden, or __recordings__/) holds copies of the prompts, not their source.
-    if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(path)) continue;
-    const abs = join(root, path);
+    if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(listed)) continue;
+    const path = fileInside(real, listed);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
     try {
-      if (statSync(abs).size > REPAIR_FILE_LIMIT) continue;
-      const content = readFileSync(abs, 'utf8');
+      if (statSync(join(real, path)).size > REPAIR_FILE_LIMIT) continue;
+      const content = readInside(real, path);
       if (!content.includes('\u0000')) out.push({ path, content });
     } catch {
       // deleted in the working tree, or unreadable
@@ -554,14 +562,18 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       const tried = candidates.filter((x) => x.c.state !== 'invalid' && x.c.state !== 'untried').length;
       // Rejected for their growth before verify ran them: no gate decided any of them.
       const grown = candidates.filter((x) => x.c.state === 'rejected' && !x.c.verify).length;
+      // Never decided either: written into no worktree, or one verify could not finish, and why.
+      const incomplete = candidates.filter((x) => x.c.state === 'incomplete');
       // With nothing to try, the repairer's silence is why: "the repairer could not be asked: claude was not found".
       report.why = !candidates.length
         ? (report.noRepairer ?? 'there was no candidate to try')
         : tried && grown === tried
           ? `${tried === 1 ? 'the one candidate' : `all ${tried} candidates`} that could be tried grew the input tokens per run past --max-growth ${+(s.maxGrowth * 100).toFixed(4)}% by ${tried === 1 ? 'its' : 'their'} rewrite alone, so verify ran none`
-          : tried
-            ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried`
-            : 'no candidate could be tried';
+          : tried && incomplete.length === tried
+            ? `${tried === 1 ? 'the one candidate tried could not be verified' : `none of the ${tried} candidates tried could be verified`}: ${incomplete[0]!.c.reason ?? 'verify did not finish'}`
+            : tried
+              ? `the gate accepted none of the ${tried} candidate${tried === 1 ? '' : 's'} tried`
+              : 'no candidate could be tried';
       return report;
     }
 
@@ -691,7 +703,14 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
    * versions when the gate accepts it.
    */
   async function tryCandidate(c: RepairCandidate, edit: { file: string; offset: number; text: string; sent: string }): Promise<{ original: string; patched: string } | null> {
-    const original = readFileSync(join(root, edit.file), 'utf8');
+    let original: string;
+    try {
+      original = readInside(physicalPath(root), edit.file);
+    } catch (err) {
+      c.state = 'invalid';
+      c.reason = `${edit.file} can't be read as the repository's own file: ${safeLine((err as Error).message)}`;
+      return null;
+    }
     let patched: string;
     try {
       patched = applyEdit(original, edit, c.after);
@@ -724,7 +743,14 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         linkedSaid = true;
         warnings.push(`${tree.linked.slice(0, 3).join(', ')}${tree.linked.length > 3 ? ` and ${tree.linked.length - 3} more` : ''}, which git ignores, ${tree.linked.length === 1 ? 'was' : 'were'} linked into the worktree candidates were verified in rather than copied, past the ${REPAIR_COPY_LIMIT_MB} MB copied: a --build that writes there writes the working tree's copy`);
       }
-      writeFileSync(join(tree.root, edit.file), patched);
+      // Written into the worktree's own file, never through a link out of it.
+      try {
+        writeInside(tree.root, edit.file, patched);
+      } catch (err) {
+        c.state = 'incomplete';
+        c.reason = `the candidate could not be written into its worktree: ${safeLine((err as Error).message)}`;
+        return null;
+      }
       if (s.build) {
         const b = runBuild(s.build, tree.cwd);
         if (!b.ok) {
@@ -737,7 +763,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       const withoutCandidate = (): BaseCheckout => {
         const plain = candidateTree(candidate.root, candidate.cwd);
         try {
-          writeFileSync(join(plain.root, edit.file), original);
+          writeInside(plain.root, edit.file, original);
           if (s.build) {
             const b = runBuild(s.build, plain.cwd);
             if (!b.ok) throw new Error(`${s.build} failed on the code without the candidate: ${b.tail.split('\n').at(-1) ?? ''}`);
@@ -891,10 +917,16 @@ export function applyAccepted(report: Pick<RepairReport, 'patch' | 'candidates' 
   if (!accepted || !report.patch) throw new RepairError('there is no accepted candidate to apply');
   const problem = repairPatchProblem(report);
   if (problem) throw new RepairError(`the patch is not the accepted candidate's change (${problem}), so nothing was applied`);
-  const abs = join(root, accepted.file);
-  const now = readFileSync(abs, 'utf8');
+  // The working tree's own file, never one a link in it names: a link would take the fix outside the repository.
+  const real = physicalPath(root);
+  let now: string;
+  try {
+    now = readInside(real, accepted.file);
+  } catch (err) {
+    throw new RepairError(`${accepted.file} can't be written as the repository's own file (${(err as Error).message}); apply ${report.output.patch ?? 'the patch'} by hand`);
+  }
   if (now.slice(accepted.offset, accepted.offset + accepted.before.length) !== accepted.before) throw new RepairError(`${accepted.file} changed during the repair; apply ${report.output.patch ?? 'the patch'} by hand`);
-  writeFileSync(abs, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
+  writeInside(real, accepted.file, applyEdit(now, { offset: accepted.offset, text: accepted.before }, accepted.after));
 }
 
 function commitMessage(r: RepairReport, c: RepairCandidate): string {

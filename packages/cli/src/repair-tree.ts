@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { linkDependencies, mapArgv } from './bisect.js';
-import { physicalPath } from './real-path.js';
+import { physicalPath, realPath } from './real-path.js';
 
 /**
  * Where `shadowlap repair` verifies a candidate: a temporary git worktree of the project's
@@ -14,12 +14,13 @@ import { physicalPath } from './real-path.js';
  * The worktree is the working tree as it is, not HEAD: it is checked out at HEAD, then every tracked
  * file with uncommitted changes and every untracked file git doesn't ignore is copied in (a file
  * deleted in the working tree is deleted there too), so verify replays the code repair was started
- * on, with one change. What git ignores is brought along as the agent needs it: `node_modules` is
- * linked entry by entry as bisect links it (a package of the repository itself is the worktree's own
- * copy), a Python virtual environment is linked whole, caches a runtime makes again are left out,
- * and everything else (a `.env`, build output, data) is copied, cloned where the file system can,
- * up to COPY_LIMIT in all. Past that it is linked, and `linked` names it: a `--build` that writes
- * there writes the working tree's copy.
+ * on, with one change. A link among them is copied as a link, except that one naming a path in the
+ * repository by its absolute name names the worktree's copy instead. What git ignores is brought
+ * along as the agent needs it: `node_modules` is linked entry by entry as bisect links it (a package
+ * of the repository itself is the worktree's own copy), a Python virtual environment is linked whole,
+ * caches a runtime makes again are left out, and everything else (a `.env`, build output, data) is
+ * copied, cloned where the file system can, up to COPY_LIMIT in all. Past that it is linked, and
+ * `linked` names it: a `--build` that writes there writes the working tree's copy.
  */
 
 /** What is copied of the files git ignores, at most, before the rest is linked instead. */
@@ -76,10 +77,93 @@ function sizeOf(path: string, limit: number): number {
 
 const link = (target: string, path: string, dir: boolean) => symlinkSync(target, path, dir && process.platform === 'win32' ? 'junction' : undefined);
 
+/**
+ * Copies the working tree's link `from` as a link at `to`, as it is, except that one naming a path in
+ * the repository by its absolute name (`/home/me/agent/prompts/policy.md`) names the worktree's copy
+ * of it: the working tree's would be what the agent reads, and what a build writes into.
+ */
+function relink(realRoot: string, from: string, to: string, tree: string): void {
+  const target = readlinkSync(from);
+  mkdirSync(dirname(to), { recursive: true });
+  rmSync(to, { recursive: true, force: true });
+  const real = isAbsolute(target) ? physicalPath(target) : null;
+  if (real && within(realRoot, real)) symlinkSync(join(tree, relative(realRoot, real)), to);
+  else copy(from, to);
+}
+
 /** Copies a file or a folder as it is, links included, cloned where the file system can. */
 function copy(from: string, to: string): void {
   mkdirSync(dirname(to), { recursive: true });
   cpSync(from, to, { recursive: true, force: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
+}
+
+/** Whether `path` is `root` or inside it, both as the system names them. */
+const within = (root: string, path: string) => {
+  const rel = relative(root, path);
+  return !rel.startsWith('..') && !isAbsolute(rel);
+};
+
+/**
+ * The file a project path names, as repair may read and rewrite it: the path itself for a regular
+ * file, or for a link (or a path through one) the path of the regular file it ends at, relative to
+ * `root` with forward slashes, when that file is inside the repository. A link out of it, to a file
+ * of another project, a home folder or the system, names nothing repair may touch: null, as for
+ * anything that isn't a regular file or can't be read.
+ */
+export function fileInside(root: string, rel: string): string | null {
+  const realRoot = physicalPath(root);
+  let real: string;
+  try {
+    real = realPath(join(realRoot, rel));
+    if (!lstatSync(real).isFile()) return null;
+  } catch {
+    return null;
+  }
+  if (!within(realRoot, real) || real === realRoot) return null;
+  return relative(realRoot, real).split(sep).join('/');
+}
+
+/**
+ * Opens `rel` under `root` without following a link anywhere on the way: each folder from `root`
+ * down, and the file itself, must be what they are, never a link, and the file a regular one that is
+ * there already. Throws, with why, otherwise. `O_NOFOLLOW` keeps a link that took the file's place
+ * since from being followed where the system has it.
+ */
+function openInside(root: string, rel: string, flags: number): number {
+  const parts = rel.split('/');
+  if (isAbsolute(rel) || parts.some((p) => p === '' || p === '.' || p === '..')) throw new Error(`${rel} is not a path inside the repository`);
+  let at = root;
+  for (const [i, part] of parts.entries()) {
+    at = join(at, part);
+    const st = lstatSync(at);
+    if (st.isSymbolicLink()) throw new Error(`${parts.slice(0, i + 1).join('/')} is a link, which repair never writes through`);
+    if (i < parts.length - 1 ? !st.isDirectory() : !st.isFile()) throw new Error(`${parts.slice(0, i + 1).join('/')} is not a ${i < parts.length - 1 ? 'folder' : 'file'}`);
+  }
+  return openSync(join(root, rel), flags | (constants.O_NOFOLLOW ?? 0));
+}
+
+/** A file's text under `root`, read without following a link (openInside). */
+export function readInside(root: string, rel: string): string {
+  const fd = openInside(root, rel, constants.O_RDONLY);
+  try {
+    return readFileSync(fd, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Writes `text` over `rel` under `root`, a worktree's or the working tree's, without following a
+ * link (openInside): a candidate written through one would land wherever it points, outside the
+ * worktree. Throws, with why, when the path is a link, goes through one, or isn't a file there.
+ */
+export function writeInside(root: string, rel: string, text: string): void {
+  const fd = openInside(root, rel, constants.O_WRONLY | constants.O_TRUNC);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -122,7 +206,11 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
         rmSync(to, { recursive: true, force: true });
         continue;
       }
-      if (st.isDirectory() && !st.isSymbolicLink()) continue;
+      if (st.isSymbolicLink()) {
+        relink(realRoot, from, to, tree);
+        continue;
+      }
+      if (st.isDirectory()) continue;
       copy(from, to);
     }
     // A submodule is linked as it is checked out here: a worktree has its folder, empty.

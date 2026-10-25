@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { candidateTree } from '../src/repair-tree.js';
+import { projectFiles } from '../src/repair.js';
+import { candidateTree, fileInside, readInside, writeInside } from '../src/repair-tree.js';
 
 /**
  * The worktree repair verifies a candidate in: the working tree as it is, outside it. A repository
@@ -91,5 +92,87 @@ describe("a candidate's worktree", () => {
       tree.remove();
     }
     expect(existsSync(tree.root)).toBe(false);
+  });
+});
+
+// Links stand in for files on Windows only with privileges a runner may not have.
+describe.skipIf(process.platform === 'win32')('a prompt file that is a link', () => {
+  /**
+   * The reviewer's case: a repository whose prompts include links, tracked and not, to files outside
+   * it and inside it, beside the folder they point out to.
+   */
+  function linked(): { base: string; repo: string; outside: string } {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-links-')));
+    dirs.push(base);
+    const outside = join(base, 'outside');
+    write(join(outside, 'abs.md'), 'ORIGINAL abs\n');
+    write(join(outside, 'rel.md'), 'ORIGINAL rel\n');
+    write(join(outside, 'untracked.md'), 'ORIGINAL untracked\n');
+    const repo = join(base, 'repo');
+    write(join(repo, 'prompts', 'inside.md'), 'You are a support agent. Follow the refund policy.\n');
+    symlinkSync(join(outside, 'abs.md'), join(repo, 'prompts', 'abs.md'));
+    symlinkSync('../../outside/rel.md', join(repo, 'prompts', 'rel.md'));
+    symlinkSync('inside.md', join(repo, 'prompts', 'alias.md'));
+    sh(repo, 'init', '-q', '-b', 'main');
+    sh(repo, 'add', '.');
+    sh(repo, '-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'x');
+    // An untracked link to an absolute path, as a local prompt kept outside the repository.
+    symlinkSync(join(outside, 'untracked.md'), join(repo, 'prompts', 'local.md'));
+    return { base, repo, outside };
+  }
+
+  it("is read as the file it names when that file is the repository's, and not at all when it is outside it", () => {
+    const { repo } = linked();
+    expect(['prompts/abs.md', 'prompts/rel.md', 'prompts/alias.md', 'prompts/local.md', 'prompts/inside.md', 'prompts/none.md'].map((f) => fileInside(repo, f))).toEqual([null, null, 'prompts/inside.md', null, 'prompts/inside.md', null]);
+    // So the project's files hold the prompt once, under its own path, and nothing from outside.
+    expect(projectFiles(repo).map((f) => f.path)).toEqual(['prompts/inside.md']);
+  });
+
+  it('is never written through, in a worktree or the working tree: nothing outside either changes', () => {
+    const { repo, outside } = linked();
+    const tree = candidateTree(repo, repo);
+    const results: Record<string, string> = {};
+    try {
+      for (const f of ['prompts/abs.md', 'prompts/rel.md', 'prompts/alias.md', 'prompts/local.md']) {
+        try {
+          writeInside(tree.root, f, `CANDIDATE via ${f}\n`);
+          results[f] = 'written';
+        } catch (err) {
+          results[f] = (err as Error).message;
+        }
+      }
+      // The file the repository holds is written, in the worktree alone.
+      writeInside(tree.root, 'prompts/inside.md', 'CANDIDATE\n');
+      expect(readInside(tree.root, 'prompts/inside.md')).toBe('CANDIDATE\n');
+    } finally {
+      tree.remove();
+    }
+    expect(results).toEqual({
+      'prompts/abs.md': 'prompts/abs.md is a link, which repair never writes through',
+      'prompts/rel.md': 'prompts/rel.md is a link, which repair never writes through',
+      'prompts/alias.md': 'prompts/alias.md is a link, which repair never writes through',
+      'prompts/local.md': 'prompts/local.md is a link, which repair never writes through',
+    });
+    for (const f of ['abs', 'rel', 'untracked']) expect(readFileSync(join(outside, `${f}.md`), 'utf8')).toBe(`ORIGINAL ${f}\n`);
+    expect(readFileSync(join(repo, 'prompts', 'inside.md'), 'utf8')).toBe('You are a support agent. Follow the refund policy.\n');
+    expect(sh(repo, 'status', '--porcelain')).toBe('?? prompts/local.md\n');
+    // Nor through a folder that is a link, nor out of the root by name.
+    symlinkSync(outside, join(repo, 'linked-dir'));
+    expect(() => writeInside(repo, 'linked-dir/abs.md', 'x')).toThrow('linked-dir is a link, which repair never writes through');
+    expect(() => writeInside(repo, '../outside/abs.md', 'x')).toThrow('../outside/abs.md is not a path inside the repository');
+    expect(() => writeInside(repo, 'prompts/missing.md', 'x')).toThrow(/ENOENT/);
+    expect(readFileSync(join(outside, 'abs.md'), 'utf8')).toBe('ORIGINAL abs\n');
+  });
+
+  it("names the worktree's copy where the working tree's link names a path in the repository by its absolute name", () => {
+    const root = repository();
+    write(join(root, 'agent', 'policy.md'), 'Refunds above the limit go to a manager.\n');
+    symlinkSync(join(root, 'agent', 'policy.md'), join(root, 'agent', 'current.md'));
+    const tree = candidateTree(root, join(root, 'agent'), { copyLimit: 1_000_000 });
+    try {
+      expect(readlinkSync(join(tree.cwd, 'current.md'))).toBe(join(tree.root, 'agent', 'policy.md'));
+    } finally {
+      tree.remove();
+    }
   });
 });
