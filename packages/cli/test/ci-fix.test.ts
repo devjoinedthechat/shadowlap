@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, repairPlan, runFixes, type ReportResult } from '../../../action/fix.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
@@ -928,5 +928,52 @@ describe('pushing a fix CI opened to the team store', () => {
     expect(pushLine('refund-flow', { state: 'off', why: 'Push from CI is off', pr: null })).toBe('the fix was not sent to the team store: Push from CI is off');
     expect(pushLine('refund-flow', { state: 'failed', why: '100% gone\nfor now', pr: null })).toBe("::warning title=Shadowlap::refund-flow: the fix is not in the team store, so teammates won't see it on their Fixes page: 100%25 gone%0Afor now. Its pull request is open all the same.");
     expect(pushLine('refund-flow', { state: 'failed', why: 'No AWS credentials found.', pr: null })).toMatch(/: No AWS credentials found\. Its pull request is open all the same\.$/);
+  });
+});
+
+describe('a repair that ends before it reports', () => {
+  it.skipIf(process.platform === 'win32')('names the signal that ended it, which leaves no exit status', async () => {
+    // A repair killed before it printed anything (for memory, say) has no exit status, only the signal.
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-killed-'));
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+      writeFileSync(join(dir, 'agent.mjs'), 'export {};\n');
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A'], { cwd: dir });
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'agent'], { cwd: dir });
+      const cli = join(dir, 'killed.mjs');
+      writeFileSync(cli, "process.kill(process.pid, 'SIGKILL');\n");
+      const result: ReportResult = { name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', mode: 'replay', ok: false, failure: 'check', checks: [{ ok: false, status: 'failed', label: 'send_email called 0 times', detail: 'called once' }], expect: { tools: { send_email: 0 } }, runs: [{ runId: '01KILLED000000000000000000', ok: false, verdict: 'failed' }] };
+      const fixes = await runFixes({ cli, db: join(dir, 'shadowlap.db'), workdir: dir, report: { results: [result] }, budget: 1, repairer: 'anthropic', env: { ...process.env, RUNNER_TEMP: dir } });
+      expect(fixes).toMatchObject([{ outcome: 'no-fix', why: 'repair exited SIGKILL' }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')("names the signal that ended the fix's test on its branch", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-branch-killed-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'prompt.txt'), 'Refund within policy.\n');
+      mkdirSync(join(dir, 'goldens', 'refund-flow'), { recursive: true });
+      writeFileSync(join(dir, 'goldens', 'refund-flow', 'README'), 'golden\n');
+      git('add', '-A');
+      git('commit', '-qm', 'agent');
+      // The fix's patch, as repair writes it, and the recording verify accepted.
+      writeFileSync(join(dir, 'prompt.txt'), 'Check the policy, then refund.\n');
+      writeFileSync(join(dir, 'fix.patch'), git('diff'));
+      git('checkout', '--', 'prompt.txt');
+      mkdirSync(join(dir, 'recorded'));
+      const cli = join(dir, 'killed.mjs');
+      writeFileSync(cli, "process.kill(process.pid, 'SIGKILL');\n");
+      const member = { result: { name: 'refund-flow', dir: 'goldens/refund-flow', mode: 'replay' as const, ok: false }, skip: null };
+      const state = refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-refund-flow' } }, env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      expect(state.goldens).toEqual([{ state: 'stale', golden: 'goldens/refund-flow', why: 'shadowlap test did not finish on the branch: exit SIGKILL' }]);
+      // The fix came back out of the working tree.
+      expect(readFileSync(join(dir, 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -357,7 +357,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     } catch {
       // no report: its output says why
     }
-    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${t.status}`}`, results: new Map() };
+    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}`, results: new Map() };
     return { why: null, results: new Map(report.results.map((r) => [dirOf(r), r])) };
   } finally {
     // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
@@ -730,7 +730,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
           // no report: stderr says why
         }
         const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
-        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`);
+        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${String(res.status ?? res.signal)}`);
         return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch, plan };
       };
       const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
