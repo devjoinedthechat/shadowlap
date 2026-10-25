@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import setup, { changedMessage, check, checkoutMessage, checkoutStatus, isOutput, leftInCheckout, setupOptions, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
+import setup, { addedMessage, changedMessage, check, checkoutMessage, checkoutStatus, isOutput, leftInCheckout, setupOptions, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
 
 /**
  * A test that leaves a .shadowlap folder where the suites run (the repository's root, testing/frameworks),
@@ -121,7 +121,7 @@ describe('what tests leave in the checkout', () => {
     expect(leftInCheckout(before, checkoutStatus(repo)!)).toEqual({ left: ['guard/__pycache__/', 'test/.realtime-agent-4242.mjs', 'test/.tmp-fixes-4242-0/'], changed: ['notes.md'] });
   });
 
-  it('fails the run on what appeared, and on a tracked file changed under CI, which elsewhere it says', () => {
+  it('fails the run on what tests leave, and under CI on anything new or changed, which elsewhere it says', () => {
     const repo = repository();
     const warned: string[] = [];
     const lax = check([], (line) => warned.push(line), { root: repo, strict: false });
@@ -130,9 +130,17 @@ describe('what tests leave in the checkout', () => {
     expect(lax).not.toThrow();
     expect(warned).toEqual([changedMessage(['notes.md'])]);
     expect(strict).toThrow(changedMessage(['notes.md']));
+    // A file of the kind a person adds, while the tests ran: said there, failed on under CI.
+    put(join(repo, 'test', 'b.test.ts'));
+    expect(lax).not.toThrow();
+    expect(warned).toEqual([changedMessage(['notes.md']), addedMessage(['test/b.test.ts']), changedMessage(['notes.md'])]);
+    expect(strict).toThrow(checkoutMessage(['test/b.test.ts']));
+    // What tests leave fails the run everywhere: a dot-named project, an ignored cache.
     put(join(repo, 'test', '.tmp-repair-4242-1', 'agent.mjs'));
-    expect(lax).toThrow(checkoutMessage(['test/.tmp-repair-4242-1/']));
+    put(join(repo, 'guard', '__pycache__', 'hook.cpython-312.pyc'));
+    expect(lax).toThrow(checkoutMessage(['guard/__pycache__/', 'test/.tmp-repair-4242-1/']));
     expect(checkoutMessage(['test/.tmp-repair-4242-1/'])).toBe('tests left files in the checkout: test/.tmp-repair-4242-1/. A test writes in a temporary folder of its own, with links to the packages what it runs imports (testing/temp-project.mjs); remove these.');
+    expect(addedMessage(['test/b.test.ts'])).toBe('files appeared in the checkout while the tests ran: test/b.test.ts. If a test left them, it writes in a temporary folder of its own instead (testing/temp-project.mjs).');
   });
 
   it('says which project an earlier run left, and leaves a folder that is no git checkout alone', () => {

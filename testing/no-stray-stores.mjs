@@ -9,9 +9,10 @@
 //   nothing it didn't before, but build outputs (dist, node_modules, *.tsbuildinfo), the test reports
 //   and what the system writes of its own (.DS_Store). A project a test made inside the repository
 //   (testing/temp-project.mjs makes them in the temporary folder), a script written next to a test,
-//   Python's __pycache__ (the suites run with PYTHONDONTWRITEBYTECODE=1): each fails the run. A
-//   tracked file that changed fails it under CI, where nothing else touches the checkout; elsewhere
-//   it is said, since whoever runs the tests may be editing.
+//   Python's __pycache__ (the suites run with PYTHONDONTWRITEBYTECODE=1): each fails the run. Under
+//   CI, where nothing else touches the checkout, so does anything else new, and a tracked file that
+//   changed. Elsewhere those two are said, not failed on: whoever runs the tests may be editing, or
+//   adding a file, while they run. What tests leave is ignored by git or named with a dot.
 //
 // As Vitest's global setup (vitest.config.ts) it notes both before the tests and fails the run on
 // what appeared or changed after, but for the checkout in watch mode, where files change as you
@@ -146,13 +147,22 @@ export function changedMessage(changed) {
   return `tracked files changed while the tests ran: ${changed.join(', ')}. A test changes a copy, never the checkout.`;
 }
 
+/** What is said, outside CI, of a new file of the kind a person adds: neither ignored by git nor named with a dot. */
+export function addedMessage(added) {
+  return `files appeared in the checkout while the tests ran: ${added.join(', ')}. If a test left them, it writes in a temporary folder of its own instead (testing/temp-project.mjs).`;
+}
+
+/** Whether what git lists is the kind a test leaves, not a person: ignored by git (a cache, a store), or named with a dot (a project, a script). */
+const testLike = (path, xy) => xy === '!!' || posix.basename(path.replace(/\/$/, '')).startsWith('.');
+
 /**
  * The check around a run of tests: what the folders `dirs` and the checkout at `root` hold now, with
  * a warning for each such folder there already (a command run where the suites run left it, and a
  * test that runs the CLI in a folder inside the repository finds it as its store) and for a project
  * an earlier run left in the checkout, and the teardown that fails on what the tests left. `strict`
- * (the default under CI) fails on a tracked file changed too, where otherwise that is a warning.
- * `root: null` leaves the checkout out.
+ * (the default under CI) fails on anything new and on a tracked file changed, where otherwise a new
+ * file of the kind a person adds, and a tracked file changed, are warnings. `root: null` leaves the
+ * checkout out.
  */
 export function check(dirs = WATCHED, warn = (line) => console.warn(line), { root = ROOT, strict = !!process.env.CI } = {}) {
   const before = snapshot(dirs);
@@ -167,7 +177,10 @@ export function check(dirs = WATCHED, warn = (line) => console.warn(line), { roo
     const now = checkout ? checkoutStatus(root) : null;
     if (checkout && now) {
       const { left, changed } = leftInCheckout(checkout, now);
-      if (left.length) problems.push(checkoutMessage(left));
+      const failing = strict ? left : left.filter((path) => testLike(path, now.get(path)));
+      const added = left.filter((path) => !failing.includes(path));
+      if (failing.length) problems.push(checkoutMessage(failing));
+      if (added.length) warn(addedMessage(added));
       if (changed.length && strict) problems.push(changedMessage(changed));
       else if (changed.length) warn(changedMessage(changed));
     }

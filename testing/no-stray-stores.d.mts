@@ -21,6 +21,8 @@ export function leftInCheckout(before: Map<string, string>, after: Map<string, s
 export function checkoutMessage(left: readonly string[]): string;
 /** What is said, or under CI failed on, when a tracked file changed during the run. */
 export function changedMessage(changed: readonly string[]): string;
+/** What is said, outside CI, of a new file of the kind a person adds: neither ignored by git nor named with a dot. */
+export function addedMessage(added: readonly string[]): string;
 /** What the check covers besides the folders: the checkout at `root` (null: not at all), and whether a tracked file changed fails it. */
 export interface CheckOptions {
   root?: string | null;
