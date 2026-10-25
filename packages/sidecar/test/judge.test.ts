@@ -70,7 +70,7 @@ describe('the judge scope', () => {
       const recorded = sidecar.endRun(rec.runId, 'completed').summary;
       expect(recorded.total).toBe(1);
       expect(recorded.judge).toMatchObject({ calls: 1, live: 1, upstreamRequests: 1 });
-      expect(store.getCalls(rec.runId)[1]!.meta).toMatchObject({ scope: JUDGE_SCOPE, judge: { check: 'done', ask: 'abc123' } });
+      expect(store.getCalls(rec.runId)[1].meta).toMatchObject({ scope: JUDGE_SCOPE, judge: { check: 'done', ask: 'abc123' } });
 
       const sent = mock.requests.length;
       const clean = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
@@ -125,7 +125,7 @@ describe('the judge scope', () => {
       await (await agentCall(sidecar, rec.runId)).json();
       await (await ask(sidecar, rec.runId, judgeBody('Refund issued on 2026-10-20.'), { 'x-shadowlap-judge-version': '2' })).json();
       sidecar.endRun(rec.runId, 'completed');
-      expect(store.getCalls(rec.runId)[1]!.meta.judge).toEqual({ check: 'done', ask: 'abc123', v: 2 });
+      expect(store.getCalls(rec.runId)[1].meta.judge).toEqual({ check: 'done', ask: 'abc123', v: 2 });
 
       const sent = mock.requests.length;
       const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
@@ -157,9 +157,9 @@ describe('the judge scope', () => {
       const copy = Store.open(':memory:');
       redactRun(store, rec.runId, [{ pattern: '/SECRET\\d+/', replace: '<CARD>' }, { path: '$.messages[0].content', replace: '<msg>' }], copy);
       const [agentCopy, judgeCopy] = copy.getCalls(rec.runId);
-      expect(loadApiRequest(copy, agentCopy!.requestRef!)).toMatchObject({ messages: [{ content: '<msg>' }] });
+      expect(loadApiRequest(copy, agentCopy.requestRef!)).toMatchObject({ messages: [{ content: '<msg>' }] });
       // The judge's request keeps its question: only the pattern masked it.
-      expect(loadApiRequest(copy, judgeCopy!.requestRef!)).toMatchObject({ messages: [{ content: expect.stringContaining('Card <CARD> refunded.') }] });
+      expect(loadApiRequest(copy, judgeCopy.requestRef!)).toMatchObject({ messages: [{ content: expect.stringContaining('Card <CARD> refunded.') }] });
 
       const copied = await Sidecar.start({ store: copy, upstreams: { anthropic: mock.url } });
       try {
@@ -189,7 +189,7 @@ describe('the judge scope', () => {
     try {
       const run = sidecar.startRun({ mode: 'record', command });
       const res = await ask(sidecar, run.runId, judgeBody('x'), { 'x-shadowlap-judge-upstream': mock.url });
-      expect(((await res.json()) as { content: Array<{ text: string }> }).content[0]!.text).toContain('the reply is there');
+      expect(((await res.json()) as { content: Array<{ text: string }> }).content[0].text).toContain('the reply is there');
       expect((await ask(sidecar, run.runId, judgeBody('y'), { 'x-shadowlap-judge-upstream': 'file:///etc/passwd' })).status).toBe(400);
       sidecar.endRun(run.runId, 'completed');
     } finally {
@@ -211,8 +211,8 @@ describe('the judge scope', () => {
       await (await ask(sidecar, fork.runId, judgeBody('Done.'))).json();
       sidecar.endRun(fork.runId, 'completed');
       const [agent, judge] = store.getCalls(fork.runId);
-      expect(loadApiRequest(store, agent!.requestRef!)).toMatchObject({ model: 'claude-opus-5', max_tokens: 9 });
-      expect(loadApiRequest(store, judge!.requestRef!)).toMatchObject({ model: 'claude-haiku-4-5', max_tokens: 64 });
+      expect(loadApiRequest(store, agent.requestRef!)).toMatchObject({ model: 'claude-opus-5', max_tokens: 9 });
+      expect(loadApiRequest(store, judge.requestRef!)).toMatchObject({ model: 'claude-haiku-4-5', max_tokens: 64 });
       // A flag can name no judge call: the recording's second model call is the judge's.
       expect(() => sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, interventions: { set: { fromCall: 2, fields: { max_tokens: 9 } } } })).toThrow(/#2/);
     } finally {

@@ -22,14 +22,14 @@ const GOLDEN = join(ROOT, 'testing', 'golden', 'reference-agent');
 /** The `run:` scripts of the YAML block in docs/ci.md that exports a run as HTML, in order: a `run: |` block, or a one-line `run:`. */
 function scripts(): string[] {
   const page = readFileSync(join(ROOT, 'docs', 'ci.md'), 'utf8');
-  const block = [...page.matchAll(/^```yaml\n([\s\S]*?)^```/gm)].map((m) => m[1]!).find((b) => b.includes('export html'));
+  const block = [...page.matchAll(/^```yaml\n([\s\S]*?)^```/gm)].map((m) => m[1]).find((b) => b.includes('export html'));
   if (!block) throw new Error('docs/ci.md has no YAML step that exports a run as HTML');
   const lines = block.split('\n');
   const indentOf = (l: string) => l.length - l.trimStart().length;
   const found: string[] = [];
   lines.forEach((line, at) => {
     const one = /^\s*run: (?!\|)(.+)$/.exec(line);
-    if (one) found.push(one[1]!.trim());
+    if (one) found.push(one[1].trim());
     if (!/^\s*run: \|\s*$/.test(line)) return;
     const body: string[] = [];
     for (const l of lines.slice(at + 1)) {
@@ -49,7 +49,7 @@ function recipe(): string {
   return script;
 }
 
-const hasTools = process.platform !== 'win32' && [['bash', '--version'], ['jq', '--version']].every(([cmd, arg]) => spawnSync(cmd!, [arg!]).status === 0);
+const hasTools = process.platform !== 'win32' && [['bash', '--version'], ['jq', '--version']].every(([cmd, arg]) => spawnSync(cmd, [arg]).status === 0);
 
 let mock: MockServer;
 let flaky = false;
@@ -102,7 +102,7 @@ function project(packs: string[], tests: unknown): string {
   packs.forEach((name, i) => {
     const pack = join(dir, 'goldens', name);
     cpSync(GOLDEN, pack, { recursive: true });
-    const id = `${original.slice(0, 22)}${'ZYXW'[i]!.repeat(4)}`;
+    const id = `${original.slice(0, 22)}${'ZYXW'[i].repeat(4)}`;
     for (const file of ['run.json', 'calls.jsonl']) writeFileSync(join(pack, file), readFileSync(join(pack, file), 'utf8').split(original).join(id));
   });
   writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests }));
@@ -194,7 +194,7 @@ describe.skipIf(!hasTools)('the CI step in docs/ci.md that keeps a failed replay
     const [passed] = replaysOf(dir, 'b-forks');
     expect(failed && passed).toBeTruthy();
     // The file is the failed replay, with the recording it replayed.
-    expect(runsIn(join(dir, 'failed-run.html'))).toEqual([failed!.runId, goldenId(join(dir, 'goldens', 'a-diverges'))]);
+    expect(runsIn(join(dir, 'failed-run.html'))).toEqual([failed.runId, goldenId(join(dir, 'goldens', 'a-diverges'))]);
   }, 120_000);
 
   it('of a recording\'s attempts, exports one that failed', async () => {

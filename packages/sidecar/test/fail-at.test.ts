@@ -59,9 +59,9 @@ describe('injected failures', () => {
     expect((error as APIError).status).toBe(429);
     // The message names Shadowlap, so it can never be mistaken for something the provider said.
     expect(String((error as APIError).message)).toContain('shadowlap --fail-at');
-    expect(calls[0]!.end?.meta.status).toBe(429);
-    expect(calls[0]!.end?.meta.injected).toBe(true);
-    expect(calls[0]!.end?.outcome).toBe('error');
+    expect(calls[0].end?.meta.status).toBe(429);
+    expect(calls[0].end?.meta.injected).toBe(true);
+    expect(calls[0].end?.outcome).toBe('error');
     store.close();
   });
 
@@ -79,8 +79,8 @@ describe('injected failures', () => {
     // "the retry worked" is what an ordinary replay shows; the interesting path is the give-up.
     const { error, calls } = await replay(store, parent.runId, new Map([[1, 429]]), 2);
     expect((error as APIError).status).toBe(429);
-    expect(1 + calls[0]!.attempts.length).toBe(3);
-    for (const end of [calls[0]!.end!, ...calls[0]!.attempts]) expect(end.meta.injected).toBe(true);
+    expect(1 + calls[0].attempts.length).toBe(3);
+    for (const end of [calls[0].end!, ...calls[0].attempts]) expect(end.meta.injected).toBe(true);
     store.close();
   });
 
@@ -99,8 +99,8 @@ describe('injected failures', () => {
     const store = Store.open(':memory:');
     const parent = await record(store);
     const { calls, summary } = await replay(store, parent.runId, new Map([[99, 500]]));
-    expect(calls[0]!.origin).toBe('replayed');
-    expect(calls[0]!.end?.meta.injected).toBeUndefined();
+    expect(calls[0].origin).toBe('replayed');
+    expect(calls[0].end?.meta.injected).toBeUndefined();
     expect(summary.divergence).toBeNull();
     store.close();
   });

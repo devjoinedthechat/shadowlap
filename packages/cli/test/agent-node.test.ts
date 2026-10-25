@@ -82,7 +82,7 @@ describe.skipIf(process.platform === 'win32')('an agent whose Node refuses the p
     const dir = fresh();
     writeFileSync(join(dir, 'agent.mjs'), AGENT);
     expect(shadowlap(dir, ['run', '--', 'node', 'agent.mjs']).code).toBe(0);
-    return { dir, runId: runs(dir)[0]!.runId };
+    return { dir, runId: runs(dir)[0].runId };
   };
 
   it('never started under run, which says why in a line, keeps no run and exits as the agent did', () => {

@@ -40,10 +40,10 @@ describe('teamRunCounts', () => {
   it("counts blame's probes and verify's attempts as attempts, and the fork blame rescued a run with as a run", () => {
     const store = Store.open(':memory:');
     const failed = run(store);
-    const probe = run(store, { parent: failed, meta: { probe: { of: failed, callNo: 3, passed: false } } as RunMeta });
-    const rescued = run(store, { parent: failed, meta: { probe: { of: failed, callNo: 5, passed: true } } as RunMeta });
+    const probe = run(store, { parent: failed, meta: { probe: { of: failed, callNo: 3, passed: false } } });
+    const rescued = run(store, { parent: failed, meta: { probe: { of: failed, callNo: 5, passed: true } } });
     store.updateRunMeta(failed, { blame: { rescuedRunId: rescued } } as unknown as RunMeta);
-    const verify = run(store, { parent: failed, meta: { verify: { role: 'target', passed: true } } as RunMeta });
+    const verify = run(store, { parent: failed, meta: { verify: { role: 'target', passed: true } } });
     const c = teamRunCounts(store, KEY);
     expect(c).toMatchObject({ onlyLocal: 2, localAttempts: 2 });
     expect(c.localRuns.sort()).toEqual([failed, rescued].sort());
@@ -54,7 +54,7 @@ describe('teamRunCounts', () => {
   it('leaves out runs still recording and runs pulled from a pull request’s folder', () => {
     const store = Store.open(':memory:');
     run(store, { running: true });
-    run(store, { meta: { imported: { at: clock, from: `${KEY}/pr/42`, pr: '42' } } as RunMeta });
+    run(store, { meta: { imported: { at: clock, from: `${KEY}/pr/42`, pr: '42' } } });
     const mine = run(store);
     expect(teamRunCounts(store, KEY)).toMatchObject({ onlyLocal: 1, localRuns: [mine] });
     store.close();

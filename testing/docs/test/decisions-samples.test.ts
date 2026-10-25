@@ -21,13 +21,13 @@ const AGENT = join(ROOT, 'testing', 'reference-agent', 'dist', 'main.js');
 const PAGE = readFileSync(join(ROOT, 'docs', 'decisions.md'), 'utf8');
 
 /** The page's fenced blocks, in order. */
-const blocks = [...PAGE.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((m) => m[1]!);
+const blocks = [...PAGE.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((m) => m[1]);
 
 /** The output block the page shows after the block that runs `command`. */
 function sampleAfter(command: string): string {
   const at = blocks.findIndex((b) => b.includes(command));
   if (at < 0 || !blocks[at + 1]) throw new Error(`no sample after "${command}"`);
-  return blocks[at + 1]!;
+  return blocks[at + 1];
 }
 
 /** Run and session ids differ on every run, and a retirement's days left on every day. */
@@ -77,7 +77,7 @@ beforeAll(async () => {
   git('commit', '-q', '-m', 'agent');
   const rec = await shadowlap(['run', '--', process.execPath, AGENT]);
   expect(rec.code, rec.out).toBe(0);
-  const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+  const runId = /recording run (\w{26})/.exec(rec.out)![1];
   mkdirSync(join(dir, 'goldens'));
   const packed = await shadowlap(['pack', runId, 'goldens/research']);
   expect(packed.code, packed.out).toBe(0);
@@ -90,7 +90,7 @@ beforeAll(async () => {
   writeFileSync(join(judged, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/research': { expect: { judge: [{ name: 'fences', question: 'Does the final answer say that forks fence writes?', of: 'answer', model: 'claude-haiku-4-5' }] } } } }));
   const judgedRun = await shadowlap(['run', '--', process.execPath, AGENT], {}, judged);
   expect(judgedRun.code, judgedRun.out).toBe(0);
-  const judgedPack = await shadowlap(['pack', /recording run (\w{26})/.exec(judgedRun.out)![1]!, 'goldens/research'], {}, judged);
+  const judgedPack = await shadowlap(['pack', /recording run (\w{26})/.exec(judgedRun.out)![1], 'goldens/research'], {}, judged);
   expect(judgedPack.code, judgedPack.out).toBe(0);
   const short = await shadowlap(['decisions', 'goldens/research', '--from-code'], { AGENT_SYSTEM_SUFFIX: 'Keep the final answer short.' }, judged);
   for (const [r, name] of [[model, 'decisions --model'], [prompt, 'decisions --from-code'], [migrate, 'migrate'], [short, 'decisions --from-code, judged']] as const) expect(r.code, `${name}\n${r.out}`).toBe(0);

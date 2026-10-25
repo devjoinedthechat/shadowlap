@@ -105,7 +105,7 @@ describe('the activity feed', () => {
   it('tells what runs did, in the mock\'s words, newest first', () => {
     expect(next).toBeNull();
     expect(items.map((i) => i.at)).toEqual([...items.map((i) => i.at)].sort((a, b) => b - a));
-    expect(byId(items, `r:${ids.live}:start`)).toMatchObject({ kind: 'live', live: true, text: 'Recording started · python refund_agent.py', href: `#/run/${ids.live}`, ref: ids.live!.slice(0, 10) });
+    expect(byId(items, `r:${ids.live}:start`)).toMatchObject({ kind: 'live', live: true, text: 'Recording started · python refund_agent.py', href: `#/run/${ids.live}`, ref: ids.live.slice(0, 10) });
     expect(byId(items, `r:${ids.live}:end`), 'a recording still going has not finished').toBeUndefined();
     expect(byId(items, `r:${ids.rec}:start`)).toMatchObject({ kind: 'live', at: 1000, actor: 'dana@example.com' });
     expect(byId(items, `r:${ids.rec}:start`)!.live).toBeUndefined();
@@ -325,10 +325,10 @@ describe('a test session', () => {
     };
     // refund-over-limit may fork, five attempts, all of which must pass: the third fails.
     const over = [110, 120, 130, 140, 150].map((at, i) => attempt('goldens/refund-over-limit', at, i !== 2));
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok: false, failure: 'check', reason: '4 of 5 attempts passed, 5 needed. Attempt 3: check failed: issue_refund called 0 times, but called 1 time', runId: over[2]!, at: 160, data: { attempts: { total: 5, passed: 4, required: 5, runs: over } } });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-over-limit', ok: false, failure: 'check', reason: '4 of 5 attempts passed, 5 needed. Attempt 3: check failed: issue_refund called 0 times, but called 1 time', runId: over[2], at: 160, data: { attempts: { total: 5, passed: 4, required: 5, runs: over } } });
     // refund-flow passes on all three attempts, its first attempt failing nothing.
     const flow = [200, 210, 220].map((at) => attempt('goldens/refund-flow', at, true));
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: true, runId: flow[2]!, at: 230, data: { attempts: { total: 3, passed: 3, required: 3, runs: flow }, checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }] } });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/refund-flow', ok: true, runId: flow[2], at: 230, data: { attempts: { total: 3, passed: 3, required: 3, runs: flow }, checks: [{ ok: true, label: 'issue_refund called 0 times', detail: null }] } });
     const tests = activity(store).items.filter((i) => i.kind === 'test' || i.kind === 'fail');
     expect(tests.map((i) => [i.id, i.at, i.text, i.href])).toEqual([
       [`r:${flow[2]}:end`, 225, 'Test passed · refund-flow · 3 of 3 attempts passed', `#/run/${flow[2]}`],
@@ -351,10 +351,10 @@ describe('a test session', () => {
     };
     // met needed one pass of three: its first attempt passed, and its second could not be judged.
     const met = [attempt('goldens/met', 110, 'passed'), attempt('goldens/met', 120, 'inconclusive')];
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/met', ok: true, runId: met[0]!, at: 130, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: met, inconclusive: 1 } } });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/met', ok: true, runId: met[0], at: 130, data: { verdict: 'passed', attempts: { total: 2, passed: 1, required: 1, runs: met, inconclusive: 1 } } });
     // lost needed all three: its first failed, and its second could not be judged.
     const lost = [attempt('goldens/lost', 200, 'failed'), attempt('goldens/lost', 210, 'inconclusive')];
-    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/lost', ok: false, failure: 'check', reason: `0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: ${label}, but the judge answered no`, runId: lost[0]!, at: 220, data: { verdict: 'failed', attempts: { total: 2, passed: 0, required: 3, runs: lost, inconclusive: 1 } } });
+    store.addTestResult({ sessionId: session.sessionId, golden: 'goldens/lost', ok: false, failure: 'check', reason: `0 of 2 attempts passed, 1 inconclusive, 3 needed. Attempt 1: check failed: ${label}, but the judge answered no`, runId: lost[0], at: 220, data: { verdict: 'failed', attempts: { total: 2, passed: 0, required: 3, runs: lost, inconclusive: 1 } } });
     const tests = activity(store).items.filter((i) => i.kind === 'test' || i.kind === 'fail');
     expect(tests.map((i) => [i.kind, i.text])).toEqual([
       ['fail', 'Test failed · lost · 0 of 2 attempts passed, 1 inconclusive, 3 needed'],
@@ -495,7 +495,7 @@ describe('runs from a pack someone else made', () => {
   it('cannot break the feed with meta it does not expect', () => {
     const store = Store.open(':memory:');
     const odd = (runId: string, meta: Record<string, unknown>) =>
-      store.importRun({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: meta as RunMeta });
+      store.importRun({ runId, parentRunId: null, mode: 'record', status: 'completed', divergence: null, command: { argv: ['node', 'agent.js'], cwd: '.' }, codeVersion: null, startedAt: 100, endedAt: 200, meta: meta });
     odd('01K5CQ4P2R0000000000000011', { imported: { at: 'yesterday', from: 'odd' }, blame: { at: 'soon', outcome: 'stopped' } });
     odd('01K5CQ4P2R0000000000000012', { imported: { at: 300, from: 42 }, covers: ['api'], repeat: { group: { x: 1 }, attempt: 'one', of: 2 } });
     odd('01K5CQ4P2R0000000000000013', { blame: { at: 400, outcome: 'blamed', callNo: 3, confidence: 'high' } });

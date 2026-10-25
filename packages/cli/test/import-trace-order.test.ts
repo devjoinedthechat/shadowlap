@@ -119,11 +119,11 @@ const sources: Source[] = [
   },
   {
     name: 'otel',
-    spans: otlp.resourceSpans[0]!.scopeSpans[0]!.spans,
+    spans: otlp.resourceSpans[0].scopeSpans[0].spans,
     id: (s) => String(s.spanId),
     start: (s) => BigInt(String(s.startTimeUnixNano)),
     withStart: (s, at) => ({ ...s, startTimeUnixNano: String(at) }),
-    read: (spans) => readOtel([{ resourceSpans: [{ ...otlp.resourceSpans[0], scopeSpans: [{ ...otlp.resourceSpans[0]!.scopeSpans[0], spans }] }] }]).traces[0]!,
+    read: (spans) => readOtel([{ resourceSpans: [{ ...otlp.resourceSpans[0], scopeSpans: [{ ...otlp.resourceSpans[0].scopeSpans[0], spans }] }] }]).traces[0],
     asks: 'a1b2c3d4e5f60001',
     tool: 'a1b2c3d4e5f60002',
     reads: 'a1b2c3d4e5f60004',
@@ -180,7 +180,7 @@ describe('calls that start at one instant', () => {
     const agent = span('a0000000000000a0', '', 'invoke_agent support', t0 - MS, { 'gen_ai.operation.name': 'invoke_agent' });
     for (const spans of [[inner, research, agent], [agent, research, inner]]) {
       const [trace] = readOtel([{ resourceSpans: [{ scopeSpans: [{ spans }] }] }]).traces;
-      expect(recorded(trace!)).toEqual(['research', 'model']);
+      expect(recorded(trace)).toEqual(['research', 'model']);
     }
   });
 
@@ -217,7 +217,7 @@ describe('calls that start at one instant', () => {
     expect(order({ id: 't', calls: [model('reads', { messages: reading }), tool('tool', { callId: 'toolu_1' })] })).toEqual(['tool', 'reads']);
     expect(order({ id: 't', calls: [model('reads', { messages: reading }), tool('another', { callId: 'toolu_2' })] })).toEqual(['reads', 'another']);
     // By the result alone, where the request names no call for it.
-    expect(order({ id: 't', calls: [model('reads', { messages: [reading[0]!, { role: 'user', parts: [{ type: 'tool_result', id: 'toolu_1', content: [{ type: 'text', text: '{"status":"shipped"}' }] }] }] }), tool('tool')] })).toEqual(['tool', 'reads']);
+    expect(order({ id: 't', calls: [model('reads', { messages: [reading[0], { role: 'user', parts: [{ type: 'tool_result', id: 'toolu_1', content: [{ type: 'text', text: '{"status":"shipped"}' }] }] }] }), tool('tool')] })).toEqual(['tool', 'reads']);
   });
 
   it('keep the order listed where nothing orders them, or two orders contradict each other', () => {

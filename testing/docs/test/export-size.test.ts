@@ -19,7 +19,7 @@ describe('docs/cli.md on export html', () => {
     expect(existsSync(join(UI, 'assets', 'app.js')), 'the dashboard is built: npm run build').toBe(true);
     const store = Store.open(':memory:');
     try {
-      const runId = unpackRun(store, join(ROOT, 'testing', 'golden', 'reference-agent')).imported[0]!;
+      const runId = unpackRun(store, join(ROOT, 'testing', 'golden', 'reference-agent')).imported[0];
       const { html, calls } = exportHtml({ store, runIds: [runId], uiDir: UI });
       expect(calls).toBe(30);
       // In MB as the command prints the size (1.2 MB), within what a few changes to the dashboard add.

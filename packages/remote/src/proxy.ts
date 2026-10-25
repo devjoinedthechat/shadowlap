@@ -156,7 +156,7 @@ function toResponse(res: IncomingMessage, method: string): Response {
   }
   const empty = method === 'HEAD' || status === 204 || status === 304;
   if (empty) res.resume();
-  return new Response(empty ? null : (Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>), { status, headers });
+  return new Response(empty ? null : (Readable.toWeb(res)), { status, headers });
 }
 
 /**

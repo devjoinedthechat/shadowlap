@@ -371,7 +371,7 @@ function templatedMatches(span: string, lines: readonly TemplateLine[]): Array<{
     const whole = (r: { from: number; to: number }) => (r.from === 0 || line.part[r.from] !== line.part[r.from - 1]) && line.part[r.to] !== line.part[r.to - 1];
     const runs = templateRuns(line, span).filter((r) => r.literal >= Math.max(8, span.length / 2) && whole(r));
     const kept = runs.filter((r) => !runs.some((o) => o !== r && o.from < r.to && r.from < o.to && o.literal > r.literal));
-    for (const r of kept) out.push({ file: line.file, offset: line.start + line.at[r.from]!, text: line.text.slice(line.at[r.from]!, line.at[r.to]!), literal: r.literal });
+    for (const r of kept) out.push({ file: line.file, offset: line.start + line.at[r.from]!, text: line.text.slice(line.at[r.from], line.at[r.to]), literal: r.literal });
   }
   return out.filter((m, i) => out.findIndex((o) => o.file === m.file && o.offset === m.offset && o.text === m.text) === i).map(({ literal: _literal, ...m }) => m);
 }

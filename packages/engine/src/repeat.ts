@@ -131,7 +131,7 @@ export function summarizeRepeats(parentRunId: string, given: RepeatAttemptInput[
   inputs.forEach((input, i) => {
     const seen = new Set<string>();
     for (const c of input.calls) {
-      if (c.kind !== 'tool' || (attempts[i]!.forkedAt !== null && c.callNo < attempts[i]!.forkedAt!)) continue;
+      if (c.kind !== 'tool' || (attempts[i]!.forkedAt !== null && c.callNo < attempts[i]!.forkedAt)) continue;
       const t = tools.get(c.name) ?? { name: c.name, attempts: 0, calls: 0, blocked: 0, stubbed: 0, errors: 0 };
       t.calls++;
       if (c.origin === 'blocked') t.blocked++;

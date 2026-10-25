@@ -60,12 +60,12 @@ describe('a host the config declares', () => {
     expect(recorded.code, recorded.out).toBe(0);
     expect(recorded.out).toContain('{"text":"Hello from the gateway."}');
     expect(mock.requests).toHaveLength(1);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const store = Store.open(db);
     try {
       const [call] = store.getCalls(runId);
       expect(call).toMatchObject({ kind: 'api', name: 'POST /api/v1/chat/completions', meta: { provider: 'openai', via: 'openrouter.test' } });
-      expect(call!.end!.meta.usage?.inputTokens).toBeGreaterThan(0);
+      expect(call.end!.meta.usage?.inputTokens).toBeGreaterThan(0);
     } finally {
       store.close();
     }

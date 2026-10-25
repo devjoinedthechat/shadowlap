@@ -213,8 +213,8 @@ describe('unifiedDiff', () => {
       cases.push({ content, c, patched: applyEdit(content, { offset, text: before }, after) });
     }
     const reports = cases.map(({ content, c }) => report(c, content));
-    reports.forEach((r, i) => expect(repairPatchProblem(r), JSON.stringify(cases[i]!.c)).toBeNull());
-    const got = gitApplied(cases.map((x, i) => ({ before: x.content, patch: reports[i]!.patch })));
+    reports.forEach((r, i) => expect(repairPatchProblem(r), JSON.stringify(cases[i].c)).toBeNull());
+    const got = gitApplied(cases.map((x, i) => ({ before: x.content, patch: reports[i].patch })));
     cases.forEach((x, i) => expect(got[i], JSON.stringify(x.c)).toBe(x.patched));
   });
 });

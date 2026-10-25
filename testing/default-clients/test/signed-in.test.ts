@@ -232,7 +232,7 @@ describe('a read declared under http that passes the OpenAI key on', () => {
   afterAll(() => new Promise<void>((resolve) => vectors.close(() => resolve())));
 
   it('replays clean from the recording, and run live with --live-tool is refused in one line, the host sent nothing', async () => {
-    const vector = `http://${name.split(' ')[1]!.split('/')[0]}`;
+    const vector = `http://${name.split(' ')[1].split('/')[0]}`;
     const clean = await shadowlap(['replay', runId, '--strict'], { VECTOR_DB: vector }, 'store.db', project);
     expect(clean.code, clean.out).toBe(0);
     const before = [received.length, providers.seen('openai').length];

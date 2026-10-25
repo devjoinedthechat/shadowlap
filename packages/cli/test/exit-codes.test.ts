@@ -154,7 +154,7 @@ describe('the built CLI', () => {
     const db = join(broken, 'broken.db');
     const recorded = shadowlap(broken, ['--db', db, 'run', '--', process.execPath, '-e', '0']);
     expect(recorded.code, recorded.out).toBe(0);
-    const id = /Recorded (\w{26})/.exec(recorded.out)![1]!;
+    const id = /Recorded (\w{26})/.exec(recorded.out)![1];
     // A run whose command the store lost: reading it hits a null where Shadowlap never writes one.
     const sqlite = new DatabaseSync(db);
     sqlite.exec(`UPDATE runs SET command = 'null'`);

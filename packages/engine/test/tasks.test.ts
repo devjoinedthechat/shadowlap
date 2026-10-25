@@ -113,7 +113,7 @@ describe('tasks', () => {
     expect(golden.calls.slice(0, 4).map((c) => c.name)).toEqual(['GET /v1/models', 'POST /v1/embeddings', 'POST /v1/messages/count_tokens', 'POST /v1/messages']);
     const task = describeTask({ path: 'goldens/rag', golden, fields: {}, checks: OUTCOME, testFailed: false });
     expect(task).toMatchObject({ status: 'ready', takeover: { callNo: 4, why: 'the first model call: the model plays the whole run', from: 'first' }, prefix: 3, callName: 'POST /v1/messages' });
-    for (const k of [1, 2, 3]) expect(describeTask({ path: 'goldens/rag', golden, fields: { takeover: k }, checks: OUTCOME, testFailed: false })).toMatchObject({ status: 'not-a-task', note: `#${k} is not a model call of the golden's run (${golden.calls[k - 1]!.name})` });
+    for (const k of [1, 2, 3]) expect(describeTask({ path: 'goldens/rag', golden, fields: { takeover: k }, checks: OUTCOME, testFailed: false })).toMatchObject({ status: 'not-a-task', note: `#${k} is not a model call of the golden's run (${golden.calls[k - 1].name})` });
     store.close();
   });
 

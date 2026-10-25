@@ -107,7 +107,7 @@ describe('shadowlap test with a gate', () => {
     expect(r.out).not.toMatch(/at least|at most|% confidence/);
     expect(r.out).toContain('attempt 12 of up to 20');
     expect(r.out).not.toContain('attempt 13 of');
-    const result = r.report.results[0]!;
+    const result = r.report.results[0];
     expect(result).toMatchObject({ ok: true, verdict: 'passed', failure: null, attempts: { total: 12, passed: 12, required: null } });
     expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20, decision: 'pass', passes: 12, attempts: 12, clean: false, sentence: PASSED });
     // The evidence path: the score after each attempt, crossing the upper bound at the twelfth.
@@ -188,7 +188,7 @@ describe('shadowlap test with a gate', () => {
       expect(more.out).toContain('continues its last result: 4 attempts carried over, 2 passed, up to 6');
       expect(more.out).toContain('attempt 5 of up to 6');
       expect(more.out).not.toContain('attempt 1 of up to 6');
-      const result = more.report.results[0]!;
+      const result = more.report.results[0];
       expect(result).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1 }, gate: { max: 6, attempts: 6, passes: 3, carried: 4 } });
       expect(result.gate.outcomes).toHaveLength(6);
       // Carried over from another session, its interval is one that holds however the attempts stopped.
@@ -202,11 +202,11 @@ describe('shadowlap test with a gate', () => {
       try {
         const [latest, continued, earliest] = store.listTestResults({ golden: 'goldens/reference-agent' });
         // The history keeps this session's own attempts, so a baseline pools each once, and which sessions it carried.
-        expect(continued!.data).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1 }, continued: { sessions: [earliest!.sessionId], attempts: 4 }, gate: { attempts: 6, carried: 4 } });
-        expect(latest!.data?.continued).toBeUndefined();
+        expect(continued.data).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1 }, continued: { sessions: [earliest.sessionId], attempts: 4 }, gate: { attempts: 6, carried: 4 } });
+        expect(latest.data?.continued).toBeUndefined();
         // An inconclusive golden is neither passed nor failed: the session counts it apart, and its event says how many.
-        expect(store.getTestSession(continued!.sessionId)).toMatchObject({ passed: 0, failed: 0 });
-        const event = store.listEvents({ kinds: ['test.session'] }).find((e) => e.ref === continued!.sessionId);
+        expect(store.getTestSession(continued.sessionId)).toMatchObject({ passed: 0, failed: 0 });
+        const event = store.listEvents({ kinds: ['test.session'] }).find((e) => e.ref === continued.sessionId);
         expect(event?.data).toMatchObject({ passed: 0, failed: 0, inconclusive: 1 });
       } finally {
         store.close();
@@ -246,7 +246,7 @@ describe('shadowlap test with a gate against history', () => {
     const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
     expect(first.out).toContain(`✓ reference-agent: passed · 5 of 5 · rate >= 0.47 (95%) · against its recording (no history yet) · ${rule}`);
     expect(first.out).toContain('no session that passed on the baseline branch for it yet, so its gate compared with its recording');
-    hold([['testGateHistory', first.report.results[0]!.gate], ['testGateHistoryEvidence', first.report.results[0]!.gate.evidence]]);
+    hold([['testGateHistory', first.report.results[0].gate], ['testGateHistoryEvidence', first.report.results[0].gate.evidence]]);
 
     // The same agent again: its own history is the baseline, and its 5 attempts settle it, no more.
     const again = await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
@@ -272,7 +272,7 @@ describe('shadowlap test with a gate against history', () => {
     expect(halved.out).toContain(`failed · 5 of 10 · rate <= 0.87 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
     expect(halved.out).toContain('attempt 10 of up to 40');
     expect(halved.out).not.toContain('attempt 11 of');
-    const path = halved.report.results[0]!.gate.evidence.probabilities as Array<number | null>;
+    const path = halved.report.results[0].gate.evidence.probabilities as Array<number | null>;
     expect(path.slice(0, 4)).toEqual([null, null, null, null]);
     expect(path.slice(4, 9).every((q) => q !== null && q > 0.5 && q <= 0.95)).toBe(true);
     expect(path[9]).toBeGreaterThan(0.95);
@@ -303,8 +303,8 @@ describe('shadowlap test with a gate against history', () => {
         ['passed', 5, 5, 'main', false],
         ['passed', 5, 5, 'main', false],
       ]);
-      expect(results[0]!.data).toMatchObject({ baselineBranch: 'main', revision: results[0]!.revision });
-      expect(results[2]!.data?.gate).toMatchObject({ kind: 'baseline', decision: 'fail' });
+      expect(results[0].data).toMatchObject({ baselineBranch: 'main', revision: results[0].revision });
+      expect(results[2].data?.gate).toMatchObject({ kind: 'baseline', decision: 'fail' });
     } finally {
       store.close();
     }
@@ -336,7 +336,7 @@ describe('shadowlap test with several gated goldens', () => {
       const looser = await shadowlapTestAll(tests, FIX, ['--suite-risk', '0.2']);
       expect(looser.out).toContain('suite risk 20%: 2 gated goldens, 10% each');
       expect(looser.report.suite).toMatchObject({ risk: 0.2, perGoldenRisk: 0.1 });
-      expect(looser.report.results[0]!.gate.failRisk).toBeUndefined();
+      expect(looser.report.results[0].gate.failRisk).toBeUndefined();
     } finally {
       rmSync(join(work, 'goldens', 'reference-agent-copy'), { recursive: true, force: true });
     }

@@ -49,7 +49,7 @@ beforeAll(async () => {
   gemini = await startMockGemini({
     script: ({ request, requestNo, modelTurns }) => {
       const system = JSON.stringify(request.systemInstruction ?? '');
-      const model = /models\/([^:]+):/.exec(gemini.requests[requestNo - 1]!.path)![1]!;
+      const model = /models\/([^:]+):/.exec(gemini.requests[requestNo - 1].path)![1];
       const d = decide(modelTurns, escalating(model, system));
       if (d === 'answer') return { turn: geminiTurn('Done.') };
       const call = CALLS[d];
@@ -155,7 +155,7 @@ const report = (r: { stdout: string; out: string }): DecisionsReport => {
 async function record(agent: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, agent]);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 const toolRuns = () => {
@@ -171,9 +171,9 @@ const toolRuns = () => {
 function expectEscalation(r: DecisionsReport, runId: string): void {
   expect(r.flagged).toEqual([runId]);
   expect(r.runs[0]).toMatchObject({ steps: 3, asked: 3, rank: 1 });
-  const [step] = r.runs[0]!.decisions;
+  const [step] = r.runs[0].decisions;
   expect(step).toMatchObject({ step: 2, rank: 1, recorded: { stop: 'tools', tools: [{ name: 'issue_refund', effect: 'write' }] }, now: { stop: 'tools', tools: [{ name: 'escalate' }] } });
-  expect(step!.changes.map((c) => [c.kind, c.tool])).toEqual([
+  expect(step.changes.map((c) => [c.kind, c.tool])).toEqual([
     ['write-removed', 'issue_refund'],
     ['write-added', 'escalate'],
   ]);

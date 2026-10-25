@@ -973,7 +973,7 @@ export class Sidecar {
         ...(body.parentRunId ? { parentRunId: body.parentRunId } : {}),
         command: body.command ?? { argv: [], cwd: '' },
         codeVersion: body.codeVersion ?? null,
-        ...(replay ? { replay: replay as Partial<ReplayOptions> } : {}),
+        ...(replay ? { replay: replay } : {}),
         ...(body.interventions ? { interventions: body.interventions } : {}),
       });
       return json(res, 201, { run, env: this.envFor(run.runId) });
@@ -1702,7 +1702,7 @@ export class Sidecar {
     const sdkBase = this.sdkBases[provider.id];
     const sdkPath = provider.sdkPath;
     const sdkRelative = sdkBase !== undefined && sdkPath !== undefined && upstream === sdkBase.replace(/\/+$/, '') && (path === sdkPath || path.startsWith(`${sdkPath}/`));
-    return sdkRelative ? path.slice(sdkPath!.length) : path;
+    return sdkRelative ? path.slice(sdkPath.length) : path;
   }
 
   // ---- record: each attempt's end, as the agent saw it ----

@@ -30,12 +30,12 @@ function tsImports(): Array<{ where: string; module: string; names: string[] }> 
   const out: Array<{ where: string; module: string; names: string[] }> = [];
   for (const page of pages) {
     for (const m of read(page).matchAll(/import\s*\{([^}]+)\}\s*from\s*'(@shadowlap\/[^']+)'/g)) {
-      const names = m[1]!
+      const names = m[1]
         .split(',')
         .map((n) => n.trim())
         .filter((n) => n && !n.startsWith('type '))
-        .map((n) => n.split(/\s+as\s+/)[0]!.trim());
-      out.push({ where: page, module: m[2]!, names });
+        .map((n) => n.split(/\s+as\s+/)[0].trim());
+      out.push({ where: page, module: m[2], names });
     }
   }
   return out;
@@ -46,12 +46,12 @@ function pythonImports(): Array<{ where: string; module: string; names: string[]
   const out: Array<{ where: string; module: string; names: string[] }> = [];
   for (const page of pages) {
     for (const m of read(page).matchAll(/^\s*from\s+(shadowlap(?:\.[a-z_]+)*)\s+import\s+([^\n#]+)/gm)) {
-      const names = m[2]!
+      const names = m[2]
         .replace(/[()]/g, '')
         .split(',')
-        .map((n) => n.trim().split(/\s+as\s+/)[0]!.trim())
+        .map((n) => n.trim().split(/\s+as\s+/)[0].trim())
         .filter(Boolean);
-      out.push({ where: page, module: m[1]!, names });
+      out.push({ where: page, module: m[1], names });
     }
   }
   return out;
@@ -112,7 +112,7 @@ describe('the SDK imports the docs show', () => {
 
   it('match the Python package\'s public names in docs/sdk.md\'s list', () => {
     // Every public name of the Python SDK that docs/sdk.md says it has is in its __all__.
-    const all = /__all__\s*=\s*\[([^\]]+)\]/.exec(pythonSource('shadowlap'))![1]!.match(/"([^"]+)"/g)!.map((s) => s.slice(1, -1));
+    const all = /__all__\s*=\s*\[([^\]]+)\]/.exec(pythonSource('shadowlap'))![1].match(/"([^"]+)"/g)!.map((s) => s.slice(1, -1));
     const sdk = read('docs/sdk.md');
     for (const name of ['ShadowlapInjectedTimeout', 'ShadowlapInjectedHTTPError', 'ShadowlapInjectedFailure', 'current_scope', 'user_input_async']) {
       expect(sdk, name).toContain(name);

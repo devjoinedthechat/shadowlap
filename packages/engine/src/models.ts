@@ -141,7 +141,7 @@ function chatModel(id: string): boolean {
 async function getJson(fetchImpl: typeof fetch, url: string, headers: Record<string, string>, timeoutMs: number): Promise<unknown> {
   const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as unknown;
+  return (await res.json());
 }
 
 /**

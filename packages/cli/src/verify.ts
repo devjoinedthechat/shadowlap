@@ -186,7 +186,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const recorded = { ...runner.judgeRecorded(parent, parentCalls), footprint: footprintOf(parentCalls, runner.costOf) };
       // With --from, the first model call made with one of those models: a call before it is another model's.
       const from = s.fromModels?.length ? s.fromModels : null;
-      const firstModelCall = parentCalls.find((c) => c.kind === 'api' && (!from || from.some((m) => sameModel((c.end?.meta.model ?? c.meta.model) as string | null | undefined, m))))?.callNo;
+      const firstModelCall = parentCalls.find((c) => c.kind === 'api' && (!from || from.some((m) => sameModel((c.end?.meta.model ?? c.meta.model), m))))?.callNo;
       const interventions: Interventions | undefined = Object.keys(s.fields).length && firstModelCall !== undefined ? { set: { fromCall: firstModelCall, fields: s.fields, ...(from ? { models: from } : {}) } } : undefined;
       const result: VerifiedRun = { runId: parent.runId, role, attempts: [], passes: 0, deterministic: false, verdict: 'open', recorded };
       results[i] = result;

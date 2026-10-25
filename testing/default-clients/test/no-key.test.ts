@@ -86,7 +86,7 @@ for (const agent of AGENTS) {
       expect(made.code, made.out).toBe(0);
       expect(made.out).toMatch(answered('hello'));
       runId = recorded(made.out);
-      expect(providers.seen(agent.provider).at(-1) && agent.carried(providers.seen(agent.provider).at(-1)!.headers, providers.seen(agent.provider).at(-1)!.path)).toContain(Object.values(agent.keys)[0]!);
+      expect(providers.seen(agent.provider).at(-1) && agent.carried(providers.seen(agent.provider).at(-1)!.headers, providers.seen(agent.provider).at(-1)!.path)).toContain(Object.values(agent.keys)[0]);
       const packed = await shadowlap(['pack', runId, golden]);
       expect(packed.code, packed.out).toBe(0);
     });
@@ -135,7 +135,7 @@ for (const agent of AGENTS) {
       expect(r.out).toMatch(answered('goodbye'));
       expect(count()).toBe(before + 1);
       const last = providers.seen(agent.provider).at(-1)!;
-      expect(agent.carried(last.headers, last.path)).toContain(Object.values(agent.mine)[0]!);
+      expect(agent.carried(last.headers, last.path)).toContain(Object.values(agent.mine)[0]);
     });
   });
 }

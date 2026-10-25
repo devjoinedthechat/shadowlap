@@ -128,7 +128,7 @@ describe('GET /api/tests', () => {
     ]);
     const [d] = view.divergences;
     expect(d).toMatchObject({ golden: 'goldens/refund-in-limit', callNo: 1, normalizerFixes: true, maybeReal: false, bisect: { good: 'c91d0f4', bad: 'd2e8a1f' } });
-    expect(d!.volatile).toMatchObject({ path: '$.metadata.user_id', looks: 'a UUID', certain: true });
+    expect(d.volatile).toMatchObject({ path: '$.metadata.user_id', looks: 'a UUID', certain: true });
     expect(view.commands.run).toEqual(['test', 'goldens/*', 'evals/kept-elsewhere']);
     expect(view.commands.ci).toBe(`shadowlap test 'goldens/*' evals/kept-elsewhere --junit report.xml --markdown "$GITHUB_STEP_SUMMARY" --annotations`);
   });
@@ -150,7 +150,7 @@ describe('GET /api/tests/gate', () => {
     expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
     // About the default gate: 80 attempts turn a sixth of a healthy agent's CI runs red, counting inconclusive ones.
     expect((preview as unknown as { ci: { red: number } }).ci.red).toBeGreaterThan(0.99);
-    expect(((await getJson(dash, 'tests/gate')) as { ci: { goldens: number; red: number; redWarn: number } }).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1558, 4), redWarn: expect.closeTo(0.1537, 4) });
+    expect((await getJson<{ ci: { goldens: number; red: number; redWarn: number } }>(dash, 'tests/gate')).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1558, 4), redWarn: expect.closeTo(0.1537, 4) });
     // A gate against history is figured against a baseline: its power to catch a drop, by the pass rate now.
     const history = await getJson<{ gate: unknown; toPass: null; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
     expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: null, history: { passes: 47, attempts: 50 } });
@@ -169,7 +169,7 @@ describe('GET /api/tests/gate', () => {
 describe('GET /api/tests/runs/:id', () => {
   it('gives a run\'s page Find the commit\'s choices, and the banner of a test replay that diverged', async () => {
     // R2_LIMIT is a replay `shadowlap test` made of refund-in-limit in the failing session.
-    store.updateRunMeta('R2_LIMIT', { test: { golden: 'goldens/refund-in-limit', session: store.listTestSessions()[0]!.sessionId } });
+    store.updateRunMeta('R2_LIMIT', { test: { golden: 'goldens/refund-in-limit', session: store.listTestSessions()[0].sessionId } });
     const view = await getJson<{ banner: { golden: string; normalizerFixes: boolean } | null; bisect: { target: unknown; failed: boolean; good: string | null } | null }>(dash, 'tests/runs/R2_LIMIT');
     expect(view.bisect).toMatchObject({ target: { kind: 'golden', golden: 'goldens/refund-in-limit' }, failed: true, good: 'c91d0f4' });
     // Its run has no divergence of its own in this store, so there is no banner to show.
@@ -318,7 +318,7 @@ describe('GET /api/ci/workflows', () => {
     // The golden marked fork runs live in CI; its pack isn't here to say which providers it calls,
     // so the test step's env says to add the agent's keys, as Fix on failure's does.
     expect(ci.alerts.needs.map((r) => r.value)).toEqual(['Slack app', 'SLACK_WEBHOOK_URL', 'id: goldens', 'their providers’ keys', 'pull-requests: write', 'node-version: 22']);
-    expect(ci.alerts.needs[3]!.label).toBe('1 golden runs live (fork)');
+    expect(ci.alerts.needs[3].label).toBe('1 golden runs live (fork)');
     expect(ci.alerts.yaml).toContain("    fail-on-divergence: false\n  # env:\n  #   your agent's own provider keys: the goldens that run live call them\n");
     expect(ci.configError).toBeNull();
     expect(ci.alerts.failures.map((r) => r.value)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
@@ -331,13 +331,13 @@ describe('GET /api/ci/workflows', () => {
     expect(ci.fixOnFailure).toMatchObject({ on: true, budget: '5.00', repairer: 'openai:gpt-5' });
     expect(ci.fixOnFailure.yaml).toContain('    fix-budget: 5.00\n    repairer: openai:gpt-5\n  env:\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
     expect(ci.fixOnFailure.yaml).not.toContain('claude-code');
-    expect(ci.fixOnFailure.needs[0]!.value).toBe('OPENAI_API_KEY');
+    expect(ci.fixOnFailure.needs[0].value).toBe('OPENAI_API_KEY');
     expect(ci.fixOnFailure.preview.spent).toBe('≈$0.84 of $5.00');
     // The secret keeps the letters, digits and _ GitHub allows, and every branch is told.
     expect(ci.alerts.secret).toBe('TEAMALERTShook');
     expect(ci.alerts.yaml).toContain('webhook: ${{ secrets.TEAMALERTShook }}');
     expect(ci.alerts.yaml).not.toContain('refs/heads/main');
-    expect(ci.alerts.needs[1]!.value).toBe('TEAMALERTShook');
+    expect(ci.alerts.needs[1].value).toBe('TEAMALERTShook');
     expect(ci.alerts.message.text).toBe('Shadowlap: 1 golden(s) failed on fix-refund-limit.');
   });
 
@@ -455,7 +455,7 @@ describe('the Tests jobs', () => {
 
   it('never puts a key of the config that reads as an option on a command line', async () => {
     // Keys under `tests` are listed as goldens even when they are no pack; these would reach the CLI as options.
-    const odd: GoldenSource[] = [goldens[0]!, ...['--online', '--writes', 'allow', '--update'].map((path) => ({ path, runId: null, packedAt: null, mode: 'replay' as const, repeat: 1, passes: 1, checks: [], error: 'no run.json: not a pack' }))];
+    const odd: GoldenSource[] = [goldens[0], ...['--online', '--writes', 'allow', '--update'].map((path) => ({ path, runId: null, packedAt: null, mode: 'replay' as const, repeat: 1, passes: 1, checks: [], error: 'no run.json: not a pack' }))];
     const d = await startDashboard({ store: Store.open(':memory:'), spawnCli, readOnly: false, goldens: () => odd });
     try {
       const view = await getJson<TestsView>(d, 'tests');

@@ -33,7 +33,7 @@ describe('clock masking', () => {
   it('masks epoch numbers in JSON, and walks objects and arrays without changing the input', () => {
     const input = { created: 1789554600, at_ms: 1789554600123, count: 1789, nested: [{ when: '2026-09-16' }], fixed: 1700000000 };
     expect(maskClock(input, REF)).toEqual({ created: '<epoch>', at_ms: '<epoch>', count: 1789, nested: [{ when: '<date>' }], fixed: 1700000000 });
-    expect(input.nested[0]!.when).toBe('2026-09-16');
+    expect(input.nested[0].when).toBe('2026-09-16');
   });
 
   it('makes a request made today match the same request made on another day, relative to each run', () => {

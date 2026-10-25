@@ -117,7 +117,7 @@ const json = <T,>(r: { stdout: string; out: string }): T => {
 async function record(which: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], { CLOUD_CASE: which });
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 beforeAll(async () => {
@@ -147,7 +147,7 @@ describe('shadowlap decisions on the cloud platforms', () => {
     // The model switched where Bedrock names it, in the path; the streamed answer read from its event stream.
     expect(cloud.stats.seen.slice(seen).map((q) => q.url).sort()).toEqual(['converse', 'converse-stream', 'invoke'].map((op) => `/model/${encodeURIComponent('anthropic.claude-haiku-4-5-20251001-v1:0')}/${op}`).sort());
     expect(report.runs[0]).toMatchObject({ steps: 3, asked: 3, rank: null, counts: { same: 3, notAsked: 0 } });
-    expect(report.runs[0]!.decisions.map((s) => s.now?.text).sort()).toEqual(['echo: hello', 'echo: hello', 'echo: hello again']);
+    expect(report.runs[0].decisions.map((s) => s.now?.text).sort()).toEqual(['echo: hello', 'echo: hello', 'echo: hello again']);
   }, 120_000);
 
   it("Vertex AI: a Claude model's rawPredict and a Gemini model's generateContent, each by the model it switches from", async () => {
@@ -157,12 +157,12 @@ describe('shadowlap decisions on the cloud platforms', () => {
     const claude = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', 'claude-3-7-sonnet@20250219', '--json']));
     expect(claude.change.from).toEqual(['claude-3-5-haiku@20241022']);
     expect(cloud.stats.seen.slice(seen).map((q) => q.url)).toEqual(['/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-3-7-sonnet@20250219:rawPredict']);
-    expect(claude.runs[0]!.counts).toMatchObject({ same: 1, untouched: 1 });
+    expect(claude.runs[0].counts).toMatchObject({ same: 1, untouched: 1 });
 
     seen = cloud.stats.seen.length;
     const gemini = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', 'gemini-3.8-flash', '--from', 'gemini-2.5-flash', '--json']));
     expect(cloud.stats.seen.slice(seen).map((q) => q.url)).toEqual(['/v1/projects/p/locations/us-east5/publishers/google/models/gemini-3.8-flash:generateContent']);
-    expect(gemini.runs[0]!.counts).toMatchObject({ same: 1, untouched: 1, notAsked: 0 });
+    expect(gemini.runs[0].counts).toMatchObject({ same: 1, untouched: 1, notAsked: 0 });
     // Gemini 2.5 Flash retires on Vertex AI: the report says so.
     expect(gemini.retirements.map((n) => n.model)).toContain('gemini-2.5-flash');
   }, 120_000);
@@ -196,6 +196,6 @@ describe('shadowlap decisions on the cloud platforms', () => {
     const report = json<DecisionsReport>(r);
     expect(cloud.stats.seen.slice(seen).map((q) => q.url)).toEqual(Array(2).fill('/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-10-21'));
     expect(report.runs[0]).toMatchObject({ asked: 2, counts: { same: 2 } });
-    expect(report.runs[0]!.decisions.map((s) => s.callNo)).toContain(copy!);
+    expect(report.runs[0].decisions.map((s) => s.callNo)).toContain(copy!);
   }, 120_000);
 });

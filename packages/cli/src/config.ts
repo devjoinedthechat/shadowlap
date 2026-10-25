@@ -113,7 +113,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     if (baseUrl !== undefined && typeof baseUrl !== 'string') throw new Error(`${file}: repair.baseUrl must be a URL`);
     // How long the repairer may take to answer (shadowlap repair --repairer-timeout).
     if (timeout !== undefined && !(typeof timeout === 'number' && Number.isInteger(timeout) && timeout > 0)) throw new Error(`${file}: repair.timeout must be a whole number of seconds, such as 600`);
-    config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout as number } : {}) };
+    config.repair = { ...(repairer ? { repairer } : {}), ...(baseUrl ? { baseUrl } : {}), ...(timeout !== undefined ? { timeout: timeout } : {}) };
   }
   // verify: how a good run is kept against its baseline.
   if (parsed.verify !== undefined) config.verify = parseVerifyConfig(parsed.verify, file);
@@ -156,7 +156,7 @@ function parseVerifyConfig(raw: unknown, file: string): NonNullable<ShadowlapCon
   if (margin !== undefined && (typeof margin !== 'number' || !(margin > 0 && margin < 1))) throw new Error(`${file}: verify.margin must be a number between 0 and 1, such as 0.1 (a drop of 10 points)`);
   if (baseline !== undefined && baseline !== 'paired' && baseline !== 'history') throw new Error(`${file}: verify.baseline must be "paired" or "history"`);
   if (max !== undefined && (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > 1000)) throw new Error(`${file}: verify.max must be a whole number from 1 to 1000`);
-  return { ...(margin !== undefined ? { margin: margin as number } : {}), ...(baseline !== undefined ? { baseline: baseline as 'paired' | 'history' } : {}), ...(max !== undefined ? { max: max as number } : {}) };
+  return { ...(margin !== undefined ? { margin: margin } : {}), ...(baseline !== undefined ? { baseline: baseline } : {}), ...(max !== undefined ? { max: max } : {}) };
 }
 
 /**

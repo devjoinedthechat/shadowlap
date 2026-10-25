@@ -280,7 +280,7 @@ describe('Session in replay mode', () => {
 
   it('ignores incomplete recorded calls (a crash mid-call)', () => {
     const calls = parent();
-    calls[0]!.end = null;
+    calls[0].end = null;
     const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
     expect(s.resolve({ callNo: 1, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: { system: 'Today is 2026-09-15', messages: [1] } }).origin).toBe('live');
     // The incomplete call is never a counterpart; the closest complete API call is.

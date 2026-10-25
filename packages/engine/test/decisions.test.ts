@@ -147,7 +147,7 @@ describe('compareDecisions: ranked by consequence', () => {
     const c = compareDecisions(decision([['search_web', { query: 'x' }]]), decision([['search_web', { query: 'x' }], ['post_to_slack', { text: 'hi' }]]), effectOf);
     expect(c.rank).toBe(1);
     expect(c.changes[0]).toMatchObject({ kind: 'write-added', tool: 'post_to_slack', effect: 'unknown' });
-    expect(c.changes[0]!.detail).toMatch(/no recording gives an effect, so it counts as a write/);
+    expect(c.changes[0].detail).toMatch(/no recording gives an effect, so it counts as a write/);
   });
 
   it('ranks 2: when it stops or hands over; stopping instead of emailing is a write removed first', () => {
@@ -184,7 +184,7 @@ describe('compareDecisions: ranked by consequence', () => {
     const long = 'a'.repeat(5000);
     const c = compareDecisions(decision([], { text: long }), decision([], { text: `${long}b` }), effectOf);
     expect(c.rank).toBe(5);
-    expect(c.changes[0]!.before).toBe(`${'a'.repeat(2000)}… (3000 more characters)`);
+    expect(c.changes[0].before).toBe(`${'a'.repeat(2000)}… (3000 more characters)`);
     expect(decisionView(decision([], { text: long }), effectOf).text).toHaveLength(2000 + '… (3000 more characters)'.length);
   });
 
@@ -297,13 +297,13 @@ describe('formatDecisions', () => {
     // never that the runs hold no model call.
     const none = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, same: 0, untouched: 0, notAsked: 0 };
     const refusal = 'the first request differs in more than its system prompt and tools ($.model changed): verify it instead';
-    const refusedRun = { ...report.runs[0]!, steps: 11, asked: 0, rank: null, majority: null, counts: { ...none }, refused: refusal, decisions: [] };
+    const refusedRun = { ...report.runs[0], steps: 11, asked: 0, rank: null, majority: null, counts: { ...none }, refused: refusal, decisions: [] };
     const allRefused = formatDecisions({ ...report, runs: [refusedRun], counts: { ...none }, flagged: [] });
     expect(allRefused.split('\n')[0]).toBe('! 1 of 1 run could not be asked, under the prompt and tools in the working tree (why below)');
     expect(allRefused).toContain(`01K1AAAAAA  not asked: ${refusal}`);
     expect(allRefused).not.toMatch(/Nothing to ask|no model call/);
     // One run asked the same, another refused: amber, with the refusal named in the headline.
-    const sameRun = { ...report.runs[0]!, runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: null, majority: null, counts: { ...none, same: 2 }, decisions: [step(3, null, ''), step(10, null, '')] };
+    const sameRun = { ...report.runs[0], runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: null, majority: null, counts: { ...none, same: 2 }, decisions: [step(3, null, ''), step(10, null, '')] };
     const mixed = formatDecisions({ ...report, runs: [sameRun, refusedRun], counts: { ...none, same: 2 }, flagged: [] });
     expect(mixed.split('\n')[0]).toBe('! The same decisions at every step asked, under the prompt and tools in the working tree; 1 of 2 runs could not be asked (why below)');
     // Runs that hold no model call still say so.
@@ -327,8 +327,8 @@ describe('a text-only change a judge check reads', () => {
       [2, 'judge', 'passed', 'failed'],
       [5, 'text', recorded.text, now.text],
     ]);
-    expect(fails.changes[0]!.detail).toBe('judge "explains-escalation" fails what it says now, which passed as recorded');
-    expect(promoteByJudge(text, [check(side('failed'), side('passed'))]).changes[0]!.detail).toBe('judge "explains-escalation" passes what it says now, which failed as recorded');
+    expect(fails.changes[0].detail).toBe('judge "explains-escalation" fails what it says now, which passed as recorded');
+    expect(promoteByJudge(text, [check(side('failed'), side('passed'))]).changes[0].detail).toBe('judge "explains-escalation" passes what it says now, which failed as recorded');
     // As recorded, or not judged: a text-only change still, which no verdict it lacks may raise.
     expect(promoteByJudge(text, [check(side('passed'), side('passed'))])).toEqual(text);
     expect(promoteByJudge(text, [check(side('passed'), side('inconclusive'))])).toEqual(text);
@@ -417,15 +417,15 @@ describe('a text-only change a judge check reads', () => {
     expect(text).toContain('judge "explains-escalation" passed → failed · it no longer says why (judged live, ≈$0.0024)');
     expect(text).toContain('  judging: 1 upstream request · ≈$0.0024 spent');
     // A write as well: both are said.
-    const write = { ...run, runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: 1 as const, majority: 1 as const, decisions: [{ ...run.decisions[0]!, rank: 1 as const, majority: 1 as const, changes: [{ rank: 1 as const, kind: 'write-removed' as const, tool: 'send_email', effect: 'write' as const, before: {}, after: null, detail: 'send_email is no longer called' }], judge: null }] };
+    const write = { ...run, runId: '01K1BBBBBBBBBBBBBBBBBBBBBB', rank: 1 as const, majority: 1 as const, decisions: [{ ...run.decisions[0], rank: 1 as const, majority: 1 as const, changes: [{ rank: 1 as const, kind: 'write-removed' as const, tool: 'send_email', effect: 'write' as const, before: {}, after: null, detail: 'send_email is no longer called' }], judge: null }] };
     expect(formatDecisions({ ...report, runs: [run, write], flagged: [run.runId, write.runId] }).split('\n')[0]).toBe('✗ 2 of 2 runs decide a write or when to stop differently, or are judged otherwise, under the model claude-haiku-4-5');
     // As recorded, and not judged: each says so.
-    const same = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0]!, rank: 5, majority: 5, changes: [promoted.changes[1]!], judge: [check(side('passed', { source: 'recording', cost: 0, reason: 'it says why' }), side('passed', { source: 'kept', cost: 0, reason: 'it says why' }))] }] }] });
+    const same = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0], rank: 5, majority: 5, changes: [promoted.changes[1]], judge: [check(side('passed', { source: 'recording', cost: 0, reason: 'it says why' }), side('passed', { source: 'kept', cost: 0, reason: 'it says why' }))] }] }] });
     expect(same).toContain('judge "explains-escalation" passed, as recorded · it says why (asked before and kept, free)');
-    const open = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0]!, rank: 5, majority: 5, changes: [promoted.changes[1]!], judge: [check(side('passed', { source: 'recording', cost: 0 }), side('inconclusive'))] }] }] });
+    const open = formatDecisions({ ...report, flagged: [], runs: [{ ...run, rank: 5, majority: 5, decisions: [{ ...run.decisions[0], rank: 5, majority: 5, changes: [promoted.changes[1]], judge: [check(side('passed', { source: 'recording', cost: 0 }), side('inconclusive'))] }] }] });
     expect(open).toContain('judge "explains-escalation" inconclusive · not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)');
     // With samples, how many of them a judge could not judge, the one shown or not.
-    const sampled = formatDecisions({ ...report, samples: 3, flagged: [], runs: [{ ...run, rank: 2, majority: 5, decisions: [{ ...run.decisions[0]!, majority: 5, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } }] }] });
+    const sampled = formatDecisions({ ...report, samples: 3, flagged: [], runs: [{ ...run, rank: 2, majority: 5, decisions: [{ ...run.decisions[0], majority: 5, samples: { asked: 3, answered: 3, changed: 3, unjudged: 2, ranks: [2, 5, 5] } }] }] });
     expect(sampled).toMatch(/#30 +step 30 +rank 2 +judge "explains-escalation" fails what it says now, which passed as recorded · in 3 of 3 samples, fewer than half: not flagged, 2 of them not judged/);
   });
 

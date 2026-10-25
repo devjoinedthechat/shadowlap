@@ -36,10 +36,10 @@ function dashboard(args: string[]): Promise<Started> {
       const m = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(text);
       if (!m) return;
       clearTimeout(timer);
-      resolve({ child, url: m[1]!, token: m[2]!, banner: text });
+      resolve({ child, url: m[1], token: m[2], banner: text });
     };
-    child.stderr!.on('data', on);
-    child.stdout!.on('data', on);
+    child.stderr.on('data', on);
+    child.stdout.on('data', on);
   });
 }
 
@@ -309,13 +309,13 @@ describe.skipIf(process.platform === 'win32')('stopping shadowlap dashboard', ()
     return new Promise((resolve, reject) => {
       let text = '';
       const timer = setTimeout(() => reject(new Error(`no address printed: ${text}`)), 20_000);
-      child.stderr!.on('data', (c: Buffer) => (text += c.toString()));
-      child.stdout!.on('data', (c: Buffer) => {
+      child.stderr.on('data', (c: Buffer) => (text += c.toString()));
+      child.stdout.on('data', (c: Buffer) => {
         text += c.toString();
         const m = /^(\{.*\})$/m.exec(text);
         if (!m) return;
         clearTimeout(timer);
-        const { url, token } = JSON.parse(m[1]!) as { url: string; token: string };
+        const { url, token } = JSON.parse(m[1]) as { url: string; token: string };
         resolve({ child, url, token, banner: text });
       });
     });

@@ -77,7 +77,7 @@ beforeAll(async () => {
       const m = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(out);
       if (!m) return;
       clearTimeout(timer);
-      resolve({ child, url: m[1]!, token: m[2]! });
+      resolve({ child, url: m[1], token: m[2] });
     };
     child.stderr.on('data', on);
     child.stdout.on('data', on);
@@ -139,6 +139,6 @@ describe('Settings from shadowlap dashboard', () => {
     expect(added.status).toBe(200);
     const view = (await (await api(`settings/redaction/preview?run=${runId}`)).json()) as { preview: { total: number; rules: Array<{ count: number; samples: Array<{ before: string; after: string }> }> } };
     expect(view.preview.total).toBeGreaterThanOrEqual(2);
-    expect(view.preview.rules[0]!.samples[0]!.after).toContain('<WORK>');
+    expect(view.preview.rules[0].samples[0].after).toContain('<WORK>');
   });
 });

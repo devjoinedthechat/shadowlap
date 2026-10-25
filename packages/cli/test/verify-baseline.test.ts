@@ -88,7 +88,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 async function record(order?: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, join(work, 'agent.mjs'), ...(order ? [order] : [])]);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 interface Json {
@@ -167,7 +167,7 @@ describe('shadowlap verify against a baseline', () => {
     const alone = await shadowlap(['verify', '--keeps', good, '--expect', ORACLE, '--json']);
     const aloneReport = JSON.parse(alone.stdout) as Json;
     expect(aloneReport.runs[0]).toMatchObject({ outcome: 'broken', noBaseline: expect.stringContaining('the working tree has no change against HEAD') });
-    expect(aloneReport.runs[0]!.baseline).toBeUndefined();
+    expect(aloneReport.runs[0].baseline).toBeUndefined();
     expect(aloneReport.warnings.some((w) => w.includes('judged by the gate on its own, not against the code before the change'))).toBe(true);
     const bad = await shadowlap(['verify', '--keeps', good, '--base', 'no-such-commit']);
     expect(bad.code).not.toBe(0);
@@ -183,7 +183,7 @@ describe('shadowlap verify against a baseline', () => {
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Json;
     expect(report.runs[0]).toMatchObject({ outcome: 'kept', deterministic: true, attempts: 1 });
-    expect(report.runs[0]!.baseline).toBeUndefined();
+    expect(report.runs[0].baseline).toBeUndefined();
     expect(report.kept).toBeNull();
     expect(report.cost.attempts).toBe(1);
   });
@@ -198,8 +198,8 @@ describe('shadowlap verify against a baseline', () => {
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as Json;
     expect(report.runs[0]).toMatchObject({ outcome: 'broken', deterministic: false, attempts: 3 });
-    expect(report.runs[0]!.baseline).toBeUndefined();
-    expect(report.runs[0]!.baselineRuns).toBeUndefined();
+    expect(report.runs[0].baseline).toBeUndefined();
+    expect(report.runs[0].baselineRuns).toBeUndefined();
     expect(report.warnings.join(' ')).toContain('the replay made no calls through Shadowlap');
   });
 

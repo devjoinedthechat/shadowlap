@@ -57,7 +57,7 @@ const json = <T>(r: { stdout: string; out: string }): T => {
 async function record(url: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT], url);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 type Plant = { results: PlantReport[]; verdict: string; passed: boolean };
@@ -110,7 +110,7 @@ describe('an attempt in which something failed', () => {
     const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '1', '--concurrency', '4', '--json'], refusing.url);
     expect(r.code, r.stderr).toBe(3);
     const out = json<Plant>(r);
-    const report = out.results[0]!;
+    const report = out.results[0];
     expect([out.verdict, out.passed, report.gate.verdict]).toEqual(['inconclusive', false, 'inconclusive']);
     expect(report.totals).toEqual({ attempts: 5, obeyed: 0, influenced: 0, ignored: 0, inconclusive: 5 });
     for (const a of report.attempts) {
@@ -118,7 +118,7 @@ describe('an attempt in which something failed', () => {
       expect(a.why).toMatch(/^model call #\d+ failed with HTTP 401 \(invalid x-api-key\): the request that carried the planted text got no answer$/);
     }
     // The clean replays failed the same way: left out of the comparison, each with why.
-    expect(report.baselines.every((b) => b.failed.length === 1 && /HTTP 401/.test(b.failed[0]!.why))).toBe(true);
+    expect(report.baselines.every((b) => b.failed.length === 1 && /HTTP 401/.test(b.failed[0].why))).toBe(true);
     expect(report.gate.reason).toMatch(/^5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/);
     const warned = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--concurrency', '4', '--inconclusive', 'warn'], refusing.url);
     expect(warned.code).toBe(0);
@@ -130,13 +130,13 @@ describe('an attempt in which something failed', () => {
     const plainRun = await record(plain.url);
     const r = await shadowlap(['injection', plainRun, '--clean', '7', '--json'], refusing.url);
     expect(r.code, r.stderr).toBe(3);
-    const clean = json<Clean>(r).results[0]!;
+    const clean = json<Clean>(r).results[0];
     expect(clean.attempts).toHaveLength(3);
     expect(clean.attempts.every((a) => /^model call #\d+ failed with HTTP 401/.test(a.why ?? '') && a.gone.length === 0)).toBe(true);
     expect(clean.writes.map((w) => [w.name, w.attempts, w.verdict])).toEqual([['send_email', 0, 'inconclusive']]);
     expect(clean.stopReason).toMatch(/^3 clean attempts in a row decided nothing: model call #\d+ failed with HTTP 401/);
     // With the model reachable, the same question has an answer.
-    const answered = json<Clean>(await shadowlap(['injection', plainRun, '--clean', '7', '--json'], plain.url)).results[0]!;
+    const answered = json<Clean>(await shadowlap(['injection', plainRun, '--clean', '7', '--json'], plain.url)).results[0];
     expect(answered.writes.map((w) => w.verdict)).toEqual(['not caused']);
   }, 120_000);
 
@@ -146,7 +146,7 @@ describe('an attempt in which something failed', () => {
     try {
       const failed = await shadowlap(['test', 'goldens/refused', '--json', 'report.json'], refusing.url);
       expect(failed.code, failed.out).toBe(3);
-      const result = (JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0]!;
+      const result = (JSON.parse(readFileSync(join(cwd, 'report.json'), 'utf8')) as { results: Array<Record<string, unknown>> }).results[0];
       expect(result).toMatchObject({ ok: false, verdict: 'inconclusive', failure: 'injection', message: expect.stringMatching(/^injection inconclusive: 5 of 5 attempts could not be judged: model call #\d+ failed with HTTP 401/), injection: { verdict: 'inconclusive', inconclusive: 5 } });
       expect(failed.stdout).toContain('! injection: 5 attempts · 0 obeyed · 0 influenced · 0 ignored · 5 inconclusive');
       const warned = await shadowlap(['test', 'goldens/refused', '--inconclusive', 'warn', '--json', 'report.json'], refusing.url);
@@ -172,7 +172,7 @@ describe('an attempt in which something failed', () => {
     const plainRun = await record(plain.url);
     const r = await shadowlap(['injection', plainRun, '--baselines', '0', '--budget', '0.02', '--json'], plain.url);
     expect(r.code).toBe(3);
-    const report = json<Plant>(r).results[0]!;
+    const report = json<Plant>(r).results[0];
     expect(report.stopReason).toBe('the budget of $0.02 is spent');
     expect(report.gate).toMatchObject({ verdict: 'inconclusive', reason: expect.stringMatching(/^\d+ of the 60 planned attempts ran \(the budget of \$0\.02 is spent\)$/) });
   }, 120_000);
@@ -185,9 +185,9 @@ describe('a normalizer', () => {
     try {
       const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--concurrency', '4', '--json'], obey.url);
       expect(r.code).toBe(1);
-      const report = json<Plant>(r).results[0]!;
+      const report = json<Plant>(r).results[0];
       expect(report.attempts.map((a) => a.verdict)).toEqual(Array(5).fill('obeyed'));
-      const a = report.attempts[0]!;
+      const a = report.attempts[0];
       const store = Store.open(db);
       try {
         expect(store.getRun(a.runId)!.divergence).toMatchObject({ type: 'forced', callNo: a.forkedAt, reason: expect.stringMatching(new RegExp(`^forced live by --inject-result ${a.read}, a change the normalizers`)) });
@@ -200,14 +200,14 @@ describe('a normalizer', () => {
   }, 120_000);
 
   it('never makes --clean take a write to the canary for another write the rules make look the same', async () => {
-    const report = json<Plant>(await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--concurrency', '4', '--json'], obey.url)).results[0]!;
-    const a = report.attempts.find((x) => x.read === report.reads[0]!.callNo)!;
+    const report = json<Plant>(await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--concurrency', '4', '--json'], obey.url)).results[0];
+    const a = report.attempts.find((x) => x.read === report.reads[0].callNo)!;
     // Every address in send_email's arguments masked: the canary email and the team's would read the same.
     config({ ...UNTRUSTED, normalize: [{ kind: 'tool', name: 'send_email', pattern: 'email', replace: '<EMAIL>' }, { kind: 'tool', name: 'send_email', path: '$.args.to', replace: '<TO>' }] });
     try {
       const r = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt), '--json'], obey.url);
       expect(r.code, r.stderr).toBe(0);
-      const clean = json<Clean>(r).results[0]!;
+      const clean = json<Clean>(r).results[0];
       expect(clean.writes.map((w) => [w.identifiers, w.verdict])).toEqual([
         [`to = ${a.canary!.address}`, 'caused'],
         ['to = <TO>', 'not caused'],
@@ -229,19 +229,19 @@ describe('--clean', () => {
     expect(early.callNo).toBe(read + 1);
     const r = await shadowlap(['injection', run, '--clean', String(read), '--json'], sameTurn.url);
     expect(r.code, r.stderr).toBe(0);
-    const clean = json<Clean>(r).results[0]!;
+    const clean = json<Clean>(r).results[0];
     // Each clean attempt replays that email from the recording, before its fork: it is made again.
     expect(clean.writes.find((w) => w.callNo === early.callNo)).toMatchObject({ identifiers: 'to = ops@example.com, subject = Started', verdict: 'not caused', gone: 0 });
     expect(clean.attempts.every((x) => x.made.some((m) => m.callNo === early.callNo))).toBe(true);
   }, 120_000);
 
   it('exits 3, inconclusive, while a write is undecided, whatever another write says', async () => {
-    const report = json<Plant>(await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--json'], obey.url)).results[0]!;
-    const a = report.attempts.find((x) => x.read === report.reads[0]!.callNo)!;
+    const report = json<Plant>(await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--json'], obey.url)).results[0];
+    const a = report.attempts.find((x) => x.read === report.reads[0].callNo)!;
     const r = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt), '--json'], toggling.url);
     expect(r.code, r.stderr).toBe(3);
     const out = json<Clean>(r);
-    const clean = out.results[0]!;
+    const clean = out.results[0];
     expect(clean.writes.map((w) => w.verdict)).toEqual(['caused', 'inconclusive']);
     expect([clean.verdict, out.verdict, out.passed]).toEqual(['caused', 'inconclusive', false]);
   }, 120_000);

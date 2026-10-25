@@ -52,7 +52,7 @@ async function runAgent(system: string): Promise<AgentResult> {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     for await (const chunk of stream) {
       text += chunk.text ?? '';
-      for (const fc of chunk.functionCalls ?? []) calls.push({ name: fc.name ?? '', args: (fc.args ?? {}) as Record<string, unknown> });
+      for (const fc of chunk.functionCalls ?? []) calls.push({ name: fc.name ?? '', args: (fc.args ?? {}) });
     }
     if (calls.length === 0) return { finalText: text, modelCalls, toolErrors };
     contents.push({ role: 'model', parts: [...(text ? [{ text }] : []), ...calls.map((c) => ({ functionCall: { name: c.name, args: c.args } }))] });
@@ -60,7 +60,7 @@ async function runAgent(system: string): Promise<AgentResult> {
     for (const c of calls) {
       try {
         const result = c.name === 'search_web' ? await searchWeb(c.args as never) : await sendEmail(c.args as never);
-        responses.push({ functionResponse: { name: c.name, response: result as Record<string, unknown> } });
+        responses.push({ functionResponse: { name: c.name, response: result } });
       } catch (err) {
         toolErrors.push(`${c.name}: ${(err as Error).name}`);
         responses.push({ functionResponse: { name: c.name, response: { error: (err as Error).message } } });
@@ -98,14 +98,14 @@ describe('Gemini provider', () => {
     expect(sent).toBe(1);
     expect(summary.byKind).toMatchObject({ api: 3, tool: 2 });
     expect(mock.requests).toHaveLength(3);
-    expect(mock.requests[0]!.path).toBe('/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse');
+    expect(mock.requests[0].path).toBe('/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse');
     const api = store.getCalls(run.runId).filter((c) => c.kind === 'api');
-    expect(api[0]!.name).toBe('POST /v1beta/models/gemini-2.5-flash:streamGenerateContent');
+    expect(api[0].name).toBe('POST /v1beta/models/gemini-2.5-flash:streamGenerateContent');
     expect(api.every((c) => (c.end?.meta.usage?.inputTokens ?? 0) > 0)).toBe(true);
     expect(api.map((c) => c.end?.meta.stopReason)).toEqual(['STOP', 'STOP', 'STOP']);
-    expect(api[0]!.end?.meta.provider).toBe('gemini');
+    expect(api[0].end?.meta.provider).toBe('gemini');
     expect(summary.cost.spent).toBeGreaterThan(0); // gemini-2.5-flash is priced
-    expect(mock.requests[0]!.headers['x-goog-api-key']).toBe('AIza-test'); // forwarded upstream…
+    expect(mock.requests[0].headers['x-goog-api-key']).toBe('AIza-test'); // forwarded upstream…
     expect(JSON.stringify(store.getCalls(run.runId))).not.toContain('AIza-test'); // …never stored
   });
 

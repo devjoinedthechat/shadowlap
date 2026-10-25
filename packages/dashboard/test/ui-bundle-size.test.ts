@@ -37,12 +37,12 @@ describe('the dashboard’s scripts', () => {
     const { served, standalone } = uiBundles({ ui: resolve(here, 'ui'), out: resolve(here, 'dist', 'budget') });
     const built = await esbuild.build({ ...served, write: false, metafile: true, absWorkingDir: here, logLevel: 'silent' });
     const outs = built.metafile.outputs;
-    const bytes = (out: string) => outs[out]!.bytes;
+    const bytes = (out: string) => outs[out].bytes;
     // An output and what it imports up front, transitively: what loading it loads.
     const loads = (out: string, seen = new Set<string>()): Set<string> => {
       if (seen.has(out)) return seen;
       seen.add(out);
-      for (const i of outs[out]!.imports) if (i.kind === 'import-statement') loads(i.path, seen);
+      for (const i of outs[out].imports) if (i.kind === 'import-statement') loads(i.path, seen);
       return seen;
     };
     const sum = (files: Iterable<string>) => [...files].reduce((n, f) => n + bytes(f), 0);
@@ -51,7 +51,7 @@ describe('the dashboard’s scripts', () => {
     const firstBytes = sum(first);
     // The pages' own scripts: chunks named after their page.
     const pages = Object.keys(outs).filter((o) => /\/chunks\/[A-Z]\w*-\w+\.js$/.test(o));
-    const added = pages.map((p) => ({ page: /\/chunks\/(\w+)-/.exec(p)![1]!, bytes: sum([...loads(p)].filter((f) => !first.has(f))) }));
+    const added = pages.map((p) => ({ page: /\/chunks\/(\w+)-/.exec(p)![1], bytes: sum([...loads(p)].filter((f) => !first.has(f))) }));
     const report = added
       .sort((a, b) => b.bytes - a.bytes)
       .map((a) => `${a.page} ${(a.bytes / KB).toFixed(0)} KB`)
@@ -61,7 +61,7 @@ describe('the dashboard’s scripts', () => {
     for (const a of added) expect(a.bytes, `${a.page} adds ${(a.bytes / KB).toFixed(0)} KB`).toBeLessThan(PAGE);
     // Every page the shell routes to is a chunk of its own, and the run page's code is not in the first look.
     expect(added.map((a) => a.page).sort()).toEqual(['Compare', 'Fixes', 'NewProject', 'Overview', 'Run', 'Runs', 'Settings', 'Setup', 'StoreSetup', 'Tests', 'Training']);
-    const firstInputs = new Set([...first].flatMap((f) => Object.keys(outs[f]!.inputs)));
+    const firstInputs = new Set([...first].flatMap((f) => Object.keys(outs[f].inputs)));
     expect(firstInputs.has('ui/pages/Run.tsx')).toBe(false);
     expect(firstInputs.has('ui/run/Inspector.tsx')).toBe(false);
 
@@ -69,7 +69,7 @@ describe('the dashboard’s scripts', () => {
     const script = Object.entries(copy.metafile.outputs).filter(([o]) => o.endsWith('.js'));
     // One script, with every page in it.
     expect(script).toHaveLength(1);
-    const [, whole] = script[0]!;
+    const [, whole] = script[0];
     expect(Object.keys(whole.inputs)).toContain('ui/pages/Run.tsx');
     process.stdout.write(`an exported copy's script ${(whole.bytes / KB).toFixed(0)} KB\n`);
     expect(whole.bytes).toBeLessThan(COPY);

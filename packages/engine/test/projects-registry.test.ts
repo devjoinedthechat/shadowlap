@@ -385,12 +385,12 @@ describe('ProjectRegistry: removing', () => {
     record(long);
     const child = spawn(process.execPath, ['--input-type=module', '-e', recorder(long, Date.now() - 2 * 3600_000, true)], { stdio: ['pipe', 'pipe', 'inherit'] });
     try {
-      await new Promise<void>((resolve) => child.stdout!.once('data', () => resolve()));
+      await new Promise<void>((resolve) => child.stdout.once('data', () => resolve()));
       expect(existsSync(join(long, '.shadowlap', 'active.json'))).toBe(false);
       expect(() => registry.remove('research-agent', { deleteRecordings: true, typedName: 'research-agent' })).toThrow(expect.objectContaining({ code: 'recording', status: 409 }));
       expect(existsSync(projectDbPath(long))).toBe(true);
     } finally {
-      child.stdin!.end();
+      child.stdin.end();
       await new Promise((resolve) => child.once('exit', resolve));
     }
   });
@@ -497,7 +497,7 @@ describe('ProjectRegistry: setup', () => {
 
     // One written by hand is read the same way.
     const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: { findings: Record<string, unknown> } }> };
-    raw.projects[0]!.setup.findings.modelServer = { url: 'http://u:p@10.0.0.2:8000/v1', upstream: 'http://u:p@10.0.0.2:8000', from: 'x' };
+    raw.projects[0].setup.findings.modelServer = { url: 'http://u:p@10.0.0.2:8000/v1', upstream: 'http://u:p@10.0.0.2:8000', from: 'x' };
     writeFileSync(registry.file, JSON.stringify(raw));
     expect(registry.get('local-agent')!.setup.findings?.modelServer).toEqual({ url: 'http://10.0.0.2:8000/v1', upstream: null, from: 'x' });
     // Findings an older version kept have none.
@@ -513,7 +513,7 @@ describe('ProjectRegistry: setup', () => {
     expect(registry.noteInspected('node-agent', findings()).setup.findings?.nodePin).toBeNull();
     // One written by hand that isn't a pin is none.
     const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: { findings: Record<string, unknown> } }> };
-    raw.projects[0]!.setup.findings.nodePin = { version: 18 };
+    raw.projects[0].setup.findings.nodePin = { version: 18 };
     writeFileSync(registry.file, JSON.stringify(raw));
     expect(registry.get('node-agent')!.setup.findings?.nodePin).toBeNull();
   });
@@ -586,15 +586,15 @@ describe('ProjectRegistry: the file', () => {
     expect(registry.noteRecording('triage-bot', 'RUN', ['node', 'triage.mjs']).setup.unwrappedAtRecord).toEqual([]);
     registry.confirmCommand('triage-bot', ['node', 'triage.mjs', '--all']);
     const onDisk = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ pinned: boolean; setup: Record<string, unknown>; confirmed: Array<Record<string, unknown>> }> };
-    expect(onDisk.projects[0]!.pinned).toBe(true);
-    expect(onDisk.projects[0]!.setup.laterField).toBe('kept');
+    expect(onDisk.projects[0].pinned).toBe(true);
+    expect(onDisk.projects[0].setup.laterField).toBe('kept');
     // A command confirmed before model servers were part of it was confirmed for the provider's API.
-    expect(onDisk.projects[0]!.confirmed[0]).toEqual({ argv: ['node', 'triage.mjs'], upstream: null, at: 2, note: 'kept' });
+    expect(onDisk.projects[0].confirmed[0]).toEqual({ argv: ['node', 'triage.mjs'], upstream: null, at: 2, note: 'kept' });
 
     // Findings with tools that aren't what this version writes are cleaned up as they are read.
     const findingsRaw = { at: 3, tools: [{ name: 'send', effect: 'explode', wrapped: 'yes' }, { effect: 'read' }], wrap: [{ code: 'x', language: 'cobol' }, { language: 'python' }] };
     const raw = JSON.parse(readFileSync(registry.file, 'utf8')) as { projects: Array<{ setup: Record<string, unknown> }> };
-    raw.projects[0]!.setup.findings = findingsRaw;
+    raw.projects[0].setup.findings = findingsRaw;
     writeFileSync(registry.file, JSON.stringify(raw));
     expect(registry.get('triage-bot')!.setup.findings).toMatchObject({
       tools: [{ name: 'send', effect: 'write', wrapped: false, why: '', file: '', line: 0 }],

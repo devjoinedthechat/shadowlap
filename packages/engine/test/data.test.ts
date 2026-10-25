@@ -16,7 +16,7 @@ const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent', 
 
 function golden() {
   const store = Store.open(':memory:');
-  const runId = unpackRun(store, GOLDEN).imported[0]!;
+  const runId = unpackRun(store, GOLDEN).imported[0];
   return { store, runId };
 }
 
@@ -37,7 +37,7 @@ describe('labels and notes', () => {
     manifest.runs[0].meta = { ...manifest.runs[0].meta, labels: ['good'], notes: [{ callNo: 3, text: 'first model call', at: 1 }] };
     writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
     const ok = Store.open(':memory:');
-    const runId = unpackRun(ok, dir).imported[0]!;
+    const runId = unpackRun(ok, dir).imported[0];
     expect(ok.getRun(runId)?.meta).toMatchObject({ labels: ['good'], notes: [{ callNo: 3, text: 'first model call' }] });
     ok.close();
 
@@ -122,13 +122,13 @@ describe('dataset export', () => {
     const { store, runId } = golden();
     store.updateRunMeta(runId, { labels: ['good'], notes: [{ callNo: null, text: 'reference run', at: 1 }] });
     const [row] = datasetRows(store, [store.getRun(runId)!], { calls: 'final', format: 'jsonl' }) as Array<{ input: { messages: Array<{ role: string; tool_calls?: unknown[]; tool_call_id?: string }>; tools: string[] }; output: { text: string }; metadata: Record<string, unknown> }>;
-    expect(row!.input.messages[0]).toMatchObject({ role: 'system' });
-    expect(row!.input.tools).toContain('send_email');
-    expect(row!.output.text).toMatch(/^Done\./);
-    expect(row!.metadata).toMatchObject({ run_id: runId, call_no: 30, labels: ['good'], notes: ['reference run'] });
+    expect(row.input.messages[0]).toMatchObject({ role: 'system' });
+    expect(row.input.tools).toContain('send_email');
+    expect(row.output.text).toMatch(/^Done\./);
+    expect(row.metadata).toMatchObject({ run_id: runId, call_no: 30, labels: ['good'], notes: ['reference run'] });
     // Every tool result answers a tool call made before it.
     const ids = new Set<string>();
-    for (const m of row!.input.messages) {
+    for (const m of row.input.messages) {
       for (const c of (m.tool_calls ?? []) as Array<{ id: string }>) ids.add(c.id);
       if (m.role === 'tool') expect(ids.has(m.tool_call_id!)).toBe(true);
     }
@@ -146,7 +146,7 @@ describe('dataset export', () => {
       ],
     });
     const [row] = datasetRows(store, [store.getRun(runId)!], { calls: 'final', format: 'jsonl' }) as Array<{ metadata: Record<string, unknown> }>;
-    expect(row!.metadata.checks).toEqual({ passed: 1, total: 3, inconclusive: 1, notApplicable: 1 });
+    expect(row.metadata.checks).toEqual({ passed: 1, total: 3, inconclusive: 1, notApplicable: 1 });
     store.close();
   });
 
@@ -154,8 +154,8 @@ describe('dataset export', () => {
     const { store, runId } = golden();
     const run = store.getRun(runId)!;
     const [chat] = datasetRows(store, [run], { calls: 'final', format: 'openai-chat' }) as Array<{ messages: Array<{ role: string; tool_calls?: Array<{ type: string; function: { arguments: string } }> }> }>;
-    expect(chat!.messages.at(-1)).toMatchObject({ role: 'assistant' });
-    const call = chat!.messages.find((m) => m.tool_calls)!.tool_calls![0]!;
+    expect(chat.messages.at(-1)).toMatchObject({ role: 'assistant' });
+    const call = chat.messages.find((m) => m.tool_calls)!.tool_calls![0];
     expect(call.type).toBe('function');
     expect(typeof call.function.arguments).toBe('string');
     expect(Object.keys(datasetRows(store, [run], { calls: 'final', format: 'braintrust' })[0] as object)).toEqual(['input', 'expected', 'metadata']);

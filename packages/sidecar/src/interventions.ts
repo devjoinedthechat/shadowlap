@@ -85,9 +85,9 @@ export class RequestInterventions {
     const find = (callNo: number, flag: string) => {
       const call = api.find((c) => c.callNo === callNo);
       if (!call) onError(`${flag}: call #${callNo} is not a model call of the recording`);
-      const scope = this.scopeOf(call!.meta.scope);
+      const scope = this.scopeOf(call.meta.scope);
       const index = api.filter((c) => c.callNo < callNo && this.scopeOf(c.meta.scope) === scope).length;
-      const provider = call!.meta.provider;
+      const provider = call.meta.provider;
       return { at: { scope, index }, provider: typeof provider === 'string' ? provider : null };
     };
     if (interventions.inject) {

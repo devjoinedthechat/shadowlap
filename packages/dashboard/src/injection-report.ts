@@ -143,7 +143,7 @@ function marked(text: string, canaries: readonly Canary[]): string {
   let last = 0;
   for (const m of text.matchAll(re)) {
     out += esc(text.slice(last, m.index)) + `<span class="canary">${esc(m[0])}</span>`;
-    last = m.index! + m[0].length;
+    last = m.index + m[0].length;
   }
   return out + esc(text.slice(last));
 }

@@ -49,8 +49,8 @@ describe('a probe tally', () => {
     // Ended in reverse pairs: 2, 1, 4, 3, …
     const shuffled = gated();
     for (let i = 0; i < outcomes.length; i += 2) {
-      shuffled.add(i + 2, outcomes[i + 1]!);
-      shuffled.add(i + 1, outcomes[i]!);
+      shuffled.add(i + 2, outcomes[i + 1]);
+      shuffled.add(i + 1, outcomes[i]);
     }
     expect(shuffled.decided).toEqual(inOrder.decided);
     expect(shuffled.decidedOn()).toEqual(inOrder.decidedOn());
@@ -142,11 +142,11 @@ async function runOut(x: ReturnType<typeof probe>, outcomes: ReadonlyArray<boole
   const left = new Map<number, number>();
   for (let step = 0; !x.ended(); step++) {
     await settle();
-    for (const n of x.started) if (!left.has(n)) left.set(n, steps[n - 1]!);
+    for (const n of x.started) if (!left.has(n)) left.set(n, steps[n - 1]);
     for (const [n, l] of left) {
       if (l === 0) continue;
       left.set(n, l - 1);
-      if (l === 1) await x.end(n, outcomes[n - 1]!);
+      if (l === 1) await x.end(n, outcomes[n - 1]);
     }
     expect(step).toBeLessThan(10_000);
   }
@@ -206,7 +206,7 @@ describe("a probe's attempts at once", () => {
     const random = seeded(7);
     for (let round = 0; round < 120; round++) {
       const concurrency = 1 + (round % 4);
-      const rate = [0.05, 0.5, 0.9][round % 3]!;
+      const rate = [0.05, 0.5, 0.9][round % 3];
       const outcomes = Array.from({ length: GATE.max }, () => random() < rate);
       const steps = durations(random);
       const x = probe(concurrency);
@@ -215,7 +215,7 @@ describe("a probe's attempts at once", () => {
       expect(x.tally.decided, `round ${round}`).toEqual(one.decided);
       expect(x.started.length, `round ${round}`).toBeLessThanOrEqual(one.by + concurrency - 1);
       // None started while concurrency attempts had started that the gate had not read.
-      x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i]!, `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
+      x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i], `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
     }
   });
 
@@ -239,7 +239,7 @@ describe("a probe's attempts at once", () => {
     let stoppedUnjudged = 0;
     for (let round = 0; round < 120; round++) {
       const concurrency = 1 + (round % 4);
-      const rate = [0.05, 0.5, 0.9][round % 3]!;
+      const rate = [0.05, 0.5, 0.9][round % 3];
       // Now and then an attempt can't be judged, such as one whose judge's call failed.
       const outcomes = Array.from({ length: GATE.max }, () => (random() < 0.12 ? null : random() < rate));
       const steps = durations(random);
@@ -249,7 +249,7 @@ describe("a probe's attempts at once", () => {
       expect(x.tally.decided, `round ${round}`).toEqual(one.decided);
       expect(x.tally.decidedOn(), `round ${round}`).toEqual(outcomes.slice(0, one.decided.at));
       expect(x.started.length, `round ${round}`).toBeLessThanOrEqual(one.by + concurrency - 1);
-      x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i]!, `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
+      x.started.forEach((n, i) => expect(n - 1 - x.readAtStart[i], `round ${round}, attempt ${n}`).toBeLessThan(concurrency));
       if (outcomes[one.by - 1] === null) stoppedUnjudged++;
     }
     // The rounds hold both kinds of ending: a gate's verdict and an attempt that could not be judged.

@@ -22,7 +22,7 @@ interface MastraToolDefinition {
 export function withEffect<T extends MastraToolDefinition>(definition: T, spec: EffectSpec): T {
   if (!definition.execute) return definition;
   const execute = wrapFirstArg(definition.id, spec, definition.execute as (inputData: unknown, ...rest: unknown[]) => unknown);
-  return { ...definition, execute } as T;
+  return { ...definition, execute };
 }
 
 interface MastraV0ToolDefinition {
@@ -35,6 +35,6 @@ export function withEffectV0<T extends MastraV0ToolDefinition>(definition: T, sp
   const original = definition.execute;
   if (!original) return definition;
   const options = toOptions(spec, definition.id, original);
-  const execute: NonNullable<T['execute']> = ((params, ...rest) => tool(definition.id, options, (context: unknown) => original({ ...params, context }, ...rest))(params.context)) as NonNullable<T['execute']>;
+  const execute: NonNullable<T['execute']> = ((params, ...rest) => tool(definition.id, options, (context: unknown) => original({ ...params, context }, ...rest))(params.context));
   return { ...definition, execute };
 }

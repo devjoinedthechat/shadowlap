@@ -44,7 +44,7 @@ afterAll(() => {
 /** The data an exported file embeds, read back as the copy reads it. */
 function exported(redact: Array<{ pattern: string; replace: string }>): StaticPayload {
   const { html } = exportHtml({ store, runIds: [runId], uiDir, redact, now: EXPORTED_AT });
-  const json = /<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1]!;
+  const json = /<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1];
   return JSON.parse(json) as StaticPayload;
 }
 
@@ -54,7 +54,7 @@ function leaving(data: StaticPayload): { text: string; html: string } {
   const run = normalizeRunDetail(data.responses[`runs/${runId}`] as RunDetail);
   const app = { client: createExportedClient(data), meta, exported: true, toast: () => undefined, runs: [] } as unknown as AppState;
   const html = renderToStaticMarkup(createElement(AppContext.Provider, { value: app }, createElement(ProvenanceView, { run })));
-  const part = /<h3>Leaving this machine<\/h3>(<p[^>]*>[\s\S]*?<\/p>)/.exec(html)![1]!;
+  const part = /<h3>Leaving this machine<\/h3>(<p[^>]*>[\s\S]*?<\/p>)/.exec(html)![1];
   return { html: part, text: part.replace(/<[^>]+>/g, '').replace(/&#x27;|’/g, '’') };
 }
 

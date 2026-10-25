@@ -60,7 +60,7 @@ beforeAll(async () => {
   writeFileSync(join(project, 'agent.mjs'), AGENT);
   const recorded = await shadowlap(project, ['run', '--', process.execPath, 'agent.mjs']);
   expect(recorded.code, recorded.out).toBe(0);
-  const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+  const runId = /recording run (\w{26})/.exec(recorded.out)![1];
   expect((await shadowlap(project, ['pack', runId, 'goldens/answer'])).code).toBe(0);
   // A golden packed before packs carried their .gitattributes.
   expect((await shadowlap(project, ['pack', runId, 'goldens/older'])).code).toBe(0);

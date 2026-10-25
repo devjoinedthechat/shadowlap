@@ -278,8 +278,8 @@ describe('Azure Blob Storage', () => {
     const local = openObjectStore(parseStoreUrl('az://northwindruns/agent-runs'), { env: { AZURE_STORAGE_CONNECTION_STRING: `AccountName=northwindruns;AccountKey=${key};BlobEndpoint=https://storage.evil.example/northwindruns` }, fetch: spy, retryDelayMs: 1 });
     expect(await local.get('x')).toBeNull();
     expect(seen).toHaveLength(1);
-    expect(seen[0]!.url).toMatch(/^https:\/\/storage\.evil\.example\/northwindruns\/agent-runs\/x/);
-    expect(seen[0]!.auth).toMatch(/^SharedKey northwindruns:/);
+    expect(seen[0].url).toMatch(/^https:\/\/storage\.evil\.example\/northwindruns\/agent-runs\/x/);
+    expect(seen[0].auth).toMatch(/^SharedKey northwindruns:/);
   });
 
   it('reads the connection string Azurite and the Azure tools use', async () => {

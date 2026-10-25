@@ -129,7 +129,7 @@ describe('the agent registry', () => {
   it('finds the nearest registered ancestor, and checks that it is the one Shadowlap started', () => {
     registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, { cwd: project, home });
     const dirs = [{ dir: join(home, '.shadowlap', 'agents'), strict: true }];
-    expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0]!.dir, '4242.json') });
+    expect(findRegistration(tree(), dirs)).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01RUN' }, from: join(dirs[0].dir, '4242.json') });
     // A process id reused by a process another one started: the file is stale.
     const skipped: string[] = [];
     expect(findRegistration(tree(process.pid + 1), dirs, (r) => skipped.push(r))).toBeNull();

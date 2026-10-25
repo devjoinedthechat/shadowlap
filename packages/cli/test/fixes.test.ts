@@ -125,7 +125,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<Result>
 async function record(order?: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, 'agent.mjs', ...(order ? [order] : [])]);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 async function label(runId: string, ...labels: string[]): Promise<void> {
@@ -170,7 +170,7 @@ function modelCalls(runId: string): number[] {
 describe('shadowlap fix', { timeout: 120_000 }, () => {
   it('opens a fix from a blame, joins the next failing run with its label, and keeps every verdict on it', async () => {
     const { failed, good } = await runs('refund-over-limit');
-    const decision = modelCalls(failed[0])[2]!;
+    const decision = modelCalls(failed[0])[2];
     mode = 'alternate';
 
     const first = await shadowlap(['blame', failed[0], '--expect', ORACLE, '--json']);
@@ -200,8 +200,8 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
     const listed = json<{ fixes: Array<Record<string, any>>; counts: Record<string, number> }>(await shadowlap(['fix', 'ls', '--json']));
     expect(listed.counts).toEqual({ all: 1, open: 1, verified: 0 });
     expect(listed.fixes[0]).toMatchObject({ fixId, status: 'open', title: 'Refunds above the limit issued without approval', label: 'refund-over-limit', failing: 2, good: 0, check: 'issue_refund never called with {"amount":240}', source: null });
-    expect(listed.fixes[0]!.steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
-    expect(listed.fixes[0]!.attempts).toBeGreaterThan(0);
+    expect(listed.fixes[0].steps.map((x: { short: string }) => x.short)).toEqual([`lost at #${decision}`, 'no fix yet', 'not verified']);
+    expect(listed.fixes[0].attempts).toBeGreaterThan(0);
     const table = (await shadowlap(['fix', 'ls'])).stdout;
     // What its runs did, now that the title no longer says it, and what they must do.
     expect(table).toMatch(new RegExp(`open +${fixId.slice(0, 13)} +Refunds above the limit issued without approval +refund-over-limit · 2 failing +lost at #${decision} · no fix yet · not verified\n +failed: issue_refund called with amount 240 · must: issue_refund never called with \\{"amount":240\\} · opened \\d+s ago\n`));
@@ -289,7 +289,7 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
 
   it('opens the fix from a repair of runs never blamed, turns it verified, and applies the patch with its goldens', async () => {
     const { failed, good } = await runs();
-    const decision = modelCalls(failed[0])[2]!;
+    const decision = modelCalls(failed[0])[2];
     mode = 'alternate';
     const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
     expect(r.code, r.out).toBe(0);

@@ -124,11 +124,11 @@ describe('Bedrock Converse', () => {
     expect(eventStreamFrames(body)).not.toBeNull();
     const events = [...eventStreamMessages(body)];
     expect(events.map((e) => e.type)).toEqual(['messageStart', 'contentBlockDelta', 'contentBlockStop', 'contentBlockStart', 'contentBlockDelta', 'contentBlockStop', 'messageStop', 'metadata']);
-    expect(events[1]!.payload).toEqual({ contentBlockIndex: 0, delta: { text: 'Above the limit.' } });
-    expect(events[3]!.payload).toEqual({ contentBlockIndex: 1, start: { toolUse: { toolUseId: 'call_1', name: 'escalate' } } });
-    expect(events[4]!.payload).toEqual({ contentBlockIndex: 1, delta: { toolUse: { input: '{"reason":"refund of $240 is above $100"}' } } });
-    expect(events[6]!.payload).toEqual({ stopReason: 'tool_use' });
-    expect(events[7]!.payload).toMatchObject({ usage: { inputTokens: 20, outputTokens: 20 } });
+    expect(events[1].payload).toEqual({ contentBlockIndex: 0, delta: { text: 'Above the limit.' } });
+    expect(events[3].payload).toEqual({ contentBlockIndex: 1, start: { toolUse: { toolUseId: 'call_1', name: 'escalate' } } });
+    expect(events[4].payload).toEqual({ contentBlockIndex: 1, delta: { toolUse: { input: '{"reason":"refund of $240 is above $100"}' } } });
+    expect(events[6].payload).toEqual({ stopReason: 'tool_use' });
+    expect(events[7].payload).toMatchObject({ usage: { inputTokens: 20, outputTokens: 20 } });
   });
 });
 
@@ -155,7 +155,7 @@ describe('Gemini generateContent', () => {
     expect(messages[3]).toEqual({ role: 'tool', tool_call_id: 'call_shadowlap_1', content: '{"amount":240}' });
     // Two calls of one tool: each response answers the next call of that name.
     expect(messages.slice(5).map((m) => m.tool_call_id)).toEqual(['call_shadowlap_2', 'call_shadowlap_3']);
-    expect(messages[6]!.content).toBe('{"text":"b"}');
+    expect(messages[6].content).toBe('{"text":"b"}');
     expect(t.body).toMatchObject({ tool_choice: { type: 'function', function: { name: 'escalate' } }, max_tokens: 256, temperature: 0, tools: [{ function: { name: 'escalate' } }] });
     expect(t.dropped.sort()).toEqual(['the googleSearch tool', 'the thinking setting', 'thought parts', 'topK']);
     expect(geminiUsesIds(request)).toBe(false);
@@ -169,7 +169,7 @@ describe('Gemini generateContent', () => {
       usageMetadata: { promptTokenCount: 120, candidatesTokenCount: 20, totalTokenCount: 140, cachedContentTokenCount: 100 },
       modelVersion: 'my-finetune',
     });
-    expect(chatCompletionToGemini(ANSWER, { model: 'm', ids: true }).candidates[0]!.content.parts[1]).toEqual({ functionCall: { name: 'escalate', args: { reason: 'refund of $240 is above $100' }, id: 'call_1' } });
+    expect(chatCompletionToGemini(ANSWER, { model: 'm', ids: true }).candidates[0].content.parts[1]).toEqual({ functionCall: { name: 'escalate', args: { reason: 'refund of $240 is above $100' }, id: 'call_1' } });
     expect(geminiStreamBody(r, true)).toBe(`data: ${JSON.stringify(r)}\r\n\r\n`);
     expect(JSON.parse(geminiStreamBody(r, false))).toEqual([r]);
   });
@@ -238,7 +238,7 @@ describe('OpenAI\'s Responses API', () => {
     const events = responseEvents(r)
       .split('\n\n')
       .filter(Boolean)
-      .map((e) => JSON.parse(e.split('\n')[1]!.slice('data: '.length)) as { type: string; sequence_number: number; response?: unknown; delta?: string });
+      .map((e) => JSON.parse(e.split('\n')[1].slice('data: '.length)) as { type: string; sequence_number: number; response?: unknown; delta?: string });
     expect(events.map((e) => e.type)).toEqual([
       'response.created',
       'response.in_progress',
@@ -285,7 +285,7 @@ describe('answers in the recording\'s own API', () => {
     expect(eventStreamFrames(bedrock.body)).not.toBeNull();
     const events = [...eventStreamMessages(bedrock.body)];
     expect(events.map((e) => e.type)).toEqual(['message_start', 'content_block_start', 'content_block_delta', 'content_block_stop', 'content_block_start', 'content_block_delta', 'content_block_stop', 'message_delta', 'message_stop']);
-    expect(events[7]!.payload).toMatchObject({ delta: { stop_reason: 'tool_use' } });
+    expect(events[7].payload).toMatchObject({ delta: { stop_reason: 'tool_use' } });
     const vertex = answerAs('vertex', 'anthropic', ANSWER, { model: 'my-finetune', stream: true });
     expect(vertex.contentType).toMatch(/^text\/event-stream/);
     expect(vertex.body.toString()).toContain('event: message_stop');

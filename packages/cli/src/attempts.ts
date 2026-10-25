@@ -420,7 +420,7 @@ function markUnavailable(store: Store, runId: string, meta: Partial<RunMeta> | u
   for (const [key, value] of Object.entries(meta ?? {})) {
     if (value && typeof value === 'object' && !Array.isArray(value) && 'passed' in value) patch[key] = { ...value, passed: false, verdict: 'unavailable' };
   }
-  if (Object.keys(patch).length) store.updateRunMeta(runId, patch as Partial<RunMeta>);
+  if (Object.keys(patch).length) store.updateRunMeta(runId, patch);
 }
 
 /** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */

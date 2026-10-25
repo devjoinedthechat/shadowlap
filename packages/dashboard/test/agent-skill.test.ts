@@ -94,7 +94,7 @@ describe('installing', () => {
   it('leaves a copy edited here as it is, and replaces it only with replace', () => {
     const cwd = scratch('edited');
     installCodingAgent(cwd, 'claude-code', { shipped });
-    const skill = PLUGIN_FILES[1]!;
+    const skill = PLUGIN_FILES[1];
     write(cwd, skill, `${read(cwd, skill)}\nOur own line.\n`);
     const edited = read(cwd, skill);
     const refused = installCodingAgent(cwd, 'claude-code', { shipped });
@@ -109,7 +109,7 @@ describe('installing', () => {
   it('updates another version’s copy with replace, removing what this version doesn’t have', () => {
     const cwd = scratch('older');
     installCodingAgent(cwd, 'claude-code', { shipped });
-    const manifest = PLUGIN_FILES[0]!;
+    const manifest = PLUGIN_FILES[0];
     write(cwd, manifest, read(cwd, manifest).replace(`"version": "${version}"`, '"version": "0.0.9"'));
     write(cwd, '.claude/skills/shadowlap/skills/old-skill/SKILL.md', '---\nname: old-skill\ndescription: An older version’s skill.\n---\n');
     write(cwd, '.claude/skills/shadowlap/skills/old-skill/notes/more.md', 'more');
@@ -155,11 +155,11 @@ describe('installing', () => {
       files: SHARED_FILES.map((path) => ({ path, action: 'written' })),
       reason: null,
     });
-    expect(read(cwd, SHARED_FILES[0]!)).toBe(sharedText('debug-agent'));
+    expect(read(cwd, SHARED_FILES[0])).toBe(sharedText('debug-agent'));
     expect(readdirSync(join(cwd, '.agents', 'skills')).sort()).toEqual(['house-style', 'shadowlap-debug-agent', 'shadowlap-setup-agent']);
     expect(installedCopy(cwd, 'agents', shipped)).toMatchObject({ state: 'current', installedVersion: version });
 
-    write(cwd, SHARED_FILES[1]!, `${read(cwd, SHARED_FILES[1]!)}\nOur own line.\n`);
+    write(cwd, SHARED_FILES[1], `${read(cwd, SHARED_FILES[1])}\nOur own line.\n`);
     const refused = installCodingAgent(cwd, 'agents', { shipped });
     expect(refused).toMatchObject({ before: 'changed', installedVersion: version, outcome: 'refused', files: [{ path: SHARED_FILES[1], action: 'differs' }] });
     expect(refused.reason).toBe(`Shadowlap’s skills in .agents/skills aren’t ${version}’s copy (edited here, or from somewhere else): --force replaces them with ${version}’s`);
@@ -298,8 +298,8 @@ describe('the offer on Settings → Coding agents', () => {
     let offer = skillOffer({ cwd, published: true, shipped, claudeConfigDir: home() });
     expect([offer.claudeCode.state, offer.claudeCode.install, offer.claudeCode.installedVersion]).toEqual(['current', null, version]);
     expect([offer.agents.state, offer.agents.install, offer.agents.installedVersion]).toEqual(['current', null, version]);
-    write(cwd, PLUGIN_FILES[0]!, read(cwd, PLUGIN_FILES[0]!).replace(`"version": "${version}"`, '"version": "0.0.9"'));
-    write(cwd, SHARED_FILES[0]!, 'edited');
+    write(cwd, PLUGIN_FILES[0], read(cwd, PLUGIN_FILES[0]).replace(`"version": "${version}"`, '"version": "0.0.9"'));
+    write(cwd, SHARED_FILES[0], 'edited');
     offer = skillOffer({ cwd, published: true, shipped, claudeConfigDir: home() });
     expect(offer.claudeCode).toMatchObject({ state: 'other-version', installedVersion: '0.0.9', install: { job: { kind: 'skill-install', agent: 'claude-code', replace: true }, command: 'shadowlap skill install claude-code --force' } });
     expect(offer.agents).toMatchObject({ state: 'changed', install: { job: { agent: 'agents', replace: true }, command: 'shadowlap skill install agents --force' } });

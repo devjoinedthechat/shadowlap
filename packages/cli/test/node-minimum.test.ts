@@ -25,7 +25,7 @@ function nodeAs(version: string, args: string[]): { code: number | null; stdout:
 const cliOn = (version: string) => nodeAs(version, [CLI, '--version']);
 
 /** The Action's own check of the job's Node, as action.yml runs it before installing the CLI. */
-const actionCheck = /- name: Check Node\.js\n[\s\S]*?node -e '([^']+)'/.exec(readFileSync(fileURLToPath(new URL('../../../action.yml', import.meta.url)), 'utf8'))![1]!;
+const actionCheck = /- name: Check Node\.js\n[\s\S]*?node -e '([^']+)'/.exec(readFileSync(fileURLToPath(new URL('../../../action.yml', import.meta.url)), 'utf8'))![1];
 
 describe('the Node the CLI starts on', () => {
   it.each(['22.13.0', '22.15.1', '23.11.1', '20.19.0', '18.20.8'])('refuses Node %s in one line naming the Node it needs', (version) => {

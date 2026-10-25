@@ -48,7 +48,7 @@ function windowsArgv(line: string): string[] {
   let inArg = false;
   let quoted = false;
   for (let i = 0; i < line.length; i++) {
-    const ch = line[i]!;
+    const ch = line[i];
     if (ch === '\\') {
       let n = 0;
       while (line[i] === '\\') (n++, i++);

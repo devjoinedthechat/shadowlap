@@ -128,12 +128,12 @@ function indexed(attrs: Record<string, unknown>, prefix: string): Array<Record<s
     const index = /^\d{1,4}$/.test(path[0]!) ? Number(path[0]) : NaN;
     if (!(index <= MAX_INDEX) || path.length < 2 || path.some((p) => UNSAFE.has(p) || (/^\d+$/.test(p) && !(p.length <= 4 && Number(p) <= MAX_INDEX)))) continue;
     let node: Record<string, unknown> | unknown[] = rows.get(index) ?? {};
-    rows.set(index, node as Record<string, unknown>);
+    rows.set(index, node);
     for (let i = 1; i < path.length; i++) {
       const seg = path[i]!;
       const last = i === path.length - 1;
       const nextIsIndex = !last && /^\d+$/.test(path[i + 1]!);
-      const container = node as Record<string, unknown>;
+      const container = node;
       if (last) container[seg] = value;
       else {
         if (typeof container[seg] !== 'object' || container[seg] === null) container[seg] = nextIsIndex ? [] : {};

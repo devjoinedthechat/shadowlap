@@ -21,7 +21,7 @@ const configSource = readFileSync(join(ROOT, 'packages/cli/src/config.ts'), 'utf
 describe('shadowlap.config.json schema', () => {
   it('describes exactly the keys the parser reads', () => {
     // `parsed.<key>` in loadConfig, plus `tests`, which loadTests reads from the same file.
-    const read = new Set([...configSource.matchAll(/\bparsed\.([a-zA-Z]+)/g)].map((m) => m[1]!));
+    const read = new Set([...configSource.matchAll(/\bparsed\.([a-zA-Z]+)/g)].map((m) => m[1]));
     read.add('tests');
     expect(configSource).toContain('.tests'); // the read the line above stands in for
 
@@ -42,14 +42,14 @@ describe('shadowlap.config.json schema', () => {
   it('describes a gate as the engine reads one, with the defaults it fills in', () => {
     const tests = schema.properties.tests as { additionalProperties: { properties: { gate: { oneOf: Array<{ properties: Record<string, { description?: string }> }> } } } };
     const [sprt, history] = tests.additionalProperties.properties.gate.oneOf;
-    expect(Object.keys(sprt!.properties).sort()).toEqual(['bad', 'good', 'max', 'risk']);
-    expect(Object.keys(history!.properties).sort()).toEqual(['baseline', 'drop', 'max', 'min', 'risk', 'window']);
+    expect(Object.keys(sprt.properties).sort()).toEqual(['bad', 'good', 'max', 'risk']);
+    expect(Object.keys(history.properties).sort()).toEqual(['baseline', 'drop', 'max', 'min', 'risk', 'window']);
     // Every key it lists, the engine takes; and the defaults it names are the engine's.
     expect(parseGate({ good: 0.95, bad: 0.8, risk: 0.01, max: 120 }, 'g')).toMatchObject({ kind: 'sprt', max: 120 });
     expect(parseGate({ baseline: 'history', drop: 0.2, risk: 0.01, window: 5, min: 6, max: 30 }, 'g')).toMatchObject({ kind: 'baseline', max: 30 });
-    expect(sprt!.properties.max!.description).toContain(`Default ${SPRT_DEFAULTS.max}`);
-    expect(history!.properties.max!.description).toContain(`Default ${BASELINE_DEFAULTS.max}`);
-    expect(history!.properties.min!.description).toContain(`Default ${BASELINE_DEFAULTS.min}`);
+    expect(sprt.properties.max.description).toContain(`Default ${SPRT_DEFAULTS.max}`);
+    expect(history.properties.max.description).toContain(`Default ${BASELINE_DEFAULTS.max}`);
+    expect(history.properties.min.description).toContain(`Default ${BASELINE_DEFAULTS.min}`);
   });
 
   it('rejects unknown keys rather than ignoring them', () => {

@@ -391,7 +391,7 @@ function parseExpectInto(spec: ExpectSpec, expect: unknown, where: string, judge
       if (isObject(v)) {
         onlyKeys(v, ['count', 'args'], at);
         if (v.args !== undefined && !isObject(v.args)) throw new Error(`${at}.args must be an object of argument values`);
-        spec.tools.push({ name, count: parseCount(v.count ?? '>= 1', `${at}.count`), ...(v.args ? { args: v.args as Record<string, unknown> } : {}) });
+        spec.tools.push({ name, count: parseCount(v.count ?? '>= 1', `${at}.count`), ...(v.args ? { args: v.args } : {}) });
       } else {
         spec.tools.push({ name, count: parseCount(v, at) });
       }

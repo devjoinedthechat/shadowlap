@@ -23,7 +23,7 @@ function recordingCost(store: Store, run: RunRecord, prices: Record<string, Pric
   let total = 0;
   for (const c of agentCallsOf(store.getCalls(run.runId))) {
     if (c.kind !== 'api' || !c.end) continue;
-    const cost = estimateCost((c.end.meta.model ?? c.meta.model) as string | undefined, c.end.meta.usage, prices);
+    const cost = estimateCost((c.end.meta.model ?? c.meta.model), c.end.meta.usage, prices);
     if (cost === null) return null;
     total += cost;
   }

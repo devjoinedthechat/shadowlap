@@ -281,7 +281,7 @@ describe('shadowlap init in a dashboard project', () => {
     const p = registry.find(dir)!;
     expect(p.setup.stage).toBe('inspected');
     expect(p.setup.findings).toMatchObject({ language: 'Python 3.12 · uv', sdk: 'anthropic 0.69.0' });
-    expect(p.setup.findings!.wrap[0]!.tools).toEqual(['save_report', 'notify_slack']);
+    expect(p.setup.findings!.wrap[0].tools).toEqual(['save_report', 'notify_slack']);
 
     project({ 'agent.py': RESEARCH['agent.py'].replace(/@agent\.tool\ndef save_report/, '@agent.tool\n@tool(effect="write")\ndef save_report').replace(/@agent\.tool_plain\ndef notify_slack/, '@agent.tool_plain\n@tool(effect="write")\ndef notify_slack') }, dir);
     // In a terminal too: the text output, and the same update.
@@ -342,10 +342,10 @@ describe('shadowlap init in a dashboard project', () => {
     expect(code).toBe(0);
     const lines = Buffer.concat(events).toString('utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; data: InitJson });
     expect(lines).toHaveLength(1);
-    expect(lines[0]!.type).toBe('result');
-    expect(lines[0]!.data.summary.command).toBe('uv run agent.py');
+    expect(lines[0].type).toBe('result');
+    expect(lines[0].data.summary.command).toBe('uv run agent.py');
     const id = new ProjectRegistry({ home, dir: slHome }).find(dir)!.id;
-    expect(lines[0]!.data.project).toEqual({ id, noted: true, why: null });
+    expect(lines[0].data.project).toEqual({ id, noted: true, why: null });
     expect((JSON.parse(Buffer.concat(out).toString('utf8')) as InitJson).project).toEqual({ id, noted: true, why: null });
   });
 

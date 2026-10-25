@@ -107,7 +107,7 @@ function responseEvents(response: Record<string, unknown>, output: Array<Record<
   ];
   output.forEach((item, output_index) => {
     if (item.type === 'message') {
-      const text = ((item.content as Array<{ text: string }>)[0]?.text ?? '') as string;
+      const text = ((item.content as Array<{ text: string }>)[0]?.text ?? '');
       events.push({ type: 'response.output_item.added', output_index, item: { ...item, status: 'in_progress', content: [] } });
       events.push({ type: 'response.content_part.added', item_id: item.id, output_index, content_index: 0, part: { type: 'output_text', text: '', annotations: [] } });
       for (const delta of split(text, 3)) events.push({ type: 'response.output_text.delta', item_id: item.id, output_index, content_index: 0, delta, logprobs: [] });

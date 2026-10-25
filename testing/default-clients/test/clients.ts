@@ -97,11 +97,11 @@ export async function startProviders(): Promise<Providers> {
   const azure = await front((path, body, res) => {
     const m = /^\/openai\/deployments\/([^/]+)\/chat\/completions$/.exec(path);
     if (!m) return json(res, 404, { error: { message: `no route ${path}` } });
-    json(res, 200, { id: `chatcmpl-${azureSeen.length}`, object: 'chat.completion', created: 1, model: decodeURIComponent(m[1]!), choices: [{ index: 0, message: { role: 'assistant', content: said(body) }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
+    json(res, 200, { id: `chatcmpl-${azureSeen.length}`, object: 'chat.completion', created: 1, model: decodeURIComponent(m[1]), choices: [{ index: 0, message: { role: 'assistant', content: said(body) }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } });
   }, azureSeen);
   const bedrock = await front((path, body, res) => {
     const invoke = /^\/model\/([^/]+)\/invoke$/.exec(path);
-    if (invoke) return json(res, 200, { id: `msg_${bedrockSeen.length}`, type: 'message', role: 'assistant', model: decodeURIComponent(invoke[1]!), content: [{ type: 'text', text: said(body) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 3, output_tokens: 2 } });
+    if (invoke) return json(res, 200, { id: `msg_${bedrockSeen.length}`, type: 'message', role: 'assistant', model: decodeURIComponent(invoke[1]), content: [{ type: 'text', text: said(body) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 3, output_tokens: 2 } });
     if (/^\/model\/[^/]+\/converse$/.test(path)) return json(res, 200, { output: { message: { role: 'assistant', content: [{ text: said(body) }] } }, stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 }, metrics: { latencyMs: 1 } });
     json(res, 404, { message: `no route ${path}` });
   }, bedrockSeen);
@@ -163,7 +163,7 @@ export function ciEnv(p: Providers, empty: string, extra: Record<string, string>
 /** Runs `argv` in `cwd` with `env`, and says how it ended and what it printed. */
 export function run(argv: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(argv[0], argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d: Buffer) => (out += d.toString()));
     child.stderr.on('data', (d: Buffer) => (out += d.toString()));

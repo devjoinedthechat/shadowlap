@@ -81,8 +81,8 @@ describe('the palette\'s Tests group', () => {
     await loadTests(s.client);
     expect(changed).toBe(1);
     // Update goldens… asks Tests for its dialog by the address, through the guard; a golden opens Tests.
-    entries[0]!.run();
-    entries[2]!.run();
+    entries[0].run();
+    entries[2].run();
     expect(s.went).toEqual(['#/tests?update', '#/tests']);
     expect(s.guarded).toEqual(['guard']);
     off();

@@ -64,12 +64,12 @@ describe('a job of several commands', () => {
     const { jobs, children, spawned } = setup([['test', 'goldens/a'], ['test', 'goldens/b', '--json', 'report with space.json']]);
     const started = await jobs.start('steps', {});
     expect(started.args).toEqual(['normalize', 'add', '--path', '$.id']);
-    children[0]!.end(0, 'added normalizer #1');
+    children[0].end(0, 'added normalizer #1');
     await tick();
     expect(spawned).toHaveLength(2);
-    children[1]!.end(0, '✓ a: 8/8 replayed');
+    children[1].end(0, '✓ a: 8/8 replayed');
     await tick();
-    children[2]!.end(1, '✗ b: diverged at call 1');
+    children[2].end(1, '✗ b: diverged at call 1');
     const view = await until(jobs, started.id);
     expect(spawned).toEqual([['normalize', 'add', '--path', '$.id'], ['test', 'goldens/a'], ['test', 'goldens/b', '--json', 'report with space.json']]);
     expect(view.code).toBe(1);
@@ -79,7 +79,7 @@ describe('a job of several commands', () => {
   it('stops at the first command that fails: the ones after it never start', async () => {
     const { jobs, children, spawned } = setup([['test', 'goldens/a']]);
     const started = await jobs.start('steps', {});
-    children[0]!.end(2, '✗ that rule would mask nothing');
+    children[0].end(2, '✗ that rule would mask nothing');
     const view = await until(jobs, started.id);
     expect(spawned).toHaveLength(1);
     expect(view.code).toBe(2);
@@ -91,7 +91,7 @@ describe('a job of several commands', () => {
     const started = await jobs.start('steps', {});
     expect(jobs.stop(started.id)).toBe(true);
     // The first command had finished its work and exits 0 all the same.
-    children[0]!.end(0, 'added normalizer #1');
+    children[0].end(0, 'added normalizer #1');
     const view = await until(jobs, started.id);
     expect(spawned).toHaveLength(1);
     expect(view.code).toBeNull();

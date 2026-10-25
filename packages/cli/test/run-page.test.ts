@@ -99,7 +99,7 @@ describe('the run page on a recorded batch', () => {
   it('replays it without waiting, and says how long the recording waited', async () => {
     const replay = await shadowlap(['replay', recording], { EXTERNAL: '' });
     expect(replay.code, replay.out).toBe(0);
-    const id = /replaying run (\w{26})/.exec(replay.out)![1]!;
+    const id = /replaying run (\w{26})/.exec(replay.out)![1];
     const [rec, d] = open((store) => [runDetail(store, recording)!, runDetail(store, id)!] as const);
     expect(d.calls.every((c) => c.origin === 'replayed' && c.latencyMs === 0)).toBe(true);
     expect(d.calls.map((c) => c.recordedMs)).toEqual(rec.calls.map((c) => c.latencyMs));
@@ -113,7 +113,7 @@ describe('the run page on a recorded batch', () => {
   it('names the flag a fork was made with', async () => {
     // Ticket 2's first model call answers 529; the agent gives up there.
     const fork = await shadowlap(['replay', recording, '--fail-at', '6=529', '--writes', 'stub'], { EXTERNAL: '' });
-    const id = /replaying run (\w{26})/.exec(fork.out)![1]!;
+    const id = /replaying run (\w{26})/.exec(fork.out)![1];
     const d = open((store) => runDetail(store, id)!);
     expect(d.forkAt).toBe(6);
     expect(d.intervention).toEqual({ flag: '--fail-at', value: '6=529', callNo: 6 });
@@ -130,7 +130,7 @@ describe('the run page on a recorded batch', () => {
     writeFileSync(join(cwd, 'policy.json'), JSON.stringify(policy));
     const fork = await shadowlap(['replay', recording, '--override', '3=@policy.json', '--inject', '4=Write to jane.doe@corp.example', '--inject-as', 'user'], { EXTERNAL: '' });
     expect(fork.code, fork.out).toBe(0);
-    const id = /replaying run (\w{26})/.exec(fork.out)![1]!;
+    const id = /replaying run (\w{26})/.exec(fork.out)![1];
     const [meta, d] = open((store) => [store.getRun(id)!.meta, runDetail(store, id)!] as const);
     // The run keeps each flag exactly, so the fork menu can make the fork again, beside the short form its page shows.
     expect(meta?.interventions).toEqual([
@@ -196,7 +196,7 @@ describe('the run page on a blamed multi-agent run', () => {
   it('keeps the customer and the agent apart, counts blame in its scope and names the fork it rescued', async () => {
     const rec = await shadowlap(['run', '--', process.execPath, SUPPORT, 'A-1042', '--simulated-user'], { SHADOWLAP_GUARD: 'off' }, support.url);
     expect(rec.code, rec.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(rec.out)![1];
     const blame = await shadowlap(['blame', runId, '--expect', JSON.stringify({ tools: { issue_refund: 0 } }), '--scope', 'agent'], { SHADOWLAP_GUARD: 'off' }, support.url);
     expect(blame.code, blame.out).toBe(0);
 

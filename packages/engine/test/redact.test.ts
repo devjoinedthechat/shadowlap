@@ -48,16 +48,16 @@ describe('redactRun', () => {
     expect(copy.meta?.redactions).toEqual([EMAIL, KEY]);
 
     const calls = dst.getCalls(run.runId);
-    const apiBody = loadApiRequest(dst, calls[0]!.requestRef!) as { system: string; messages: Array<{ content: string }> };
+    const apiBody = loadApiRequest(dst, calls[0].requestRef!) as { system: string; messages: Array<{ content: string }> };
     expect(apiBody.system).toBe('Reply to <EMAIL>');
-    expect(apiBody.messages[0]!.content).toBe('cc <EMAIL>');
-    expect(dst.getBlob(calls[0]!.end!.responseRef!)!.toString()).toContain('Sent to <EMAIL>');
-    expect(dst.getJson(calls[1]!.requestRef!)).toEqual({ args: { api_key: '<KEY>', to: '<EMAIL>' } });
-    expect(dst.getJson(calls[1]!.end!.responseRef!)).toEqual({ result: { sent: true, to: '<EMAIL>' } });
+    expect(apiBody.messages[0].content).toBe('cc <EMAIL>');
+    expect(dst.getBlob(calls[0].end!.responseRef!)!.toString()).toContain('Sent to <EMAIL>');
+    expect(dst.getJson(calls[1].requestRef!)).toEqual({ args: { api_key: '<KEY>', to: '<EMAIL>' } });
+    expect(dst.getJson(calls[1].end!.responseRef!)).toEqual({ result: { sent: true, to: '<EMAIL>' } });
     // Identity is untouched: fingerprints and occurrences are what matching recomputes anyway.
     expect(calls.map((c) => [c.fingerprint, c.occurrence])).toEqual(src.getCalls(run.runId).map((c) => [c.fingerprint, c.occurrence]));
     // The source still has the originals.
-    expect((loadApiRequest(src, src.getCalls(run.runId)[0]!.requestRef!) as { system: string }).system).toContain('alice@example.com');
+    expect((loadApiRequest(src, src.getCalls(run.runId)[0].requestRef!) as { system: string }).system).toContain('alice@example.com');
     src.close();
     dst.close();
   });
@@ -71,7 +71,7 @@ describe('redactRun', () => {
     src.endRun(run.runId, 'completed');
     const dst = Store.open(':memory:');
     redactRun(src, run.runId, [EMAIL, { kind: 'api', path: '$["0"]', replace: '<X>' }], dst);
-    const copy = loadApiRequest(dst, dst.getCalls(run.runId)[0]!.requestRef!);
+    const copy = loadApiRequest(dst, dst.getCalls(run.runId)[0].requestRef!);
     expect(Buffer.from(copy as Uint8Array).equals(audio)).toBe(true);
     src.close();
     dst.close();
@@ -171,8 +171,8 @@ describe('redactBytes on a Bedrock event stream', () => {
     expect(out.includes('maya@example.com')).toBe(false);
     const frames = eventStreamFrames(out)!; // every checksum holds
     expect(frames).toHaveLength(3);
-    expect(frames[0]!.raw.equals(start)).toBe(true);
-    expect(frames[2]!.raw.equals(stop)).toBe(true);
+    expect(frames[0].raw.equals(start)).toBe(true);
+    expect(frames[2].raw.equals(stop)).toBe(true);
     expect([...eventStreamMessages(out)].map((m) => m.payload)).toEqual([{ role: 'assistant' }, { contentBlockIndex: 0, delta: { text: 'Rotated <KEY> for <EMAIL>.' }, p: 'abcdefgh' }, { stopReason: 'end_turn' }]);
   });
 
@@ -239,7 +239,7 @@ describe('redactRun: the run record', () => {
         { path: '$.metadata.user_id', op: 'changed', before: 'u-122', after: 'u-123' },
       ],
     });
-    const call = src.getCalls(run.runId)[1]!;
+    const call = src.getCalls(run.runId)[1];
     src.appendCallEnd({ kind: call.kind, name: call.name, fingerprint: call.fingerprint, occurrence: call.occurrence }, {
       runId: run.runId,
       callNo: 2,
@@ -271,7 +271,7 @@ describe('redactRun: the run record', () => {
         { path: '$.metadata.user_id', op: 'changed', before: '<USER>', after: '<USER>' },
       ]);
     }
-    const end = dst.getCalls(run.runId)[1]!.end!;
+    const end = dst.getCalls(run.runId)[1].end!;
     expect(end.meta).toMatchObject({ failure: { kind: 'error', message: 'mailbox <EMAIL> is full' }, error: { message: 'mailbox <EMAIL> is full' }, headers: { 'x-request-for': '<EMAIL>' } });
     // The source keeps what it recorded.
     expect(JSON.stringify(src.getRun(run.runId))).toContain('maya@example.com');
@@ -323,12 +323,12 @@ describe('redactRun: the run record', () => {
     packRun(src, run.runId, dir, { redact: [EMAIL] });
     const manifest = readFileSync(join(dir, 'run.json'), 'utf8');
     expect(manifest).not.toContain('example.com');
-    const packed = (JSON.parse(manifest) as { runs: Array<{ meta: { checks: unknown; blame: unknown } }> }).runs[0]!.meta;
+    const packed = (JSON.parse(manifest) as { runs: Array<{ meta: { checks: unknown; blame: unknown } }> }).runs[0].meta;
     expect(packed.checks).toEqual([{ ok: false, label: 'output includes "<EMAIL>"', detail: null }]);
     expect(packed.blame).toMatchObject({ outcome: 'blamed', callNo: 1, oracle: ['the agent exits 0', 'output includes "<EMAIL>"'], fields: { system: 'Reply to <EMAIL>', temperature: 1 }, probes: [{ callNo: 1, passes: 3, attempts: 3, rescued: true }] });
     // It unpacks: the masked record is still one blame writes.
     const dst = Store.open(':memory:');
-    expect(dst.getRun(unpackRun(dst, dir).imported[0]!)!.meta?.blame).toEqual(packed.blame);
+    expect(dst.getRun(unpackRun(dst, dir).imported[0])!.meta?.blame).toEqual(packed.blame);
     dst.close();
     src.close();
   });

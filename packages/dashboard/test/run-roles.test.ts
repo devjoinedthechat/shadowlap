@@ -61,7 +61,7 @@ const bundled = () => new Set(loadRunIndex(store).runs.filter((r) => r.bundled).
 
 describe('which runs are attempts, everywhere', () => {
   it('bundles every kind of attempt, and leaves the rescued fork and a golden’s result runs of their own', () => {
-    expect(bundled()).toEqual(new Set(ATTEMPTS.map((k) => id[k]!)));
+    expect(bundled()).toEqual(new Set(ATTEMPTS.map((k) => id[k])));
     expect(countRuns(store)).toEqual({ runs: 4, attempts: ATTEMPTS.length });
   });
 
@@ -72,21 +72,21 @@ describe('which runs are attempts, everywhere', () => {
   it('counts an exported copy’s runs and attempts as the store does', () => {
     const result = exportHtml({ store, runIds: Object.values(id), uiDir, now: NOW });
     const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(result.html)!;
-    const data = JSON.parse(m[1]!.split('<\\/').join('</')) as StaticPayload;
+    const data = JSON.parse(m[1].split('<\\/').join('</')) as StaticPayload;
     expect((data.responses['meta'] as MetaView).counts).toEqual(countRuns(store));
   });
 
   it('leaves out of the page’s lists exactly the runs the server bundles', () => {
-    const rows = normalizeRuns(listRuns(store, { includeAttempts: true }) as unknown as RunListItem[]);
+    const rows = normalizeRuns(listRuns(store, { includeAttempts: true }));
     expect(new Set(rows.filter((r) => isAttempt(r)).map((r) => r.runId))).toEqual(bundled());
   });
 
   it('reads every attempt against the run it came from on its page, never offering Run blame for it', () => {
     const page = (runId: string) => normalizeRunDetail(runDetail(store, runId) as unknown as RunDetail);
-    for (const k of ATTEMPTS) expect(nextStepOf(page(id[k]!), { offers: null, exported: false }), k).toEqual({ key: 'compare', parent: id.rec });
+    for (const k of ATTEMPTS) expect(nextStepOf(page(id[k]), { offers: null, exported: false }), k).toEqual({ key: 'compare', parent: id.rec });
     // The golden's result itself failed: it is blamed like any failed run.
-    expect(nextStepOf(page(id.head!), { offers: null, exported: false }).key).toBe('blame');
+    expect(nextStepOf(page(id.head), { offers: null, exported: false }).key).toBe('blame');
     // The fork blame rescued the run with is a fork, compared with its parent.
-    expect(nextStepOf(page(id.rescued!), { offers: null, exported: false, rescued: true })).toEqual({ key: 'compare', parent: id.rec });
+    expect(nextStepOf(page(id.rescued), { offers: null, exported: false, rescued: true })).toEqual({ key: 'compare', parent: id.rec });
   });
 });

@@ -100,7 +100,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, o: { interrupt?:
 async function record(env: NodeJS.ProcessEnv = {}): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT], env);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 const outbox = () => (existsSync(join(work, 'outbox.jsonl')) ? readFileSync(join(work, 'outbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { tool: string }) : []);
@@ -158,7 +158,7 @@ describe('shadowlap blame', () => {
 
     const shown = await shadowlap(['show', runId]);
     expect(shown.stdout).toMatch(new RegExp(`blame: lost at model call #${decision} \\(high confidence\\), rescued by \\w{10}`));
-    const rescuedId = /rescued fork: shadowlap diff \w+ (\w+)/.exec(r.stdout)![1]!;
+    const rescuedId = /rescued fork: shadowlap diff \w+ (\w+)/.exec(r.stdout)![1];
     expect((await shadowlap(['show', rescuedId])).stdout).toContain(`an attempt of shadowlap blame ${runId.slice(0, 10)}, forked at model call #${decision}: passed`);
   });
 
@@ -174,7 +174,7 @@ describe('shadowlap blame', () => {
     expect(report.errorBound).toBeLessThanOrEqual(0.01);
     expect(report.probes).toHaveLength(1);
     // Six straight failures: lost, at the 1% each probe of five gets of the search's 5%.
-    expect(report.probes[0]!.runs).toHaveLength(6);
+    expect(report.probes[0].runs).toHaveLength(6);
     expect(report.probes[0]).toMatchObject({ rescued: false, decision: 'fail', rate: { decision: 'fail', sentence: 'lost · 0 of 6 · rate <= 0.59 (99%) · gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts' } });
 
     const strong = await shadowlap(['blame', runId, '--expect', ORACLE, '--model', 'big-model', '--json']);
@@ -290,7 +290,7 @@ describe('shadowlap blame', () => {
   it('probes only the calls of one scope, so a simulated user is never blamed', async () => {
     const r0 = await shadowlap(['run', '--', process.execPath, AGENT, 'A-1042', '--simulated-user']);
     expect(r0.code, r0.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(r0.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(r0.out)![1];
     const store = Store.open(db);
     const calls = store.getCalls(runId).filter((c) => c.kind === 'api');
     store.close();
@@ -355,7 +355,7 @@ describe('shadowlap blame', () => {
     const report = JSON.parse(r.stdout) as { outcome: string; probes: Array<{ decision: string; rescued: boolean; runs: Array<{ passed: boolean }>; rate: { sentence: string } }> };
     expect(report.outcome).toBe('unrescuable');
     expect(report.probes).toHaveLength(1);
-    const p = report.probes[0]!;
+    const p = report.probes[0];
     expect(p).toMatchObject({ decision: 'fail', rescued: false });
     expect(p.rate.sentence).toMatch(/^lost · 0 of 6 (\(and 1 more that ended after it decided\) )?· rate <= 0\.59 \(99%\)/);
     // While it ran, the other worker started an attempt only while fewer than two had started that the

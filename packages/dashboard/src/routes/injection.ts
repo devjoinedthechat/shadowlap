@@ -78,7 +78,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const found = injectionResult(store, r.params.id!);
     if (!found) throw new HttpError(404, `no injection result ${r.params.id}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
-    const html = injectionReportHtml([found.report as InjectionReport], { redact, version: ctx.options.version ?? null });
+    const html = injectionReportHtml([found.report], { redact, version: ctx.options.version ?? null });
     r.res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',
       'content-disposition': `attachment; filename="shadowlap-injection-${found.row.runId.slice(0, 10).toLowerCase()}.html"`,

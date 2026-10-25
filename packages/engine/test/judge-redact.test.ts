@@ -51,11 +51,11 @@ describe("a judge check's reason in a copy of the run", () => {
     expect(JSON.stringify(redactRunDetails(store.getRun(runId)!, [CARD]).meta?.checks)).not.toContain('SECRET42');
     // Nothing of the run's own record keeps it, and the preview counts what the copy masked there.
     expect(JSON.stringify(pack.getRun(runId))).not.toContain('SECRET42');
-    const counted = previewRedaction(store, runId, [CARD]).rules[0]!.count;
+    const counted = previewRedaction(store, runId, [CARD]).rules[0].count;
     // The same run with no reason or judge kept beside the check: two values fewer to mask.
-    const { reason: _reason, judge: _judge, ...plain } = store.getRun(runId)!.meta!.checks![0]!;
+    const { reason: _reason, judge: _judge, ...plain } = store.getRun(runId)!.meta!.checks![0];
     store.updateRunMeta(runId, { checks: [plain] });
-    expect(counted).toBe(previewRedaction(store, runId, [CARD]).rules[0]!.count + 2);
+    expect(counted).toBe(previewRedaction(store, runId, [CARD]).rules[0].count + 2);
     pack.close();
     html.close();
     store.close();
@@ -68,13 +68,13 @@ describe("a judge check's reason in a copy of the run", () => {
     redactRun(store, runId, [CARD, SYSTEM, MESSAGE], pack);
     const [agent, judge] = pack.getCalls(runId);
     // The agent's request takes every rule; the judge's keeps its instructions and its question.
-    expect(loadApiRequest(pack, agent!.requestRef!)).toMatchObject({ system: '<SYSTEM>', messages: [{ content: '<MESSAGE>' }] });
-    expect(loadApiRequest(pack, judge!.requestRef!)).toEqual({ model: 'claude-haiku-4-5', system: 'You judge.', messages: [{ role: 'user', content: 'Question: Does it name the card?\n\n<material>\nRefunded to card <CARD>.\n</material>' }] });
+    expect(loadApiRequest(pack, agent.requestRef!)).toMatchObject({ system: '<SYSTEM>', messages: [{ content: '<MESSAGE>' }] });
+    expect(loadApiRequest(pack, judge.requestRef!)).toEqual({ model: 'claude-haiku-4-5', system: 'You judge.', messages: [{ role: 'user', content: 'Question: Does it name the card?\n\n<material>\nRefunded to card <CARD>.\n</material>' }] });
     // The preview counts the path rules where they masked something: the agent's request alone.
     const p = previewRedaction(store, runId, [CARD, SYSTEM, MESSAGE]);
-    expect(p.rules[1]!.count).toBe(1);
-    expect(p.rules[2]!.count).toBe(1);
-    expect(p.rules[1]!.samples).toEqual([{ before: 'You refund orders.', after: '<SYSTEM>' }]);
+    expect(p.rules[1].count).toBe(1);
+    expect(p.rules[2].count).toBe(1);
+    expect(p.rules[1].samples).toEqual([{ before: 'You refund orders.', after: '<SYSTEM>' }]);
     pack.close();
     store.close();
   });

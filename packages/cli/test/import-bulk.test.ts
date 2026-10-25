@@ -98,7 +98,7 @@ function langfuseTrace(id: string, name: string, daysLater: number, withCalls = 
   const observations = LANGFUSE.observations
     .filter((o) => withCalls || (o.type !== 'GENERATION' && o.type !== 'TOOL'))
     .map((o) => ({ ...o, id: `${id.slice(0, 8)}-${o.id}`, traceId: id, startTime: shift(o.startTime) as string, endTime: shift(o.endTime), parentObservationId: o.parentObservationId ? `${id.slice(0, 8)}-${o.parentObservationId}` : null }));
-  return { id, name, startTime: observations[0]!.startTime, observations };
+  return { id, name, startTime: observations[0].startTime, observations };
 }
 
 /** Observations as the v2 API sends them: input and output as the text they were stored as, model parameters and metadata as JSON text. */
@@ -131,7 +131,7 @@ function langfuseV2(o: { fail?: { id: string; status: number } } = {}): Handler 
     const filter = JSON.parse(url.searchParams.get('filter') ?? '[]') as Array<{ column: string; operator: string; value: unknown }>;
     const named = filter.find((f) => f.column === 'traceName')?.value;
     const until = Date.parse(String(filter.find((f) => f.column === 'startTime' && f.operator === '<')?.value));
-    const roots = LANGFUSE_TRACES.filter((t) => (named === undefined || t.name === named) && Date.parse(t.startTime) < until).map((t) => ({ ...asV2(t.observations[0]!), traceName: t.name, isRootObservation: true }));
+    const roots = LANGFUSE_TRACES.filter((t) => (named === undefined || t.name === named) && Date.parse(t.startTime) < until).map((t) => ({ ...asV2(t.observations[0]), traceName: t.name, isRootObservation: true }));
     const at = Number(url.searchParams.get('cursor') ?? 0);
     return { status: 200, body: { data: roots.slice(at, at + 2), meta: { cursor: at + 2 < roots.length ? String(at + 2) : null } } };
   };
@@ -147,7 +147,7 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     // One of them imported by its id first: it keeps that id with the run.
     const single = await shadowlap(db, ['import', 'langfuse', T2, '--host', host, '--json'], KEYS);
     expect(single.code, single.err).toBe(0);
-    const t2Run = (JSON.parse(single.out) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
+    const t2Run = (JSON.parse(single.out) as { runs: Array<{ runId: string }> }).runs[0].runId;
     expect(importedKeys(db)).toEqual([{ runId: t2Run, key: T2, from: 'langfuse:22222222' }]);
     seen = [];
 
@@ -171,7 +171,7 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     // Langfuse lists anyway, was left out.
     const lists = seen.filter((s) => !s.includes('traceId='));
     expect(lists).toHaveLength(2);
-    const q = new URL(lists[0]!.slice(4), 'http://x').searchParams;
+    const q = new URL(lists[0].slice(4), 'http://x').searchParams;
     expect(q.get('fields')).toBe('core,basic,trace_context');
     expect(q.get('fromStartTime')).toBe('2026-10-01T00:00:00.000Z');
     expect(q.get('toStartTime')).toBe('2026-10-08T00:00:00.000Z');
@@ -205,15 +205,15 @@ describe('shadowlap import langfuse, the traces in a window', () => {
     expect(json.traces.map((t: unknown) => keys(t))).toEqual([fields('importTrace'), fields('importTrace')]);
     expect(json.window).toEqual({ since: '2026-10-01T00:00:00.000Z', until: '2026-10-08T00:00:00.000Z', limit: 100, traceName: 'support-chat' });
     expect(json.traces).toEqual([
-      { id: T1, name: 'support-chat', startedAt: LANGFUSE_TRACES[0]!.startTime, outcome: 'imported', runId: json.runs[0].runId, reason: null },
-      { id: T2, name: 'support-chat', startedAt: LANGFUSE_TRACES[1]!.startTime, outcome: 'imported', runId: json.runs[1].runId, reason: null },
+      { id: T1, name: 'support-chat', startedAt: LANGFUSE_TRACES[0].startTime, outcome: 'imported', runId: json.runs[0].runId, reason: null },
+      { id: T2, name: 'support-chat', startedAt: LANGFUSE_TRACES[1].startTime, outcome: 'imported', runId: json.runs[1].runId, reason: null },
     ]);
     expect(json.runs.map((x: { key: string; source: string; calls: unknown }) => [x.key, x.source, x.calls])).toEqual([
       [T1, 'langfuse:11111111', { model: 3, tool: 1 }],
       [T2, 'langfuse:22222222', { model: 3, tool: 1 }],
     ]);
     expect(json.kept).toMatchObject({ traces: 2, spans: 14, modelCalls: 6, modelCallsImported: 6 });
-    const filter = JSON.parse(new URL(seen[0]!.slice(4), 'http://x').searchParams.get('filter')!) as unknown[];
+    const filter = JSON.parse(new URL(seen[0].slice(4), 'http://x').searchParams.get('filter')!) as unknown[];
     expect(filter).toContainEqual({ type: 'string', column: 'traceName', operator: '=', value: 'support-chat' });
   });
 
@@ -316,9 +316,9 @@ describe('shadowlap import phoenix, the traces in a window', () => {
     expect(json.runs.map((x: { source: string; calls: unknown }) => x.source).sort()).toEqual(['phoenix:3e409635', 'phoenix:4a2db41d']);
     const lists = seen.filter((s) => s.includes('parent_id='));
     expect(lists).toHaveLength(2);
-    const q = new URL(lists[0]!.slice(4), 'http://x').searchParams;
+    const q = new URL(lists[0].slice(4), 'http://x').searchParams;
     expect(Object.fromEntries(q)).toEqual({ parent_id: 'null', start_time: '2026-10-22T00:00:00.000Z', end_time: '2026-10-23T00:00:00.000Z', sort: 'start_time', order: 'desc', limit: '1000', name: 'support-agent' });
-    expect(new URL(lists[1]!.slice(4), 'http://x').searchParams.get('cursor')).toBe('U3Bhbjox');
+    expect(new URL(lists[1].slice(4), 'http://x').searchParams.get('cursor')).toBe('U3Bhbjox');
     expect(readFileSync(db).includes(Buffer.from(PHOENIX_KEY))).toBe(false);
 
     // Text this time, and both are there already.

@@ -119,7 +119,7 @@ function help(args: string[]): string {
 }
 const EXPORT_HELP = help(['export']);
 /** `shadowlap export <name>` commands this build has. */
-const EXPORTS = [...EXPORT_HELP.slice(EXPORT_HELP.indexOf('Commands:')).matchAll(/^ {2}(\w[\w-]*)/gm)].map((m) => m[1]!).filter((c) => c !== 'help');
+const EXPORTS = [...EXPORT_HELP.slice(EXPORT_HELP.indexOf('Commands:')).matchAll(/^ {2}(\w[\w-]*)/gm)].map((m) => m[1]).filter((c) => c !== 'help');
 const argsOf = (e: RedactionExport) => (e.id === 'pack' || e.id === 'share' ? [e.id] : ['export', e.id]);
 const inThisBuild = (e: RedactionExport) => e.id === 'pack' || e.id === 'share' || EXPORTS.includes(e.id);
 /** A copy that applies every rule whatever it is asked: a share link, which anyone with it opens. */
@@ -166,8 +166,8 @@ function cli(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: numbe
     const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr!.on('data', (d: Buffer) => (err += d.toString()));
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('close', (code) => resolve({ code, out, err }));
   });
 }

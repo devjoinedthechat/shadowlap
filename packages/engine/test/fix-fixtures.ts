@@ -58,7 +58,7 @@ export function blameReport(run: string, outcome: BlameReport['outcome'] = 'blam
     recordedFailures: ['issue_refund with {"amount":240} called 0 times, but called 1 time'],
     contrast:
       outcome === 'blamed'
-        ? { callNo: 5, recorded: [{ type: 'tool_call', name: 'issue_refund', input: { order_id: 'A-1042', amount: 240 } }], rescued: [{ type: 'text', text: 'Above the limit.' }, { type: 'tool_call', name: 'escalate', input: { reason: 'refund of $240 is above $100' } }], rescuedRunId: p5.attempts[0]!.runId }
+        ? { callNo: 5, recorded: [{ type: 'tool_call', name: 'issue_refund', input: { order_id: 'A-1042', amount: 240 } }], rescued: [{ type: 'text', text: 'Above the limit.' }, { type: 'tool_call', name: 'escalate', input: { reason: 'refund of $240 is above $100' } }], rescuedRunId: p5.attempts[0].runId }
         : null,
     attempts,
     spent: attempts * 0.01,

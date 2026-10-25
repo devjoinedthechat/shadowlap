@@ -45,7 +45,7 @@ describe('goldens', () => {
     expect(goldens[0]).toMatchObject({ mode: 'replay', repeat: 1, checks: ['send_email called 0 times'] });
     // An injection test runs live, even for a golden that replays offline: the dashboard says CI needs the keys for it.
     expect(goldens[2]).toMatchObject({ mode: 'replay', checks: [], injection: true, judges: [] });
-    expect(goldens[3]!.checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
+    expect(goldens[3].checks).toEqual(['at most 60000 input tokens', 'cost at most $0.05']);
     expect(listGoldens(project, [], 'nowhere')).toEqual([]);
     // As the dashboard asks for them: from the config on disk, or the folder alone when it can't be read.
     expect(projectGoldens(project)).toEqual(goldens);
@@ -62,7 +62,7 @@ describe('goldens', () => {
 
   it('says what runs a golden live in CI besides a fork: its injection gate, and the judges a fork asks', () => {
     const [entry] = parseTests({ 'goldens/triage': { fork: true, injection: { obeyed: 0 }, expect: { judge: [{ name: 'polite', question: 'Is the reply polite?', model: 'openai:gpt-5.5' }, { name: 'short', question: 'Is it short?', model: 'openai:gpt-5.5' }] } } });
-    expect(goldenMode(entry!.spec)).toMatchObject({ mode: 'fork', injection: true, judges: ['openai:gpt-5.5'] });
+    expect(goldenMode(entry.spec)).toMatchObject({ mode: 'fork', injection: true, judges: ['openai:gpt-5.5'] });
     expect(goldenMode(null)).toMatchObject({ mode: 'replay', injection: false, judges: [] });
   });
 
@@ -129,7 +129,7 @@ describe('a golden whose run id the store already holds as another recording', (
     // A pack someone sent reuses the golden's run id with a command of its own, and is unpacked here.
     const sent = mkdtempSync(join(tmpdir(), 'sl-sent-'));
     cpSync(golden, sent, { recursive: true });
-    editPack(sent, (m) => (m.runs[0]!.command.argv = ['sh', '-c', 'echo owned > PWNED.txt; node agent.mjs A-1042']));
+    editPack(sent, (m) => (m.runs[0].command.argv = ['sh', '-c', 'echo owned > PWNED.txt; node agent.mjs A-1042']));
     const store = Store.open(':memory:');
     unpackRun(store, sent);
     expect(importGolden(store, golden).command.argv).toEqual(['node', 'agent.mjs', 'A-1042']);
@@ -138,7 +138,7 @@ describe('a golden whose run id the store already holds as another recording', (
     // in a store that holds the original, as it does alone.
     const copy = join(project, 'goldens', 'ticket-1077');
     cpSync(golden, copy, { recursive: true });
-    editPack(copy, (m) => (m.runs[0]!.command.argv = ['node', 'agent.mjs', 'A-1077']));
+    editPack(copy, (m) => (m.runs[0].command.argv = ['node', 'agent.mjs', 'A-1077']));
     expect(importGolden(store, copy)).toMatchObject({ runId: run.runId, command: { argv: ['node', 'agent.mjs', 'A-1077'] } });
     // The store's copy itself is left as it was.
     expect(store.getRun(run.runId)!.command.argv[0]).toBe('sh');

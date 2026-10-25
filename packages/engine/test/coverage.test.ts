@@ -107,8 +107,8 @@ describe('coverage groups', () => {
     ]);
     expect(groups[0]).toMatchObject({ runIds: ['R2', 'R1'], sources: ['week2.har', 'prod.har'], firstSeen: 1, lastSeen: 5, nearest: { golden: 'goldens/escalate', shared: 1, differs: { step: 2, seen: 'issue_refund', golden: 'escalate' } } });
     // Nothing shared with any golden: no nearest one.
-    expect(groups[1]!.nearest).toBeNull();
-    expect(groups[2]!.nearest).toBeNull();
+    expect(groups[1].nearest).toBeNull();
+    expect(groups[2].nearest).toBeNull();
   });
 
   it('keys a behaviour by its path, writes and ending, not by what the effects left unknown', () => {
@@ -225,7 +225,7 @@ describe('a command for each capture', () => {
 describe('the store', () => {
   it('keeps what --pack last made of each behaviour, across scans', () => {
     const store = Store.open(':memory:');
-    const before = store.changeCounts().coverage!;
+    const before = store.changeCounts().coverage;
     store.saveCoveragePack({ key: 'k1', at: 10, golden: null, runId: null, from: 'C1', mode: null, reason: 'not-reproduced', why: 'it forks at call 1', command: { argv: ['node', 'a.mjs'], from: 'R1' } });
     store.saveCoveragePack({ key: 'k2', at: 20, golden: 'goldens/b', runId: 'P2', from: 'C2', mode: 'fork', reason: null, why: null, command: { argv: ['node', 'b.mjs'], from: '--' } });
     store.saveCoveragePack({ key: 'k1', at: 30, golden: 'goldens/a', runId: 'P1', from: 'C1', mode: 'replay', reason: null, why: null, command: { argv: ['node', 'a.mjs'], from: 'R1' } });
@@ -248,7 +248,7 @@ describe('the store', () => {
       ['S1', 1],
     ]);
     expect(store.coverageGroups()).toEqual([{ ...group, key: 'k2', scanId: 'S2', coveredBy: ['goldens/a'], command: null, packed: { golden: 'goldens/a', runId: 'P', at: 20 } }]);
-    expect(store.changeCounts().coverage).toBeGreaterThan(before!);
+    expect(store.changeCounts().coverage).toBeGreaterThan(before);
     store.close();
   });
 });

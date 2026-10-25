@@ -63,7 +63,7 @@ function addressBar(start: string) {
     search: '',
     pathname: '/',
     get hash() {
-      return steps[at]!;
+      return steps[at];
     },
     set hash(to: string) {
       steps.splice(at + 1, steps.length, to);
@@ -125,8 +125,8 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-const pressed = () => r!.all('.tbar .chips button[aria-pressed="true"]').map((b) => b.childNodes[0]!.textContent);
-const chip = (label: string) => r!.all('.tbar .chips button').find((b) => b.childNodes[0]!.textContent === label)!;
+const pressed = () => r!.all('.tbar .chips button[aria-pressed="true"]').map((b) => b.childNodes[0].textContent);
+const chip = (label: string) => r!.all('.tbar .chips button').find((b) => b.childNodes[0].textContent === label)!;
 
 describe('Runs, from its address', () => {
   it('shows what a link asks for, a step in the history for each chip and sort, and Back to what it showed before', async () => {

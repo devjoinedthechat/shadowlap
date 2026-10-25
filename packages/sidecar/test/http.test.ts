@@ -51,8 +51,8 @@ describe('captured HTTP calls', () => {
 
     const [recorded] = store.getCalls(run.runId);
     expect(recorded).toMatchObject({ kind: 'tool', name: `GET ${new URL(origin).host}/blob`, effect: 'read' });
-    const request = JSON.stringify(store.getJson(recorded!.requestRef!));
-    const result = JSON.stringify(store.getJson(recorded!.end!.responseRef!));
+    const request = JSON.stringify(store.getJson(recorded.requestRef!));
+    const result = JSON.stringify(store.getJson(recorded.end!.responseRef!));
     expect(request).toContain('/blob?id=7');
     expect(request).not.toContain('sk-secret');
     expect(result).not.toContain('session=secret');
@@ -82,7 +82,7 @@ describe('captured HTTP calls', () => {
       expect(await tokens(rec.runId)).toEqual({ status: 201, subject: 'gAAAAABl-real-keystone-token', auth: 'AUTH_tk-real-swift', cookie: null, body: BODY });
       sidecar.endRun(rec.runId, 'completed');
       const [call] = store.getCalls(rec.runId);
-      const stored = store.getBlob(call!.end!.responseRef!)!.toString('utf8');
+      const stored = store.getBlob(call.end!.responseRef!)!.toString('utf8');
       for (const secret of ['real-keystone-token', 'real-swift', 'echoed-sk-secret', 'cHJveHk6cGFzcw==', 'session=secret']) expect(stored).not.toContain(secret);
       expect(JSON.parse(stored).result.headers).toMatchObject({ 'x-subject-token': '<CREDENTIAL>', 'x-auth-token': '<CREDENTIAL>', authorization: '<CREDENTIAL>', 'proxy-authorization': '<CREDENTIAL>' });
       // A replay finds the header it reads its token from, with the placeholder in it, and the body as sent.
@@ -126,7 +126,7 @@ describe('a captured JSON response', () => {
       sidecar.endRun(rec.runId, 'completed');
       // Whatever reads the result as JSON still gets the parsed body.
       const [call] = store.getCalls(rec.runId);
-      expect(store.getJson<{ result: { body: unknown } }>(call!.end!.responseRef!)!.result.body).toMatchObject({ order: 'A-1042', customer: 'Renée', total: 20 });
+      expect(store.getJson<{ result: { body: unknown } }>(call.end!.responseRef!)!.result.body).toMatchObject({ order: 'A-1042', customer: 'Renée', total: 20 });
 
       const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['x'], cwd: '.' } });
       expect(await get(rep.runId)).toEqual({ text: SENT, origin: 'replayed' });
@@ -135,7 +135,7 @@ describe('a captured JSON response', () => {
       // A copy masks the body's strings where they sit; the rest stays byte for byte.
       const copy = Store.open(':memory:');
       redactRun(store, rec.runId, [{ pattern: '/Ren[ée]e/', replace: '<NAME>' }], copy);
-      const copied = copy.getBlob(copy.getCalls(rec.runId)[0]!.end!.responseRef!)!.toString('utf8');
+      const copied = copy.getBlob(copy.getCalls(rec.runId)[0].end!.responseRef!)!.toString('utf8');
       expect(rawJsonMember(copied, ['result', 'body'])).toBe(SENT.replace('Ren\\u00e9e', '<NAME>'));
       copy.close();
     } finally {
@@ -239,7 +239,7 @@ describe('credentials in a captured call', () => {
       expect(seen).toHaveLength(2);
 
       // A replay that changes the query diverges, and its report shows no credential as sent.
-      const sidecar = sidecars[1]!;
+      const sidecar = sidecars[1];
       const changed = sidecar.startRun({ mode: 'replay', parentRunId: old.runId, command: { argv: ['x'], cwd: '.' } });
       await fetch(`${sidecar.url}/r/${changed.runId}/http/customsearch/v1?key=AIzaSyD-live-key-0123&q=refunds`, { headers: { 'x-shadowlap-upstream': `http://${host}` } }).then((r) => r.text());
       const { divergence } = sidecar.endRun(changed.runId, 'completed').summary;
@@ -285,7 +285,7 @@ describe('credentials in a captured call', () => {
       expect(await flag(run.runId, 'checkout_v2')).toEqual({ flag: 'checkout_v2' });
       expect(await flag(run.runId, 'search_v3')).toEqual({ flag: 'search_v3' });
       sidecar.endRun(run.runId, 'completed');
-      expect(store.getJson(store.getCalls(run.runId)[0]!.requestRef!)).toEqual({ args: { method: 'GET', url: `http://${host}/flags?key=checkout_v2` } });
+      expect(store.getJson(store.getCalls(run.runId)[0].requestRef!)).toEqual({ args: { method: 'GET', url: `http://${host}/flags?key=checkout_v2` } });
 
       upstream.close();
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' } });
@@ -327,12 +327,12 @@ describe('credentials in a captured call', () => {
       await calls(run.runId, 'AIzaSyD-live-key-0123', 'live-secret-456');
       sidecar.endRun(run.runId, 'completed');
       // The upstream got the real values.
-      expect(seen[0]!.url).toBe('/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund');
-      expect(seen[1]!.body).toContain('client_secret=live-secret-456');
+      expect(seen[0].url).toBe('/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund');
+      expect(seen[1].body).toContain('client_secret=live-secret-456');
 
       const recorded = store.getCalls(run.runId);
-      expect(store.getJson(recorded[0]!.requestRef!)).toEqual({ args: { method: 'GET', url: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refund` } });
-      expect(store.getJson(recorded[1]!.requestRef!)).toMatchObject({ args: { body: 'grant_type=client_credentials&client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' } });
+      expect(store.getJson(recorded[0].requestRef!)).toEqual({ args: { method: 'GET', url: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refund` } });
+      expect(store.getJson(recorded[1].requestRef!)).toMatchObject({ args: { body: 'grant_type=client_credentials&client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' } });
       const everything = JSON.stringify(recorded.map((c) => [c, store.getJson(c.requestRef!), store.getJson(c.end!.responseRef!)]));
       expect(everything).not.toContain('AIzaSyD-live-key');
       expect(everything).not.toContain('live-secret-456');
@@ -370,13 +370,13 @@ describe('a captured call whose path holds what a rule masks', () => {
       const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
       expect((await call(recording.url, run.runId))[0]).toBe(200);
       recording.endRun(run.runId, 'completed');
-      expect(store.getCalls(run.runId)[0]!.name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
+      expect(store.getCalls(run.runId)[0].name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
 
       // A pack's copy: the address is masked in the call's name as in its URL.
       redactRun(store, run.runId, [{ pattern: 'email', replace: '<EMAIL>' }], copy);
       const [packed] = copy.getCalls(run.runId);
-      expect(packed!.name).toBe(`GET ${host}/crm/v1/contacts/<EMAIL>`);
-      expect(JSON.stringify([packed, copy.getJson(packed!.requestRef!)])).not.toContain('alice.martin');
+      expect(packed.name).toBe(`GET ${host}/crm/v1/contacts/<EMAIL>`);
+      expect(JSON.stringify([packed, copy.getJson(packed.requestRef!)])).not.toContain('alice.martin');
 
       // Replayed where the copy is all there is: the same call, served from it.
       replaying = await Sidecar.start({ store: copy, http: [{ host, effect: 'read' }] });
@@ -385,7 +385,7 @@ describe('a captured call whose path holds what a rule masks', () => {
       expect(replaying.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
       expect(hits).toBe(1);
       // The replay keeps the name it was called by.
-      expect(copy.getCalls(replay.runId)[0]!.name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
+      expect(copy.getCalls(replay.runId)[0].name).toBe(`GET ${host}/crm/v1/contacts/alice.martin@example.com`);
     } finally {
       await recording.close();
       await replaying?.close();
@@ -432,7 +432,7 @@ describe('a captured call whose path holds what a rule masks', () => {
       await call(recording.url, run.runId, recorded);
       recording.endRun(run.runId, 'completed');
       redactRun(store, run.runId, rules(host), copy);
-      expect(copy.getCalls(run.runId)[0]!.name).toMatch(/\/contacts\/<EMAIL>$/);
+      expect(copy.getCalls(run.runId)[0].name).toMatch(/\/contacts\/<EMAIL>$/);
       replaying = await Sidecar.start({ store: copy, http: [{ host, effect: 'read' }] });
       const replay = replaying.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' } });
       await call(replaying.url, replay.runId, replayed);

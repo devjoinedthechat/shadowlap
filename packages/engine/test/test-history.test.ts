@@ -40,7 +40,7 @@ describe('test history in the store', () => {
     expect(only).toMatchObject({ ok: true, failure: null, data: { updated: { from: 'A', to: 'B', calls: 4 } } });
     // A failed result without a reason still says it failed.
     store.addTestResult({ sessionId: s.sessionId, golden: 'goldens/y', ok: false });
-    expect(store.listTestResults({ golden: 'goldens/y' })[0]!.failure).toBe('error');
+    expect(store.listTestResults({ golden: 'goldens/y' })[0].failure).toBe('error');
     store.close();
   });
 
@@ -112,7 +112,7 @@ describe('test history in the store', () => {
     const s = store.startTestSession({ command: ['shadowlap', 'test', 'g'] });
     store.addTestResult({ sessionId: s.sessionId, golden: 'g', ok: true, runId: run.runId });
     store.deleteRun(run.runId);
-    expect(store.listTestResults()[0]!.runId).toBe(run.runId);
+    expect(store.listTestResults()[0].runId).toBe(run.runId);
     store.close();
   });
 });
@@ -124,14 +124,14 @@ describe('values that change every run', () => {
     const uuid = volatileValues(divergence([{ path: '$.metadata.user_id', op: 'changed', before: '3f2a8c1e-1b2c-4d5e-8f90-0a1b2c3d4e5f', after: '9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d' }]));
     expect(uuid).toMatchObject({ explainsAll: true, coversAll: true });
     expect(uuid.values).toEqual([{ path: '$.metadata.user_id', looks: 'a UUID', op: 'changed', certain: true, normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }]);
-    expect(normalizeAddCommand(uuid.values[0]!.normalizer)).toBe("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
-    expect(normalizeAddArgs(uuid.values[0]!.normalizer)).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>']);
+    expect(normalizeAddCommand(uuid.values[0].normalizer)).toBe("shadowlap normalize add --kind api --path '$.metadata.user_id' --pattern uuid --replace '<UUID>'");
+    expect(normalizeAddArgs(uuid.values[0].normalizer)).toEqual(['normalize', 'add', '--kind', 'api', '--path', '$.metadata.user_id', '--pattern', 'uuid', '--replace', '<UUID>']);
 
     // A request's id is made for that request, whatever it looks like.
     const id = volatileValues(divergence([{ path: '$.args.request_id', op: 'changed', before: 'req_8f3a2c', after: 'req_19bd07' }], 'tool', 'lookup'));
     expect(id.values[0]).toEqual({ path: '$.args.request_id', looks: 'a generated id', op: 'changed', certain: true, normalizer: { kind: 'tool', name: 'lookup', path: '$.args.request_id', replace: '<ID>' } });
     expect(id.explainsAll).toBe(true);
-    expect(normalizeAddCommand(id.values[0]!.normalizer)).toBe("shadowlap normalize add --kind tool --name lookup --path '$.args.request_id' --replace '<ID>'");
+    expect(normalizeAddCommand(id.values[0].normalizer)).toBe("shadowlap normalize add --kind tool --name lookup --path '$.args.request_id' --replace '<ID>'");
   });
 
   it('never takes a changed business id for one made every run: it may be the agent acting on another customer', () => {
@@ -185,7 +185,7 @@ describe('values that change every run', () => {
       { message: '$.metadata.user_id is an id, and a changed id may be a real change (another customer, another order); only if this one is made anew on every run, add a normalizer', normalizer: { kind: 'api', path: '$.metadata.user_id', replace: '<ID>' } },
     ]);
     const added = valueHints(divergence([{ path: '$.metadata.trace_id', op: 'added', after: 'a3f9c2e81b7d4f601c0e7d9b2a4f8e35' }]));
-    expect(added[0]!.message).toBe('$.metadata.trace_id is new in the request and looks like a generated id: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it');
+    expect(added[0].message).toBe('$.metadata.trace_id is new in the request and looks like a generated id: if the change is meant, add this normalizer as well as updating the golden, or the next run diverges on it');
   });
 
   it('looks inside a field the request carries for the first time, but not inside an appended message', () => {
@@ -194,7 +194,7 @@ describe('values that change every run', () => {
       ['$.metadata.trace.request_id', 'a generated id', 'added'],
       ['$.metadata.user_id', 'a UUID', 'added'],
     ]);
-    expect(added.values[1]!.normalizer).toEqual({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
+    expect(added.values[1].normalizer).toEqual({ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
     expect(added.explainsAll).toBe(false);
     // A message appended to the conversation carries ids that were recorded, not made anew.
     const appended = volatileValues(divergence([{ path: '$.messages[3]', op: 'added', after: { role: 'assistant', id: 'msg_01XYZ9', content: [{ type: 'tool_use', id: 'toolu_01ABC' }] } }]));

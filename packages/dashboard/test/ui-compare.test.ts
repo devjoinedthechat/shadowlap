@@ -95,7 +95,7 @@ describe('the prefix line', () => {
   it('heads the answers table with how many calls, and before which request only when one differs', () => {
     const answers = [{ callNo: 16, kind: 'tool' as const, name: 'lookup_policy', detail: '1 difference' }];
     expect(answersSub({ firstRequestDifference: { callNo: 17, kind: 'api', name: 'POST /v1/messages' }, responseDifferences: answers })).toBe('1 call, before the first request that differs');
-    expect(answersSub({ firstRequestDifference: null, responseDifferences: [...answers, { ...answers[0]!, callNo: 18 }] })).toBe('2 calls');
+    expect(answersSub({ firstRequestDifference: null, responseDifferences: [...answers, { ...answers[0], callNo: 18 }] })).toBe('2 calls');
   });
 
   it('counts a call the model answered the same way in a new response apart from an answer that changed', () => {
@@ -139,12 +139,12 @@ describe('the pickers and live runs', () => {
     { runId: '01K5CQ4R1T000000000000000C', startedAt: 2 },
   ];
   it('offers every run, newest first; in an exported copy of many runs, only the pairs it holds', () => {
-    expect(pickable(runs, runs[0]!.runId, null).map((r) => r.startedAt)).toEqual([3, 2, 1]);
+    expect(pickable(runs, runs[0].runId, null).map((r) => r.startedAt)).toEqual([3, 2, 1]);
     // The other side is the run every pair includes: any run pairs with it.
-    expect(pickable(runs, runs[0]!.runId, runs[0]!.runId)).toHaveLength(3);
-    expect(pickable(runs, '01K5CQ4N7G', runs[0]!.runId)).toHaveLength(3);
+    expect(pickable(runs, runs[0].runId, runs[0].runId)).toHaveLength(3);
+    expect(pickable(runs, '01K5CQ4N7G', runs[0].runId)).toHaveLength(3);
     // Otherwise only that run.
-    expect(pickable(runs, runs[1]!.runId, runs[0]!.runId).map((r) => r.runId)).toEqual([runs[0]!.runId]);
+    expect(pickable(runs, runs[1].runId, runs[0].runId).map((r) => r.runId)).toEqual([runs[0].runId]);
   });
 
   it('opens on a pair an exported copy of many runs holds: its first run with the newest other', () => {

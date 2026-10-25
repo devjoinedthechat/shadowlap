@@ -94,7 +94,7 @@ afterAll(async () => {
 
 describe('a replay that ends before its recording did', () => {
   it('bisect counts the commit where the agent stops early as bad', async () => {
-    const r = await shadowlap(['bisect', 'goldens/steps', '--good', rev['Start the step agent']!]);
+    const r = await shadowlap(['bisect', 'goldens/steps', '--good', rev['Start the step agent']]);
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).toContain(`first bad commit ${rev['Stop after one step']} · Stop after one step`);
     expect(r.out).toContain('ended early at call 2 (api POST /v1/messages): 1 of 3 recorded calls replayed');
@@ -133,7 +133,7 @@ describe('a replay that ends before its recording did', () => {
 
   it('keeps it on the run: ls, ls --json and show never call it a clean replay', async () => {
     const replayed = await shadowlap(['replay', recordedRun]);
-    const runId = /replaying run (\w{26})/.exec(replayed.out)![1]!;
+    const runId = /replaying run (\w{26})/.exec(replayed.out)![1];
     const ls = await shadowlap(['ls']);
     const line = ls.stdout.split('\n').find((l) => l.startsWith(runId.slice(0, 10)))!;
     expect(line).toContain('ended early @2');

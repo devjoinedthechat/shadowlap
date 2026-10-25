@@ -69,11 +69,11 @@ describe('a captured HTTP call', () => {
     expect(recorded.code, recorded.out).toBe(0);
     expect(recorded.out).toContain('status 200 1');
     expect(received).toEqual([`/customsearch/v1?key=${KEY}&q=refund`]);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
 
     const store = Store.open(join(cwd, '.shadowlap', 'shadowlap.db'));
     const [call] = store.getCalls(runId);
-    expect(store.getJson(call!.requestRef!)).toEqual({ args: { method: 'GET', url: `${origin}/customsearch/v1?key=<CREDENTIAL>&q=refund` } });
+    expect(store.getJson(call.requestRef!)).toEqual({ args: { method: 'GET', url: `${origin}/customsearch/v1?key=<CREDENTIAL>&q=refund` } });
     store.close();
     expect(readTree(join(cwd, '.shadowlap'))).not.toContain(KEY);
 
@@ -94,14 +94,14 @@ describe('a captured HTTP call', () => {
   it("masks an address in its path in the call's name in every copy, and the pack still replays", async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, 'contact-agent.mjs']);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const port = new URL(origin).port;
 
     const preview = JSON.parse((await shadowlap(['redact', 'preview', runId, '--json'])).out) as { rules: Array<{ count: number; samples: Array<{ after: string }> }> };
-    expect(preview.rules[0]!.count).toBe(2);
+    expect(preview.rules[0].count).toBe(2);
     // The call's name and its URL.
-    expect(preview.rules[0]!.samples).toHaveLength(2);
-    for (const x of preview.rules[0]!.samples) expect(x.after.endsWith(`127.0.0.1:${port}/crm/v1/contacts/<EMAIL>`), x.after).toBe(true);
+    expect(preview.rules[0].samples).toHaveLength(2);
+    for (const x of preview.rules[0].samples) expect(x.after.endsWith(`127.0.0.1:${port}/crm/v1/contacts/<EMAIL>`), x.after).toBe(true);
 
     expect((await shadowlap(['pack', runId, 'goldens/contact'])).code).toBe(0);
     const packed = readTree(join(cwd, 'goldens', 'contact'));

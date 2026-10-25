@@ -331,14 +331,14 @@ describe('probes decided by a gate', () => {
   it('says what it decided on when attempts running at once ended after it decided', () => {
     // Two straight passes rescued; a third attempt, started before the second ended, failed after.
     const p = gated(5, 3, [true, true]);
-    const late = { ...p, passes: 2, attempts: [...p.attempts, { ...p.attempts[0]!, runId: '01K5CR5900000000000000000Z', passed: false }] };
+    const late = { ...p, passes: 2, attempts: [...p.attempts, { ...p.attempts[0], runId: '01K5CR5900000000000000000Z', passed: false }] };
     expect(probeFinding(late, GATE)).toBe('rescued · 2 of 2 (and 1 more that ended after it decided) · rate >= 0.15 (95%)');
   });
 
   it('widens the range past an inconclusive probe, which claims nothing, to the first call found lost', async () => {
     const outcomes: Record<number, boolean[]> = { 1: [true, true], 2: [true, true], 3: UNSURE, 4: [false, false, false, false] };
     // The scan past the boundary probes #4, and finds it lost: that closes the range.
-    const r = await searchBlame({ steps: [1, 2, 3, 4], probe: async (callNo, step) => gated(callNo, step, outcomes[step]!), scan: 2 });
+    const r = await searchBlame({ steps: [1, 2, 3, 4], probe: async (callNo, step) => gated(callNo, step, outcomes[step]), scan: 2 });
     expect(r).toMatchObject({ outcome: 'blamed', blamed: { callNo: 2 }, lost: { callNo: 3, decision: 'inconclusive' }, range: { from: 2, to: 3 }, confidence: 'high' });
     expect(r.errorBound).toBeCloseTo(0.003, 12);
     const text = formatBlame(report({ ...r, probes: r.probes }));
@@ -440,7 +440,7 @@ describe('probes decided by a gate', () => {
 
   it('keeps a clean boundary at high confidence: lost under the gate is lost, whatever the odd pass', async () => {
     const outcomes: Record<number, boolean[]> = { 1: [true, true], 2: [false, false, false, false] };
-    const r = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => gated(callNo, step, outcomes[step]!), scan: 0 });
+    const r = await searchBlame({ steps: [1, 2], probe: async (callNo, step) => gated(callNo, step, outcomes[step]), scan: 0 });
     expect(r).toMatchObject({ blamed: { callNo: 1 }, lost: { callNo: 2, decision: 'fail' }, confidence: 'high' });
   });
 

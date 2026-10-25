@@ -18,7 +18,7 @@ describe('golden recording', () => {
     const store = Store.open(':memory:');
     const { imported } = unpackRun(store, GOLDEN);
     expect(imported).toHaveLength(1);
-    const parent = imported[0]!;
+    const parent = imported[0];
 
     // Port 9 (discard) is closed on every CI runner; a connection there is an immediate failure.
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: 'http://127.0.0.1:9' } });

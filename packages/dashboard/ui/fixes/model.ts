@@ -353,7 +353,7 @@ export function callRowCells(row: BlameStep['callRow'], max = CALL_ROW_MAX): { c
   const keep = new Set<number>();
   if (models.length <= max) for (const c of models) keep.add(c.callNo);
   else {
-    const add = (i: number) => models[i] && keep.add(models[i]!.callNo);
+    const add = (i: number) => models[i] && keep.add(models[i].callNo);
     add(0);
     add(models.length - 1);
     models.forEach((c, i) => {

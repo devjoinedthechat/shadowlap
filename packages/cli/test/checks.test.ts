@@ -31,7 +31,7 @@ describe('outcome checks', () => {
     expect(() => parseTests({ 'goldens/a': { repeat: 3, passes: 4 } })).toThrow('passes must be a whole number from 1 to repeat (3)');
     expect(() => parseTests({ 'goldens/a': { fork: 'yes' } })).toThrow('fork must be true or false');
     expect(() => parseTests({ 'goldens/a': { expect: { output: 'done' } } })).toThrow('"includes" and/or "excludes"');
-    expect(parseTests({ 'goldens/a': { expect: { tools: { send_email: 0, refund: { args: { id: 1 } } } } } })[0]!.spec).toEqual({
+    expect(parseTests({ 'goldens/a': { expect: { tools: { send_email: 0, refund: { args: { id: 1 } } } } } })[0].spec).toEqual({
       fork: false,
       repeat: 1,
       passes: 1,
@@ -44,14 +44,14 @@ describe('outcome checks', () => {
 
   it('reads a gate beside fork, in place of repeat and passes', () => {
     const where = 'shadowlap.config.json: tests["goldens/a"]';
-    expect(parseTests({ 'goldens/a': { fork: true, gate: {}, expect: { tools: { send_email: 0 } } } })[0]!.spec).toEqual({
+    expect(parseTests({ 'goldens/a': { fork: true, gate: {}, expect: { tools: { send_email: 0 } } } })[0].spec).toEqual({
       fork: true,
       repeat: 1,
       passes: 1,
       gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 },
       tools: [{ name: 'send_email', count: { min: 0, max: 0 } }],
     });
-    expect(parseTests({ 'goldens/a': { fork: true, gate: { baseline: 'history', drop: 0.2 } } })[0]!.spec.gate).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 5, max: 40 });
+    expect(parseTests({ 'goldens/a': { fork: true, gate: { baseline: 'history', drop: 0.2 } } })[0].spec.gate).toEqual({ kind: 'baseline', drop: 0.2, risk: 0.05, window: 10, min: 5, max: 40 });
     expect(() => parseTests({ 'goldens/a': { fork: true, repeat: 5, gate: {} } })).toThrow(`${where}: a gate decides how many attempts run and what passes; give the gate, or repeat and passes, not both`);
     expect(() => parseTests({ 'goldens/a': { fork: true, passes: 1, gate: {} } })).toThrow('give the gate, or repeat and passes, not both');
     expect(() => parseTests({ 'goldens/a': { gate: {} } })).toThrow(`${where}.gate needs "fork": true`);
@@ -95,7 +95,7 @@ describe('outcome checks', () => {
         },
       },
     }).map((e) => e.spec);
-    const results = evaluateChecks(spec!, { calls, output: 'done.\n', answer: 'I could not issue it.', argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null });
+    const results = evaluateChecks(spec, { calls, output: 'done.\n', answer: 'I could not issue it.', argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null });
     expect(results).toEqual([
       { status: 'passed', ok: true, label: 'search_web called at least 1 time', detail: null },
       { status: 'failed', ok: false, label: 'send_email called 0 times', detail: 'called 1 time (1 blocked)' },
@@ -107,7 +107,7 @@ describe('outcome checks', () => {
       { status: 'failed', ok: false, label: 'final answer includes "refund issued"', detail: 'not found in the final answer' },
     ]);
     const [withArgs] = parseTests({ x: { expect: { tools: { send_email: { count: 1, args: { to: 'ceo@example.com' } } } } } }).map((e) => e.spec);
-    expect(evaluateChecks(withArgs!, { calls, output: '', answer: null, argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null })[0]).toEqual({
+    expect(evaluateChecks(withArgs, { calls, output: '', answer: null, argsOf: (c) => (c as { args?: unknown }).args, costOf: () => null })[0]).toEqual({
       status: 'failed',
       ok: false,
       label: 'send_email with {"to":"ceo@example.com"} called 1 time',
@@ -118,7 +118,7 @@ describe('outcome checks', () => {
   it('says exactly how a tool’s calls were fenced after a fork: blocked, stubbed, or some of each', () => {
     const [spec] = parseTests({ x: { expect: { tools: { send_email: 1 } } } }).map((e) => e.spec);
     const fenced = (...origins: CallRecord['origin'][]) =>
-      evaluateChecks(spec!, { calls: origins.map((o, i) => call(i + 1, 'tool', 'send_email', o)), output: '', answer: null, argsOf: () => null, costOf: () => null })[0]!.detail;
+      evaluateChecks(spec, { calls: origins.map((o, i) => call(i + 1, 'tool', 'send_email', o)), output: '', answer: null, argsOf: () => null, costOf: () => null })[0].detail;
     expect(fenced('blocked', 'blocked')).toBe('called 2 times (2 blocked)');
     expect(fenced('stubbed', 'live', 'stubbed')).toBe('called 3 times (2 stubbed)');
     expect(fenced('blocked', 'stubbed')).toBe('called 2 times (1 blocked, 1 stubbed)');
@@ -142,7 +142,7 @@ function apiCall(callNo: number, usage: { inputTokens: number; outputTokens: num
     end: { runId: 'r', callNo, attempt: 0, responseRef: null, outcome: 'ok', meta: { model, usage }, at: 1 },
   };
 }
-const budget = (expect_: Record<string, unknown>) => parseTests({ 'g': { expect: expect_ } })[0]!.spec;
+const budget = (expect_: Record<string, unknown>) => parseTests({ 'g': { expect: expect_ } })[0].spec;
 const run = (spec: ReturnType<typeof budget>, calls: CallRecord[], costOf: (c: CallRecord) => number | null = () => null) =>
   evaluateChecks(spec, { calls, output: '', answer: null, argsOf: () => undefined, costOf });
 
@@ -165,7 +165,7 @@ describe('token and cost budgets', () => {
 
   it('counts output tokens separately', () => {
     const calls = [apiCall(1, { inputTokens: 1, outputTokens: 40 })];
-    expect(run(budget({ outputTokens: '<= 50' }), calls)[0]!.ok).toBe(true);
+    expect(run(budget({ outputTokens: '<= 50' }), calls)[0].ok).toBe(true);
     expect(run(budget({ outputTokens: '<= 20' }), calls)[0]).toMatchObject({ ok: false, detail: '40 output tokens' });
   });
 
@@ -179,14 +179,14 @@ describe('token and cost budgets', () => {
   it('fails rather than passes when a model has no price', () => {
     // Treating an unknown price as zero would let any budget pass on an uncosted model.
     const calls = [apiCall(1, { inputTokens: 10, outputTokens: 1 }, 'some-local-model')];
-    const result = run(budget({ cost: '<= 0.01' }), calls, () => null)[0]!;
+    const result = run(budget({ cost: '<= 0.01' }), calls, () => null)[0];
     expect(result.ok).toBe(false);
     expect(result.detail).toContain('no price for some-local-model');
   });
 
   it('ignores tool calls, and says a run has no checks when no budget is set', () => {
     const calls = [apiCall(1, { inputTokens: 10, outputTokens: 1 }), call(2, 'tool', 'search')];
-    expect(run(budget({ inputTokens: '<= 10' }), calls)[0]!.ok).toBe(true);
+    expect(run(budget({ inputTokens: '<= 10' }), calls)[0].ok).toBe(true);
     expect(run(budget({}), calls)).toEqual([]);
   });
 });

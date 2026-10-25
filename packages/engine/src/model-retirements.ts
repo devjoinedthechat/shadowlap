@@ -288,7 +288,7 @@ export function retiredFields(provider: string | null | undefined, model: string
     for (const field of rule.fields) {
       const value = fields[field];
       if (value === undefined || (rule.allowed && field in rule.allowed && canonicalize(rule.allowed[field]) === canonicalize(value))) continue;
-      if (rule.when?.[field] && !holds(value, rule.when[field]!)) continue;
+      if (rule.when?.[field] && !holds(value, rule.when[field])) continue;
       out.push({ field, value, rule });
     }
   }

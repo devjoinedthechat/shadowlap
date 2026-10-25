@@ -12,7 +12,7 @@ import { AboutLine, FitHint } from '../ui/components/About.js';
  */
 
 const SMALL = /^(a|an|the|of|for|to|from|and|or|in|on|at|by|with|my|our|your|their|is|was|it)$/i;
-const before = (form: string) => form.split(CUT)[0]!.split(' ').at(-1)!;
+const before = (form: string) => form.split(CUT)[0].split(' ').at(-1)!;
 const after = (form: string) => form.split(CUT)[1]?.trim().split(' ')[0] ?? null;
 
 describe('the shorter forms of an about line', () => {

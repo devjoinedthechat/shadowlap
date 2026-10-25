@@ -42,7 +42,7 @@ beforeAll(async () => {
   urls.webhook = await serve('webhook', () => ({ ok: true }));
   cwd = mkdtempSync(join(tmpdir(), 'fp-http-'));
   const host = (u: string) => new URL(u).host;
-  writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ http: { [host(urls.search!)]: 'read', [host(urls.webhook!)]: 'write' } }));
+  writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify({ http: { [host(urls.search)]: 'read', [host(urls.webhook)]: 'write' } }));
 });
 afterAll(async () => {
   await mock.close();
@@ -69,14 +69,14 @@ describe('HTTP hosts recorded as tools', () => {
     expect(recorded.out).not.toMatch(/bypassed Shadowlap/);
     expect(agentLine(recorded.stdout)).toEqual({ hits: 2, answer: 'answered', notify: 200 });
     expect(hits).toEqual({ search: 1, webhook: 1 });
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
 
     const shown = JSON.parse((await shadowlap(['show', runId, '--json'])).stdout) as { calls: Array<{ kind: string; name: string; effect: string | null; origin: string }> };
     const port = (u: string) => new URL(u).port;
     expect(shown.calls.map((c) => [c.kind, c.name, c.effect])).toEqual([
-      ['tool', `POST 127.0.0.1:${port(urls.search!)}/query`, 'read'],
+      ['tool', `POST 127.0.0.1:${port(urls.search)}/query`, 'read'],
       ['api', 'POST /v1/messages', null],
-      ['tool', `POST 127.0.0.1:${port(urls.webhook!)}/notify`, 'write'],
+      ['tool', `POST 127.0.0.1:${port(urls.webhook)}/notify`, 'write'],
     ]);
 
     const replay = await shadowlap(['replay', runId, '--strict']);

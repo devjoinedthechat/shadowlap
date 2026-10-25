@@ -119,16 +119,16 @@ describe('the Training read model', () => {
       chosenLabel: 'chosen · 2 attempts that passed',
       rejected: { what: 'the recording', text: '"Issuing the refund.", issue_refund({"order_id":"A-1042","amount":240})' },
     });
-    expect(blame!.chosen.map((c) => c.text)).toEqual(['"Above the limit.", escalate({"reason":"refund of $240 is above $100"})', '"$240 is over the $100 limit, so this needs approval.", escalate({"reason":"above the refund limit"})']);
-    expect(blame!.context).toContain('read_policy returned');
+    expect(blame.chosen.map((c) => c.text)).toEqual(['"Above the limit.", escalate({"reason":"refund of $240 is above $100"})', '"$240 is over the $100 limit, so this needs approval.", escalate({"reason":"above the refund limit"})']);
+    expect(blame.context).toContain('read_policy returned');
     expect(verify).toMatchObject({ confidence: 'medium', runId: target.runId, about: target.runId, attemptOf: null, fix: null, from: 'from verify', count: 1, chosenLabel: 'chosen · verify attempt, passed' });
-    expect(verify!.source.href).toBe(`#/run/${target.runId}/5/forks`);
+    expect(verify.source.href).toBe(`#/run/${target.runId}/5/forks`);
     // The group opens the run verify replayed, at the call; the rejected answer opens its own attempt.
-    expect(verify!.href).toBe(`#/run/${target.runId}/5`);
-    expect(verify!.rejected).toMatchObject({ what: 'verify attempt, failed', callNo: 5 });
-    expect(verify!.rejected.runId).not.toBe(target.runId);
-    expect(verify!.rejected.href).toBe(`#/run/${verify!.rejected.runId}/5`);
-    expect(view.pairs.madeBy).toEqual({ [`blame:${lost.runId}`]: 2, [verify!.source.key]: 1 });
+    expect(verify.href).toBe(`#/run/${target.runId}/5`);
+    expect(verify.rejected).toMatchObject({ what: 'verify attempt, failed', callNo: 5 });
+    expect(verify.rejected.runId).not.toBe(target.runId);
+    expect(verify.rejected.href).toBe(`#/run/${verify.rejected.runId}/5`);
+    expect(view.pairs.madeBy).toEqual({ [`blame:${lost.runId}`]: 2, [verify.source.key]: 1 });
 
     expect(view.pairs.sources.map((x) => [x.label, x.made, x.confidence])).toEqual([
       ['blame · refund-bug', 2, 'high'],
@@ -271,8 +271,8 @@ describe('the Training read model', () => {
     expect(view.tasks.weak).toBe('refund-flow-budget');
     // The sentence names a golden whose checks only cap tokens and cost, never one with no checks at all.
     const bare = task('goldens/list-inbox', 'not-a-task', null, { note: 'it has no checks', checks: [] });
-    expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare, TASKS[2]!] })).tasks.weak).toBe('refund-flow-budget');
-    expect(trainingView(readTraining(s, { tasks: [TASKS[0]!, bare] })).tasks.weak).toBeNull();
+    expect(trainingView(readTraining(s, { tasks: [TASKS[0], bare, TASKS[2]] })).tasks.weak).toBe('refund-flow-budget');
+    expect(trainingView(readTraining(s, { tasks: [TASKS[0], bare] })).tasks.weak).toBeNull();
     // A golden with a simulated user: the row says which scope the model plays, and why it can't be scored yet.
     const dialogue = task('goldens/dialogue', 'not-a-task', 'escalate above the limit', { scope: 'agent', scopes: ['agent', 'user'], takeover: { callNo: 17, why: 'decides between refunding and escalating', from: 'config' }, checks: [{ label: 'issue_refund called 0 times', cap: false }], note: "its model calls are made in more than one scope (agent, user), and from the takeover on scoring would send them all to the model under test, not only agent's" });
     expect(trainingView({ ...readTraining(s, { tasks: [dialogue] }) }).tasks.rows[0]).toMatchObject({ sub: 'takes over at #17 · decides between refunding and escalating · plays scope agent', status: { label: 'not a task', short: expect.stringContaining('more than one scope') } });
@@ -285,10 +285,10 @@ describe('the Training read model', () => {
     expect(view.strip.best).toMatchObject({ value: '1.00', sub: 'claude-sonnet-5 · 2 models scored' });
     expect(view.scores.sub).toBe('mean share of checks passed, 2 tasks');
     const [first, second] = view.scores.rows;
-    expect(first!.cells[1]).toMatchObject({ model: 'qwen2.5:7b', mean: 0.8 });
-    expect(first!.cells[1]!.pips.map((x) => x.kind)).toEqual(['all', 'some', 'all', 'some', 'all']);
-    expect(first!.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5%3A7b-goldens%2Frefund-over-limit-2' });
-    expect(second!.cells).toEqual([expect.objectContaining({ model: 'claude-sonnet-5', mean: 1 }), null]);
+    expect(first.cells[1]).toMatchObject({ model: 'qwen2.5:7b', mean: 0.8 });
+    expect(first.cells[1]!.pips.map((x) => x.kind)).toEqual(['all', 'some', 'all', 'some', 'all']);
+    expect(first.cells[1]!.pips[1]).toMatchObject({ attempt: 2, href: '#/run/qwen2.5%3A7b-goldens%2Frefund-over-limit-2' });
+    expect(second.cells).toEqual([expect.objectContaining({ model: 'claude-sonnet-5', mean: 1 }), null]);
 
     // An example, never a result: no `from` (it only moves the takeover), a placeholder run, and a
     // score that is the share of the checks passed, one of them missed.
@@ -345,10 +345,10 @@ describe('the Training read model', () => {
       ['claude-haiku-4-5', ['goldens/refund', 'goldens/converse']],
       ['qwen2.5:7b', ['goldens/refund', 'goldens/converse']],
     ]);
-    expect(dialog.options[1]!.note).toBe("Amazon Bedrock · no price for this model, so the cost isn't estimated · scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
-    expect(dialog.options[2]!.note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
+    expect(dialog.options[1].note).toBe("Amazon Bedrock · no price for this model, so the cost isn't estimated · scores 1 of 3 tasks, not refund: recorded on Anthropic's API, not Amazon Bedrock; llama: its takeover call goes through Amazon Bedrock, whose request signature covers the model in its URL");
+    expect(dialog.options[2].note).toBe("Anthropic API · about $0.0041 an attempt · scores 2 of 3 tasks, not llama: it asks meta.llama4-maverick-17b-instruct-v1:0 through Bedrock's InvokeModel, whose body only Claude's is known to be (use the Converse API for other models), which only another model of its own provider can answer");
     // Two tasks recorded on another provider are one reason, said once.
-    expect(dialog.options[0]!.note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
+    expect(dialog.options[0].note).toBe("Anthropic API · about $0.017 an attempt · scores 1 of 3 tasks, not llama, converse: recorded on Amazon Bedrock, not Anthropic's API");
     // The first model not scored yet that answers every ready task is preselected: none here answers all three, so the first not scored.
     expect(dialog.selected).toBe('claude-sonnet-5\n');
     // OpenAI's recorded model answers none of them: each was recorded on another provider.
@@ -372,7 +372,7 @@ describe('the Training read model', () => {
       ['claude-good', null],
     ]);
     expect(dialog.selected).toBe('claude-good\n');
-    expect(dialog.options[0]!.note).toBe('Gemini API · about $0.0003 an attempt · scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
+    expect(dialog.options[0].note).toBe('Gemini API · about $0.0003 an attempt · scores 1 of 2 tasks, not azure: recorded on Azure OpenAI, not the Gemini API');
     // Once it is scored, the next one not scored yet comes first, whatever it answers.
     expect(scoreDialogView(tasks, [score('claude-good', null, 'goldens/azure', 1, 1, 100), score('claude-good', null, 'goldens/gemini', 1, 1, 100)], listing)!.selected).toBe('gemini-2.5-flash\n');
   });

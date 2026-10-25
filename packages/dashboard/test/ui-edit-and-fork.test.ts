@@ -100,7 +100,7 @@ describe('Edit and fork in the inspector', () => {
     await page.click(page.byText('button', 'Edit and fork…'));
     const field = page.one('.editfork textarea');
     await page.type(field, '{"limit": 40,');
-    const ok = page.byText('.dlg-ok', 'Fork') as FakeElement;
+    const ok = page.byText('.dlg-ok', 'Fork');
     expect(ok.disabled).toBe(true);
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(page.one('#editforkWhy').textContent).toMatch(/^Not JSON: /);

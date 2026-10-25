@@ -14,13 +14,13 @@ const CLI = join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js');
 const page = readFileSync(join(ROOT, 'docs', 'normalizers-and-redaction.md'), 'utf8');
 
 /** The page's first JSON block: the sample configuration. */
-const sample = JSON.parse(/^```json\n([\s\S]*?)^```/m.exec(page)![1]!) as { normalize: Normalizer[]; redact: Normalizer[] };
+const sample = JSON.parse(/^```json\n([\s\S]*?)^```/m.exec(page)![1]) as { normalize: Normalizer[]; redact: Normalizer[] };
 
 /** The `shadowlap normalize add` commands under "## Normalizers", as argv. */
 const commands = (/^## Normalizers\n[\s\S]*?^```sh\n([\s\S]*?)^```/m.exec(page)?.[1] ?? '')
   .split('\n')
   .filter((l) => l.startsWith('shadowlap normalize add '))
-  .map((l) => [...l.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]!).slice(1));
+  .map((l) => [...l.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]).slice(1));
 
 const temp: string[] = [];
 afterAll(() => {

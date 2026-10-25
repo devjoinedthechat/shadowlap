@@ -34,7 +34,7 @@ beforeAll(async () => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
-      const path = (req.url ?? '/').split('?')[0]!;
+      const path = (req.url ?? '/').split('?')[0];
       const s: Seen = { method: req.method ?? '', path: req.url ?? '/', headers: req.headers, body };
       seen.push(s);
       const route = routes.get(`${req.method} ${path}`);

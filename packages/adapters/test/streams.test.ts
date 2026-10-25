@@ -77,9 +77,9 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(live).toEqual({ streamed: true, seen: [{ status: 'loading' }, { status: 'done', city: 'Oslo', tempC: 7 }], final: { status: 'done', city: 'Oslo', tempC: 7 } });
     expect(ran).toBe(1);
     const [call] = store.getCalls(rec.runId);
-    expect(call!.end?.outcome).toBe('ok');
-    expect(store.getJson(call!.end!.responseRef!)).toEqual({ result: { status: 'done', city: 'Oslo', tempC: 7 } });
-    expect(call!.meta.implHash).toBe(sha(weather.execute));
+    expect(call.end?.outcome).toBe('ok');
+    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { status: 'done', city: 'Oslo', tempC: 7 } });
+    expect(call.meta.implHash).toBe(sha(weather.execute));
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
     activate(rep.runId);
@@ -105,12 +105,12 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     const seen: unknown[] = [];
     await expect(
       (async () => {
-        for await (const v of tools.failing.execute!({}, {}) as AsyncIterable<unknown>) seen.push(v);
+        for await (const v of tools.failing.execute({}, {}) as AsyncIterable<unknown>) seen.push(v);
       })(),
     ).rejects.toThrow('weather service down');
     sidecar.endRun(rec.runId, 'completed');
     expect(seen).toEqual([{ status: 'loading' }]);
-    expect(store.getCalls(rec.runId)[0]!.end?.outcome).toBe('error');
+    expect(store.getCalls(rec.runId)[0].end?.outcome).toBe('error');
     deactivate();
   });
 
@@ -140,22 +140,22 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(bare).toEqual(['produced 1', 'finally']);
 
     const tools = withEffects({ steps }, { steps: 'read' });
-    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    expect(await first(tools.steps.execute)).toEqual({ step: 1 });
     expect(log.splice(0)).toEqual(bare);
 
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
     activate(rec.runId);
-    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    expect(await first(tools.steps.execute)).toEqual({ step: 1 });
     sidecar.endRun(rec.runId, 'completed');
     // The tool ran as far as the caller read, not on to step 5 behind its back.
     expect(log.splice(0)).toEqual(bare);
     const [call] = store.getCalls(rec.runId);
-    expect(call!.end?.outcome).toBe('ok');
-    expect(store.getJson(call!.end!.responseRef!)).toEqual({ result: { step: 1 } });
+    expect(call.end?.outcome).toBe('ok');
+    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { step: 1 } });
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
     activate(rep.runId);
-    expect(await first(tools.steps.execute!)).toEqual({ step: 1 });
+    expect(await first(tools.steps.execute)).toEqual({ step: 1 });
     expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
     expect(log).toEqual([]);
     deactivate();
@@ -174,7 +174,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     const tools = withEffects({ ticks }, { ticks: 'read' });
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
     activate(rec.runId);
-    const it = (tools.ticks.execute!({}, {}) as AsyncIterable<number>)[Symbol.asyncIterator]();
+    const it = (tools.ticks.execute({}, {}) as AsyncIterable<number>)[Symbol.asyncIterator]();
     expect(await it.next()).toEqual({ done: false, value: 1 });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(log).toEqual(['produced 1']);
@@ -182,7 +182,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(await it.next()).toEqual({ done: false, value: 3 });
     expect((await it.next()).done).toBe(true);
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getJson(store.getCalls(rec.runId)[0]!.end!.responseRef!)).toEqual({ result: 3 });
+    expect(store.getJson(store.getCalls(rec.runId)[0].end!.responseRef!)).toEqual({ result: 3 });
     deactivate();
   });
 });

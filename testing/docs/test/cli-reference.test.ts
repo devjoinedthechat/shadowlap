@@ -56,7 +56,7 @@ const sections = reference
 
 /** The section that documents a command: the one its heading names, or its parent's ("import" for "import har"). */
 function sectionOf(path: string) {
-  const parent = path.split(' ')[0]!;
+  const parent = path.split(' ')[0];
   return sections.find((s) => s.names.includes(path)) ?? sections.find((s) => s.names.includes(parent));
 }
 
@@ -96,11 +96,11 @@ function shown(): Array<{ where: string; line: string }> {
   for (const page of pages) {
     const md = read(page);
     for (const m of md.matchAll(/^```([\w-]*)[^\n]*\n([\s\S]*?)^```/gm)) {
-      if (!['', 'sh', 'bash', 'shell', 'console', 'zsh', 'text', 'yaml', 'yml'].includes(m[1]!)) continue;
-      for (const line of m[2]!.split('\n')) if (/(^|[\s"'(])shadowlap\s/.test(line)) out.push({ where: page, line });
+      if (!['', 'sh', 'bash', 'shell', 'console', 'zsh', 'text', 'yaml', 'yml'].includes(m[1])) continue;
+      for (const line of m[2].split('\n')) if (/(^|[\s"'(])shadowlap\s/.test(line)) out.push({ where: page, line });
     }
     const prose = md.replace(/^```[\s\S]*?^```/gm, '');
-    for (const m of prose.matchAll(/`(?:\$ )?(shadowlap [^`\n]+)`/g)) out.push({ where: page, line: m[1]! });
+    for (const m of prose.matchAll(/`(?:\$ )?(shadowlap [^`\n]+)`/g)) out.push({ where: page, line: m[1] });
   }
   return out;
 }
@@ -134,19 +134,19 @@ function problemsIn(program: Command, lines: Array<{ where: string; line: string
     for (const words of invocations(line)) {
       let i = 0;
       // Global options come first: shadowlap --db replays.db test …
-      while (i < words.length && words[i]!.startsWith('-')) {
+      while (i < words.length && words[i].startsWith('-')) {
         const g = program.options.find((o) => o.long === words[i] || o.short === words[i]);
         if (!g) break;
         i += takesValue(g) ? 2 : 1;
       }
-      if (i >= words.length || !/^[a-z][a-z-]*$/.test(words[i]!)) continue;
+      if (i >= words.length || !/^[a-z][a-z-]*$/.test(words[i])) continue;
       let command: Command = program;
       const path: string[] = [];
       for (;;) {
-        const sub = command.commands.find((c) => c.name() === words[i] || c.aliases().includes(words[i]!));
+        const sub = command.commands.find((c) => c.name() === words[i] || c.aliases().includes(words[i]));
         if (!sub) break;
         command = sub;
-        path.push(words[i]!);
+        path.push(words[i]);
         i++;
       }
       if (!path.length) {
@@ -155,7 +155,7 @@ function problemsIn(program: Command, lines: Array<{ where: string; line: string
       }
       // With no subcommand named, a command that has a default one runs it: `tasks --json` is `tasks ls --json`.
       const fallback = defaultOf(command);
-      if (command.commands.length && i < words.length && /^[a-z][a-z-]*$/.test(words[i]!) && !fallback?.registeredArguments.length) {
+      if (command.commands.length && i < words.length && /^[a-z][a-z-]*$/.test(words[i]) && !fallback?.registeredArguments.length) {
         problems.push(`${where}: shadowlap ${path.join(' ')} has no command "${words[i]}" (${line.trim()})`);
         continue;
       }

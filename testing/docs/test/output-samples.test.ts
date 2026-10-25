@@ -46,7 +46,7 @@ function sample(text: string, lead?: string): string {
   if (from < 0) throw new Error(`no line starting "${lead}"`);
   const m = /^```[^\n]*\n([\s\S]*?)^```/m.exec(text.slice(from));
   if (!m) throw new Error(`no code block after "${lead}"`);
-  return m[1]!;
+  return m[1];
 }
 
 /** Whether `part`'s lines appear one after another in `whole`. */
@@ -86,14 +86,14 @@ describe.skipIf(process.platform === 'win32')('the output the docs show', () => 
     const recorded = await cli(['run', '--', 'node', 'summarize.mjs']);
     if (recorded.code !== 0) throw new Error(recorded.stdout + recorded.stderr);
     const [run] = JSON.parse((await cli(['ls', '--json'])).stdout) as Array<{ runId: string }>;
-    const packed = await cli(['pack', run!.runId, join('goldens', 'summarize-thread')]);
+    const packed = await cli(['pack', run.runId, join('goldens', 'summarize-thread')]);
     if (packed.code !== 0) throw new Error(packed.stdout + packed.stderr);
     // The reference agent's golden runs `node testing/reference-agent/dist/main.js` from the project.
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'triage-inbox'), { recursive: true });
     symlinkSync(join(ROOT, 'testing'), join(dir, 'testing'), 'dir');
     // goldens/* as a shell expands it.
     tested = await cli(['test', join('goldens', 'summarize-thread'), join('goldens', 'triage-inbox')]);
-    replayed = await cli(['replay', run!.runId]);
+    replayed = await cli(['replay', run.runId]);
   }, 120_000);
   afterAll(async () => {
     await mock?.close();

@@ -333,7 +333,7 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
   let existing = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
   if (!existing) {
     const calls = ctx.store.getCalls(run.runId);
-    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) as RunRecord['meta'] & object }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
     const blobs = runBlobs(ctx.store, calls);
     const problem = storeProblem(first.run, calls) ?? localProblem(ctx, calls, blobs);
     if (problem) return { refused: problem };
@@ -365,7 +365,7 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
     }
     const merged = reconcile(run.meta, there.run.meta, row?.base ?? null, madeHere(run.meta));
     if (metaHash(merged) === metaHash(there.run.meta)) return { doc: there, synced: merged, fresh: false, wrote: false };
-    const next: StoredRunDoc = { ...there, run: { ...there.run, meta: withSynced(there.run.meta, merged) as RunRecord['meta'] & object }, pushedAt: now(ctx), pushedBy: ctx.actor };
+    const next: StoredRunDoc = { ...there, run: { ...there.run, meta: withSynced(there.run.meta, merged) }, pushedAt: now(ctx), pushedBy: ctx.actor };
     const problem = storeProblem(next.run, []);
     if (problem) return { refused: problem };
     try {

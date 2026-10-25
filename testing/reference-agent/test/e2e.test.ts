@@ -191,7 +191,7 @@ describe('reference agent: record, replay, fork', () => {
   it('injects an instruction at a model call and keeps it in every later request', async () => {
     const before = mock.requests.length;
     const parentApi = store.getCalls(recording.run.runId).filter((c) => c.kind === 'api');
-    const second = parentApi[1]!; // the 2nd model call: after the first parallel tool pair
+    const second = parentApi[1]; // the 2nd model call: after the first parallel tool pair
     const fork = await ran(sidecar, {
       mode: 'replay',
       parentRunId: recording.run.runId,
@@ -213,8 +213,8 @@ describe('reference agent: record, replay, fork', () => {
     }
     // The fork's own recording holds the request as sent, injection included.
     const forkApi = store.getCalls(fork.run.runId).filter((c) => c.kind === 'api');
-    const stored = store.getJson<{ messages: string[] }>(forkApi[1]!.requestRef!)!;
-    expect(store.getJson(stored.messages[3]!)).toEqual({ role: 'system', content: 'Prefer sources from 2026.' });
+    const stored = store.getJson<{ messages: string[] }>(forkApi[1].requestRef!)!;
+    expect(store.getJson(stored.messages[3])).toEqual({ role: 'system', content: 'Prefer sources from 2026.' });
     expect(fork.summary.byOrigin.blocked).toBe(1);
   });
 
@@ -225,10 +225,10 @@ describe('reference agent: record, replay, fork', () => {
       mode: 'replay',
       parentRunId: recording.run.runId,
       command,
-      interventions: { set: { fromCall: parentApi[2]!.callNo, fields: { max_tokens: 2048, model: 'claude-opus-5-patched' } } },
+      interventions: { set: { fromCall: parentApi[2].callNo, fields: { max_tokens: 2048, model: 'claude-opus-5-patched' } } },
     });
     const d = fork.summary.divergence!;
-    expect(d.callNo).toBe(parentApi[2]!.callNo);
+    expect(d.callNo).toBe(parentApi[2].callNo);
     expect(d.diff).toEqual(expect.arrayContaining([{ path: '$.max_tokens', op: 'changed', before: 1024, after: 2048 }, { path: '$.model', op: 'changed', before: 'claude-opus-5', after: 'claude-opus-5-patched' }]));
     const sent = mock.requests.slice(before);
     expect(sent).toHaveLength(EXPECTED_MODEL_CALLS - 2);
@@ -260,8 +260,8 @@ describe('reference agent: record, replay, fork', () => {
       expect(rec.summary.total).toBe(EXPECTED_TOTAL_CALLS);
       expect(rec.summary.upstreamRequests).toBe(EXPECTED_MODEL_CALLS + 1);
       const retried = store.getCalls(rec.run.runId).find((c) => c.attempts.length > 0)!;
-      expect(retried.attempts[0]!.meta.status).toBe(429);
-      expect(retried.attempts[0]!.meta.retryable).toBe(true);
+      expect(retried.attempts[0].meta.status).toBe(429);
+      expect(retried.attempts[0].meta.retryable).toBe(true);
       expect(retried.end?.outcome).toBe('ok');
 
       const before = mock.requests.length;
@@ -335,7 +335,7 @@ describe('reference agent: record, replay, fork', () => {
     packRun(store, recording.run.runId, dir, { redact: rules });
     const other = Store.open(':memory:');
     const { imported } = unpackRun(other, dir);
-    expect(JSON.stringify(other.getCalls(imported[0]!).map((c) => other.getJson(c.requestRef!)))).not.toContain('team@example.com');
+    expect(JSON.stringify(other.getCalls(imported[0]).map((c) => other.getJson(c.requestRef!)))).not.toContain('team@example.com');
 
     const sc = await Sidecar.start({ store: other, upstreams: { anthropic: mock.url } });
     const client2 = new Anthropic({ apiKey: 'test-key', baseURL: `${sc.url}/anthropic` });
@@ -343,7 +343,7 @@ describe('reference agent: record, replay, fork', () => {
     client = client2;
     try {
       const before = mock.requests.length;
-      const replay = await ran(sc, { mode: 'replay', parentRunId: imported[0]!, command });
+      const replay = await ran(sc, { mode: 'replay', parentRunId: imported[0], command });
       expect(replay.summary.divergence).toBeNull();
       expect(replay.summary.byOrigin.replayed).toBe(EXPECTED_TOTAL_CALLS);
       expect(mock.requests).toHaveLength(before);

@@ -234,7 +234,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
   const gate: Gate | FixedGate = chaos.gate ?? { repeat: golden?.repeat ?? 1, passes: golden?.passes ?? golden?.repeat ?? 1 };
   const shownGate: PresetOutcome['gate'] = 'kind' in gate ? (gate.kind === 'sprt' ? { good: gate.good, bad: gate.bad, risk: gate.risk, max: gate.max } : { repeat: gate.min, passes: gate.min }) : gate;
   // A fork passes on its checks: here, what an error path must do, judged on every attempt.
-  const configured = new Map<string, Effect>(Object.entries(ctx.config.mcp?.effects ?? {}) as Array<[string, Effect]>);
+  const configured = new Map<string, Effect>(Object.entries<Effect>(ctx.config.mcp?.effects ?? {}));
   const limits = chaos.expect ? null : writeLimits(golden, effectsFor(calls, storeEffects(ctx.store, configured)));
   const checks = chaos.expect ?? limits;
   const judge: ChaosJudge = checks ? { source: chaos.expect ? (chaos.expectFrom ?? 'chaos.expect') : 'write-limits', checks: checkLabels(checks) } : { source: 'exit', checks: [] };
@@ -376,7 +376,7 @@ function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetO
       callNo: o.callNo,
       passes: o.passes,
       attempts: o.attempts,
-      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate as Record<string, unknown>, upstreamRequests: o.upstreamRequests, spent: o.spent },
+      data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent },
     });
   } catch (err) {
     process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${(err as Error).message}\n`);

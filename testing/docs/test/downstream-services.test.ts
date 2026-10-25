@@ -127,7 +127,7 @@ describe('a service the agent calls, recorded as an HTTP tool', () => {
     expect(forked.code).toBe(1);
     expect(forked.out).toMatch(/Diverged at call 1 \(tool POST 127\.0\.0\.1:\d+\/v1\/quote\)/);
     // The page's normalizer, for this host.
-    const command = /```sh\n(shadowlap normalize add [^\n]+)\n```/.exec(page)![1]!;
+    const command = /```sh\n(shadowlap normalize add [^\n]+)\n```/.exec(page)![1];
     expect(command).toContain("--name 'POST pricing.internal.example.com/v1/quote' --path '$.args.body.request_id'");
     const added = await shadowlap(['normalize', 'add', '--kind', 'tool', '--name', quoteName, '--path', '$.args.body.request_id', '--replace', '<id>']);
     expect(added.code, added.out).toBe(0);

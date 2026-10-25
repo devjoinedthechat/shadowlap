@@ -10,7 +10,7 @@ export function pythonWith(...packages: string[]): string[] | null {
   const imports = packages.length ? packages.map((p) => `import ${p.replace(/-/g, '_')}`).join('; ') : 'pass';
   const can = (argv: string[]) => {
     try {
-      execFileSync(argv[0]!, [...argv.slice(1), '-c', imports], { stdio: 'ignore', timeout: 120_000 });
+      execFileSync(argv[0], [...argv.slice(1), '-c', imports], { stdio: 'ignore', timeout: 120_000 });
       return true;
     } catch {
       return false;

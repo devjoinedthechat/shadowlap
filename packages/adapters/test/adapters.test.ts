@@ -99,9 +99,9 @@ function buildTools() {
 
 async function runAgent(tools: ReturnType<typeof buildTools>) {
   const out: Record<string, unknown> = {};
-  out.search = await tools.aiTools.search_web.execute!({ query: 'replay' }, { abortSignal: tools.abort.signal, toolCallId: 'x' });
+  out.search = await tools.aiTools.search_web.execute({ query: 'replay' }, { abortSignal: tools.abort.signal, toolCallId: 'x' });
   out.page = await tools.openaiTool.execute({ url: 'https://example.com/a' }, { runContext: {} });
-  out.file = await tools.mastraTool.execute!({ path: 'notes.md' }, { requestContext: {} });
+  out.file = await tools.mastraTool.execute({ path: 'notes.md' }, { requestContext: {} });
   out.lookup = await tools.lcTool.invoke({ type: 'tool_call', name: 'lookup', args: { id: '42' }, id: 'call_random_1' }, { tags: [] });
   try {
     out.email = await tools.anthropicTool.run({ to: 'team@example.com' });
@@ -166,7 +166,7 @@ describe('framework adapters', () => {
     activate(fork.runId);
     executed.length = 0;
     const tools = buildTools();
-    await tools.aiTools.search_web.execute!({ query: 'different' }, { abortSignal: tools.abort.signal });
+    await tools.aiTools.search_web.execute({ query: 'different' }, { abortSignal: tools.abort.signal });
     let email: unknown;
     try {
       email = await tools.anthropicTool.run({ to: 'team@example.com' });
@@ -182,7 +182,7 @@ describe('framework adapters', () => {
     const stubbed = sidecar.startRun({ mode: 'replay', parentRunId: recording, command: { argv: ['agent'], cwd: '.' }, replay: { writes: 'stub' } });
     activate(stubbed.runId);
     const t2 = buildTools();
-    await t2.aiTools.search_web.execute!({ query: 'different' }, {});
+    await t2.aiTools.search_web.execute({ query: 'different' }, {});
     expect(await t2.anthropicTool.run({ to: 'team@example.com' })).toEqual({ sent: false, suppressed: true });
     sidecar.endRun(stubbed.runId, 'completed');
     deactivate();
@@ -202,13 +202,13 @@ describe('framework adapters', () => {
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
     activate(rec.runId);
     executed.length = 0;
-    expect(await def.execute!({ context: { path: 'a.md' }, runtimeContext: {} })).toEqual({ path: 'a.md', runtime: true });
+    expect(await def.execute({ context: { path: 'a.md' }, runtimeContext: {} })).toEqual({ path: 'a.md', runtime: true });
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getJson<{ args: unknown }>(store.getCalls(rec.runId)[0]!.requestRef!)).toEqual({ args: { path: 'a.md' } });
+    expect(store.getJson<{ args: unknown }>(store.getCalls(rec.runId)[0].requestRef!)).toEqual({ args: { path: 'a.md' } });
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
     activate(rep.runId);
     executed.length = 0;
-    expect(await def.execute!({ context: { path: 'a.md' }, runtimeContext: {} })).toEqual({ path: 'a.md', runtime: true });
+    expect(await def.execute({ context: { path: 'a.md' }, runtimeContext: {} })).toEqual({ path: 'a.md', runtime: true });
     expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
     expect(executed).toEqual([]);
     deactivate();

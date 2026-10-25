@@ -40,7 +40,7 @@ beforeAll(() => {
   store.endRun(failing, 'completed', 1_500);
   // Blame probed #3: three attempts escalated and passed, two refunded and failed.
   const report = blameReport(failing);
-  const probe = report.probes[1]!;
+  const probe = report.probes[1];
   const results: Array<[boolean, Array<[string, Origin]>]> = [
     [true, ESCALATE],
     [false, REFUND],
@@ -63,7 +63,7 @@ beforeAll(() => {
     [false, []],
     [true, ESCALATE],
   ];
-  verify.runs[0]!.attempts = tries.map(([passed, tools]) => ({ ...verify.runs[0]!.attempts[0]!, runId: attempt(3, tools, { verify: { role: 'target', passed } }), passed, failures: passed ? [] : ['the agent exited with code 1'], forkedAt: 3 }));
+  verify.runs[0].attempts = tries.map(([passed, tools]) => ({ ...verify.runs[0].attempts[0], runId: attempt(3, tools, { verify: { role: 'target', passed } }), passed, failures: passed ? [] : ['the agent exited with code 1'], forkedAt: 3 }));
   recordVerdict(store, { report: verify, expect: EXPECT, command: 'shadowlap verify', at: 6_000, fixIds: [fixId] });
 });
 afterAll(() => store.close());
@@ -74,20 +74,20 @@ describe('a fix’s attempts grouped by what each did', () => {
     expect(g.cut).toBe(false);
     expect(g.blame!.probes.map((p) => p.callNo)).toEqual([3]);
     const [probe] = g.blame!.probes;
-    expect(probe!.attempts).toBe(5);
-    expect(probe!.groups.map((x) => [x.count, x.verdict, x.path, x.why])).toEqual([
+    expect(probe.attempts).toBe(5);
+    expect(probe.groups.map((x) => [x.count, x.verdict, x.path, x.why])).toEqual([
       [3, 'passed', ['escalate (stubbed)'], null],
       [2, 'failed', ['issue_refund (blocked)'], FAILURE],
     ]);
     // Each group opens one of its attempts, where it left the run.
-    expect(probe!.groups[1]!.example.href).toMatch(new RegExp(`^#/run/${probe!.groups[1]!.example.runId}/3$`));
+    expect(probe.groups[1].example.href).toMatch(new RegExp(`^#/run/${probe.groups[1].example.runId}/3$`));
   });
 
   it('groups each verified run’s attempts, a run that called no tool among them', () => {
     const [verdict] = fixAttemptGroups(store, fixId)!.verify;
-    expect(verdict!.runs).toHaveLength(1);
-    expect(verdict!.runs[0]).toMatchObject({ runId: failing, role: 'target', attempts: 4 });
-    expect(verdict!.runs[0]!.groups.map((x) => [x.count, x.verdict, x.path, x.why])).toEqual([
+    expect(verdict.runs).toHaveLength(1);
+    expect(verdict.runs[0]).toMatchObject({ runId: failing, role: 'target', attempts: 4 });
+    expect(verdict.runs[0].groups.map((x) => [x.count, x.verdict, x.path, x.why])).toEqual([
       [3, 'passed', ['escalate (stubbed)'], null],
       [1, 'failed', [], 'the agent exited with code 1'],
     ]);
@@ -96,13 +96,13 @@ describe('a fix’s attempts grouped by what each did', () => {
   it('puts a failing group first among groups as large, and reads at most so many attempts', () => {
     const ids = [attempt(3, REFUND), attempt(3, ESCALATE)];
     const g = groupAttempts(store, [
-      { runId: ids[1]!, passed: true, failures: [] },
-      { runId: ids[0]!, passed: false, failures: ['no'] },
+      { runId: ids[1], passed: true, failures: [] },
+      { runId: ids[0], passed: false, failures: ['no'] },
     ]);
     expect(g.groups.map((x) => x.verdict)).toEqual(['failed', 'passed']);
-    const many = groupAttempts(store, Array.from({ length: MAX_ATTEMPTS + 1 }, () => ({ runId: ids[0]!, passed: false, failures: [] })));
+    const many = groupAttempts(store, Array.from({ length: MAX_ATTEMPTS + 1 }, () => ({ runId: ids[0], passed: false, failures: [] })));
     expect(many.cut).toBe(true);
-    expect(many.groups[0]!.count).toBe(MAX_ATTEMPTS);
+    expect(many.groups[0].count).toBe(MAX_ATTEMPTS);
     // An attempt gc deleted since is passed over.
     expect(groupAttempts(store, [{ runId: '01GONE0000000000000000000A', passed: true, failures: [] }]).groups).toEqual([]);
   });

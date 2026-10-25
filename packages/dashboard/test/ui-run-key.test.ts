@@ -145,16 +145,16 @@ describe('the key on a run’s header', () => {
     // Bad is pressed; neither good nor bad is a chip of its own, the other labels are.
     expect(keyButton('bad').getAttribute('aria-pressed')).toBe('true');
     expect(keyButton('good').getAttribute('aria-pressed')).toBe('false');
-    expect(r.all('.rhead .labelbar .chip').map((c) => c.childNodes[0]!.textContent)).toEqual(['refund-bug']);
+    expect(r.all('.rhead .labelbar .chip').map((c) => c.childNodes[0].textContent)).toEqual(['refund-bug']);
     await r.click(keyButton('good'));
     await r.until('the toast', () => toasts.length > 0);
     expect(asked).toEqual([{ runId: RUN, add: ['good'], remove: ['bad'] }]);
     expect(keyButton('good').getAttribute('aria-pressed')).toBe('true');
     expect(keyButton('bad').getAttribute('aria-pressed')).toBe('false');
-    expect(toasts[0]!.text).toBe('01M5GRX8K4 is good: a repair keeps it working (--keeps label:good)');
-    expect(toasts[0]!.action?.label).toBe('Undo');
+    expect(toasts[0].text).toBe('01M5GRX8K4 is good: a repair keeps it working (--keeps label:good)');
+    expect(toasts[0].action?.label).toBe('Undo');
     // Undo: bad back, good off.
-    toasts[0]!.action!.run();
+    toasts[0].action!.run();
     await r.until('put back', () => keyButton('bad').getAttribute('aria-pressed') === 'true');
     expect(asked[1]).toEqual({ runId: RUN, add: ['bad'], remove: ['good'] });
     expect(toasts.at(-1)!.text).toBe('01M5GRX8K4: put back as it was');
@@ -203,21 +203,21 @@ describe('the key on a row of Runs', () => {
     r = await render(createElement(RunsTable, { rows, picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: T, onMark: (run: TableRun, m: string) => void marked.push([run.runId, m]) }));
     const groups = r.all('table.runst tbody td.keycell .runkey');
     expect(groups).toHaveLength(2);
-    expect(groups[0]!.getAttribute('aria-label')).toBe('Good or bad: 01M5MXZ4Q3');
+    expect(groups[0].getAttribute('aria-label')).toBe('Good or bad: 01M5MXZ4Q3');
     // Its words for a screen reader, its marks for the eye.
-    expect(r.all('table.runst tbody tr')[0]!.querySelectorAll('.runkey button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
+    expect(r.all('table.runst tbody tr')[0].querySelectorAll('.runkey button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
       ['good', 'true'],
       ['bad', 'false'],
     ]);
-    expect(r.all('table.runst tbody tr')[0]!.querySelectorAll('.labs .chip').map((c) => c.textContent)).toEqual(['nightly']);
-    await r.click(r.all('table.runst tbody tr')[1]!.querySelectorAll('.runkey button')[1]!);
-    expect(marked).toEqual([[rows[1]!.runId, 'bad']]);
+    expect(r.all('table.runst tbody tr')[0].querySelectorAll('.labs .chip').map((c) => c.textContent)).toEqual(['nightly']);
+    await r.click(r.all('table.runst tbody tr')[1].querySelectorAll('.runkey button')[1]);
+    expect(marked).toEqual([[rows[1].runId, 'bad']]);
     // + on the row's checkbox: that row, good.
-    const box = r.all('table.runst tbody tr')[1]!.querySelector('input[type="checkbox"]')!;
+    const box = r.all('table.runst tbody tr')[1].querySelector('input[type="checkbox"]')!;
     box.focus();
     const e = await r.press('+');
     expect(e.defaultPrevented).toBe(true);
-    expect(marked.at(-1)).toEqual([rows[1]!.runId, 'good']);
+    expect(marked.at(-1)).toEqual([rows[1].runId, 'good']);
   });
 
   it('is not there in a table that changes nothing, whose labels stay chips', async () => {

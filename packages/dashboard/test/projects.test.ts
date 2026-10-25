@@ -50,7 +50,7 @@ describe('projectSwitcher', () => {
       ['support-agent', '~/support-agent · 1,200 runs', true, false, true],
       ['triage-bot', '~/triage-bot · no runs yet · setting up', false, true, true],
     ]);
-    expect(v.items[1]!.removeLabel).toBe('Remove triage-bot from the dashboard');
+    expect(v.items[1].removeLabel).toBe('Remove triage-bot from the dashboard');
     expect(v.add).toEqual({ label: 'Add project…', hint: 'a folder with your agent’s code', href: '#/new' });
     expect(v.note).toBe('Each project keeps its own store.');
   });
@@ -85,7 +85,7 @@ describe('projectSwitcher', () => {
       ['newer', '~/newer · store can’t be read', false, true],
       ['Übung', '~/Übung · no runs yet · setting up', true, false],
     ]);
-    expect(v.items[1]!.why).toBe('it was written by a newer Shadowlap');
+    expect(v.items[1].why).toBe('it was written by a newer Shadowlap');
     // A name macOS keeps decomposed gets its letter whole on the badge.
     expect(projectSwitcher({ projects: [{ ...entry('ubung'), name: 'U\u0308bung' }], current: 'ubung', stats: {}, home: HOME }).current.initial).toBe('Ü');
   });
@@ -128,7 +128,7 @@ describe('addProjectPage', () => {
     const deep = '/Volumes/work/clients/northwind/support/agents/refund-escalations/2026-q4/research-agent-v2';
     const far = addProjectPage({ query: deep, suggestions, picked: { path: deep, folder: kind('Python · uv') }, home: HOME });
     expect(far.button).toEqual({ label: 'Add research-agent-v2', disabled: false, path: deep, title: deep });
-    expect(ok.folders[0]!.selected).toBe(true);
+    expect(ok.folders[0].selected).toBe(true);
     expect(ok.error).toBeNull();
 
     const why = 'No pyproject.toml, package.json or requirements file in ~/Downloads. Pick the folder your agent’s code is in.';
@@ -353,7 +353,7 @@ describe('setupView', () => {
   });
 
   it('words one tool that isn’t wrapped in the singular', () => {
-    const oneTool = findings({ tools: [findings().tools[0]!, findings().tools[1]!], wrap: [{ language: 'python', tools: ['save_report'], code: 'from shadowlap import tool\n…' }] });
+    const oneTool = findings({ tools: [findings().tools[0], findings().tools[1]], wrap: [{ language: 'python', tools: ['save_report'], code: 'from shadowlap import tool\n…' }] });
     const v = view(entry('research-agent', { stage: 'inspected', findings: oneTool, runId: RUN }), facts({ runs: 1, recordings: [run()] }));
     expect(v.inspect.warning).toMatchObject({
       title: '1 write tool isn’t wrapped.',

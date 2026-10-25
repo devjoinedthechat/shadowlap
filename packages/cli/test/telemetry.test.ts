@@ -10,11 +10,11 @@ const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ HOME: 
 function fakeFetch(): { fetch: typeof fetch; batches: TelemetryBatch[]; urls: string[] } {
   const batches: TelemetryBatch[] = [];
   const urls: string[] = [];
-  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+  const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
     urls.push(String(url));
     batches.push(JSON.parse(String(init?.body)) as TelemetryBatch);
     return new Response('{}', { status: 202 });
-  }) as unknown as typeof fetch;
+  };
   return { fetch: fetchImpl, batches, urls };
 }
 
@@ -62,8 +62,8 @@ describe('telemetry', () => {
     expect(ev.ci).toBeNull();
     expect(await t2.flush()).toBe(true);
     expect(f.urls).toEqual(['http://collector.test/v1/events']);
-    expect(f.batches[0]!.installId).toBe(t1.installId);
-    expect(f.batches[0]!.events).toHaveLength(1);
+    expect(f.batches[0].installId).toBe(t1.installId);
+    expect(f.batches[0].events).toHaveLength(1);
     expect(JSON.stringify(f.batches[0])).not.toMatch(/nonexistent|Users|home/);
     expect(await t2.flush()).toBe(false); // buffer drained
   });

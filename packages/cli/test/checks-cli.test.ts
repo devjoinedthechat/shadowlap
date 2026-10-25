@@ -73,9 +73,9 @@ beforeAll(async () => {
   await record('under', 'A-1042', 200);
   await record('small', 'B-7', 40);
   await record('escalated', 'A-1042', null);
-  expect((await shadowlap(['label', runs.under!, 'good'])).code).toBe(0);
+  expect((await shadowlap(['label', runs.under, 'good'])).code).toBe(0);
   for (const [name, dir] of [['small', 'goldens/in-limit'], ['over', 'goldens/over-limit'], ['escalated', 'goldens/escalated']] as const) {
-    const packed = await shadowlap(['pack', runs[name]!, dir]);
+    const packed = await shadowlap(['pack', runs[name], dir]);
     expect(packed.code, packed.out).toBe(0);
   }
 }, 120_000);
@@ -87,21 +87,21 @@ afterAll(async () => {
 
 describe('a calls rule through the CLI', () => {
   it('fails a replay that refunds above the looked-up amount, naming both values, and passes the same run below it', async () => {
-    const over = await shadowlap(['replay', runs.over!, '--expect', REFUND_RULE, '--summary-json', 'over-replay.json']);
+    const over = await shadowlap(['replay', runs.over, '--expect', REFUND_RULE, '--summary-json', 'over-replay.json']);
     expect(over.code, over.out).toBe(1);
     expect(over.out).toContain('✗ 1 of 1 check failed (--expect)');
     expect(over.out).toMatch(/✗ every issue_refund call: after lookup_order, amount <= lookup_order\.result\.amount, but issue_refund #\d+: amount 300 > lookup_order\.result\.amount 240 \(#\d+\)/);
     const summary = JSON.parse(readFileSync(join(work, 'over-replay.json'), 'utf8')) as { checks: Array<Record<string, unknown>> };
     expect(summary.checks).toEqual([{ status: 'failed', ok: false, label: 'every issue_refund call: after lookup_order, amount <= lookup_order.result.amount', detail: expect.stringMatching(/^issue_refund #\d+: amount 300 > lookup_order\.result\.amount 240 \(#\d+\)$/) }]);
 
-    const under = await shadowlap(['replay', runs.under!, '--expect', REFUND_RULE]);
+    const under = await shadowlap(['replay', runs.under, '--expect', REFUND_RULE]);
     expect(under.code, under.out).toBe(0);
     expect(under.out).toContain('✓ 1 check passed (--expect)');
   }, 60_000);
 
   it('judges recordings by a rule without replaying any: shadowlap check', async () => {
     const before = mock.requests.length;
-    const r = await shadowlap(['check', runs.over!, runs.under!, runs.escalated!, '--expect', REFUND_RULE, '--json']);
+    const r = await shadowlap(['check', runs.over, runs.under, runs.escalated, '--expect', REFUND_RULE, '--json']);
     expect(r.code, r.out).toBe(1);
     expect(mock.requests.length).toBe(before);
     const report = JSON.parse(r.stdout) as { expect: unknown; recordings: Array<{ runId: string; outcome: string; checks: Array<{ status: string; detail: string | null }> }>; counts: Record<string, number>; notes: string[]; unchecked: string[] };
@@ -111,7 +111,7 @@ describe('a calls rule through the CLI', () => {
       [runs.under, 'passed'],
       [runs.escalated, 'passed'],
     ]);
-    expect(report.recordings[0]!.checks[0]!.detail).toMatch(/amount 300 > lookup_order\.result\.amount 240/);
+    expect(report.recordings[0].checks[0].detail).toMatch(/amount 300 > lookup_order\.result\.amount 240/);
     expect(report.counts).toEqual({ passed: 2, failed: 1, inconclusive: 0 });
 
     // Every recording in the store by default; a rule that fails a run labelled good says so.
@@ -119,14 +119,14 @@ describe('a calls rule through the CLI', () => {
     const all = await shadowlap(['check', '--expect', strict]);
     expect(all.code).toBe(1);
     expect(all.out).toMatch(/4 recordings judged from what they recorded, nothing replayed: 2 failed, 2 passed/);
-    expect(all.out).toContain(`! fails 1 recording labelled good: ${runs.under!.slice(0, 10)}`);
-    expect(all.out).toMatch(new RegExp(`✗ ${runs.under!.slice(0, 10)}  good · node(\\.exe)? support-agent\\.mjs A-1042: failed`));
+    expect(all.out).toContain(`! fails 1 recording labelled good: ${runs.under.slice(0, 10)}`);
+    expect(all.out).toMatch(new RegExp(`✗ ${runs.under.slice(0, 10)}  good · node(\\.exe)? support-agent\\.mjs A-1042: failed`));
   }, 60_000);
 });
 
 describe('shadowlap check, named more than one way', () => {
   it('judges each recording once however it is named, the pack when it is one, and says a reason once', async () => {
-    const r = await shadowlap(['check', runs.under!, 'label:good', runs.over!, 'goldens/over-limit', '--expect', REFUND_RULE, '--json']);
+    const r = await shadowlap(['check', runs.under, 'label:good', runs.over, 'goldens/over-limit', '--expect', REFUND_RULE, '--json']);
     expect(r.code, r.out).toBe(1);
     const report = JSON.parse(r.stdout) as { recordings: Array<{ runId: string; pack: string | null; outcome: string }>; counts: Record<string, number> };
     expect(report.recordings.map((x) => [x.runId, x.pack, x.outcome])).toEqual([
@@ -135,7 +135,7 @@ describe('shadowlap check, named more than one way', () => {
     ]);
     expect(report.counts).toEqual({ passed: 1, failed: 1, inconclusive: 0 });
     // A check on the output alone can't be settled from a recording: the line says why, once.
-    const printed = await shadowlap(['check', runs.under!, '--expect', JSON.stringify({ output: { includes: 'Done' } })]);
+    const printed = await shadowlap(['check', runs.under, '--expect', JSON.stringify({ output: { includes: 'Done' } })]);
     expect(printed.code).toBe(3);
     expect(printed.out.match(/a check reads what the agent printed/g)).toHaveLength(1);
   }, 60_000);
@@ -152,11 +152,11 @@ describe('shadowlap check, named more than one way', () => {
 
   it('notes a value the checks read that none of the calls judged has, and the key it most likely meant', async () => {
     const misspelt = JSON.stringify({ when: [{ if: { tool: 'lookup_order', result: { amout: { '>': 100 } } }, then: { tools: { escalate: '>= 1' } } }] });
-    const r = await shadowlap(['check', runs.over!, runs.small!, '--expect', misspelt, '--json']);
+    const r = await shadowlap(['check', runs.over, runs.small, '--expect', misspelt, '--json']);
     expect(r.code, r.out).toBe(3);
     const report = JSON.parse(r.stdout) as { recordings: Array<{ outcome: string; checks: Array<{ status: string; detail: string }> }>; notes: string[] };
     expect(report.recordings.map((x) => x.outcome)).toEqual(['inconclusive', 'inconclusive']);
-    expect(report.recordings[0]!.checks[0]!.detail).toMatch(/^could not tell whether the condition held: lookup_order #\d+: has no result\.amout$/);
+    expect(report.recordings[0].checks[0].detail).toMatch(/^could not tell whether the condition held: lookup_order #\d+: has no result\.amout$/);
     expect(report.notes).toEqual(['--expect.when[0].if.result["amout"] reads result.amout from lookup_order, which none of the 2 lookup_order calls judged has: did you mean amount?']);
   }, 60_000);
 });
@@ -168,17 +168,17 @@ describe('a when rule through shadowlap test', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.out).toMatch(/✓ in-limit: .*, 2 checks not applicable/);
     const report = JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ ok: boolean; checks: Array<Record<string, unknown>> }> };
-    expect(report.results[0]!.ok).toBe(true);
-    expect(report.results[0]!.checks).toEqual([
+    expect(report.results[0].ok).toBe(true);
+    expect(report.results[0].checks).toEqual([
       { status: 'not-applicable', ok: true, label: 'when lookup_order has result.amount > 100: escalate called at least 1 time', detail: expect.stringMatching(/^the condition never held: lookup_order #\d+: result\.amount 40 <= 100$/) },
       { status: 'not-applicable', ok: true, label: 'when lookup_order has result.amount > 100: issue_refund called 0 times', detail: expect.stringMatching(/^the condition never held/) },
     ]);
     expect(readFileSync(join(work, 'in-limit.md'), 'utf8')).toContain('| ✅ | `in-limit` | clean, 2 checks not applicable |');
-    expect((JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ verdict: string }> }).results[0]!.verdict).toBe('passed');
+    expect((JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ verdict: string }> }).results[0].verdict).toBe('passed');
     // A CI's JUnit view of a pass says what did not apply, rather than a plain pass.
     expect(readFileSync(join(work, 'in-limit.xml'), 'utf8')).toMatch(/<system-out><!\[CDATA\[– when lookup_order has result\.amount > 100: escalate called at least 1 time: not applicable · the condition never held: lookup_order #\d+: result\.amount 40 <= 100/);
     // The run it made counts its checks as they came out: none of them passed, two did not apply.
-    const testRun = (JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ runId: string }> }).results[0]!.runId;
+    const testRun = (JSON.parse(readFileSync(join(work, 'in-limit.json'), 'utf8')) as { results: Array<{ runId: string }> }).results[0].runId;
     const ls = await shadowlap(['ls', '--json']);
     const listed = (JSON.parse(ls.stdout) as Array<{ runId: string; checks: unknown }>).find((x) => x.runId === testRun);
     expect(listed?.checks).toEqual({ passed: 0, total: 2, notApplicable: 2 });
@@ -234,8 +234,8 @@ describe('doctor on checks', () => {
       `${w}.calls[0].after names lookup_orders, which no recording called or offered to its model (…), so every call the rule checks fails it`,
       'tests["goldens/missing-*"] has checks but no recording: there is no pack that matches it',
     ]);
-    expect(checks[0]!.detail).toMatch(held);
-    expect(checks[1]!.fix).toBe('Did you mean lookup_order? Otherwise check the name: the recordings call escalate, issue_refund, lookup_order.');
+    expect(checks[0].detail).toMatch(held);
+    expect(checks[1].fix).toBe('Did you mean lookup_order? Otherwise check the name: the recordings call escalate, issue_refund, lookup_order.');
     expect(checks.every((c) => c.verdict === 'warn')).toBe(true);
   });
 

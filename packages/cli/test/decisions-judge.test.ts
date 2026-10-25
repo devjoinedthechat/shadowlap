@@ -90,7 +90,7 @@ async function project(name: string, judge: unknown[], config: Record<string, un
   writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ ...config, tests: { 'goldens/research': { expect: { judge } } } }));
   const rec = await shadowlap(dir, ['run', '--', process.execPath, AGENT]);
   expect(rec.code, rec.out).toBe(0);
-  const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+  const runId = /recording run (\w{26})/.exec(rec.out)![1];
   const packed = await shadowlap(dir, ['pack', runId, 'goldens/research']);
   expect(packed.code, packed.out).toBe(0);
   const store = Store.open(join(dir, 'store.db'));
@@ -116,14 +116,14 @@ describe('a text-only change a judge check reads', () => {
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([p.runId]);
     expect(report.counts).toMatchObject({ 1: 0, 2: 1, 5: 0, same: 10 });
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ callNo: p.final, rank: 2, majority: 2, recorded: { stop: 'answer', text: FINAL_RECORDED }, now: { stop: 'answer', text: FINAL_TERSE } });
     expect(step.changes.map((c) => [c.rank, c.kind, c.before, c.after])).toEqual([
       [2, 'judge', 'passed', 'failed'],
       [2, 'judge', 'passed', 'failed'],
       [5, 'text', FINAL_RECORDED, FINAL_TERSE],
     ]);
-    expect(step.changes[0]!.detail).toBe('judge "fences" fails what it says now, which passed as recorded');
+    expect(step.changes[0].detail).toBe('judge "fences" fails what it says now, which passed as recorded');
     // Each check's verdict on both sides: the recorded words' from the golden's own judge call, free; the new words' live.
     const judged = step.judge!;
     expect(judged.map((j) => j.name)).toEqual(['fences', 'run-fences']);
@@ -132,14 +132,14 @@ describe('a text-only change a judge check reads', () => {
       expect(j.now.cost).toBeGreaterThan(0);
       expect(j.now.request).toMatch(/^[0-9a-f]{32}$/);
     }
-    expect(judged[0]!.of).toBe('answer');
-    expect(judged[1]!.of).toBe('run');
+    expect(judged[0].of).toBe('answer');
+    expect(judged[1].of).toBe('run');
     // Only the new words were asked, each as the judge runtime asks: at temperature 0, for the verdict's schema.
     const sent = judgeRequests(mock.requests).slice(asked);
     expect(sent).toHaveLength(2);
-    expect(sent[0]!.material).toBe(FINAL_TERSE);
-    expect(sent[1]!.material).toContain(`assistant: ${FINAL_TERSE}`);
-    expect(sent[1]!.material).not.toContain(FINAL_RECORDED);
+    expect(sent[0].material).toBe(FINAL_TERSE);
+    expect(sent[1].material).toContain(`assistant: ${FINAL_TERSE}`);
+    expect(sent[1].material).not.toContain(FINAL_RECORDED);
     for (const q of sent) expect(q.request).toMatchObject({ model: 'claude-haiku-4-5', temperature: 0, output_config: { format: { type: 'json_schema' } } });
     // What judging cost, apart from asking.
     expect(report.judge).toMatchObject({ steps: 1, changed: 1, inconclusive: 0, upstreamRequests: 2, unknownModels: [] });
@@ -149,7 +149,7 @@ describe('a text-only change a judge check reads', () => {
     expect(report.notes).toContain('The judge check "printed" reads what the agent printed, which asking a model call again doesn\'t make: verify judges it end to end when it takes a run (--then-verify, migrate).');
     expect(step.samples).toEqual({ asked: 1, answered: 1, changed: 1, unjudged: 0, ranks: [2] });
     expect(report.notes.join('\n')).not.toMatch(/counted, not judged/);
-    const shapes = [departures('decisions', report), departures('decisionsStep', step), departures('decisionsDifference', step.changes[0]), departures('decisionsJudge', judged[0]), departures('decisionsJudgeSide', judged[0]!.now), departures('decisionsJudged', report.judge)];
+    const shapes = [departures('decisions', report), departures('decisionsStep', step), departures('decisionsDifference', step.changes[0]), departures('decisionsJudge', judged[0]), departures('decisionsJudgeSide', judged[0].now), departures('decisionsJudged', report.judge)];
     expect(shapes.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
 
     // Kept with the session, for the run's page.
@@ -178,7 +178,7 @@ describe('a text-only change a judge check reads', () => {
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(judgeRequests(mock.requests).length).toBe(asked);
-    const judged = report.runs[0]!.decisions[0]!.judge!;
+    const judged = report.runs[0].decisions[0].judge!;
     expect(judged.map((j) => [j.recorded.source, j.now.source, j.now.cost, j.changed])).toEqual([
       ['recording', 'kept', 0, true],
       ['recording', 'kept', 0, true],
@@ -192,7 +192,7 @@ describe('a text-only change a judge check reads', () => {
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([]);
     expect(report.counts).toMatchObject({ 2: 0, 5: 1 });
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ rank: 5, changes: [{ kind: 'text' }] });
     expect(step.judge!.map((j) => [j.name, j.recorded.status, j.now.status, j.now.source, j.changed])).toEqual([
       ['fences', 'passed', 'passed', 'live', false],
@@ -209,7 +209,7 @@ describe('a text-only change a judge check reads', () => {
     const report = json<DecisionsReport>(r);
     // Only the new words were sent, masked: the recorded words' verdict is the golden's own, read the same way when it was packed.
     expect(judgeRequests(mock.requests).slice(asked).map((q) => q.material)).toEqual(['Done. Recorded runs replay <masked>.']);
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ rank: 2, now: { text: 'Done. Recorded runs replay <masked>.' } });
     expect(step.judge!.map((j) => [j.recorded.source, j.now.source, j.changed])).toEqual([['recording', 'live', true]]);
     expect(report.notes).toContain("The project's redaction rules masked the values this report shows, and what each judge check read, as they mask every export, pack and share link.");
@@ -221,13 +221,13 @@ describe('a text-only change a judge check reads', () => {
     const results = join(p.dir, 'test.json');
     const tested = await shadowlap(p.dir, ['test', 'goldens/research', '--inconclusive', 'warn', '--json', results]);
     expect(tested.code, tested.out).toBe(0);
-    const replay = (JSON.parse(readFileSync(results, 'utf8')) as { results: Array<{ runId: string }> }).results[0]!.runId;
+    const replay = (JSON.parse(readFileSync(results, 'utf8')) as { results: Array<{ runId: string }> }).results[0].runId;
     const r = await shadowlap(p.dir, ['decisions', replay, '--model', 'mock-terse', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([replay]);
     // The replay holds the judge's calls it was served from the recording: the recorded words' verdicts, free.
-    expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.status])).toEqual([
+    expect(report.runs[0].decisions[0].judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.status])).toEqual([
       ['fences', 'recording', 'passed', 'failed'],
       ['run-fences', 'recording', 'passed', 'failed'],
     ]);
@@ -265,7 +265,7 @@ describe('a judge check that cannot be asked', () => {
     expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     const why = 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)';
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ rank: 5, samples: { answered: 1, unjudged: 1 }, judge: [{ name: 'fences', changed: null, recorded: { status: 'inconclusive', verdict: null, reason: why, source: null }, now: { status: 'inconclusive', reason: why, source: null } }] });
     expect(report.flagged).toEqual([]);
     expect(report.judge).toMatchObject({ steps: 1, changed: 0, inconclusive: 1, upstreamRequests: 0 });
@@ -294,7 +294,7 @@ describe('a judge check that cannot be asked', () => {
     expect(passesOf([run([check('passed')], { ranks: [5], unjudged: 0, majority: 5 })], [], null, () => true)).toMatchObject([{ verdict: 'passed', outcome: 'unchanged' }]);
     // Three samples: the one shown came out otherwise, in fewer than half of them, and the judge could not judge the other two, which might flag it.
     const hidden = run([check('failed')], { ranks: [2, 5, 5], unjudged: 2, majority: 5 });
-    expect(judgeOpen(hidden.decisions[0]!)).toBe(true);
+    expect(judgeOpen(hidden.decisions[0])).toBe(true);
     expect(passesOf([hidden], [], null, () => true)).toMatchObject([{ verdict: 'inconclusive', outcome: 'not-judged' }]);
     expect(decisionsInconclusive({ stopReason: null, runs: [hidden], flagged: [], verify: null } as unknown as DecisionsReport)).toBe('1 run has a text-only change a judge check reads that could not be judged');
   });
@@ -309,12 +309,12 @@ describe('judging text-only changes, more ways', () => {
     expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(judgeRequests(mock.requests).length - asked).toBe(1);
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step.judge!.map((j) => [j.name, j.now.source, j.now.status, j.changed])).toEqual([
       ['fences', 'live', 'passed', false],
       ['run-fences', null, 'inconclusive', null],
     ]);
-    expect(step.judge![1]!.now.reason).toBe('not judged: the budget of $0.00 is spent');
+    expect(step.judge![1].now.reason).toBe('not judged: the budget of $0.00 is spent');
     expect(step).toMatchObject({ rank: 5, samples: { unjudged: 1 } });
     expect(report.stopReason).toBeNull();
     expect(report.flagged).toEqual([]);
@@ -334,7 +334,7 @@ describe('judging text-only changes, more ways', () => {
     // Three samples, the same new words: their verdict is asked once and read three times.
     expect(judgeRequests(mock.requests).length - asked).toBe(1);
     expect(report.judge).toMatchObject({ steps: 1, changed: 1, inconclusive: 0, upstreamRequests: 1 });
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ rank: 2, majority: 2, samples: { asked: 3, answered: 3, changed: 3, unjudged: 0, ranks: [2, 2, 2] } });
     expect(step.judge!.map((j) => [j.recorded.source, j.now.source, j.changed])).toEqual([['recording', 'live', true]]);
     expect(report.flagged).toEqual([p.runId]);
@@ -347,7 +347,7 @@ describe('judging text-only changes, more ways', () => {
     const r = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-mixed', '--samples', '2', '--budget', '0.0001', '--json']);
     expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step.samples).toMatchObject({ asked: 2, answered: 2, changed: 2, unjudged: 1 });
     expect(step.samples.ranks.slice().sort()).toEqual(step.samples.ranks.includes(2) ? [2, 5] : [5, 5]);
     expect(judgeOpen(step)).toBe(true);
@@ -368,7 +368,7 @@ describe('judging text-only changes, more ways', () => {
     const again = await shadowlap(p.dir, ['decisions', 'goldens/*', '--model', 'mock-terse', '--json']);
     const report = json<DecisionsReport>(again);
     expect(report.judge).toMatchObject({ upstreamRequests: 0, spent: 0, unknownModels: [] });
-    expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.now.source, j.now.cost])).toEqual([['kept', 0]]);
+    expect(report.runs[0].decisions[0].judge!.map((j) => [j.now.source, j.now.cost])).toEqual([['kept', 0]]);
   }, 120_000);
 
   it('judges with the checks --expect gives --then-verify, which a golden with none has not', async () => {
@@ -379,7 +379,7 @@ describe('judging text-only changes, more ways', () => {
     expect(r.code, r.out).toBe(1);
     const report = json<DecisionsReport>(r);
     // The recording holds no verdict for a check it was never judged by: both sides are asked live.
-    expect(report.runs[0]!.decisions[0]!.judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.source, j.now.status])).toEqual([['fences', 'live', 'passed', 'live', 'failed']]);
+    expect(report.runs[0].decisions[0].judge!.map((j) => [j.name, j.recorded.source, j.recorded.status, j.now.source, j.now.status])).toEqual([['fences', 'live', 'passed', 'live', 'failed']]);
     expect(report.flagged).toEqual([p.runId]);
     expect(report.verify).toMatchObject({ verdict: 'rejected', runs: [{ runId: p.runId, outcome: 'broken', passes: 0, attempts: 1 }] });
   }, 180_000);
@@ -451,7 +451,7 @@ describe('judging text-only changes, more ways', () => {
     writeFileSync(counter, '2');
     const rec = await shadowlap(dir, ['run', '--', process.execPath, FLAKY, counter, process.execPath, AGENT]);
     expect(rec.code, rec.out).not.toBe(0);
-    const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(rec.out)![1];
     const packed = await shadowlap(dir, ['pack', runId, 'goldens/research']);
     expect(packed.code, packed.out).toBe(0);
     const asked = judgeRequests(mock.requests).length;
@@ -459,7 +459,7 @@ describe('judging text-only changes, more ways', () => {
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
     expect(judgeRequests(mock.requests).length).toBe(asked);
-    expect(report.runs[0]!.decisions[0]).toMatchObject({ rank: 5, judge: null, samples: { unjudged: 0 } });
+    expect(report.runs[0].decisions[0]).toMatchObject({ rank: 5, judge: null, samples: { unjudged: 0 } });
     expect(report.judge).toBeNull();
     expect(report.notes).toContain(`${runId.slice(0, 10)} did not complete, so it fails its checks whatever a judge says: no judge check reads its text-only changes, which are counted.`);
     expect(decisionsInconclusive(report)).toBeNull();

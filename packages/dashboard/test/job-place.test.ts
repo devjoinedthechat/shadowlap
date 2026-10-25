@@ -62,9 +62,9 @@ describe('where a job’s commands run', () => {
   it('runs every command of a job of several against its project’s store, in its folder, with its environment', async () => {
     const { jobs, children, spawned } = setup(() => ({ args: ['pack', '01K5CQ7A3M00000000000000AB', 'goldens/triage-bot'], then: [['test', 'goldens/triage-bot']], env: { SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:11434' } }));
     const started = await jobs.start('keep', {});
-    children[0]!.end(0);
+    children[0].end(0);
     await new Promise((r) => setTimeout(r, 30));
-    children[1]!.end(0);
+    children[1].end(0);
     const view = await until(jobs, started.id);
     expect(view.code).toBe(0);
     expect(spawned.map((s) => s.args)).toEqual([['pack', '01K5CQ7A3M00000000000000AB', 'goldens/triage-bot'], ['test', 'goldens/triage-bot']]);
@@ -76,7 +76,7 @@ describe('where a job’s commands run', () => {
     const { jobs, children } = setup(() => ({ args: ['run', '--', 'node', 'agent.mjs'], started }));
     const job = await jobs.start('keep', {});
     expect(started).toHaveBeenCalledTimes(1);
-    children[0]!.end(0);
+    children[0].end(0);
     await until(jobs, job.id);
 
     // A command that couldn't start: never.

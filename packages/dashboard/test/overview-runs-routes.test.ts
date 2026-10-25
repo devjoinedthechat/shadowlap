@@ -55,7 +55,7 @@ async function built(body: Record<string, unknown>): Promise<string[]> {
     if (view.done) break;
     await new Promise((r) => setTimeout(r, 20));
   }
-  return spawned[spawned.length - 1]!;
+  return spawned[spawned.length - 1];
 }
 
 const setConfig = (config: Record<string, unknown> | null) => {
@@ -138,7 +138,7 @@ describe('the Runs table', () => {
     const q = await get<RunsPage>(dash, 'runs/page?q=refund-flow');
     expect(q.runs.map((r) => r.runId)).toEqual([ids.rec]);
     const byCalls = await get<RunsPage>(dash, 'runs/page?sort=calls');
-    expect(byCalls.runs[0]!.calls).toBe(4);
+    expect(byCalls.runs[0].calls).toBe(4);
     const day = await get<RunsPage>(dash, `runs/page?from=${NOW - 25 * DAY}&to=${NOW - 15 * DAY}`);
     expect(day.runs.map((r) => r.runId)).toEqual([ids.old]);
     expect(day.chipCounts.all).toBe(1);
@@ -238,7 +238,7 @@ describe('the calendar', () => {
       expect(await commitsHere(tmpdir(), [first])).toBeNull();
 
       const choices = {
-        target: { kind: 'run' as const, runId: ids.failed! },
+        target: { kind: 'run' as const, runId: ids.failed },
         failed: true,
         good: theirs,
         bad: 'feedface',
@@ -250,7 +250,7 @@ describe('the calendar', () => {
         fork: true,
         live: true,
         unavailable: null,
-        args: ['bisect', ids.failed!, '--good', theirs, '--bad', 'feedface', '--fork'],
+        args: ['bisect', ids.failed, '--good', theirs, '--bad', 'feedface', '--fork'],
       };
       const here = (await commitsHere(repo, [choices.good, choices.bad, ...choices.revisions.map((r) => r.rev)]))!;
       // The good commit falls to the newest one here where the runs didn't all fail; the bad one to HEAD.
@@ -266,7 +266,7 @@ describe('bulk actions', () => {
   it('labels several runs at once by their full ids, and refuses a label it cannot keep', async () => {
     const out = (await (await post(dash, 'runs/labels', { ids: [ids.rec, ids.fork, 'NOPE'], add: ['good'] })).json()) as { done: Array<{ runId: string; labels: string[] }>; skipped: Array<{ runId: string; reason: string }> };
     expect(out.done.map((d) => d.runId)).toEqual([ids.rec, ids.fork]);
-    expect(out.done[0]!.labels).toEqual(['refund-flow', 'good']);
+    expect(out.done[0].labels).toEqual(['refund-flow', 'good']);
     expect(out.skipped).toEqual([{ runId: 'NOPE', reason: 'no such run' }]);
     const bad = await post(dash, 'runs/labels', { ids: [ids.rec], add: ['x'.repeat(41)] });
     expect(bad.status).toBe(400);
@@ -548,7 +548,7 @@ describe('searching what runs recorded', () => {
       const later = await settled(d, 'search?q=refund&limit=40');
       expect(new Set(later.hits.map((h) => h.runId))).toEqual(new Set(runs));
       expect(later.indexing).toBeUndefined();
-      expect(s.searchState(runs[0]!)).toMatchObject({ calls: 2 });
+      expect(s.searchState(runs[0])).toMatchObject({ calls: 2 });
     } finally {
       await d.close();
       s.close();

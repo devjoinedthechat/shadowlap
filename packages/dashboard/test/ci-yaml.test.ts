@@ -7,7 +7,7 @@ import { ACTION, alertFailures, DISPATCH_COMMENT, alertsMessage, alertsNeeds, al
 /** The workflow steps behind Settings → CI, checked against the action they use and the docs that show them. */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const actionYml = readFileSync(join(ROOT, 'action.yml'), 'utf8');
-const keysOf = (from: string, to: string) => [...actionYml.slice(actionYml.indexOf(`\n${from}:`), actionYml.indexOf(`\n${to}:`)).matchAll(/^ {2}([a-z-]+):/gm)].map((m) => m[1]!);
+const keysOf = (from: string, to: string) => [...actionYml.slice(actionYml.indexOf(`\n${from}:`), actionYml.indexOf(`\n${to}:`)).matchAll(/^ {2}([a-z-]+):/gm)].map((m) => m[1]);
 const inputs = keysOf('inputs', 'outputs');
 const outputs = keysOf('outputs', 'runs');
 /** The keys a generated step passes under `with:` to this repository's action. */
@@ -17,7 +17,7 @@ const withKeys = (yaml: string) => {
   for (const line of step.slice(step.indexOf('  with:\n') + '  with:\n'.length).split('\n')) {
     const m = /^ {4}([a-z-]+):/.exec(line);
     if (!m) break;
-    keys.push(m[1]!);
+    keys.push(m[1]);
   }
   return keys;
 };
@@ -376,7 +376,7 @@ describe('the Alerts steps', () => {
     const preview = alertsMessage({ failed: 1, branch: 'main', runUrl: 'https://github.com/acme/agent/actions/runs/42' });
     expect(preview).toEqual({ text: 'Shadowlap: 1 golden(s) failed on main.', link: 'https://github.com/acme/agent/actions/runs/42' });
     // The same words the workflow posts, with GitHub's values filled in.
-    const posted = /text: "(.*)"/.exec(alertsYaml({ onlyMain: true, secret: 'X' }))![1]!
+    const posted = /text: "(.*)"/.exec(alertsYaml({ onlyMain: true, secret: 'X' }))![1]
       .replace('${{ steps.goldens.outputs.failed }}', '1')
       .replace('${{ github.ref_name }}', 'main')
       .replace('${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}', 'https://github.com/acme/agent/actions/runs/42');

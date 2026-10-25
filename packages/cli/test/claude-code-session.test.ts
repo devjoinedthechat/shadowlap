@@ -51,7 +51,7 @@ describe('an agent that names its Claude Code session in metadata.user_id', () =
   it('replays clean in a new session, and passes shadowlap test on another machine, with no normalizer', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], { USER_ID: 'claude-code' });
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const replayed = await shadowlap(['replay', runId, '--strict'], { USER_ID: 'claude-code' });
     expect(replayed.code, replayed.out).toBe(0);
     expect(replayed.out).toContain('Replay clean: 1/1 calls replayed');
@@ -64,7 +64,7 @@ describe('an agent that names its Claude Code session in metadata.user_id', () =
   it('is no other agent: one that sends a new UUID there diverges on it', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], {});
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const replayed = await shadowlap(['replay', runId, '--strict'], {});
     expect(replayed.code, replayed.out).toBe(1);
     expect(replayed.out).toContain('$.metadata.user_id');

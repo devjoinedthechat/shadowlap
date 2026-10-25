@@ -26,13 +26,13 @@ describe('the retirement table', () => {
     const edited: RetirementTable = {
       ...retirementTable(),
       models: [{ platform: 'bedrock', model: 'm', retires: '2026-13-01', source: 'https://example.com/elsewhere' }],
-      fields: [{ ...fields[0]!, says: '' }],
+      fields: [{ ...fields[0], says: '' }],
     };
     expect(retirementTableProblems(edited)).toEqual([
       'bedrock m: its source is not one of the platforms\' pages',
       'bedrock m: retires is not a date',
       'bedrock m: a Bedrock date needs its Regions',
-      `the ${fields[0]!.fields.join(', ')} rule: it needs the page's words`,
+      `the ${fields[0].fields.join(', ')} rule: it needs the page's words`,
     ]);
   });
 
@@ -159,9 +159,9 @@ describe('retiredFields', () => {
     ]);
     expect(retiredFields('anthropic', 'claude-opus-5-5', { temperature: 1 })).toEqual([]);
     expect(retiredFields('anthropic', 'claude-sonnet-4-6', { temperature: 0.2 })).toEqual([]);
-    expect(retiredFields('anthropic', 'claude-opus-4-7', { top_k: 5 })[0]!.rule.behavior).toBe('Returns a 400 error when set to a non-default value');
+    expect(retiredFields('anthropic', 'claude-opus-4-7', { top_k: 5 })[0].rule.behavior).toBe('Returns a 400 error when set to a non-default value');
     // The page says to leave them out: the default temperature is only what a request may carry meanwhile.
-    expect(retiredFields('anthropic', 'claude-sonnet-5-5', { temperature: 0.2 })[0]!.rule).toMatchObject({ leaveOut: true, allowed: { temperature: 1 } });
+    expect(retiredFields('anthropic', 'claude-sonnet-5-5', { temperature: 0.2 })[0].rule).toMatchObject({ leaveOut: true, allowed: { temperature: 1 } });
   });
 
   it("names max_tokens on OpenAI's o-series, sent as max_completion_tokens, by the Chat Completions reference", () => {

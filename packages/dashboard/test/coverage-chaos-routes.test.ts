@@ -239,7 +239,7 @@ describe('error-path presets', () => {
       ['500', 'provider 500', 'model'],
     ]);
     expect(view.matrices).toHaveLength(1);
-    const m = view.matrices[0]!;
+    const m = view.matrices[0];
     expect(m).toMatchObject({ runId: golden, golden: 'goldens/forecast', at: T0 + 5, counts: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 1 } });
     expect(m.cells.map((c) => [c.preset, c.verdict])).toEqual([
       ['timeout', 'not-applicable'],
@@ -359,7 +359,7 @@ describe('a dashboard over projects', () => {
       expect((await post({ ...body, confirmed: true })).status).toBe(202);
       // Confirmed once it started: the same command runs there again without asking.
       for (let i = 0; i < 100 && !registry.list()[0]?.confirmed.length; i++) await new Promise((r) => setTimeout(r, 20));
-      expect(registry.list()[0]!.confirmed.map((c) => c.argv)).toEqual([['node', 'agent.mjs', '{message}']]);
+      expect(registry.list()[0].confirmed.map((c) => c.argv)).toEqual([['node', 'agent.mjs', '{message}']]);
       expect((await post(body)).status).toBe(202);
       expect(ran.filter((a) => a[0] === 'coverage')).toHaveLength(2);
       // Another command asks again.

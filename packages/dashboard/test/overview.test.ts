@@ -20,7 +20,7 @@ let o: OverviewSummary;
 const run = (name: string, spec: Parameters<typeof addRun>[1]) => {
   id[name] = addRun(store, spec);
   codes[name] = typeof spec.calls === 'string' ? spec.calls : '';
-  return id[name]!;
+  return id[name];
 };
 
 beforeAll(() => {
@@ -44,9 +44,9 @@ beforeAll(() => {
   run('live1', { startedAt: at(10, 1, 10, 10), status: 'running', calls: 'lll' });
   // A failure blamed on Sep 29, rescued by its first probe.
   run('failed1', { startedAt: at(9, 28, 10), status: 'failed', calls: 'llllll' });
-  run('probeA', { parent: id.failed1, startedAt: at(9, 29, 9), divergence: 3, calls: 'rrllll', meta: { probe: { of: id.failed1!, callNo: 3, passed: true }, repeat: { group: 'p', attempt: 1, of: 2 } } });
-  run('probeB', { parent: id.failed1, startedAt: at(9, 29, 9, 5), divergence: 3, calls: 'rrllll', meta: { probe: { of: id.failed1!, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 2, of: 2 } } });
-  store.updateRunMeta(id.failed1!, { blame: blameOf(3, id.probeA!, at(9, 29, 10)) });
+  run('probeA', { parent: id.failed1, startedAt: at(9, 29, 9), divergence: 3, calls: 'rrllll', meta: { probe: { of: id.failed1, callNo: 3, passed: true }, repeat: { group: 'p', attempt: 1, of: 2 } } });
+  run('probeB', { parent: id.failed1, startedAt: at(9, 29, 9, 5), divergence: 3, calls: 'rrllll', meta: { probe: { of: id.failed1, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 2, of: 2 } } });
+  store.updateRunMeta(id.failed1, { blame: blameOf(3, id.probeA, at(9, 29, 10)) });
   run('test1', { parent: id.pack, startedAt: at(10, 1, 7), calls: 'rrr', meta: { test: { golden: 'g1', session: 'b' } } });
   run('test2', { parent: id.pack, startedAt: at(10, 1, 7, 1), status: 'failed', divergence: 1, calls: 'f', meta: { test: { golden: 'g2', session: 'b' } } });
   // A long run and a fork of it that overrides call #906 and blocks a write at #917.
@@ -58,7 +58,7 @@ afterAll(() => store.close());
 
 const sumOf = (names: string[], f: (s: ReturnType<typeof summarizeRun>) => number) => {
   const modelOf = storedModelResolver(store);
-  return names.reduce((t, n) => t + f(summarizeRun(store.getRun(id[n]!)!, store.getCalls(id[n]!), [], [], { modelOf })), 0);
+  return names.reduce((t, n) => t + f(summarizeRun(store.getRun(id[n])!, store.getCalls(id[n]), [], [], { modelOf })), 0);
 };
 const WEEK = ['rec1', 'clean1', 'fork1', 'rep1', 'live1', 'failed1', 'probeA', 'probeB', 'test1', 'test2', 'big', 'bigfork'];
 const WEEK_ROWS = WEEK.filter((n) => n !== 'rep1' && n !== 'probeB');
@@ -73,7 +73,7 @@ describe('the Overview: this week against last week', () => {
   it('counts runs and calls without attempts, and money and time with them', () => {
     const w = o.sums.week;
     expect(w.runs).toBe(WEEK_ROWS.length);
-    expect(w.calls).toBe(WEEK_ROWS.reduce((t, n) => t + codes[n]!.length, 0));
+    expect(w.calls).toBe(WEEK_ROWS.reduce((t, n) => t + codes[n].length, 0));
     expect(w.origins).toEqual(countOrigins(WEEK_ROWS.map((n) => codes[n]).join('')));
     expect(w.attempts).toBe(2);
     expect(w.spent).toBeCloseTo(sumOf(WEEK, (s) => s.cost.spent), 10);
@@ -103,7 +103,7 @@ describe('the Overview: today', () => {
     expect(t.served).toBe(10 + 5 + 3);
     // Money counts the attempt, as the day's bar in the chart does: what it replayed was not re-spent either.
     expect(t.notRespent).toBeCloseTo(sumOf(['clean1', 'fork1', 'test1', 'rep1'], (s) => s.cost.saved), 10);
-    expect(t.notRespent).toBeCloseTo(o.daily[6]!.notRespent, 10);
+    expect(t.notRespent).toBeCloseTo(o.daily[6].notRespent, 10);
     expect(sumOf(['rep1'], (s) => s.cost.saved)).toBeGreaterThan(0);
     // A recording that sent no request yet says what it is about by its command.
     expect(t.recording).toEqual([{ runId: id.live1, command: 'python refund_agent.py', calls: 3, startedAt: at(10, 1, 10, 10), about: { text: 'python refund_agent.py', from: 'command' } }]);
@@ -177,23 +177,23 @@ describe('the Overview: this week’s runs as rows of calls', () => {
     ]);
     expect(g.shown).toBe(10);
     expect(g.more).toBe(0);
-    const probe = g.families[3]!.rows[1]!;
+    const probe = g.families[3].rows[1];
     expect(probe).toMatchObject({ kind: 'fork', rescues: id.failed1, outcome: { kind: 'none' } });
   });
 
   it('gives a family one scale of at least 30 calls, and marks where a fork left', () => {
-    const fam = o.grid.families[1]!;
+    const fam = o.grid.families[1];
     expect(fam).toMatchObject({ size: 1, cols: 30 });
     expect(fam.rows.map((r) => r.cells)).toEqual(['l'.repeat(10), 'r'.repeat(10), 'rrrrrllllb']);
     expect(fam.rows[2]).toMatchObject({ forkCell: 5, origins: { ...emptyOriginCounts(), r: 5, l: 4, b: 1 } });
-    expect(fam.rows[0]!.forkCell).toBeNull();
+    expect(fam.rows[0].forkCell).toBeNull();
   });
 
   it('past 60 calls lets a cell stand for a range, showing its most notable origin', () => {
-    const fam = o.grid.families[4]!;
+    const fam = o.grid.families[4];
     expect(fam).toMatchObject({ size: 20, cols: 60 });
-    expect(fam.rows[0]!.cells).toBe('l'.repeat(60));
-    const fork = fam.rows[1]!;
+    expect(fam.rows[0].cells).toBe('l'.repeat(60));
+    const fork = fam.rows[1];
     expect(fork.cells).toHaveLength(46);
     expect(fork.cells.slice(0, 45)).toBe('r'.repeat(45));
     expect(fork.cells[45]).toBe('b'); // calls 901–920: the blocked write outranks the override and the live calls
@@ -206,7 +206,7 @@ describe('the Overview: this week’s runs as rows of calls', () => {
     expect(small.grid).toMatchObject({ shown: 4, more: WEEK_ROWS.length - 4 });
     const one = overviewSummary(store, { tz: TZ, now: at(9, 30, 12), gridRows: 1 });
     expect(one.grid.families).toHaveLength(1);
-    expect(one.grid.families[0]!.rows).toHaveLength(1);
+    expect(one.grid.families[0].rows).toHaveLength(1);
   });
 
   it('lines forks of an older recording up under it, on the recording’s scale', () => {
@@ -220,7 +220,7 @@ describe('the Overview: this week’s runs as rows of calls', () => {
       const c = addRun(local, { parent: older, startedAt: NOW - HOUR, divergence: 22, calls: 'r'.repeat(21) + 'll' });
       const g = overviewSummary(local, { tz: TZ, now: NOW }).grid;
       expect(g.families).toHaveLength(1);
-      const fam = g.families[0]!;
+      const fam = g.families[0];
       // One scale: the recording's 44 calls, so each fork's replayed prefix lines up under it.
       expect(fam).toMatchObject({ size: 1, cols: 44 });
       expect(fam.rows.map((r) => [r.runId, r.depth, r.context])).toEqual([
@@ -231,7 +231,7 @@ describe('the Overview: this week’s runs as rows of calls', () => {
         [b, 1, false],
       ]);
       expect(fam.rows.find((r) => r.runId === b)).toMatchObject({ forkCell: 29, cells: 'r'.repeat(29) + 'l'.repeat(9) });
-      expect(fam.rows[0]!.origins).toEqual({ ...emptyOriginCounts(), l: 44 });
+      expect(fam.rows[0].origins).toEqual({ ...emptyOriginCounts(), l: 44 });
       expect(g).toMatchObject({ runs: 3, shown: 3, more: 0, calls: 14 + 38 + 23 });
     } finally {
       local.close();
@@ -414,7 +414,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       const g = gateResult({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, [false, false, false]);
       local.addTestResult({ sessionId: t.sessionId, golden: 'goldens/eval-pushy', ok: false, failure: 'check', reason: g.sentence, runId: null, revision: 'c91d0f4', at: NOW - HOUR + 1, data: { mode: 'fork', attempts: { total: 3, passed: 0, required: null, runs: [] }, verdict: 'failed', gate: g } });
       local.finishTestSession(t.sessionId, { passed: 0, failed: 1, upstreamRequests: 0, endedAt: NOW - HOUR + 2 });
-      const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0]!;
+      const row = overviewSummary(local, { tz: 'UTC', now: NOW, goldens }).needsLook.items[0];
       // The verdict word, the tally and the bound, whole: no rule in the line to cut off mid-figure.
       expect(row).toMatchObject({ kind: 'test', title: 'A test failed: eval-pushy', detail: 'failed · 0 of 3 · rate <= 0.71 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts' });
     } finally {
@@ -459,7 +459,7 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       old.end();
       const s = overviewSummary(local, { tz: 'UTC', now: NOW });
       const engine = cacheUse(local, s.windows.week.from, { limit: 4 });
-      expect(s.cache).toEqual({ input: engine.liveInput, cacheRead: engine.liveRead, readShare: engine.readShare, misses: [{ runId, kind: 'recording', callNo: 3, scope: null, model: 'sonnet-5', tokens: engine.largest[0]!.sentAgain }], sentAgain: engine.sentAgain, missCount: 1 });
+      expect(s.cache).toEqual({ input: engine.liveInput, cacheRead: engine.liveRead, readShare: engine.readShare, misses: [{ runId, kind: 'recording', callNo: 3, scope: null, model: 'sonnet-5', tokens: engine.largest[0].sentAgain }], sentAgain: engine.sentAgain, missCount: 1 });
       expect(engine.largest.map((m) => [m.runId, m.callNo, m.model])).toEqual([[runId, 3, 'sonnet-5']]);
       expect(s.cache.readShare).toBeGreaterThan(0);
       const empty = overviewSummary(Store.open(':memory:'), { tz: 'UTC', now: NOW });

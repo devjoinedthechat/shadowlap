@@ -14,14 +14,14 @@ import { afterAll, describe, expect, it } from 'vitest';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ACTION = readFileSync(join(ROOT, 'action.yml'), 'utf8');
 const RELEASE = (JSON.parse(readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8')) as { version: string }).version;
-const SDK = (JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8')) as { packages: Record<string, { version: string }> }).packages['node_modules/@anthropic-ai/sdk']!.version;
+const SDK = (JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8')) as { packages: Record<string, { version: string }> }).packages['node_modules/@anthropic-ai/sdk'].version;
 
 /** A step's `run:` script, by the step's name. */
 function stepScript(name: string): string {
   const lines = ACTION.split('\n');
   const at = lines.findIndex((l) => l.trim().startsWith(`- name: ${name}`));
   const run = lines.findIndex((l, i) => i > at && /^\s+run: \|$/.test(l));
-  const indent = /^\s*/.exec(lines[run + 1]!)![0].length;
+  const indent = /^\s*/.exec(lines[run + 1])![0].length;
   const body: string[] = [];
   for (const line of lines.slice(run + 1)) {
     if (line.trim() && /^\s*/.exec(line)![0].length < indent) break;

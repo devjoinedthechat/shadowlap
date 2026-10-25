@@ -52,7 +52,7 @@ const report = (stdout: string) => JSON.parse(stdout.split('\n').filter((l) => l
 async function record(argv: string[]): Promise<{ runId: string; calls: number }> {
   const r = await shadowlap(['run', '--', ...argv]);
   expect(r.code, r.out).toBe(0);
-  const runId = /recording run (\w{26})/.exec(r.out)![1]!;
+  const runId = /recording run (\w{26})/.exec(r.out)![1];
   const store = Store.open(db);
   try {
     return { runId, calls: store.getCalls(runId).filter((c) => c.kind === 'tool').length };
@@ -119,7 +119,7 @@ describe.skipIf(!PYTHON?.libraries.length)('an HTTP tool failed with --fail-at, 
       httpx: ['httpx.ReadTimeout', 'httpx.ReadError', /^connection reset by peer$/],
     };
     for (const library of libraries) {
-      const [timedOut, failed, message] = expected[library]!;
+      const [timedOut, failed, message] = expected[library];
       expect(timeout[library], library).toMatchObject({ error: timedOut });
       expect(error[library], library).toMatchObject({ error: failed, message: expect.stringMatching(message) });
     }

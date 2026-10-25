@@ -16,7 +16,7 @@ process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unk
   const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
   if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
   return (originalEmitWarning as (this: NodeJS.Process, ...a: unknown[]) => void).call(process, warning, ...rest);
-} as typeof process.emitWarning;
+};
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };
 export { DatabaseSync };

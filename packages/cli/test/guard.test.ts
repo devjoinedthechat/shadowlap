@@ -77,13 +77,13 @@ describe('network guard', () => {
     const env = guardEnv('warn', { NODE_OPTIONS: '--max-old-space-size=512', PYTHONPATH: '/x' });
     expect(env.SHADOWLAP_GUARD).toBe('warn');
     expect(env.NODE_OPTIONS).toMatch(/^--max-old-space-size=512 --import=file:.*node-preload\.mjs$/);
-    const first = env.PYTHONPATH!.split(process.platform === 'win32' ? ';' : ':')[0]!;
+    const first = env.PYTHONPATH.split(process.platform === 'win32' ? ';' : ':')[0];
     expect(first.replace(/[\\/]$/, '')).toBe(GUARD_DIR.replace(/[\\/]$/, ''));
-    expect(env.PYTHONPATH!.endsWith('/x')).toBe(true);
+    expect(env.PYTHONPATH.endsWith('/x')).toBe(true);
     // The guard can be off; capture still loads, with the providers' hosts and configured upstreams.
     const off = guardEnv('off', {}, { openai: 'http://127.0.0.1:11434', anthropic: 'offline' });
     expect(off.SHADOWLAP_GUARD).toBe('off');
-    const capture = JSON.parse(off.SHADOWLAP_CAPTURE!) as { routes: Array<[string, string]>; hosts: Record<string, string> };
+    const capture = JSON.parse(off.SHADOWLAP_CAPTURE) as { routes: Array<[string, string]>; hosts: Record<string, string> };
     expect(capture.routes.map((r) => r[1])).toEqual(['anthropic', 'openai', 'gemini', 'azure', 'vertex', 'bedrock']);
     expect(capture.hosts).toEqual({ '127.0.0.1:11434': 'openai' });
     expect(guardEnv('warn', { SHADOWLAP_CAPTURE: 'off' }).SHADOWLAP_CAPTURE).toBe('off');

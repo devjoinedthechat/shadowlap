@@ -42,14 +42,14 @@ describe('a capture rebuilt for --pack', () => {
     expect(calls.map((c) => `${c.kind}:${c.name}`)).toEqual(['api:POST /v1/messages', 'tool:search_kb', 'tool:lookup_order', 'api:POST /v1/messages', 'tool:search_kb', 'api:POST /v1/messages']);
     const [search, lookup, failed] = calls.filter((c) => c.kind === 'tool');
     // The MCP tool: its server's record, and its answer as the content the agent's MCP client reads, a failure as isError.
-    expect(search!.meta.mcp).toEqual({ transport: 'stdio', server: 'node' });
-    expect(result(target, search!.end!.responseRef)).toEqual({ result: { content: [{ type: 'text', text: '[{"id":"kb-112","title":"Returns"}]' }] } });
-    expect(failed!.end).toMatchObject({ outcome: 'ok' });
-    expect(result(target, failed!.end!.responseRef)).toEqual({ result: { content: [{ type: 'text', text: 'search is down' }], isError: true } });
+    expect(search.meta.mcp).toEqual({ transport: 'stdio', server: 'node' });
+    expect(result(target, search.end!.responseRef)).toEqual({ result: { content: [{ type: 'text', text: '[{"id":"kb-112","title":"Returns"}]' }] } });
+    expect(failed.end).toMatchObject({ outcome: 'ok' });
+    expect(result(target, failed.end!.responseRef)).toEqual({ result: { content: [{ type: 'text', text: 'search is down' }], isError: true } });
     // The SDK tool returns the value the agent turned into that text; its effect is what the store knows.
-    expect(lookup!.meta.mcp).toBeUndefined();
-    expect(result(target, lookup!.end!.responseRef)).toEqual({ result: { amount: 40 } });
-    expect([search!.effect, lookup!.effect]).toEqual(['read', null]);
+    expect(lookup.meta.mcp).toBeUndefined();
+    expect(result(target, lookup.end!.responseRef)).toEqual({ result: { amount: 40 } });
+    expect([search.effect, lookup.effect]).toEqual(['read', null]);
     store.close();
     target.close();
   });
@@ -72,7 +72,7 @@ describe('a capture rebuilt for --pack', () => {
     expect(rebuilt.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
     const tools = target.getCalls(rebuilt.run.runId).filter((c) => c.kind === 'tool');
     expect(tools.map((c) => c.name)).toEqual(['lookup_order']);
-    expect(result(target, tools[0]!.end!.responseRef)).toEqual({ result: { amount: 40, currency: 'USD' } });
+    expect(result(target, tools[0].end!.responseRef)).toEqual({ result: { amount: 40, currency: 'USD' } });
     store.close();
     target.close();
   });

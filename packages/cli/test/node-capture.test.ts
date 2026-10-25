@@ -201,7 +201,7 @@ describe("the OpenAI SDK's Azure client, with OPENAI_BASE_URL pointed at the sid
       req.resume();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 'c1', object: 'chat.completion', created: 1, model: 'gpt', choices: [{ index: 0, message: { role: 'assistant', content: 'answered' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
     });
-    await new Promise<void>((r) => provider!.listen(0, '127.0.0.1', () => r()));
+    await new Promise<void>((r) => provider.listen(0, '127.0.0.1', () => r()));
     const upstream = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
     const sidecar = await Sidecar.start({ store, upstreams: { azure: upstream, openai: upstream } });
     const saved = process.env.OPENAI_BASE_URL;
@@ -244,7 +244,7 @@ console.log('children', execFileSync('sh', ['-c', 'echo "$OPENAI_BASE_URL"']).to
     } finally {
       if (saved !== undefined) process.env.OPENAI_BASE_URL = saved;
       await sidecar.close();
-      await new Promise<void>((res) => provider!.close(() => res()));
+      await new Promise<void>((res) => provider.close(() => res()));
     }
   });
 });
@@ -258,7 +258,7 @@ async function handshakes(): Promise<{ origin: string; upgrades: Array<{ url: st
     sockets.add(socket);
     upgrades.push({ url: req.url!, upstream: req.headers['x-shadowlap-upstream'] as string | undefined });
     const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
-    const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0]!.trim();
+    const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0].trim();
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
     socket.end(Buffer.from([0x88, 0x00]));
   });
@@ -318,7 +318,7 @@ describe('a WebSocket for the sidecar', () => {
     expect(stdout).toContain('realtime open');
     expect(stdout).toContain('by-host open');
     expect(sidecar.upgrades.map((u) => u.url)).toEqual(['/t/token/openai/v1/realtime?model=m1', '/t/token/openai/v1/realtime?model=m2', '/t/token/openai/v1/realtime?model=m3', '/t/token/r/R1/openai/v1/realtime?model=m4']);
-    expect(sidecar.upgrades[3]!.upstream).toBe('https://api.openai.com');
+    expect(sidecar.upgrades[3].upstream).toBe('https://api.openai.com');
   });
 
   it("goes where it was going for a declared HTTP service, as the sidecar tunnels only a model provider's", async () => {

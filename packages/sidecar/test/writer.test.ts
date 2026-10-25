@@ -73,8 +73,8 @@ describe('the store writer', () => {
     writer.write({ what: "call 1's answer", run: () => store.putBlob(Buffer.from('answer')), instead: () => store.putBlob(Buffer.from('error end')), failed: (reason, replaced) => failed.push([reason, replaced]) });
     await until(() => failed.length === 1, 3_000);
     // Still locked: nothing could stand in for it either.
-    expect(failed[0]![1]).toBe(false);
-    expect(failed[0]![0]).toMatch(/locked/);
+    expect(failed[0][1]).toBe(false);
+    expect(failed[0][0]).toMatch(/locked/);
     expect(logs.join('\n')).toMatch(/call 1's answer could not be written/);
     other.exec('COMMIT');
     // The writes after it are made as usual.

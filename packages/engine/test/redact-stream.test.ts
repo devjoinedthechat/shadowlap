@@ -106,7 +106,7 @@ describe('redactBytes on a streamed response', () => {
     const choice = (n: number) => events.flatMap((e) => e.choices.filter((c) => c.index === n).map((c) => c.text)).join('');
     expect(choice(0)).toBe('Sent to <EMAIL> today.');
     expect(choice(1)).toBe('Key <KEY>.');
-    expect(events.every((e) => e.choices[0]!.logprobs === null)).toBe(true);
+    expect(events.every((e) => e.choices[0].logprobs === null)).toBe(true);
     expect(out.toString()).toMatch(/data: \[DONE\]\n\n$/);
   });
 
@@ -135,7 +135,7 @@ describe('redactBytes on a streamed response', () => {
     const array = Buffer.from(JSON.stringify([chunk('Write to maya@'), chunk('example.com today')], null, 2));
     const masked = redactBytes(array, RULES).toString();
     expect(masked).not.toMatch(LEAKS);
-    expect((JSON.parse(masked) as Array<{ candidates: Array<{ content: { parts: Array<{ text: string }> } }> }>).map((c) => c.candidates[0]!.content.parts[0]!.text).join('')).toBe('Write to <EMAIL> today');
+    expect((JSON.parse(masked) as Array<{ candidates: Array<{ content: { parts: Array<{ text: string }> } }> }>).map((c) => c.candidates[0].content.parts[0].text).join('')).toBe('Write to <EMAIL> today');
   });
 
   it('Bedrock: text split across ConverseStream frames and InvokeModelWithResponseStream chunks, frames rebuilt', () => {
@@ -171,7 +171,7 @@ describe('redactBytes on a streamed response', () => {
       expect(JSON.stringify([...eventStreamMessages(out)])).not.toMatch(LEAKS);
       expect(text(out, 'application/vnd.amazon.eventstream')).toBe(expected);
       // The first frame held nothing to mask: it is the same bytes.
-      expect(eventStreamFrames(out)![0]!.raw.equals(eventStreamFrames(body)![0]!.raw)).toBe(true);
+      expect(eventStreamFrames(out)![0].raw.equals(eventStreamFrames(body)![0].raw)).toBe(true);
     }
   });
 
@@ -195,7 +195,7 @@ describe('redactBytes on a streamed response', () => {
     const header = Buffer.concat([Buffer.from([11]), Buffer.from(':event-type'), Buffer.from([7, 0, 8]), Buffer.from('metadata')]);
     const frames = Buffer.concat([encodeEventStreamFrame(header, Buffer.from(JSON.stringify({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242516 } }, note: 'paid 4111 1111 1111 1111' })))]);
     const masked = eventStreamFrames(redactBytes(frames, [CARD]))!;
-    expect(JSON.parse(masked[0]!.payload.toString())).toEqual({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242516 } }, note: 'paid <CARD>' });
+    expect(JSON.parse(masked[0].payload.toString())).toEqual({ metadata: { usage: { inputTokens: 12 }, metrics: { latencyMs: 1792155242516 } }, note: 'paid <CARD>' });
   });
 
   it('leaves what only looks like a stream to the rules as text', () => {
@@ -221,7 +221,7 @@ describe('redactRun: a streamed response in a copy', () => {
     src.endRun(run.runId, 'completed');
     const dst = Store.open(':memory:');
     redactRun(src, run.runId, RULES, dst);
-    const copied = dst.getBlob(dst.getCalls(run.runId)[0]!.end!.responseRef!)!;
+    const copied = dst.getBlob(dst.getCalls(run.runId)[0].end!.responseRef!)!;
     expect(copied.toString()).not.toMatch(LEAKS);
     expect(text(copied, 'text/event-stream')).toBe('Sent to <EMAIL>');
     src.close();

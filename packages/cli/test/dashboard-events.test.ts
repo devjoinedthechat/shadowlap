@@ -130,7 +130,7 @@ describe('a command started by a dashboard job', () => {
     const elsewhere = mkdtempSync(join(tmpdir(), 'sl-dash-events-elsewhere-'));
     try {
       expect((await shadowlap(['pack', recordingId, join(elsewhere, 'share-with-ravi')])).code).toBe(0);
-      const outside = withStore((s) => s.listEvents({ kinds: ['run.packed'] }))[0]!;
+      const outside = withStore((s) => s.listEvents({ kinds: ['run.packed'] }))[0];
       expect(outside).toMatchObject({ ref: 'share-with-ravi', data: { outside: true } });
       expect(JSON.stringify(outside)).not.toContain('..');
       expect(JSON.stringify(outside)).not.toContain(elsewhere);
@@ -191,11 +191,11 @@ describe('a command started by a dashboard job', () => {
       ['redaction.added', '<ACCOUNT>', 'maya@example.com'],
       ['normalizer.added', '$.metadata.user_id', 'maya@example.com'],
     ]);
-    expect(events[1]!.data).toEqual({ path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
+    expect(events[1].data).toEqual({ path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' });
     // A redaction rule's pattern can hold what it hides: the log and the feed name it by its replacement.
-    expect(events[0]!.data).toEqual({ path: '$.messages', replace: '<ACCOUNT>' });
+    expect(events[0].data).toEqual({ path: '$.messages', replace: '<ACCOUNT>' });
     expect(JSON.stringify(withStore((s) => activity(s).items))).not.toContain('ACME');
-    expect(withStore((s) => activity(s).items.find((i) => i.id === `e:${events[0]!.eventId}`))?.text).toBe('Redaction rule added · <ACCOUNT> at $.messages');
+    expect(withStore((s) => activity(s).items.find((i) => i.id === `e:${events[0].eventId}`))?.text).toBe('Redaction rule added · <ACCOUNT> at $.messages');
   });
 
   it('adds no store to a project that has none just to log a rule', async () => {
@@ -280,7 +280,7 @@ describe('more commands a dashboard job runs', () => {
     (child.stdio[3] as NodeJS.ReadableStream).on('data', (c: Buffer) => (events += c.toString()));
     const exited = new Promise<number | null>((resolve) => child.on('close', (code) => resolve(code)));
     for (let i = 0; i < 400 && !events.includes('\n'); i++) await new Promise((r) => setTimeout(r, 25));
-    const started = JSON.parse(events.split('\n')[0]!) as { type: string; runId: string; role: string };
+    const started = JSON.parse(events.split('\n')[0]) as { type: string; runId: string; role: string };
     expect(started, out).toMatchObject({ type: 'run', role: 'new' });
     withStore((s) => expect(s.getRun(started.runId)).toMatchObject({ status: 'running', meta: { author: 'maya@example.com' } }));
     child.kill('SIGTERM');

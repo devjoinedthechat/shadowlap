@@ -41,11 +41,11 @@ function tokens(text: string): Token[] {
 
 /** The end of the value that starts at `i` (a container to its closing bracket). */
 function valueEnd(toks: Token[], i: number): number {
-  if (toks[i]!.raw !== '{' && toks[i]!.raw !== '[') return i + 1;
+  if (toks[i].raw !== '{' && toks[i].raw !== '[') return i + 1;
   let depth = 0;
   for (let j = i; j < toks.length; j++) {
-    if (toks[j]!.raw === '{' || toks[j]!.raw === '[') depth++;
-    else if (toks[j]!.raw === '}' || toks[j]!.raw === ']') depth--;
+    if (toks[j].raw === '{' || toks[j].raw === '[') depth++;
+    else if (toks[j].raw === '}' || toks[j].raw === ']') depth--;
     if (depth === 0) return j + 1;
   }
   throw new Error('unbalanced');
@@ -62,8 +62,8 @@ function changes(before: string, after: string): Array<{ before: unknown; after:
   let i = 0;
   let j = 0;
   while (i < a.length && j < b.length) {
-    const x = a[i]!;
-    const y = b[j]!;
+    const x = a[i];
+    const y = b[j];
     if (x.raw === y.raw) {
       i++;
       j++;
@@ -208,7 +208,7 @@ const shown = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
  */
 function expected(src: Store, runId: string, rules: Normalizer[]) {
   const copies = [{ docs: docs(src, runId), store: null as Store | null }, ...rules.map((_, k) => copyWith(src, runId, rules.slice(0, k + 1)))];
-  const read = [copies[0]!, ...rules.map((_, k) => copyWith(src, runId, rules.slice(0, k + 1), true))];
+  const read = [copies[0], ...rules.map((_, k) => copyWith(src, runId, rules.slice(0, k + 1), true))];
   const changed = (rule: Normalizer, before: Doc[], after: Doc[], only: (doc: Doc) => boolean) => {
     const seen = new Set<string>();
     let count = 0;
@@ -216,7 +216,7 @@ function expected(src: Store, runId: string, rules: Normalizer[]) {
     const regex = rule.pattern === undefined ? null : compilePattern(rule.pattern);
     before.forEach((doc, d) => {
       if (!only(doc)) return;
-      const next = after[d]!;
+      const next = after[d];
       if (doc.stream) {
         // Each replacement leaves the rule's own replacement in the stream, once.
         count += occurrences(next.stream!, rule.replace) - occurrences(doc.stream, rule.replace);
@@ -235,10 +235,10 @@ function expected(src: Store, runId: string, rules: Normalizer[]) {
     return { count, samples };
   };
   const out = rules.map((rule, k) => ({
-    ...changed(rule, copies[k]!.docs, copies[k + 1]!.docs, () => true),
-    returned: rule.path === undefined ? { count: 0, samples: [] } : changed(rule, read[k]!.docs, read[k + 1]!.docs, (doc) => doc.in !== 'request'),
+    ...changed(rule, copies[k].docs, copies[k + 1].docs, () => true),
+    returned: rule.path === undefined ? { count: 0, samples: [] } : changed(rule, read[k].docs, read[k + 1].docs, (doc) => doc.in !== 'request'),
   }));
-  const last = copies[copies.length - 1]!;
+  const last = copies[copies.length - 1];
   const unmasked = rules.map((rule) => {
     const values = new Map<string, number>();
     if (rule.path !== undefined || rule.pattern === undefined) return { count: 0, values: [] as string[] };
@@ -297,7 +297,7 @@ function writeString(s: string, esc: Esc): string {
   if (esc === 'json') return JSON.stringify(s);
   if (esc === 'slash') return JSON.stringify(s).replace(/\//g, '\\/');
   let out = '"';
-  for (let i = 0; i < s.length; i++) out += /[A-Za-z0-9 ]/.test(s[i]!) ? s[i] : `\\u${s.charCodeAt(i).toString(16).padStart(4, '0')}`;
+  for (let i = 0; i < s.length; i++) out += /[A-Za-z0-9 ]/.test(s[i]) ? s[i] : `\\u${s.charCodeAt(i).toString(16).padStart(4, '0')}`;
   return `${out}"`;
 }
 
@@ -322,7 +322,7 @@ function value(j: J): unknown {
 function generator(seed: number) {
   const r = random(seed);
   const int = (n: number) => Math.floor(r() * n);
-  const pick = <T>(xs: readonly T[]): T => xs[int(xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[int(xs.length)];
   let unique = 0;
   const WORDS = ['refund', 'order', 'the policy', 'customer', 'café', 'naïve', '😀', 'line\nbreak', 'tab\there', 'a "quote"', 'back\\slash', 'slash/ed', ' ', 'ctl\u0001'];
   const secret = () =>
@@ -416,10 +416,10 @@ function compare(store: Store, runId: string, rules: Normalizer[], o: { samples?
   const preview = previewRedaction(store, runId, rules);
   const want = expected(store, runId, rules);
   preview.rules.forEach((r, k) => {
-    expect({ rule: k + 1, count: r.count }).toEqual({ rule: k + 1, count: want.rules[k]!.count });
-    if (o.samples !== false) expect({ rule: k + 1, samples: r.samples }).toEqual({ rule: k + 1, samples: want.rules[k]!.samples });
-    expect({ rule: k + 1, unmasked: r.unmasked.count, values: r.unmasked.samples.map((s) => s.value) }).toEqual({ rule: k + 1, unmasked: want.unmasked[k]!.count, values: want.unmasked[k]!.values.slice(0, 2) });
-    expect({ rule: k + 1, returned: r.returned }).toEqual({ rule: k + 1, returned: want.rules[k]!.returned });
+    expect({ rule: k + 1, count: r.count }).toEqual({ rule: k + 1, count: want.rules[k].count });
+    if (o.samples !== false) expect({ rule: k + 1, samples: r.samples }).toEqual({ rule: k + 1, samples: want.rules[k].samples });
+    expect({ rule: k + 1, unmasked: r.unmasked.count, values: r.unmasked.samples.map((s) => s.value) }).toEqual({ rule: k + 1, unmasked: want.unmasked[k].count, values: want.unmasked[k].values.slice(0, 2) });
+    expect({ rule: k + 1, returned: r.returned }).toEqual({ rule: k + 1, returned: want.rules[k].returned });
   });
   expect(preview.total).toBe(want.rules.reduce((s, r) => s + r.count, 0));
   expect(preview.returned).toBe(want.rules.reduce((s, r) => s + r.returned.count, 0));
@@ -494,7 +494,7 @@ describe('the preview, against the copy', () => {
     expect(preview.rules.map((r) => r.count)).toEqual([6, 3, 2, 2]);
     // The numbers the events carry as numbers stay, and the preview says so, with the event each is
     // in (the array of chunks is one JSON document, its first position the chunk).
-    const card = preview.rules[1]!.unmasked;
+    const card = preview.rules[1].unmasked;
     expect(card.count).toBe(4);
     expect(card.samples).toEqual([
       { value: '1792155242518', key: false, callNo: 1, kind: 'api', name: 'POST /v1/messages', in: 'response', path: '$.message.usage.input_tokens', event: 1 },
@@ -518,7 +518,7 @@ describe('the preview, against the copy', () => {
     copy.store.close();
     // A sample is the text the model streamed, as it adds up, before and after the rule.
     const streamed = 'Mail maya@example.com about card 4111 1111 1111 2222 at 1792155242516.';
-    expect(preview.rules[0]!.samples[0]).toEqual(clipChange(streamed, streamed.replace('maya@example.com', '<EMAIL>')));
+    expect(preview.rules[0].samples[0]).toEqual(clipChange(streamed, streamed.replace('maya@example.com', '<EMAIL>')));
     store.close();
   });
 });

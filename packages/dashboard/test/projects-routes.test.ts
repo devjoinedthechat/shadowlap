@@ -552,7 +552,7 @@ describe('removing a project', () => {
     expect(await detail()).toBe('2 runs and their attempts. None of them is in the team store: they exist only here.');
     // One of them pushed: it stays in the bucket whatever is deleted here.
     const store = Store.open(projectDbPath(w.support));
-    store.setTeamRun(url, { runId: w.supportRuns[0]!, state: 'pushed', at: Date.now(), base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId: w.supportRuns[0]! } });
+    store.setTeamRun(url, { runId: w.supportRuns[0], state: 'pushed', at: Date.now(), base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId: w.supportRuns[0] } });
     store.close();
     expect(await detail()).toBe('2 runs and their attempts. 1 of them is in the team store too and stays there; 1 exists only here.');
   });
@@ -570,7 +570,7 @@ describe('the setup', () => {
       ['Make the replay clean', 'todo'],
       ['Keep it as a test', 'todo'],
     ]);
-    expect(fresh.body.steps[0]!.cli).toEqual(['shadowlap init']);
+    expect(fresh.body.steps[0].cli).toEqual(['shadowlap init']);
 
     // What init finds (here noted as init notes it), with the unwrapped tool and its code.
     w.registry.noteInspected('research-agent', findings());

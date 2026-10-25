@@ -36,9 +36,9 @@ describe('applyNormalizers', () => {
 
   it('rewrites only the scoped path with a named pattern', () => {
     const out = applyNormalizers(body, [{ kind: 'api', path: '$.system[*].text', pattern: 'iso-date', replace: '<DATE>' }], 'api', 'POST /v1/messages') as typeof body;
-    expect(out.system[0]!.text).toBe('Today is <DATE>. Be brief.');
-    expect(out.messages[0]!.content).toBe('hi 2026-09-15');
-    expect(body.system[0]!.text).toContain('2026-09-15'); // never mutates the input
+    expect(out.system[0].text).toBe('Today is <DATE>. Be brief.');
+    expect(out.messages[0].content).toBe('hi 2026-09-15');
+    expect(body.system[0].text).toContain('2026-09-15'); // never mutates the input
   });
 
   it('replaces the whole value when no pattern is given', () => {

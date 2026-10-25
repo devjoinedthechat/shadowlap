@@ -37,21 +37,21 @@ const row = (runId: string) => listRunsPage(store, { limit: 500, includeAttempts
 
 describe('verdicts on the run list and the run page', () => {
   it('counts a check that did not apply apart from those that passed', () => {
-    expect(row(id.applied!)).toMatchObject({ outcome: { kind: 'passed', checks: 1, notApplicable: 2 }, failed: false, checks: { passed: 1, total: 3, notApplicable: 2 } });
-    expect(runState(store, id.applied!)).toMatchObject({ outcome: { kind: 'passed', checks: 1, notApplicable: 2 }, failed: false });
+    expect(row(id.applied)).toMatchObject({ outcome: { kind: 'passed', checks: 1, notApplicable: 2 }, failed: false, checks: { passed: 1, total: 3, notApplicable: 2 } });
+    expect(runState(store, id.applied)).toMatchObject({ outcome: { kind: 'passed', checks: 1, notApplicable: 2 }, failed: false });
   });
 
   it('says inconclusive for a check that could not be decided: no failure, and no pass', () => {
-    expect(row(id.undecided!)).toMatchObject({ outcome: { kind: 'inconclusive', check: 'judge "explains" answers yes' }, failed: false, checks: { passed: 1, total: 2, inconclusive: 1 } });
-    expect(runState(store, id.undecided!)).toMatchObject({ outcome: { kind: 'inconclusive' }, failed: false });
+    expect(row(id.undecided)).toMatchObject({ outcome: { kind: 'inconclusive', check: 'judge "explains" answers yes' }, failed: false, checks: { passed: 1, total: 2, inconclusive: 1 } });
+    expect(runState(store, id.undecided)).toMatchObject({ outcome: { kind: 'inconclusive' }, failed: false });
   });
 
   it('gives the run page each check\'s status, and a judge\'s reason and where its verdict came from', () => {
-    expect(runDetail(store, id.judged!)!.checks).toEqual([
+    expect(runDetail(store, id.judged)!.checks).toEqual([
       { label: 'judge "polite" answers yes', ok: true, detail: null, count: 1, of: 1, status: 'passed', reason: 'It thanks the customer.', source: 'recording' },
       { label: notApplied.label, ok: true, detail: notApplied.detail, count: 1, of: 1, status: 'not-applicable' },
     ]);
-    expect(runDetail(store, id.undecided!)!.checks!.map((c) => c.status)).toEqual(['passed', 'inconclusive']);
+    expect(runDetail(store, id.undecided)!.checks!.map((c) => c.status)).toEqual(['passed', 'inconclusive']);
   });
 });
 
@@ -59,10 +59,10 @@ describe('verdicts in the activity feed', () => {
   it('tells checks that did not apply, or could not be decided, in those words', () => {
     const { items } = activity(store);
     const text = (runId: string) => items.find((i) => i.id === `r:${runId}:end`)?.text;
-    expect(text(id.applied!)).toBe('Test passed · in-limit · 1 of 1 checks passed, 2 not applicable');
+    expect(text(id.applied)).toBe('Test passed · in-limit · 1 of 1 checks passed, 2 not applicable');
     // Before its result is kept, a replay whose only shortfall is a check that could not be decided is
     // neither passed nor failed, as the result will say: inconclusive, marked as a warning.
-    expect(items.find((i) => i.id === `r:${id.undecided!}:end`)).toMatchObject({ kind: 'warn', text: 'Test inconclusive · escalated · check inconclusive: judge "explains" answers yes' });
-    expect(text(id.judged!)).toMatch(/^Replay clean · 4\/4 · 0 upstream · 1 of 1 checks passed, 1 not applicable$/);
+    expect(items.find((i) => i.id === `r:${id.undecided}:end`)).toMatchObject({ kind: 'warn', text: 'Test inconclusive · escalated · check inconclusive: judge "explains" answers yes' });
+    expect(text(id.judged)).toMatch(/^Replay clean · 4\/4 · 0 upstream · 1 of 1 checks passed, 1 not applicable$/);
   });
 });

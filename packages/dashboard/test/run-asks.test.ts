@@ -27,18 +27,18 @@ describe('what recordings’ users asked, with the run index', () => {
   it('comes with the index once kept, read in as it is kept, the index itself not read again', () => {
     const { store, ids } = store3();
     const index = loadRunIndex(store);
-    expect(index.byId.get(ids[0]!)!.ask).toBeUndefined();
+    expect(index.byId.get(ids[0])!.ask).toBeUndefined();
     // Worked out (as the warm-up does) and kept: the index read before stays, and now has it.
-    asksOf(store, index, [index.byId.get(ids[0]!)!]);
+    asksOf(store, index, [index.byId.get(ids[0])!]);
     const after = loadRunIndex(store);
     expect(after).toBe(index);
-    expect(after.byId.get(ids[0]!)!.ask).toEqual({ text: 'A customer asks for a refund of order A-1131', agent: false, batch: false });
+    expect(after.byId.get(ids[0])!.ask).toEqual({ text: 'A customer asks for a refund of order A-1131', agent: false, batch: false });
     // Another process's store opened afresh reads it with the index, and reads no request for it.
     expect(store.query('SELECT COUNT(*) AS n FROM run_asks')).toEqual([{ n: 1 }]);
     // Any change to a run still has the index read again.
-    store.updateRunMeta(ids[1]!, { labels: ['refunds'] });
+    store.updateRunMeta(ids[1], { labels: ['refunds'] });
     expect(loadRunIndex(store)).not.toBe(index);
-    expect(loadRunIndex(store).byId.get(ids[0]!)!.ask?.text).toBe('A customer asks for a refund of order A-1131');
+    expect(loadRunIndex(store).byId.get(ids[0])!.ask?.text).toBe('A customer asks for a refund of order A-1131');
     store.close();
   });
 
@@ -54,7 +54,7 @@ describe('what recordings’ users asked, with the run index', () => {
   it('is moved from where an earlier build kept it, with the run’s totals, rather than read again', () => {
     const { store, ids } = store3();
     const index = loadRunIndex(store);
-    const run = index.byId.get(ids[2]!)!;
+    const run = index.byId.get(ids[2])!;
     // As an earlier build kept it: inside the totals' JSON, under the totals' key.
     const key = `t4|${run.status}|${run.endedAt}|${run.calls}`;
     store.saveRunStats([{ runId: run.runId, key, stats: JSON.stringify({ codes: 'll', models: [], notWaitedMs: 0, ask: { text: 'Kept before', agent: false, batch: false } }) }]);

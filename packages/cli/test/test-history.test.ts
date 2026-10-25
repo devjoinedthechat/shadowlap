@@ -69,17 +69,17 @@ describe('shadowlap test history', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain('✓ reference-agent: 30/30 replayed');
     expect(r.out).toContain('1 passed, 0 failed · 0 upstream requests');
-    const replayId = /replaying run (\w{26}) for goldens\/reference-agent/.exec(r.out)![1]!;
+    const replayId = /replaying run (\w{26}) for goldens\/reference-agent/.exec(r.out)![1];
 
     const s = store();
     const [session] = s.listTestSessions();
-    expect(session!.command.slice(0, 3)).toEqual(['shadowlap', 'test', 'goldens/*']);
+    expect(session.command.slice(0, 3)).toEqual(['shadowlap', 'test', 'goldens/*']);
     expect(session).toMatchObject({ passed: 1, failed: 0, upstreamRequests: 0 });
-    expect(session!.revision).toMatch(/^[0-9a-f]{7,}(\+dirty)?$/);
-    const [result] = s.listTestResults({ sessionId: session!.sessionId });
-    expect(result).toMatchObject({ golden: 'goldens/reference-agent', ok: true, failure: null, runId: replayId, goldenRunId: goldenRunId(), revision: session!.revision, data: { mode: 'replay', calls: { total: 30, replayed: 30, live: 0 }, upstreamRequests: 0 } });
-    expect(s.getRun(replayId)!.meta?.test).toEqual({ golden: 'goldens/reference-agent', session: session!.sessionId });
-    expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ ref: session!.sessionId, data: { passed: 1, failed: 0, goldens: 1, upstreamRequests: 0 } });
+    expect(session.revision).toMatch(/^[0-9a-f]{7,}(\+dirty)?$/);
+    const [result] = s.listTestResults({ sessionId: session.sessionId });
+    expect(result).toMatchObject({ golden: 'goldens/reference-agent', ok: true, failure: null, runId: replayId, goldenRunId: goldenRunId(), revision: session.revision, data: { mode: 'replay', calls: { total: 30, replayed: 30, live: 0 }, upstreamRequests: 0 } });
+    expect(s.getRun(replayId)!.meta?.test).toEqual({ golden: 'goldens/reference-agent', session: session.sessionId });
+    expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ ref: session.sessionId, data: { passed: 1, failed: 0, goldens: 1, upstreamRequests: 0 } });
     s.close();
 
     expect(r.events[0]).toEqual({ type: 'run', runId: replayId, role: 'passing' });
@@ -89,7 +89,7 @@ describe('shadowlap test history', () => {
       { type: 'link', label: 'Tests', href: '#/tests', secondary: true },
     ]);
     const report = JSON.parse(readFileSync(join(work, 'report.json'), 'utf8')) as Record<string, unknown> & { results: Array<Record<string, unknown>> };
-    expect(report).toMatchObject({ session: session!.sessionId, revision: session!.revision, passed: 1, failed: 0 });
+    expect(report).toMatchObject({ session: session.sessionId, revision: session.revision, passed: 1, failed: 0 });
     expect(report.results[0]).toMatchObject({ golden: 'goldens/reference-agent', ok: true, failure: null, runId: replayId, runs: [{ runId: replayId, ok: true }], goldenRunId: goldenRunId(), expect: null, updated: null });
   });
 
@@ -102,12 +102,12 @@ describe('shadowlap test history', () => {
     expect(s.listTestSessions().map((x) => [x.passed, x.failed])).toEqual([[0, 1], [1, 0]]);
     const [failed] = s.listTestResults({ golden: 'goldens/reference-agent' });
     expect(failed).toMatchObject({ ok: false, failure: 'diverged', reason: 'diverged at call 3 (api POST /v1/messages)', data: { divergence: { callNo: 3, kind: 'api', name: 'POST /v1/messages' } } });
-    expect(failed!.data!.divergence!.text).toContain('✗ Diverged at call 3 (api POST /v1/messages)');
+    expect(failed.data!.divergence!.text).toContain('✗ Diverged at call 3 (api POST /v1/messages)');
     // A prompt change: no value that changes every run, judged on the whole diff.
-    expect(failed!.data!.divergence).toMatchObject({ entries: 1, volatile: { values: [], explainsAll: false } });
-    expect(failed!.data!.divergence!.text).toContain('Be brief.');
-    expect(r.events.filter((e) => e.type === 'run')).toEqual([{ type: 'run', runId: failed!.runId, role: 'failing' }]);
-    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open the run', href: `#/run/${failed!.runId}` });
+    expect(failed.data!.divergence).toMatchObject({ entries: 1, volatile: { values: [], explainsAll: false } });
+    expect(failed.data!.divergence!.text).toContain('Be brief.');
+    expect(r.events.filter((e) => e.type === 'run')).toEqual([{ type: 'run', runId: failed.runId, role: 'failing' }]);
+    expect(r.events.find((e) => e.type === 'link')).toEqual({ type: 'link', label: 'Open the run', href: `#/run/${failed.runId}` });
     s.close();
   });
 
@@ -118,7 +118,7 @@ describe('shadowlap test history', () => {
     const r = await shadowlap(['test', 'goldens/*', '--cwd', ROOT]);
     expect(r.code, r.out).toBe(1);
     const s = store();
-    const failed = s.listTestResults({ golden: 'goldens/no-email' })[0]!;
+    const failed = s.listTestResults({ golden: 'goldens/no-email' })[0];
     expect(failed).toMatchObject({ ok: false, failure: 'check' });
     expect(r.events.filter((e) => e.type === 'link')).toEqual([
       { type: 'link', label: 'Open no-email’s run', href: `#/run/${failed.runId}`, secondary: true },
@@ -133,8 +133,8 @@ describe('shadowlap test history', () => {
     const s = store();
     const [failed] = s.listTestResults({ golden: 'goldens/reference-agent' });
     expect(failed).toMatchObject({ ok: false, failure: 'exit', reason: 'the agent exited with code 1' });
-    expect(failed!.data!.output).toContain('agent crashed after model call 5');
-    expect(failed!.data!.output!.split('\n').length).toBeLessThanOrEqual(20);
+    expect(failed.data!.output).toContain('agent crashed after model call 5');
+    expect(failed.data!.output!.split('\n').length).toBeLessThanOrEqual(20);
     s.close();
   });
 
@@ -145,7 +145,7 @@ describe('shadowlap test history', () => {
       s.close();
       return runs;
     };
-    const idOf = (r: Result) => /replaying run (\w{26})/.exec(r.out)![1]!;
+    const idOf = (r: Result) => /replaying run (\w{26})/.exec(r.out)![1];
     const first = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]));
     const second = idOf(await shadowlap(['test', 'goldens/reference-agent', '--cwd', ROOT]));
     expect(replays()).toEqual([second]);
@@ -174,7 +174,7 @@ describe('shadowlap test history', () => {
     const s = store();
     const kept = s.allRuns().filter((r) => r.meta?.test?.golden === 'goldens/reference-agent');
     expect(kept.map((r) => r.runId)).toEqual([/replaying run (\w{26})/.exec(second.out)![1]]);
-    expect(s.getCalls(kept[0]!.runId).some((c) => c.origin === 'live')).toBe(true);
+    expect(s.getCalls(kept[0].runId).some((c) => c.origin === 'live')).toBe(true);
     s.close();
     expect(JSON.parse(readFileSync(join(work, 'report.json'), 'utf8'))).toMatchObject({ passed: 1, failed: 0 });
     expect(existsSync(join(work, 'junit.xml'))).toBe(true);
@@ -204,7 +204,7 @@ console.log(JSON.stringify((await res.json()).content));
     writeFileSync(join(work, 'agent.mjs'), AGENT);
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], env);
     expect(recorded.code, recorded.out).toBe(0);
-    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/ids'])).code).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1], 'goldens/ids'])).code).toBe(0);
   }
 
   it('names the normalizer for a request id made anew on every run, which is the whole advice', async () => {
@@ -218,7 +218,7 @@ console.log(JSON.stringify((await res.json()).content));
     // The normalizer is the fix, so no update is offered.
     expect(r.out).not.toContain('If the change was intended');
     const s = store();
-    expect(s.listTestResults({ golden: 'goldens/ids' })[0]!.data!.divergence).toMatchObject({ volatile: { explainsAll: true, values: [{ path: '$.metadata.request_id', certain: true }] }, hints: [{ normalizer: { path: '$.metadata.request_id', replace: '<ID>' } }] });
+    expect(s.listTestResults({ golden: 'goldens/ids' })[0].data!.divergence).toMatchObject({ volatile: { explainsAll: true, values: [{ path: '$.metadata.request_id', certain: true }] }, hints: [{ normalizer: { path: '$.metadata.request_id', replace: '<ID>' } }] });
     s.close();
     // As printed, it fixes it.
     expect((await shadowlap(command.split(' ').slice(1).map((a) => a.replace(/^'|'$/g, '')))).code).toBe(0);
@@ -244,7 +244,7 @@ console.log(JSON.stringify((await res.json()).content));
     );
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
     expect(recorded.code, recorded.out).toBe(0);
-    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/prompt'])).code).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1], 'goldens/prompt'])).code).toBe(0);
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] }));
     const r = await shadowlap(['test', 'goldens/prompt'], { PROMPT: 'Refund whatever is asked.' });
     expect(r.code).toBe(1);
@@ -253,7 +253,7 @@ console.log(JSON.stringify((await res.json()).content));
     expect(r.out).toContain('~ $.metadata.user_id');
     expect(r.out).not.toContain('hint: this looks like a UUID');
     const s = store();
-    const result = s.listTestResults({ golden: 'goldens/prompt' })[0]!;
+    const result = s.listTestResults({ golden: 'goldens/prompt' })[0];
     const divergence = result.data!.divergence!;
     // The replay's own record has none either, so its page offers no rule the config has.
     const replay = s.getRun(result.runId!)!;
@@ -296,7 +296,7 @@ if (tag === 'slow' && process.env.SLOW_MS) await new Promise((r) => setTimeout(r
     for (const [name, tag] of [['a-first', 'fast'], ['b-slow', 'slow'], ['c-last', 'fast']] as const) {
       const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs', tag]);
       expect(recorded.code, recorded.out).toBe(0);
-      expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, `goldens/${name}`])).code).toBe(0);
+      expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1], `goldens/${name}`])).code).toBe(0);
     }
     rmSync(join(work, 'slow.pid'), { force: true });
   }
@@ -359,15 +359,15 @@ if (tag === 'slow' && process.env.SLOW_MS) await new Promise((r) => setTimeout(r
       const s = store();
       const [session] = s.listTestSessions();
       expect(session).toMatchObject({ passed: 1, failed: 0, interrupted: true });
-      expect(session!.endedAt).not.toBeNull();
+      expect(session.endedAt).not.toBeNull();
       // Only the golden that finished has a result; no run is left recording.
-      expect(s.listTestResults({ sessionId: session!.sessionId }).map((x) => [x.golden, x.ok])).toEqual([['goldens/a-first', true]]);
+      expect(s.listTestResults({ sessionId: session.sessionId }).map((x) => [x.golden, x.ok])).toEqual([['goldens/a-first', true]]);
       expect(s.allRuns().filter((x) => x.status === 'running')).toEqual([]);
       const cut = s.allRuns().find((x) => x.meta?.test?.golden === 'goldens/b-slow')!;
-      expect(cut).toMatchObject({ status: 'crashed', meta: { test: { golden: 'goldens/b-slow', session: session!.sessionId } } });
-      expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ ref: session!.sessionId, data: { passed: 1, failed: 0, goldens: 1, interrupted: true, notRun: 2 } });
+      expect(cut).toMatchObject({ status: 'crashed', meta: { test: { golden: 'goldens/b-slow', session: session.sessionId } } });
+      expect(s.listEvents({ kinds: ['test.session'] })[0]).toMatchObject({ ref: session.sessionId, data: { passed: 1, failed: 0, goldens: 1, interrupted: true, notRun: 2 } });
       s.close();
-      expect(JSON.parse(readFileSync(join(work, 'report.json'), 'utf8'))).toMatchObject({ session: session!.sessionId, passed: 1, failed: 0, interrupted: true });
+      expect(JSON.parse(readFileSync(join(work, 'report.json'), 'utf8'))).toMatchObject({ session: session.sessionId, passed: 1, failed: 0, interrupted: true });
       // The job saw the replay that finished, never one for the golden that was cut short.
       expect(r.events.filter((e) => e.type === 'run').map((e) => e.role)).toEqual(['passing']);
 
@@ -390,7 +390,7 @@ describe('a redacted golden', () => {
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [{ kind: 'api', ...scratch }, { kind: 'tool', name: 'save_report', ...scratch, path: '$.args.path' }], redact: [{ kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' }] }));
     const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/redacted'])).out).toContain('with 1 redaction rule');
     // The store has the run as recorded, with its real user id; the pack has it redacted.
     const local = await shadowlap(['test', 'goldens/redacted']);
@@ -405,7 +405,7 @@ describe('a redacted golden', () => {
     const userId = { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' };
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: masks, redact: [userId] }));
     const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/repacked'])).code).toBe(0);
     // Another store imports the pack with its one rule.
     expect((await shadowlap(['--db', 'other.db', 'test', 'goldens/repacked'])).code).toBe(0);
@@ -503,7 +503,7 @@ console.log(JSON.stringify((await res.json()).content));
     );
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs']);
     expect(recorded.code, recorded.out).toBe(0);
-    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/meta'])).code).toBe(0);
+    expect((await shadowlap(['pack', /recording run (\w{26})/.exec(recorded.out)![1], 'goldens/meta'])).code).toBe(0);
     const r = await shadowlap(['test', 'goldens/meta', '--update'], { WITH_USER_ID: '1' });
     expect(r.out).toContain('+ $.metadata');
     expect(r.out).toContain('! $.metadata.user_id is new in the request and looks like a UUID, a value that changes every run: after this update the next run diverges on it, unless a normalizer masks it:');
@@ -514,7 +514,7 @@ console.log(JSON.stringify((await res.json()).content));
   it('warns when what diverged is a value the agent makes anew on every run, and names the normalizer', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/volatile'])).code).toBe(0);
     // Its scratch directory changes every run too, and isn't a value of a known shape: an update is offered.
     const both = await shadowlap(['test', 'goldens/volatile']);

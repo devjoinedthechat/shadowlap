@@ -72,7 +72,7 @@ describe('the query string in a call\'s identity', () => {
   it('tells a streamed Gemini call (alt=sse) from the same request without it', async () => {
     const store = Store.open(':memory:');
     const rec = await through(store, 'record', [{ provider: 'gemini', path: GEMINI, query: 'alt=sse' }]);
-    expect(store.getCalls(rec.runId)[0]!.meta.query).toBe('alt=sse');
+    expect(store.getCalls(rec.runId)[0].meta.query).toBe('alt=sse');
     expect((await through(store, 'replay', [{ provider: 'gemini', path: GEMINI, query: 'alt=sse' }], rec.runId)).summary.divergence).toBeNull();
     const without = await through(store, 'replay', [{ provider: 'gemini', path: GEMINI }], rec.runId);
     expect(without.summary.divergence).toMatchObject({ type: 'request_changed', callNo: 1, diff: [{ path: 'query.alt', op: 'removed', before: 'sse' }] });
@@ -100,8 +100,8 @@ describe('the query string in a call\'s identity', () => {
     // Asked the second page first, as an agent resuming a listing does: the cursor's page, not the first recorded.
     const rep = await through(store, 'replay', [second, first], rec.runId);
     expect(rep.summary.divergence).toBeNull();
-    expect(JSON.parse(rep.answers[0]!.slice(4)).query).toEqual({ limit: '2', after: 'file_2' });
-    expect(JSON.parse(rep.answers[1]!.slice(4)).query).toEqual({ limit: '2' });
+    expect(JSON.parse(rep.answers[0].slice(4)).query).toEqual({ limit: '2', after: 'file_2' });
+    expect(JSON.parse(rep.answers[1].slice(4)).query).toEqual({ limit: '2' });
     expect(asked).toBe(before);
     // Another cursor is another page: the recording holds no answer for it.
     const other = (await through(store, 'replay', [{ ...second, query: 'limit=2&after=file_4' }], rec.runId)).summary.divergence;
@@ -112,7 +112,7 @@ describe('the query string in a call\'s identity', () => {
   it('leaves a key in the query out of it: the recording keeps none, and a rotated key replays', async () => {
     const store = Store.open(':memory:');
     const rec = await through(store, 'record', [{ provider: 'gemini', path: GEMINI, query: 'alt=sse&key=AIzaSyA-recorded-key-1234567890' }]);
-    expect(store.getCalls(rec.runId)[0]!.meta.query).toBe('alt=sse');
+    expect(store.getCalls(rec.runId)[0].meta.query).toBe('alt=sse');
     expect(JSON.stringify(store.getCalls(rec.runId))).not.toContain('AIzaSyA');
     const rep = await through(store, 'replay', [{ provider: 'gemini', path: GEMINI, query: 'key=AIzaSyB-rotated-key-0987654321&alt=sse' }], rec.runId);
     expect(rep.summary.divergence).toBeNull();
@@ -145,7 +145,7 @@ describe('the query string in a call\'s identity', () => {
     store.endRun(run.runId, 'completed');
     const rep = await through(store, 'replay', [{ provider: 'azure', path: AZURE, query: 'api-version=2024-10-21' }], run.runId);
     expect(rep.summary.divergence).toBeNull();
-    expect(store.getCalls(rep.runId)[0]!.meta.query).toBeUndefined();
+    expect(store.getCalls(rep.runId)[0].meta.query).toBeUndefined();
     expect((await through(store, 'replay', [{ provider: 'azure', path: AZURE, query: 'api-version=2025-04-01-preview' }], rep.runId)).summary.divergence).toBeNull();
     store.close();
   });
@@ -154,7 +154,7 @@ describe('the query string in a call\'s identity', () => {
     const store = Store.open(':memory:');
     const rec = await through(store, 'record', [{ provider: 'azure', path: AZURE }]);
     // Kept as empty: it had none, which is not the same as not knowing.
-    expect(store.getCalls(rec.runId)[0]!.meta.query).toBe('');
+    expect(store.getCalls(rec.runId)[0].meta.query).toBe('');
     const rep = await through(store, 'replay', [{ provider: 'azure', path: AZURE, query: 'api-version=2024-10-21' }], rec.runId);
     expect(rep.summary.divergence).toMatchObject({ type: 'request_changed', diff: [{ path: 'query.api-version', op: 'added', after: '2024-10-21' }] });
     store.close();
@@ -174,14 +174,14 @@ describe('the query string in a call\'s identity', () => {
         try {
           const { imported } = unpackRun(golden, join(dir, 'golden'));
           // The pack keeps the query masked, and no tenant.
-          expect(JSON.stringify(golden.getCalls(imported[0]!))).not.toContain('acme-corp-77');
+          expect(JSON.stringify(golden.getCalls(imported[0]))).not.toContain('acme-corp-77');
           for (const clock of ['auto', 'exact'] as const) {
-            const rep = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2024-10-21&${tenant}` }], imported[0]!, clock);
+            const rep = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2024-10-21&${tenant}` }], imported[0], clock);
             expect(rep.summary.divergence, `${JSON.stringify(redact)} ${clock}`).toBeNull();
             expect(rep.answers[0]).toContain('200 ');
           }
           // Another version still forks: only what the rule masked matches whatever it was.
-          const other = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2025-04-01-preview&${tenant}` }], imported[0]!);
+          const other = await through(golden, 'replay', [{ provider: 'azure', path: AZURE, query: `api-version=2025-04-01-preview&${tenant}` }], imported[0]);
           expect(other.summary.divergence).toMatchObject({ type: 'request_changed', diff: [{ path: 'query.api-version' }] });
         } finally {
           golden.close();

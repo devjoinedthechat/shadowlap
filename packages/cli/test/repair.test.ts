@@ -133,7 +133,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 async function record(order?: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, 'agent.mjs', ...(order ? [order] : [])]);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 async function runs(): Promise<{ failed: string[]; good: string }> {
@@ -175,9 +175,9 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
     expect(report.holdout).toEqual([failed[1]]);
     const asked = mock.requests.filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
     expect(asked).toHaveLength(1);
-    const prompt = JSON.stringify(asked[0]!.body.messages);
+    const prompt = JSON.stringify(asked[0].body.messages);
     expect(prompt).toContain('Failed run 1 of 1');
-    expect(asked[0]!.body.model).toBe('claude-opus-5-5');
+    expect(asked[0].body.model).toBe('claude-opus-5-5');
 
     expect(report.outcome).toBe('fixed');
     expect(report.candidates.map((c) => [c.id, c.state])).toEqual([
@@ -185,8 +185,8 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
       [2, 'rejected'],
       [3, 'accepted'],
     ]);
-    expect(report.candidates[0]!.reason).toContain('mentions A-1042, which only the failing runs contain');
-    expect(report.candidates[1]!.reason).toMatch(/target run \w{10} not fixed/);
+    expect(report.candidates[0].reason).toContain('mentions A-1042, which only the failing runs contain');
+    expect(report.candidates[1].reason).toMatch(/target run \w{10} not fixed/);
     expect(report.accepted).toBe(3);
 
     // Candidates were tried in place and put back; nothing is left half-applied.
@@ -194,7 +194,7 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
     expect(existsSync(join(project, '.shadowlap', 'repair-journal.json'))).toBe(false);
 
     // The patch applies, and the recording of a fixed run replays clean only with it.
-    const golden = report.output.goldens.find((g) => g.endsWith(failed[0]!.slice(0, 10)))!;
+    const golden = report.output.goldens.find((g) => g.endsWith(failed[0].slice(0, 10)))!;
     expect(golden).toBeDefined();
     const stale = await shadowlap(['test', golden]);
     expect(stale.code, stale.out).toBe(1);
@@ -240,7 +240,7 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
       expect(agentText()).not.toContain(FIX);
       expect(sh(project, 'git', ['status', '--porcelain']).trim()).toBe('');
       const files = sh(project, 'git', ['ls-tree', '-r', '--name-only', 'shadowlap/escalate-refunds']).split('\n');
-      expect(files.some((f) => f.startsWith(`goldens/${failed[0]!.slice(0, 10)}/`) && f.endsWith('run.json'))).toBe(true);
+      expect(files.some((f) => f.startsWith(`goldens/${failed[0].slice(0, 10)}/`) && f.endsWith('run.json'))).toBe(true);
       const msg = sh(project, 'git', ['log', '-1', '--format=%B', 'shadowlap/escalate-refunds']);
       expect(msg.split('\n')[0]).toBe('Escalate refunds above the policy limit');
       expect(msg).toContain('fixes 1 of 1 target and 1 of 1 held-out failing runs, keeps 1 of 1 good runs');
@@ -250,7 +250,7 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
       const args = readFileSync(join(bin, 'args'), 'utf8').split('\n');
       expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', 'shadowlap/escalate-refunds', '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
       expect(args[8]).toBe('--body-file');
-      expect(readFileSync(args[9]!, 'utf8')).toContain('## Escalate refunds above the policy limit');
+      expect(readFileSync(args[9], 'utf8')).toContain('## Escalate refunds above the policy limit');
     } finally {
       rmSync(remote, { recursive: true, force: true });
       rmSync(bin, { recursive: true, force: true });
@@ -322,7 +322,7 @@ process.stdin.on('end', () => {
       const call = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; system: string; cwd: string; claudecode: string | null; input: string };
       expect(call.args.slice(0, 7)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2']);
       // The schema reaches it whole, quotes and all, through cmd.exe on Windows too.
-      expect(JSON.parse(call.args[call.args.indexOf('--json-schema') + 1]!)).toMatchObject({ type: 'object', required: ['diagnosis', 'candidates'] });
+      expect(JSON.parse(call.args[call.args.indexOf('--json-schema') + 1])).toMatchObject({ type: 'object', required: ['diagnosis', 'candidates'] });
       expect(call.args.slice(-2)).toEqual(['--model', 'claude-opus-5-5']);
       // The system prompt is read from a file: its line breaks never go on a command line.
       expect(call.system).toContain('You improve AI agents');
@@ -348,7 +348,7 @@ process.stdin.on('end', () => {
     expect(report.outcome).toBe('fixed');
     const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
     expect(asked).toHaveLength(1);
-    const sent = JSON.stringify(asked[0]!.body);
+    const sent = JSON.stringify(asked[0].body);
     expect(sent).toContain('refund on order <EMAIL>');
     expect(sent).not.toContain('jane.doe@example.com');
     // A case detail is still screened out: the check runs on the run as recorded, on this machine.
@@ -362,14 +362,14 @@ process.stdin.on('end', () => {
     const system = { AGENT_SYSTEM: 'You are a support agent for the account of jane.doe@example.com. Follow the refund policy.' };
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
     expect(recorded.code, recorded.out).toBe(0);
-    const failed = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1];
     mode = 'alternate';
     const before = mock.requests.length;
     const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
     expect(r.stdout, r.out).toContain('"outcome"');
     const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
     expect(asked).toHaveLength(1);
-    const sent = JSON.stringify(asked[0]!.body);
+    const sent = JSON.stringify(asked[0].body);
     expect(sent).toContain('System prompt:\\nYou are a support agent for the account of <EMAIL>. Follow the refund policy.');
     expect(sent).not.toContain('jane.doe@example.com');
   });
@@ -383,7 +383,7 @@ process.stdin.on('end', () => {
     // must not see half done.
     const lock = JSON.stringify(join(project, '.shadowlap', 'repair.lock')).replace(/"/g, "'");
     const build = `"${process.execPath}" -e "process.exit(require('node:fs').existsSync(${lock}) ? 0 : 3)"`;
-    const r = await shadowlap(['repair', '--fixes', failed[0]!, '--keeps', 'label:good', '--expect', ORACLE, '--stronger', 'big-model', '--build', build, '--apply', '--json']);
+    const r = await shadowlap(['repair', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE, '--stronger', 'big-model', '--build', build, '--apply', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Report;
     expect(report.targets[0]).toMatchObject({ outcome: 'blamed', rescuedBy: 'big-model' });
@@ -400,17 +400,17 @@ process.stdin.on('end', () => {
   it('says so when there is no passing path to learn from', async () => {
     const { failed } = await runs();
     mode = 'stubborn';
-    const r = await shadowlap(['repair', '--fixes', failed[0]!, '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    const r = await shadowlap(['repair', '--fixes', failed[0], '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
     expect(r.code).toBe(1);
     const report = JSON.parse(r.stdout) as Report;
     expect(report.outcome).toBe('no-diagnosis');
     expect(report.why).toContain('--stronger');
-    expect(report.targets[0]!.outcome).toBe('unrescuable');
+    expect(report.targets[0].outcome).toBe('unrescuable');
     expect(existsSync(join(project, report.output.report))).toBe(true);
 
     // The search it made is stored on the run: a second repair doesn't make it again.
     const before = mock.requests.length;
-    const again = JSON.parse((await shadowlap(['repair', '--fixes', failed[0]!, '--expect', ORACLE, '--repairer', 'anthropic', '--json'])).stdout) as Report & { targets: Array<{ reused: boolean }> };
+    const again = JSON.parse((await shadowlap(['repair', '--fixes', failed[0], '--expect', ORACLE, '--repairer', 'anthropic', '--json'])).stdout) as Report & { targets: Array<{ reused: boolean }> };
     expect(again.targets[0]).toMatchObject({ outcome: 'unrescuable', reused: true });
     expect(mock.requests.length).toBe(before);
   });
@@ -420,7 +420,7 @@ process.stdin.on('end', () => {
     mode = 'alternate';
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ prices: { 'claude-haiku-4-5': { input: 1, output: 5 } }, tests: { 'goldens/f': { expect: { judge: JUDGED } } } }));
     // The failing run it is shown holds a judge call of its own, as a golden packed with its check does.
-    const packed = await shadowlap(['pack', failed[0]!, 'goldens/f']);
+    const packed = await shadowlap(['pack', failed[0], 'goldens/f']);
     expect(packed.out).toContain('the judge answered no · it refunds $240');
     const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', JSON.stringify({ judge: JUDGED }), '--repairer', 'anthropic', '--json']);
     expect(r.code, r.out).toBe(0);
@@ -519,11 +519,11 @@ process.stdin.on('end', () => {
   it('checks its flags before running anything', async () => {
     const { failed } = await runs();
     expect((await shadowlap(['repair', '--expect', ORACLE])).out).toContain('give the failing runs to repair');
-    expect((await shadowlap(['repair', '--fixes', failed[0]!, '--pr'])).out).toContain('--pr opens a pull request from the branch --branch <name> makes');
-    expect((await shadowlap(['repair', '--fixes', failed[0]!, '--repairer', 'openai'])).out).toContain('an openai repairer needs a model');
-    expect((await shadowlap(['repair', '--fixes', failed[0]!, '--goldens', 'g'])).out).toContain('--goldens puts recordings into the project');
+    expect((await shadowlap(['repair', '--fixes', failed[0], '--pr'])).out).toContain('--pr opens a pull request from the branch --branch <name> makes');
+    expect((await shadowlap(['repair', '--fixes', failed[0], '--repairer', 'openai'])).out).toContain('an openai repairer needs a model');
+    expect((await shadowlap(['repair', '--fixes', failed[0], '--goldens', 'g'])).out).toContain('--goldens puts recordings into the project');
     // Recordings committed to a branch must be inside the repository: refused before any blame runs.
-    const outside = await shadowlap(['repair', '--fixes', failed[0]!, '--branch', 'fix-refunds', '--goldens', '../elsewhere', '--json']);
+    const outside = await shadowlap(['repair', '--fixes', failed[0], '--branch', 'fix-refunds', '--goldens', '../elsewhere', '--json']);
     expect(outside.code).toBe(2);
     expect(JSON.parse(outside.stdout)).toEqual({ outcome: 'error', error: { message: "--goldens ../elsewhere is outside the repository, so its recordings can't be committed to a branch: give a folder inside it" } });
     expect(outside.out).not.toContain('blaming');
@@ -648,7 +648,7 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
       [2, 'incomplete'],
       [3, 'untried'],
     ]);
-    expect(report.candidates[1]!.reason).toMatch(/provider unavailable: /);
+    expect(report.candidates[1].reason).toMatch(/provider unavailable: /);
     expect(report.accepted).toBeNull();
     expect(agentText()).not.toContain(FIX);
   });
@@ -685,9 +685,9 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
       [1, 'invalid'],
       [2, 'accepted'],
     ]);
-    expect(report.candidates[0]!.reason).toContain('it brings in ${process.env.GH_TOKEN}, which agent.mjs could fill in when the agent builds its prompt');
-    expect(report.candidates[0]!.verify).toBeNull();
-    expect(report.candidates[1]!.before).toBe('You are a support agent. Refunds above $${limit} need a manager.');
+    expect(report.candidates[0].reason).toContain('it brings in ${process.env.GH_TOKEN}, which agent.mjs could fill in when the agent builds its prompt');
+    expect(report.candidates[0].verify).toBeNull();
+    expect(report.candidates[1].before).toBe('You are a support agent. Refunds above $${limit} need a manager.');
     expect(report.patch).toContain('+    system: process.env.AGENT_SYSTEM ?? `You are a support agent. Refunds above $${limit} need a manager: escalate every refund above the limit.`,');
     // Verify ran the agent with the value filled in, and the token went nowhere.
     const sent = mock.requests.slice(before).map((q) => JSON.stringify(q.body));
@@ -711,7 +711,7 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     expect(report.why).toBe('the one candidate that could be tried grew the input tokens per run past --max-growth 25% by its rewrite alone, so verify ran none');
     expect(report.candidates).toHaveLength(1);
     expect(report.candidates[0]).toMatchObject({ state: 'rejected', verify: null });
-    expect(report.candidates[0]!.reason).toMatch(/^input tokens per run grow \d+% from the rewrite alone, at 5 characters a token, more than --max-growth 25%, so it was not verified$/);
+    expect(report.candidates[0].reason).toMatch(/^input tokens per run grow \d+% from the rewrite alone, at 5 characters a token, more than --max-growth 25%, so it was not verified$/);
     expect(report.cost.verify).toBe(0);
     // Nothing was sent with it: no attempt ran.
     expect(mock.requests.slice(before).some((q) => JSON.stringify(q.body).includes('say which rule applies'))).toBe(false);

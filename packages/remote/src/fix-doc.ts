@@ -325,7 +325,7 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
     appliedAt: nullable(num),
     data: fixData,
   })(f, `${where}.fix`);
-  const fix = f as unknown as StoredFix;
+  const fix = f as StoredFix;
   if (fix.fixId !== fixId) throw new LayoutError(`${where} holds another fix (${fix.fixId})`);
   arr(
     (v, w) => {
@@ -514,7 +514,7 @@ export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: 
       store.updateFix(fix.fixId, { title: fix.title, labels: fix.labels, status: applied ? 'applied' : fix.status, verifiedAt: fix.verifiedAt ?? here.verifiedAt, appliedAt: applied ? here.appliedAt : null });
       // The merged data whole: what this machine had is in it already, but how it was applied here.
       store.mergeFixData(fix.fixId, Object.fromEntries(Object.keys(here.data).map((k) => [k, null])));
-      store.mergeFixData(fix.fixId, { ...fix.data, ...(here.data.applied ? { applied: here.data.applied } : {}) } as Record<string, unknown>);
+      store.mergeFixData(fix.fixId, { ...fix.data, ...(here.data.applied ? { applied: here.data.applied } : {}) });
     }
     for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame(b);
     for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict(v);
@@ -525,7 +525,7 @@ export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: 
       if (o.from) store.markRepairPulled(o.from, r.repairId, o.at);
       repairs.push(r.repairId);
     }
-    for (const l of doc.links) store.addFixLink(fix.fixId, l.kind, l.ref, l.at, (l.data as VerdictStanding | null) ?? null);
+    for (const l of doc.links) store.addFixLink(fix.fixId, l.kind, l.ref, l.at, (l.data) ?? null);
     return { created: !here, repairs };
   }, 'immediate');
 }

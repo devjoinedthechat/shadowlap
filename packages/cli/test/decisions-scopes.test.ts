@@ -153,7 +153,7 @@ describe('a switch changes the agent\'s model calls', () => {
     const report = json<DecisionsReport>(r);
     expect(report.change.from).toEqual([AGENT_MODEL]);
     // Four steps: the customer's and the agent's three. The judge's call is none of the agent's.
-    const run = report.runs[0]!;
+    const run = report.runs[0];
     expect(run.steps).toBe(4);
     expect(run.decisions.map((s) => s.callNo)).not.toContain(judgeCall);
     expect(run.counts).toMatchObject({ 1: 1, same: 2, untouched: 1, notAsked: 0 });
@@ -163,7 +163,7 @@ describe('a switch changes the agent\'s model calls', () => {
     expect(mock.requests.slice(before).map((q) => q.body.model)).toEqual([NEW_MODEL, NEW_MODEL, NEW_MODEL]);
     expect(report.notes).toContain(`The 1 model call made with ${CUSTOMER_MODEL} stays as recorded: the change is at the calls made with ${AGENT_MODEL}, the model the runs use most (--from names others).`);
     // What a run costs counts the agent's calls only.
-    expect(report.runs[0]!.cost.before).toBeGreaterThan(0);
+    expect(report.runs[0].cost.before).toBeGreaterThan(0);
   }, 120_000);
 
   it('switches the models --from names, and asks only the scope --scope names, none for no scope', async () => {
@@ -171,12 +171,12 @@ describe('a switch changes the agent\'s model calls', () => {
     const customer = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', NEW_MODEL, '--from', CUSTOMER_MODEL, '--json']));
     expect(customer.change.from).toEqual([CUSTOMER_MODEL]);
     expect(mock.requests.slice(before).map((q) => q.body.model)).toEqual([NEW_MODEL]);
-    expect(customer.runs[0]!.counts).toMatchObject({ same: 1, untouched: 3 });
+    expect(customer.runs[0].counts).toMatchObject({ same: 1, untouched: 3 });
 
     before = mock.requests.length;
     const unscoped = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', NEW_MODEL, '--scope', 'none', '--json']));
-    expect(unscoped.runs[0]!.steps).toBe(3);
-    expect(unscoped.runs[0]!.decisions.every((s) => s.scope === null)).toBe(true);
+    expect(unscoped.runs[0].steps).toBe(3);
+    expect(unscoped.runs[0].decisions.every((s) => s.scope === null)).toBe(true);
     expect(mock.requests.slice(before)).toHaveLength(3);
 
     const unknown = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', NEW_MODEL, '--from', 'claude-opus-4-8', '--json']));
@@ -207,15 +207,15 @@ describe('a switch changes the agent\'s model calls', () => {
     try {
       const rec = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], { AGENT_CACHE: '1' });
       expect(rec.code, rec.out).toBe(0);
-      const cached = /recording run (\w{26})/.exec(rec.out)![1]!;
+      const cached = /recording run (\w{26})/.exec(rec.out)![1];
       const asked = json<DecisionsReport>(await shadowlap(['decisions', cached, '--model', NEW_MODEL, '--concurrency', '4', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: url }));
-      expect(asked.runs[0]!.asked).toBe(3);
+      expect(asked.runs[0].asked).toBe(3);
       expect(most).toBe(1);
       expect(asked.notes.join('\n')).toContain('a run whose requests carry them is asked one step at a time, in order');
       // Without breakpoints, the steps go side by side.
       most = 0;
       const plain = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', NEW_MODEL, '--concurrency', '4', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: url }));
-      expect(plain.runs[0]!.asked).toBe(3);
+      expect(plain.runs[0].asked).toBe(3);
       expect(most).toBeGreaterThan(1);
     } finally {
       await new Promise<void>((r) => gateway.close(() => r()));
@@ -228,7 +228,7 @@ describe('a switch changes the agent\'s model calls', () => {
     expect(r.code).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(mock.requests.length).toBe(before);
-    expect(report.runs[0]!.counts).toMatchObject({ notAsked: 3, untouched: 1 });
+    expect(report.runs[0].counts).toMatchObject({ notAsked: 3, untouched: 1 });
     expect(report.warnings.join('\n')).toContain(`gpt-5.6-sol is a model of another family than ${AGENT_MODEL} (OpenAI, not Claude): asking the recorded request again can't carry it into that family's request format, so verify that switch instead`);
   }, 120_000);
 });
@@ -252,7 +252,7 @@ describe('migrate, on a project that names its model in many places', () => {
     try {
       const attempts = store.allRuns().filter((x) => x.meta?.verify && x.parentRunId === runId);
       expect(attempts.length).toBeGreaterThan(0);
-      const models = store.getCalls(attempts[0]!.runId).filter((c) => c.kind === 'api').map((c) => [c.meta.scope ?? null, c.end?.meta.model ?? c.meta.model]);
+      const models = store.getCalls(attempts[0].runId).filter((c) => c.kind === 'api').map((c) => [c.meta.scope ?? null, c.end?.meta.model ?? c.meta.model]);
       expect(models).toEqual([
         ['customer', CUSTOMER_MODEL],
         [null, NEW_MODEL],

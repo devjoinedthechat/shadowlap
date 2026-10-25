@@ -152,8 +152,8 @@ describe('an exported copy', () => {
     try {
       const rec = longRun(store, 1201);
       const out = exportHtml({ store, runIds: [rec.runId], now: NOW });
-      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(out.html)![1]!.replace(/\\u003c/g, '<')) as { responses: Record<string, RunDetail> };
-      const d = data.responses[`runs/${rec.runId}`]!;
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(out.html)![1].replace(/\\u003c/g, '<')) as { responses: Record<string, RunDetail> };
+      const d = data.responses[`runs/${rec.runId}`];
       expect(d.calls).toHaveLength(1201);
       expect(d.callsNext).toBeNull();
       expect(d.warming).toBeUndefined();

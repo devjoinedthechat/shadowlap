@@ -86,7 +86,7 @@ const css = readFileSync(new URL('../ui/app.css', import.meta.url), 'utf8').repl
 
 describe('a focus ring in a pane that scrolls', () => {
   /** The panes the stylesheet scrolls, and the panes it draws rings inside. */
-  const scrolling = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /overflow(?:-[xy])?\s*:\s*(?:auto|scroll)/.test(m[2]!)).flatMap((m) => m[1]!.split(',').map((x) => x.trim()));
+  const scrolling = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /overflow(?:-[xy])?\s*:\s*(?:auto|scroll)/.test(m[2])).flatMap((m) => m[1].split(',').map((x) => x.trim()));
   const inset = /:is\(([^)]*)\)\s*:focus-visible\s*\{\s*outline-offset:\s*-2px;?\s*\}/.exec(css)?.[1]?.split(',').map((x) => x.trim()) ?? [];
   /** Panes that keep a padding clear of every ring, so a ring drawn outside a control shows whole. */
   const PADDED: Record<string, string> = { '.page': 'every page pads its content', body: 'the page itself, on a phone' };
@@ -251,7 +251,7 @@ describe('the card a refused link shows', () => {
     r = await render(
       createElement(
         AppContext.Provider,
-        { value: app({ conn: 'expired' } as Partial<AppState>) },
+        { value: app({ conn: 'expired' }) },
         createElement('div', { className: 'app', id: 'app' }, createElement('a', { href: '#/runs' }, 'Runs'), createElement('button', { type: 'button' }, 'Replay')),
         createElement(ExpiredCard),
       ),

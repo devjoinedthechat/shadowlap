@@ -89,7 +89,7 @@ function argsOf(store: Store, c: CallRecord, normalizers: readonly Normalizer[])
   } catch {
     request = null;
   }
-  const args = request && typeof request === 'object' && 'args' in request ? (request as { args: unknown }).args : request;
+  const args = request && typeof request === 'object' && 'args' in request ? (request).args : request;
   if (!normalizers.length) return args;
   return (applyNormalizers({ args }, [...normalizers], 'tool', c.name) as { args: unknown }).args;
 }

@@ -17,7 +17,7 @@ const run = (runId: string, rank: number | null) => ({ runId, golden: rank === 1
 describe('decision sessions', () => {
   it('keeps a session and its runs, lists them newest first, and finds a run\'s', () => {
     const store = Store.open(':memory:');
-    const before = store.changeCounts().decisions!;
+    const before = store.changeCounts().decisions;
     store.putDecisionSession({ sessionId: 'dc-01M50000000000000000000001', kind: 'decisions', at: 1_000, change: 'the model m', actor: 'dev', revision: 'abc', data: { command: 'shadowlap decisions a --model m' }, runs: [run('01RUNA', 1), run('01RUNB', null)] });
     store.putDecisionSession({ sessionId: 'mg-01M50000000000000000000002', kind: 'migrate', at: 2_000, change: 'the model n', actor: null, revision: null, data: { to: 'n' }, runs: [run('01RUNA', 3)] });
     expect(store.changeCounts().decisions).toBe(before + 2);

@@ -59,17 +59,17 @@ describe('Needs a look and Activity', () => {
   it('says a gate’s verdict whole, each figure unbroken, with its rule on the row’s hover', async () => {
     r = await render(inApp(createElement(NeedsLook, { items: [gated, plain], total: 2 })));
     const [row, other] = r.all('.attn a');
-    const d = row!.querySelector('.d')!;
+    const d = row.querySelector('.d')!;
     expect(d.className).toBe('d gv');
     expect(d.textContent).toBe('failed · 4 of 8 · rate <= 0.78 (95%)');
     expect(d.querySelectorAll('.nw').map((s) => s.textContent)).toEqual(['failed ·', '4 of 8 ·', 'rate <= 0.78 (95%)']);
     // The rule is on the hover, under the golden, and in no line.
-    expect(tip(row!)?.t).toBe('eval-pushy');
-    expect(tip(row!)?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
+    expect(tip(row)?.t).toBe('eval-pushy');
+    expect(tip(row)?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
     expect(r.document.body.textContent).not.toContain('gate:');
     // A line no gate decided keeps its words as they are, with no hover of a rule.
-    expect(other!.querySelector('.d')!.className).toBe('d');
-    expect(tip(other!)).toBeNull();
+    expect(other.querySelector('.d')!.className).toBe('d');
+    expect(tip(other)).toBeNull();
   });
 
   it('fits a failed run’s about line to one line before what is left to do, never clamping it mid-word', async () => {
@@ -95,9 +95,9 @@ describe('Needs a look and Activity', () => {
     r = await render(createElement(ActivityCard, { items, now: 10, byPerson: false, live: [] }));
     const links = r.all('.feed a');
     expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/run/01M5GRZKRYAAAAAAAAAAAAAAAA', '#/run/01M5GRZK3PG7SR16CB2T3CFE21']);
-    expect(tip(links[0]!)?.t).toBe('Test failed · eval-pushy');
-    expect(tip(links[0]!)?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
-    expect(links[0]!.querySelector('.w')!.className).toBe('w gv');
+    expect(tip(links[0])?.t).toBe('Test failed · eval-pushy');
+    expect(tip(links[0])?.s?.replace(/\u00a0/g, ' ')).toBe(RULE);
+    expect(links[0].querySelector('.w')!.className).toBe('w gv');
     const rows = r.all('.feed .plain');
     expect(rows.map((x) => x.textContent)).toEqual([expect.stringContaining('Previewed the model claude-haiku-4-5 on 1 run')]);
     expect(r.all('.feed a[href="#/"]')).toEqual([]);
@@ -125,7 +125,7 @@ describe('Tests’ Last result', () => {
       store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/flaky', ok: false, failure: 'inconclusive', reason: 'inconclusive', runId: null, revision: 'a1b2c3d', at: 102, data: result(unsure) });
       store.addTestResult({ sessionId: t.sessionId, golden: 'goldens/plain', ok: true, runId: null, revision: 'a1b2c3d', at: 103, data: { mode: 'replay' } });
       store.finishTestSession(t.sessionId, { passed: 2, failed: 0, upstreamRequests: 0, endedAt: 110 });
-      return testsView(store, goldens) as unknown as TestsView;
+      return testsView(store, goldens);
     } finally {
       store.close();
     }
@@ -144,22 +144,22 @@ describe('Tests’ Last result', () => {
       r = await render(page(view()));
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
       const [escalates, flaky, plain] = r.all('td.glast');
-      expect(escalates!.querySelector('.st')!.textContent).toBe('passed');
-      expect(escalates!.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.73 (95%)');
-      expect(escalates!.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
-      expect(flaky!.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.56 to 0.95 (95%)']);
-      expect(escalates!.querySelector('.gev .wib')!.className).toBe('wib ok');
-      expect(escalates!.querySelector('.gev small')!.textContent).toBe('against .70 and .90');
-      expect(flaky!.querySelector('.st')!.textContent).toBe('inconclusive');
-      expect(flaky!.querySelector('.rsub')!.textContent).toBe('16 of 20 · rate 0.56 to 0.95 (95%)');
-      expect(flaky!.querySelector('.gev .wib')!.className).toBe('wib y');
+      expect(escalates.querySelector('.st')!.textContent).toBe('passed');
+      expect(escalates.querySelector('.rsub')!.textContent).toBe('12 of 12 · rate >= 0.73 (95%)');
+      expect(escalates.querySelectorAll('.rsub .nw').map((s) => s.textContent)).toEqual(['12 of 12 ·', 'rate >= 0.73 (95%)']);
+      expect(flaky.querySelectorAll('.rsub .kc').map((s) => s.textContent)).toEqual(['rate 0.56 to 0.95 (95%)']);
+      expect(escalates.querySelector('.gev .wib')!.className).toBe('wib ok');
+      expect(escalates.querySelector('.gev small')!.textContent).toBe('against .70 and .90');
+      expect(flaky.querySelector('.st')!.textContent).toBe('inconclusive');
+      expect(flaky.querySelector('.rsub')!.textContent).toBe('16 of 20 · rate 0.56 to 0.95 (95%)');
+      expect(flaky.querySelector('.gev .wib')!.className).toBe('wib y');
       // A golden no gate decided: its line as before, and no bar.
-      expect(plain!.querySelector('.gev')).toBeNull();
+      expect(plain.querySelector('.gev')).toBeNull();
       // The rule, once for both goldens it decided, beside their mode; no row repeats it.
-      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1]!.textContent]);
-      expect(rules.map(([mode, rule]) => [mode, rule!.replace(/\u00a0/g, ' ')])).toEqual([['fork · gate', RULE]]);
+      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent]);
+      expect(rules.map(([mode, rule]) => [mode, rule.replace(/\u00a0/g, ' ')])).toEqual([['fork · gate', RULE]]);
       // Each figure keeps its words where the rule wraps.
-      expect(rules[0]![1]).toContain('tells\u00a090%+\u00a0from\u00a070%- at\u00a0<=\u00a05%\u00a0risk, up\u00a0to\u00a020\u00a0attempts');
+      expect(rules[0][1]).toContain('tells\u00a090%+\u00a0from\u00a070%- at\u00a0<=\u00a05%\u00a0risk, up\u00a0to\u00a020\u00a0attempts');
       expect(r.all('table.gt td').filter((td) => td.textContent.includes('gate:'))).toEqual([]);
       // One rule for both: no golden named beside it.
       expect(r.all('.gfoot .gnames')).toEqual([]);
@@ -178,7 +178,7 @@ describe('Tests’ Last result', () => {
       flaky.last.gate!.rule = RULE.replace('up to 20 attempts', 'up to 12 attempts');
       r = await render(page(v));
       await r.until('the goldens to load', () => r!.all('td.glast').length === 3);
-      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1]!.textContent.replace(/\u00a0/g, ' ')]);
+      const rules = r.all('.gfoot p').map((p) => [p.querySelector('.chip')!.textContent, p.children[1].textContent.replace(/\u00a0/g, ' ')]);
       expect(rules).toEqual([
         ['fork · gate', `escalates: ${RULE}`],
         ['fork · gate', `flaky: ${RULE.replace('up to 20 attempts', 'up to 12 attempts')}`],

@@ -157,9 +157,9 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
   if (tooLong('replace', replace)) throw new RuleError(`replace must be at most ${LIMITS.replace} characters`);
   return {
     ...(kind !== undefined ? { kind: kind as CallKind } : {}),
-    ...(name !== undefined ? { name: name as string } : {}),
-    ...(path !== undefined ? { path: path as string } : {}),
-    ...(pattern !== undefined ? { pattern: pattern as string } : {}),
+    ...(name !== undefined ? { name: name } : {}),
+    ...(path !== undefined ? { path: path } : {}),
+    ...(pattern !== undefined ? { pattern: pattern } : {}),
     replace,
   };
 }
@@ -168,7 +168,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
 function checkStored(entry: unknown): Normalizer {
   if (!isObject(entry)) throw new RuleError('it is not an object');
   const extra = Object.fromEntries(Object.entries(entry).filter(([k]) => !(FIELDS as readonly string[]).includes(k)));
-  return { ...extra, ...checkShape(entry, ALL_KINDS, false) } as Normalizer;
+  return { ...extra, ...checkShape(entry, ALL_KINDS, false) };
 }
 
 /**

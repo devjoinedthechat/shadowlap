@@ -160,7 +160,7 @@ describe('the Repair step', () => {
     const other = newRun({ labels: ['triage'] });
     const reused = blame(other).fix.fixId;
     const report = repairReport({ targets: [other] });
-    report.targets[0] = { ...report.targets[0]!, reused: true };
+    report.targets[0] = { ...report.targets[0], reused: true };
     recordRepair(store, { repairId: 'repair-reused', dir: '.shadowlap/repairs/repair-reused', report, expect: EXPECT, command: 'shadowlap repair --fixes label:triage', at: NOW + 3 });
     await open(reused, 'repair');
     // Its candidates' verification alone: 2 attempts of the one it dropped, 4 of the one it accepted.
@@ -264,7 +264,7 @@ describe('the Verify step', () => {
     const run = newRun({ labels: ['double-email'] });
     const { fix } = blame(run);
     const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
-    unsettled.runs[0] = { ...unsettled.runs[0]!, verdict: 'open', decision: 'inconclusive' };
+    unsettled.runs[0] = { ...unsettled.runs[0], verdict: 'open', decision: 'inconclusive' };
     Object.assign(unsettled, decideVerify(unsettled.runs, null));
     const counted = recordVerdict(store, { report: unsettled, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email', at: NOW + 1 }).verdict.verifyId;
     const exitOnly = { ...verifyReport([{ runId: run, role: 'target', pass: true, recorded: true }], { oracle: ['the agent exits 0'], codeVersion: 'f353f41' }), fields: { temperature: 1 } };
@@ -294,7 +294,7 @@ describe('the Verify step', () => {
     expect(text(r!.one('.verdict h2'))).toBe("Doesn't count for this fix: its check leaves out issue_refund with {\"amount\":240} called 0 times");
     expect(r!.all('.vpick a').map(text)).toEqual(["temperature=1 from each run's first model call · at f353f41 · accepted · doesn't count", '370712a+dirty · incomplete']);
     // The revision stays with its "at", and no line starts on a dot.
-    expect(r!.all('.vpick a')[0]!.textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
+    expect(r!.all('.vpick a')[0].textContent).toBe("temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· accepted\u00a0· doesn't count");
     expect(r!.one('.verdict p').textContent).toMatch(/^temperature=1 from each run's first model call\u00a0· at\u00a0f353f41\u00a0· a run passes/);
     expect(text(r!.one('.verdict p'))).toMatch(/^temperature=1 from each run's first model call · at f353f41 · a run passes when 4 of 5 attempts meet the check: the agent exits 0$/);
     expect(text(r!.all('.fxreceipt').at(-1)!)).toContain('spent to find out before it shipped');
@@ -304,7 +304,7 @@ describe('the Verify step', () => {
     const runs = [newRun({ labels: ['refund-bug'] }), newRun({ labels: ['refund-bug'] })];
     let fixId = '';
     for (const x of runs) fixId = blame(x).fix.fixId;
-    recordVerdict(store, { report: verifyReport([{ runId: runs[0]!, role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
+    recordVerdict(store, { report: verifyReport([{ runId: runs[0], role: 'target', pass: true }]), expect: EXPECT, command: 'v', at: NOW + 1 });
     await open(fixId, 'verify');
     expect(r!.one('.verdict').className).toBe('verdict ok');
     expect(text(r!.one('.verdict h2'))).toBe('Fixes 1 of 1 target run');
@@ -318,7 +318,7 @@ describe('what settles a fix left unsettled', () => {
     const { fix } = blame(run);
     const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
     const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
-    report.runs[0] = { ...report.runs[0]!, verdict: 'open', decision: 'continue' };
+    report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue' };
     Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
     const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1 --budget 0.012', at: NOW + 1 });
     const started: Array<[string, unknown]> = [];
@@ -343,7 +343,7 @@ describe('what settles a fix left unsettled', () => {
     const run = newRun({ labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');
     report.gate = { kind: 'sprt', good: 0.6, bad: 0.1, risk: 0.05, max: 20 };
-    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive' }];
     const { fix } = blame(run, { report });
     const started: Array<[string, unknown]> = [];
     await open(fix.fixId, null, null, { started });

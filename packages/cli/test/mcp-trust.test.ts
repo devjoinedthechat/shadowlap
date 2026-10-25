@@ -40,7 +40,7 @@ function client(runId: string, effects?: Record<string, 'pure' | 'read' | 'write
       waiters.get(m.id as number)?.(m);
     }
   });
-  const sidecarTarget = { url: sidecar.envFor(runId).SHADOWLAP_URL!, runId };
+  const sidecarTarget = { url: sidecar.envFor(runId).SHADOWLAP_URL, runId };
   const proxy = startMcpProxy({ clientIn, clientOut, server: { command: process.execPath, args: [serverScript], env: { ...process.env, FAKE_MCP_OPEN_WORLD: '1' } }, sidecar: sidecarTarget, ...(effects ? { effects } : {}) });
   let id = 1;
   const request = (method: string, params?: unknown) => {
@@ -77,11 +77,11 @@ describe('shadowlap mcp and openWorldHint', () => {
       ['post_status', 'write', null],
     ]);
     // The tools the server offers carry it too, for Settings → Tools.
-    expect(calls[0]!.meta.mcp?.tools?.find((t) => t.name === 'web_search')).toEqual({ name: 'web_search', effect: 'read', trust: 'untrusted' });
+    expect(calls[0].meta.mcp?.tools?.find((t) => t.name === 'web_search')).toEqual({ name: 'web_search', effect: 'read', trust: 'untrusted' });
     // As shadowlap injection reads it: from MCP, and the config can say otherwise.
-    expect(trustOf(calls[0]!)).toEqual({ trust: 'untrusted', from: 'mcp' });
-    expect(untrustedReads(calls).reads.map((r) => [r.callNo, r.name, r.from])).toEqual([[calls[0]!.callNo, 'web_search', 'mcp']]);
-    expect(trustOf(calls[0]!, { web_search: { trust: 'trusted' } })).toEqual({ trust: 'trusted', from: 'config' });
+    expect(trustOf(calls[0])).toEqual({ trust: 'untrusted', from: 'mcp' });
+    expect(untrustedReads(calls).reads.map((r) => [r.callNo, r.name, r.from])).toEqual([[calls[0].callNo, 'web_search', 'mcp']]);
+    expect(trustOf(calls[0], { web_search: { trust: 'trusted' } })).toEqual({ trust: 'trusted', from: 'config' });
   });
 
   it('keeps an open-world tool given --effect write out of the untrusted reads', async () => {

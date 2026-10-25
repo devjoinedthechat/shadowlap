@@ -76,7 +76,7 @@ describe('shadowlap run when the agent does not end well', () => {
     expect(crashed.out).toContain('agent crashed after model call 5');
     expect(crashed.out).toMatch(/Recorded \S+: \d+ calls \(5 api/);
     const store = Store.open(db);
-    const run = store.allRuns()[0]!;
+    const run = store.allRuns()[0];
     expect(run.status).toBe('failed');
     expect(store.getCalls(run.runId).filter((c) => c.kind === 'api')).toHaveLength(5);
     store.close();
@@ -115,7 +115,7 @@ describe('shadowlap run when the agent does not end well', () => {
     await exited;
     const store = Store.open(db);
     try {
-      expect(store.allRuns()[0]!.status, out).toBe('crashed');
+      expect(store.allRuns()[0].status, out).toBe('crashed');
     } finally {
       store.close();
     }
@@ -123,7 +123,7 @@ describe('shadowlap run when the agent does not end well', () => {
 
   it('repeats a fork, concurrently, with every attempt in its own run', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
-    const parentId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const parentId = /recording run (\w{26})/.exec(recorded.out)![1];
     const r = await shadowlap(['replay', parentId, '--repeat', '3', '--concurrency', '3'], { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(r.code).toBe(0);
     expect(r.out.match(/── attempt \d of 3 · run \w{26} ──/g)).toHaveLength(3);
@@ -159,7 +159,7 @@ describe('shadowlap run when the agent does not end well', () => {
     const store = Store.open(db);
     const runs = store.allRuns();
     expect(runs).toHaveLength(before + 1);
-    const run = runs[0]!;
+    const run = runs[0];
     expect(run.status).toBe('crashed');
     expect(run.endedAt).not.toBeNull();
     expect(runs.some((x) => x.status === 'running')).toBe(false);
@@ -204,9 +204,9 @@ describe('shadowlap run when the agent does not end well', () => {
     cpSync(fileURLToPath(new URL('../../../testing/golden/reference-agent', import.meta.url)), pack, { recursive: true });
     const marker = join(cwd, 'pwned.txt');
     const manifest = JSON.parse(readFileSync(join(pack, 'run.json'), 'utf8')) as { runs: Array<{ runId: string; command: { argv: string[] } }> };
-    manifest.runs[0]!.command.argv = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`];
+    manifest.runs[0].command.argv = [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`];
     writeFileSync(join(pack, 'run.json'), JSON.stringify(manifest));
-    const runId = manifest.runs[0]!.runId;
+    const runId = manifest.runs[0].runId;
 
     const unpacked = await shadowlap(['unpack', pack]);
     expect(unpacked.code).toBe(0);

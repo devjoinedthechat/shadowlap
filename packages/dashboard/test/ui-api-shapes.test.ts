@@ -42,14 +42,14 @@ describe('meta', () => {
       readOnlyReason: 'this dashboard is read-only (started with --read-only): it shows runs and changes nothing',
       live: [{ runId: '01K5CQ6L0P', calls: 9 }, { calls: 3 }, { runId: '01K5CQ6L0Q', calls: 4, events: 7 }] as never,
       jobKinds: ['action', 7, 'blame'] as never,
-    } as Meta);
+    });
     expect(m.readOnlyReason).toBe('This dashboard is read-only (started with --read-only): it shows runs and changes nothing.');
     expect(m.live).toEqual([
       { runId: '01K5CQ6L0P', calls: 9 },
       { runId: '01K5CQ6L0Q', calls: 4, events: 7 },
     ]);
     expect(m.jobKinds).toEqual(['action', 'blame']);
-    expect(normalizeMeta({ version: null, dbPath: null, actions: true } as Meta).readOnlyReason).toBeNull();
+    expect(normalizeMeta({ version: null, dbPath: null, actions: true }).readOnlyReason).toBeNull();
     expect(sentence('ends already.')).toBe('Ends already.');
   });
 });
@@ -57,10 +57,10 @@ describe('meta', () => {
 describe('the run list', () => {
   it('reads where blame lost a run from lostAt, as the Runs table’s rows say it', () => {
     const [lost, plain] = normalizeRuns([row('01A', { lostAt: 17 }), row('01B', { lostAt: null })]);
-    expect(lost!.blame).toEqual({ callNo: 17 });
-    expect(runOutcome(lost!)).toEqual({ tone: 'err', text: 'lost at #17' });
-    expect(isFailed(lost!)).toBe(true);
-    expect(plain!.blame).toBeUndefined();
+    expect(lost.blame).toEqual({ callNo: 17 });
+    expect(runOutcome(lost)).toEqual({ tone: 'err', text: 'lost at #17' });
+    expect(isFailed(lost)).toBe(true);
+    expect(plain.blame).toBeUndefined();
   });
 
   it('bundles an attempt under its run, and lists one whose run is gone like any run', () => {
@@ -102,7 +102,7 @@ describe('a run', () => {
 
   it('reads how many attempts deleting the run takes with it, as a count or not at all', () => {
     expect(normalizeRunDetail(detail({ attempts: 6 })).attempts).toBe(6);
-    expect('attempts' in normalizeRunDetail(detail({ attempts: '6' as never }))).toBe(false);
+    expect('attempts' in normalizeRunDetail(detail({ attempts: '6' }))).toBe(false);
     expect('attempts' in normalizeRunDetail(detail({ attempts: -1 }))).toBe(false);
     expect(normalizeRunDetail(detail({})).attempts).toBeUndefined();
   });
@@ -161,7 +161,7 @@ describe('a run', () => {
 });
 
 describe('actions', () => {
-  const action = (over: Partial<ActionItem> & Record<string, unknown>): ActionItem => ({ key: 'i', label: 'Inject an instruction', opensRun: true, prompt: null, disabled: null, ...over }) as ActionItem;
+  const action = (over: Partial<ActionItem> & Record<string, unknown>): ActionItem => ({ key: 'i', label: 'Inject an instruction', opensRun: true, prompt: null, disabled: null, ...over });
 
   it('drops empty flags and hints, keeps a null group (a place of its own) and well-formed choices', () => {
     expect(normalizeAction({ ...action({ group: null }), flag: null, hint: null } as never)).toEqual({ key: 'i', label: 'Inject an instruction', opensRun: true, prompt: null, disabled: null, group: null });
@@ -197,7 +197,7 @@ describe('an exported copy', () => {
     const ids = ['01M5305KSBQ7H3W2Y9XPN4TE0V', '01M5305ZT3A1B2C3D4E5F6G7H8', '01M5305ZYQA1B2C3D4E5F6G7H8'];
     expect(copyRunId(ids, '01M5305KSB')).toBe(ids[0]);
     expect(copyRunId(ids, '01m5305ksb')).toBe(ids[0]);
-    expect(copyRunId(ids, ids[1]!)).toBe(ids[1]);
+    expect(copyRunId(ids, ids[1])).toBe(ids[1]);
     // Two runs start 01M5305Z, and none 01M6: each comes back as it was, and opens nothing.
     expect(copyRunId(ids, '01M5305Z')).toBe('01M5305Z');
     expect(copyRunId(ids, '01M6')).toBe('01M6');

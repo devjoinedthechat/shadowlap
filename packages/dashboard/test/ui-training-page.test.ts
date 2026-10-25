@@ -136,9 +136,9 @@ describe('the Training page', () => {
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence high --format openai-preference --out .shadowlap/exports/pairs.jsonl');
     // Word by word, so it wraps between them and never inside openai-preference.
     expect(r.all('.dialog .cmdline.words span').map((w) => w.textContent)).toEqual(['shadowlap', 'export', 'pairs', '--min-confidence', 'high', '--format', 'openai-preference', '--out', '.shadowlap/exports/pairs.jsonl']);
-    expect(r.all('.dialog select')[0]!.children.map((o) => o.textContent)).toEqual(['OpenAI preference', 'TRL preference']);
-    await r.type(r.all('.dialog select')[0]!, 'trl');
-    await r.type(r.all('.dialog select')[1]!, 'medium');
+    expect(r.all('.dialog select')[0].children.map((o) => o.textContent)).toEqual(['OpenAI preference', 'TRL preference']);
+    await r.type(r.all('.dialog select')[0], 'trl');
+    await r.type(r.all('.dialog select')[1], 'medium');
     expect(r.one('.dialog .cmdline').textContent).toBe('$shadowlap export pairs --min-confidence medium --format trl --out .shadowlap/exports/pairs.jsonl');
     await r.click(r.byText('.dialog button', 'Export'));
     expect(started).toEqual([{ kind: 'pairs', fields: { format: 'trl', minConfidence: 'medium' } }]);

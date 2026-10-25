@@ -578,7 +578,7 @@ export class Session {
     this.forcing =
       input.forced ??
       failed ??
-      (diverged ? { by: `--diverge-at ${divergeAt}`, ...(this.parentPlaces.has(divergeAt!) ? { counterpart: divergeAt! } : {}) } : null) ??
+      (diverged ? { by: `--diverge-at ${divergeAt}`, ...(this.parentPlaces.has(divergeAt) ? { counterpart: divergeAt } : {}) } : null) ??
       (at(this.options.promptFrom) ? { by: `--prompt-from ${this.options.promptFrom}: calls before it matched without their system prompt and tool definitions`, counterpart: this.options.promptFrom! } : null);
     if (this.forcing) return true;
     if (input.kind === 'tool' && this.options.liveTools.has(input.name) && !this.forcedTools.has(input.name)) {

@@ -83,7 +83,7 @@ describe('withoutEarlierThinking', () => {
     const body = { model: 'claude-sonnet-4-5', thinking: { type: 'enabled', budget_tokens: 1024 }, messages: [{ role: 'user', content: 'hi' }, turn(1), result(1), turn(2), result(2)] };
     const { body: out, removed } = withoutEarlierThinking(body);
     expect(removed).toBe(1);
-    expect((out as typeof body).messages[1]!.content).toEqual([{ type: 'tool_use', id: '1', name: 'a', input: {} }]);
+    expect((out as typeof body).messages[1].content).toEqual([{ type: 'tool_use', id: '1', name: 'a', input: {} }]);
     expect((out as typeof body).messages[3]).toEqual(turn(2));
     // Claude through Converse takes the budget in its model fields; adaptive thinking has no such rule.
     const converse = { additionalModelRequestFields: { thinking: { type: 'enabled', budget_tokens: 1024 } }, messages: [{ role: 'assistant', content: [{ reasoningContent: { reasoningText: { text: 'r' } } }, { text: 'a' }] }] };

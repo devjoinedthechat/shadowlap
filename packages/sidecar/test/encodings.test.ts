@@ -66,8 +66,8 @@ describe('an answer in a content encoding', () => {
       expect(live.body).toEqual(raw);
       sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end!.meta.headers?.['content-encoding']).toBe('compress');
-      expect(store.getBlob(call!.end!.responseRef!)).toEqual(raw);
+      expect(call.end!.meta.headers?.['content-encoding']).toBe('compress');
+      expect(store.getBlob(call.end!.responseRef!)).toEqual(raw);
 
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['agent'], cwd: '/' }, offline: true });
       const again = await ask(replay.runId);
@@ -115,7 +115,7 @@ describe('an answer in a content encoding', () => {
       expect(got.join('')).toBe(events.join(''));
       expect(got[0]).toBe(events[0]);
       sidecar.endRun(run.runId, 'completed');
-      expect(store.getBlob(store.getCalls(run.runId)[0]!.end!.responseRef!)!.toString('utf8')).toBe(events.join(''));
+      expect(store.getBlob(store.getCalls(run.runId)[0].end!.responseRef!)!.toString('utf8')).toBe(events.join(''));
     } finally {
       await sidecar.close();
       store.close();

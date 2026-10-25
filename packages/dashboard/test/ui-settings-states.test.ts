@@ -31,7 +31,7 @@ function redaction(error: string | null): RedactionSettings {
   return { config: config(error), rules: [], form, where: [], runs: [{ runId: 'R1', label: '01M5GS3GZR · node agent.mjs' }], previewRunId: 'R1', previewError: error } as unknown as RedactionSettings;
 }
 
-const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, ciStep: null, redactRules: error ? null : 0 }) as unknown as StoreSettings;
+const store = (error: string | null): StoreSettings => ({ config: config(error), configured: null, error, status: null, ciStep: null, redactRules: error ? null : 0 });
 
 const SKILLS: SkillOffer['skills'] = [
   { name: 'setup-agent', command: '/shadowlap:setup-agent', shared: 'shadowlap-setup-agent', does: 'sets Shadowlap up for an agent' },
@@ -49,7 +49,7 @@ function offer(o: { agents: SkillOffer['agents']; published?: boolean }): SkillO
   };
 }
 
-const agents = (skill: SkillOffer): CodingAgentsSettings => ({ files: [{ path: 'CLAUDE.md', agents: 'Claude Code', found: false, type: null, mentions: false }], section: '## Debugging the agent with Shadowlap', source: 'docs/agents.md', skill }) as unknown as CodingAgentsSettings;
+const agents = (skill: SkillOffer): CodingAgentsSettings => ({ files: [{ path: 'CLAUDE.md', agents: 'Claude Code', found: false, type: null, mentions: false }], section: '## Debugging the agent with Shadowlap', source: 'docs/agents.md', skill });
 
 function app(o: { client: Partial<Client['settings']> & { startJob?: Client['startJob'] }; missing?: boolean; watchJob?: AppState['watchJob'] }): AppState {
   const { startJob, ...settings } = o.client;
@@ -244,7 +244,7 @@ describe('Coding agents, as the design has it', () => {
     expect(install.className).toBe('btn lime');
     expect(rows(r)[0]).toBe('CLAUDE.mdfound · no Shadowlap section yet');
     await r.click(r.byText('.skrow button', 'In every project on this machine'));
-    expect(r.all('.skrow .cmdline')[1]!.textContent).toBe('$claude plugin marketplace add devjoinedthechat/shadowlap@v0.1.0$claude plugin install shadowlap@shadowlap$claude plugin update shadowlap@shadowlap');
+    expect(r.all('.skrow .cmdline')[1].textContent).toBe('$claude plugin marketplace add devjoinedthechat/shadowlap@v0.1.0$claude plugin install shadowlap@shadowlap$claude plugin update shadowlap@shadowlap');
     await r.click(install);
     expect(startJob).toHaveBeenCalledWith('skill-install', { agent: 'claude-code', replace: false });
   });

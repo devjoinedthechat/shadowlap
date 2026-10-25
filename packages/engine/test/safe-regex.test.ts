@@ -116,7 +116,7 @@ describe('the pattern check', () => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
       return seed / 2147483648;
     };
-    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+    const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)];
     const gen = (depth: number): string => {
       const r = rnd();
       if (depth > 3 || r < 0.3) return pick(['a', 'b', '[ab]', '.', 'a', 'ab']);
@@ -182,7 +182,7 @@ describe('a rule\'s pattern from someone else', () => {
       dirs.push(dir);
       cpSync(GOLDEN, dir, { recursive: true });
       const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ meta?: Record<string, unknown> }> };
-      manifest.runs[0]!.meta = { ...manifest.runs[0]!.meta, redactions: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern, replace: '<X>' }] };
+      manifest.runs[0].meta = { ...manifest.runs[0].meta, redactions: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern, replace: '<X>' }] };
       writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
       const store = Store.open(':memory:');
       try {
@@ -198,7 +198,7 @@ describe('a rule\'s pattern from someone else', () => {
     dirs.push(dir);
     cpSync(GOLDEN, dir, { recursive: true });
     const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ meta?: Record<string, unknown> }> };
-    manifest.runs[0]!.meta = { ...manifest.runs[0]!.meta, redactions: [{ path: 'messages', replace: '<X>' }] };
+    manifest.runs[0].meta = { ...manifest.runs[0].meta, redactions: [{ path: 'messages', replace: '<X>' }] };
     writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
     const store = Store.open(':memory:');
     expect(() => unpackRun(store, dir)).toThrow(/redactions\[0\]\.path: path must start with "\$"/);
@@ -211,7 +211,7 @@ describe('a rule\'s pattern from someone else', () => {
     dirs.push(dir);
     cpSync(GOLDEN, dir, { recursive: true });
     const [runId] = unpackRun(store, dir).imported;
-    expect(() => previewRedaction(store, runId!, [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(\\d+)*$/', replace: '<N>' }])).toThrow(/^redaction rule #2: \/\(\\d\+\)\*\$\/: matching it could take too long/);
+    expect(() => previewRedaction(store, runId, [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(\\d+)*$/', replace: '<N>' }])).toThrow(/^redaction rule #2: \/\(\\d\+\)\*\$\/: matching it could take too long/);
     store.close();
   });
 });

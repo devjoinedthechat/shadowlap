@@ -65,14 +65,14 @@ function machine(name: string, author: string, extra: NodeJS.ProcessEnv): Machin
 /** A folder of its own in the store for each run of the tests. */
 function fresh(url: string): string {
   const [base, query] = url.split('?');
-  return `${base!.replace(/\/+$/, '')}/e2e-${Date.now().toString(36)}${query ? `?${query}` : ''}`;
+  return `${base.replace(/\/+$/, '')}/e2e-${Date.now().toString(36)}${query ? `?${query}` : ''}`;
 }
 
 /** A recording of the reference agent, as made here, failed and blamed, with a repair that fixed it. */
 function runWithFix(m: Machine): { runId: string; fixId: string } {
   const store = Store.open(m.dbPath);
   try {
-    const runId = unpackRun(store, GOLDEN).imported[0]!;
+    const runId = unpackRun(store, GOLDEN).imported[0];
     store.updateRunMeta(runId, { imported: undefined, labels: ['refund-bug'] } as unknown as Partial<RunMeta>);
     const fixId = recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId}`, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times', actor: 'dana@northwind.example' }).fix.fixId;
     recordRepair(store, { repairId: 'repair-e2e', dir: '.shadowlap/repairs/repair-e2e', report: repairReport({ targets: [runId], dir: '.shadowlap/repairs/repair-e2e' }), expect: EXPECT, command: `shadowlap repair --fixes ${runId}` });
@@ -132,7 +132,7 @@ describe.skipIf(!env.SHADOWLAP_TEST_S3_URL)('an S3-compatible server', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/^text\/html/);
     expect((await fetch(link.replace(/X-Amz-Signature=([0-9a-f])/, (_m, c: string) => `X-Amz-Signature=${c === '0' ? '1' : '0'}`))).status).toBe(403);
-    expect((await fetch(link.split('?')[0]!)).status).toBe(403);
+    expect((await fetch(link.split('?')[0])).status).toBe(403);
   }, 120_000);
 });
 
@@ -158,7 +158,7 @@ describe.skipIf(!env.SHADOWLAP_TEST_GCS_URL)("Google's Cloud Storage emulator", 
       req.on('data', (c: Buffer) => (body += c.toString()));
       req.on('end', () => {
         const [h, c, s] = (new URLSearchParams(body).get('assertion') ?? '').split('.');
-        const ok = !!(h && c && s) && createVerify('RSA-SHA256').update(`${h}.${c}`).verify(createPublicKey(publicPem), Buffer.from(s!, 'base64url'));
+        const ok = !!(h && c && s) && createVerify('RSA-SHA256').update(`${h}.${c}`).verify(createPublicKey(publicPem), Buffer.from(s, 'base64url'));
         res.writeHead(ok ? 200 : 401, { 'content-type': 'application/json' });
         res.end(ok ? JSON.stringify({ access_token: 'ya29.emulator', expires_in: 3600, token_type: 'Bearer' }) : '{"error":"invalid_grant"}');
       });

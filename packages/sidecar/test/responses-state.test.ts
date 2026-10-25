@@ -85,8 +85,8 @@ describe('a fork of a Responses agent that continues its conversation by previou
     parent = rec.runId;
     const calls = store.getCalls(parent);
     expect(calls.map((c) => `${c.kind} ${c.name}`)).toEqual(['api POST /v1/responses', 'tool lookup_order', 'api POST /v1/responses']);
-    expect(calls[0]!.end!.meta.headers?.['content-type']).toContain('text/event-stream');
-    expect(calls[0]!.end!.meta.usage?.inputTokens).toBeGreaterThan(0);
+    expect(calls[0].end!.meta.headers?.['content-type']).toContain('text/event-stream');
+    expect(calls[0].end!.meta.usage?.inputTokens).toBeGreaterThan(0);
 
     const before = recording.otherRequests.length + elsewhere.otherRequests.length;
     const rep = await inRun(elsewhere, { mode: 'replay', parentRunId: parent, offline: true }, agent);

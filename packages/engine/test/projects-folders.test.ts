@@ -268,7 +268,7 @@ describe('suggestFolders', () => {
     const s = suggestFolders('~/Bü', { home: accents });
     expect(s.folders.map((f) => f.name.normalize('NFC'))).toEqual(['Bücher-agent']);
     expect(suggestFolders('~/bu\u0308', { home: accents }).folders).toHaveLength(1);
-    expect(checkFolder(s.folders[0]!.path, { home: accents })).toMatchObject({ ok: true });
+    expect(checkFolder(s.folders[0].path, { home: accents })).toMatchObject({ ok: true });
   });
 
   it('marks folders already added, and caps what it returns', () => {

@@ -100,10 +100,10 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
   it('previews a model switch on the ticket run: the $240 refund is a write removed', () => {
     const [session] = store.listDecisionSessions({ kind: 'decisions' });
     expect(session).toMatchObject({ change: 'the model claude-haiku-4-5', runs: 1, flagged: 1 });
-    const run = store.getDecisionSession(session!.sessionId)!.runRows[0]!.data as { rank: number; decisions: Array<{ callNo: number; rank: number | null; changes: Array<{ kind: string; tool: string | null }> }> };
+    const run = store.getDecisionSession(session.sessionId)!.runRows[0].data as { rank: number; decisions: Array<{ callNo: number; rank: number | null; changes: Array<{ kind: string; tool: string | null }> }> };
     expect(run.rank).toBe(1);
     // It checks the tier-2 queue instead, a read: its effect comes from the runs that called it.
-    expect(run.decisions[0]!.changes.map((c) => [c.kind, c.tool]).slice(0, 2)).toEqual([
+    expect(run.decisions[0].changes.map((c) => [c.kind, c.tool]).slice(0, 2)).toEqual([
       ['write-removed', 'issue_refund'],
       ['read-added', 'queue_status'],
     ]);
@@ -128,7 +128,7 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
       // One run stands for the golden: the one its result shows, with the other four filed under it.
       const heads = five.filter((r) => classifyRun(r).attemptOf === null);
       expect(heads).toHaveLength(1);
-      const head = heads[0]!;
+      const head = heads[0];
       expect(store.listTestResults({ sessionId: session, golden: 'goldens/refund-over-limit', limit: 1 })[0]?.runId).toBe(head.runId);
       for (const r of five.filter((x) => x !== head)) expect(classifyRun(r)).toMatchObject({ kind: 'test', attemptOf: head.runId, attemptKind: 'test' });
     }
@@ -195,7 +195,7 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
       // must escalate rather than refund.
       const forked = await coverage(['--pack', refund.key.slice(0, 8), '--fork', '--expect', '{"tools":{"issue_refund":0,"escalate":1}}', '--json']);
       expect(forked.code, forked.out).toBe(0);
-      const fork = (JSON.parse(forked.stdout) as { pack: Packed[]; uncovered: number }).pack[0]!;
+      const fork = (JSON.parse(forked.stdout) as { pack: Packed[]; uncovered: number }).pack[0];
       if (fork.golden) made.push(fork.golden);
       expect(fork).toMatchObject({ golden: expect.stringMatching(/^goldens\/lookup-order-issue-refund-send-email-[0-9a-f]{6}$/), mode: 'fork', command: { argv: ['node', 'agent.mjs', 'A-1077'] } });
       const config = JSON.parse(readFileSync(configFile, 'utf8')) as { tests: Record<string, unknown> };
@@ -281,12 +281,12 @@ describe('the demo’s models', () => {
     const ask = (must: string): Answer => {
       const user = `## What a run must do\n\n${must}\n\n## The agent's instructions\n\nSystem prompt:\n${SYSTEM}\n\n## Text you may rewrite\n\n[1] system prompt, in agent.mjs: ${SYSTEM}\n[2] tool issue_refund, in agent.mjs: Refund an order in full.\n[3] tool send_email, in agent.mjs: Email the customer.\n\n## Rules\n\n- …`;
       const out = models.anthropic({ request: { model: 'claude-opus-5-5', system: 'You improve AI agents by rewriting the instructions they are given.', messages: [{ role: 'user', content: user }] } });
-      return JSON.parse(out.message.content[0]!.text!) as Answer;
+      return JSON.parse(out.message.content[0].text!) as Answer;
     };
     // A confirmation sent twice: emailing once, in the prompt or the tool, and nothing about refunds.
     const email = ask('- the agent exits 0\n- send_email called 1 time');
     expect(email.candidates.map((c) => c.anchor)).toEqual([1, 3]);
-    expect(email.candidates[0]!.replace).toBe(`${SYSTEM} Email the customer once per decision.`);
+    expect(email.candidates[0].replace).toBe(`${SYSTEM} Email the customer once per decision.`);
     expect(JSON.stringify(email.candidates)).not.toMatch(/issue_refund|Refund an order|Check the policy/);
     // The refund runs: the three rewrites the build's repair chose from.
     const refund = ask('- the agent exits 0\n- issue_refund with {"amount":240} called 0 times');

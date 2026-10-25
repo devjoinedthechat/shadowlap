@@ -115,9 +115,9 @@ describe('the search index', () => {
     // No time to spare: one call of the newest run, and the next slice goes on from there.
     const first = indexSearch(store, { budgetMs: 0 });
     expect(first).toEqual({ batches: 1, behind: 5 });
-    expect(store.searchState(runs[4]!)).toMatchObject({ calls: 1 });
+    expect(store.searchState(runs[4])).toMatchObject({ calls: 1 });
     expect(indexSearch(store, { budgetMs: 0 }).behind).toBe(5);
-    expect(store.searchState(runs[4]!)).toMatchObject({ calls: 2 });
+    expect(store.searchState(runs[4])).toMatchObject({ calls: 2 });
     expect(indexSearch(store).behind).toBe(0);
     expect(new Set(searchCalls(store, 'ibex', { limit: 100 }).map((h) => h.runId))).toEqual(new Set(runs));
   });
@@ -193,11 +193,11 @@ describe('the search index', () => {
       }
       updateSearchIndex(store);
       // A call's arguments and its result: two documents a call.
-      const mapped = (runId: string) => Number(store.query(`SELECT COUNT(*) AS n FROM search_rows WHERE run_id = ?`, runId)[0]!.n);
+      const mapped = (runId: string) => Number(store.query(`SELECT COUNT(*) AS n FROM search_rows WHERE run_id = ?`, runId)[0].n);
       expect(runs.map(mapped)).toEqual([6, 6, 6]);
-      store.deleteRun(runs[0]!);
+      store.deleteRun(runs[0]);
       expect(new Set(store.searchDocs('"ibex"', 100).map((h) => h.runId))).toEqual(new Set(runs.slice(1)));
-      expect(mapped(runs[0]!)).toBe(0);
+      expect(mapped(runs[0])).toBe(0);
 
       // An index an earlier Shadowlap wrote, without the map: mapped once, as the store opens.
       store.close();
@@ -206,17 +206,17 @@ describe('the search index', () => {
       earlier.close();
       store = Store.open(path);
       expect(runs.slice(1).map(mapped)).toEqual([6, 6]);
-      store.deleteRun(runs[1]!);
+      store.deleteRun(runs[1]);
       expect(store.searchDocs('"ibex"', 100).map((h) => h.runId)).toEqual([runs[2], runs[2], runs[2]]);
       // Indexed again from its start, a run keeps one copy of each document, also of one an earlier
       // Shadowlap wrote there since, without its row.
       const later = new DatabaseSync(path);
-      later.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES ('lookup_order note ibex 4', ?, 4, 'arguments')`).run(runs[2]!);
+      later.prepare(`INSERT INTO search_docs (text, run_id, call_no, field) VALUES ('lookup_order note ibex 4', ?, 4, 'arguments')`).run(runs[2]);
       later.close();
       expect(store.searchDocs('"ibex"', 100)).toHaveLength(4);
-      store.replaceSearchDocs(runs[2]!, 3, 'completed', [{ callNo: 1, field: 'arguments', text: 'lookup_order note ibex 1' }]);
+      store.replaceSearchDocs(runs[2], 3, 'completed', [{ callNo: 1, field: 'arguments', text: 'lookup_order note ibex 1' }]);
       expect(store.searchDocs('"ibex"', 100)).toHaveLength(1);
-      expect(mapped(runs[2]!)).toBe(1);
+      expect(mapped(runs[2])).toBe(1);
     } finally {
       store.close();
       store = was;

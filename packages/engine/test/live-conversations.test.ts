@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LiveConversations, runConversations, Store, type CallRecord } from '../src/index.js';
+import { LiveConversations, runConversations, Store, type CallRecord, type RunConversations } from '../src/index.js';
 import { batchRun, closingBatch } from './run-fixtures.js';
 
 /**
@@ -25,7 +25,7 @@ const placed = (r: { byCall: Map<number, unknown> }) => [...r.byCall].sort((a, b
 function followed(store: Store, runId: string) {
   const calls = store.getCalls(runId);
   const live = new LiveConversations(store, { attribute: true });
-  let last = null;
+  let last: RunConversations | null = null;
   for (const seen of arriving(calls)) last = live.update(seen);
   return { calls, live: last!, whole: runConversations(store, calls, { attribute: true }) };
 }
@@ -39,7 +39,7 @@ describe('placing a recording’s calls as they arrive', () => {
     expect(placed(live)).toEqual(placed(whole));
     expect([...live.requests].sort((a, b) => a - b)).toEqual([...whole.requests].sort((a, b) => a - b));
     // Each ticket's fetch, made before its first model call, waited for it and went with it.
-    for (const [t, nos] of byTicket) expect(live.byCall.get(nos[0]!)!.conversation).toBe(t);
+    for (const [t, nos] of byTicket) expect(live.byCall.get(nos[0])!.conversation).toBe(t);
     store.close();
   });
 
@@ -61,8 +61,8 @@ describe('placing a recording’s calls as they arrive', () => {
     const [get2] = byTicket.get(2)!;
     const live = new LiveConversations(store, { attribute: true });
     const upTo = (n: number) => calls.filter((c) => c.callNo <= n);
-    expect(live.update(upTo(get2!))!.byCall.get(get2!)!.conversation).toBeNull();
-    expect(live.update(upTo(get2! + 1))!.byCall.get(get2!)!.conversation).toBe(2);
+    expect(live.update(upTo(get2))!.byCall.get(get2)!.conversation).toBeNull();
+    expect(live.update(upTo(get2 + 1))!.byCall.get(get2)!.conversation).toBe(2);
     store.close();
   });
 

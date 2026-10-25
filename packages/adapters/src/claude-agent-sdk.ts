@@ -370,6 +370,6 @@ export function withEffects<T extends SdkMcpToolLike>(server: string, tools: rea
         throw err;
       }
     };
-    return { ...t, handler } as T;
+    return { ...t, handler };
   });
 }

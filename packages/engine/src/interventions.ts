@@ -196,12 +196,12 @@ export function placeFields(shape: RequestShape, fields: Record<string, unknown>
     switch (shape) {
       case 'gemini':
         if (GEMINI_TOP.has(key)) out.push({ path: [key], value });
-        else if (GEMINI_CONFIG[key]) out.push({ path: ['generationConfig', GEMINI_CONFIG[key]!], value: GEMINI_CONFIG[key] === 'stopSequences' ? asList(value) : value });
+        else if (GEMINI_CONFIG[key]) out.push({ path: ['generationConfig', GEMINI_CONFIG[key]], value: GEMINI_CONFIG[key] === 'stopSequences' ? asList(value) : value });
         else return { refused: `Gemini has no request field "${key}": sampling settings go in generationConfig (temperature, topP, topK, maxOutputTokens, stopSequences, seed); set any other by its path, such as generationConfig.${key}` };
         break;
       case 'converse':
         if (CONVERSE_TOP.has(key)) out.push({ path: [key], value });
-        else if (CONVERSE_INFERENCE[key]) out.push({ path: ['inferenceConfig', CONVERSE_INFERENCE[key]!], value: CONVERSE_INFERENCE[key] === 'stopSequences' ? asList(value) : value });
+        else if (CONVERSE_INFERENCE[key]) out.push({ path: ['inferenceConfig', CONVERSE_INFERENCE[key]], value: CONVERSE_INFERENCE[key] === 'stopSequences' ? asList(value) : value });
         else if (key === 'top_k' || key === 'topK') out.push({ path: ['additionalModelRequestFields', 'top_k'], value });
         else return { refused: `Bedrock Converse has no request field "${key}": sampling settings go in inferenceConfig (temperature, maxTokens, topP, stopSequences) and the model's own in additionalModelRequestFields; set one by its path, such as additionalModelRequestFields.${key}` };
         break;

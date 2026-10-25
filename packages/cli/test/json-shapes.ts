@@ -208,12 +208,12 @@ export function sectionText(name: string, file = 'cli.md'): string {
   const lines = page(file).split('\n');
   const start = lines.findIndex((l) => {
     const h = /^(#{2,3}) (.+)$/.exec(l);
-    return !!h && h[2]!.split(',').map((n) => n.trim()).includes(name);
+    return !!h && h[2].split(',').map((n) => n.trim()).includes(name);
   });
   if (start < 0) throw new Error(`docs/${file} has no section for ${name}`);
-  const level = /^#+/.exec(lines[start]!)![0].length;
+  const level = /^#+/.exec(lines[start])![0].length;
   let end = start + 1;
-  while (end < lines.length && !(/^#+ /.test(lines[end]!) && /^#+/.exec(lines[end]!)![0].length <= level)) end++;
+  while (end < lines.length && !(/^#+ /.test(lines[end]) && /^#+/.exec(lines[end])![0].length <= level)) end++;
   return lines.slice(start, end).join('\n');
 }
 

@@ -419,7 +419,7 @@ export function startMcpProxy(o: McpProxyOptions): { child: ChildProcess; done: 
 
   // Server → client. Responses to tools/call complete the recorded call first; tools/list responses teach the effects.
   lines(
-    child.stdout!,
+    child.stdout,
     async (msg, raw) => {
       const m = isObject(msg) ? (msg as JsonRpcMessage) : null;
       if (!m || m.id === undefined || m.id === null || m.method !== undefined) return toClient(raw);
@@ -785,7 +785,7 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
     async (msg, raw) => {
       if (Array.isArray(msg) && !calls.transparent && msg.some(isToolCall)) {
         // The rest of the batch still reaches the server, one message at a time.
-        for (const item of msg) if (!isRequest(item)) await forward(JSON.stringify(item), isObject(item) ? (item as JsonRpcMessage) : null);
+        for (const item of msg) if (!isRequest(item)) await forward(JSON.stringify(item), isObject(item) ? (item) : null);
         const errors = refuseBatch(msg);
         if (errors.length) toClient(errors);
         return;
@@ -1057,7 +1057,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
         if (!isObject(one) || id === null || one.method !== undefined || one.id === undefined || one.id === null || idKey(one.id as JsonRpcId) !== idKey(id)) continue;
         settled = true;
         if (method === 'tools/list') calls.learn(one.result);
-        if (live) await calls.complete(live, one as JsonRpcMessage);
+        if (live) await calls.complete(live, one);
       }
     };
     const unanswered = async (why: string) => {
@@ -1076,7 +1076,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           const type = String(r.headers['content-type'] ?? '');
           // The server names the session in its answer to initialize; later requests carry it.
           const given = r.headers['mcp-session-id'];
-          if (initialize) sessions.set(typeof given === 'string' ? given : '', session!);
+          if (initialize) sessions.set(typeof given === 'string' ? given : '', session);
           relayHead(res, r);
           if (status >= 400 || status === 202 || status === 204 || !/^(application\/json|text\/event-stream)/i.test(type)) {
             // An HTTP error, an accepted notification, or something that isn't MCP: as it came.

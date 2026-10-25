@@ -39,7 +39,7 @@ describe('killTree', () => {
   it.skipIf(process.platform === 'win32')('signals the group an agent leads, which reaches what it started', async () => {
     // node starts a child of its own, in the group, that keeps running until it is killed.
     const agent = spawn(process.execPath, ['-e', "require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' }); console.log('started'); setInterval(() => {}, 1000)"], { detached: true, stdio: ['ignore', 'pipe', 'ignore'] });
-    await new Promise<void>((resolve) => agent.stdout!.once('data', () => resolve()));
+    await new Promise<void>((resolve) => agent.stdout.once('data', () => resolve()));
     const exited = new Promise<void>((resolve) => agent.once('exit', () => resolve()));
     killTree(agent, 'SIGKILL', { group: true });
     await exited;

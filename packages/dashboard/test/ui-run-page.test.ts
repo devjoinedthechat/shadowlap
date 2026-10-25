@@ -117,17 +117,17 @@ describe('an action’s dialog', () => {
         },
       } as never,
     ]);
-    const choices = action!.prompt!.choices!;
+    const choices = action.prompt!.choices!;
     expect(choices).toEqual([
       { value: 'timeout', label: 'timeout' },
       { value: 'error:', label: 'error, with a message', text: 'Message' },
       { value: '500', label: 'HTTP 500' },
     ]);
-    expect(dialogCopy(action!, { ...ctx, callNo: 16, callName: 'lookup_order' }).choices).toEqual(choices);
-    expect(choiceAnswer(choices[1]!, ' connection reset ')).toBe('error:connection reset');
+    expect(dialogCopy(action, { ...ctx, callNo: 16, callName: 'lookup_order' }).choices).toEqual(choices);
+    expect(choiceAnswer(choices[1], ' connection reset ')).toBe('error:connection reset');
     // No message is a plain error (the server reads `error:` as `error`), and a choice without a field sends its value.
-    expect(choiceAnswer(choices[1]!, '')).toBe('error:');
-    expect(choiceAnswer(choices[0]!, 'ignored')).toBe('timeout');
+    expect(choiceAnswer(choices[1], '')).toBe('error:');
+    expect(choiceAnswer(choices[0], 'ignored')).toBe('timeout');
   });
 
   it('asks a pack’s question with its warning, and a capture for the command that starts the agent', () => {

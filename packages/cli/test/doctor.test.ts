@@ -217,7 +217,7 @@ describe('a golden that holds no recorded verdict for a judge check', () => {
       },
     ]);
     // With a way to ask the judge, the command alone records them.
-    expect(judgeVerdicts(dir, loadTests(dir), { OPENAI_API_KEY: 'k' })[0]!.fix).toBe('Record them: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.');
+    expect(judgeVerdicts(dir, loadTests(dir), { OPENAI_API_KEY: 'k' })[0].fix).toBe('Record them: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.');
 
     // doctor says both, and so does its JSON.
     const all = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });

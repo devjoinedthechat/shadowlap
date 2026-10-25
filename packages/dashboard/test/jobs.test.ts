@@ -265,8 +265,8 @@ describe('jobs', () => {
     expect(page.lines).toEqual(['line 4', 'line 5']);
     expect(page.total).toBe(5);
     const { jobs } = (await (await api(dash, 'jobs')).json()) as { jobs: Array<JobView & { lines?: unknown }> };
-    expect(jobs[0]!.id).toBe(view.id);
-    expect(jobs[0]!.lines).toBeUndefined();
+    expect(jobs[0].id).toBe(view.id);
+    expect(jobs[0].lines).toBeUndefined();
     expect((await api(dash, 'jobs/0123456789abcdef')).status).toBe(404);
   });
 

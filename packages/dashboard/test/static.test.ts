@@ -63,7 +63,7 @@ function scriptEnd(html: string, from: number): number {
   let buf = '';
   let tagAt = -1;
   for (let i = from; i < html.length; i++) {
-    const c = html[i]!;
+    const c = html[i];
     const again = (s: State) => {
       state = s;
       i--;
@@ -181,7 +181,7 @@ describe('export html', () => {
   it('leaves out who made each run, with or without redaction rules, unless asked to keep it', () => {
     const own = Store.open(':memory:');
     try {
-      const parent = unpackRun(own, GOLDEN).imported[0]!;
+      const parent = unpackRun(own, GOLDEN).imported[0];
       own.updateRunMeta(parent, { author: 'dana.private@example.com' });
       const fork = own.createRun({ mode: 'replay', parentRunId: parent, command: { argv: ['node', 'agent.js'], cwd: '.' }, meta: { author: 'dana.private@example.com' } });
       own.endRun(fork.runId, 'completed');
@@ -203,10 +203,10 @@ describe('export html', () => {
     const own = Store.open(':memory:');
     try {
       // A lineage of seven, root first, as the dashboard's download of a run's lineage orders it.
-      const root = unpackRun(own, GOLDEN).imported[0]!;
+      const root = unpackRun(own, GOLDEN).imported[0];
       const ids = [root];
       for (let i = 1; i < 7; i++) {
-        const r = own.createRun({ mode: 'replay', parentRunId: ids[i - 1]!, command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 2_000_000_000_000 + i });
+        const r = own.createRun({ mode: 'replay', parentRunId: ids[i - 1], command: { argv: ['node', 'agent.js'], cwd: '.' }, startedAt: 2_000_000_000_000 + i });
         own.endRun(r.runId, 'completed');
         ids.push(r.runId);
       }
@@ -236,7 +236,7 @@ describe('export html', () => {
   it('ends the data block where it should whatever the runs hold: an HTML head cut short in a model answer included', () => {
     const own = Store.open(':memory:');
     try {
-      const parent = unpackRun(own, GOLDEN).imported[0]!;
+      const parent = unpackRun(own, GOLDEN).imported[0];
       // A model answer that quotes a page's head and stops before the comment it opened is closed.
       const answers = ['Here is the page head:\n<html><head><!-- tag manager\n<script src="/t.js">', 'and <SCRIPT>, <!-- again, </script> and </SCRIPT >'];
       const run = own.createRun({ mode: 'record', command: { argv: ['node', 'agent.js', '<!-- <script'], cwd: '.' } });

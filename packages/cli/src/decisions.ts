@@ -287,7 +287,7 @@ interface Planned {
 const tokensOf = (u: Usage | null | undefined): TokenCount | null => (u ? { input: u.inputTokens, output: u.outputTokens, cacheRead: u.cacheReadInputTokens ?? 0, cacheWrite: u.cacheCreationInputTokens ?? 0 } : null);
 const usageOf = (t: TokenCount): Usage => ({ inputTokens: t.input, outputTokens: t.output, cacheReadInputTokens: t.cacheRead, cacheCreationInputTokens: t.cacheWrite });
 const addTokens = (a: TokenCount, b: TokenCount | null): TokenCount => (b ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite } : a);
-const recordedModelOf = (call: CallRecord): string | null => (call.end?.meta.model ?? call.meta.model ?? null) as string | null;
+const recordedModelOf = (call: CallRecord): string | null => (call.end?.meta.model ?? call.meta.model ?? null);
 const fieldText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /** The fields `migrate` changed, each once, with the steps that needed it. */
@@ -427,7 +427,7 @@ export function modelUse(store: Store, targets: readonly DecisionTarget[], scope
       if (c.kind !== 'api' || !c.requestRef || !inScope(c.meta.scope, scope)) continue;
       const model = recordedModelOf(c);
       if (!model) continue;
-      const had = use.get(model) ?? { model, provider: (c.meta.provider ?? c.end?.meta.provider ?? null) as string | null, calls: 0 };
+      const had = use.get(model) ?? { model, provider: (c.meta.provider ?? c.end?.meta.provider ?? null), calls: 0 };
       had.calls++;
       use.set(model, had);
     }
@@ -522,7 +522,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
     if (isReservedScope(call.meta.scope)) continue;
     step++;
     if (!inScope(call.meta.scope, s.scope)) continue;
-    const provider = (call.meta.provider ?? call.end?.meta.provider ?? null) as string | null;
+    const provider = (call.meta.provider ?? call.end?.meta.provider ?? null);
     const space = call.name.indexOf(' ');
     const method = space > 0 ? call.name.slice(0, space) : 'POST';
     const path = space > 0 ? call.name.slice(space + 1) : call.name;
@@ -600,7 +600,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       let body = loadApiRequest(store, call.requestRef!);
       if (requestShape(provider, path, body) === 'other') return { skip: "it is not a conversation (an embeddings call, or a model's native body)" };
       const promptChanged = cap?.changed === true;
-      if (promptChanged) body = withPrompt(body, cap!.prompt);
+      if (promptChanged) body = withPrompt(body, cap.prompt);
       let at = path;
       let modelChanged = false;
       if (s.model && switched) {
@@ -851,7 +851,7 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
   return {
     callNo: plan.call.callNo,
     step: plan.step,
-    scope: (plan.call.meta.scope ?? null) as string | null,
+    scope: (plan.call.meta.scope ?? null),
     rank: beyond ? beyond.rank : (worst?.c.rank ?? null),
     majority: beyond ? beyond.rank : majorityRank(ranks),
     ...(control ? { control, noise: beyond ? { p: beyond.p } : null, sampled: worst?.c.rank ?? null } : {}),

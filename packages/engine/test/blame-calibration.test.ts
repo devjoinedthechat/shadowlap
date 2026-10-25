@@ -66,7 +66,7 @@ async function simulate(rates: readonly number[], seed: number, perProbe: (budge
         const outcomes: boolean[] = [];
         let d = decide(0, 0, each);
         while (d === 'continue') {
-          outcomes.push(random() < rates[step - 1]!);
+          outcomes.push(random() < rates[step - 1]);
           d = decide(outcomes.filter(Boolean).length, outcomes.length, each);
         }
         t.probes++;

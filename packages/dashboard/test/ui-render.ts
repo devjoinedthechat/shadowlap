@@ -217,7 +217,7 @@ function splitTop(s: string, at: (ch: string) => boolean): string[] {
   let depth = 0;
   let start = 0;
   for (let i = 0; i < s.length; i++) {
-    const ch = s[i]!;
+    const ch = s[i];
     if (ch === '(' || ch === '[') depth++;
     else if (ch === ')' || ch === ']') depth--;
     else if (depth === 0 && at(ch)) {
@@ -240,10 +240,10 @@ function parseCompound(s: string): Compound {
   while (i < s.length) {
     const rest = s.slice(i);
     let m: RegExpExecArray | null;
-    if ((m = /^\.([\w-]+)/.exec(rest))) c.classes.push(m[1]!);
-    else if ((m = /^#([\w-]+)/.exec(rest))) c.ids.push(m[1]!);
-    else if ((m = /^\[([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|([\w-]+)))?\]/.exec(rest))) c.attrs.push({ name: m[1]!, value: m[2] ?? m[3] ?? m[4] ?? null });
-    else if ((m = /^:not\(([^()]*)\)/.exec(rest))) c.nots.push(parseCompound(m[1]!.trim()));
+    if ((m = /^\.([\w-]+)/.exec(rest))) c.classes.push(m[1]);
+    else if ((m = /^#([\w-]+)/.exec(rest))) c.ids.push(m[1]);
+    else if ((m = /^\[([\w-]+)(?:=(?:"([^"]*)"|'([^']*)'|([\w-]+)))?\]/.exec(rest))) c.attrs.push({ name: m[1], value: m[2] ?? m[3] ?? m[4] ?? null });
+    else if ((m = /^:not\(([^()]*)\)/.exec(rest))) c.nots.push(parseCompound(m[1].trim()));
     else throw new Error(`the test renderer reads no selector like "${s}"`);
     i += m[0].length;
   }
@@ -271,7 +271,7 @@ function matchCompound(el: FakeElement, c: Compound): boolean {
 function matchNested(el: FakeElement, chain: Compound[]): boolean {
   if (!matchCompound(el, chain.at(-1)!)) return false;
   let i = chain.length - 2;
-  for (let n = el.parentNode; n && i >= 0; n = n.parentNode) if (matchCompound(n, chain[i]!)) i--;
+  for (let n = el.parentNode; n && i >= 0; n = n.parentNode) if (matchCompound(n, chain[i])) i--;
   return i < 0;
 }
 
@@ -550,12 +550,12 @@ export async function render(element: ReactElement): Promise<Rendered> {
     one(selector) {
       const found = all(selector);
       if (found.length !== 1) throw new Error(`${found.length} elements match ${selector}`);
-      return found[0]!;
+      return found[0];
     },
     byText(selector, text) {
       const found = all(selector).filter((el) => el.textContent.trim() === text);
       if (found.length !== 1) throw new Error(`${found.length} of ${selector} say "${text}"`);
-      return found[0]!;
+      return found[0];
     },
     async click(el) {
       await act(async () => {

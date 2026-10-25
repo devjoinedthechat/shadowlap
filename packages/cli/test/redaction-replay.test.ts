@@ -51,7 +51,7 @@ async function record(): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT]);
   expect(r.code, r.out).toBe(0);
   expect(r.out).toContain('Card ending 1111.');
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 interface Remedy {
@@ -64,7 +64,7 @@ describe('a redacted pack, replayed as CI replays it', () => {
     expect((await shadowlap(['redact', 'add', '--pattern', CARD, '--replace', '<CARD>'])).code).toBe(0);
     const runId = await record();
     const preview = JSON.parse((await shadowlap(['redact', 'preview', runId, '--json'])).stdout) as { rules: Array<{ unmasked: { remedies: Remedy[]; reasons: string[] } }> };
-    const { remedies, reasons } = preview.rules[0]!.unmasked;
+    const { remedies, reasons } = preview.rules[0].unmasked;
     // The card and the time the tool returned, which only a copy that is read masks; the clock read, which none does.
     expect(remedies.map((r) => [r.rule.path, r.copies])).toEqual([
       ['$.result.card', 'read'],
@@ -113,7 +113,7 @@ describe('a redacted pack, replayed as CI replays it', () => {
     expect((await shadowlap(['redact', 'add', '--pattern', 'uuid'])).code).toBe(0);
     const recorded = await shadowlap(['run', '--', process.execPath, TICKET_AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const preview = await shadowlap(['redact', 'preview', runId]);
     expect(preview.out).toMatch(/#1 +every call +any string +uuid → <REDACTED> +0 +it matches only what a clock or random read returned here, which a copy leaves as it is/);
     expect(preview.out).toContain('a clock or random read stays as recorded: a replay needs it');

@@ -14,7 +14,7 @@ export function backoffSeconds(attempt: number): number {
 /** Whether a failed request means the server is gone, rather than that it answered with an error. */
 export function isUnreachable(err: unknown): boolean {
   if (err && typeof err === 'object' && 'status' in err) {
-    const status = (err as { status: unknown }).status;
+    const status = (err).status;
     return status === 0 || status === 502 || status === 503 || status === 504;
   }
   // fetch rejects with a TypeError when nothing answered at all.

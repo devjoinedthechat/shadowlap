@@ -268,7 +268,7 @@ function rowToFix(row: Record<string, unknown>): StoredFix {
     openedAt: Number(row.opened_at),
     verifiedAt: nullableNumber(row.verified_at),
     appliedAt: nullableNumber(row.applied_at),
-    data: typeof row.data === 'string' ? (record(row.data) as FixData) : {},
+    data: typeof row.data === 'string' ? (record(row.data)) : {},
   };
 }
 

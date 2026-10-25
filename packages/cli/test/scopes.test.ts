@@ -54,7 +54,7 @@ describe('scopes for branches that run at once', () => {
   it('without them, identical concurrent requests swap answers when the order changes', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const replay = await shadowlap(['replay', runId, '--strict'], { ORDER: 'reverse' });
     expect(replay.code).toBe(1);
     expect(replay.out).toMatch(/Diverged at call \d+ \(api POST \/v1\/messages\)/);
@@ -63,7 +63,7 @@ describe('scopes for branches that run at once', () => {
   it('with scope(), each branch replays its own answers in any order, and every call carries its scope', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT], { USE_SCOPE: '1' });
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const hits = mock.requests.length;
     const replay = await shadowlap(['replay', runId, '--strict'], { USE_SCOPE: '1', ORDER: 'reverse' });
     expect(replay.code, replay.out).toBe(0);
@@ -82,7 +82,7 @@ describe('scopes for branches that run at once', () => {
   async function replaysEachBranch(argv: string[], env: NodeJS.ProcessEnv = {}) {
     const recorded = await shadowlap(['run', '--', ...argv], env);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const store = Store.open(join(cwd, 'store.db'));
     const scopes = store.getCalls(runId).filter((c) => c.kind === 'api').map((c) => c.meta.scope);
     store.close();
@@ -112,7 +112,7 @@ describe('scopes for branches that run at once', () => {
     const names = { USE_SCOPE: '1', NAMES: '東京の天気/Kraków-łódź,50% off' };
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT], names);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const replay = await shadowlap(['replay', runId, '--strict'], { ...names, ORDER: 'reverse' });
     expect(replay.code, replay.out).toBe(0);
     expect(replay.out).toMatch(/Replay clean: 4\/4 calls replayed/);

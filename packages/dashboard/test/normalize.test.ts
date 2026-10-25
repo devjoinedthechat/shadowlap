@@ -79,8 +79,8 @@ describe('normalizeConversation', () => {
     expect(c.model).toBe('claude-opus-5');
     expect(c.tools).toEqual(['search']);
     expect(c.turns.map((t) => t.role)).toEqual(['system', 'user', 'assistant', 'tool']);
-    expect(c.turns[2]!.blocks).toEqual([{ type: 'thinking', text: 'hmm' }, { type: 'tool_call', name: 'search', input: { q: 'x' }, id: 't1' }]);
-    expect(c.turns[3]!.blocks).toEqual([{ type: 'tool_result', content: 'found', id: 't1' }]);
+    expect(c.turns[2].blocks).toEqual([{ type: 'thinking', text: 'hmm' }, { type: 'tool_call', name: 'search', input: { q: 'x' }, id: 't1' }]);
+    expect(c.turns[3].blocks).toEqual([{ type: 'tool_result', content: 'found', id: 't1' }]);
   });
 
   it('OpenAI Chat Completions: tool_calls on assistant turns, tool role messages', () => {
@@ -95,8 +95,8 @@ describe('normalizeConversation', () => {
       ],
     })!;
     expect(c.turns.map((t) => t.role)).toEqual(['system', 'user', 'assistant', 'tool']);
-    expect(c.turns[2]!.blocks).toEqual([{ type: 'tool_call', name: 'search', input: { q: 'x' }, id: 'c1' }]);
-    expect(c.turns[3]!.blocks).toEqual([{ type: 'tool_result', content: 'found', id: 'c1' }]);
+    expect(c.turns[2].blocks).toEqual([{ type: 'tool_call', name: 'search', input: { q: 'x' }, id: 'c1' }]);
+    expect(c.turns[3].blocks).toEqual([{ type: 'tool_result', content: 'found', id: 'c1' }]);
     expect(c.tools).toEqual(['search']);
   });
 

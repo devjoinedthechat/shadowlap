@@ -136,7 +136,7 @@ describe('shadowlap test with outcome checks', () => {
       const r = await shadowlapTest({ 'goldens/reference-agent': { fork: true, repeat: 2, expect: { tools: { send_email: 0 } } } }, { AGENT_SYSTEM_SUFFIX: 'Never send email.' }, db);
       expect(r.code).toBe(1);
       // The result shows the attempt that failed: the run the Tests screen opens.
-      const shown = r.report.results[0]!.runId as string;
+      const shown = r.report.results[0].runId as string;
       const store = Store.open(db);
       const tested = store.allRuns().filter((x) => x.meta?.test);
       store.close();

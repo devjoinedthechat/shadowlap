@@ -107,10 +107,10 @@ describe('the verdict', () => {
     expect(sessionLine(v)).toMatchObject({ since: 'since: refund-in-limit passed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03' });
     v.verdict!.since.push({ golden: 'goldens/refund-flow', name: 'refund-flow', ok: false, verdict: 'failed', revision: null, at: T + 120_000 });
     expect(sessionLine(v)).toMatchObject({ since: 'since: 2 goldens ran again, 1 failed', sinceTip: 'refund-in-limit passed at d2e8a1f+dirty, Oct 1, 10:03\nrefund-flow failed, Oct 1, 10:04' });
-    v.verdict!.since[1] = { ...v.verdict!.since[1]!, ok: true, verdict: 'passed' };
+    v.verdict!.since[1] = { ...v.verdict!.since[1], ok: true, verdict: 'passed' };
     expect(sessionLine(v)!.since).toBe('since: 2 goldens ran again, all passed');
     // One inconclusive is neither: counted apart, and named so on hover.
-    v.verdict!.since[1] = { ...v.verdict!.since[1]!, ok: false, verdict: 'inconclusive' };
+    v.verdict!.since[1] = { ...v.verdict!.since[1], ok: false, verdict: 'inconclusive' };
     v.verdict!.since.push({ golden: 'goldens/refund-over-limit', name: 'refund-over-limit', ok: false, verdict: 'failed', revision: null, at: T + 180_000 });
     expect(sessionLine(v)).toMatchObject({ since: 'since: 3 goldens ran again, 1 failed, 1 inconclusive' });
     expect(sessionLine(v)!.sinceTip).toContain('refund-flow inconclusive, Oct 1, 10:04');
@@ -167,7 +167,7 @@ describe('the goldens table', () => {
       '    attempt 1  ✓ passed',
     ]);
     // Its ? line in amber: neither passed nor failed.
-    expect(inconclusiveLines(v)[0]!.tone).toBe('y');
+    expect(inconclusiveLines(v)[0].tone).toBe('y');
     expect(inconclusiveHint(v)).toBe("Neither verdict holds at the gate's stated risk yet: more attempts settle it, not a change to the agent. Run more attempts continues it to 40: about 17 more on average, about $0.34, settling it 38% of the time.");
     expect(inconclusiveHint({ ...v, gate: null })).toBe('A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.');
     // An injection gate that showed too little to say: its own hint.
@@ -227,7 +227,7 @@ describe('the reports', () => {
   it('colours a divergence as the mock does: the golden\'s line, then what was and what is', () => {
     const lines = reportLines(divergence('refund-in-limit').text);
     expect(lines.map((l) => l.tone)).toEqual(['no', '', '', 'del', 'add']);
-    expect(lines[0]!.text).toBe('✗ refund-in-limit: diverged at call 1 (api POST /v1/messages)');
+    expect(lines[0].text).toBe('✗ refund-in-limit: diverged at call 1 (api POST /v1/messages)');
   });
 
   it('prints a failed check, a non-zero exit or no calls as test --markdown does', () => {
@@ -384,7 +384,7 @@ describe('Find the commit’s dialog', () => {
 
   it('says inconclusive, never failed, at a commit where the golden came out neither passed nor failed', () => {
     // Its gate ran out of attempts between its bounds at bbb2222: no pass to start from there, and no failure either.
-    const unsure = [revisions[0]!, { ...revisions[1]!, result: 'fail' as const, verdict: 'inconclusive' as const }, revisions[3]!];
+    const unsure = [revisions[0], { ...revisions[1], result: 'fail' as const, verdict: 'inconclusive' as const }, revisions[3]];
     const c = revisionChoices(unsure);
     expect(c.options.map((o) => o.label)).toEqual(['ddd4444 · Send the user id with every request · failed here', 'ccc3333 · Escalate refunds above the limit · inconclusive here', 'aaa1111 · Initial support agent']);
     expect(c.initial).toBe('aaa1111');
@@ -441,7 +441,7 @@ describe('the Update golden dialog', () => {
     expect(plan).toMatchObject({ title: 'Update judged?', goldens: [], advise: null, instead: null, note: null, command: 'shadowlap test goldens/judged --update', ok: 'Update' });
     expect(plan.text).toBe('Its replay is clean: only its judge check has no verdict in the pack. Updating asks the judge once, live, with the Anthropic key in the dashboard’s environment, and keeps the verdict; nothing is re-recorded.');
     // A judge whose model names no provider is asked with whatever key its model needs.
-    expect(updatePlan(view({ ...v, inconclusive: [{ ...v.inconclusive[0]!, judge: { ...judge, provider: null } }] }), ['goldens/judged']).text).toContain('Updating asks the judge once, live, with the key in the dashboard’s environment, and keeps the verdict');
+    expect(updatePlan(view({ ...v, inconclusive: [{ ...v.inconclusive[0], judge: { ...judge, provider: null } }] }), ['goldens/judged']).text).toContain('Updating asks the judge once, live, with the key in the dashboard’s environment, and keeps the verdict');
     expect(plan.steps).toEqual([
       ['Replayed offline, as recorded', 'clean'],
       ['Its judge asked once, live', 'claude-haiku-4-5'],

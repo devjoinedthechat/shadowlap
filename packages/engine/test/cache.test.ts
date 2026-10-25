@@ -21,8 +21,8 @@ describe('the cache-miss rule', () => {
     const store = Store.open(':memory:');
     const { runId, byTicket } = batchRun(store, 40, { broken: { ticket: 31, call: 3 } });
     const r = runCache(store, store.getCalls(runId));
-    const third = byTicket.get(31)![5]!;
-    const second = byTicket.get(31)![3]!;
+    const third = byTicket.get(31)![5];
+    const second = byTicket.get(31)![3];
     expect(r.misses).toEqual([{ callNo: third, sentAgain: cachedUsage(2).inputTokens + cachedUsage(2).cacheReadInputTokens! + cachedUsage(2).cacheCreationInputTokens!, previousCallNo: second, scope: null, conversation: 31 }]);
     expect(r.sentAgain).toBe(6800);
     store.close();
@@ -125,7 +125,7 @@ describe('cache use across runs', () => {
       [c, 4, 7600],
       [bRun, 4, 7600],
     ]);
-    expect(use.largest[0]!.model).toBe('sonnet-5');
+    expect(use.largest[0].model).toBe('sonnet-5');
     expect(use.readShare).toBeGreaterThan(0);
     expect(use.readShare).toBeLessThan(1);
     // Last week alone holds the old run.
@@ -186,8 +186,8 @@ describe('cache use on the Overview, asked again', () => {
     expect(later.misses).toBe(2);
     expect(later.largest.map((m) => m.runId)).toContain(recording.runId);
     // What the Overview is given is its own: changing it changes nothing kept.
-    later.largest[0]!.sentAgain = -1;
-    expect(cacheUse(store, now).largest[0]!.sentAgain).toBeGreaterThan(0);
+    later.largest[0].sentAgain = -1;
+    expect(cacheUse(store, now).largest[0].sentAgain).toBeGreaterThan(0);
     store.close();
   });
 });

@@ -274,7 +274,7 @@ export function modelMentions(cwd: string, from: readonly string[], to: string):
       let changed = '';
       let last = 0;
       for (const m of line.matchAll(re)) {
-        const at = m.index!;
+        const at = m.index;
         if (!reviewOnly && isValue(kind, line, at, m[0])) {
           changed += `${line.slice(last, at)}${to}`;
           last = at + m[0].length;

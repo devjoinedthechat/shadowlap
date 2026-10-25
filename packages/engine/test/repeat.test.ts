@@ -81,7 +81,7 @@ describe('repeated forks', () => {
     expect(text).toMatch(/open_ticket\s+3 of 4\s+5 \(5 stubbed\)/);
     expect(text).toMatch(/page_oncall\s+1 of 4\s+1 \(1 errors\)/);
     expect(text).toContain('Final model responses: 3 different');
-    expect(text).toContain(`compare the two most common paths: shadowlap diff ${r.paths[0]!.runIds[0]!.slice(0, 10)} ${r.paths[1]!.runIds[0]!.slice(0, 10)}`);
+    expect(text).toContain(`compare the two most common paths: shadowlap diff ${r.paths[0].runIds[0].slice(0, 10)} ${r.paths[1].runIds[0].slice(0, 10)}`);
   });
 
   it('says so when every attempt agrees, comparing answers by content when told how', () => {

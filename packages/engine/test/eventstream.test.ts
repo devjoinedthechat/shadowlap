@@ -114,7 +114,7 @@ describe('Bedrock Converse messages', () => {
       ['assistant', ['tool_call']],
       ['tool', ['tool_result']],
     ]);
-    expect(conv.turns[3]!.blocks[0]).toMatchObject({ isError: true, id: 't1' });
+    expect(conv.turns[3].blocks[0]).toMatchObject({ isError: true, id: 't1' });
   });
 
   it('normalizes a Converse response', () => {
@@ -143,7 +143,7 @@ describe('server-sent events', () => {
       const bytes = Buffer.from(`event: a${nl}data: {"x":1}${nl}${nl}data: {"x":2}${nl}${nl}`);
       const events = parseSse(bytes);
       expect(events.map((e) => [e.event, e.data])).toEqual([['a', { x: 1 }], ['message', { x: 2 }]]);
-      expect(events[1]!.endOffset).toBe(bytes.length);
+      expect(events[1].endOffset).toBe(bytes.length);
     }
     // A Gemini stream as the API sends it.
     const gemini = Buffer.from(['{"candidates":[{"content":{"parts":[{"text":"rea"}],"role":"model"}}]}', '{"candidates":[{"content":{"parts":[{"text":"dy"}],"role":"model"},"finishReason":"STOP"}]}'].map((d) => `data: ${d}\r\n\r\n`).join(''));

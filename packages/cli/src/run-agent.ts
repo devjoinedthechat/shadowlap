@@ -291,7 +291,7 @@ export async function testAttempt(
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
     // A command that never started did so for its own reason, whatever its empty summary would suggest about the environment.
-    const why = notStarted as ReturnType<typeof startFailure> | null;
+    const why = notStarted;
     failure = why ? { message: why.message, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     kind = 'no-calls';
@@ -650,7 +650,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const result = endRun(interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   stop.stop();
   if (unasked) result.summary.warnings.push(AGENT_NODE_MAYBE_TOO_OLD);
-  const why = notStarted as ReturnType<typeof startFailure> | null;
+  const why = notStarted;
   if (why) {
     // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
     // so does the paragraph about the environment its empty summary would print.

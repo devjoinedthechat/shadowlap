@@ -85,7 +85,7 @@ describe('pack / unpack', () => {
     const dst = Store.open(':memory:');
     expect(unpackRun(dst, dir).imported).toEqual([parent.runId]);
     expect(dst.getCalls(parent.runId)).toEqual(src.getCalls(parent.runId));
-    const res = src.getCalls(parent.runId)[0]!.end!.responseRef!;
+    const res = src.getCalls(parent.runId)[0].end!.responseRef!;
     expect(dst.getBlob(res)).toEqual(src.getBlob(res));
     src.close();
     dst.close();
@@ -96,7 +96,7 @@ describe('pack / unpack', () => {
     const { parent } = seed(src);
     const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'out');
     packRun(src, parent.runId, dir);
-    const res = src.getCalls(parent.runId)[0]!.end!.responseRef!;
+    const res = src.getCalls(parent.runId)[0].end!.responseRef!;
     writeFileSync(join(dir, 'blobs', res), 'event: message_stop\r\ndata: {}\r\n\r\n');
     const dst = Store.open(':memory:');
     expect(() => unpackRun(dst, dir)).toThrow(/does not match its hash: it has CRLF line endings.*"\* -text"/);
@@ -111,7 +111,7 @@ describe('pack / unpack', () => {
     const dir = join(mkdtempSync(join(tmpdir(), 'fp-pack-')), 'out');
     packRun(src, parent.runId, dir);
     const [first] = readdirSync(join(dir, 'blobs'));
-    writeFileSync(join(dir, 'blobs', first!), 'tampered');
+    writeFileSync(join(dir, 'blobs', first), 'tampered');
     const dst = Store.open(':memory:');
     expect(() => unpackRun(dst, dir)).toThrow(/does not match its hash/);
     expect(dst.listRuns()).toEqual([]); // the transaction rolled back
@@ -141,14 +141,14 @@ describe('pack / unpack', () => {
     unpackRun(dst, dir);
     // The same pack with another command, then with another answer at call 1.
     const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[]; cwd: string } }> };
-    m.runs[0]!.command.argv = ['sh', '-c', 'echo owned'];
+    m.runs[0].command.argv = ['sh', '-c', 'echo owned'];
     writeFileSync(join(dir, 'run.json'), JSON.stringify(m));
     expect(unpackRun(dst, dir).mismatched).toEqual([{ runId: parent.runId, command: { argv: ['sh', '-c', 'echo owned'], cwd: '/tmp' }, calls: false }]);
     const lines = readFileSync(join(dir, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { end: { responseRef: string } });
     const other = Buffer.from('event: message_start\ndata: {"other":true}\n\n');
     const hash = createHash('sha256').update(other).digest('hex');
     writeFileSync(join(dir, 'blobs', hash), other);
-    lines[0]!.end.responseRef = hash;
+    lines[0].end.responseRef = hash;
     writeFileSync(join(dir, 'calls.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
     expect(unpackRun(dst, dir).mismatched).toEqual([{ runId: parent.runId, command: { argv: ['sh', '-c', 'echo owned'], cwd: '/tmp' }, calls: true }]);
     expect(dst.getRun(parent.runId)!.command.argv).toEqual(['node', 'agent.js']);
@@ -170,7 +170,7 @@ describe('pack / unpack', () => {
     expect(dst.getRun(run.runId)!.command).toEqual({ argv, cwd: '/tmp/odd\tfolder' });
     // Anything else that could move a terminal's cursor is still refused.
     const m = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
-    m.runs[0]!.command.argv[3] = 'console.log(1)\r\u001b[2Kclean';
+    m.runs[0].command.argv[3] = 'console.log(1)\r\u001b[2Kclean';
     writeFileSync(join(dir, 'run.json'), JSON.stringify(m));
     expect(() => unpackRun(Store.open(':memory:'), dir)).toThrow(/argv\[3\]: contains control characters/);
     src.close();

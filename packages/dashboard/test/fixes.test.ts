@@ -57,19 +57,19 @@ describe('the Fixes list', () => {
     expect(list.counts).toEqual({ all: 2, open: 1, verified: 1 });
     expect(list.fixes.map((f) => f.fixId)).toEqual([openFix.fixId, fixId]);
     expect(list.fixes[0]).toMatchObject({ status: 'open', title: 'send_email called twice, not once', label: 'double-email', labels: ['double-email'], failing: 1, good: 0, href: `#/fixes/${openFix.fixId}`, broken: null });
-    expect(list.fixes[0]!.steps.map((s) => [s.state, s.short])).toEqual([
+    expect(list.fixes[0].steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
       ['todo', 'no fix yet'],
       ['todo', 'not verified'],
     ]);
     expect(list.fixes[1]).toMatchObject({ status: 'verified', label: 'refund-bug', failing: 2, good: 1, check: 'issue_refund never called with {"amount":240}', verifiedAt: NOW - DAY });
     // What its verdicts that held did, run by run: never "3 of 3 held", which counts the good run as held.
-    expect(list.fixes[1]!.steps.map((s) => [s.state, s.short])).toEqual([
+    expect(list.fixes[1].steps.map((s) => [s.state, s.short])).toEqual([
       ['done', 'lost at #5'],
       ['done', 'prompt fix'],
       ['done', '2 fixed · 1 kept'],
     ]);
-    expect(list.fixes[1]!.attempts).toBeGreaterThan(0);
+    expect(list.fixes[1].attempts).toBeGreaterThan(0);
     expect(fixList(store, { status: 'open' }).fixes.map((f) => f.fixId)).toEqual([openFix.fixId]);
     expect(fixList(store, { status: 'verified' }).fixes.map((f) => f.fixId)).toEqual([fixId]);
   });
@@ -97,18 +97,18 @@ describe('the Fixes list', () => {
     const stopped = blame(b, { outcome: 'stopped', at: NOW });
     recordVerdict(store, { report: verifyReport([{ runId: b, role: 'target', pass: false }]), expect: EXPECT, command: 'v' });
     const [x, y] = fixList(store).fixes;
-    expect(x!.fixId).toBe(stopped.fix.fixId);
-    expect(x!.steps.map((s) => [s.state, s.short, s.title])).toEqual([
+    expect(x.fixId).toBe(stopped.fix.fixId);
+    expect(x.steps.map((s) => [s.state, s.short, s.title])).toEqual([
       // A step that ran and needs a look is amber (warn), never the grey of one not run yet.
       ['warn', 'blame stopped', 'Stopped before the search finished'],
       ['todo', 'no fix yet', 'No fix yet'],
       ['no', 'rejected', 'Rejected'],
     ]);
-    expect(x!.steps[0]!.meta).toBe('the budget of $0.05 is spent');
+    expect(x.steps[0].meta).toBe('the budget of $0.05 is spent');
     // It ran to the end, but no model call rescued the run: no call is blamed, and that needs a look.
-    expect(y!.steps[0]).toMatchObject({ state: 'warn', short: 'not rescued', title: 'Not rescued from any model call' });
-    expect(fixDetail(store, y!.fixId)!.defaultStep).toBe('blame');
-    expect(fixDetail(store, y!.fixId)!.blame).toMatchObject({ boundary: 'Resampling from the first model call, #1, passed 1 of 4 attempts, fewer than the 2 a rescue needs.', look: null });
+    expect(y.steps[0]).toMatchObject({ state: 'warn', short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(fixDetail(store, y.fixId)!.defaultStep).toBe('blame');
+    expect(fixDetail(store, y.fixId)!.blame).toMatchObject({ boundary: 'Resampling from the first model call, #1, passed 1 of 4 attempts, fewer than the 2 a rescue needs.', look: null });
   });
 
   it('says what asking the blamed call again did only as far as it differs, and why a blame blamed no call', () => {
@@ -120,7 +120,7 @@ describe('the Fixes list', () => {
     const said = (text: string) => [{ type: 'text' as const, text }];
     const asked = (recorded: Block[], rescued: Block[], label: string) => {
       const base = blameReport('X');
-      const { blame } = keep({ ...base, contrast: { callNo: 5, recorded, rescued, rescuedRunId: base.blamed!.attempts[0]!.runId } }, [label]);
+      const { blame } = keep({ ...base, contrast: { callNo: 5, recorded, rescued, rescuedRunId: base.blamed!.attempts[0].runId } }, [label]);
       return fixForRun(store, blame.runId)!.blame!.short;
     };
     expect(asked(post('3 refunds this week.'), post('Three refunds this week.'), 'a')).toBe('asked again, it calls post_digest with other arguments');
@@ -146,7 +146,7 @@ describe('the Fixes list', () => {
     // Seven passes in twenty from the first model call: between 10% and 60%, so not settled.
     const outcomes = [...Array(6).fill([true, false, false]).flat(), true, false] as boolean[];
     const base = blameReport(runId, 'unrescuable');
-    const first = { ...base.probes[0]!, passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0]!.attempts[0]!, runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
+    const first = { ...base.probes[0], passes: 7, rescued: false, decision: 'inconclusive' as const, gate: gateResult(gate, outcomes), attempts: outcomes.map((passed, i) => ({ ...base.probes[0].attempts[0], runId: `${runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })) };
     const unsettled = recordBlame(store, { runId, report: { ...base, gate, confidence: 'low', probes: [first], lost: first }, expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'Flaky refunds', checkText: 'x', at: NOW });
     const b = fixDetail(store, unsettled.fix.fixId)!.blame!;
     expect(b).toMatchObject({ title: 'Not settled from the first model call', confidence: 'low', confidenceWhy: '#1 was inconclusive: whether resampling rescues the run is not settled', boundary: 'Resampled from the first model call, #1: inconclusive · 7 of 20 · rate 0.10 to 0.64 (95%).', rule: 'gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 20 attempts' });
@@ -164,15 +164,15 @@ describe('the Fixes list', () => {
     const v = verifyReport([{ runId: odd, role: 'target', pass: true }]);
     recordVerdict(store, { report: { ...v, gate: { kind: 'sprt' } as never, runs: v.runs.map((x) => ({ ...x, gate: { decision: 'pass', interval: null } as never })) }, expect: EXPECT, command: `shadowlap verify --fixes ${odd}`, at: NOW + 1 });
     const verified = fixDetail(store, kept.fix.fixId)!;
-    expect(verified.verify[0]!.rows[0]).toMatchObject({ rate: null });
-    expect(verified.verify[0]!.oracle).toContain('a run passes when 4 of 5 attempts meet the check');
+    expect(verified.verify[0].rows[0]).toMatchObject({ rate: null });
+    expect(verified.verify[0].oracle).toContain('a run passes when 4 of 5 attempts meet the check');
   });
 
   it('says where a fix came from', () => {
     const a = makeRun(store, { labels: ['refund-bug'] });
     recordBlame(store, { runId: a, report: blameReport(a), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x', ci: 'github' });
     recordRepair(store, { repairId: 'repair-ci', dir: '.shadowlap/repairs/repair-ci', report: repairReport({ targets: [a], pr: 'https://github.com/example/agent/pull/138' }), expect: EXPECT, command: 'r' });
-    expect(fixList(store).fixes[0]!.source).toBe('from CI · PR #138');
+    expect(fixList(store).fixes[0].source).toBe('from CI · PR #138');
     // Opened here, its merge request opened by a repair; once known to be merged, it says so.
     const b = makeRun(store, { labels: ['double-email'] });
     const { fix } = blame(b, { expect: { tools: { send_email: 1 } } });
@@ -220,7 +220,7 @@ describe('a fix', () => {
     ]);
     expect(b.bundles[1]).toMatchObject({ title: 'blame · probe #5', blamed: true, passes: 2 });
     // The rescued fork says what asking again did.
-    expect(b.bundles[1]!.attempts.map((a) => a.note)).toEqual(['passed · called escalate', 'issue_refund called', 'passed', 'issue_refund called']);
+    expect(b.bundles[1].attempts.map((a) => a.note)).toEqual(['passed · called escalate', 'issue_refund called', 'passed', 'issue_refund called']);
     expect(b.callRow.map((c) => [c.callNo, c.kind, c.verdict, c.inScope])).toEqual([
       [1, 'api', 'rescued', true],
       [2, 'tool', null, true],
@@ -238,8 +238,8 @@ describe('a fix', () => {
     const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
     const report = blameReport(failing, 'unrescuable');
     const [first] = report.probes;
-    const attempt = { ...first!.attempts[0]!, passed: false, verdict: 'inconclusive' as const, failures: [why] };
-    report.probes = [{ ...first!, attempts: [attempt], passes: 0, rescued: false, decision: 'inconclusive', undecided: why }];
+    const attempt = { ...first.attempts[0], passed: false, verdict: 'inconclusive' as const, failures: [why] };
+    report.probes = [{ ...first, attempts: [attempt], passes: 0, rescued: false, decision: 'inconclusive', undecided: why }];
     report.lost = report.probes[0]!;
     report.confidence = 'low';
     const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
@@ -248,9 +248,9 @@ describe('a fix', () => {
     expect(b.look).toContain('Not settled: a check could not be decided on an attempt');
     expect(b.probes).toEqual([expect.objectContaining({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1, bound: null })]);
     expect(b.callRow[0]).toMatchObject({ callNo: 1, verdict: 'inconclusive', passes: 0, attempts: 1, inconclusive: 1 });
-    expect(b.bundles[0]!.attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    expect(b.bundles[0].attempts).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
     // Wherever the blame is summed up, it is not settled, never "not rescued".
-    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ state: 'warn', short: 'not settled', title: 'Not settled from the first model call' });
+    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'warn', short: 'not settled', title: 'Not settled from the first model call' });
     expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not settled from the first model call · no fix yet');
     expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', unsettled: true, short: 'not settled from the first model call' });
     expect(fixDetail(store, fix.fixId)!.blames).toEqual([expect.objectContaining({ outcome: 'unrescuable', unsettled: true })]);
@@ -259,7 +259,7 @@ describe('a fix', () => {
   it('still says a blame whose first probe lost the run was not rescued from any model call', () => {
     const failing = makeRun(store, { labels: ['refund-bug'] });
     const { fix } = blame(failing, { outcome: 'unrescuable' });
-    expect(fixList(store).fixes[0]!.steps[0]).toMatchObject({ short: 'not rescued', title: 'Not rescued from any model call' });
+    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ short: 'not rescued', title: 'Not rescued from any model call' });
     expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('not rescued from any model call · no fix yet');
     expect(fixForRun(store, failing)?.blame).toMatchObject({ outcome: 'unrescuable', short: 'not rescued from any model call' });
     expect(fixForRun(store, failing)?.blame).not.toHaveProperty('unsettled');
@@ -269,8 +269,8 @@ describe('a fix', () => {
     const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api'] });
     const report = blameReport(failing, 'stopped');
     const [rescued] = report.probes;
-    const unsure = { ...rescued!, callNo: 5, step: 3, passes: 1, rescued: false, decision: 'inconclusive' as const };
-    report.probes = [rescued!, unsure];
+    const unsure = { ...rescued, callNo: 5, step: 3, passes: 1, rescued: false, decision: 'inconclusive' as const };
+    report.probes = [rescued, unsure];
     report.lost = unsure;
     const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
     const b = fixDetail(store, fix.fixId)!.blame!;
@@ -335,24 +335,24 @@ describe('a fix', () => {
     // Kept before repair said it in a few words: read from its warning.
     keep('repair-olderone', nothing({ why: 'there was no candidate to try', warnings: ['the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found: install it, or set SHADOWLAP_CLAUDE to its path'] }), NOW + 1);
     d = fixDetail(store, fix.fixId)!;
-    expect(d.steps[1]!.meta).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
+    expect(d.steps[1].meta).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
     expect(d.repair!.noRepairer!.warning).toMatch(/^the repairer could not be asked: the claude-code repairer runs Claude Code/);
     // Its why, "there was no candidate to try", reads as what kept the repairer from proposing one.
     expect(d.repair!.why).toBe('the repairer could not be asked: the claude-code repairer runs Claude Code, and claude was not found');
 
     // Nothing in the project it could rewrite, as an older report says it.
     keep('repair-noanchors', nothing({ why: 'there was no candidate to try', warnings: ["none of the system prompt or tool descriptions appears verbatim, exactly once, in the project's files, so the repairer had nothing it could rewrite"] }), NOW + 2);
-    expect(fixDetail(store, fix.fixId)!.steps[1]!.meta).toBe('the repairer had nothing it could rewrite');
+    expect(fixDetail(store, fix.fixId)!.steps[1].meta).toBe('the repairer had nothing it could rewrite');
 
     // A switch to the model that rescued the runs tried and rejected first: what it tried, and why the repairer added nothing.
-    const rejected = repairReport({ targets: [run], accepted: false }).candidates[1]!;
+    const rejected = repairReport({ targets: [run], accepted: false }).candidates[1];
     keep('repair-modelfirst', nothing({ why: 'the gate accepted none of the 1 candidate tried', noRepairer: 'no repairer is configured', candidates: [{ ...rejected, source: 'model', surface: 'model' }], warnings: ['no repairer is configured, so only fixes that need no model were tried: set one with --repairer anthropic, or repair.repairer in shadowlap.config.json'] }), NOW + 3);
-    expect(fixDetail(store, fix.fixId)!.steps[1]!.meta).toBe('1 candidate tried, none accepted · no repairer is configured');
+    expect(fixDetail(store, fix.fixId)!.steps[1].meta).toBe('1 candidate tried, none accepted · no repairer is configured');
 
     // No failing run rescued: nothing called for a repairer, and the step says why there was nothing to learn from.
     keep('repair-nopath', nothing({ outcome: 'no-diagnosis', why: 'resampling rescued no failing run, so there is no passing path to learn from' }), NOW + 4);
     d = fixDetail(store, fix.fixId)!;
-    expect(d.steps[1]!.meta).toBe('resampling rescued no failing run, so there is no passing path to learn from');
+    expect(d.steps[1].meta).toBe('resampling rescued no failing run, so there is no passing path to learn from');
     expect(d.repair!.noRepairer).toBeNull();
 
     // A model switch accepted needs no repairer, and says so.
@@ -371,8 +371,8 @@ describe('a fix', () => {
       ['repair candidate 3', 'accepted', 'Every failing run fixed, every good run kept', true, null],
       ['370712a+dirty', 'rejected', 'The change broke a run that worked', true, null],
     ]);
-    expect(d.defaultVerify).toBe(d.verify[0]!.verifyId);
-    const rejected = d.verify[1]!;
+    expect(d.defaultVerify).toBe(d.verify[0].verifyId);
+    const rejected = d.verify[1];
     expect(rejected).toMatchObject({ href: `#/fixes/${fixId}/verify/${rejected.verifyId}`, label: '370712a+dirty · rejected', oracle: 'a run passes when 4 of 5 attempts meet the check: the agent exits 0; issue_refund with {"amount":240} called 0 times' });
     expect(rejected.rows.map((r) => [r.role, r.outcome, r.note])).toEqual([
       ['target', 'fixed', 'forked at #1'],
@@ -392,10 +392,10 @@ describe('a fix', () => {
     // The good run's one attempt: the agent exited 0 and failed no check, but its judge could not answer.
     const attempt = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'inconclusive' } } });
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
-    report.runs[1] = { ...report.runs[1]!, attempts: [{ ...report.runs[1]!.attempts[0]!, runId: attempt, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 0, verdict: 'open', undecided: why };
+    report.runs[1] = { ...report.runs[1], attempts: [{ ...report.runs[1].attempts[0], runId: attempt, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 0, verdict: 'open', undecided: why };
     Object.assign(report, decideVerify(report.runs, null));
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
-    const v = fixDetail(store, fix.fixId)!.verify[0]!;
+    const v = fixDetail(store, fix.fixId)!.verify[0];
     expect([v.verdict, v.headline]).toEqual(['incomplete', 'Not every run settled']);
     expect(v.rows.map((r) => [r.role, r.outcome, r.attempts, r.passes, r.inconclusive, r.note])).toEqual([
       ['target', 'fixed', 4, 4, 0, 'forked at #1'],
@@ -406,7 +406,7 @@ describe('a fix', () => {
     expect(v.unsettled).toEqual(v.reasons);
     // The Forks view under the good run: the attempt reads inconclusive, never failed.
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
+    expect(bundle.attempts).toEqual([expect.objectContaining({ runId: attempt, passed: false, verdict: 'inconclusive', note: 'inconclusive: judge "issued" answers yes' })]);
     // The fix's Verify step says why it is not settled: a run it verified is inconclusive, not a verify that stopped.
     expect(fixDetail(store, fix.fixId)!.steps[2]).toMatchObject({ state: 'warn', short: 'not settled', meta: 'a run it verified is inconclusive' });
   });
@@ -416,7 +416,7 @@ describe('a fix', () => {
     // Retried by verify and never counted (attempts.ts in the CLI): no report names it, its run's mark says why.
     const retried = makeRun(store, { mode: 'replay', parent: good, status: 'completed', meta: { verify: { role: 'good', passed: false, verdict: 'unavailable' } } });
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle!.attempts).toEqual([expect.objectContaining({ runId: retried, passed: false, verdict: 'inconclusive' })]);
+    expect(bundle.attempts).toEqual([expect.objectContaining({ runId: retried, passed: false, verdict: 'inconclusive' })]);
   });
 
   it('gives no rate for a run an attempt it could not judge stopped under a gate, as verify gives none', () => {
@@ -426,13 +426,13 @@ describe('a fix', () => {
     const why = 'judge "issued" answers yes, but it is inconclusive: not judged: the judge\'s call failed: HTTP 400';
     const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }]);
-    const kept = report.runs[1]!;
+    const kept = report.runs[1];
     // Two attempts passed, and the third could not be judged: the gate decided nothing.
-    report.runs[1] = { ...kept, attempts: [kept.attempts[0]!, kept.attempts[1]!, { ...kept.attempts[2]!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 2, verdict: 'open', undecided: why, gate: gateResult(gate, [true, true], { decision: 'continue' }) };
+    report.runs[1] = { ...kept, attempts: [kept.attempts[0], kept.attempts[1], { ...kept.attempts[2], passed: false, verdict: 'inconclusive', failures: [why] }], passes: 2, verdict: 'open', undecided: why, gate: gateResult(gate, [true, true], { decision: 'continue' }) };
     report.gate = gate;
     Object.assign(report, decideVerify(report.runs, null));
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: NOW });
-    const row = fixDetail(store, fix.fixId)!.verify[0]!.rows[1]!;
+    const row = fixDetail(store, fix.fixId)!.verify[0].rows[1];
     // Its gate decided nothing, so there is no rate, nor a sentence with a word that is no verdict.
     expect(row).toMatchObject({ outcome: 'inconclusive', attempts: 3, passes: 2, inconclusive: 1, rate: null });
     expect(JSON.stringify(fixDetail(store, fix.fixId))).not.toContain('undecided');
@@ -455,7 +455,7 @@ describe('a fix', () => {
     const { fix } = blame(run);
     // Under the fix's check, a run it could not settle: it counts, and the step is not settled.
     const unsettled = verifyReport([{ runId: run, role: 'target', pass: true }]);
-    unsettled.runs[0] = { ...unsettled.runs[0]!, verdict: 'open', decision: 'inconclusive' };
+    unsettled.runs[0] = { ...unsettled.runs[0], verdict: 'open', decision: 'inconclusive' };
     Object.assign(unsettled, decideVerify(unsettled.runs, null));
     const counted = recordVerdict(store, { report: unsettled, expect: EXPECT, command: 'v', at: NOW }).verdict;
     // Then accepted under the exit code alone: it doesn't count, and never opens as the fix's verdict.
@@ -520,20 +520,20 @@ describe('a fix', () => {
     expect(fixRecords(store, store.getFix(fixId)!).failing).toHaveLength(3);
     const verdict = (rows: Parameters<typeof verifyReport>[0], at: number) => recordVerdict(store, { report: verifyReport(rows), expect: EXPECT, command: 'v', at }).verdict.verifyId;
     // One of its three failing runs, and the good run.
-    const one = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: good, role: 'good', pass: true }], NOW);
+    const one = verdict([{ runId: runs[0], role: 'target', pass: true }, { runId: good, role: 'good', pass: true }], NOW);
     let d = fixDetail(store, fixId)!;
     expect(d.verify.find((v) => v.verifyId === one)!.headline).toBe('Fixes 1 of 1 target run, keeps 1 of 1 good');
     expect(d.steps[2]).toMatchObject({ short: '1 fixed · 1 kept', title: '1 fixed · 1 kept', meta: '2 failing runs not verified' });
     // Two more, one of them held out: still not every failing run.
-    const two = verdict([{ runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }], NOW + 1);
+    const two = verdict([{ runId: runs[1], role: 'target', pass: true }, { runId: runs[2], role: 'holdout', pass: true }], NOW + 1);
     d = fixDetail(store, fixId)!;
     expect(d.verify.find((v) => v.verifyId === two)!.headline).toBe('Fixes 1 of 1 target run, 1 of 1 held-out');
     // Counted run by run across the verdicts that held: every failing run now, the good run once.
     expect(d.steps[2]).toMatchObject({ title: '3 fixed · 1 kept', meta: 'every failing run fixed, every good run kept' });
-    const all = verdict([{ runId: runs[0]!, role: 'target', pass: true }, { runId: runs[1]!, role: 'target', pass: true }, { runId: runs[2]!, role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }], NOW + 2);
+    const all = verdict([{ runId: runs[0], role: 'target', pass: true }, { runId: runs[1], role: 'target', pass: true }, { runId: runs[2], role: 'holdout', pass: true }, { runId: good, role: 'good', pass: true }], NOW + 2);
     expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === all)!.headline).toBe('Every failing run fixed, every good run kept');
     // Rejected for a failing run it checked: never "every failing run", which it never checked.
-    const rejected = verdict([{ runId: runs[0]!, role: 'target', pass: false }, { runId: good, role: 'good', pass: true }], NOW + 3);
+    const rejected = verdict([{ runId: runs[0], role: 'target', pass: false }, { runId: good, role: 'good', pass: true }], NOW + 3);
     expect(fixDetail(store, fixId)!.verify.find((v) => v.verifyId === rejected)!.headline).toBe('The change did not fix the failing runs it checked');
   });
 
@@ -561,7 +561,7 @@ describe('a fix', () => {
     // Its first probe couldn't tell: not settled, which is no finding that no answer of the model's lost the run.
     const unsure = (r: string) => {
       const base = blameReport(r, 'unrescuable');
-      return { ...base, probes: [{ ...base.probes[0]!, decision: 'inconclusive' as const }] };
+      return { ...base, probes: [{ ...base.probes[0], decision: 'inconclusive' as const }] };
     };
     const unsettled = kept(['c'], unsure);
     expect(noFix(unsettled)).toBe("Blame couldn't settle where the run was lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.");
@@ -697,8 +697,8 @@ describe('what settles a fix left unsettled', () => {
     const { fix } = blame(failing, { expect: { tools: { send_email: 1 } } });
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }, { runId: good, role: 'good', pass: true, deterministic: true }]);
     const outcomes = o.passes ?? [true, true, true, true];
-    const target = report.runs[0]!;
-    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0]!, runId: `${target.attempts[0]!.runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: outcomes.filter(Boolean).length, verdict: 'open', decision: o.decision ?? 'continue', gate: gateResult(GATE, outcomes, o.decision ? { decision: o.decision } : {}), ...(o.undecided ? { undecided: o.undecided } : {}) };
+    const target = report.runs[0];
+    report.runs[0] = { ...target, attempts: outcomes.map((passed, i) => ({ ...target.attempts[0], runId: `${target.attempts[0].runId.slice(0, 20)}${String(i).padStart(6, '0')}`, passed })), passes: outcomes.filter(Boolean).length, verdict: 'open', decision: o.decision ?? 'continue', gate: gateResult(GATE, outcomes, o.decision ? { decision: o.decision } : {}), ...(o.undecided ? { undecided: o.undecided } : {}) };
     report.gate = GATE;
     report.attemptsPerRun = GATE.max;
     report.fields = { temperature: 1 };
@@ -710,7 +710,7 @@ describe('what settles a fix left unsettled', () => {
 
   it('runs a verify stopped by its budget again from the start, its runs named in their roles, without the budget, and says what that takes', () => {
     const { failing, good, fixId } = incomplete();
-    const v = fixDetail(store, fixId)!.verify[0]!;
+    const v = fixDetail(store, fixId)!.verify[0];
     expect([v.verdict, v.counts]).toEqual(['incomplete', true]);
     expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'stopped', why: 'the budget of $0.01 is spent', attempt: null }, max: 80, budget: '0.012' });
     expect(v.more!.argv).toEqual(['verify', '--fixes', failing, '--keeps', good, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
@@ -723,7 +723,7 @@ describe('what settles a fix left unsettled', () => {
   it('doubles the limit for a run whose gate ran out of attempts between its bounds', () => {
     const outcomes = Array.from({ length: 80 }, (_, i) => i % 5 !== 0);
     const { failing, fixId } = incomplete({ decision: 'inconclusive', passes: outcomes, stopReason: null });
-    const v = fixDetail(store, fixId)!.verify[0]!;
+    const v = fixDetail(store, fixId)!.verify[0];
     expect(v.more).toMatchObject({ kind: 'more', run: { runId: failing, state: 'inconclusive', why: null }, max: 160, budget: '0.012' });
     expect(v.more!.argv.slice(-2)).toEqual(['--gate', '{"max":160}']);
     expect(v.more!.expected).toBeGreaterThan(13);
@@ -732,7 +732,7 @@ describe('what settles a fix left unsettled', () => {
   it('verifies again, as it ran, a verdict an attempt that could not be judged stopped', () => {
     const why = 'judge "sent-once" could not answer: no key for anthropic';
     const { failing, fixId } = incomplete({ stopReason: null, undecided: why });
-    const v = fixDetail(store, fixId)!.verify[0]!;
+    const v = fixDetail(store, fixId)!.verify[0];
     expect(v.more).toMatchObject({ kind: 'again', run: { runId: failing, state: 'unjudged', why, attempt: 4 }, budget: null });
     expect(v.more!.argv).toEqual(['verify', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1', '--budget', '0.012']);
   });
@@ -746,7 +746,7 @@ describe('what settles a fix left unsettled', () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');
     report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
-    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive' }];
     const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: 'agent', command: `shadowlap blame ${run.slice(0, 10)} --expect '{"old":1}' --scope agent --budget 0.05`, title: 'email twice', checkText: 'send_email called once', at: NOW - DAY });
     expect(unsettledFirst(report)).toBe(true);
     const again = fixDetail(store, fix.fixId)!.actions.blameAgain!;
@@ -926,16 +926,16 @@ describe('fixes for the other views', () => {
     expect(runDetail(store, failing)!.fix).toEqual(fix);
 
     // Attempts are runs too: a blame probe, the fork it rescued the run with, a verify attempt.
-    const kept = store.blamesOfRun(failing)[0]!.report;
+    const kept = store.blamesOfRun(failing)[0].report;
     const rescuedId = kept.contrast!.rescuedRunId;
-    const probeId = kept.probes[0]!.attempts[1]!.runId;
+    const probeId = kept.probes[0].attempts[1].runId;
     store.createRun({ runId: rescuedId, mode: 'replay', parentRunId: failing, command: { argv: ['x'], cwd: '.' }, meta: { probe: { of: failing, callNo: 5, passed: true } } });
     store.createRun({ runId: probeId, mode: 'replay', parentRunId: failing, command: { argv: ['x'], cwd: '.' }, meta: { probe: { of: failing, callNo: 1, passed: false } } });
     expect(fixForRun(store, rescuedId)).toMatchObject({ role: 'rescued', fix: { fixId }, probe: { of: failing, callNo: 5, passed: true, blamed: true } });
     expect(fixForRun(store, probeId)).toMatchObject({ role: 'probe', probe: { callNo: 1, blamed: false } });
 
     const verdict = store.listVerdicts().find((v) => v.verdict === 'rejected')!;
-    const attemptId = verdict.report.runs[2]!.attempts[0]!.runId;
+    const attemptId = verdict.report.runs[2].attempts[0].runId;
     store.createRun({ runId: attemptId, mode: 'replay', parentRunId: good, command: { argv: ['x'], cwd: '.' }, meta: { verify: { role: 'good', passed: false } } });
     expect(fixForRun(store, attemptId)).toMatchObject({ role: 'verify', fix: { fixId }, verify: { verifyId: verdict.verifyId, verdict: 'rejected', role: 'good', passed: false, href: `#/fixes/${fixId}/verify/${verdict.verifyId}` } });
 

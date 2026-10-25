@@ -43,7 +43,7 @@ describe('Fixes: grouping', () => {
     const rec = fixRecords(store, store.getFix(first.fix.fixId)!);
     expect(rec.failing).toEqual([a, b]);
     expect(rec.blames.map((x) => x.runId)).toEqual([a, b]);
-    expect(store.blamesOfRun(a)[0]!.report.blamed?.callNo).toBe(5);
+    expect(store.blamesOfRun(a)[0].report.blamed?.callNo).toBe(5);
     expect(fixLabelInfo(store, rec.fix)).toEqual({ labels: ['refund-over-limit'], label: 'refund-over-limit' });
   });
 
@@ -293,7 +293,7 @@ describe('Fixes: verdicts and repairs', () => {
     const report = repairReport({ targets: [passed], holdout: [failed], accepted: false });
     report.outcome = 'no-diagnosis';
     report.candidates = [];
-    report.targets = [{ ...report.targets[0]!, outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: `${passed.slice(0, 10)} passes its oracle when replayed (the agent exits 0), so there is no failure to blame. Say what it should have done with --expect.` }];
+    report.targets = [{ ...report.targets[0], outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: `${passed.slice(0, 10)} passes its oracle when replayed (the agent exits 0), so there is no failure to blame. Say what it should have done with --expect.` }];
     const kept = recordRepair(store, { repairId: 'repair-digest', dir: '.shadowlap/repairs/repair-digest', report, expect: EXPECT, command: 'shadowlap repair --fixes label:digest' });
     expect(kept.fixes.map((x) => x.fix.fixId)).toEqual([fix.fixId]);
     expect(fixRecords(store, store.getFix(fix.fixId)!)).toMatchObject({ failing: [failed], repairs: [expect.objectContaining({ repairId: 'repair-digest' })] });
@@ -326,9 +326,9 @@ describe('Fixes: reading them back', () => {
     const report = repairReport({ targets: [a], good: [good] });
     recordRepair(store, { repairId: 'repair-1', dir: '.shadowlap/repairs/repair-1', report, expect: EXPECT, command: 'shadowlap repair' });
     const rec = fixRecords(store, store.getFix(fix.fixId)!);
-    const b = rec.blames[0]!.report;
-    const accepted = report.candidates[2]!.verify!;
-    const rejected = report.candidates[1]!.verify!;
+    const b = rec.blames[0].report;
+    const accepted = report.candidates[2].verify!;
+    const rejected = report.candidates[1].verify!;
     const cost = fixCost([rec, rec]);
     expect(cost.attempts).toBe(b.attempts + accepted.attempts + rejected.attempts);
     expect(cost.upstreamRequests).toBe(b.upstreamRequests + accepted.upstreamRequests + rejected.upstreamRequests);
@@ -410,7 +410,7 @@ describe('Fixes: reading them back', () => {
       let armed: string | null = null;
       const methods = s as unknown as Record<string, (...a: unknown[]) => unknown>;
       for (const name of ['putBlame', 'putVerdict', 'putRepair', 'getFix']) {
-        const original = methods[name]!.bind(s);
+        const original = methods[name].bind(s);
         methods[name] = (...args: unknown[]) => {
           if (armed) probe(armed);
           armed = null;
@@ -463,7 +463,7 @@ describe('Fixes: reading them back', () => {
       const again = Store.open(path);
       const fixes = again.listFixes();
       expect(fixes).toHaveLength(1);
-      expect([...fixRecords(again, fixes[0]!).failing].sort()).toEqual([...runs].sort());
+      expect([...fixRecords(again, fixes[0]).failing].sort()).toEqual([...runs].sort());
       again.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -498,13 +498,13 @@ describe('Fixes: the change feed', () => {
     const start = fixes();
     expect(start).toBe(0);
     const { fix } = blame(run);
-    const blamed = fixes()!;
-    expect(blamed).toBeGreaterThan(start!);
+    const blamed = fixes();
+    expect(blamed).toBeGreaterThan(start);
     setFixTitle(store, fix.fixId, 'Refunds above the limit');
     expect(fixes()).toBeGreaterThan(blamed);
     const titled = fixes();
     recordVerdict(store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: 'shadowlap verify --fixes label:refund-over-limit' });
-    expect(fixes()).toBeGreaterThan(titled!);
+    expect(fixes()).toBeGreaterThan(titled);
     const verified = fixes();
     // A label on a run is a change to runs only.
     label(run, 'refund-over-limit', 'seen');

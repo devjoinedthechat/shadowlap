@@ -68,7 +68,7 @@ const RULES: Normalizer[] = [
 function generate(seed: number): string {
   const r = random(seed);
   const int = (n: number) => Math.floor(r() * n);
-  const pick = <T>(xs: readonly T[]): T => xs[int(xs.length)]!;
+  const pick = <T>(xs: readonly T[]): T => xs[int(xs.length)];
   let unique = 0;
   const text = () =>
     Array.from({ length: 1 + int(4) }, () =>
@@ -173,7 +173,7 @@ describe('isJsonText', () => {
       let text = generate(1 + (n % 40)).slice(0, 400);
       for (let k = 0; k < 1 + Math.floor(r() * 3); k++) {
         const at = Math.floor(r() * (text.length + 1));
-        const c = alphabet[Math.floor(r() * alphabet.length)]!;
+        const c = alphabet[Math.floor(r() * alphabet.length)];
         const what = r();
         text = what < 0.4 ? text.slice(0, at) + c + text.slice(at) : what < 0.8 ? text.slice(0, at) + text.slice(at + 1) : text.slice(0, at) + c + text.slice(at + 1);
       }

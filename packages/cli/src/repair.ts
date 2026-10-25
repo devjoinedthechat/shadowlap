@@ -228,7 +228,7 @@ function lastExchange(store: Store, runId: string): string {
   const calls = store.getCalls(runId).filter((c) => c.kind === 'api' && c.requestRef && !isJudgeCall(c));
   const last = calls.at(-1);
   if (!last?.requestRef) return '';
-  const conv = normalizeConversation(loadApiRequest(store, last.requestRef) as Record<string, unknown>);
+  const conv = normalizeConversation(loadApiRequest(store, last.requestRef));
   return `${conversationText(conv)}\n${describeBlocks(responseBlocks(store, last))}`;
 }
 
@@ -479,7 +479,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     const byStronger = learned.find((b) => b.target.rescuedBy && b.model);
     if (byStronger && s.stronger) {
       const from = byStronger.model!;
-      const quoted = files.flatMap((f) => [`'${from}'`, `"${from}"`, `\`${from}\``].flatMap((q) => [...f.content.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))].map((m) => ({ file: f.path, offset: m.index! + 1 }))));
+      const quoted = files.flatMap((f) => [`'${from}'`, `"${from}"`, `\`${from}\``].flatMap((q) => [...f.content.matchAll(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))].map((m) => ({ file: f.path, offset: m.index + 1 }))));
       if (quoted.length === 1) {
         const at = quoted[0]!;
         candidates.push({

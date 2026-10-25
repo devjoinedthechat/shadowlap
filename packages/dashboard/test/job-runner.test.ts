@@ -88,7 +88,7 @@ describe('a job\'s output', () => {
     expect(jobs.view(job.id, 4990).lines).toEqual(['line 4991', 'line 4992', 'line 4993', 'line 4994', 'line 4995', 'line 4996', 'line 4997', 'line 4998', 'line 4999', 'line 5000']);
     expect(jobs.view(job.id, 100).lines[0], 'lines let go are not offered').toBe('line 3001');
     expect(jobs.view(job.id, 5000).lines).toEqual([]);
-    expect(jobs.list()[0]!.total).toBe(5000);
+    expect(jobs.list()[0].total).toBe(5000);
     child.exit(0);
     child.close(0);
     expect((await until(jobs, job.id)).code).toBe(0);

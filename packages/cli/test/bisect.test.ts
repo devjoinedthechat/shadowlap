@@ -91,7 +91,7 @@ beforeAll(async () => {
   expect((await shadowlap(['pack', briefRun, 'goldens/brief'])).code).toBe(0);
   commit('Mark summaries as drafts', { 'marker.txt': 'DRAFT: \n' }, 'Jonas');
   // A branch off 'Describe the agent' where the golden passes too, never merged.
-  sh('git', ['checkout', '-q', '-b', 'side', rev['Describe the agent']!]);
+  sh('git', ['checkout', '-q', '-b', 'side', rev['Describe the agent']]);
   commit('Side note', { 'NOTES.md': 'side\n' });
   sh('git', ['checkout', '-q', 'main']);
 });
@@ -103,7 +103,7 @@ afterAll(async () => {
 describe('shadowlap bisect', () => {
   it('names the first commit where a golden diverges, at 0 tokens, and cleans up its worktrees', async () => {
     const hits = mock.requests.length;
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!]);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']]);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`▸ goldens/summary · good ${rev['Start the ticket agent']} · bad ${rev['Mark summaries as drafts']} · 5 commits apart`);
     expect(r.out).toContain(`replay at ${rev['Add usage']}  replayed clean`);
@@ -121,13 +121,13 @@ describe('shadowlap bisect', () => {
   });
 
   it('finds the commit where an outcome check starts failing, for a run in the store, as JSON', async () => {
-    const r = await shadowlap(['bisect', 'goldens/brief', '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--json']);
+    const r = await shadowlap(['bisect', 'goldens/brief', '--good', rev['Mention the prompt'], '--expect', '{"output":{"excludes":"DRAFT"}}', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { outcome: string; first: { short: string; why: string }; steps: Array<{ short: string; ok: boolean; result: string }>; commits: number; tokens: number };
     expect(report).toMatchObject({ outcome: 'found', commits: 1, tokens: 0, first: { short: rev['Mark summaries as drafts'], why: 'check failed: output doesn\'t include "DRAFT", but found in the output' } });
     expect(report.steps.map((s) => [s.short, s.ok])).toEqual([[rev['Mark summaries as drafts'], false], [rev['Mention the prompt'], true]]);
 
-    const byRun = await shadowlap(['bisect', recordedRun.slice(0, 12), '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!]);
+    const byRun = await shadowlap(['bisect', recordedRun.slice(0, 12), '--good', rev['Start the ticket agent'], '--bad', rev['Mention the prompt']]);
     expect(byRun.code, byRun.out).toBe(0);
     expect(byRun.stdout).toContain(`first bad commit ${rev['Ask for brevity']} · Ask for brevity`);
   });
@@ -135,7 +135,7 @@ describe('shadowlap bisect', () => {
   it('with --fork, finds where a run that failed a check started failing, going live from each fork', async () => {
     const hits = mock.requests.length;
     // The second recording, whose answer is "Short.", which the check rules out.
-    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!, '--expect', '{"answer":{"excludes":"Short"}}', '--fork', '--json']);
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent'], '--bad', rev['Mention the prompt'], '--expect', '{"answer":{"excludes":"Short"}}', '--fork', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { first: { short: string; why: string }; upstreamRequests: number; tokens: number; steps: Array<{ short: string; ok: boolean; result: string }> };
     expect(report.first).toMatchObject({ short: rev['Ask for brevity'], why: 'check failed: final answer doesn\'t include "Short", but found in the final answer' });
@@ -149,7 +149,7 @@ describe('shadowlap bisect', () => {
   it('with --fork, refuses a judge check no replay can ask live, before anything runs', async () => {
     const hits = mock.requests.length;
     const judged = JSON.stringify({ judge: [{ name: 'brief', question: 'Is the summary short?', model: 'gemini-2.5-flash' }] });
-    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent']!, '--bad', rev['Mention the prompt']!, '--expect', judged, '--fork'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent'], '--bad', rev['Mention the prompt'], '--expect', judged, '--fork'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
     expect(r.code, r.out).toBe(2);
     expect(r.out).toContain('with --fork, a replay that forks asks its judge checks live, and one can\'t be asked: judge "brief" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
     expect(mock.requests.length).toBe(hits);
@@ -158,7 +158,7 @@ describe('shadowlap bisect', () => {
 
   it('tells a dashboard job what it found and where that shows', async () => {
     const events = await new Promise<Array<Record<string, unknown>>>((resolve) => {
-      const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--json'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--json'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_EVENTS_FD: '3' }, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
       let raw = '';
       child.stdout!.resume();
       child.stderr!.resume();
@@ -170,10 +170,10 @@ describe('shadowlap bisect', () => {
   });
 
   it('says when there is nothing to find, or the good commit already fails', async () => {
-    const passes = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--bad', rev['Add usage']!]);
+    const passes = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--bad', rev['Add usage']]);
     expect(passes.code).toBe(1);
     expect(passes.stdout).toContain(`no first bad commit: it passes at ${rev['Add usage']}, so there is nothing to find`);
-    const fails = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Ask for brevity']!]);
+    const fails = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Ask for brevity']]);
     expect(fails.code).toBe(1);
     expect(fails.stdout).toContain(`no first bad commit: it already fails at ${rev['Ask for brevity']}: diverged at call 1`);
     // Each answer is kept, for Tests to show above the golden's buttons until it passes again.
@@ -184,8 +184,8 @@ describe('shadowlap bisect', () => {
       ['goldens/summary', 'fails-at-good'],
       ['goldens/summary', 'passes-at-bad'],
     ]);
-    expect(none[0]!.data).toMatchObject({ why: expect.stringContaining(`it already fails at ${rev['Ask for brevity']}`), good: rev['Ask for brevity'], bad: rev['Mark summaries as drafts'] });
-    const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt']!, '--bad', rev['Describe the agent']!]);
+    expect(none[0].data).toMatchObject({ why: expect.stringContaining(`it already fails at ${rev['Ask for brevity']}`), good: rev['Ask for brevity'], bad: rev['Mark summaries as drafts'] });
+    const backwards = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Mention the prompt'], '--bad', rev['Describe the agent']]);
     expect(backwards.code).toBe(2);
     expect(backwards.out).toContain(`--good ${rev['Mention the prompt']} comes after --bad ${rev['Describe the agent']}`);
     const unknown = await shadowlap(['bisect', 'goldens/nothing', '--good', 'HEAD~1']);
@@ -196,11 +196,11 @@ describe('shadowlap bisect', () => {
   it('names the failure each answer is about: the golden’s newest result as the search started', async () => {
     const tested = await shadowlap(['test', 'goldens/summary']);
     expect(tested.code, tested.out).toBe(1);
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!]);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']]);
     expect(r.code, r.out).toBe(0);
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
-    const result = store.listTestResults({ golden: 'goldens/summary', limit: 1 })[0]!;
-    const found = store.listEvents({ kinds: ['bisect.found'] })[0]!;
+    const result = store.listTestResults({ golden: 'goldens/summary', limit: 1 })[0];
+    const found = store.listEvents({ kinds: ['bisect.found'] })[0];
     store.close();
     expect(found.data).toMatchObject({ commit: rev['Ask for brevity'], answered: { session: result.sessionId, at: result.at, ok: false, revision: result.revision } });
   });
@@ -214,11 +214,11 @@ describe('shadowlap bisect', () => {
       const theirs = join(away, 'theirs.db');
       const recorded = await shadowlap(['--db', theirs, 'run', '--', process.execPath, '-e', script]);
       expect(recorded.code, recorded.out).toBe(0);
-      const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+      const runId = /recording run (\w{26})/.exec(recorded.out)![1];
       expect((await shadowlap(['--db', theirs, 'pack', runId, join(away, 'pack')])).code).toBe(0);
       rmSync(marker);
       expect((await shadowlap(['unpack', join(away, 'pack')])).code).toBe(0);
-      const range = ['--good', rev['Start the ticket agent']!, '--bad', rev['Describe the agent']!];
+      const range = ['--good', rev['Start the ticket agent'], '--bad', rev['Describe the agent']];
 
       // No terminal: refused, as a replay of it is, and nothing ran.
       const refused = await shadowlap(['bisect', runId, ...range]);
@@ -250,7 +250,7 @@ describe('shadowlap bisect', () => {
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
     const recording = store.createRun({ mode: 'record', command: { argv: [process.execPath, 'agent.mjs'], cwd: project } });
     store.close();
-    const r = await shadowlap(['bisect', recording.runId, '--good', rev['Start the ticket agent']!, '--json']);
+    const r = await shadowlap(['bisect', recording.runId, '--good', rev['Start the ticket agent'], '--json']);
     expect(r.code).toBe(2);
     expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: `${recording.runId.slice(0, 10)} is still recording: find the commit once it has ended` } });
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
@@ -264,9 +264,9 @@ describe('shadowlap bisect', () => {
     store.close();
     // Its recorder was killed: the store still names it, and it is gone.
     const raw = new DatabaseSync(db);
-    raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left.runId);
+    raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, left.runId);
     raw.close();
-    const r = await shadowlap(['bisect', left.runId, '--good', rev['Start the ticket agent']!, '--json']);
+    const r = await shadowlap(['bisect', left.runId, '--good', rev['Start the ticket agent'], '--json']);
     expect(r.code).toBe(2);
     expect(JSON.parse(r.stdout)).toEqual({ outcome: 'error', error: { message: expect.stringContaining('was imported from a capture and has no command to run at each commit') } });
   });
@@ -277,19 +277,19 @@ describe('commits bisect cannot test', () => {
   const build = `"${process.execPath}" -e "process.exit(require('fs').existsSync('BROKEN') ? 1 : 0)"`;
 
   it('skips a commit that won\'t build and names it when the first bad commit could be it', async () => {
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build, '--json']);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--build', build, '--json']);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`replay at ${rev['Add usage']}  – skipped: could not be built`);
     const report = JSON.parse(r.stdout) as { first: { short: string }; untested: Array<{ short: string; subject: string }>; steps: Array<{ short: string; skipped: boolean }> };
     expect(report.first.short).toBe(rev['Ask for brevity']);
     expect(report.untested).toEqual([expect.objectContaining({ short: rev['Add usage'], subject: 'Add usage' })]);
     expect(report.steps.find((x) => x.short === rev['Add usage'])!.skipped).toBe(true);
-    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', build]);
+    const text = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--build', build]);
     expect(text.stdout).toContain(`or one just before it, which could not be tested: ${rev['Add usage']} (Add usage)`);
   });
 
   it('searches from where the histories meet when the good commit is on another branch', async () => {
-    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Side note']!]);
+    const r = await shadowlap(['bisect', 'goldens/summary', '--good', rev['Side note']]);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain(`--good ${rev['Side note']} is not an ancestor of --bad HEAD: searching from where their histories meet, ${rev['Describe the agent']}`);
     expect(r.stdout).toContain(`first bad commit ${rev['Ask for brevity']}`);
@@ -299,7 +299,7 @@ describe('commits bisect cannot test', () => {
 // A shell build step that sleeps, so there is time to interrupt; Windows has no sleep.
 describe.skipIf(process.platform === 'win32')('an interrupted bisect', () => {
   it('stops at Ctrl-C, concludes nothing from the replay it cut short, and removes its worktrees', async () => {
-    const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent']!, '--build', 'sleep 2'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI, 'bisect', 'goldens/summary', '--good', rev['Start the ticket agent'], '--build', 'sleep 2'], { cwd: project, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let interrupted = false;
     // Ctrl-C once the first commit has been tried, as the next one builds (two seconds): bisect
@@ -356,7 +356,7 @@ describe('a good commit on a branch that was merged', () => {
     step('Feature prompt', { 'prompt.txt': 'You summarize support tickets, in order.\n' });
     const recorded = await run(['run', '--', process.execPath, 'agent.mjs']);
     expect(recorded.code, recorded.out).toBe(0);
-    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/merged'])).code).toBe(0);
+    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1], 'goldens/merged'])).code).toBe(0);
     step('Feature breaks', { 'prompt.txt': 'You summarize support tickets. Be brief.\n' });
     git(['checkout', '-q', 'main']);
     step('Main one', { 'NOTES.md': 'start\none\n' });
@@ -367,7 +367,7 @@ describe('a good commit on a branch that was merged', () => {
   afterAll(() => rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
   it('names the merge that brought the breaking commit in, not a main-line commit that never had the good one', async () => {
-    const r = await run(['bisect', 'goldens/merged', '--good', at['Feature prompt']!, '--json']);
+    const r = await run(['bisect', 'goldens/merged', '--good', at['Feature prompt'], '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { outcome: string; commits: number; first: { short: string }; steps: Array<{ short: string }> };
     expect(report).toMatchObject({ outcome: 'found', commits: 1, first: { short: at['Merge'] } });
@@ -414,7 +414,7 @@ describe('a package this repository links into node_modules', () => {
     symlinkSync(join('..', '..', 'lib', 'prompt'), join(repo, 'node_modules', '@acme', 'prompt'));
     const recorded = await run(['run', '--', process.execPath, 'agent.mjs']);
     expect(recorded.code, recorded.out).toBe(0);
-    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1]!, 'goldens/ws'])).code).toBe(0);
+    expect((await run(['pack', /recording run (\w{26})/.exec(recorded.out)![1], 'goldens/ws'])).code).toBe(0);
     step('Document it', { 'README.md': 'docs\n' });
     step('Ask for brevity in the package', { 'lib/prompt/index.mjs': "export const system = 'You summarize support tickets. Be brief.';\n" });
     step('More docs', { 'README.md': 'more docs\n' });
@@ -422,7 +422,7 @@ describe('a package this repository links into node_modules', () => {
   afterAll(() => rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
   it('replays each commit with its own copy of the package, not the working tree\'s', async () => {
-    const r = await run(['bisect', 'goldens/ws', '--good', at['Start']!]);
+    const r = await run(['bisect', 'goldens/ws', '--good', at['Start']]);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("node_modules is linked from your working tree, with this repository's own packages as they were at each commit");
     expect(r.stdout).toContain(`first bad commit ${at['Ask for brevity in the package']} · Ask for brevity in the package`);
@@ -468,8 +468,8 @@ describe('a repository reached through a symbolic link', () => {
       // Recorded at the last commit, through the link: its answer is "Short." and its output is marked as a draft.
       const recorded = await shadowlap(['run', '--', process.execPath, join(link, 'agent.mjs')]);
       expect(recorded.code, recorded.out).toBe(0);
-      const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
-      const r = await shadowlap(['bisect', runId, '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', link]);
+      const runId = /recording run (\w{26})/.exec(recorded.out)![1];
+      const r = await shadowlap(['bisect', runId, '--good', rev['Mention the prompt'], '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', link]);
       expect(r.code, r.out).toBe(0);
       expect(r.out).toContain(`replay at ${rev['Mention the prompt']}  replayed clean · 1 check passed`);
       expect(r.stdout).toContain(`first bad commit ${rev['Mark summaries as drafts']} · Mark summaries as drafts`);
@@ -483,7 +483,7 @@ describe('a repository reached through a symbolic link', () => {
   // repository in the case on disk. Where case matters (Linux), another case is another folder.
   it.skipIf(!CASE_INSENSITIVE)('takes --cwd given in another letter case, where the volume ignores case', async () => {
     const other = join(dirname(project), basename(project).toUpperCase());
-    const r = await shadowlap(['bisect', briefRun, '--good', rev['Mention the prompt']!, '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', other]);
+    const r = await shadowlap(['bisect', briefRun, '--good', rev['Mention the prompt'], '--expect', '{"output":{"excludes":"DRAFT"}}', '--cwd', other]);
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).toContain(`first bad commit ${rev['Mark summaries as drafts']} · Mark summaries as drafts`);
   });

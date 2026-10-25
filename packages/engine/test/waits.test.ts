@@ -114,7 +114,7 @@ describe('time not waited', () => {
     expect(getCalls).not.toHaveBeenCalled();
     // A replay of a replay, kept; then its recording is deleted (the replay in between stays). What
     // was kept for it goes with the recording, as on its own page.
-    const again = f.replay(done[0]!, 7, 8_000);
+    const again = f.replay(done[0], 7, 8_000);
     expect(notWaited(store, [again]).ms).toBe(total);
     store.deleteRun(f.rec);
     expect(recordedDurations(store, store.getRun(again)!).size).toBe(0);

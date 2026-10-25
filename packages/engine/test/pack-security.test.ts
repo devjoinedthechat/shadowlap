@@ -44,13 +44,13 @@ describe('unpack: a pack is untrusted input', () => {
     const store = Store.open(':memory:');
     const dir = copyGolden();
     const m = manifest(dir);
-    (m.runs[0]!.meta as Record<string, unknown> | undefined) ?? (m.runs[0]!.meta = {});
-    (m.runs[0]!.meta as Record<string, unknown>).imported = undefined; // a pack cannot pretend to be local
+    (m.runs[0].meta as Record<string, unknown> | undefined) ?? (m.runs[0].meta = {});
+    (m.runs[0].meta as Record<string, unknown>).imported = undefined; // a pack cannot pretend to be local
     writeManifest(dir, m);
     const r = unpackRun(store, dir);
     expect(r.imported).toHaveLength(1);
-    expect(r.commands[0]!.argv.length).toBeGreaterThan(0);
-    const run = store.getRun(r.imported[0]!)!;
+    expect(r.commands[0].argv.length).toBeGreaterThan(0);
+    const run = store.getRun(r.imported[0])!;
     expect(run.meta?.imported?.from).toBe(dir.split(/[\\/]/).pop());
     expect(commandIsImported(run)).toBe(true);
     store.close();
@@ -65,10 +65,10 @@ describe('unpack: a pack is untrusted input', () => {
   it('keeps a capture without a command: it packs and unpacks, but is not runnable', () => {
     const dir = copyGolden();
     const m = manifest(dir);
-    (m.runs[0]!.command as { argv: string[] }).argv = [NO_COMMAND];
+    (m.runs[0].command as { argv: string[] }).argv = [NO_COMMAND];
     writeManifest(dir, m);
     const store = Store.open(':memory:');
-    const run = store.getRun(unpackRun(store, dir).imported[0]!)!;
+    const run = store.getRun(unpackRun(store, dir).imported[0])!;
     expect(hasRecordedCommand(run)).toBe(false);
     expect(hasRecordedCommand({ ...run, command: { ...run.command, argv: ['node', NO_COMMAND] } })).toBe(true);
     expect(hasRecordedCommand({ ...run, command: { ...run.command, argv: [] } })).toBe(false);
@@ -78,7 +78,7 @@ describe('unpack: a pack is untrusted input', () => {
   it('rejects run ids that are not ids (they end up in paths)', () => {
     const dir = copyGolden();
     const m = manifest(dir);
-    m.runs[0]!.runId = '../../../tmp/owned';
+    m.runs[0].runId = '../../../tmp/owned';
     writeManifest(dir, m);
     rejects(dir, /runId: must be a run id/);
   });
@@ -86,26 +86,26 @@ describe('unpack: a pack is untrusted input', () => {
   it('rejects control characters in commands and names (terminal escape injection)', () => {
     const dir = copyGolden();
     const m = manifest(dir);
-    (m.runs[0]!.command as { argv: string[] }).argv = ['node', `agent.js${ESC}]0;owned${String.fromCharCode(7)}`];
+    (m.runs[0].command as { argv: string[] }).argv = ['node', `agent.js${ESC}]0;owned${String.fromCharCode(7)}`];
     writeManifest(dir, m);
     rejects(dir, /argv\[1\]: contains control characters/);
 
     const dir2 = copyGolden();
     const calls = callLines(dir2);
-    calls[3]!.name = `search_web${ESC}[2J`;
+    calls[3].name = `search_web${ESC}[2J`;
     writeCalls(dir2, calls);
     rejects(dir2, /line 4\.name: contains control characters/);
   });
 
   it('rejects malformed records with the line that is wrong', () => {
     const cases: Array<[(c: Array<Record<string, unknown>>) => void, RegExp]> = [
-      [(c) => (c[0]!.kind = 'shell'), /line 1\.kind: must be one of/],
-      [(c) => (c[1]!.callNo = -1), /line 2\.callNo: must be an integer/],
-      [(c) => (c[2]!.requestRef = '../../etc/passwd'), /line 3\.requestRef: must be a SHA-256 blob hash/],
-      [(c) => ((c[2]!.end as Record<string, unknown>).runId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'), /line 3\.end\.runId: must match the call/],
-      [(c) => (c[4]!.origin = 'teleported'), /line 5\.origin: must be one of/],
-      [(c) => c.push({ ...c[0]! }), /appears twice/],
-      [(c) => c.push({ ...c[0]!, runId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', callNo: 99, end: { ...(c[0]!.end as object), runId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', callNo: 99 } }), /is not in run\.json/],
+      [(c) => (c[0].kind = 'shell'), /line 1\.kind: must be one of/],
+      [(c) => (c[1].callNo = -1), /line 2\.callNo: must be an integer/],
+      [(c) => (c[2].requestRef = '../../etc/passwd'), /line 3\.requestRef: must be a SHA-256 blob hash/],
+      [(c) => ((c[2].end as Record<string, unknown>).runId = '01ARZ3NDEKTSV4RRFFQ69G5FAV'), /line 3\.end\.runId: must match the call/],
+      [(c) => (c[4].origin = 'teleported'), /line 5\.origin: must be one of/],
+      [(c) => c.push({ ...c[0] }), /appears twice/],
+      [(c) => c.push({ ...c[0], runId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', callNo: 99, end: { ...(c[0].end as object), runId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', callNo: 99 } }), /is not in run\.json/],
     ];
     for (const [mutate, message] of cases) {
       const dir = copyGolden();
@@ -124,7 +124,7 @@ describe('unpack: a pack is untrusted input', () => {
     const withBlame = (b: unknown) => {
       const dir = copyGolden();
       const m = manifest(dir);
-      m.runs[0]!.meta = { ...((m.runs[0]!.meta as object | undefined) ?? {}), blame: b };
+      m.runs[0].meta = { ...((m.runs[0].meta) ?? {}), blame: b };
       writeManifest(dir, m);
       return dir;
     };
@@ -142,12 +142,12 @@ describe('unpack: a pack is untrusted input', () => {
     for (const [b, message] of cases) rejects(withBlame(b), message);
     // The record blame writes imports, one not settled from its first model call too.
     const store = Store.open(':memory:');
-    const run = store.getRun(unpackRun(store, withBlame({ ...blame, scope: 'triage' })).imported[0]!)!;
+    const run = store.getRun(unpackRun(store, withBlame({ ...blame, scope: 'triage' })).imported[0])!;
     expect(run.meta?.blame).toEqual({ ...blame, scope: 'triage' });
     store.close();
     const unsettled = { ...blame, outcome: 'unrescuable', callNo: null, unsettled: true };
     const other = Store.open(':memory:');
-    expect(other.getRun(unpackRun(other, withBlame(unsettled)).imported[0]!)!.meta?.blame).toEqual(unsettled);
+    expect(other.getRun(unpackRun(other, withBlame(unsettled)).imported[0])!.meta?.blame).toEqual(unsettled);
     other.close();
   });
 
@@ -155,14 +155,14 @@ describe('unpack: a pack is untrusted input', () => {
     const withExtras = (extraReads: unknown) => {
       const dir = copyGolden();
       const m = manifest(dir);
-      m.runs[0]!.divergence = { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, extraReads };
+      m.runs[0].divergence = { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, extraReads };
       writeManifest(dir, m);
       return dir;
     };
     const store = Store.open(':memory:');
     try {
       const { imported } = unpackRun(store, withExtras([{ callNo: 1, kind: 'clock', name: 'now' }]));
-      expect(store.getRun(imported[0]!)?.divergence?.extraReads).toEqual([{ callNo: 1, kind: 'clock', name: 'now' }]);
+      expect(store.getRun(imported[0])?.divergence?.extraReads).toEqual([{ callNo: 1, kind: 'clock', name: 'now' }]);
     } finally {
       store.close();
     }
@@ -186,12 +186,12 @@ describe('unpack: a pack is untrusted input', () => {
       dirs.push(join(outside, '..'));
       writeFileSync(outside, 'not for you');
       const [victim] = callLines(dir).map((c) => c.requestRef as string).filter(Boolean);
-      rmSync(join(dir, 'blobs', victim!));
-      symlinkSync(outside, join(dir, 'blobs', victim!));
+      rmSync(join(dir, 'blobs', victim));
+      symlinkSync(outside, join(dir, 'blobs', victim));
       rejects(dir, /symbolic link/);
     }
     const dir2 = copyGolden();
-    const any = callLines(dir2).map((c) => c.requestRef as string).filter(Boolean)[0]!;
+    const any = callLines(dir2).map((c) => c.requestRef as string).filter(Boolean)[0];
     writeFileSync(join(dir2, 'blobs', any), 'tampered');
     rejects(dir2, /does not match its hash/);
 
@@ -211,13 +211,13 @@ describe('unpack: a pack is untrusted input', () => {
   it('brings in a run marked running as interrupted: nothing here records it', () => {
     const dir = copyGolden();
     const m = manifest(dir);
-    const run = m.runs[0]!;
+    const run = m.runs[0];
     run.status = 'running';
     delete run.endedAt; // left out, not null: imports all the same
     writeManifest(dir, m);
     const lastAt = Math.max(...callLines(dir).flatMap((c) => [c.at as number, ((c.end as { at?: number } | null)?.at ?? 0)]));
     const store = Store.open(':memory:');
-    const id = unpackRun(store, dir).imported[0]!;
+    const id = unpackRun(store, dir).imported[0];
     expect(store.getRun(id)).toMatchObject({ status: 'crashed', endedAt: lastAt });
     // So rm and gc don't take it for a recording.
     expect(store.recordingRuns().live).toEqual([]);
@@ -228,15 +228,15 @@ describe('unpack: a pack is untrusted input', () => {
   it('rejects times further ahead than another machine\'s clock could be', () => {
     const dir = copyGolden();
     const m = manifest(dir);
-    m.runs[0]!.status = 'running';
-    m.runs[0]!.endedAt = null;
-    m.runs[0]!.startedAt = Date.now() + 10 * 365 * 24 * 3600_000;
+    m.runs[0].status = 'running';
+    m.runs[0].endedAt = null;
+    m.runs[0].startedAt = Date.now() + 10 * 365 * 24 * 3600_000;
     writeManifest(dir, m);
     rejects(dir, /runs\[0\]\.startedAt: is more than a day in the future/);
 
     const dir2 = copyGolden();
     const calls = callLines(dir2);
-    calls[0]!.at = Date.now() + 2 * 24 * 3600_000;
+    calls[0].at = Date.now() + 2 * 24 * 3600_000;
     writeCalls(dir2, calls);
     rejects(dir2, /line 1\.at: is more than a day in the future/);
   });

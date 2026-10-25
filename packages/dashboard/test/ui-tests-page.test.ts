@@ -88,13 +88,13 @@ async function open(started: Array<{ kind: string; fields: Record<string, unknow
 function one(el: FakeElement, selector: string): FakeElement {
   const found = el.querySelectorAll(selector);
   if (found.length !== 1) throw new Error(`${found.length} elements match ${selector}`);
-  return found[0]!;
+  return found[0];
 }
 const all = (el: FakeElement, selector: string) => el.querySelectorAll(selector);
 
 /** The checks of a golden's row, as the Checks column shows them: each one's class, mark and words. */
 function checks(page: Rendered, name: string) {
-  const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0]!.textContent === name)!;
+  const tr = page.all('table.gt tbody tr').find((row) => all(row, 'code')[0].textContent === name)!;
   return all(one(tr, 'td.chk'), '.ck').map((ck) => ({ cls: ck.className, mark: all(ck, 'b.cm')[0]?.textContent ?? null, words: one(ck, '.cw').textContent }));
 }
 
@@ -139,7 +139,7 @@ describe('the Tests page', () => {
   it('says an injection test runs live too, and needs the keys, when a golden has one', async () => {
     const page = await open([], GOLDENS.map((x) => (x.path === 'goldens/passes' ? { ...x, injection: true } : x)));
     const ci = page.all('section.panel').find((s) => all(s, 'h2').some((h) => h.textContent === 'In CI'))!;
-    expect(all(ci, 'p.muted')[0]!.textContent).toBe('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
+    expect(all(ci, 'p.muted')[0].textContent).toBe('Replay goldens run offline and need no key. A golden marked fork runs live from where it forks, and an injection test from each payload it plants: both need the providers’ keys. A divergence, a non-zero exit, no calls, or a check or gate that fails or can’t decide fails a golden.');
   });
 
   it('settles a judge a replay golden couldn\'t ask offline with Update golden, which asks first and names its command', async () => {
@@ -151,7 +151,7 @@ describe('the Tests page', () => {
     await page.click(all(panel, 'button').find((b) => b.textContent.trim() === 'Update golden')!);
     expect(started).toEqual([]);
     const dialog = page.one('.dialog');
-    expect(all(dialog, 'h2, h3')[0]!.textContent).toBe('Update judged?');
+    expect(all(dialog, 'h2, h3')[0].textContent).toBe('Update judged?');
     expect(dialog.textContent).toContain('nothing is re-recorded');
     // No card and no Diverged list: nothing diverged, and the title names the golden.
     expect(all(dialog, '.rmp, .ondisk.first')).toHaveLength(0);
@@ -165,7 +165,7 @@ describe('the Tests page', () => {
     const page = await open();
     expect(page.one('section.panel.gtw .tscroll table.t.gt')).toBeTruthy();
     expect(page.all('table.gt thead th').map((th) => th.className)).toEqual(['gg', 'gck', 'hist', 'glast']);
-    const row = page.all('table.gt tbody tr')[0]!;
+    const row = page.all('table.gt tbody tr')[0];
     expect(all(row, 'td').map((td) => td.className)).toEqual(['gg', 'chk gck', 'hist', 'glast']);
     expect(one(row, 'td.gg .gmeta .chip').textContent).toBe('replay');
     expect(all(row, 'td.gg .gmeta .gstrip i')).toHaveLength(1);

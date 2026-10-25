@@ -203,7 +203,7 @@ describe('the goldens that run live in CI', () => {
   it('names each provider’s key as the sidecar asks for it', () => {
     for (const p of providers) {
       if (!p.keys) expect(PROVIDER_KEYS[p.id], p.id).toBeUndefined();
-      else expect(PROVIDER_KEYS[p.id]!.join(' and '), p.id).toBe(p.keys.set);
+      else expect(PROVIDER_KEYS[p.id].join(' and '), p.id).toBe(p.keys.set);
     }
   });
 });

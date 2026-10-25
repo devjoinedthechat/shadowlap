@@ -184,8 +184,8 @@ describe('what made a fork, when it changed an answer', () => {
     ]);
     const c = compare(p);
     expect(c.intervention).toMatchObject({ kind: 'resample', before: null, after: null, words: '#2 was asked again and answered differently' });
-    expect(c.responseDifferences[0]!.by).toBe('--diverge-at 2');
-    expect(c.responseDifferences[0]!.detail).not.toContain('instead of');
+    expect(c.responseDifferences[0].by).toBe('--diverge-at 2');
+    expect(c.responseDifferences[0].detail).not.toContain('instead of');
     p.store.close();
   });
 

@@ -124,8 +124,8 @@ describe('gateHistory', () => {
       { ok: true, at: T0 + 1, data: fork(36, 40) },
       { ok: true, at: T0 + 2, data: fork(4, 5) },
     ]);
-    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: [sessions[2]!, sessions[1]!] })).toMatchObject({ passes: 5, attempts: 5, sessions: 1 });
-    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: sessions[2]! })).toMatchObject({ passes: 41, attempts: 45, sessions: 2 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: [sessions[2], sessions[1]] })).toMatchObject({ passes: 5, attempts: 5, sessions: 1 });
+    expect(gateHistory(s, 'goldens/refund', { window: 10, excludeSession: sessions[2] })).toMatchObject({ passes: 41, attempts: 45, sessions: 2 });
     s.close();
   });
 

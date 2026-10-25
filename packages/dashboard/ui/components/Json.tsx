@@ -38,7 +38,7 @@ function Branch({ value, depth, open, label }: { value: object; depth: number; o
   const entries = Array.isArray(value) ? value.map((v: unknown, i) => [String(i), v] as const) : Object.entries(value as Record<string, unknown>);
   const sum = Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`;
   return (
-    <details open={isOpen} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+    <details open={isOpen} onToggle={(e) => setOpen((e.currentTarget).open)}>
       <summary>
         {label}
         <span className="muted">{sum}</span>

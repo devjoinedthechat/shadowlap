@@ -89,13 +89,13 @@ describe.skipIf(!PYTHON)('Python SDK', () => {
       'tool:with_context',
       'tool:send_email',
     ]);
-    expect(store.getJson(calls[3]!.requestRef!)).toEqual({ args: { query: 'replay', limit: 3 } });
-    expect(calls[4]!.occurrence).toBe(1);
-    expect(calls[5]!.occurrence).toBe(2); // same args → second occurrence
-    expect(calls[6]!.end?.outcome).toBe('error');
-    expect(calls[6]!.end?.meta.error).toMatchObject({ name: 'FileNotFoundError' });
-    expect(store.getJson(calls[8]!.requestRef!)).toEqual({ args: { topic: 'replay' } }); // ctx excluded
-    expect(calls[9]!.effect).toBe('write');
+    expect(store.getJson(calls[3].requestRef!)).toEqual({ args: { query: 'replay', limit: 3 } });
+    expect(calls[4].occurrence).toBe(1);
+    expect(calls[5].occurrence).toBe(2); // same args → second occurrence
+    expect(calls[6].end?.outcome).toBe('error');
+    expect(calls[6].end?.meta.error).toMatchObject({ name: 'FileNotFoundError' });
+    expect(store.getJson(calls[8].requestRef!)).toEqual({ args: { topic: 'replay' } }); // ctx excluded
+    expect(calls[9].effect).toBe('write');
     expect(calls.every((c) => c.kind !== 'tool' || typeof c.meta.implHash === 'string')).toBe(true);
   });
 

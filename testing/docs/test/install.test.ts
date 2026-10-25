@@ -35,7 +35,7 @@ const PACKAGES = new Map(
 const words = (line: string) => line.replace(/\s+#.*$/, '').trim().split(/\s+/);
 
 /** The fenced shell blocks of a page, as their lines. */
-const shellBlocks = (page: string) => [...read(page).matchAll(/^```sh\n([\s\S]*?)^```/gm)].map((m) => m[1]!.trim().split('\n'));
+const shellBlocks = (page: string) => [...read(page).matchAll(/^```sh\n([\s\S]*?)^```/gm)].map((m) => m[1].trim().split('\n'));
 
 /** The blocks of a page that install the SDKs: an `npm install` of a @shadowlap package. */
 const installBlocks = (page: string) => shellBlocks(page).filter((lines) => lines.some((l) => l.startsWith('npm install ') && words(l).some((w) => w.startsWith('@shadowlap/'))));

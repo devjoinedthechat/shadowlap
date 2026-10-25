@@ -66,7 +66,7 @@ async def main():
     print(json.dumps(out))
 asyncio.run(main())
 `;
-      const { stdout } = await run(AIOHTTP![0]!, [...AIOHTTP!.slice(1), '-c', script], { env });
+      const { stdout } = await run(AIOHTTP![0], [...AIOHTTP!.slice(1), '-c', script], { env });
       expect(lastLine(stdout)).toEqual({ captured: [200, 'from the model'], based: [200, 'from the model'] });
       const calls = store.getCalls(r.runId).filter((c) => c.kind === 'api');
       expect(calls.map((c) => c.name)).toEqual(['POST /v1/messages', 'POST /v1/messages']);
@@ -103,7 +103,7 @@ async def main():
     print(json.dumps(out))
 asyncio.run(main())
 `;
-      const { stdout } = await run(AIOHTTP![0]!, [...AIOHTTP!.slice(1), '-c', script], { env });
+      const { stdout } = await run(AIOHTTP![0], [...AIOHTTP!.slice(1), '-c', script], { env });
       const out = lastLine(stdout);
       expect(out.slow).toEqual(['ServerTimeoutError', true]);
       expect(out.broken).toEqual(['ClientOSError', true, expect.stringContaining('the service went away')]);
@@ -130,7 +130,7 @@ async def main():
         print(json.dumps({"text": json.loads(await res["body"].read())["content"][0]["text"]}))
 asyncio.run(main())
 `;
-      const { stdout } = await run(AIOBOTOCORE![0]!, [...AIOBOTOCORE!.slice(1), '-c', script], { env });
+      const { stdout } = await run(AIOBOTOCORE![0], [...AIOBOTOCORE!.slice(1), '-c', script], { env });
       expect(lastLine(stdout)).toEqual({ text: 'echo: hello' });
       expect(cloud.stats.signatureFailures).toEqual([]);
       expect(cloud.stats.signaturesOk).toBe(1);
@@ -202,7 +202,7 @@ def realtime():
 attempt("realtime", realtime)
 print(json.dumps(out))
 `;
-    const { stdout } = await run(WEBSOCKETS![0]!, [...WEBSOCKETS!.slice(1), '-c', script], { env });
+    const { stdout } = await run(WEBSOCKETS![0], [...WEBSOCKETS!.slice(1), '-c', script], { env });
     const out = lastLine(stdout);
     expect(out).toMatchObject({ sync: 'open', async: 'open', aiohttp: 'open' });
     expect(out.realtime === 'open' || String(out.realtime).startsWith('ConnectionClosed'), String(out.realtime)).toBe(true);

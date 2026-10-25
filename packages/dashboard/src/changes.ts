@@ -38,7 +38,7 @@ export function changesView(store: Store, o: { boot: string; jobsVersion: number
   const cursor = encode({ b: o.boot, c: counts });
   const prev = decode(o.since);
   const fresh = !prev || prev.b !== o.boot;
-  const moved = (name: string) => fresh || prev!.c[name] !== counts[name];
+  const moved = (name: string) => fresh || prev.c[name] !== counts[name];
   const other = Object.keys(counts)
     .filter((k) => !(NAMED as readonly string[]).includes(k) && moved(k))
     .sort();

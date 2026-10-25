@@ -40,7 +40,7 @@ describe('the GitHub Action', () => {
     expect(r.code).toBe(0);
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', diverged: '0', 'checks-failed': '0', fixes: '0', 'fix-prs': '' });
     expect(r.outputs.session).toMatch(/^\w{26}$/);
-    expect(readFileSync(r.outputs['report-json']!, 'utf8')).toContain('"passed": 1');
+    expect(readFileSync(r.outputs['report-json'], 'utf8')).toContain('"passed": 1');
     expect(r.summary).toContain('### Shadowlap: 1 recording passed');
     expect(r.summary).toMatch(/✅ \| `reference-agent` \| clean \| 30\/30/);
     expect(r.out).not.toContain('::error');
@@ -398,7 +398,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(first.code, first.out).toBe(0);
     expect(first.out).toContain('the pull request comment is posted: https://github.test/northwind/agent/pull/12#issuecomment-1');
     expect(comments).toHaveLength(1);
-    const body = comments[0]!.body;
+    const body = comments[0].body;
     expect(body).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->\n### Shadowlap: 1 golden passed\n/);
     expect(body).toContain('| | Golden | Verdict | On `main` |');
     expect(body).toContain('| ✅ | `testing/golden/reference-agent` | passed · replayed clean | ❌ failed |');
@@ -412,7 +412,7 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(second.code).toBe(1);
     expect(second.out).toContain('the pull request comment is updated');
     expect(comments).toHaveLength(1);
-    expect(comments[0]!.body).toContain('| ❌ | `testing/golden/reference-agent` | failed · diverged at call 3');
+    expect(comments[0].body).toContain('| ❌ | `testing/golden/reference-agent` | failed · diverged at call 3');
     expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1);
   }, 120_000);
 

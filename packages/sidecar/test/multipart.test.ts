@@ -45,8 +45,8 @@ describe('a multipart model request', () => {
       sidecar.endRun(rec.runId, 'completed');
       expect(received).toHaveLength(1);
       // Forwarded as sent: the client's own boundary and the file's bytes.
-      expect(received[0]!.toString('latin1')).toMatch(/^--[^\r\n]+\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n/);
-      expect(received[0]!.includes(Buffer.from(audio))).toBe(true);
+      expect(received[0].toString('latin1')).toMatch(/^--[^\r\n]+\r\nContent-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n/);
+      expect(received[0].includes(Buffer.from(audio))).toBe(true);
 
       for (let i = 0; i < 2; i++) {
         const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });

@@ -144,13 +144,13 @@ function pathTo(rule: Rule, t: Stop): boolean[] | null {
   const reach: Array<Set<number>> = [new Set([0])];
   for (let n = 1; n < t.attempts; n++) {
     const next = new Set<number>();
-    for (const s of reach[n - 1]!) for (const passes of [s, s + 1]) if (rule(passes, n) === 'continue') next.add(passes);
+    for (const s of reach[n - 1]) for (const passes of [s, s + 1]) if (rule(passes, n) === 'continue') next.add(passes);
     reach.push(next);
   }
   const path: boolean[] = [];
   let s = t.passes;
   for (let n = t.attempts; n >= 1; n--) {
-    const before = reach[n - 1]!;
+    const before = reach[n - 1];
     if (before.has(s)) path.unshift(false);
     else if (before.has(s - 1)) {
       path.unshift(true);
@@ -171,7 +171,7 @@ const once = <T>(f: () => T): (() => T) => {
 /** The gate each probe of a blame of 17 to 32 model calls runs under: 8 probes, each with its share of the search's 5% and its max deepened to it (blame.ts). */
 const PROBE = probeGate({ kind: 'sprt', ...BLAME_DEFAULTS }, 8);
 /** The gate a session that splits its 5% 100 ways gives each golden of `"gate": {}` (suite.ts): its share for a failure, its max sized for it. */
-const SPLIT = once(() => planSuite(Array.from({ length: 100 }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!.planned[0]!.gate as SprtGate);
+const SPLIT = once(() => planSuite(Array.from({ length: 100 }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!.planned[0].gate as SprtGate);
 const COVERED = {
   default: once(() => coverage(sprt())),
   blame: once(() => coverage(PROBE)),
@@ -328,7 +328,7 @@ describe('the stagewise interval', () => {
         const chances = stopChances(rule, gate.max, p);
         // As high or higher, in the stagewise order: what the interval's low end bisects on.
         const rank = (x: Stop) => (x.decision === 'pass' ? [2, -x.attempts, x.passes] : x.decision === 'fail' ? [0, x.attempts, x.passes] : [1, 0, x.passes]);
-        const higher = (a: number[], b: number[]) => a[0]! !== b[0]! ? a[0]! > b[0]! : a[1]! !== b[1]! ? a[1]! > b[1]! : a[2]! >= b[2]!;
+        const higher = (a: number[], b: number[]) => a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
         return stopsOf(rule, gate.max).reduce((sum, x) => sum + (higher(rank(x), rank(t)) ? (chances.get(`${x.attempts}/${x.passes}`) ?? 0) : 0), 0);
       };
       let last = -1;

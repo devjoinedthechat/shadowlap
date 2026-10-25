@@ -259,14 +259,14 @@ export class FakeClaudeCode {
     let m: RegExpExecArray | null;
     if (command === 'true') return { stdout: '', stderr: '', interrupted: false, isImage: false };
     if ((m = /^cd -- '((?:[^']|'\\'')*)' 2>\/dev\/null \|\| true$/.exec(command)) || (m = /^cd (\S+)$/.exec(command))) {
-      const to = m[1]!.replace(/'\\''/g, "'");
+      const to = m[1].replace(/'\\''/g, "'");
       const next = to.startsWith('/') ? to : `${this.cwd}/${to}`;
       if (next !== this.cwd) this.notes.push(`# Environment update\n - Primary working directory: ${next} (was ${this.cwd})`);
       this.cwd = next;
       return { stdout: '', stderr: '', interrupted: false, isImage: false };
     }
-    if ((m = /^printf '%s' '((?:[^']|'\\'')*)'; exit (\d+)$/.exec(command))) throw new ToolError(`Exit code ${m[2]}\n${m[1]!.replace(/'\\''/g, "'")}`.trim());
-    if ((m = /^cat -- '((?:[^']|'\\'')*)'; exit (\d+)$/.exec(command))) throw new ToolError(`Exit code ${m[2]}\n${readFileSync(m[1]!.replace(/'\\''/g, "'"), 'utf8')}`.trim());
+    if ((m = /^printf '%s' '((?:[^']|'\\'')*)'; exit (\d+)$/.exec(command))) throw new ToolError(`Exit code ${m[2]}\n${m[1].replace(/'\\''/g, "'")}`.trim());
+    if ((m = /^cat -- '((?:[^']|'\\'')*)'; exit (\d+)$/.exec(command))) throw new ToolError(`Exit code ${m[2]}\n${readFileSync(m[1].replace(/'\\''/g, "'"), 'utf8')}`.trim());
     if ((m = /^echo (.*) > (\S+)$/.exec(command))) {
       this.files.set(this.path(m[2]), `${m[1]}\n`);
       return { stdout: '', stderr: '', interrupted: false, isImage: false };

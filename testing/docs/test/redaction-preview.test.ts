@@ -23,7 +23,7 @@ function block(lead: string): string {
   if (from < 0) throw new Error(`no line starting "${lead}"`);
   const m = /^```[^\n]*\n([\s\S]*?)^```/m.exec(page.slice(from));
   if (!m) throw new Error(`no code block after "${lead}"`);
-  return m[1]!;
+  return m[1];
 }
 
 /** Run ids differ on every run: masked in the page and in what the CLI printed alike. Lines keep their indent. */
@@ -33,7 +33,7 @@ const mask = (text: string) => text.replace(/\b01[0-9A-HJKMNP-TV-Z]{8,24}/g, '<r
 const commands = (/^## Redaction\n[\s\S]*?^```sh\n([\s\S]*?)^```/m.exec(page)?.[1] ?? '')
   .split('\n')
   .filter((l) => l.startsWith('shadowlap redact add '))
-  .map((l) => [...l.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]!).slice(1));
+  .map((l) => [...l.matchAll(/'([^']*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]).slice(1));
 
 let dir: string;
 let db: string;

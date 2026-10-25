@@ -107,10 +107,10 @@ describe('the JSON the CLI prints', () => {
     expect(keys(report.recordings[0])).toEqual(fields('checkRecording'));
     expect(keys(report.counts)).toEqual(fields('checkCounts'));
     // A judge check's has its outcome as well (checkJudge), and a reason and source once it has a verdict.
-    for (const c of report.recordings[0]!.checks) expect(keys(c).filter((k) => k !== 'reason' && k !== 'source' && k !== 'judge')).toEqual(fields('checkResult'));
-    const judged = report.recordings[0]!.checks.at(-1) as { judge: object };
+    for (const c of report.recordings[0].checks) expect(keys(c).filter((k) => k !== 'reason' && k !== 'source' && k !== 'judge')).toEqual(fields('checkResult'));
+    const judged = report.recordings[0].checks.at(-1) as { judge: object };
     expect(keys(judged.judge).filter((k) => k !== 'callNo')).toEqual(fields('checkJudge').filter((k) => k !== 'callNo'));
-    expect(report.recordings[0]!.checks.map((c) => (c as { status: string }).status)).toEqual(['passed', 'not-applicable', 'inconclusive']);
+    expect(report.recordings[0].checks.map((c) => (c as { status: string }).status)).toEqual(['passed', 'not-applicable', 'inconclusive']);
     // Without the judge, every recording judged passes: exit 0.
     const { judge: _judge, ...plain } = expect_;
     expect((await shadowlap(['check', recording, '--expect', JSON.stringify(plain)])).code).toBe(0);
@@ -165,8 +165,8 @@ describe('the JSON the CLI prints', () => {
     const preview = json<{ rules: Array<{ returned: object; unmasked: Unmasked }> }>(await shadowlap(['redact', 'preview', recording, '--json']));
     expect(keys(preview)).toEqual(fields('preview'));
     expect(keys(preview.rules[0])).toEqual(fields('previewRule'));
-    expect(keys(preview.rules[0]!.returned)).toEqual(fields('previewReturned'));
-    const unmasked = preview.rules[1]!.unmasked;
+    expect(keys(preview.rules[0].returned)).toEqual(fields('previewReturned'));
+    const unmasked = preview.rules[1].unmasked;
     expect(keys(unmasked)).toEqual(fields('previewUnmasked'));
     expect(keys(unmasked.samples[0])).toEqual(fields('previewUnmaskedSample'));
     expect(keys(unmasked.remedies[0])).toEqual(fields('previewRemedy'));

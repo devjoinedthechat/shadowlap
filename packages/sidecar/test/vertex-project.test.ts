@@ -39,7 +39,7 @@ describe('a Vertex AI recording', () => {
       expect((await ask(rec.runId, 'dev-alice-123', 'us-east5')).status).toBe(200);
       sidecar.endRun(rec.runId, 'completed');
       // The call keeps the path it was sent to.
-      expect(store.getCalls(rec.runId)[0]!.name).toBe(`POST ${path('dev-alice-123', 'us-east5')}`);
+      expect(store.getCalls(rec.runId)[0].name).toBe(`POST ${path('dev-alice-123', 'us-east5')}`);
       const recorded = hits;
 
       for (const [project, region] of [['dev-alice-123', 'us-east5'], ['ci-shared-456', 'us-east5'], ['ci-shared-456', 'europe-west1']] as const) {
@@ -47,7 +47,7 @@ describe('a Vertex AI recording', () => {
         expect((await ask(rep.runId, project, region)).status).toBe(200);
         const { summary } = sidecar.endRun(rep.runId, 'completed');
         expect(summary.divergence, `${project} ${region}`).toBeNull();
-        expect(store.getCalls(rep.runId)[0]!.name).toBe(`POST ${path(project, region)}`);
+        expect(store.getCalls(rep.runId)[0].name).toBe(`POST ${path(project, region)}`);
       }
       expect(hits).toBe(recorded);
 

@@ -27,8 +27,8 @@ describe('describeInterventions', () => {
 
   it('keeps a value too large to store out of the arguments, and shortens it for display', () => {
     const [plant] = describeInterventions({ plants: new Map([[2, 'x'.repeat(10_000)]]) }, undefined);
-    expect(plant!.args).toBeUndefined();
-    expect(plant!.flag.length).toBeLessThan(80);
+    expect(plant.args).toBeUndefined();
+    expect(plant.flag.length).toBeLessThan(80);
   });
 });
 

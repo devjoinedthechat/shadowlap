@@ -196,7 +196,7 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
     if (state) delete out[name];
     else out[name] = CREDENTIAL_PLACEHOLDER;
   }
-  return out ?? (headers as Record<string, string>);
+  return out ?? (headers);
 }
 
 const WS = new Set([' ', '\t', '\n', '\r']);

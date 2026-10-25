@@ -103,7 +103,7 @@ describe('a project’s setup, step by step through the CLI', () => {
     expect(host.planRecording(id, quoteArgv([process.execPath, AGENT]))).toMatchObject({ ok: true, plan: { confirm: null } });
     const recorded = await job(ctx, plan.args, { ...env, ...plan.env });
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     registry.noteRecording(id, runId, plan.argv);
     expect(host.setup(id)).toMatchObject({ stage: 'recorded', run: { runId, calls: 2 }, own: true, shows: 'overview' });
     // Calibrate with no run named takes the setup's own recording.
@@ -171,7 +171,7 @@ describe('a project’s setup, step by step through the CLI', () => {
     // The job says why, and keeps no run of a command that never started.
     expect(typo.out).toContain('✗ nod: command not found on PATH');
     expect(typo.events.filter((e) => e.type === 'run' || e.type === 'link')).toEqual([]);
-    const runId = /recording run (\w{26})/.exec(typo.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(typo.out)![1];
     registry.noteRecording(id, runId, planned.plan.argv);
     expect(host.setup(id)).toMatchObject({ stage: 'inspected', run: null, steps: { recorded: false }, empty: null });
     expect(() => host.finishSetup(id)).toThrow(expect.objectContaining({ code: 'setup' }));

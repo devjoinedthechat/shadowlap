@@ -35,37 +35,37 @@ const failed: CallRecord = { ...api, callNo: 3, at: 1_700_000_002_000, end: { ..
 describe('runToOtlp', () => {
   it('emits one run span and one span per call with GenAI attributes', () => {
     const out = runToOtlp(run, [api, tool, failed], { version: '0.1.0' }) as { resourceSpans: Array<{ resource: { attributes: Array<{ key: string; value: { stringValue?: string } }> }; scopeSpans: Array<{ scope: { name: string; version?: string }; spans: Array<Record<string, unknown>> }> }> };
-    const rs = out.resourceSpans[0]!;
+    const rs = out.resourceSpans[0];
     expect(rs.resource.attributes.find((a) => a.key === 'service.name')?.value.stringValue).toBe('shadowlap-agent');
-    const spans = rs.scopeSpans[0]!.spans;
-    expect(rs.scopeSpans[0]!.scope).toEqual({ name: 'shadowlap', version: '0.1.0' });
+    const spans = rs.scopeSpans[0].spans;
+    expect(rs.scopeSpans[0].scope).toEqual({ name: 'shadowlap', version: '0.1.0' });
     expect(spans).toHaveLength(4);
     const [root, s1, s2, s3] = spans as Array<{ traceId: string; spanId: string; parentSpanId?: string; name: string; kind: number; startTimeUnixNano: string; endTimeUnixNano: string; attributes: Array<{ key: string; value: Record<string, unknown> }>; status: { code: number; message?: string } }>;
-    expect(root!.traceId).toHaveLength(32);
-    expect(root!.spanId).toHaveLength(16);
-    expect(root!.parentSpanId).toBeUndefined();
-    expect(root!.name).toBe('shadowlap.record node agent.js');
-    expect(root!.startTimeUnixNano).toBe('1700000000000000000');
-    expect(root!.endTimeUnixNano).toBe('1700000005000000000');
+    expect(root.traceId).toHaveLength(32);
+    expect(root.spanId).toHaveLength(16);
+    expect(root.parentSpanId).toBeUndefined();
+    expect(root.name).toBe('shadowlap.record node agent.js');
+    expect(root.startTimeUnixNano).toBe('1700000000000000000');
+    expect(root.endTimeUnixNano).toBe('1700000005000000000');
     const attrsOf = (s: (typeof spans)[number]) => Object.fromEntries((s as { attributes: Array<{ key: string; value: Record<string, unknown> }> }).attributes.map((a) => [a.key, Object.values(a.value)[0]]));
-    for (const s of [s1!, s2!, s3!]) {
-      expect(s.traceId).toBe(root!.traceId);
-      expect(s.parentSpanId).toBe(root!.spanId);
+    for (const s of [s1, s2, s3]) {
+      expect(s.traceId).toBe(root.traceId);
+      expect(s.parentSpanId).toBe(root.spanId);
     }
-    expect(s1!.name).toBe('chat claude-opus-5');
-    expect(s1!.kind).toBe(3);
-    expect(attrsOf(s1!)).toMatchObject({ 'gen_ai.operation.name': 'chat', 'gen_ai.system': 'anthropic', 'gen_ai.request.model': 'claude-opus-5', 'gen_ai.usage.input_tokens': '1200', 'gen_ai.usage.output_tokens': '40', 'http.response.status_code': '200', 'shadowlap.origin': 'live' });
-    expect(attrsOf(s1!)['gen_ai.response.finish_reasons']).toEqual({ values: [{ stringValue: 'tool_use' }] });
-    expect(attrsOf(s1!)['shadowlap.cost_usd']).toBeCloseTo(0.0061, 4);
-    expect(s2!.name).toBe('execute_tool search_web');
-    expect(attrsOf(s2!)).toMatchObject({ 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': 'search_web', 'shadowlap.effect': 'read', 'shadowlap.origin': 'replayed', 'shadowlap.replayed_from': '2' });
-    expect(s3!.status).toEqual({ code: 2, message: 'HTTP 500' });
-    expect(attrsOf(s3!)['error.type']).toBe('http.500');
-    expect(attrsOf(root!)).toMatchObject({ 'shadowlap.run.id': run.runId, 'shadowlap.run.mode': 'record', 'shadowlap.run.calls': '3' });
+    expect(s1.name).toBe('chat claude-opus-5');
+    expect(s1.kind).toBe(3);
+    expect(attrsOf(s1)).toMatchObject({ 'gen_ai.operation.name': 'chat', 'gen_ai.system': 'anthropic', 'gen_ai.request.model': 'claude-opus-5', 'gen_ai.usage.input_tokens': '1200', 'gen_ai.usage.output_tokens': '40', 'http.response.status_code': '200', 'shadowlap.origin': 'live' });
+    expect(attrsOf(s1)['gen_ai.response.finish_reasons']).toEqual({ values: [{ stringValue: 'tool_use' }] });
+    expect(attrsOf(s1)['shadowlap.cost_usd']).toBeCloseTo(0.0061, 4);
+    expect(s2.name).toBe('execute_tool search_web');
+    expect(attrsOf(s2)).toMatchObject({ 'gen_ai.operation.name': 'execute_tool', 'gen_ai.tool.name': 'search_web', 'shadowlap.effect': 'read', 'shadowlap.origin': 'replayed', 'shadowlap.replayed_from': '2' });
+    expect(s3.status).toEqual({ code: 2, message: 'HTTP 500' });
+    expect(attrsOf(s3)['error.type']).toBe('http.500');
+    expect(attrsOf(root)).toMatchObject({ 'shadowlap.run.id': run.runId, 'shadowlap.run.mode': 'record', 'shadowlap.run.calls': '3' });
     // Only the live model call is priced into the run's cost.
-    expect(attrsOf(root!)['shadowlap.run.cost_usd']).toBeCloseTo(0.0061, 4);
+    expect(attrsOf(root)['shadowlap.run.cost_usd']).toBeCloseTo(0.0061, 4);
     // Deterministic ids: the same run exports the same trace.
-    expect((runToOtlp(run, [api]) as typeof out).resourceSpans[0]!.scopeSpans[0]!.spans[0]).toMatchObject({ traceId: root!.traceId, spanId: root!.spanId });
+    expect((runToOtlp(run, [api]) as typeof out).resourceSpans[0].scopeSpans[0].spans[0]).toMatchObject({ traceId: root.traceId, spanId: root.spanId });
   });
 
   it('infers the provider from the request path for older recordings', () => {
@@ -81,16 +81,16 @@ describe('runToOtlp', () => {
     const keyed: RunRecord = { ...run, command: { argv: ['node', 'agent.mjs', '--api-key', 'sk-live-abc123def456ghi789'], cwd: '/w' } };
     const out = JSON.stringify(runToOtlp(keyed, [api], { redact: [KEY] }));
     expect(out).not.toContain('sk-live');
-    const spans = (JSON.parse(out) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string; attributes: Array<{ key: string; value: { arrayValue?: { values: Array<{ stringValue: string }> } } }> }> }> }> }).resourceSpans[0]!.scopeSpans[0]!.spans;
-    expect(spans[0]!.name).toBe('shadowlap.record node agent.mjs --api-key <KEY>');
-    expect(spans[0]!.attributes.find((a) => a.key === 'process.command_args')!.value.arrayValue!.values.map((v) => v.stringValue)).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
+    const spans = (JSON.parse(out) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string; attributes: Array<{ key: string; value: { arrayValue?: { values: Array<{ stringValue: string }> } } }> }> }> }> }).resourceSpans[0].scopeSpans[0].spans;
+    expect(spans[0].name).toBe('shadowlap.record node agent.mjs --api-key <KEY>');
+    expect(spans[0].attributes.find((a) => a.key === 'process.command_args')!.value.arrayValue!.values.map((v) => v.stringValue)).toEqual(['node', 'agent.mjs', '--api-key', '<KEY>']);
   });
 
   it('masks the command line before it cuts the run span\'s name to 200 characters, so the cut never keeps part of a value', () => {
     const address = 'margaret.hamilton@example.com';
     const long: RunRecord = { ...run, command: { argv: ['node', 'agent.mjs', '--pad', 'x'.repeat(128), '--customer', address], cwd: '/w' } };
     type Trace = { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }> };
-    const runSpanName = (trace: unknown) => (trace as Trace).resourceSpans[0]!.scopeSpans[0]!.spans[0]!.name;
+    const runSpanName = (trace: unknown) => (trace as Trace).resourceSpans[0].scopeSpans[0].spans[0].name;
     // Unmasked, the cut lands inside the address.
     const plain = runSpanName(runToOtlp(long, []));
     expect(plain).toHaveLength(200);

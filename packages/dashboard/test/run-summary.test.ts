@@ -14,7 +14,7 @@ import { blameStep, runWholeFacts } from '../src/run-summary.js';
  */
 
 const rnd = (seed: number) => () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
-const pick = <T,>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+const pick = <T,>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
 
 const MODELS = ['claude-sonnet-4-5', 'claude-opus-5', 'gpt-5-mini', 'an-unpriced-model'];
 const SCOPES = [undefined, undefined, undefined, 'agent', 'agent/sub', 'other', JUDGE_SCOPE];
@@ -97,7 +97,7 @@ describe('what a run page says of the whole run, read in SQL', () => {
       const run = buildRun(store, 100 + i, {}, 'record');
       const calls = store.getCalls(run.runId);
       const callNo = pick(r, calls).callNo;
-      store.updateRunMeta(run.runId, { blame: { at: 1, outcome: 'blamed', callNo, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0, ...(scope ? { scope } : {}) } as NonNullable<RunMeta['blame']> });
+      store.updateRunMeta(run.runId, { blame: { at: 1, outcome: 'blamed', callNo, confidence: 'high', rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0, ...(scope ? { scope } : {}) } });
       const blamed = store.getRun(run.runId)!;
       const step = runPageFacts(store, blamed, calls).blame?.modelCall ?? null;
       expect(blameStep(store, run.runId, callNo, scope), `run ${i}, call ${callNo}, scope ${scope}`).toEqual(step);

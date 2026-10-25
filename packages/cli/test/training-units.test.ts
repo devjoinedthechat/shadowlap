@@ -109,7 +109,7 @@ describe('the task block under tests', () => {
 
   it('scores the outcome checks, and lists token and cost budgets as caps', () => {
     const [entry] = parseTests({ 'goldens/a': { expect: { tools: { issue_refund: 0 }, modelCalls: '<= 12', inputTokens: '<= 60000', cost: '<= 0.05' } } });
-    expect(taskChecks(entry!.spec)).toEqual([
+    expect(taskChecks(entry.spec)).toEqual([
       { label: 'issue_refund called 0 times', cap: false },
       { label: 'at most 12 model calls', cap: false },
       { label: 'at most 60000 input tokens', cap: true },
@@ -191,7 +191,7 @@ describe('the takeover upstream', () => {
 
       const asked = openai.requests.slice(before);
       expect(asked).toHaveLength(2);
-      const body = asked[0]!.body as { model: string; stream: boolean; messages: Array<{ role: string; content?: unknown; tool_calls?: unknown[] }>; tools: unknown[] };
+      const body = asked[0].body as { model: string; stream: boolean; messages: Array<{ role: string; content?: unknown; tool_calls?: unknown[] }>; tools: unknown[] };
       expect(body).toMatchObject({ model: 'my-finetune', stream: false, max_tokens: 256 });
       expect(body.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool']);
       // Thinking is bound to the model that wrote it: it is dropped, and the tool call stays.
@@ -211,9 +211,9 @@ describe('the takeover upstream', () => {
       expect(plain.status).toBe(200);
       expect(plain.headers[ANSWERED_BY]).toBe('claude-good');
       const completion = JSON.parse(plain.body) as { choices: Array<{ message: { content: string; tool_calls: Array<{ function: { name: string; arguments: string } }> }; finish_reason: string }>; usage: { prompt_tokens: number } };
-      expect(completion.choices[0]!.message.content).toBe('Above the limit.');
-      expect(completion.choices[0]!.message.tool_calls[0]!.function).toEqual({ name: 'escalate', arguments: '{"reason":"over $100"}' });
-      expect(completion.choices[0]!.finish_reason).toBe('tool_calls');
+      expect(completion.choices[0].message.content).toBe('Above the limit.');
+      expect(completion.choices[0].message.tool_calls[0].function).toEqual({ name: 'escalate', arguments: '{"reason":"over $100"}' });
+      expect(completion.choices[0].finish_reason).toBe('tool_calls');
       expect(completion.usage.prompt_tokens).toBeGreaterThan(0);
       const streamed = await post(`${t.url}/v1/chat/completions`, { ...OPENAI_REQUEST, stream: true, stream_options: { include_usage: true } });
       expect(streamed.type).toContain('text/event-stream');
@@ -223,9 +223,9 @@ describe('the takeover upstream', () => {
 
       const asked = anthropic.requests.slice(before);
       expect(asked).toHaveLength(2);
-      expect(asked[0]!.headers['x-api-key']).toBe('test-key');
-      expect(asked[0]!.body).toMatchObject({ model: 'claude-good', system: 'You are a support agent. Follow the refund policy.', stream: false });
-      expect(asked[0]!.body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+      expect(asked[0].headers['x-api-key']).toBe('test-key');
+      expect(asked[0].body).toMatchObject({ model: 'claude-good', system: 'You are a support agent. Follow the refund policy.', stream: false });
+      expect(asked[0].body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
     } finally {
       await t.close();
     }
@@ -270,7 +270,7 @@ describe('the takeover upstream', () => {
         ['claude-haiku-4-5', 'agent-key'],
       ]);
       // Nothing else in the request changes: thinking stays, since the provider reads it.
-      expect(JSON.stringify(asked[0]!.body.messages)).toContain('Policy first.');
+      expect(JSON.stringify(asked[0].body.messages)).toContain('Policy first.');
       expect(t.answered).toBe(2);
       expect(t.dropped.size).toBe(0);
     } finally {
@@ -288,7 +288,7 @@ describe('the takeover upstream', () => {
       expect(r.status).toBe(200);
       expect(r.headers[ANSWERED_BY]).toBe('gpt-5-mini');
       expect(provider.seen[0]).toMatchObject({ method: 'POST', url: '/v1/responses', headers: { authorization: 'Bearer agent-key' } });
-      expect(JSON.parse(provider.seen[0]!.body)).toEqual({ model: 'gpt-5-mini', input: [{ role: 'user', content: 'Refund A-1042: $240.' }] });
+      expect(JSON.parse(provider.seen[0].body)).toEqual({ model: 'gpt-5-mini', input: [{ role: 'user', content: 'Refund A-1042: $240.' }] });
 
       const answer = await post(`${g.url}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`, { contents: [{ role: 'user', parts: [{ text: 'Refund A-1042: $240.' }] }] }, { 'x-goog-api-key': 'agent-key' });
       expect(answer.status).toBe(200);
@@ -315,11 +315,11 @@ describe('the takeover upstream', () => {
       expect(embedded.status).toBe(200);
       expect(JSON.parse(embedded.body)).toMatchObject({ object: 'list', data: [{ embedding: [0.1, 0.2] }] });
       expect(seen[0]).toMatchObject({ method: 'POST', url: '/v1/embeddings', headers: { authorization: 'Bearer agent-key' } });
-      expect(JSON.parse(seen[0]!.body)).toEqual({ model: 'text-embedding-3-small', input: 'refund policy' });
+      expect(JSON.parse(seen[0].body)).toEqual({ model: 'text-embedding-3-small', input: 'refund policy' });
       const counted = await post(`${messages.url}/v1/messages/count_tokens`, ANTHROPIC_REQUEST, { 'x-api-key': 'agent-key' });
       expect(JSON.parse(counted.body)).toEqual({ input_tokens: 42 });
       expect(seen[1]).toMatchObject({ method: 'POST', url: '/v1/messages/count_tokens', headers: { 'x-api-key': 'agent-key' } });
-      expect(JSON.parse(seen[1]!.body).model).toBe('claude-sonnet-5');
+      expect(JSON.parse(seen[1].body).model).toBe('claude-sonnet-5');
       const listed = await post(`${chat.url}/v1/models?limit=5`, null, {}, 'GET');
       expect(listed.status).toBe(200);
       expect(seen[2]).toMatchObject({ method: 'GET', url: '/v1/models?limit=5' });
@@ -328,7 +328,7 @@ describe('the takeover upstream', () => {
       const sameCount = await post(`${same.url}/v1/messages/count_tokens`, ANTHROPIC_REQUEST, { 'x-api-key': 'agent-key' });
       expect(JSON.parse(sameCount.body)).toEqual({ input_tokens: 42 });
       expect(sameCount.headers[ANSWERED_BY]).toBeUndefined();
-      expect(JSON.parse(seen[3]!.body).model).toBe('claude-sonnet-5');
+      expect(JSON.parse(seen[3].body).model).toBe('claude-sonnet-5');
       // None of it went to the model under test, and nothing counts as its answer.
       expect(openai.requests.length).toBe(before);
       expect(chat.answered + messages.answered + same.answered).toBe(0);

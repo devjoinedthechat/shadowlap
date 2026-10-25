@@ -139,10 +139,10 @@ describe('what failed in a replay', () => {
     const exited = attempt(store, [{ kind: 'api', body: conversation('x') }], { code: 1 });
     expect(failureOf(store, exited, { status: 'failed' })).toBeNull();
     expect(failureOf(store, exited, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1', callNo: null });
-    expect(failureOf(store, { ...ok, failures: ['timed out after 30s'] } as Attempt, { status: 'completed' })).toEqual({ why: 'the agent timed out after 30s', callNo: null });
-    expect(failureOf(store, { ...ok, bypassed: true } as Attempt, { status: 'completed' })?.why).toMatch(/^the replay made no calls through Shadowlap/);
+    expect(failureOf(store, { ...ok, failures: ['timed out after 30s'] }, { status: 'completed' })).toEqual({ why: 'the agent timed out after 30s', callNo: null });
+    expect(failureOf(store, { ...ok, bypassed: true }, { status: 'completed' })?.why).toMatch(/^the replay made no calls through Shadowlap/);
     // No model call and a non-zero exit: the agent crashed first, which is what it says.
-    expect(failureOf(store, { ...ok, bypassed: true, code: 1 } as Attempt, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1 before it made a model call', callNo: null });
+    expect(failureOf(store, { ...ok, bypassed: true, code: 1 }, { status: 'completed' })).toEqual({ why: 'the agent exited with code 1 before it made a model call', callNo: null });
     const overloaded = attempt(store, [{ kind: 'api', body: conversation('x'), status: 529, error: 'Overloaded' }]);
     expect(failureOf(store, overloaded, { status: 'completed' })).toEqual({ why: 'model call #3 failed with HTTP 529 (Overloaded)', callNo: 3 });
     store.close();
@@ -203,9 +203,9 @@ describe('the GitHub Action\'s fix on failure', () => {
     const { planFixes } = await import('../../../action/fix.mjs');
     const golden = { name: 'research', golden: 'goldens/research', ok: false, failure: 'injection' as const, runId: null, runs: [], expect: null };
     const [failed, unsure] = planFixes({ results: [{ ...golden, verdict: 'failed' }, { ...golden, verdict: 'inconclusive' }] });
-    expect(failed!.skip).toMatch(/^its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, not by a fix on failure/);
+    expect(failed.skip).toMatch(/^its injection gate failed: the agent obeyed text planted in what it reads, which is fixed in its prompt or its code, not by a fix on failure/);
     // One that showed too little to say is inconclusive, never a gate the agent failed.
-    expect(unsure!.skip).toMatch(/^its injection gate is inconclusive, neither passed nor failed: it showed too little to say/);
-    expect(unsure!.skip).not.toMatch(/gate failed|obeyed/);
+    expect(unsure.skip).toMatch(/^its injection gate is inconclusive, neither passed nor failed: it showed too little to say/);
+    expect(unsure.skip).not.toMatch(/gate failed|obeyed/);
   });
 });

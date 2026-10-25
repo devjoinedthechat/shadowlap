@@ -79,7 +79,7 @@ function run(argv: string[], input: string, env: Record<string, string>, dir = c
       writeFileSync(file, input);
       stdin = openSync(file, 'r');
     }
-    const child = spawn(argv[0]!, argv.slice(1), {
+    const child = spawn(argv[0], argv.slice(1), {
       cwd: dir,
       env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', PYTHONPATH: PY_SDK, SHADOWLAP_UPSTREAM_OPENAI: mock.url, HTTP_PROXY: proxyUrl, HTTPS_PROXY: proxyUrl, http_proxy: proxyUrl, https_proxy: proxyUrl, NO_PROXY: 'corp.internal', no_proxy: '', ...env },
       stdio: [stdin, 'pipe', 'pipe'],

@@ -232,7 +232,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
     empty: folders.length ? null : (input.suggestions.note ?? (query ? `No folder matches “${query}”.` : 'No folders here.')),
     truncated: input.suggestions.truncated,
     error,
-    button: addable ? { label: `Add ${folderName(picked!.path) || pickedDisplay}`, disabled: false, path: picked!.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
+    button: addable ? { label: `Add ${folderName(picked.path) || pickedDisplay}`, disabled: false, path: picked.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
     cancel: { label: 'Cancel', href: links.overview() },
     next: {
       title: 'What happens next',
@@ -531,7 +531,7 @@ export function setupView(input: SetupInput): SetupView {
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
-        ? `A replay of ${short(run!.runId)} ran clean.`
+        ? `A replay of ${short(run.runId)} ran clean.`
         : added.length
           ? `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`
           : 'The replay was clean as recorded: nothing to add.'

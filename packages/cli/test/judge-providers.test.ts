@@ -81,13 +81,13 @@ describe('a judge that fails once', () => {
     const sidecar = await Sidecar.start({ store, upstreams });
     try {
       const run = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
-      const judged = await askJudges([judges[0]!], { calls: [], output: 'Done.' }, { sidecar, store, runId: run.runId, upstreams, env: {} });
+      const judged = await askJudges([judges[0]], { calls: [], output: 'Done.' }, { sidecar, store, runId: run.runId, upstreams, env: {} });
       expect(judged.verdicts.get('openai')).toMatchObject({ verdict: 'yes', reason: 'second time', source: 'live' });
       sidecar.endRun(run.runId, 'completed');
       const [call, ...more] = store.getCalls(run.runId);
       expect(more).toEqual([]);
-      expect(call!.attempts.map((a) => a.meta.status)).toEqual([529]);
-      expect(call!.end).toMatchObject({ outcome: 'ok', meta: { status: 200 } });
+      expect(call.attempts.map((a) => a.meta.status)).toEqual([529]);
+      expect(call.end).toMatchObject({ outcome: 'ok', meta: { status: 200 } });
     } finally {
       await sidecar.close();
       store.close();
@@ -105,15 +105,15 @@ describe('a judge the recording does not answer, offline', () => {
     const offline = { openai: 'offline' };
     try {
       const rec = sidecar.startRun({ mode: 'record', command });
-      await askJudges([judges[0]!], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: rec.runId, upstreams, env: {} });
+      await askJudges([judges[0]], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: rec.runId, upstreams, env: {} });
       sidecar.endRun(rec.runId, 'completed');
-      expect(store.getCalls(rec.runId)[0]!.meta.judge).toMatchObject({ check: 'openai', v: JUDGE_REQUEST_VERSION });
+      expect(store.getCalls(rec.runId)[0].meta.judge).toMatchObject({ check: 'openai', v: JUDGE_REQUEST_VERSION });
 
       const sent = openai.requests.length;
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
-      const changed = await askJudges([judges[0]!], { calls: [], output: 'Done at 05:00:00.\n' }, { sidecar, store, runId: replay.runId, upstreams: offline, env: {} });
+      const changed = await askJudges([judges[0]], { calls: [], output: 'Done at 05:00:00.\n' }, { sidecar, store, runId: replay.runId, upstreams: offline, env: {} });
       expect(changed.notJudged.get('openai')).toBe('the recording\'s verdict was given on other material: it read "Done at 04:01:07." where it now reads "Done at 05:00:00.", and the test runs offline');
-      const other = await askJudges([{ ...judges[0]!, question: 'Did it stop?' }], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: replay.runId, upstreams: offline, env: {} });
+      const other = await askJudges([{ ...judges[0], question: 'Did it stop?' }], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: replay.runId, upstreams: offline, env: {} });
       expect(other.notJudged.get('openai')).toBe('no recorded verdict and the test runs offline');
       sidecar.endRun(replay.runId, 'completed');
       // Nothing was sent, and the replay keeps no call no one answered.
@@ -124,13 +124,13 @@ describe('a judge the recording does not answer, offline', () => {
       const old = sidecar.startRun({ mode: 'record', command });
       const res = await fetch(`${sidecar.url}/r/${old.runId}/openai/v1/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-shadowlap-scope': JUDGE_SCOPE, 'x-shadowlap-judge': sidecar.judgeToken, 'x-shadowlap-judge-check': 'openai', 'x-shadowlap-judge-ask': judgeAskId(judges[0]!), 'x-shadowlap-judge-version': '1' },
+        headers: { 'content-type': 'application/json', 'x-shadowlap-scope': JUDGE_SCOPE, 'x-shadowlap-judge': sidecar.judgeToken, 'x-shadowlap-judge-check': 'openai', 'x-shadowlap-judge-ask': judgeAskId(judges[0]), 'x-shadowlap-judge-version': '1' },
         body: JSON.stringify({ model: 'gpt-4.1-mini', messages: [{ role: 'system', content: 'Older instructions: reply with the verdict JSON.' }, { role: 'user', content: 'Question: Did it finish?\n\nThe material is what the agent printed.\n\n<material>\nDone at 04:01:07.\n\n</material>' }] }),
       });
       expect(res.status).toBe(200);
       sidecar.endRun(old.runId, 'completed');
       const again = sidecar.startRun({ mode: 'replay', parentRunId: old.runId, command });
-      const older = await askJudges([judges[0]!], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: again.runId, upstreams: offline, env: {} });
+      const older = await askJudges([judges[0]], { calls: [], output: 'Done at 04:01:07.\n' }, { sidecar, store, runId: again.runId, upstreams: offline, env: {} });
       expect(older.notJudged.get('openai')).toBe("the recording's verdict was given to an older form of the judge's request, and the test runs offline: record it again with shadowlap test --update");
       sidecar.endRun(again.runId, 'completed');
     } finally {

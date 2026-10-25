@@ -18,7 +18,7 @@ let packed: string[];
 beforeAll(() => {
   // Through a shell: on Windows npm is npm.cmd, which Node runs only that way.
   const out = execSync('npm pack --dry-run --json', { cwd: PACKAGE, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  packed = (JSON.parse(out) as Array<{ files: Array<{ path: string }> }>)[0]!.files.map((f) => f.path);
+  packed = (JSON.parse(out) as Array<{ files: Array<{ path: string }> }>)[0].files.map((f) => f.path);
 }, 60_000);
 
 /** Every file under a folder, relative to it with `/`. */

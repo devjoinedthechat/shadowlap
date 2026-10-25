@@ -81,7 +81,7 @@ function breakdown(title: string, note: string, data: Record<string, number>, la
     ? entries
         .map(
           ([k, v]) =>
-            `<li${hints[k] ? ` title="${esc(hints[k]!)}"` : ''}><span class="k">${esc(labels[k] ?? k)}</span><span class="track" aria-hidden="true"><i style="width:${height(v, max).toFixed(1)}%"></i></span><span class="n">${formatCount(v)}<small>${pct(v, total)}%</small></span></li>`,
+            `<li${hints[k] ? ` title="${esc(hints[k])}"` : ''}><span class="k">${esc(labels[k] ?? k)}</span><span class="track" aria-hidden="true"><i style="width:${height(v, max).toFixed(1)}%"></i></span><span class="n">${formatCount(v)}<small>${pct(v, total)}%</small></span></li>`,
         )
         .join('')
     : '<li class="none">nothing yet</li>';

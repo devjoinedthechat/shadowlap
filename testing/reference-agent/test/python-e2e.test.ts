@@ -84,7 +84,7 @@ describe.skipIf(!PYTHON)('Python reference agent', () => {
     expect(summary.upstreamRequests).toBe(EXPECTED_MODEL_CALLS);
     expect(sdks).toEqual(['python']);
     expect(mock.requests).toHaveLength(EXPECTED_MODEL_CALLS);
-    expect(keySent(mock.requests[0]!.headers)).toBe('test-key');
+    expect(keySent(mock.requests[0].headers)).toBe('test-key');
     expect(JSON.stringify(store.getCalls(parent.runId))).not.toContain('test-key');
   });
 

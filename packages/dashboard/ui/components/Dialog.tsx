@@ -137,10 +137,10 @@ export function PromptDialog({
 }) {
   const [value, setValue] = useState(initial);
   const listed = !!choices?.length;
-  const [own, setOwn] = useState(listed && !choices!.some((c) => c.value === initial));
+  const [own, setOwn] = useState(listed && !choices.some((c) => c.value === initial));
   // The few words a picked choice asks for: the message of "error, with a message".
   const [words, setWords] = useState('');
-  const picked = listed && !own ? choices!.find((c) => c.value === value) : undefined;
+  const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
   const ready = answer.length > 0;
   const submit = () => ready && onRun(answer);
@@ -187,7 +187,7 @@ export function PromptDialog({
         }
       }}
     >
-      {choices!.map((c) => (
+      {choices.map((c) => (
         <option key={c.value} value={c.value}>
           {c.label}
         </option>

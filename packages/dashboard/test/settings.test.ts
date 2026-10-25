@@ -72,9 +72,9 @@ describe('matchingSettings', () => {
       [4, 'POST /v1/messages', '$.metadata', null, 'whole', '<M>', null],
       [5, 'every call', null, 'uuidd', 'named', '<U>', expect.stringContaining('unknown pattern "uuidd"')],
     ]);
-    expect(m.rules[4]!.rule).toBeNull();
+    expect(m.rules[4].rule).toBeNull();
     // Removing names the version the row was read from, so a stale page can't remove the wrong rule.
-    expect(m.rules[2]!.remove).toEqual(['normalize', 'rm', '3', '--expect', m.config.version]);
+    expect(m.rules[2].remove).toEqual(['normalize', 'rm', '3', '--expect', m.config.version]);
     expect(m.clock).toEqual({ mode: 'exact', explicit: true, error: null });
     expect(m.calibrate).toEqual({ runId: newest.runId, source: 'newest', label: `Calibrate ${newest.runId.slice(0, 10)}`, command: `shadowlap calibrate ${newest.runId.slice(0, 10)}`, argv: ['calibrate', newest.runId] });
     expect(matchingSettings({ store, cwd, setupRunId: setup.runId }).calibrate).toMatchObject({ runId: setup.runId, source: 'setup' });
@@ -155,7 +155,7 @@ describe('redactionSettings', () => {
     expect(redactionSettings({ store, cwd }, { runId: live.runId })).toMatchObject({ previewRunId: null, previewError: `${live.runId.slice(0, 10)} is still recording; preview it once it has ended` });
     expect(redactionSettings({ store, cwd }, { runId: 'NOPE' })).toMatchObject({ previewRunId: null, previewError: 'no run matches NOPE' });
     // Newer runs that aren't recordings made here (an import, a replay): the preview still opens on the recording.
-    const imported = store.createRun({ mode: 'record', command: { argv: [], cwd }, startedAt: 30, meta: { imported: { at: 30, from: 'capture.har' }, covers: ['api'] } as RunMeta });
+    const imported = store.createRun({ mode: 'record', command: { argv: [], cwd }, startedAt: 30, meta: { imported: { at: 30, from: 'capture.har' }, covers: ['api'] } });
     store.endRun(imported.runId, 'completed', 31);
     recording({ at: 40, mode: 'replay' });
     expect(redactionSettings({ store, cwd }).previewRunId).toBe(run.runId);
@@ -327,7 +327,7 @@ describe('toolsSettings', () => {
   it('takes the client config example from docs/mcp.md', () => {
     const t = toolsSettings({ store, cwd });
     expect(t.mcp.clientConfigs).toHaveLength(1);
-    const example = t.mcp.clientConfigs[0]!;
+    const example = t.mcp.clientConfigs[0];
     expect(example).toMatchObject({ file: null, putBack: [] });
     const servers = Object.values((JSON.parse(example.text) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers);
     expect(servers.length).toBeGreaterThan(0);
@@ -402,7 +402,7 @@ describe('mcpServers', () => {
     const t = toolsSettings({ store, cwd });
     expect(t.mcp.clientConfigs.map((b) => b.file)).toEqual(['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json']);
     const [claude, cursor, vscode] = t.mcp.clientConfigs;
-    expect(claude!.text).toBe(
+    expect(claude.text).toBe(
       [
         '{',
         '  "mcpServers": {',
@@ -419,16 +419,16 @@ describe('mcpServers', () => {
         '}',
       ].join('\n'),
     );
-    expect(claude!.putBack).toEqual([{ server: 'github', values: ['GITHUB_PERSONAL_ACCESS_TOKEN'] }]);
-    const servers = (JSON.parse(cursor!.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
+    expect(claude.putBack).toEqual([{ server: 'github', values: ['GITHUB_PERSONAL_ACCESS_TOKEN'] }]);
+    const servers = (JSON.parse(cursor.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
     expect(servers.stripe).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.stripe.com', '--header', 'Authorization: Bearer $STRIPE_TOKEN', '--header', 'X-Account: $STRIPE_X_ACCOUNT'], env: { STRIPE_TOKEN: '…', STRIPE_X_ACCOUNT: '…' } });
     // The reference moves to the entry's env, written as Cursor fills one in; the header names it as the proxy reads it.
     expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $ISSUES_TOKEN'], env: { ISSUES_TOKEN: '${env:ISSUES_TOKEN}' } });
-    expect(cursor!.putBack).toEqual([{ server: 'stripe', values: ['STRIPE_TOKEN (its Authorization header)', 'STRIPE_X_ACCOUNT (its X-Account header)'] }]);
+    expect(cursor.putBack).toEqual([{ server: 'stripe', values: ['STRIPE_TOKEN (its Authorization header)', 'STRIPE_X_ACCOUNT (its X-Account header)'] }]);
     // Pasted with the values put back, shadowlap mcp sends the headers the server had.
-    const headers = servers.stripe!.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
+    const headers = servers.stripe.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
     expect(parseHeaderFlags(headers, { STRIPE_TOKEN: 'sk_live_1', STRIPE_X_ACCOUNT: 'acct_1' })).toEqual({ authorization: 'Bearer sk_live_1', 'x-account': 'acct_1' });
-    expect(vscode!.text).toContain('"servers": {');
+    expect(vscode.text).toContain('"servers": {');
     expect(t.mcp.otherForms).toEqual([]);
     expect(JSON.stringify(t.mcp)).not.toMatch(/never_shown/);
   });
@@ -446,16 +446,16 @@ describe('mcpServers', () => {
     }));
     const t = toolsSettings({ store, cwd });
     const [claude] = t.mcp.clientConfigs;
-    const servers = (JSON.parse(claude!.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
+    const servers = (JSON.parse(claude.text) as { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }).mcpServers;
     expect(servers.linear).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.linear.app/mcp', '--header', 'Authorization: Bearer $LINEAR_TOKEN', '--header', 'X-Org: $LINEAR_X_ORG'], env: { LINEAR_TOKEN: '${LINEAR_TOKEN}', LINEAR_X_ORG: '${LINEAR_ORG:-acme}' } });
     // A header the person already wrote as a variable is neither hidden nor rewritten, and nothing is left to put back.
     expect(servers.issues).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $ISSUES_TOKEN'], env: { ISSUES_TOKEN: '${ISSUES_TOKEN}' } });
     expect(servers.notes).toEqual({ command: 'shadowlap', args: ['mcp', '--url', 'https://notes.example.com/mcp', '--header', 'Authorization: Bearer $NOTES_TOKEN'] });
-    expect(claude!.putBack).toEqual([]);
+    expect(claude.putBack).toEqual([]);
     // No ${…} in an argument, where Claude Code would fill in the token itself.
     expect(Object.values(servers).flatMap((x) => x.args).filter((a) => a.includes('${'))).toEqual([]);
     // With the environment Claude Code fills in, shadowlap mcp sends the headers the server had.
-    const headers = servers.linear!.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
+    const headers = servers.linear.args.flatMap((a, i, all) => (all[i - 1] === '--header' ? [a] : []));
     expect(parseHeaderFlags(headers, { LINEAR_TOKEN: 'lin_api_1', LINEAR_X_ORG: 'acme' })).toEqual({ authorization: 'Bearer lin_api_1', 'x-org': 'acme' });
     // The table shows the proxied entry's header as it is: it holds no secret.
     expect(mcpServers(cwd).servers.find((x) => x.name === 'issues')).toMatchObject({ hidden: false, target: 'https://mcp.example.com/mcp', putBack: [] });
@@ -482,8 +482,8 @@ describe('mcpServers', () => {
     expect(JSON.stringify(servers)).not.toMatch(/SECRET/);
     expect(servers.map((s) => [s.name, s.hidden])).toEqual([['remote', true], ['bridge', true], ['db', true]]);
     expect(servers[0]).toMatchObject({ target: 'https://mcp.example.com/mcp?api_key=•••', line: "shadowlap mcp --url 'https://mcp.example.com/mcp?api_key=•••'", viaShadowlap: true });
-    expect(servers[1]!.entry.args).toEqual(['mcp', '--', 'npx', '-y', 'mcp-remote', 'https://mcp.example.com/sse?token=•••']);
-    expect(servers[2]!.target).toBe("node server.js --endpoint=https://•••@db.example.com/x 'https://x.example.com/#•••'");
+    expect(servers[1].entry.args).toEqual(['mcp', '--', 'npx', '-y', 'mcp-remote', 'https://mcp.example.com/sse?token=•••']);
+    expect(servers[2].target).toBe("node server.js --endpoint=https://•••@db.example.com/x 'https://x.example.com/#•••'");
   });
 
   it('never shows or copies a URL’s user and password: a placeholder in a command, a Basic header for a remote server', () => {
@@ -506,13 +506,13 @@ describe('mcpServers', () => {
     expect(remote.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Basic $REMOTE_AUTH']);
     expect(remote.putBack).toEqual(['REMOTE_AUTH (the base64 of its URL’s user:password, for its Authorization header), in the environment Claude Code starts from: it fills in ${REMOTE_AUTH} itself']);
     // What shadowlap mcp makes of the entry: the URL it accepts, the header from the variable.
-    expect(mcpServerUrl(remote.entry.args[2]!, true).host).toBe('mcp.example.com');
-    expect(parseHeaderFlags([remote.entry.args[4]!], { REMOTE_AUTH: 'Ym9iOnMzY3JldA==' })).toEqual({ authorization: 'Basic Ym9iOnMzY3JldA==' });
+    expect(mcpServerUrl(remote.entry.args[2], true).host).toBe('mcp.example.com');
+    expect(parseHeaderFlags([remote.entry.args[4]], { REMOTE_AUTH: 'Ym9iOnMzY3JldA==' })).toEqual({ authorization: 'Basic Ym9iOnMzY3JldA==' });
     // A server that sends its own Authorization header keeps it, and its URL goes without the user and password,
     // which the proxy refuses there: nothing is asked back for them, and the block says why.
     const signed = servers.find((s) => s.name === 'signed')!;
     expect(signed.entry.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp', '--header', 'Authorization: Bearer $SIGNED_TOKEN']);
-    expect(mcpServerUrl(signed.entry.args[2]!, true).host).toBe('mcp.example.com');
+    expect(mcpServerUrl(signed.entry.args[2], true).host).toBe('mcp.example.com');
     expect(signed).toMatchObject({ target: 'https://mcp.example.com/mcp', hidden: true, notes: [expect.stringMatching(/^its URL’s user and password are left out: shadowlap mcp refuses them there, and its Authorization header signs in$/)] });
     expect(signed.putBack.join(' ')).not.toContain('•••');
     // Its token is a value to put back: the header names it as the proxy reads it ($NAME, which Claude Code
@@ -520,7 +520,7 @@ describe('mcpServers', () => {
     expect(signed.env).toEqual([{ name: 'SIGNED_TOKEN', value: '${SIGNED_TOKEN}' }]);
     expect(signed.putBack).toEqual(['SIGNED_TOKEN (its Authorization header), in the environment Claude Code starts from: it fills in ${SIGNED_TOKEN} itself']);
     expect(servers.flatMap((x) => x.entry.args).filter((a) => a.includes('${'))).toEqual([]);
-    expect(toolsSettings({ store, cwd }).mcp.clientConfigs[0]!.notes).toEqual([{ server: 'signed', text: signed.notes[0] }]);
+    expect(toolsSettings({ store, cwd }).mcp.clientConfigs[0].notes).toEqual([{ server: 'signed', text: signed.notes[0] }]);
   });
 
   it('cuts a user and password at the last @ before the host, as a URL parser does, and keeps a header variable as “…” outside .mcp.json', () => {
@@ -664,7 +664,7 @@ describe('mcpServerFor', () => {
     // A user and password with a query: the query as typed, the credentials as the Basic header's variable.
     const both = mcpEntryAsTyped({ url: 'https://bob:s3cretpass@mcp.example.com/mcp?profile=work' });
     expect(both.args).toEqual(['mcp', '--url', 'https://mcp.example.com/mcp?profile=work', '--header', 'Authorization: Basic $EXAMPLE_AUTH']);
-    expect(mcpServerUrl(both.args[2]!, true).search).toBe('?profile=work');
+    expect(mcpServerUrl(both.args[2], true).search).toBe('?profile=work');
     // A password with an @ of its own: all of it goes, shown and copied.
     const at = mcpServerFor({ url: 'https://bob:p@ss@mcp.linear.app/mcp' });
     expect(at).toMatchObject({ target: 'https://mcp.linear.app/mcp', basic: 'LINEAR_AUTH', line: "shadowlap mcp --url https://mcp.linear.app/mcp --header 'Authorization: Basic $LINEAR_AUTH'" });

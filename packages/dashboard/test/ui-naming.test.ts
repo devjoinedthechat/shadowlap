@@ -132,7 +132,7 @@ function listed(runId: string, over: Partial<RunListItem> = {}): RunListItem {
     failed: false,
     about: { text: 'Ticket T-8812 from customer C-311: order A-1042 ($240) arrived damaged', from: 'user' },
     ...over,
-  } as RunListItem;
+  };
 }
 
 const lostRun = listed('01M5GRYF9FQK708BP829R5FNXQ', { status: 'failed', failed: true, outcome: { kind: 'lost', callNo: 9 }, lostAt: 9, about: { text: 'Order A-1150: the customer asks for a refund', from: 'user' } });

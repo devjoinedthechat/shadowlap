@@ -21,15 +21,15 @@ describe('the notes under a run’s banner', () => {
   it('names the tools the model called that the run never recorded, what a replay does with them, and how to have them recorded', () => {
     const [n] = runNotes({ unrecorded: { tools: [BASH, SEARCH], partial: false }, mode: 'record' });
     expect(n).toMatchObject({ kind: 'unrecorded', tone: 'err', label: 'not recorded', tools: [BASH, SEARCH] });
-    expect(noteText(n!.parts)).toBe(
+    expect(noteText(n.parts)).toBe(
       'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
     );
-    expect(noteText(n!.hint!.parts)).toBe("Wrap each where your agent runs it, so it is recorded and replayed: tool('Bash', { effect: 'write' }, fn) with @shadowlap/sdk. Or declare what each does in shadowlap.config.json: ");
-    expect(n!.hint!.copy).toBe('"tools": { "unrecorded": { "Bash": "write", "WebSearch": "read" } }');
+    expect(noteText(n.hint!.parts)).toBe("Wrap each where your agent runs it, so it is recorded and replayed: tool('Bash', { effect: 'write' }, fn) with @shadowlap/sdk. Or declare what each does in shadowlap.config.json: ");
+    expect(n.hint!.copy).toBe('"tools": { "unrecorded": { "Bash": "write", "WebSearch": "read" } }');
     // Reads alone: amber, nothing refused; a replay says it ran them itself.
     const [reads] = runNotes({ unrecorded: { tools: [SEARCH], partial: false }, mode: 'replay' });
-    expect(reads!.tone).toBe('warn');
-    expect(noteText(reads!.parts)).toBe('The model called a tool Shadowlap did not record: this replay ran it for real.');
+    expect(reads.tone).toBe('warn');
+    expect(noteText(reads.parts)).toBe('The model called a tool Shadowlap did not record: this replay ran it for real.');
     // A tool whose effect nothing says is declared a write, the safe guess.
     expect(declareSnippet([{ name: 'frobnicate', effect: 'unknown' }])).toBe('"tools": { "unrecorded": { "frobnicate": "write" } }');
   });
@@ -37,14 +37,14 @@ describe('the notes under a run’s banner', () => {
   it('says a run that holds its model calls alone runs the tools they asked for live, refusing nothing', () => {
     const [n] = runNotes({ unrecorded: { tools: [BASH], partial: true }, mode: 'record' });
     expect(n).toMatchObject({ tone: 'n', label: 'not recorded' });
-    expect(n!.hint).toBeUndefined();
-    expect(noteText(n!.parts)).toBe('This run holds its model calls alone, as a capture or a trace does: a replay runs the tool they asked for live, Bash.');
+    expect(n.hint).toBeUndefined();
+    expect(noteText(n.parts)).toBe('This run holds its model calls alone, as a capture or a trace does: a replay runs the tool they asked for live, Bash.');
   });
 
   it('says a run no preload loaded in, in red where --guard block failed it, and nothing when one did', () => {
     const missing = "No Shadowlap preload loaded in the agent's processes, though the run made 3 model calls: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails.";
     expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: {}, missing }, mode: 'record' })).toEqual([{ kind: 'preload', tone: 'err', label: 'no preload', parts: [missing] }]);
-    expect(runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …' }, mode: 'record' })[0]!.tone).toBe('warn');
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …' }, mode: 'record' })[0].tone).toBe('warn');
     expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: { node: 2 } }, mode: 'record' })).toEqual([]);
   });
 
@@ -54,14 +54,14 @@ describe('the notes under a run’s banner', () => {
       ['warn', '2 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (2). A replay connects again for real; an offline replay (shadowlap test) refuses them.'],
       ['n', '1 WebSocket connection was refused: the replay is offline, and a recording holds no WebSocket to answer from: openai /v1/realtime/sessions (1).'],
     ]);
-    expect(noteText(runNotes({ unrecorded: null, websockets: [{ target: 'openai /v1/realtime', count: 1, action: 'tunnelled' }], mode: 'replay' })[0]!.parts)).toContain('It ran for real during the replay, as it does on every replay');
+    expect(noteText(runNotes({ unrecorded: null, websockets: [{ target: 'openai /v1/realtime', count: 1, action: 'tunnelled' }], mode: 'replay' })[0].parts)).toContain('It ran for real during the replay, as it does on every replay');
   });
 
   it('lists a replay’s extra reads, each opening its call, after what is more pressing', () => {
     const extra = [1, 4, 6, 9].map((callNo) => ({ callNo, kind: 'clock', name: 'now' }));
     const notes = runNotes({ unrecorded: { tools: [SEARCH], partial: false }, extraReads: extra, preloads: { guard: 'block', hellos: {}, missing: 'No Shadowlap preload loaded.' }, mode: 'replay' });
     expect(notes.map((n) => n.kind)).toEqual(['preload', 'unrecorded', 'extra']);
-    const e = notes[2]!;
+    const e = notes[2];
     expect(e.parts.filter((p) => typeof p === 'object' && 'call' in p)).toEqual([{ call: 1 }, { call: 4 }, { call: 6 }]);
     expect(noteText(e.parts)).toBe('4 extra reads answered live, with no recorded counterpart: #1 clock now, #4 clock now, #6 clock now, …. The replay went on replaying: a value one of them gave may be what changed a request after it.');
   });

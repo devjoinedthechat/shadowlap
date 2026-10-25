@@ -101,7 +101,7 @@ const json = <T = Record<string, unknown>>(text: string, what: string): T => {
 /** The file a command wrote, named after `flag` in its arguments, as JSON. */
 const written = <T = Record<string, unknown>>(r: Ran, flag: string): T => {
   const at = r.argv.indexOf(flag);
-  const path = join(project, r.argv[at + 1]!);
+  const path = join(project, r.argv[at + 1]);
   expect(existsSync(path), `${flag} ${r.argv[at + 1]} was not written`).toBe(true);
   return json<T>(readFileSync(path, 'utf8'), `${flag} ${r.argv[at + 1]}`);
 };
@@ -210,7 +210,7 @@ const SCENARIOS: Record<string, Variant[]> = {
         const report = json<{ kind: string; runs: Array<{ golden: string | null; rank: number | null; decisions: Array<{ rank: number | null }> }> }>(r.stdout, 'decisions --json');
         expect(report.kind).toBe('decisions');
         expect(report.runs.map((x) => [x.golden, x.rank])).toEqual([['goldens/research', null]]);
-        expect(report.runs[0]!.decisions.length).toBeGreaterThan(0);
+        expect(report.runs[0].decisions.length).toBeGreaterThan(0);
       },
     },
   ],
@@ -314,7 +314,7 @@ const SCENARIOS: Record<string, Variant[]> = {
 /** The command's name, as SCENARIOS knows it: the words after `shadowlap` up to the first that isn't one. */
 function nameOf(argv: string[]): string {
   const two = argv.slice(0, 2).join(' ');
-  return two in SCENARIOS ? two : argv[0]!;
+  return two in SCENARIOS ? two : argv[0];
 }
 
 /** A command line from the instructions, as argv here: each placeholder filled in, `<command>` the agent's. */
@@ -327,7 +327,7 @@ function argvOf(line: string, fill: Record<string, string>): string[] {
     }
     const filled = word.replace(/<[a-z ]+>/g, (p) => {
       if (!(p in fill)) throw new Error(`no value for ${p} in: ${line}`);
-      return fill[p]!;
+      return fill[p];
     });
     out.push(filled);
   }
@@ -353,7 +353,7 @@ function holds(value: unknown, word: string): boolean {
   const path = word.split('.');
   const at = (v: unknown, keys: string[]): boolean => {
     if (!keys.length) return true;
-    return v !== null && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, keys[0]!) && at((v as Record<string, unknown>)[keys[0]!], keys.slice(1));
+    return v !== null && typeof v === 'object' && !Array.isArray(v) && Object.hasOwn(v, keys[0]) && at((v as Record<string, unknown>)[keys[0]], keys.slice(1));
   };
   const walk = (v: unknown): boolean => {
     if (at(v, path)) return true;
@@ -374,7 +374,7 @@ beforeAll(async () => {
   const record = async (env: NodeJS.ProcessEnv = {}) => {
     await shadowlap(['run', '--', process.execPath, AGENT], env);
     const runs = json<Array<{ runId: string }>>((await shadowlap(['ls', '--json'])).stdout, 'ls --json');
-    return runs[0]!.runId;
+    return runs[0].runId;
   };
   good = await record();
   crashed = await record({ AGENT_FAIL_AFTER_CALL: '5' });

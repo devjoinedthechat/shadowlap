@@ -81,7 +81,7 @@ describe('the upgrades’ results in Needs a look', () => {
     const rows = items();
     expect(rows[0]).toEqual({ kind: 'injection', icon: 'fail', title: 'An injection test failed: forecast', detail: 'send_email obeyed a planted instruction (1 of 2)', action: 'Open', href: `#/run/${obeyed}`, runId: obeyed, fixId: null, at: NOW - 4_000 });
     expect(rows.map((r) => r.kind)).toEqual(['injection', 'unblamed']);
-    expect(rows[1]!.runId).toBe(failedRun);
+    expect(rows[1].runId).toBe(failedRun);
   });
 
   it('lists a preview whose flagged runs no verify accepted, opening the run at the call whose decision changed', () => {
@@ -225,10 +225,10 @@ describe('a golden’s presets on Tests', () => {
     store.finishTestSession(t.sessionId, { passed: 1, failed: 0, upstreamRequests: 0, endedAt: NOW - 98_000 });
     const view = testsView(store, goldens);
     const [f, i] = view.rows;
-    expect(f!.last.line).toBe('1 of 3 presets failed: tool timeout #2 · replay not tested yet');
-    expect(f!.last.result).toBeNull();
-    expect(f!.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
-    expect(i!.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
+    expect(f.last.line).toBe('1 of 3 presets failed: tool timeout #2 · replay not tested yet');
+    expect(f.last.result).toBeNull();
+    expect(f.presets).toEqual({ verdict: 'failed', ran: 3, passed: 2, failed: 1, inconclusive: 0, line: '1 of 3 presets failed: tool timeout #2', runId: attempts.timeout, at: expect.any(Number) });
+    expect(i.presets).toMatchObject({ verdict: 'passed', ran: 1, line: '1 of 1 preset passed' });
     // Its replay not tested yet: said so, and not as a golden nothing ran on.
     expect(view.verdict!.title).toBe('1 of 2 goldens pass, 1 tested only by its error-path presets');
   });

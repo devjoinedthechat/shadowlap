@@ -39,11 +39,11 @@ export function frontmatter(text: string): { fields: Map<string, string>; body: 
   if (!m) throw new Error('no frontmatter: the file must start with a --- line');
   const fields = new Map<string, string>();
   let map: string | null = null;
-  for (const line of m[1]!.split('\n')) {
+  for (const line of m[1].split('\n')) {
     if (map !== null && line.startsWith('  ')) {
       const kv = /^ {2}([a-z][a-z0-9-]*): (\S(?:.*\S)?)$/.exec(line);
       if (!kv) throw new Error(`not a "  key: value" line under ${map}: ${JSON.stringify(line)}`);
-      set(fields, `${map}.${kv[1]}`, kv[2]!);
+      set(fields, `${map}.${kv[1]}`, kv[2]);
       continue;
     }
     map = null;
@@ -53,7 +53,7 @@ export function frontmatter(text: string): { fields: Map<string, string>; body: 
     }
     const kv = /^([a-z][a-zA-Z-]*): (\S(?:.*\S)?)$/.exec(line);
     if (!kv) throw new Error(`not a "key: value" line: ${JSON.stringify(line)}`);
-    set(fields, kv[1]!, kv[2]!);
+    set(fields, kv[1], kv[2]);
   }
   return { fields, body: text.slice(m[0].length) };
 }
@@ -84,12 +84,12 @@ export function commandsIn(markdown: string): string[] {
   const found: string[] = [];
   const fences = /^```([\w-]*)[^\n]*\n([\s\S]*?)^```/gm;
   for (const m of markdown.matchAll(fences)) {
-    if (!['', 'sh', 'bash', 'shell', 'console'].includes(m[1]!)) continue;
-    for (const line of m[2]!.split('\n')) if (/^(\$ )?shadowlap\s/.test(line.trim())) found.push(line.trim().replace(/^\$ /, ''));
+    if (!['', 'sh', 'bash', 'shell', 'console'].includes(m[1])) continue;
+    for (const line of m[2].split('\n')) if (/^(\$ )?shadowlap\s/.test(line.trim())) found.push(line.trim().replace(/^\$ /, ''));
   }
   const prose = markdown.replace(fences, '');
   for (const m of prose.matchAll(/`([^`]+)`/g)) {
-    const span = m[1]!.replace(/\s+/g, ' ').trim();
+    const span = m[1].replace(/\s+/g, ' ').trim();
     if (span.startsWith('shadowlap ')) found.push(span);
   }
   return found;
@@ -126,7 +126,7 @@ export function blocksOf(markdown: string): string[] {
 }
 
 /** The code spans in a point, as written. */
-export const spansIn = (block: string): string[] => [...block.matchAll(/`([^`]+)`/g)].map((m) => m[1]!.trim());
+export const spansIn = (block: string): string[] => [...block.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim());
 
 /** A command line's words, as a POSIX shell splits it: single and double quotes group, and go. */
 export function words(line: string): string[] {

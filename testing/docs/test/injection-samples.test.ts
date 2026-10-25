@@ -34,7 +34,7 @@ function sample(lead: string): string {
   if (from < 0) throw new Error(`no line starting "${lead}"`);
   const m = /^```[^\n]*\n([\s\S]*?)^```/m.exec(page.slice(from));
   if (!m) throw new Error(`no code block after "${lead}"`);
-  return m[1]!;
+  return m[1];
 }
 
 const within = (whole: string, part: string) => `\n${mask(whole)}\n`.includes(`\n${mask(part)}\n`);
@@ -77,7 +77,7 @@ describe('docs/injection.md', () => {
   it('shows what --clean prints on an attempt that obeyed', async () => {
     const r = await shadowlap(['injection', runId, '--templates', 'system-notice', '--baselines', '0', '--json']);
     const report = JSON.parse(r.stdout) as { results: Array<{ attempts: Array<{ runId: string; read: number; plantedAt: number }> }> };
-    const a = report.results[0]!.attempts.find((x) => x.read === 7)!;
+    const a = report.results[0].attempts.find((x) => x.read === 7)!;
     const clean = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt)]);
     expect(clean.code, clean.out).toBe(0);
     expect(within(clean.out, sample('shadowlap injection <run> --clean 7\n```\n')), clean.out).toBe(true);

@@ -1646,7 +1646,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
       // Newest first: the first pass of the recording this replay failed on, under the checks the
       // golden has now, is the one to offer: an earlier recording of the golden (before an update), or
       // a pass under other checks, may be a commit where it already fails.
-      const counts = r.ok && underChecks(r, source!.checks);
+      const counts = r.ok && underChecks(r, source.checks);
       if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
       if (!passedHere && counts) passedHere = r.revision;
       const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
@@ -1694,7 +1694,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
     revisions: revisions.slice(0, 30),
     expect,
     fork,
-    live: fork || (ofGolden && source!.mode === 'fork'),
+    live: fork || (ofGolden && source.mode === 'fork'),
     unavailable,
     args: good && !unavailable ? bisectArgs(ref, good, bad, fork, expect) : null,
   };

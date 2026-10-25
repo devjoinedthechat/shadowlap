@@ -448,7 +448,7 @@ export function settingsOf(...sources: unknown[]): ModelSettings {
     set('frequencyPenalty', num(pick('frequency_penalty', 'frequencyPenalty')));
     set('presencePenalty', num(pick('presence_penalty', 'presencePenalty')));
     const stop = maybeJson(pick('stop', 'stop_sequences', 'stopSequences', 'ls_stop'));
-    if (Array.isArray(stop) && stop.every((x) => typeof x === 'string') && stop.length) set('stop', stop as string[]);
+    if (Array.isArray(stop) && stop.every((x) => typeof x === 'string') && stop.length) set('stop', stop);
     else if (typeof stop === 'string' && stop) set('stop', [stop]);
   }
   return s;

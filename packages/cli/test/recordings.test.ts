@@ -37,7 +37,7 @@ async function post<T>(url: string, body: unknown): Promise<{ status: number; bo
 
 /** What the SDK's tool() does: resolve, then run and complete unless the call was served or fenced. */
 async function tool(name: string, effect: 'read' | 'write', args: unknown, result: unknown): Promise<string> {
-  const base = sidecar.envForSlot('w').SHADOWLAP_URL!;
+  const base = sidecar.envForSlot('w').SHADOWLAP_URL;
   const r = (await post<{ origin: string; callNo: number }>(`${base}/v1/calls/resolve`, { kind: 'tool', name, effect, args, implHash: 'h' })).body;
   if (r.origin === 'live') await post(`${base}/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result, latencyMs: 1 });
   return r.origin;
@@ -82,7 +82,7 @@ describe('recorded calls for tests', () => {
     cpSync(join(root, 'recs', 'lookup'), join(root, 'recs', 'lookup-copy'), { recursive: true });
     const callsFile = join(root, 'recs', 'lookup-copy', 'calls.jsonl');
     const calls = readFileSync(callsFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { fingerprint: string });
-    calls[0]!.fingerprint = 'e'.repeat(64);
+    calls[0].fingerprint = 'e'.repeat(64);
     writeFileSync(callsFile, calls.map((c) => JSON.stringify(c)).join('\n') + '\n');
     const refused = await api<{ error: string }>('start', { recording: 'recs/lookup-copy', slot: 'w', mode: 'none' });
     expect(refused.status).toBe(409);

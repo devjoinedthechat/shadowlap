@@ -65,7 +65,7 @@ describe.skipIf(process.platform === 'win32')('shadowlap fix pr', () => {
     expect(r.stdout).toBe(`${fixId.slice(0, 13)} · PR #138 open\n`);
     expect(fixOf().data.source).toMatchObject({ ci: 'github', pr: { url: PR, number: 138, state: 'open' } });
     const listed = await shadowlap(['fix', 'ls', '--json']);
-    expect((JSON.parse(listed.stdout) as { fixes: Array<{ source: string }> }).fixes[0]!.source).toBe('from CI · PR #138');
+    expect((JSON.parse(listed.stdout) as { fixes: Array<{ source: string }> }).fixes[0].source).toBe('from CI · PR #138');
   });
 
   it('reads where the pull request stands from GitHub with gh, and records it', async () => {
@@ -76,7 +76,7 @@ describe.skipIf(process.platform === 'win32')('shadowlap fix pr', () => {
     expect(readFileSync(join(bin, 'asked'), 'utf8').split('\n').filter(Boolean)).toEqual(['pr', 'view', PR, '--json', 'state']);
     expect(fixOf().data.source?.pr?.state).toBe('merged');
     const listed = await shadowlap(['fix', 'ls', '--json']);
-    expect((JSON.parse(listed.stdout) as { fixes: Array<{ source: string }> }).fixes[0]!.source).toBe('from CI · PR #138 merged');
+    expect((JSON.parse(listed.stdout) as { fixes: Array<{ source: string }> }).fixes[0].source).toBe('from CI · PR #138 merged');
   });
 
   it('says what it can’t record or read', async () => {

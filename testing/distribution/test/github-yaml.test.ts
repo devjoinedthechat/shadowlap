@@ -27,20 +27,20 @@ function repeatedKeys(yml: string): string[] {
       // A list item starts a mapping of its own, two columns in.
       col += 2;
       rest = rest.slice(2).trimStart();
-      while (frames.length && frames[frames.length - 1]!.col >= col) frames.pop();
+      while (frames.length && frames[frames.length - 1].col >= col) frames.pop();
       const parent = frames[frames.length - 1];
       frames.push({ col, keys: new Set(), last: '', path: `${parent ? parent.path + parent.last : ''}[].` });
     }
     const m = /^([\w.-]+):(?:\s+(.*))?$/.exec(rest);
     if (!m) continue;
-    while (frames.length && frames[frames.length - 1]!.col > col) frames.pop();
+    while (frames.length && frames[frames.length - 1].col > col) frames.pop();
     let frame = frames[frames.length - 1];
     if (!frame || frame.col < col) {
       frame = { col, keys: new Set(), last: '', path: frame ? `${frame.path}${frame.last}.` : '' };
       frames.push(frame);
     }
-    if (frame.keys.has(m[1]!)) repeated.push(`${frame.path}${m[1]}`);
-    frame.keys.add(m[1]!);
+    if (frame.keys.has(m[1])) repeated.push(`${frame.path}${m[1]}`);
+    frame.keys.add(m[1]);
     frame.last = m[1]!;
     if (/^[|>][-+0-9]*(\s+#.*)?$/.test(m[2] ?? '')) scalar = col;
   }

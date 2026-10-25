@@ -32,12 +32,12 @@ function dirs(text: string): string[] {
 }
 
 const workflow = read('.github/workflows/release.yml');
-const publishLoop = dirs(/for p in ([^;]+); do\s+npm publish/.exec(workflow)![1]!);
-const tagLoop = dirs(/for p in ([^;]+); do\s+V=/.exec(workflow)![1]!);
+const publishLoop = dirs(/for p in ([^;]+); do\s+npm publish/.exec(workflow)![1]);
+const tagLoop = dirs(/for p in ([^;]+); do\s+V=/.exec(workflow)![1]);
 const setVersion = read('scripts/set-version.mjs');
-const versioned = dirs(/const PACKAGES = \[([^\]]+)\]/.exec(setVersion)![1]!);
-const internal = [...(/const INTERNAL = new Set\(\[([^\]]+)\]\)/.exec(setVersion)![1]!).matchAll(/'([^']+)'/g)].map((m) => m[1]!);
-const rehearsed = dirs(/const PACKAGES = \[([^\]]+)\]/.exec(read('scripts/release-rehearsal.mjs'))![1]!);
+const versioned = dirs(/const PACKAGES = \[([^\]]+)\]/.exec(setVersion)![1]);
+const internal = [...(/const INTERNAL = new Set\(\[([^\]]+)\]\)/.exec(setVersion)![1]).matchAll(/'([^']+)'/g)].map((m) => m[1]);
+const rehearsed = dirs(/const PACKAGES = \[([^\]]+)\]/.exec(read('scripts/release-rehearsal.mjs'))![1]);
 
 describe('the release', () => {
   const all = published.map((m) => m.dir).sort();

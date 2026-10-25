@@ -7,7 +7,7 @@ import { Sidecar } from '../src/server.js';
  * version) differs from the one the recording was made under; otherwise the stored ones are reused.
  */
 async function toolCall(sidecar: Sidecar, runId: string, args: unknown): Promise<void> {
-  const url = sidecar.envFor(runId).SHADOWLAP_URL!;
+  const url = sidecar.envFor(runId).SHADOWLAP_URL;
   const headers = { 'content-type': 'application/json', 'x-shadowlap-run': runId };
   const r = (await (await fetch(`${url}/v1/calls/resolve`, { method: 'POST', headers, body: JSON.stringify({ kind: 'tool', name: 'read', effect: 'read', args }) })).json()) as { origin: string; callNo: number };
   if (r.origin === 'live') await fetch(`${url}/v1/calls/${r.callNo}/complete`, { method: 'POST', headers, body: JSON.stringify({ outcome: 'ok', result: 'x', latencyMs: 1 }) });

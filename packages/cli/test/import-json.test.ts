@@ -162,8 +162,8 @@ describe('import --json', () => {
     const links = r.events.filter((e) => e.type === 'link');
     expect(links).toEqual([{ type: 'link', label: 'All 5 on Runs', href: '#/runs?q=imported%20gateway%20%282%29.jsonl' }]);
     // As a dashboard takes a job's links: a fragment of these characters only.
-    expect(links[0]!.href).toMatch(/^#\/[\w\-./~%?=&+:@,!*$]*$/);
-    expect(new URLSearchParams(String(links[0]!.href).split('?')[1]).get('q')).toBe('imported gateway (2).jsonl');
+    expect(links[0].href).toMatch(/^#\/[\w\-./~%?=&+:@,!*$]*$/);
+    expect(new URLSearchParams(String(links[0].href).split('?')[1]).get('q')).toBe('imported gateway (2).jsonl');
     // Runs from files of different names share only the label.
     expect(importedRunsLink([{ source: 'a.jsonl' }, { source: 'b.jsonl' }])).toBe('#/runs?q=imported');
     expect(importedRunsLink([{ source: "it's *new*!.har" }])).toBe('#/runs?q=imported%20it%27s%20%2Anew%2A%21.har');
@@ -201,7 +201,7 @@ describe('import --json', () => {
     const [second] = JSON.parse(split.out).runs;
     const store = Store.open(db);
     try {
-      expect(store.getRun(String(first!.runId))!.meta?.imported?.from).toBe('--json');
+      expect(store.getRun(String(first.runId))!.meta?.imported?.from).toBe('--json');
       expect(store.getRun(second.runId)!.meta?.imported?.from).toBe('-x.har');
       expect(second.source).toBe('-x.har');
     } finally {
@@ -220,7 +220,7 @@ describe('import --json', () => {
     ]);
     const store = Store.open(db);
     try {
-      const questions = store.getCalls(json.runs[0].runId).map((c) => (loadApiRequest(store, c.requestRef!) as { messages: Array<{ content: string }> }).messages[0]!.content);
+      const questions = store.getCalls(json.runs[0].runId).map((c) => (loadApiRequest(store, c.requestRef!) as { messages: Array<{ content: string }> }).messages[0].content);
       expect(questions).toEqual(['first', 'second', 'third']);
     } finally {
       store.close();

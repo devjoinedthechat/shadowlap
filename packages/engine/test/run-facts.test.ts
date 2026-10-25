@@ -122,7 +122,7 @@ describe('a replay’s interventions', () => {
       { kind: 'writes', at: null, flag: '--writes stub' },
       { flag: '--override' },
     ]);
-    expect(copy.notRecorded!.hosts[0]!.target).toBe('<HOST>:5432');
+    expect(copy.notRecorded!.hosts[0].target).toBe('<HOST>:5432');
     for (const secret of ['jane.doe', '078-05-1120', 'victim.person', 'payroll-db']) expect(JSON.stringify(dst.getRun(b.runId)!.meta?.interventions), secret).not.toContain(secret);
     // Labels are the person's own words, not a flag's to mask.
     expect(copy.labels).toEqual(['jane.doe@corp.example']);
