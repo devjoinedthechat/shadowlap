@@ -54,6 +54,30 @@ const history = (o: Partial<Omit<BaselineGate, 'kind'>> = {}): BaselineGate => (
 const BLAME: SprtGate = { kind: 'sprt', ...BLAME_DEFAULTS };
 const H47: GateHistory = { passes: 47, attempts: 50, sessions: 10 };
 
+type Rule = (passes: number, attempts: number) => 'pass' | 'fail' | 'continue' | 'inconclusive';
+
+/** The exact odds of a rule's verdicts at pass rate p, every look counted: a walk over the counts it can see. */
+function walkOdds(rule: Rule, limit: number, p: number): { pass: number; fail: number } {
+  let walking = new Map<number, number>([[0, 1]]);
+  const out = { pass: 0, fail: 0 };
+  for (let n = 1; n <= limit && walking.size; n++) {
+    const next = new Map<number, number>();
+    for (const [s, mass] of walking) {
+      for (const [passes, q] of [
+        [s + 1, p],
+        [s, 1 - p],
+      ] as const) {
+        if (q === 0) continue;
+        const d = rule(passes, n);
+        if (d === 'continue') next.set(passes, (next.get(passes) ?? 0) + mass * q);
+        else if (d === 'pass' || d === 'fail') out[d] += mass * q;
+      }
+    }
+    walking = next;
+  }
+  return out;
+}
+
 /** Attempts in an order a gate ends on at the last of them with `decision`, for a tally that order makes: the first such order. */
 function endingAt(gate: Gate, passes: number, attempts: number, decision: 'pass' | 'fail' | 'inconclusive', h: Tally | null = null): boolean[] {
   for (let mask = 0; mask < 2 ** attempts; mask++) {
@@ -96,20 +120,35 @@ describe('docs/gating.md, figure by figure', () => {
     says(`an agent that passes 80% of the time is passed ${whole(gateOdds(g, 0.8).pass)} of the time`);
   });
 
-  it('the sequential test: its steps, its bounds, and the errors Wald bounds', () => {
+  it('the sequential test: its steps, its bounds, and the errors they keep, where Wald’s did not', () => {
     const g = sprt();
     const b = sprtBounds(g);
-    says(`a pass adds ln(9/7) ≈ ${b.pass.toFixed(4)}, a failure adds ln(1/3) ≈ ${b.fail.toFixed(4).replace('-', '−')}, and the bounds are ±ln 19 ≈ ±${b.upper.toFixed(3)}`);
+    expect([Math.exp(b.upper), Math.exp(-b.lower)].map((x) => +x.toFixed(9))).toEqual([20, 20]);
+    says(`a pass adds ln(9/7) ≈ ${b.pass.toFixed(4)}, a failure adds ln(1/3) ≈ ${b.fail.toFixed(4).replace('-', '−')}, and the bounds are ±ln 20 ≈ ±${b.upper.toFixed(3)}`);
     says(`accepted after ${attemptsToPass(g)} (11 × ${b.pass.toFixed(4)} is ${(11 * b.pass).toFixed(3)}, still short of ${b.upper.toFixed(3)})`);
     says(`rejected after ${attemptsToFail(g)};`);
     says(`each failure takes about ${passesPerFailure(g).toFixed(1)} more passes to make up for`);
     // One failure: 17 passes, 18 attempts; two: 21 passes.
     expect([decide(16, 17, g), decide(17, 18, g), decide(20, 22, g), decide(21, 23, g)]).toEqual(['continue', 'pass', 'continue', 'pass']);
     says('with one failure anywhere, it passes after 17 of 18; with two, it needs 21 passes');
-    says(`passed at most α / (1 − β) of the time (${pct(g.risk / (1 - g.risk))} here)`);
-    // And it keeps it, exactly, every look counted: at bad, passed at most that; at good, failed at most β / (1 − α).
-    expect(gateOdds(g, g.bad).pass).toBeLessThanOrEqual(g.risk / (1 - g.risk));
-    expect(gateOdds(g, g.good).fail).toBeLessThanOrEqual(g.risk / (1 - g.risk));
+    // It keeps them, exactly, every look counted: at bad, passed at most α; at good, failed at most β.
+    expect(gateOdds(g, g.bad).pass).toBeLessThanOrEqual(g.risk);
+    expect(gateOdds(g, g.good).fail).toBeLessThanOrEqual(g.risk);
+    // Wald's bounds, ±ln((1 − α) / α), kept them only within α / (1 − β), and a gate between 98% and
+    // 73% at 5% went past it there.
+    const wald = (x: SprtGate): Rule => {
+      const w = Math.log((1 - x.risk) / x.risk);
+      const s = sprtBounds(x);
+      return (passes, attempts) => {
+        const score = passes * s.pass + (attempts - passes) * s.fail;
+        return score >= w - 1e-9 ? 'pass' : score <= -w + 1e-9 ? 'fail' : attempts >= x.max ? 'inconclusive' : 'continue';
+      };
+    };
+    const tight = sprt({ good: 0.98, bad: 0.73, max: 1000 });
+    const before = walkOdds(wald(tight), tight.max, tight.bad).pass;
+    expect(before).toBeGreaterThan(tight.risk);
+    expect(gateOdds(tight, tight.bad).pass).toBeLessThanOrEqual(tight.risk);
+    says(`keep the errors only within α / (1 − β), ${pct(g.risk / (1 - g.risk))} at these figures, and a gate's exact error can go past its risk under them: one between 98% and 73% at 5% risk, up to 1,000 attempts, passed an agent at 73% ${pct(before, 2)} of the time`);
   });
 
   it('what a gate costs: the exact odds of each verdict, row by row', () => {
@@ -137,8 +176,8 @@ describe('docs/gating.md, figure by figure', () => {
     const red = runsRed(split, goldens, 'fail');
     says(`| The default: 5% for the suite, split 100 ways | ${String(+(goldens * split.fail).toPrecision(1))} | under 0.0001 | ${(100 * red).toPrecision(2)}% | ${(100 * runsRed(split, goldens, 'warn')).toPrecision(2)}% | ${split.attempts.toFixed(2)} |`);
     const one = gateOdds(sprt(), 0.95);
-    expect(Math.round(1 / runsRed(one, goldens, 'fail'))).toBe(6);
-    says(`${pct(one.fail, 2)} of a healthy agent's goldens fail, and one in six runs goes red`);
+    expect(Math.round(1 / runsRed(one, goldens, 'fail'))).toBe(7);
+    says(`${pct(one.fail, 2)} of a healthy agent's goldens fail, and one in seven runs goes red`);
     says(`a healthy suite then goes red about once in ${(Math.floor(1 / red / 1000) * 1000).toLocaleString('en-US')} runs, at ${split.attempts.toFixed(2)} attempts a golden instead of ${one.attempts.toFixed(1)}`);
   });
 
@@ -164,7 +203,8 @@ describe('docs/gating.md, figure by figure', () => {
     says(`\`gate: ${describeGate(g)}\``);
     // What it costs.
     expect(attemptsToPass(g)).toBe(12);
-    says(`from ln 19 to ln ${Math.exp(sprtBounds(g).upper).toFixed(2)} (ln((1 − β) / α)), so an agent that always passes still needs 12 attempts, and one at 95% takes ${gateOdds(g, 0.95).attempts.toFixed(2)} on average instead of ${gateOdds(sprt(), 0.95).attempts.toFixed(1)}`);
+    expect(sprtBounds(g).upper).toBe(sprtBounds(sprt()).upper);
+    says(`the score a gate passes at stays at ln ${Math.round(Math.exp(sprtBounds(g).upper))}, ln(1 / α), whatever β, so an agent that always passes still needs 12 attempts, and one at 95% takes ${gateOdds(g, 0.95).attempts.toFixed(2)} on average instead of ${gateOdds(sprt(), 0.95).attempts.toFixed(1)}`);
     const bad = gateOdds(g, 0.7);
     says(`still goes red ${whole(bad.fail + bad.inconclusive)} of the time, after ${bad.attempts.toFixed(1)} attempts on average instead of ${Math.round(gateOdds(sprt(), 0.7).attempts)}; one at 80% after ${gateOdds(g, 0.8).attempts.toFixed(1)}`);
     expect(runsRed(gateOdds(g, 0.8), 100)).toBeGreaterThan(0.9999);
@@ -251,7 +291,7 @@ describe('docs/gating.md, figure by figure', () => {
     expect(share(5).risk).toBeCloseTo(0.01, 3);
     expect(share(10).risk).toBeCloseTo(0.005, 3);
     says('about 1% to 0.5% for a search of 5 to 10 probes (a run of 3 to 128 model calls)');
-    expect(searches.map((p) => share(p).max)).toEqual([32, 33, 34, 35, 36, 36]);
+    expect(searches.map((p) => share(p).max)).toEqual([31, 32, 33, 34, 35, 36]);
     says(`${BLAME.max} becomes ${share(5).max} to ${share(10).max} attempts`);
     expect(searches.map((p) => attemptsToPass(share(p)))).toEqual([3, 3, 3, 3, 3, 3]);
     expect(searches.map((p) => attemptsToFail(share(p)))).toEqual([6, 6, 7, 7, 7, 7]);

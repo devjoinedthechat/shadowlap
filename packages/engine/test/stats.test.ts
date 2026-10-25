@@ -86,15 +86,17 @@ describe('the binomial table: what a fixed 4 of 5 lets through', () => {
 });
 
 describe('the SPRT', () => {
-  it('adds ln(good/bad) for a pass and ln((1−good)/(1−bad)) for a failure, between ±ln((1−risk)/risk)', () => {
+  it('adds ln(good/bad) for a pass and ln((1−good)/(1−bad)) for a failure, between ln(1/risk) and ln(failRisk)', () => {
     const b = sprtBounds(SPEC);
     expect(b.pass).toBeCloseTo(Math.log(0.9 / 0.7), 14);
     expect(b.fail).toBeCloseTo(Math.log(0.1 / 0.3), 14);
-    expect(b.upper).toBeCloseTo(Math.log(19), 14);
+    expect(b.upper).toBeCloseTo(Math.log(20), 14);
     expect(b.lower).toBe(-b.upper);
     expect(b.pass).toBeCloseTo(0.2513144, 7);
     expect(b.fail).toBeCloseTo(-1.0986123, 7);
-    expect(b.upper).toBeCloseTo(2.9444390, 7);
+    expect(b.upper).toBeCloseTo(2.9957323, 7);
+    // A lower risk for a failure moves only the bound a failure is decided at.
+    expect(sprtBounds({ ...SPEC, failRisk: 0.001 })).toMatchObject({ upper: b.upper, lower: Math.log(0.001) });
     expect(sprtStep(0, true, SPEC)).toBe(b.pass);
     expect(sprtStep(sprtStep(0, true, SPEC), false, SPEC)).toBeCloseTo(b.pass + b.fail, 15);
     expect(sprtScore(3, 4, SPEC)).toBeCloseTo(3 * b.pass + b.fail, 15);
@@ -121,7 +123,7 @@ describe('the SPRT', () => {
     expect(decide(0, 1, SPEC)).toBe('continue');
     expect(decide(0, 2, SPEC)).toBe('continue');
     expect(decide(0, 3, SPEC)).toBe('fail');
-    // Four failures outweigh a pass: 0.25 − 4.39 is below −2.94.
+    // Four failures outweigh a pass: 0.25 − 4.39 is below −3.00.
     expect(decide(1, 5, SPEC)).toBe('fail');
   });
 
@@ -132,13 +134,65 @@ describe('the SPRT', () => {
     expect(decide(0, 0, SPEC)).toBe('continue');
   });
 
-  it('keeps each verdict wrong at most risk of the time, as Wald bounds it, at good and at bad', () => {
-    for (const g of [SPEC, sprt(), sprt({ good: 0.95, bad: 0.8, risk: 0.1, max: 60 }), sprt({ ...BLAME_DEFAULTS })]) {
-      const bound = g.risk / (1 - g.risk);
-      expect(gateOdds(g, g.good).fail, describeGate(g)).toBeLessThanOrEqual(bound);
-      expect(gateOdds(g, g.bad).pass, describeGate(g)).toBeLessThanOrEqual(bound);
+  it('keeps each verdict wrong at most its risk of the time, at good and at bad, as its line says', () => {
+    for (const g of [SPEC, sprt(), sprt({ good: 0.95, bad: 0.8, risk: 0.1, max: 60 }), sprt({ ...BLAME_DEFAULTS }), sprt({ failRisk: 0.0005, max: 200 })]) {
+      expect(gateOdds(g, g.good).fail, describeGate(g)).toBeLessThanOrEqual(g.failRisk ?? g.risk);
+      expect(gateOdds(g, g.bad).pass, describeGate(g)).toBeLessThanOrEqual(g.risk);
     }
   });
+
+  it('keeps every gate a config can set within the risk its line prints, on a grid of rates, risks and limits, where Wald’s bounds did not', () => {
+    // Every gate of `good` and `bad` a twentieth apart that parseGate accepts, at five risks and three
+    // limits: the exact chance it passes an agent at `bad` and fails one at `good`, every look counted.
+    // Under Wald's bounds, ±ln((1 − risk) / risk), some went past the risk they print; under ln(1/risk)
+    // and ln(risk), none does.
+    const exactly = (g: SprtGate, upper: number, lower: number) => {
+      const b = sprtBounds(g);
+      const rule = (passes: number, n: number) => {
+        const score = passes * b.pass + (n - passes) * b.fail;
+        return score >= upper - 1e-9 ? 'pass' : score <= lower + 1e-9 ? 'fail' : n >= g.max ? 'inconclusive' : 'continue';
+      };
+      const at = (p: number) => {
+        let walking = new Map<number, number>([[0, 1]]);
+        const out = { pass: 0, fail: 0 };
+        for (let n = 1; n <= g.max && walking.size; n++) {
+          const next = new Map<number, number>();
+          for (const [s0, m] of walking)
+            for (const [x, q] of [
+              [s0 + 1, p],
+              [s0, 1 - p],
+            ] as const) {
+              const d = rule(x, n);
+              if (d === 'continue') next.set(x, (next.get(x) ?? 0) + m * q);
+              else if (d !== 'inconclusive') out[d] += m * q;
+            }
+          walking = next;
+        }
+        return out;
+      };
+      return Math.max(at(g.bad).pass, at(g.good).fail);
+    };
+    let tried = 0;
+    let waldOver = 0;
+    for (const risk of [0.01, 0.05, 0.1, 0.2, 0.3])
+      for (const max of [20, 80, 1000])
+        for (let good = 55; good <= 95; good += 5)
+          for (let bad = 5; bad < good - 2; bad += 5) {
+            let g: SprtGate;
+            try {
+              g = parseGate({ good: good / 100, bad: bad / 100, risk, max }, 'g') as SprtGate;
+            } catch {
+              continue;
+            }
+            tried++;
+            const b = sprtBounds(g);
+            expect(exactly(g, b.upper, b.lower), describeGate(g)).toBeLessThanOrEqual(risk + 1e-12);
+            const wald = Math.log((1 - risk) / risk);
+            if (exactly(g, wald, -wald) > risk + 1e-12) waldOver++;
+          }
+    expect(tried).toBeGreaterThan(1000);
+    expect(waldOver).toBeGreaterThan(10);
+  }, 60_000);
 
   it('gives exact odds and attempts: every way it can end, adding up to 1', () => {
     const always = gateOdds(SPEC, 1);
@@ -146,24 +200,24 @@ describe('the SPRT', () => {
     expect(gateOdds(SPEC, 0)).toEqual({ pass: 0, fail: 1, inconclusive: 0, attempts: 3 });
     const healthy = gateOdds(SPEC, 0.95);
     expect(healthy.pass + healthy.fail + healthy.inconclusive).toBeCloseTo(1, 12);
-    // A 95% agent: wrongly failed 0.16% of the time where 4 of 5 fails it 2.26%, at 15.2 attempts.
-    expect(healthy.fail).toBeCloseTo(0.0016, 4);
+    // A 95% agent: wrongly failed 0.14% of the time where 4 of 5 fails it 2.26%, at 15.2 attempts.
+    expect(healthy.fail).toBeCloseTo(0.00143, 5);
     expect(healthy.attempts).toBeCloseTo(15.16, 2);
     // With 20 attempts one failure can be made up for, two can't: a fifth of 95% agents end inconclusive.
-    expect(healthy.inconclusive).toBeCloseTo(0.2072, 4);
-    // 40 leaves 0.75% of them inconclusive; the default, 80, almost none, for 1.5 more attempts on average.
-    expect(gateOdds(sprt({ max: 40 }), 0.95).inconclusive).toBeCloseTo(0.0075, 4);
+    expect(healthy.inconclusive).toBeCloseTo(0.2073, 4);
+    // 40 leaves 0.78% of them inconclusive; the default, 80, almost none, for 1.5 more attempts on average.
+    expect(gateOdds(sprt({ max: 40 }), 0.95).inconclusive).toBeCloseTo(0.0078, 4);
     const roomier = gateOdds(sprt(), 0.95);
     expect(SPRT_DEFAULTS.max).toBe(80);
     expect(roomier.inconclusive).toBeLessThan(0.0001);
-    expect(roomier.fail).toBeCloseTo(0.001667, 6);
-    expect(roomier.attempts).toBeCloseTo(16.61, 2);
-    // A 70% agent gets through 2% of the time, not 53%; at 80 attempts, 4.5%.
+    expect(roomier.fail).toBeCloseTo(0.001547, 6);
+    expect(roomier.attempts).toBeCloseTo(16.69, 2);
+    // A 70% agent gets through 2% of the time, not 53%; at 80 attempts, 4.3%.
     expect(gateOdds(SPEC, 0.7).pass).toBeCloseTo(0.0222, 4);
-    expect(gateOdds(sprt(), 0.7).pass).toBeCloseTo(0.0446, 4);
-    // The room costs only where the evidence is close: a 90% agent takes 24.4 attempts, an 80% one 34.
-    expect(gateOdds(sprt(), 0.9).attempts).toBeCloseTo(24.41, 2);
-    expect(gateOdds(sprt(), 0.8).attempts).toBeCloseTo(34.02, 2);
+    expect(gateOdds(sprt(), 0.7).pass).toBeCloseTo(0.043, 4);
+    // The room costs only where the evidence is close: a 90% agent takes 24.8 attempts, an 80% one 34.8.
+    expect(gateOdds(sprt(), 0.9).attempts).toBeCloseTo(24.78, 2);
+    expect(gateOdds(sprt(), 0.8).attempts).toBeCloseTo(34.77, 2);
   });
 
   it('gives the same odds at many rates at once as one at a time', () => {
@@ -233,15 +287,15 @@ describe('what a CI run sees', () => {
     expect(runsRed(countOdds(5, 4, 0.95), 100)).toBeCloseTo(0.8982, 4);
   });
 
-  it('the default gate about 16%, counting inconclusive goldens as --inconclusive fail does', () => {
+  it('the default gate about 15%, counting inconclusive goldens as --inconclusive fail does', () => {
     const odds = gateOdds(sprt(), 0.95);
-    expect(runsRed(odds, 100, 'fail')).toBeCloseTo(0.1558, 4);
+    expect(runsRed(odds, 100, 'fail')).toBeCloseTo(0.1458, 4);
     // The floor is its false failures alone, as under --inconclusive warn: 80 attempts leave little else.
-    expect(runsRed(odds, 100, 'warn')).toBeCloseTo(0.1537, 4);
-    // With 40, the inconclusive goldens turn 60% of runs red; with 20, all of them.
-    expect(runsRed(gateOdds(sprt({ max: 40 }), 0.95), 100)).toBeCloseTo(0.6016, 4);
+    expect(runsRed(odds, 100, 'warn')).toBeCloseTo(0.1435, 4);
+    // With 40, the inconclusive goldens turn 61% of runs red; with 20, all of them.
+    expect(runsRed(gateOdds(sprt({ max: 40 }), 0.95), 100)).toBeCloseTo(0.6068, 4);
     expect(runsRed(gateOdds(SPEC, 0.95), 100)).toBeGreaterThan(0.9999);
-    expect(runsRed(gateOdds(SPEC, 0.95), 100, 'warn')).toBeCloseTo(0.1441, 4);
+    expect(runsRed(gateOdds(SPEC, 0.95), 100, 'warn')).toBeCloseTo(0.1334, 4);
   });
 });
 

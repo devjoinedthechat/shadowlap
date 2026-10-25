@@ -32,7 +32,7 @@ describe('the session plan', () => {
   });
 
   it('says nothing of a split for one golden, and names one whose max can’t keep within its share', () => {
-    expect(suiteLines(planSuite(goldens(1, { costPerAttempt: 0.01 }))!)).toEqual(['forecast: about 24 attempts, up to 80 · about $0.244']);
+    expect(suiteLines(planSuite(goldens(1, { costPerAttempt: 0.01 }))!)).toEqual(['forecast: about 25 attempts, up to 80 · about $0.248']);
     const short = suiteLines(planSuite(goldens(2, { gate: { ...gate, max: 20 }, maxGiven: true, costPerAttempt: 0.01 }))!);
     expect(short.at(-1)).toMatch(/^goldens\/g1: its max of 20 leaves \d+(\.\d+)?% of attempts at its good rate inconclusive, more than its 2\.5% share of the suite's risk: raise its max, or leave it out to let the session size it$/);
   });

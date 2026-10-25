@@ -9,12 +9,15 @@
  *   `inconclusive`, under one of two gates:
  *   - `sprt`, Wald's sequential probability ratio test between a pass rate of `good` and one of
  *     `bad`: each pass adds ln(good/bad) to a score and each failure ln((1−good)/(1−bad)); the gate
- *     passes once the score reaches ln((1−risk)/risk) and fails once it falls to minus that, so an
- *     agent at `bad` or below is passed, and one at `good` or above failed, at most about `risk` of
- *     the time (Wald's bound is risk / (1 − risk)). Between the two rates nothing is promised: an
- *     agent that passes 80% of the time passes a gate between 90% and 70% about 38% of the time. So
- *     a verdict says what the gate tells apart, never that the agent passes at some rate. When `max`
- *     attempts run out between the bounds, it is inconclusive: an honest answer, not a coin toss.
+ *     passes once the score reaches ln(1/risk) and fails once it falls to ln(risk), so an agent at
+ *     `bad` or below is passed, and one at `good` or above failed, at most `risk` of the time. The
+ *     score is the log of a likelihood ratio, a martingale at either rate, so Ville's inequality
+ *     bounds the chance it ever reaches either bound by the risk, at every look and whatever the
+ *     limit (Wald's own bounds, ln((1−risk)/risk), only promised risk / (1 − risk)). Between the
+ *     two rates nothing is promised: an agent that passes 80% of the time passes a gate between 90%
+ *     and 70% about 37% of the time. So a verdict says what the gate tells apart, never that the
+ *     agent passes at some rate. When `max` attempts run out between the bounds, it is
+ *     inconclusive: an honest answer, not a coin toss.
  *   - `baseline`, against the golden's own history: the pass rates now and in the last `window`
  *     sessions, each a Beta posterior under a uniform prior (a beta-binomial comparison). From `min`
  *     attempts on, after each one, it fails when P(now < baseline − drop) > 1 − risk, passes once
@@ -89,8 +92,8 @@ export interface GateHistory extends Tally {
 /**
  * The figures `{}` stands for: tell a pass rate of 90% or more from one of 70% or less, at most 5%
  * risk each way, up to 80 attempts. An agent that always passes is accepted after 12 and one that passes 95% of the time
- * after 16.6 on average whatever the limit; 80 leaves almost none of the latter inconclusive, where
- * 40 left 0.75% of them so (with 100 forked goldens in CI, a red run 60% of the time) and 20 a fifth.
+ * after 16.7 on average whatever the limit; 80 leaves almost none of the latter inconclusive, where
+ * 40 left 0.78% of them so (with 100 forked goldens in CI, a red run 61% of the time) and 20 a fifth.
  */
 export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.9, bad: 0.7, risk: 0.05, max: 80 });
 
@@ -99,7 +102,7 @@ export const SPRT_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ g
  * that passes 10% or less (the run is lost there). The 5% is the whole search's, never one probe's:
  * blame spreads it over the most probes the search can make, 1 + ⌈log₂ m⌉ + scan for m model calls,
  * and runs each probe at its share with `max` deepened to match (`probeGate` in blame.ts). For a
- * search of 5 to 10 probes that is about 1% to 0.5% a probe and 32 to 36 attempts, where three
+ * search of 5 to 10 probes that is about 1% to 0.5% a probe and 31 to 36 attempts, where three
  * straight passes rescue and six or seven straight failures lose.
  */
 export const BLAME_DEFAULTS: Readonly<Omit<SprtGate, 'kind'>> = Object.freeze({ good: 0.6, bad: 0.1, risk: 0.05, max: 20 });
@@ -203,21 +206,28 @@ export interface SprtBounds {
   pass: number;
   /** Added for each failure: ln((1−good)/(1−bad)), below 0. */
   fail: number;
-  /** It passes at or above this: ln((1−failRisk)/risk), ln((1−risk)/risk) with one risk each way. */
+  /** It passes at or above this: ln(1/risk). */
   upper: number;
-  /** It fails at or below this: ln(failRisk/(1−risk)), the negative of `upper` with one risk each way. */
+  /** It fails at or below this: ln(failRisk), the negative of `upper` with one risk each way. */
   lower: number;
 }
 
 /** The figures an SPRT's score and bounds are made of. */
 export type SprtFigures = Pick<SprtGate, 'good' | 'bad' | 'risk'> & { failRisk?: number | undefined };
 
-/** Wald's bounds with a pass wrong at most α = risk of the time at `bad`, and a failure β = failRisk at `good`. */
+/**
+ * The bounds with a pass wrong at most α = risk of the time at `bad`, and a failure at most β =
+ * failRisk at `good`, as the verdict line says (`<= 5% risk`): ln(1/α) and ln(β). The likelihood
+ * ratio of `good` to `bad` the score is the log of has mean 1 at `bad`, and less below it, so by
+ * Ville's inequality it ever reaches 1/α at most α of the time, every look counted and whatever the
+ * limit; its inverse does the same at `good` and above. Wald's ln((1−β)/α) and ln(β/(1−α)) only
+ * keep the errors within α/(1−β) and β/(1−α), a little over what a gate states: a gate a config
+ * sets at 5% could pass 5.12% of the time at `bad`.
+ */
 export function sprtBounds(g: SprtFigures): SprtBounds {
   const a = g.risk;
   const b = g.failRisk ?? g.risk;
-  const upper = Math.log((1 - b) / a);
-  return { pass: Math.log(g.good / g.bad), fail: Math.log((1 - g.good) / (1 - g.bad)), upper, lower: b === a ? -upper : Math.log(b / (1 - a)) };
+  return { pass: Math.log(g.good / g.bad), fail: Math.log((1 - g.good) / (1 - g.bad)), upper: -Math.log(a), lower: Math.log(b) };
 }
 
 /** The SPRT's step: the score after one more attempt. */

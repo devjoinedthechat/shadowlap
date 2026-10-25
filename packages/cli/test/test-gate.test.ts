@@ -321,9 +321,9 @@ describe('shadowlap test with several gated goldens', () => {
       expect(r.out).toMatch(/forecast: about \d+ attempts \([\d.]+ a golden on average\), up to 164 · /);
       expect(r.out).toContain('suite risk 5%: 2 gated goldens, 2.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer');
       // Each gate keeps its risk for a pass, takes its share for a failure, and its max is sized for it.
-      const rule = 'gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 2.2% to fail, up to 82 attempts';
+      const rule = 'gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 2.3% to fail, up to 82 attempts';
       for (const result of r.report.results) {
-        expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, failRisk: 0.022, max: 82, decision: 'pass', attempts: 12 });
+        expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, failRisk: 0.023, max: 82, decision: 'pass', attempts: 12 });
         expect(result.gate.sentence).toBe(`passed · 12 of 12 · rate >= 0.73 (95%) · ${rule}`);
         expect(result.gate.bound).toEqual({ lo: expect.closeTo(0.7354, 4), confidence: 0.95, method: 'stagewise' });
       }

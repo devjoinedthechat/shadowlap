@@ -195,9 +195,9 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
     expect(c.worst).toBeLessThan(0.97);
   });
 
-  it("under a blame probe's gate, at its share of the search's 5%: 0.6 / 0.1 at 0.62%, up to 35 attempts, its bound at 99.4%", () => {
-    expect(PROBE).toMatchObject({ good: 0.6, bad: 0.1, max: 35 });
-    expect(PROBE.risk).toBeCloseTo(0.0062, 4);
+  it("under a blame probe's gate, at its share of the search's 5%: 0.6 / 0.1 at 0.625%, up to 34 attempts, its bound at 99.4%", () => {
+    expect(PROBE).toMatchObject({ good: 0.6, bad: 0.1, max: 34 });
+    expect(PROBE.risk).toBeCloseTo(0.00625, 12);
     const c = COVERED.blame();
     expect(c.worst).toBeGreaterThanOrEqual(1 - PROBE.risk);
     expect(c.worstLow).toBeGreaterThanOrEqual(1 - PROBE.risk / 2);
@@ -205,8 +205,8 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
   });
 
   it('under a gate with its suite share of the risk for a failure, and the max sized for it', () => {
-    // The gate a session gives each of 100 goldens: 0.045% to fail, up to 179 attempts.
-    expect(SPLIT()).toMatchObject({ failRisk: 0.00045, max: 179 });
+    // The gate a session gives each of 100 goldens: 0.047% to fail, up to 179 attempts.
+    expect(SPLIT()).toMatchObject({ failRisk: 0.00047, max: 179 });
     const c = COVERED.split();
     expect(c.worst).toBeGreaterThanOrEqual(0.95);
     expect(c.worstLow).toBeGreaterThanOrEqual(0.975);

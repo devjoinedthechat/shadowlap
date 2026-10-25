@@ -124,18 +124,16 @@ export function probeRisk(rule: { gate: SprtGate } | { attempts: number; needed:
 
 /**
  * The gate each probe runs under when a search of up to `probes` probes spends `gate.risk` across
- * them: the same rates, at a risk whose Wald bound, risk / (1 - risk), is the search's risk divided
- * by `probes`. A gate's exact error at its two rates is never above its Wald bound, so the probes'
- * risks add up to the search's at most. A smaller risk asks for more evidence, ln((1 - risk) / risk)
- * where the gate asked ln((1 - its risk) / its risk), so its `max` grows by that ratio: the cap stays
- * as far into the evidence as the gate's, and a call at either rate is left inconclusive about as
- * rarely (20 attempts at 5% become 32 to 36 at the shares of 5 to 10 probes). A probe always gets
- * the attempts a rescue needs.
+ * them: the same rates, at the search's risk divided by `probes`. A gate's error at its two rates is
+ * never above its risk (stats.ts `sprtBounds`), so the probes' risks add up to the search's at most.
+ * A smaller risk asks for more evidence, ln(1 / risk) where the gate asked ln(1 / its risk), so its
+ * `max` grows by that ratio: the cap stays as far into the evidence as the gate's, and a call at
+ * either rate is left inconclusive about as rarely (20 attempts at 5% become 31 to 36 at the shares
+ * of 5 to 10 probes). A probe always gets the attempts a rescue needs.
  */
 export function probeGate(gate: SprtGate, probes: number): SprtGate {
-  const share = gate.risk / Math.max(1, probes);
-  const each: SprtGate = { ...gate, risk: share / (1 + share) };
-  const deeper = Math.log((1 - each.risk) / each.risk) / Math.log((1 - gate.risk) / gate.risk);
+  const each: SprtGate = { ...gate, risk: gate.risk / Math.max(1, probes) };
+  const deeper = Math.log(1 / each.risk) / Math.log(1 / gate.risk);
   return { ...each, max: Math.max(Math.ceil(gate.max * deeper - 1e-9), attemptsToPass(each)) };
 }
 
