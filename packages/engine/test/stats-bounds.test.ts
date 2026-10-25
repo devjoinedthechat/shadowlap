@@ -26,11 +26,17 @@ import { probeGate } from '../src/blame.js';
 import { planSuite } from '../src/suite.js';
 
 /**
- * The bound every verdict line shows (`rate >= 0.73 (95%)`) is proven here, exactly: for a pass
- * rate on a grid from 1% to 99%, every way a gate can stop is enumerated with its chance, and the
- * bound shown at each stop is checked against the rate. "Covers" means the statement the report
+ * The bound every verdict line shows (`rate >= 0.73 (95%)`) is proven here, exactly: at every pass
+ * rate where its coverage can be lowest, every way a gate can stop is enumerated with its chance, and
+ * the bound shown at each stop is checked against the rate. "Covers" means the statement the report
  * prints is true: `rate >= lo` after a pass, `rate <= hi` after a failure, `lo <= rate <= hi`
  * when inconclusive, with the printed ends rounded as printed. No sampling: these are sums.
+ *
+ * Where it can be lowest: a printed end is a whole hundredth, so the coverage jumps at every
+ * hundredth, down just below a low end (`rate >= 0.73` is false at 0.7299…) and just above a high
+ * end. A grid of hundredths lands on the very rates where both kinds of end hold, and reads the
+ * coverage there, its highest. So each hundredth is approached from both sides, and the rates
+ * between are read every thousandth, where the sums move smoothly.
  */
 
 type Rule = (passes: number, attempts: number) => GateDecision;
@@ -91,18 +97,40 @@ function printed(text: string): { lo: number; hi: number } {
 
 const GRID = Array.from({ length: 99 }, (_, i) => (i + 1) / 100);
 
+/** Just off a rate where a statement's truth flips. */
+const SIDE = 1e-9;
+
+/**
+ * The rates the coverage is read at: each hundredth approached from below and from above, where a
+ * printed end makes a statement false; every thousandth between them; and each unrounded end of an
+ * interval, approached from the side where it is false, for the ends read alone.
+ */
+function ratesFor(ends: readonly number[]): number[] {
+  const rates = new Set<number>();
+  for (let k = 1; k <= 99; k++) {
+    rates.add(k / 100 - SIDE);
+    rates.add(k / 100 + SIDE);
+  }
+  for (let k = 1; k < 1000; k++) if (k % 10) rates.add(k / 1000);
+  for (const x of ends) for (const p of [x - SIDE, x + SIDE]) if (p > 0 && p < 1) rates.add(p);
+  return [...rates].sort((a, b) => a - b);
+}
+
 /**
  * The exact coverage of what a gate's reports print, at each rate of the grid: the worst of them,
  * and where. Also each end alone (the low end after every stop, the high end after every stop),
  * which must hold at (1 + confidence)/2, half the risk each.
  */
-function coverage(gate: Gate, history: Tally | null = null): { worst: number; at: number; worstLow: number; worstHigh: number } {
+function coverage(gate: Gate, history: Tally | null = null): { worst: number; at: number; worstLow: number; worstHigh: number; onGrid: number } {
   const { rule, stops } = shownStops(gate, history);
   let worst = 1;
   let at = 0;
   let worstLow = 1;
   let worstHigh = 1;
-  for (const p of GRID) {
+  // What a grid of hundredths alone reads: the figures the page stated before, too high.
+  let onGrid = 1;
+  const grid = new Set(GRID);
+  for (const p of ratesFor(stops.flatMap((t) => [t.interval.lo, t.interval.hi]))) {
     const chances = stopChances(rule, gate.max, p);
     let covered = 0;
     let low = 0;
@@ -120,7 +148,11 @@ function coverage(gate: Gate, history: Tally | null = null): { worst: number; at
     worstLow = Math.min(worstLow, low);
     worstHigh = Math.min(worstHigh, high);
   }
-  return { worst, at, worstLow, worstHigh };
+  for (const p of grid) {
+    const chances = stopChances(rule, gate.max, p);
+    onGrid = Math.min(onGrid, stops.reduce((n, t) => n + (t.shown.lo <= p && p <= t.shown.hi ? (chances.get(`${t.attempts}/${t.passes}`) ?? 0) : 0), 0));
+  }
+  return { worst, at, worstLow, worstHigh, onGrid };
 }
 
 /** Every stop a gate can make, each with its interval and what the reports print there. */
@@ -186,7 +218,7 @@ const pct = (x: number) => `${(100 * x).toFixed(1)}%`;
 
 // Each sums every stop a gate can make at 99 rates: seconds apiece, more on a loaded machine.
 describe('the bound beside a verdict covers the true rate as often as it says, every look counted', { timeout: 120_000 }, () => {
-  it('under the default gate: at least 95% at every rate from 1% to 99%, each end alone at least 97.5%', () => {
+  it('under the default gate: at least 95% at every rate, each end alone at least 97.5%', () => {
     const c = COVERED.default();
     expect(c.worst).toBeGreaterThanOrEqual(0.95);
     expect(c.worstLow).toBeGreaterThanOrEqual(0.975);
@@ -231,8 +263,14 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
     }
   });
 
-  it('as the page states it: the worst the printed bound does under each gate', () => {
-    says(`The worst the printed bound does is ${pct(COVERED.default().worst)} under the default gate, ${pct(COVERED.split().worst)} under a gate split 100 ways, ${pct(COVERED.history().worst)} under the gate against history against 47 of 50, and ${pct(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${percent(1 - PROBE.risk)}.`);
+  it('as the page states it: the worst the printed bound does under each gate, read on both sides of every printed end, not on a grid of hundredths', () => {
+    // A coverage is a floor, so the page rounds it down.
+    const floor = (x: number) => `${(Math.floor(1000 * x) / 10).toFixed(1)}%`;
+    says(`The worst the printed bound does is ${floor(COVERED.default().worst)} under the default gate, ${floor(COVERED.split().worst)} under a gate split 100 ways, ${floor(COVERED.history().worst)} under the gate against history against 47 of 50, and ${floor(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${percent(1 - PROBE.risk)}.`);
+    // Read only at the hundredths, where both kinds of printed end hold, each gate looks better than it is.
+    for (const c of [COVERED.default(), COVERED.split(), COVERED.history(), COVERED.blame()]) expect(c.onGrid).toBeGreaterThan(c.worst);
+    // Its worst is just off a hundredth, where a printed end stops holding.
+    expect(Math.abs(100 * COVERED.default().at - Math.round(100 * COVERED.default().at))).toBeLessThan(1e-6);
   });
 
   it("doesn't say how often one kind of verdict is wrong: among an agent's passes at 70%, the bound is wrong a third of the time, within the 5% overall", () => {
