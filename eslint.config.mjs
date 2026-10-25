@@ -174,13 +174,11 @@ export default defineConfig(
       ],
       // Test agents and fake servers implement async interfaces without awaiting anything.
       '@typescript-eslint/require-await': 'off',
+      // Here the rule sees only Node's own methods, which this code keeps on purpose: the preloads to put them
+      // back or call them on the patched object with .call(this, …), the Action to restore a warning
+      // filter, a test agent to promisify readline's question with its own promisify.custom.
+      '@typescript-eslint/unbound-method': 'off',
     },
-  },
-  {
-    files: ['packages/cli/guard/*.mjs'],
-    // The preloads keep Node's own methods to put them back, or to call them on the patched object with
-    // .call(this, …): never on their own.
-    rules: { '@typescript-eslint/unbound-method': 'off' },
   },
   {
     files: ['**/*.cjs'],

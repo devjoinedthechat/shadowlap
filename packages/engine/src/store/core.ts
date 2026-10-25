@@ -11,11 +11,11 @@ import { ulid } from '../ids.js';
  * `node:sqlite` prints an ExperimentalWarning when loaded. Loading it through `require` (not a
  * hoisted `import`) lets us filter that one warning first; every other warning still surfaces.
  */
-const originalEmitWarning = process.emitWarning;
+const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unknown[]): void {
   const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
   if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (this: NodeJS.Process, ...a: unknown[]) => void).call(process, warning, ...rest);
+  return (originalEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
 };
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };

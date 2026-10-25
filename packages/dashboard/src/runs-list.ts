@@ -120,11 +120,11 @@ export interface RunsPage {
 
 interface Matcher {
   /** Listed at all: attempts only when asked, and within the date range. */
-  scope(r: IndexedRun): boolean;
+  scope: (r: IndexedRun) => boolean;
   /** The chips' kinds, Local and the filter field, without Failed: what failures are counted out of. */
-  base(r: IndexedRun): boolean;
+  base: (r: IndexedRun) => boolean;
   /** Everything the filter asks for. */
-  matches(r: IndexedRun): boolean;
+  matches: (r: IndexedRun) => boolean;
 }
 
 const filterWords = (filter: RunFilter): string[] => (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);

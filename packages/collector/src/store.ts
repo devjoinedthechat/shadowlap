@@ -2,11 +2,11 @@ import { createRequire } from 'node:module';
 import { EARLIEST_MS, FUTURE_ALLOWANCE_MS, type ValidBatch, type ValidEvent } from './schema.js';
 
 // Same loader as the engine's store: filter node:sqlite's experimental warning, nothing else.
-const originalEmitWarning = process.emitWarning;
+const originalEmitWarning = process.emitWarning.bind(process);
 process.emitWarning = function patched(warning: unknown, ...rest: unknown[]): void {
   const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
   if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (this: NodeJS.Process, ...a: unknown[]) => void).call(process, warning, ...rest);
+  return (originalEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
 };
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => Db };
