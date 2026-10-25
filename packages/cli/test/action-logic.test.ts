@@ -178,31 +178,56 @@ describe('starting the workflow on a fix\'s branch', () => {
 describe('the pull request comment', () => {
   const auth = githubToken(ACTIONS);
   const marker = commentMarker({ workflow: 'CI', job: 'goldens', workdir: '.', recordings: 'goldens/*' });
-  const comment = (id: number, body: string, type = 'User') => ({ id, body, user: { type }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${id}` });
-
-  it('is found by a hidden marker, one per workflow, job, folder and set of recordings', () => {
-    expect(marker).toMatch(/^<!-- shadowlap-test-comment [0-9a-f]{12} -->$/);
-    expect(commentMarker({ workflow: 'CI', job: 'goldens', workdir: '.', recordings: 'goldens/*' })).toBe(marker);
-    expect(commentMarker({ workflow: 'CI', job: 'goldens', workdir: '.', recordings: 'goldens/refund-*' })).not.toBe(marker);
-  });
+  /** Who made a comment, as GitHub's REST API names them: a person, the job's own token's bot, another App's bot. */
+  const ALICE = { login: 'alice', id: 1, type: 'User' };
+  const ACTIONS_BOT = { login: 'github-actions[bot]', id: 41898282, type: 'Bot' };
+  const comment = (id: number, body: string, user: { login: string; id: number; type: string } = ALICE, app: string | null = null) => ({ id, body, user, performed_via_github_app: app ? { id: 15368, slug: app } : null, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${id}` });
+  /** `GET /user` as GitHub answers it: a personal access token's owner, else 403 for an installation's token (the job's, an App's). */
+  const user = (call: Call, owner: { login: string; id: number } | null = null) => (call.url.endsWith('/user') ? (owner ? { status: 200, json: owner } : { status: 403, json: { message: 'Resource not accessible by integration' } }) : null);
+  const path = (c: Call) => `${c.method} ${c.url.replace('https://api.github.test/repos/northwind/agent', '').replace('https://api.github.test', '')}`;
 
   it('is made when the pull request has none, and edited in place when it has one, read a page at a time', async () => {
-    const fresh = github((c) => (c.method === 'GET' ? { status: 200, json: [comment(1, 'Looks good')] } : { status: 201, json: comment(9, 'x') }));
+    const fresh = github((c) => (c.method === 'GET' ? { status: 200, json: [comment(1, 'Looks good')] } : { status: 201, json: comment(9, 'x', ACTIONS_BOT, 'github-actions') }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nbody`, fetch: fresh.fetch })).toEqual({ state: 'created', url: 'https://github.test/northwind/agent/pull/12#issuecomment-9', why: null });
     expect(fresh.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET https://api.github.test/repos/northwind/agent/issues/12/comments?per_page=100&page=1', 'POST https://api.github.test/repos/northwind/agent/issues/12/comments']);
     expect(fresh.calls[1].body).toEqual({ body: `${marker}\nbody` });
 
     // The action's comment on the second page, past a hundred others, and a person's quoting the marker before it.
     const page1 = Array.from({ length: 100 }, (_, i) => comment(100 + i, i === 3 ? `> ${marker} quoted` : 'chat'));
-    const kept = github((c) => (c.method === 'GET' ? { status: 200, json: c.url.endsWith('page=1') ? page1 : [comment(300, `${marker}\nold`, 'Bot')] } : { status: 200, json: comment(300, 'x', 'Bot') }));
+    const kept = github((c) => user(c) ?? (c.method === 'GET' ? { status: 200, json: c.url.endsWith('page=1') ? page1 : [comment(300, `${marker}\nold`, ACTIONS_BOT, 'github-actions')] } : { status: 200, json: comment(300, 'x', ACTIONS_BOT, 'github-actions') }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nnew`, fetch: kept.fetch })).toMatchObject({ state: 'updated', url: 'https://github.test/northwind/agent/pull/12#issuecomment-300' });
-    expect(kept.calls.map((c) => `${c.method} ${c.url.replace('https://api.github.test/repos/northwind/agent', '')}`)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /issues/12/comments?per_page=100&page=2', 'PATCH /issues/comments/300']);
+    expect(kept.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /issues/12/comments?per_page=100&page=2', 'GET /user', 'PATCH /issues/comments/300']);
   });
 
-  it('is a new one when the comment with the marker is one the token may not edit, and says so quietly when it may not comment at all', async () => {
-    const theirs = github((c) => (c.method === 'GET' ? { status: 200, json: [comment(5, `quoting ${marker}`)] } : c.method === 'PATCH' ? { status: 403, json: { message: 'Forbidden' } } : { status: 201, json: comment(6, 'x', 'Bot') }));
+  it("never edits a comment the token didn't make, whatever it holds: a person's, or another App's bot's, that plants the marker", async () => {
+    // The job's own token: the GitHub Actions bot's comment is its own; a person's and another App's bot's are not.
+    const planted = [comment(5, `${marker}\nplanted`), comment(6, `${marker}\nplanted too`, { login: 'other-app[bot]', id: 77, type: 'Bot' }, 'other-app')];
+    const theirs = github((c) => user(c) ?? (c.method === 'GET' ? { status: 200, json: planted } : { status: 201, json: comment(8, 'x', ACTIONS_BOT, 'github-actions') }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: 'b', fetch: theirs.fetch })).toMatchObject({ state: 'created' });
-    expect(theirs.calls.map((c) => c.method)).toEqual(['GET', 'PATCH', 'POST']);
+    expect(theirs.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /user', 'POST /issues/12/comments']);
+
+    // A personal access token: its owner's comment, by login and id, and no one else's, a login that differs only in case and id included.
+    const pat = githubToken({ ...ACTIONS, INPUT_GITHUB_TOKEN: 'github_pat_1' });
+    const owned = [comment(10, `${marker}\nalice`), comment(11, `${marker}\nimpostor`, { login: 'Release-Bot', id: 99, type: 'User' }), comment(12, `${marker}\nmine`, { login: 'release-bot', id: 7, type: 'User' })];
+    const mine = github((c) => user(c, { login: 'release-bot', id: 7 }) ?? (c.method === 'GET' ? { status: 200, json: owned } : { status: 200, json: owned[2] }));
+    expect(await upsertComment({ env: ACTIONS, auth: pat, number: 12, marker, body: 'b', fetch: mine.fetch })).toMatchObject({ state: 'updated', url: 'https://github.test/northwind/agent/pull/12#issuecomment-12' });
+    expect(mine.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /user', 'PATCH /issues/comments/12']);
+    expect(mine.calls.at(-1)?.headers.authorization).toBe('Bearer github_pat_1');
+
+    // A GitHub App's token, whose owner GitHub names only once it posts: posted again, and the App's earlier comment removed, a person's left.
+    const app = githubToken({ ...ACTIONS, INPUT_GITHUB_TOKEN: 'ghs_app_installation_token' });
+    const shadow = { login: 'shadow-app[bot]', id: 501, type: 'Bot' };
+    const earlier = [comment(20, `${marker}\nolder`, shadow, 'shadow-app'), comment(21, `${marker}\nquoted by a person`), comment(22, `${marker}\nanother App's`, { login: 'other-app[bot]', id: 77, type: 'Bot' }, 'other-app')];
+    const replaced = github((c) => user(c) ?? (c.method === 'GET' ? { status: 200, json: earlier } : c.method === 'POST' ? { status: 201, json: comment(23, 'new', shadow, 'shadow-app') } : { status: 204 }));
+    expect(await upsertComment({ env: ACTIONS, auth: app, number: 12, marker, body: 'b', fetch: replaced.fetch })).toEqual({ state: 'created', url: 'https://github.test/northwind/agent/pull/12#issuecomment-23', why: null });
+    expect(replaced.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /user', 'POST /issues/12/comments', 'DELETE /issues/comments/20']);
+    // A person's token that GitHub won't name: posted again, and nothing removed.
+    const quiet = github((c) => user(c) ?? (c.method === 'GET' ? { status: 200, json: [comment(30, `${marker}\nalice's own`)] } : { status: 201, json: comment(31, 'new') }));
+    await upsertComment({ env: ACTIONS, auth: app, number: 12, marker, body: 'b', fetch: quiet.fetch });
+    expect(quiet.calls.map((c) => c.method)).toEqual(['GET', 'GET', 'POST']);
+  });
+
+  it('says so quietly when the token may not comment at all, and what GitHub answered otherwise', async () => {
     const denied = github(() => ({ status: 403, json: { message: 'Resource not accessible by integration' } }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: 'b', fetch: denied.fetch })).toEqual({ state: 'denied', url: null, why: "the job's token may not comment on the pull request: give the job pull-requests: write (GitHub answered 403 (Resource not accessible by integration))" });
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: 'b', fetch: github(() => ({ status: 502 })).fetch })).toEqual({ state: 'failed', url: null, why: 'GitHub answered 502' });

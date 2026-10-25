@@ -300,7 +300,7 @@ describe('test reports', () => {
 
 describe('the pull request comment the GitHub Action keeps', () => {
   /** GitHub, as far as comments go: it keeps them, and every request. */
-  const comments: Array<{ id: number; body: string; user: { type: string }; html_url: string }> = [];
+  const comments: Array<{ id: number; body: string; user: { login: string; id: number; type: string }; performed_via_github_app: { slug: string } | null; html_url: string }> = [];
   const calls: Array<{ method: string; url: string; authorization: string | undefined }> = [];
   let api = '';
   let server: import('node:http').Server;
@@ -313,8 +313,10 @@ describe('the pull request comment the GitHub Action keeps', () => {
         calls.push({ method: req.method ?? '', url: req.url ?? '', authorization: req.headers.authorization });
         const json = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
         if (req.method === 'GET' && /\/issues\/12\/comments\?/.test(req.url ?? '')) return json(200, comments);
+        // An installation's token, as the job's own is, has no user to name.
+        if (req.method === 'GET' && req.url === '/user') return json(403, { message: 'Resource not accessible by integration' });
         if (req.method === 'POST' && /\/issues\/12\/comments$/.test(req.url ?? '')) {
-          const c = { id: comments.length + 1, body: (JSON.parse(text) as { body: string }).body, user: { type: 'Bot' }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${comments.length + 1}` };
+          const c = { id: comments.length + 1, body: (JSON.parse(text) as { body: string }).body, user: { login: 'github-actions[bot]', id: 41898282, type: 'Bot' }, performed_via_github_app: { slug: 'github-actions' }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${comments.length + 1}` };
           comments.push(c);
           return json(201, c);
         }

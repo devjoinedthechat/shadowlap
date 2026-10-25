@@ -155,12 +155,41 @@ export function pullRequestOf(env, read = (path) => readFileSync(path, 'utf8')) 
 /** Why GitHub refused a comment: the token may not, which is said quietly; or anything else. */
 const refusal = (r) => (r.status === 401 || r.status === 403 || r.status === 404 ? { state: 'denied', url: null, why: `the job's token may not comment on the pull request: give the job pull-requests: write (${said(r)})` } : { state: 'failed', url: null, why: said(r) });
 
+/** The login GitHub gives what the job's own GITHUB_TOKEN posts, and the App it posts through. */
+const ACTIONS_BOT = { login: 'github-actions[bot]', app: 'github-actions' };
+
 /**
- * Keeps `body` on pull request `number` in one comment: the comment whose body holds `marker` is
- * edited in place, one by a bot first when there are several, else a new one is made. The comments
- * are read a page of 100 at a time. One with the marker the token may not edit (someone else's that
- * quotes it) gets a comment of the action's own instead. Never throws: `{ state, url, why }`, state
- * `updated`, `created`, `denied` (the token may not comment) or `failed`.
+ * Who posts with the token, as GitHub names the author of a comment: a person, or the bot of the
+ * App whose token it is. A personal access token's owner is the one `GET /user` answers with; the
+ * job's own GITHUB_TOKEN posts as GitHub Actions' bot, which `GET /user` doesn't answer for. Any other
+ * token (a GitHub App's installation token) is null: GitHub names its owner only once it has posted.
+ */
+async function tokenOwner(fetchFn, by, auth) {
+  const r = await call(fetchFn, by, 'GET', '/user');
+  if (r.ok && typeof r.data?.login === 'string') return { login: r.data.login, id: typeof r.data.id === 'number' ? r.data.id : null, app: null };
+  if (auth.source === 'github-token') return { login: ACTIONS_BOT.login, id: null, app: ACTIONS_BOT.app };
+  return null;
+}
+
+/** Whether `owner` made comment `c`: its author's login (and id, when both are known), and for an App's bot, through that App. */
+function madeBy(c, owner) {
+  const user = c?.user;
+  if (!owner || !user || typeof user.login !== 'string') return false;
+  if (owner.id !== null && typeof user.id === 'number' && user.id !== owner.id) return false;
+  const login = user.login.toLowerCase() === owner.login.toLowerCase();
+  if (!owner.app) return login;
+  // A person's login can't hold brackets, so `github-actions[bot]` is the bot's alone; or the App it was posted through says so.
+  return user.type === 'Bot' && (login || c.performed_via_github_app?.slug === owner.app);
+}
+
+/**
+ * Keeps `body` on pull request `number` in one comment of the token's own: the one it made whose body
+ * holds `marker` is edited in place, else a new one is made. The comments are read a page of 100 at a
+ * time. A comment anyone else made never is edited, whatever it holds: one that quotes the marker, or
+ * plants it, is left as it is. With a token whose owner GitHub won't name up front (a GitHub App's),
+ * the comment is posted again, and the App's earlier ones, which the new one's author names, are
+ * removed. Never throws: `{ state, url, why }`, state `updated`, `created`, `denied` (the token may
+ * not comment) or `failed`.
  */
 export async function upsertComment({ env, auth, number, marker, body, fetch: fetchFn = globalThis.fetch }) {
   const { api, repo } = repositoryOf(env);
@@ -175,14 +204,22 @@ export async function upsertComment({ env, auth, number, marker, body, fetch: fe
       marked.push(...list.filter((c) => c && typeof c.body === 'string' && c.body.includes(marker) && typeof c.id === 'number'));
       if (list.length < 100) break;
     }
-    const found = marked.find((c) => c.user?.type === 'Bot') ?? marked[0] ?? null;
+    const owner = marked.length ? await tokenOwner(fetchFn, by, auth) : null;
+    const found = marked.find((c) => madeBy(c, owner)) ?? null;
     if (found) {
       const r = await call(fetchFn, by, 'PATCH', `/repos/${repo}/issues/comments/${found.id}`, { body });
       if (r.ok) return { state: 'updated', url: r.data?.html_url ?? found.html_url ?? null, why: null };
       if (r.status !== 403 && r.status !== 404) return refusal(r);
     }
     const r = await call(fetchFn, by, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
-    return r.ok ? { state: 'created', url: r.data?.html_url ?? null, why: null } : refusal(r);
+    if (!r.ok) return refusal(r);
+    // Its owner unknown before, the new comment names it: an App's earlier ones go, so one is kept. A
+    // person's comment stays whatever it holds, even when the token is theirs.
+    if (!owner && marked.length && typeof r.data?.user?.login === 'string' && r.data.user.type === 'Bot') {
+      const made = { login: r.data.user.login, id: typeof r.data.user.id === 'number' ? r.data.user.id : null, app: r.data.performed_via_github_app?.slug ?? null };
+      for (const c of marked) if (c.id !== r.data.id && madeBy(c, made)) await call(fetchFn, by, 'DELETE', `/repos/${repo}/issues/comments/${c.id}`);
+    }
+    return { state: 'created', url: r.data?.html_url ?? null, why: null };
   } catch (err) {
     return { state: 'failed', url: null, why: `GitHub could not be reached: ${err instanceof Error ? err.message : String(err)}` };
   }
