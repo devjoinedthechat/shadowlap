@@ -18,9 +18,10 @@ export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
 /**
  * Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on
  * replay. 6: a model call's query string takes part (`ApiRequestShape.query`). 7: Claude Code's
- * session identifier in `metadata.user_id` is masked (`maskClaudeCodeSession`).
+ * session identifier in `metadata.user_id` is masked (`maskClaudeCodeSession`). 8: a clock or random
+ * read's name takes part (`fingerprintMisc`), so `random()` is never `uuid()`.
  */
-export const FINGERPRINT_VERSION = 7;
+export const FINGERPRINT_VERSION = 8;
 
 // ---- Claude Code's session identifier ----
 
@@ -160,9 +161,13 @@ export function fingerprintTool(name: string, args: unknown, normalizers: Normal
   return { fingerprint: sha256(canonical), canonical };
 }
 
-/** Clock and random reads: identity is the kind plus an optional caller-supplied label. */
-export function fingerprintMisc(kind: Exclude<CallKind, 'api' | 'tool'>, label: string): Fingerprinted {
-  const canonical = canonicalize({ kind, label });
+/**
+ * Clock and random reads: identity is the kind, the read's name (`now`, `random`, `uuid`) and an
+ * optional caller-supplied label. The SDKs label none by default, so without the name a `random()`
+ * the agent now makes first would take the recording's `uuid()`.
+ */
+export function fingerprintMisc(kind: Exclude<CallKind, 'api' | 'tool'>, name: string, label: string): Fingerprinted {
+  const canonical = canonicalize({ kind, name, label });
   return { fingerprint: sha256(canonical), canonical };
 }
 

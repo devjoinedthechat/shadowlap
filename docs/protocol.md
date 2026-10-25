@@ -323,7 +323,7 @@ The client does not compute identity; the sidecar does. It is worth knowing what
 it determines what the client must send faithfully:
 
 - **tools** — `name` and `args`, canonicalized and passed through the run's normalizers
-- **clock and randomness** — `kind` and `label`
+- **clock and randomness** — `kind`, `name` and `label`: `random()` and `uuid()` are two reads, labelled or not
 
 Arrival order is never part of identity. A call is matched by `(kind, fingerprint, occurrence)`,
 where occurrence is *n* for the *n*-th identical call in that scope. [The recording

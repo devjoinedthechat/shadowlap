@@ -1976,7 +1976,7 @@ export class Sidecar {
     if (kind === 'tool' && effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new HttpError(400, `tool ${body.name} must declare effect pure|read|write`);
 
     const request = kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' };
-    const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.label ?? '');
+    const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.name, body.label ?? '');
     const callNo = ctx.nextCallNo++;
     // A person's answer (`user_input`): after a fork it is served from the recording in order.
     const input = kind === 'tool' && body.input === true;
@@ -2269,8 +2269,10 @@ export class Sidecar {
    */
   private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): { calls: CallRecord[]; cached: number } {
     const rules = { normalizers, clockRef, withoutPrompt: withoutPromptMask, redactions, ids: { normalizers: rulesId(normalizers), judge: rulesId(judgeRules(redactions)) } };
-    const plans = calls.map((rec) => (only && !only(rec) ? null : this.fingerprintPlan(rec, rules)));
-    const found = this.store.cachedFingerprints(plans.flatMap((p) => (p ? [p.key] : [])));
+    // A clock or random read's request, its label, by its ref: the SDKs' unlabelled reads all share one.
+    const labels = new Map<string, unknown>();
+    const plans = calls.map((rec) => (only && !only(rec) ? null : this.fingerprintPlan(rec, rules, labels)));
+    const found = this.store.cachedFingerprints(plans.flatMap((p) => (p?.key ? [p.key] : [])));
     const fresh: Array<{ key: string; requestRef: string; fingerprint: string; clock: string | null }> = [];
     let cached = 0;
     const counts = new Map<string, number>();
@@ -2278,7 +2280,7 @@ export class Sidecar {
       let fingerprint = rec.fingerprint;
       const plan = plans[i];
       if (plan) {
-        const hit = found.get(plan.key);
+        const hit = plan.key === null ? undefined : found.get(plan.key);
         const marks = hit ? decodeMarks(hit.clock) : null;
         if (hit && marks && servesClock(marks, clockRef)) {
           fingerprint = hit.fingerprint;
@@ -2287,7 +2289,7 @@ export class Sidecar {
           try {
             const made = plan.compute();
             fingerprint = made.fingerprint;
-            fresh.push({ key: plan.key, requestRef: plan.requestRef, fingerprint, clock: encodeMarks(made.marks) });
+            if (plan.key !== null) fresh.push({ key: plan.key, requestRef: plan.requestRef, fingerprint, clock: encodeMarks(made.marks) });
           } catch (err) {
             this.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -2304,12 +2306,29 @@ export class Sidecar {
 
   /**
    * How a recorded call is fingerprinted again under `rules`: its cache key, and the work to do when
-   * the cache can't answer. Null to keep its stored fingerprint (a clock or random call, a call whose
-   * request or provider is unknown).
+   * the cache can't answer. A clock or random read has no key: its request is a label, read once per
+   * label (`labels`), and no rule changes its fingerprint, which names the read (a recording from
+   * before reads were named holds fingerprints without the name). Null to keep its stored
+   * fingerprint (a call whose request or provider is unknown).
    */
-  private fingerprintPlan(rec: CallRecord, rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean; redactions: Normalizer[]; ids: { normalizers: string; judge: string } }): { key: string; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
+  private fingerprintPlan(rec: CallRecord, rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean; redactions: Normalizer[]; ids: { normalizers: string; judge: string } }, labels: Map<string, unknown>): { key: string | null; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
     const ref = rec.requestRef;
     if (!ref) return null;
+    if (rec.kind === 'clock' || rec.kind === 'random') {
+      const kind = rec.kind;
+      return {
+        key: null,
+        requestRef: ref,
+        compute: () => {
+          if (!labels.has(ref)) {
+            const req = this.getJsonExact<{ label?: unknown }>(ref);
+            if (!req) throw new Error(`missing request ${ref}`);
+            labels.set(ref, req.label ?? '');
+          }
+          return { fingerprint: fingerprintMisc(kind, rec.name, labels.get(ref) as string).fingerprint, marks: [] };
+        },
+      };
+    }
     if (rec.kind === 'api') {
       // The host of another's format it went through (`via`), whose root it is matched under.
       const provider = this.providerOf(rec);

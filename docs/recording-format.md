@@ -183,7 +183,7 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 |---|---|---|
 | `api` | `kind`, `method`, `path`, `headers`, `body` and, when it has one, `query` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
 | `tool` | `kind`, `name` and `args` | `{"args":{"id":"A-17"},"kind":"tool","name":"lookup_order"}` |
-| `clock`, `random` | `kind` and `label` | `{"kind":"clock","label":"start"}` |
+| `clock`, `random` | `kind`, `name` and `label` | `{"kind":"clock","label":"start","name":"now"}` |
 
 - `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
 - A body's `metadata.user_id` that is Claude Code's session identifier counts as `"<claude-code-session>"`: Claude Code makes a new one for every session. It is a string, either the JSON of an object with a `device_id` of hexadecimal digits, an `account_uuid` and a `session_id` that is a UUID, as Claude Code sends it, or `user_<device>_account_<account>_session_<session>`, as earlier versions sent it. Any other `user_id` counts as sent.
@@ -205,7 +205,7 @@ A call that went through a host of another's format (`via`) is fingerprinted wit
 
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 
-A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 7), and fingerprints made under another are computed again, so older packs keep replaying.
+A reader computes the fingerprint of every call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`: a clock or random read's from its `name` and its request's `label`, which no normalizer or clock changes. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 8), and fingerprints made under another are computed again, so older packs keep replaying.
 
 ## Partial recordings
 
