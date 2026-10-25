@@ -12,8 +12,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * recording fills the cache as it goes, so the first replay already starts from it.
  */
 
-/** Bump when what a key covers, or what a mark means, changes. */
-const CACHE_VERSION = 1;
+/**
+ * Bump when what a key covers, or what a mark means, changes. 2: a call's query is marked by its
+ * values decoded, as its fingerprint reads them, and a judge's key names its query.
+ */
+const CACHE_VERSION = 2;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
@@ -31,7 +34,7 @@ export type FingerprintRules =
       /** The call's query string as it keeps it: part of the key, so a version that matches on it never reuses an entry made without. */
       query: string | null;
     }
-  | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string }
+  | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string; query: string | null }
   | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean };
 
 /** A list of rules as a key names it. */

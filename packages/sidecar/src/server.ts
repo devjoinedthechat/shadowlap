@@ -25,6 +25,7 @@ import {
   storedModelResolver,
   summarizeRun,
   toolFailureError,
+  queryPairs,
   ulidNow,
   unmaskedHints,
   type CallKind,
@@ -1461,7 +1462,7 @@ export class Sidecar {
   /** How a model call is fingerprinted, besides its request, as its fingerprint cache key names it. */
   private modelRules(rules: { ids: { normalizers: string; judge: string }; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, method: string, path: string, headers: Readonly<Record<string, string>>, query: string | undefined, judge: boolean): FingerprintRules {
     const shared = { method, path, matchPath: provider.matchPath?.(path) ?? null, headers: allowedHeaders(headers, provider.fingerprintHeaders), allow: provider.fingerprintHeaders };
-    return judge ? { kind: 'judge', ...shared, rules: rules.ids.judge } : { kind: 'api', ...shared, normalizers: rules.ids.normalizers, clock: rules.clockRef !== undefined, withoutPrompt: rules.withoutPrompt, query: query ?? null };
+    return judge ? { kind: 'judge', ...shared, rules: rules.ids.judge, query: query ?? null } : { kind: 'api', ...shared, normalizers: rules.ids.normalizers, clock: rules.clockRef !== undefined, withoutPrompt: rules.withoutPrompt, query: query ?? null };
   }
 
   /**
@@ -1497,7 +1498,7 @@ export class Sidecar {
       optional: true,
       run: () => {
         if (requestRef === null) return;
-        const marks = judge ? [] : clockMarks([multipartView(body), query ?? '', ...Object.values(asked)], ctx.clockRef);
+        const marks = judge ? [] : clockMarks([multipartView(body), ...queryValues(query), ...Object.values(asked)], ctx.clockRef);
         this.store.cacheFingerprints([{ key: fingerprintKey(rules, requestRef), requestRef, fingerprint: tracked.identity.fingerprint, clock: encodeMarks(marks) }]);
       },
     });
@@ -2614,7 +2615,7 @@ export class Sidecar {
           // From the query it kept: none for a call recorded before calls kept one.
           const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec, rules.redactions) };
           if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path)).fingerprint, marks: [] };
-          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), query ?? '', ...Object.values(headers)], rules.clockRef) };
+          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), ...queryValues(query), ...Object.values(headers)], rules.clockRef) };
         },
       };
     }
@@ -2759,6 +2760,15 @@ const upstreamVariable = (provider: Provider): string => `SHADOWLAP_UPSTREAM_${p
 
 /** The id a provider's calls are recorded under: the format's, for a host of another's (Provider.format). */
 const recordedId = (provider: Provider): string => provider.format ?? provider.id;
+
+/**
+ * A query's names and values decoded, as a fingerprint reads them (queryPairs): what the fingerprint
+ * cache's clock marks are read from, so a date sent encoded (`2026-11-24T09%3A00%3A00Z`) is marked as
+ * the date the fingerprint masks.
+ */
+function queryValues(query: string | undefined): string[] {
+  return queryPairs(query).flat();
+}
 
 /** A model call's query as its identity reads it, from what its recording kept (none when it kept none), under the rules that redacted the recording. */
 function storedQuery(rec: Pick<CallRecord, 'meta' | 'name'>, redactions: readonly Normalizer[] = []): string {

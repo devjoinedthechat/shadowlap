@@ -151,6 +151,48 @@ describe('replay start', () => {
       store.close();
     }
   });
+
+  it('reads the dates in a call\'s query as its fingerprint does, decoded, so a replay that masks them again works it out again', async () => {
+    // A datetime the agent sends in the query, as URLSearchParams and httpx encode it (':' as %3A):
+    // five days after the recording, so the recording left it as it was, and today, so the replay masks it.
+    const now = Date.now();
+    const since = new URLSearchParams({ since: `${day(now)}T09:00:00Z` }).toString();
+    expect(since).toContain('%3A');
+    const store = Store.open(join(dir, 'dated-query.db'));
+    const logs: string[] = [];
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: url }, log: (l) => logs.push(l) });
+    const asked = async (runId: string) => {
+      const res = await fetch(`${sidecar.envFor(runId).ANTHROPIC_BASE_URL}/v1/messages?${since}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content: 'Orders since then?' }] }),
+      });
+      await res.arrayBuffer();
+    };
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now - 5 * DAY);
+    let parent: string;
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      parent = rec.runId;
+      await asked(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+    } finally {
+      clock.mockRestore();
+    }
+    try {
+      logs.length = 0;
+      const run = sidecar.startRun({ mode: 'replay', parentRunId: parent, command });
+      // The entry holds the datetime unmasked, which this replay masks: worked out again.
+      expect(logs.join('\n')).toMatch(/re-fingerprinting 1 call under the current normalizers \(0 from the cache\)/);
+      await asked(run.runId);
+      const ended = sidecar.endRun(run.runId, 'completed');
+      expect(ended.summary.divergence).toBeNull();
+      expect(ended.summary.byOrigin.replayed).toBe(1);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
 });
 
 describe('the cache in the store', () => {
