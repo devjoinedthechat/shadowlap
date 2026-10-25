@@ -539,7 +539,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.code, r.out).toBe(0);
     expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '0', 'fix-prs': '' });
     expect(r.out).toContain('refund-over-limit: no fix pull request: the budget of $0.05 is spent');
-    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the budget of \$0\.05 is spent \| \$\d+\.\d\d of \$0\.05 \|/);
+    // The why is text, its dollar sign a character reference; the spent column is the summary's own.
+    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the budget of &#36;0\.05 is spent \| \$\d+\.\d\d of \$0\.05 \|/);
     expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
@@ -608,9 +609,10 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     sh(project, 'git', ['checkout', '-q', '--detach']);
     const r = await action({ FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic' });
     expect(r.outputs.fixes).toBe('0');
-    // The checkout that gives a pull request's job its branch, from this repository alone; in the summary's table, its pipes escaped.
+    // The checkout that gives a pull request's job its branch, from this repository alone; in the summary's table, as
+    // text: its pipes escaped, its dollar sign and ampersands character references, which show as themselves.
     expect(r.out).toContain('HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }})');
-    expect(r.summary).toContain('ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref \\|\\| github.ref }}');
+    expect(r.summary).toContain('ref: &#36;{{ github.event.pull_request.head.repo.full_name == github.repository &amp;&amp; github.head_ref \\|\\| github.ref }}');
   });
 });
 

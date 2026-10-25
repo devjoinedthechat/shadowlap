@@ -877,9 +877,10 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
 }
 
 /**
- * Text safe in the job summary's table, for Shadowlap's own composed reasons: a stray pipe escaped, a
- * line break and control characters flattened. The untrusted leaves it is built from (the repairer's
- * title, a golden's name, a run's message) are escaped where they enter, not here.
+ * Text safe in the job summary's table, for what Shadowlap counts itself (verify's tally): a stray
+ * pipe escaped, a line break and control characters flattened. A fix's why and a golden's name are
+ * plain text that can hold anyone's words (a check's label, a run's message, an error a repair or
+ * GitHub gave), so they go in through markdownText, and the repairer's title too.
  */
 const cell = (s) => String(s ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\|/g, '\\|');
 
@@ -893,12 +894,12 @@ function goldenCell(f) {
   const parts = [];
   // By name when the goldens on the branch fare differently.
   const named = [recorded, stale, unfixed].filter((x) => x.length).length > 1;
-  const which = (gs) => (named ? gs.map((g) => cell(g.golden)).join(', ') : `golden${gs.length === 1 ? '' : 's'}`);
+  const which = (gs) => (named ? gs.map((g) => markdownText(g.golden)).join(', ') : `golden${gs.length === 1 ? '' : 's'}`);
   if (recorded.length) parts.push(`${which(recorded)} re-recorded`);
   if (stale.length) parts.push(`${which(stale)} not re-recorded: ${update(stale.map((g) => g.golden))}`);
   if (unfixed.length) {
     const replays = unfixed.filter((g) => !g.fork);
-    parts.push(`${unfixed.map((g) => cell(g.golden)).join(', ')} ${unfixed.length === 1 ? 'fails' : 'fail'} the same check, not verified under the fix${replays.length ? `: ${update(replays.map((g) => g.golden))}, which keeps a recording only when it passes` : ''}`);
+    parts.push(`${unfixed.map((g) => markdownText(g.golden)).join(', ')} ${unfixed.length === 1 ? 'fails' : 'fail'} the same check, not verified under the fix${replays.length ? `: ${update(replays.map((g) => g.golden))}, which keeps a recording only when it passes` : ''}`);
   }
   const d = f.others?.diverging ?? [];
   if (d.length) parts.push(`${d.length} other golden${d.length === 1 ? ' diverges' : 's diverge'}: ${update(d)}`);
@@ -941,8 +942,8 @@ export function fixSummary(fixes, budget) {
       f.outcome === 'opened'
         ? `[${markdownText(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
-          ? cell(f.why)
-          : `no fix: ${cell(f.why)}${goldenCell(f)}`;
+          ? markdownText(String(f.why ?? ''))
+          : `no fix: ${markdownText(String(f.why ?? ''))}${goldenCell(f)}`;
     const icon = f.outcome === 'opened' ? '✅' : f.outcome === 'skipped' ? '➖' : '❌';
     lines.push(`| ${icon} | ${markdownCode(f.name, { cell: true })} | ${what} | ${f.outcome === 'skipped' ? '' : `$${f.spent.toFixed(2)} of $${Number(f.budget ?? budget).toFixed(2)}`} |`);
   }

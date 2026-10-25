@@ -550,8 +550,20 @@ describe("what the Action posts, in the Markdown GitHub renders", () => {
     const pr = [goldenNote({ state: 'stale', golden: 'goldens/refund-flow', why: `the recording verify accepted does not replay clean on the branch (${safe})` }), branchNote({ goldens: [{ state: 'recorded', golden: 'goldens/a', why: null }], others: { diverging: [], failing: [], unreplayed: [], unchecked: ['goldens/c'], replayed: 0 }, checked: false, why: safe }), checksNote({ auth: githubToken(ACTIONS), dispatch: { dispatched: false, workflow: 'ci.yml', why: planted } })].join('\n');
     expect(live(pr)).toEqual([]);
 
-    // The summary's untrusted leaves are the repairer's title and an external store or GitHub error; a no-fix reason is Shadowlap's own.
-    const summary = fixSummary([{ ...fix, title: 'Ask @security, see [docs](https://evil.example)' }, { ...fix, name: 'x', outcome: 'no-fix', pr: null, why: 'the gate accepted none of the 2 candidates tried', pushed: { state: 'off', why: planted, pr: null } }, { ...fix, name: 'y', checks: { state: 'not-started', workflow: 'ci.yml', why: planted } }], 2);
+    // The summary's untrusted leaves: the repairer's title, a fix's why, which can hold a check's label, a run's message or
+    // an error repair or GitHub gave, a golden's name, and an external store's or GitHub's error.
+    const unfixed = { state: 'unfixed' as const, golden: 'goldens/@alice-[x](https://evil.example)', why: null };
+    const summary = fixSummary(
+      [
+        { ...fix, title: 'Ask @security, see [docs](https://evil.example)', goldenStates: [{ state: 'recorded' as const, golden: 'goldens/refund-flow', why: null }, unfixed] },
+        { ...fix, name: 'x', outcome: 'no-fix', pr: null, why: `the repairer could not be asked: ${planted}`, pushed: { state: 'off', why: planted, pr: null } },
+        { ...fix, name: 'z', outcome: 'skipped', pr: null, why: `a check is inconclusive (${planted}), which no prompt fix decides` },
+        { ...fix, name: 'y', checks: { state: 'not-started', workflow: 'ci.yml', why: planted } },
+      ],
+      2,
+    );
+    expect(summary).toContain(`| ➖ | \`z\` | a check is inconclusive (${safe}), which no prompt fix decides |  |`);
+    expect(summary).toContain(' · goldens/refund-flow re-recorded · goldens/@<!-- -->alice-&#91;x&#93;(https:<!-- -->//evil.example) fails the same check');
     // The repairer's title, escaped, is the link text of the fix's own pull request.
     expect(summary).toContain(`[Ask @<!-- -->security, see &#91;docs&#93;(https:<!-- -->//evil.example)](${fix.pr})`);
     // With the fixes' own pull request links taken out, nothing else renders, links or mentions.
