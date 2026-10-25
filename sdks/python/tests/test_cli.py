@@ -29,7 +29,8 @@ def run(argv, path, extra_env=None):
     """The console script's entry point, as a process with only `path` on PATH."""
     env = {"PATH": path, "HOME": os.environ.get("HOME", "/tmp"), **(extra_env or {})}
     code = "import sys; sys.path.insert(0, %r); from shadowlap._cli import main; main()" % os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return subprocess.run([sys.executable, "-c", code, *argv], env=env, capture_output=True, text=True, timeout=60)
+    # -B: its environment is its own, so nothing tells it not to write bytecode beside the SDK.
+    return subprocess.run([sys.executable, "-B", "-c", code, *argv], env=env, capture_output=True, text=True, timeout=60)
 
 
 @unittest.skipUnless(POSIX, "the fake node and npx here are shell scripts")
