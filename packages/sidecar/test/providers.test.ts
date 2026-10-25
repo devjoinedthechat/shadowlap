@@ -101,6 +101,9 @@ describe('cloud providers', () => {
     expect(azure.extractModel('/openai/deployments/prod/chat/completions', { model: 'gpt-4o' })).toBe('gpt-4o');
     expect(vertex.extractModel('/v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-4@20250514:streamRawPredict', {})).toBe('claude-sonnet-4@20250514');
     expect(bedrock.extractModel('/model/us.anthropic.claude-sonnet-4-5-20250929-v1%3A0/converse-stream', {})).toBe('us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+    // A path that doesn't decode names its model as it was sent: reading it never throws.
+    expect(bedrock.extractModel('/model/anthropic.claude%ZZ/invoke', {})).toBe('anthropic.claude%ZZ');
+    expect(azure.extractModel('/openai/deployments/gpt%E0%A4%A/chat/completions', { messages: [] })).toBe('gpt%E0%A4%A');
   });
 
   it('read Bedrock usage and stop reasons from Converse and InvokeModel JSON', () => {

@@ -1719,7 +1719,8 @@ export class Sidecar {
     attempt.settle(outcome === 'error' && retryable);
     const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
-    const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(call.path, call.body);
+    // Read after the answer is sent, as usage is: a path or body it can't read never costs the call its end.
+    const requestedModel = responseHeaders['x-shadowlap-model'] || readQuietly(() => provider.extractModel(call.path, call.body));
     if (requestedModel) meta.model = requestedModel;
     const usage = readQuietly(() => provider.extractUsage(bytes, contentType));
     if (usage) meta.usage = usage;

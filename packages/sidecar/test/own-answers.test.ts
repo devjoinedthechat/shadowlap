@@ -16,7 +16,8 @@ import { Sidecar } from '../src/server.js';
  * its own (a refused key, an offline replay, no upstream, a failure a flag injects, a blocked
  * write) is recorded with its bytes and headers, so a replay sends the agent the very same answer;
  * a provider or host that can't be reached, or that breaks off its answer, breaks the agent's
- * connection as it would have without Shadowlap, and a replay breaks it again.
+ * connection as it would have without Shadowlap, and a replay breaks it again. A path it reads a
+ * model from that does not decode costs a call nothing.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -352,6 +353,33 @@ describe('an upstream over HTTP/2 that resets its stream part way through an ans
       expect(sidecar.endRun(rep.runId, 'failed').summary.divergence).toBeNull();
     } finally {
       session.close();
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('a Bedrock path that does not decode', () => {
+  it("still records the call's end with the answer the agent got", async () => {
+    const up = await serve((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end('{"message":"malformed model identifier"}');
+      });
+    });
+    const store = Store.open(':memory:');
+    const logs: string[] = [];
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: up }, log: (l) => logs.push(l) });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      const seen = await ask(`${sidecar.url}/r/${rec.runId}/bedrock/model/anthropic.claude%ZZ/invoke`, { body: JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', max_tokens: 8, messages: [] }) });
+      expect(seen).toMatchObject({ status: 400, body: '{"message":"malformed model identifier"}' });
+      sidecar.endRun(rec.runId, 'completed');
+      const [call] = store.getCalls(rec.runId);
+      expect(call.end).toMatchObject({ outcome: 'error', meta: { status: 400, model: 'anthropic.claude%ZZ' } });
+      expect(logs.filter((l) => /^error:/.test(l))).toEqual([]);
+    } finally {
       await sidecar.close();
       store.close();
     }
