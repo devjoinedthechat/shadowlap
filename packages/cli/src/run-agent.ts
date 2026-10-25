@@ -6,7 +6,7 @@ import { links } from '@shadowlap/dashboard';
 import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
-import { newRunMeta, stampAuthor } from './activity.js';
+import { newRunMeta } from './activity.js';
 import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPreload, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
@@ -18,7 +18,7 @@ import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
-import { stampKeyEnv } from './placeholder-keys.js';
+import { keyEnvPatch } from './placeholder-keys.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p, shortId } from './ui.js';
 
@@ -185,11 +185,10 @@ export async function testAttempt(
     // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
     replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
   });
-  if (o.meta) store.updateRunMeta(run.runId, o.meta);
-  // Who replayed it: `shadowlap test`'s runs show by whom on Runs, as every other run does.
-  stampAuthor(store, run.runId);
-  stampKeyEnv(store, run.runId);
-  recordsInput(store, run.runId);
+  // Who replayed it (`shadowlap test`'s runs show by whom on Runs, as every other run does), the keys
+  // its environment held, and that it records what a person types: through the sidecar, which writes
+  // them after the run's start and never waits on the thread for another process's lock.
+  sidecar.updateRunMeta(run.runId, { ...(o.meta ?? {}), ...newRunMeta(), ...keyEnvPatch(store, parent.runId), inputs: true });
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
   // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
@@ -583,9 +582,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
   const run = start(sidecar);
-  stampAuthor(store, run.runId);
-  stampKeyEnv(store, run.runId);
-  recordsInput(store, run.runId);
+  // Who made it, the keys its environment held, and that it records what a person types.
+  sidecar.updateRunMeta(run.runId, { ...newRunMeta(), ...keyEnvPatch(store, run.parentRunId), inputs: true });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
   // MCP clients often start servers with a minimal environment; `shadowlap mcp` finds the sidecar through this file.
   try {
@@ -735,9 +733,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     while (!stopped && !refused.length && next < count) {
       const i = next++;
       const run = start(sidecar);
-      store.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta() });
-      stampKeyEnv(store, run.runId);
-      recordsInput(store, run.runId);
+      // Through the sidecar, after the run's start: an attempt that starts while another streams never holds it up.
+      sidecar.updateRunMeta(run.runId, { repeat: { group, attempt: i + 1, of: count }, ...newRunMeta(), ...keyEnvPatch(store, run.parentRunId), inputs: true });
       emitJobEvent({ type: 'run', runId: run.runId, role: 'attempt' });
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       if (streaming) process.stderr.write(`${header}\n`);

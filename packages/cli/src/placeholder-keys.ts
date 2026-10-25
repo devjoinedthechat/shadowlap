@@ -146,17 +146,31 @@ export function placeholdersFor(store: Store, parent: { runId: string; meta?: { 
 }
 
 /**
+ * What a run keeps of the providers whose credentials the environment held as its agent started
+ * (`keyEnv`), as a patch of its metadata: a replay of `parentRunId` adds its recording's note, since
+ * an agent that ran on placeholders took its key from the environment all the same. Nothing when it
+ * can't be read: the run is what matters.
+ */
+export function keyEnvPatch(store: Store, parentRunId: string | null, env: Env = process.env): { keyEnv?: Record<string, string[]> } {
+  try {
+    const note = keyEnvOf(env);
+    const recorded = parentRunId ? keyEnvNote(store.getRun(parentRunId)?.meta?.keyEnv) : null;
+    for (const [id, names] of Object.entries(recorded ?? {})) note[id] = [...new Set([...(note[id] ?? []), ...names])];
+    return { keyEnv: note };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Keeps on a run the providers whose credentials the environment held as its agent started
  * (`keyEnv`). A replay adds its recording's note: an agent that ran on placeholders took its key
  * from the environment all the same. Never throws: the run is what matters.
  */
 export function stampKeyEnv(store: Store, runId: string, env: Env = process.env): void {
   try {
-    const note = keyEnvOf(env);
-    const run = store.getRun(runId);
-    const recorded = run?.parentRunId ? keyEnvNote(store.getRun(run.parentRunId)?.meta?.keyEnv) : null;
-    for (const [id, names] of Object.entries(recorded ?? {})) note[id] = [...new Set([...(note[id] ?? []), ...names])];
-    store.updateRunMeta(runId, { keyEnv: note });
+    const patch = keyEnvPatch(store, store.getRun(runId)?.parentRunId ?? null, env);
+    if (patch.keyEnv) store.updateRunMeta(runId, patch);
   } catch {
     // a run without the note replays with the keys of its environment
   }

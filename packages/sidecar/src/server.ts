@@ -25,6 +25,7 @@ import {
   storedModelResolver,
   summarizeRun,
   toolFailureError,
+  ulidNow,
   unmaskedHints,
   type CallKind,
   type JudgeSummary,
@@ -40,6 +41,7 @@ import {
   type Origin,
   type ReplayOptions,
   type RunCommand,
+  type RunMeta,
   type RunMode,
   type RunRecord,
   type RunStatus,
@@ -153,6 +155,12 @@ export interface StartRunInput {
   slot?: string;
   /** Never call a provider: a call that isn't served from the recording fails, as in `shadowlap test`. */
   offline?: boolean;
+  /**
+   * What to keep on the run from its start (who made it, the keys its environment held): written
+   * with its record, so a caller stamps a run without writing to the store itself, and so without
+   * waiting for another process's lock.
+   */
+  meta?: Partial<RunMeta>;
 }
 
 export interface EndRunResult {
@@ -241,6 +249,8 @@ class RunContext {
   judgeOnly: { from: number } | null = null;
   /** What the recording kept on OpenAI's side, for a live Responses call that continues it (responses-state.ts); null without one. */
   responses: ResponsesState | null = null;
+  /** Why the run itself could not be written to the store, when it couldn't: none of its calls can be then. */
+  lost: string | null = null;
 
   constructor(
     readonly run: RunRecord,
@@ -513,8 +523,10 @@ export class Sidecar {
   private readonly upstreamHttp2 = new Map<string, ClientHttp2Session>();
   /** Requests upstream over HTTP/1.1 that have not ended yet: a model call still waiting for its answer, a body still streaming. */
   private readonly upstreamRequests = new Set<ClientRequest>();
-  /** Every write of the calls to the store, in order, never holding up an answer (writer.ts). */
+  /** Every write of the runs and their calls to the store, in order, never holding up an answer (writer.ts). */
   private readonly writer: StoreWriter;
+  /** Takes the writer off the store's queues (Store.queueWrites), once it has made what it holds. */
+  private readonly unqueue: () => void;
   /** WebSockets tunnelled and still open: an agent's connections, ended when the sidecar closes. */
   private readonly tunnels = new Set<Duplex>();
   /**
@@ -547,6 +559,8 @@ export class Sidecar {
     this.api = opts.api;
     this.awsCredentials = opts.awsCredentials ?? credentialsFromEnvironment();
     this.writer = new StoreWriter(opts.store, opts.storeWrites ?? {}, (line) => this.log(line));
+    // A read or change of a run in this process makes what the writer holds of it first.
+    this.unqueue = opts.store.queueWrites(this.writer);
   }
 
   static async start(opts: SidecarOptions): Promise<Sidecar> {
@@ -640,6 +654,7 @@ export class Sidecar {
     this.server.closeAllConnections?.();
     // What the calls answered so far is written before the store may close.
     this.writer.stop();
+    this.unqueue();
     // The servers close once every agent still connected has had its answer, so a request still
     // upstream now is one whose agent left before its answer came (stopped by Ctrl-C mid-call):
     // nobody is left to read it, and a slow model would keep this process running after it is done.
@@ -674,10 +689,16 @@ export class Sidecar {
     return env;
   }
 
+  /**
+   * Starts a run. Its record is written through the store writer, as its calls are, so a start never
+   * holds the thread the agents' answers stream on for another process's lock: at once when the
+   * store is free, else once it is, with every write of the run after it. Reading the run in this
+   * process waits for that (QueuedWrites), so a caller that stamps it as it starts finds it, and one
+   * that passes what to stamp as `meta` never waits at all. A replay reads its parent whole, the
+   * writes this process queued for the parent included.
+   */
   startRun(input: StartRunInput): RunRecord {
     if (input.slot !== undefined) this.envForSlot(input.slot);
-    // A parent this sidecar recorded is read whole.
-    this.writer.flush();
     // Known before the parent is fingerprinted, which masks dates against it.
     const startedAt = Date.now();
     let parentCalls: CallRecord[] | undefined;
@@ -734,18 +755,13 @@ export class Sidecar {
     // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
     // their flags (no list) is never taken for one that had none.
     const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand, input.overrideSources) : null;
-    const run = this.store.createRun({
-      mode: input.mode,
-      parentRunId: input.parentRunId ?? null,
-      command: input.command,
-      codeVersion: input.codeVersion ?? null,
-      startedAt,
-      meta: {
-        normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
-        ...(input.commandFromImport ? { commandFromImport: true } : {}),
-        ...(described ? { interventions: described } : {}),
-      },
-    });
+    const meta: RunMeta = {
+      ...(input.meta ?? {}),
+      normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
+      ...(input.commandFromImport ? { commandFromImport: true } : {}),
+      ...(described ? { interventions: described } : {}),
+    };
+    const run: RunRecord = { runId: ulidNow(), parentRunId: input.parentRunId ?? null, mode: input.mode, status: 'running', divergence: null, command: input.command, codeVersion: input.codeVersion ?? null, startedAt, endedAt: null, meta };
     const clockRef = this.clock !== 'auto' ? undefined : parentStartedAt !== undefined ? [parentStartedAt, run.startedAt] : [run.startedAt];
     const session = new Session({
       mode: input.mode,
@@ -762,6 +778,15 @@ export class Sidecar {
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
     const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined);
+    this.writer.write({
+      what: `run ${run.runId}'s start`,
+      of: { runId: run.runId, part: 'run' },
+      run: () => void this.store.createRun({ runId: run.runId, mode: run.mode, parentRunId: run.parentRunId, command: run.command, codeVersion: run.codeVersion, startedAt, meta }),
+      failed: (reason) => {
+        ctx.lost = reason;
+        ctx.warnings.push(`Run ${run.runId} could not be written to the store (${reason}): nothing of it is in the recording.`);
+      },
+    });
     // A fork's live Responses call may continue a response or a conversation the recording made: read when one does.
     if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
       const recorded = parentCalls;
@@ -786,7 +811,6 @@ export class Sidecar {
    */
   openForJudge(runId: string): void {
     if (this.runs.has(runId)) return;
-    this.writer.flush();
     const run = this.store.getRun(runId);
     if (!run) throw new HttpError(404, `unknown run ${runId}`);
     const parent = run.parentRunId ? this.store.getRun(run.parentRunId) : null;
@@ -809,7 +833,6 @@ export class Sidecar {
     const ctx = this.runs.get(runId);
     if (!ctx?.judgeOnly) return null;
     this.runs.delete(runId);
-    this.writer.flush();
     const made = this.store.getCalls(runId).filter((c) => isJudgeCall(c) && c.callNo >= ctx.judgeOnly!.from);
     // Made by this process, whatever made the run: a recording that came from a pack had its own
     // calls made somewhere else, but these went upstream, and were paid for, here.
@@ -826,6 +849,41 @@ export class Sidecar {
     if (ctx) ctx.preloadGuard = guard;
   }
 
+  /**
+   * Keeps `patch` on a run's metadata. For a run this sidecar has open it goes through the store
+   * writer, after the run's start, so it never waits on the thread for another process's lock (a
+   * caller that stamps a run as it starts can pass the stamp as StartRunInput.meta instead); any
+   * other run's is written at once.
+   */
+  updateRunMeta(runId: string, patch: Partial<RunMeta>): void {
+    const ctx = this.runs.get(runId);
+    if (!ctx) return this.store.updateRunMeta(runId, patch);
+    ctx.run.meta = { ...(ctx.run.meta ?? {}), ...patch };
+    this.writer.write({
+      what: `run ${runId}'s metadata`,
+      of: { runId, part: 'run' },
+      run: () => this.store.updateRunMeta(runId, patch),
+      failed: (reason) => this.storeTrouble(ctx, 'store:meta', `What was kept on run ${runId} could not be written to the store (${reason}).`),
+    });
+  }
+
+  /**
+   * Resolves once every write this sidecar queued for the run (or, without one, for any run) has been
+   * made or given up, waiting on the store writer's timer, never on the thread the agents' answers
+   * stream on. A caller that waits for it before endRun, or before reading the run, never waits on
+   * the thread for another process's lock.
+   */
+  settled(runId?: string): Promise<void> {
+    return this.writer.settled(runId);
+  }
+
+  /**
+   * Ends a run. Its calls are read back as the store holds them, every one this process wrote among
+   * them: while another process holds the store the read waits for the run's own calls
+   * (QueuedWrites), and a caller that waits for `settled(runId)` first never waits on the thread at
+   * all. What the end keeps (its status, what its preloads said, the hosts it reached unrecorded, its
+   * WebSockets) is one write through the store writer, as its calls are.
+   */
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
@@ -835,21 +893,17 @@ export class Sidecar {
     // A replay that never diverged but stopped before its recording did leaves it there: kept on
     // the run, so everything that reads the store tells it from a clean replay.
     if (ctx.session.end()) this.noteDivergence(ctx);
-    // Every call written before the run is read back (and any that couldn't be, in its warnings).
-    this.writer.flush();
+    // Every call of the run, the ones still queued made first (and any that couldn't be, in its warnings).
     const calls = this.store.getCalls(runId);
     // A run that made model or tool calls with no preload loaded was never watched by the guard:
     // under --guard block it fails, whatever its agent did.
     const preloads = this.preloadReport(ctx, calls);
     if (preloads?.failed && status === 'completed') status = 'failed';
-    this.store.endRun(runId, status);
     this.runs.delete(runId);
     if (this.activeRunId === runId) this.activeRunId = null;
     if (ctx.slot !== null && this.slots.get(ctx.slot) === runId) this.slots.delete(ctx.slot);
-    const run = this.store.getRun(runId)!;
+    const run: RunRecord = ctx.run;
     const unguarded = [...ctx.unguarded.entries()].map(([target, v]) => ({ target, ...v })).sort((a, b) => b.count - a.count);
-    // Kept on the run as well as printed: its page says what a replay runs for real.
-    if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
     const warnings = [...ctx.warnings];
     if (preloads?.missing) warnings.push(preloads.missing);
     if (unguarded.length) {
@@ -870,8 +924,6 @@ export class Sidecar {
     // WebSockets (OpenAI Realtime): what went over them is in no recording.
     const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
     warnings.push(...webSocketWarnings(websockets, run.mode));
-    // Kept on the run for its page, as the preloads are: the summary goes, the run stays.
-    if (websockets.length) this.store.updateRunMeta(runId, { websockets });
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api') && !websockets.some((u) => u.action === 'tunnelled')) {
       warnings.push(
         calls.length === 0
@@ -879,15 +931,32 @@ export class Sidecar {
           : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through Shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
       );
     }
-    const summary = summarizeRun(run, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
+    // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
+    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
+    const endedAt = Date.now();
+    if (ctx.lost === null) {
+      this.writer.write({
+        what: `run ${runId}'s end`,
+        of: { runId, part: 'run' },
+        run: () => {
+          this.store.endRun(runId, status, endedAt);
+          if (Object.keys(patch).length) this.store.updateRunMeta(runId, patch);
+          // Kept on the run as well as printed: its page says what a replay runs for real.
+          if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
+        },
+        failed: (reason) => warnings.push(`That run ${runId} ended could not be written to the store (${reason}): it reads as running until a later command finds no process recording it.`),
+      });
+    }
+    const ended: RunRecord = { ...run, status, endedAt, meta: { ...(run.meta ?? {}), ...patch } };
+    const summary = summarizeRun(ended, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
     this.log(`run ${runId} ended (${status})`);
-    return { run, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
+    return { run: ended, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
   }
 
   /**
-   * What the run's preloads said, kept on the run for its page (`RunMeta.preloads`), or null when the
-   * CLI started its agent with none (expectPreloads). A run that made model or tool calls (a judge's
-   * are the CLI's own) with no hello is `missing` one, unless the guard was turned off.
+   * What the run's preloads said, which endRun keeps on the run for its page (`RunMeta.preloads`), or
+   * null when the CLI started its agent with none (expectPreloads). A run that made model or tool
+   * calls (a judge's are the CLI's own) with no hello is `missing` one, unless the guard was turned off.
    */
   private preloadReport(ctx: RunContext, calls: readonly CallRecord[]): PreloadReport | null {
     const guard = ctx.preloadGuard;
@@ -897,7 +966,6 @@ export class Sidecar {
     const agent = calls.filter((c) => !isJudgeCall(c));
     const made = { api: agent.filter((c) => c.kind === 'api').length, tool: agent.filter((c) => c.kind === 'tool').length };
     const missing = guard !== 'off' && Object.keys(hellos).length === 0 && made.api + made.tool > 0 ? missingPreload(ctx.run.command.argv, made, guard) : null;
-    this.store.updateRunMeta(ctx.run.runId, { preloads: { guard, hellos, ...(missing ? { missing } : {}) } });
     return { guard, hellos, missing, failed: missing !== null && guard === 'block' };
   }
 
@@ -1404,13 +1472,14 @@ export class Sidecar {
     let requestRef: string | null = null;
     this.writer.write({
       what: `call ${callNo}'s start`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
         requestRef = storeApiRequest(this.store, body);
         start(requestRef);
       },
       // Still matched on replay, by the fingerprint its row keeps; only its diff has no request to show.
       instead: () => start(null),
-      failed: (reason, replaced) => ctx.warnOnce(`store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
+      failed: (reason, replaced) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
     });
     const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt }, provider, call.method, call.path, asked, query, judge !== null);
     this.writer.write({
@@ -1826,13 +1895,14 @@ export class Sidecar {
     const row = (responseRef: string | null, outcome: 'ok' | 'error', meta: CallMeta): CallEndRow => ({ runId: ctx.run.runId, callNo, attempt: end.attempt, responseRef, outcome, meta, at });
     this.writer.write({
       what: `call ${callNo}'s ${noun}`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => this.store.appendCallEnd(identity, row(end.response !== undefined ? this.store.putBlob(end.response) : (end.responseRef ?? null), end.outcome, end.meta)),
       instead: (reason) => {
         const { chunks: _timing, ...meta } = end.meta;
         this.store.appendCallEnd(identity, row(null, 'error', { ...meta, error: { name: 'ShadowlapStoreError', message: `the ${noun} could not be written to the store: ${reason}` } }));
       },
       failed: (reason, replaced) =>
-        ctx.warnOnce(`store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`),
+        this.storeTrouble(ctx, `store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`),
     });
   }
 
@@ -2248,11 +2318,12 @@ export class Sidecar {
     let requestRef: string | null = null;
     this.writer.write({
       what: `call ${callNo}'s start`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
         requestRef = this.store.putJson(request);
         this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: tracked.effect, requestRef, meta, at });
       },
-      failed: (reason) => ctx.warnOnce(`store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`),
+      failed: (reason) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`),
     });
     return () => requestRef;
   }
@@ -2299,6 +2370,11 @@ export class Sidecar {
     }
   }
 
+  /** A write of the run's that could not be made, said once in its warnings; nothing more once the run itself could not be (RunContext.lost). */
+  private storeTrouble(ctx: RunContext, key: string, message: string): void {
+    if (ctx.lost === null) ctx.warnOnce(key, message);
+  }
+
   /** Keeps a run's divergence on it, in memory and in the store, through the store writer. */
   private keepDivergence(ctx: RunContext, found: DivergenceReport): DivergenceReport {
     // A hint for a change the run's rules mask would ask for a rule the config has: the report
@@ -2308,8 +2384,9 @@ export class Sidecar {
     ctx.run.divergence = d;
     this.writer.write({
       what: `run ${ctx.run.runId}'s divergence`,
+      of: { runId: ctx.run.runId, part: 'run' },
       run: () => this.store.setDivergence(ctx.run.runId, d),
-      failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
+      failed: (reason) => this.storeTrouble(ctx, 'store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
     });
     return d;
   }

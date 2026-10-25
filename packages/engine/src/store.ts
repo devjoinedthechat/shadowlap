@@ -19,7 +19,7 @@
 import { Activity } from './store/activity.js';
 import { Chaos } from './store/chaos.js';
 import { Cleanup } from './store/cleanup.js';
-import { inTransaction, prepareStatements, StorePart, type SqliteDatabase, type SqliteStatement, type Statements } from './store/core.js';
+import { inTransaction, prepareStatements, StorePart, type QueuedWrites, type SqliteDatabase, type SqliteStatement, type Statements } from './store/core.js';
 import { Coverage } from './store/coverage.js';
 import { Decisions } from './store/decisions.js';
 import { Fixes } from './store/fixes.js';
@@ -34,7 +34,7 @@ import { Training } from './store/training.js';
 
 export type { NewStoredEvent, StoredEvent } from './store/activity.js';
 export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaosResult, NewChaosSession } from './store/chaos.js';
-export type { SqlValue } from './store/core.js';
+export type { QueuedWrites, SqlValue } from './store/core.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store/coverage.js';
 export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store/decisions.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
@@ -77,6 +77,8 @@ export class Store {
   // query's statements (store/read-models.ts), one set per connection.
   private readonly readStatements = new Map<string, SqliteStatement>();
   private queryOnlyState: SqliteStatement | null = null;
+  // Writes queued in this process and not made yet (store/recording.ts, queueWrites).
+  private readonly queues = new Set<QueuedWrites>();
 
   private constructor(db: SqliteDatabase) {
     this.db = db;

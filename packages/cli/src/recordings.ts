@@ -2,8 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { divergenceLine, finalAnswer, formatDivergence, formatSummary, heldFrom, packRun, TEST_COMMAND, unpackRun, type CallKind, type Normalizer, type Origin, type Store } from '@shadowlap/engine';
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
-import { stampAuthor } from './activity.js';
-import { placeholdersFor, stampKeyEnv } from './placeholder-keys.js';
+import { newRunMeta } from './activity.js';
+import { keyEnvPatch, placeholdersFor } from './placeholder-keys.js';
 
 /**
  * Recordings for test suites, behind `shadowlap serve --recordings`. A test-runner plugin (pytest,
@@ -118,9 +118,8 @@ export class RecordingHost {
     // A test that gives no command starts its agent itself: the run names the test, and has no command to run again.
     const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
     if (mode === 'all' || (!exists && mode === 'missing')) {
-      const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
-      stampAuthor(this.store, run.runId);
-      stampKeyEnv(this.store, run.runId);
+      // Who made it and the keys its environment held, kept as it starts: a test that starts while another streams holds nothing up.
+      const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, null) } });
       this.active.set(run.runId, { runId: run.runId, mode: 'record', dir, slot });
       return { runId: run.runId, mode: 'record', recording: rel };
     }
@@ -136,9 +135,7 @@ export class RecordingHost {
       throw new HttpError(409, `${rel}: the store already holds another recording under its run id ${parentRunId.slice(0, 10)} (${heldFrom(held)}), and its calls differ from the recording's. Delete the store's copy (shadowlap rm ${parentRunId.slice(0, 10)}) to replay this one, or record this test again with SHADOWLAP_RECORD=all.`);
     }
     const covers = this.store.getRun(parentRunId)?.meta?.covers;
-    const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) } });
-    stampAuthor(this.store, run.runId);
-    stampKeyEnv(this.store, run.runId);
+    const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) }, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, parentRunId) } });
     this.active.set(run.runId, { runId: run.runId, mode: 'replay', dir, slot });
     const placeholders = placeholdersFor(this.store, this.store.getRun(parentRunId)!, 'offline');
     return { runId: run.runId, mode: 'replay', recording: rel, ...(Object.keys(placeholders).length ? { placeholders } : {}) };
