@@ -752,11 +752,24 @@ def _since(started: float) -> int:
     return int((time.time() - started) * 1000)
 
 
-class _Nothing:
-    """No value yet: a stream that yielded nothing records None."""
+#: How a streaming tool's call is recorded: every value it handed the caller, in order, under a key
+#: no tool's own result has, with a generator's return value as ``returned``.
+_STREAM = "shadowlap_stream"
 
 
-_NOTHING = _Nothing()
+def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any]]:
+    """A streaming call's recorded values and return value; None for a result recorded as one value
+    (a stream recorded before streams were recorded whole, or what ``--override`` put in its place),
+    which a replay yields alone."""
+    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned"}:
+        return result[_STREAM], result.get("returned")
+    return None
+
+
+def _streamed(error: Any) -> list[Any]:
+    """The values a streaming call handed its caller before it failed, as its error keeps them."""
+    values = error.get("streamed") if isinstance(error, dict) else None
+    return values if isinstance(values, list) else []
 
 
 class _Tool:
@@ -889,13 +902,22 @@ class _Tool:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
                 r = await _to_thread(tool_.resolve, cfg, _check_args(tool_.name, bound))
                 if r["origin"] == "replayed":
-                    # The implementation doesn't run: the recorded value is the stream.
-                    yield await tool_.replayed_async(r, bound)
+                    # The implementation doesn't run: the recorded values are the stream, in order,
+                    # and a failure comes after the values it followed.
+                    if r["outcome"] == "ok":
+                        recorded = _recorded_stream(r.get("result"))
+                        for item in recorded[0] if recorded is not None else [r.get("result")]:
+                            yield item
+                        return
+                    if not r.get("injected"):
+                        for item in _streamed(r.get("error")):
+                            yield item
+                    await tool_.replayed_async(r, bound)
                     return
                 tool_.refuse(r, bound)
                 if r["origin"] == "stubbed":
                     stub = await tool_.stub_async(bound)
-                    await _to_thread(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    await _to_thread(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
                     yield stub
                     return
                 live = _LiveStream(tool_, cfg, r["callNo"])
@@ -914,7 +936,7 @@ class _Tool:
                 raise
             while True:
                 if live:
-                    live.last = value
+                    live.items.append(value)
                 try:
                     sent = yield value
                 except GeneratorExit:
@@ -956,12 +978,25 @@ class _Tool:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
                 r = tool_.resolve(cfg, _check_args(tool_.name, bound))
                 if r["origin"] == "replayed":
-                    yield tool_.replayed(r, bound)
+                    # The recorded values are the stream, in order, then what the generator returned;
+                    # a failure comes after the values it followed. A value sent in changes nothing.
+                    if r["outcome"] == "ok":
+                        recorded = _recorded_stream(r.get("result"))
+                        if recorded is None:
+                            yield r.get("result")
+                            return None
+                        for item in recorded[0]:
+                            yield item
+                        return recorded[1]
+                    if not r.get("injected"):
+                        for item in _streamed(r.get("error")):
+                            yield item
+                    tool_.replayed(r, bound)
                     return None
                 tool_.refuse(r, bound)
                 if r["origin"] == "stubbed":
                     stub = tool_.on_fork(**bound) if tool_.on_fork else None
-                    _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
                     yield stub
                     return None
                 live = _LiveStream(tool_, cfg, r["callNo"])
@@ -970,7 +1005,7 @@ class _Tool:
                 value = next(stream)
             except StopIteration as stop:
                 if live:
-                    live.ended()
+                    live.ended(stop.value)
                 return stop.value
             except BaseException as err:
                 if live:
@@ -978,7 +1013,7 @@ class _Tool:
                 raise
             while True:
                 if live:
-                    live.last = value
+                    live.items.append(value)
                 try:
                     sent = yield value
                 except GeneratorExit:
@@ -996,7 +1031,7 @@ class _Tool:
                     value = advance()
                 except StopIteration as stop:
                     if live:
-                        live.ended()
+                        live.ended(stop.value)
                     return stop.value
                 except BaseException as err:
                     if live:
@@ -1007,29 +1042,35 @@ class _Tool:
 
 
 class _LiveStream:
-    """A streaming tool's live call: the last value it handed the caller is recorded as its result
-    once the stream ends, or once the caller stops reading. A failure of the tool is its error."""
+    """A streaming tool's live call: every value it handed the caller is recorded, in order, once the
+    stream ends (with a generator's return value), or once the caller stops reading; none for a
+    stream that yielded nothing. A failure of the tool is its error, with the values that came first."""
 
     def __init__(self, tool_: _Tool, cfg: Config, call_no: int):
         self.tool = tool_
         self.cfg = cfg
         self.call_no = call_no
         self.started = time.time()
-        self.last: Any = _NOTHING
+        self.items: list[Any] = []
         self.done = False
 
-    def ended(self) -> None:
+    def ended(self, returned: Any = None) -> None:
         if self.done:
             return
         self.done = True
-        result = None if self.last is _NOTHING else self.last
-        _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, result, _since(self.started))
+        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {})}
+        _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, record, _since(self.started))
 
     def failed(self, err: BaseException) -> None:
         if self.done or isinstance(err, _STOPPING):
             return
         self.done = True
-        self.tool.complete(self.cfg, self.call_no, self.tool.failed(err, self.started))
+        body = self.tool.failed(err, self.started)
+        try:
+            body["error"]["streamed"] = _recordable(self.tool.name, self.items)
+        except TypeError:
+            pass  # values that can't be recorded: the error alone
+        self.tool.complete(self.cfg, self.call_no, body)
 
     async def failed_async(self, err: BaseException) -> None:
         await _finish(self.failed, err)
@@ -1055,8 +1096,8 @@ def tool(
 
     A function, a coroutine function, a generator or async generator function, and an object whose
     ``__call__`` is one of those all keep their kind: an async one stays awaitable, and a streaming
-    one keeps streaming, its last value recorded as the result and yielded alone on replay. Async
-    tools run under asyncio, trio, and anyio on either.
+    one keeps streaming, every value it yields recorded (a generator's return value too) and yielded
+    again, in order, on replay. Async tools run under asyncio, trio, and anyio on either.
 
     Parameters a framework injects are left out of the recording automatically: Pydantic AI's
     `RunContext`, the OpenAI Agents SDK's `RunContextWrapper` and `ToolContext`, LangChain's

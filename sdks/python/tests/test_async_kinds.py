@@ -1,5 +1,5 @@
 """Every kind of async tool under Shadowlap, not only coroutine functions: an async generator function
-streams as it does outside Shadowlap and records its last value, an object with an async __call__
+streams as it does outside Shadowlap and records every value it yields, an object with an async __call__
 stays awaitable, and all of them run under trio and anyio as under asyncio. The sidecar is stubbed,
 except where the header the SDK sends is the point."""
 
@@ -79,7 +79,7 @@ class AsyncGenerators(Stubbed):
         self.assertTrue(inspect.isasyncgenfunction(search))
         self.assertEqual(search.__name__, "search")
 
-    def test_recording_streams_each_value_and_records_the_last(self):
+    def test_recording_streams_each_value_and_records_them_all(self):
         sidecar = self.use({"origin": "live", "callNo": 4})
         ran = []
         values = asyncio.run(collect(progress_tool(ran)("refunds")))
@@ -88,13 +88,26 @@ class AsyncGenerators(Stubbed):
         resolve = sidecar.sent[0][1]
         self.assertEqual((resolve["name"], resolve["effect"], resolve["args"]), ("search", "read", {"query": "refunds", "pages": 3}))
         [done] = sidecar.completes()
-        self.assertEqual((done["outcome"], done["result"]), ("ok", {"page": 3, "of": 3, "query": "refunds"}))
+        self.assertEqual((done["outcome"], done["result"]), ("ok", {"shadowlap_stream": values}))
 
-    def test_a_replay_yields_the_recorded_value_alone_and_runs_nothing(self):
-        self.use({"origin": "replayed", "callNo": 4, "outcome": "ok", "result": {"page": 3, "of": 3}})
+    def test_a_replay_yields_every_recorded_value_in_order_and_runs_nothing(self):
+        pages = [{"page": 1, "of": 2}, {"page": 2, "of": 2}]
+        self.use({"origin": "replayed", "callNo": 4, "outcome": "ok", "result": {"shadowlap_stream": pages}})
         ran = []
-        self.assertEqual(asyncio.run(collect(progress_tool(ran)("refunds"))), [{"page": 3, "of": 3}])
+        self.assertEqual(asyncio.run(collect(progress_tool(ran)("refunds"))), pages)
         self.assertEqual(ran, [])
+
+    def test_an_empty_stream_is_recorded_empty_and_replays_empty(self):
+        sidecar = self.use({"origin": "live", "callNo": 4})
+        self.assertEqual(asyncio.run(collect(progress_tool([])("refunds", pages=0))), [])
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": []})
+        self.use({"origin": "replayed", "callNo": 4, "outcome": "ok", "result": {"shadowlap_stream": []}})
+        self.assertEqual(asyncio.run(collect(progress_tool([])("refunds", pages=0))), [])
+
+    def test_a_stream_recorded_as_its_last_value_replays_that_value(self):
+        # As a recording made before streams were recorded whole holds it, or an --override puts it.
+        self.use({"origin": "replayed", "callNo": 4, "outcome": "ok", "result": {"page": 3, "of": 3}})
+        self.assertEqual(asyncio.run(collect(progress_tool([])("refunds"))), [{"page": 3, "of": 3}])
 
     def test_a_reader_that_stops_early_stops_the_tool_and_records_what_it_read(self):
         sidecar = self.use({"origin": "live", "callNo": 4})
@@ -117,7 +130,7 @@ class AsyncGenerators(Stubbed):
         self.assertEqual(asyncio.run(first_two()), [0, 1])
         self.assertEqual(closed, ["orders"])
         [done] = sidecar.completes()
-        self.assertEqual((done["outcome"], done["result"]), ("ok", 1))
+        self.assertEqual((done["outcome"], done["result"]), ("ok", {"shadowlap_stream": [0, 1]}))
 
     def test_a_failure_of_the_tool_is_recorded_as_its_error_and_raised(self):
         sidecar = self.use({"origin": "live", "callNo": 4})
@@ -130,7 +143,19 @@ class AsyncGenerators(Stubbed):
         with self.assertRaises(KeyError):
             asyncio.run(collect(flaky(1)))
         [done] = sidecar.completes()
-        self.assertEqual((done["outcome"], done["error"]["name"]), ("error", "KeyError"))
+        self.assertEqual((done["outcome"], done["error"]["name"], done["error"]["streamed"]), ("error", "KeyError", [1]))
+        # Its replay hands over the values that came before the failure, then raises it.
+        self.use({"origin": "replayed", "callNo": 4, "outcome": "error", "error": done["error"]})
+        got = []
+
+        async def read_all():
+            async for value in flaky(1):
+                got.append(value)
+
+        with self.assertRaises(shadowlap.ReplayedError) as replayed:
+            asyncio.run(read_all())
+        self.assertEqual((type(replayed.exception).__name__, str(replayed.exception)), ("KeyError", "'A-17'"))
+        self.assertEqual(got, [1])
 
     def test_sent_values_and_thrown_errors_reach_the_tool(self):
         self.use({"origin": "live", "callNo": 4})
@@ -177,7 +202,7 @@ class AsyncGenerators(Stubbed):
             yield "sent"
 
         self.assertEqual(asyncio.run(collect(send("team@example.com"))), [{"sent": False}])
-        self.assertEqual(sidecar.completes()[0]["result"], {"sent": False})
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": [{"sent": False}]})
 
     def test_outside_shadowlap_it_is_the_tool_itself(self):
         os.environ.pop("SHADOWLAP_URL", None)
@@ -188,7 +213,7 @@ class AsyncGenerators(Stubbed):
 
 
 class Generators(Stubbed):
-    def test_a_generator_tool_streams_and_records_its_last_value(self):
+    def test_a_generator_tool_streams_and_records_every_value_and_what_it_returned(self):
         sidecar = self.use({"origin": "live", "callNo": 2})
 
         @tool(effect="read")
@@ -199,19 +224,36 @@ class Generators(Stubbed):
 
         self.assertTrue(inspect.isgeneratorfunction(pages))
         self.assertEqual(list(pages(3)), [0, 1, 2])
-        self.assertEqual(sidecar.completes()[0]["result"], 2)
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": [0, 1, 2], "returned": "done"})
 
-    def test_its_replay_yields_the_recorded_value(self):
-        self.use({"origin": "replayed", "callNo": 2, "outcome": "ok", "result": 2})
+    def test_its_replay_yields_every_recorded_value_and_returns_what_it_returned(self):
+        self.use({"origin": "replayed", "callNo": 2, "outcome": "ok", "result": {"shadowlap_stream": [0, 1, 2], "returned": "done"}})
         ran = []
 
         @tool(effect="read")
         def pages(n: int):
             ran.append(n)
             yield from range(n)
+            return "done"
 
-        self.assertEqual(list(pages(3)), [2])
+        def outer():
+            returned = yield from pages(3)
+            yield returned
+
+        self.assertEqual(list(outer()), [0, 1, 2, "done"])
         self.assertEqual(ran, [])
+
+    def test_an_empty_generator_is_recorded_empty_and_replays_empty(self):
+        sidecar = self.use({"origin": "live", "callNo": 2})
+
+        @tool(effect="read")
+        def nothing():
+            yield from ()
+
+        self.assertEqual(list(nothing()), [])
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": []})
+        self.use({"origin": "replayed", "callNo": 2, "outcome": "ok", "result": {"shadowlap_stream": []}})
+        self.assertEqual(list(nothing()), [])
 
 
 class Search:
@@ -346,7 +388,7 @@ class UnderTrio(Stubbed):
                 yield i
 
         self.assertEqual(trio.run(collect, pages(2)), [0, 1])
-        self.assertEqual(sidecar.completes()[0]["result"], 1)
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": [0, 1]})
 
     def test_user_input_async_asks_off_the_loop(self):
         sidecar = self.use({"origin": "live", "callNo": 7})
