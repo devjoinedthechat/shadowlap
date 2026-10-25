@@ -64,7 +64,7 @@ describe('OPENAI_BASE_URL with an API root that has no /v1', () => {
     expect(paths).toEqual(['POST /inference/chat/completions', 'POST /inference/chat/completions']);
 
     // Offline, from the recording, under the call's usual name: no OPENAI_BASE_URL needed.
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const replay = await run([CLI, '--db', join(cwd, 'store.db'), 'replay', runId, '--strict'], {});
     expect(replay.code, replay.out).toBe(0);
     expect(replay.out).toMatch(/Replay clean: 1\/1 calls replayed/);

@@ -64,8 +64,8 @@ describe('parseAgentCommand', () => {
       ['node', 'a.mjs', '\\\\server\\share', 'C:\\agents\\', "'", "''", '\\', '~/x', '#1', '{a,b}', '$(date)', '`date`'],
     ];
     for (let n = 0; n < 2000; n++) {
-      const args = Array.from({ length: 1 + random(5) }, () => Array.from({ length: random(9) }, () => pool[random(pool.length)]!).join(''));
-      cases.push([programs[random(programs.length)]!, ...args]);
+      const args = Array.from({ length: 1 + random(5) }, () => Array.from({ length: random(9) }, () => pool[random(pool.length)]).join(''));
+      cases.push([programs[random(programs.length)], ...args]);
     }
     for (const c of cases) {
       const line = quoteArgv(c);

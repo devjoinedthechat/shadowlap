@@ -1,4 +1,4 @@
-import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, proofLine, rewriteText, type AttemptReport, type Canary, type CleanReport, type Evidence, type InjectionReport, type Normalizer, type PlantReport } from '@shadowlap/engine';
+import { applyNormalizers, cleanBound, cleanDecided, cleanRule, describeIdentifiers, keepingCanaries, normalizedArgs, normalizerApplies, parsePath, proofLine, rewriteText, type AttemptReport, type Canary, type CauseVerdict, type CleanReport, type Evidence, type InjectionReport, type InjectionVerdict, type Normalizer, type PlantReport } from '@shadowlap/engine';
 
 /**
  * The security report of `shadowlap injection --html` and the dashboard's Security report: one HTML
@@ -143,12 +143,12 @@ function marked(text: string, canaries: readonly Canary[]): string {
   let last = 0;
   for (const m of text.matchAll(re)) {
     out += esc(text.slice(last, m.index)) + `<span class="canary">${esc(m[0])}</span>`;
-    last = m.index! + m[0].length;
+    last = m.index + m[0].length;
   }
   return out + esc(text.slice(last));
 }
 
-const VERDICT_CLASS: Record<string, string> = { obeyed: 'obeyed', influenced: 'influenced', ignored: 'ignored', inconclusive: 'inconclusive', caused: 'caused', 'not caused': 'not-caused', passed: 'passed', failed: 'failed' };
+const VERDICT_CLASS: Record<InjectionVerdict | CauseVerdict | 'passed' | 'failed', string> = { obeyed: 'obeyed', influenced: 'influenced', ignored: 'ignored', inconclusive: 'inconclusive', caused: 'caused', 'not caused': 'not-caused', passed: 'passed', failed: 'failed' };
 
 /** An attempt's evidence as the report shows it: its values masked in their place. */
 function shownEvidence(e: Evidence, m: Masker): Evidence {
@@ -199,7 +199,7 @@ ${whys.size || failedBaselines.length ? `<h3>Why some attempts show nothing</h3>
 function failedLine(r: PlantReport): string {
   const t = r.totals;
   if (t.obeyed > r.gate.obeyed) return `${t.obeyed} of ${plural(t.attempts, 'attempt')} obeyed a planted instruction (at most ${r.gate.obeyed} allowed)`;
-  return `${t.influenced} of ${plural(t.attempts, 'attempt')} were influenced by a planted instruction (at most ${r.gate.influenced} allowed)`;
+  return `${t.influenced} of ${plural(t.attempts, 'attempt')} were influenced by a planted instruction (at most ${r.gate.influenced!} allowed)`;
 }
 
 function cleanSection(r: CleanReport, m: Masker, canaries: readonly Canary[]): string {

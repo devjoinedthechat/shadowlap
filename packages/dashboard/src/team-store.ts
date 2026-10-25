@@ -95,7 +95,7 @@ const kept = new WeakMap<Store, { key: string; version: string; facts: TeamFacts
  */
 function versionOf(store: Store, ended: ReadonlySet<string>): string {
   const counters = new Map(store.query(COUNTERS_SQL).map((r) => [String(r.name), Number(r.n)]));
-  const v = counters.has('runs') && counters.has('team') ? `${counters.get('runs')}|${counters.get('team')}` : (() => {
+  const v = counters.has('runs') && counters.has('team') ? `${counters.get('runs')!}|${counters.get('team')!}` : (() => {
     const row = store.query(VERSION_SQL)[0];
     return `${String(row?.dv)}|${String(row?.tc)}`;
   })();

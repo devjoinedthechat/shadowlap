@@ -2,7 +2,7 @@ import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, decide, describeGate, percent, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decide, describeGate, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -200,7 +200,7 @@ function tally(r: VerifiedRun): string {
   if (r.deterministic) return 'clean replay';
   if (r.baseline) return keptTally(r, r.baseline);
   const g = r.gate;
-  const bound = g && r.attempts.length ? wilsonBound(g) : null;
+  const bound = g && r.attempts.length ? rateBound(g) : null;
   return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
 }
 
@@ -229,11 +229,11 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   const warnings: string[] = [];
   for (const r of runs) {
     if (r.role !== 'good' && r.recorded.passed === true) warnings.push(`${ROLE[r.role]} run ${short(r.runId)} already passes as recorded, so fixing it proves nothing`);
-    if (r.role === 'good' && r.recorded.passed === false) warnings.push(`good run ${short(r.runId)} fails as recorded (${r.recorded.failures[0]}), so it is not a good run`);
+    if (r.role === 'good' && r.recorded.passed === false) warnings.push(`good run ${short(r.runId)} fails as recorded (${r.recorded.failures[0]!}), so it is not a good run`);
   }
   // A good run that forked with no baseline to compare with was judged by its gate on its own.
   const alone = runs.filter((r) => r.role === 'good' && r.noBaseline);
-  if (alone.length) warnings.push(`${alone.length === 1 ? `good run ${short(alone[0]!.runId)} was` : `${alone.length} good runs were`} judged by the gate on ${alone.length === 1 ? 'its' : 'their'} own, not against the code before the change: ${alone[0]!.noBaseline}`);
+  if (alone.length) warnings.push(`${alone.length === 1 ? `good run ${short(alone[0]!.runId)} was` : `${alone.length} good runs were`} judged by the gate on ${alone.length === 1 ? 'its' : 'their'} own, not against the code before the change: ${alone[0]!.noBaseline!}`);
   const has = (role: VerifyRole) => runs.some((r) => r.role === role);
   if (!has('good')) warnings.push('no good runs: nothing was checked for regressions (--keeps label:good)');
   if (has('target') && !has('holdout')) warnings.push('no held-out runs: the change was only tried on the runs it was written for (--holdout)');
@@ -351,7 +351,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
     h.of ? `${t.of ? '' : 'fixes '}${h.ok} of ${h.of} held-out run${h.of === 1 ? '' : 's'}${unsure(h)}` : '',
     g.of ? `keeps ${g.ok} of ${g.of} good run${g.of === 1 ? '' : 's'}${unsure(g)}` : '',
   ].filter(Boolean);
-  const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'no runs');
+  const sentence = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no runs');
   const head = r.verdict === 'accepted' ? `${p.green('✓')} ${p.bold('Accepted')}` : r.verdict === 'rejected' ? `${p.red('✗')} ${p.bold('Rejected')}` : `${p.yellow('!')} ${p.bold('Incomplete')}`;
   lines.push(`${head}: the change ${sentence}`);
   // What the change failed in red; a run it could not settle, inconclusive or not settled, in amber.

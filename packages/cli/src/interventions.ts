@@ -21,7 +21,7 @@ export function textOrFile(raw: string, flag: string): string {
   try {
     return readFileSync(raw.slice(1), 'utf8').replace(/\r?\n$/, '');
   } catch (err) {
-    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${(err as Error).message}`);
+    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${(err as Error).message}`, { cause: err });
   }
 }
 

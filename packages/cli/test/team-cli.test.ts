@@ -79,7 +79,7 @@ function checkout(name: string, folder: string): string {
   return dir;
 }
 
-const golden = () => (JSON.parse(readFileSync(join(GOLDEN, 'run.json'), 'utf8')) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
+const golden = () => (JSON.parse(readFileSync(join(GOLDEN, 'run.json'), 'utf8')) as { runs: Array<{ runId: string }> }).runs[0].runId;
 
 describe('the CLI with a team store', () => {
   it('pushes each test run, the golden and the report with test --push', async () => {
@@ -89,7 +89,7 @@ describe('the CLI with a team store', () => {
     expect(r.code).toBe(0);
     expect(r.stderr).toContain('pushed 2 runs and the report to s3://northwind-agent-runs/ci-e2e');
 
-    const runs = [...s3.objects.keys()].filter((k) => k.startsWith('ci-e2e/runs/') && k.endsWith('/run.json')).map((k) => k.split('/')[2]!);
+    const runs = [...s3.objects.keys()].filter((k) => k.startsWith('ci-e2e/runs/') && k.endsWith('/run.json')).map((k) => k.split('/')[2]);
     expect(runs).toHaveLength(2);
     expect(runs).toContain(golden());
     const attempt = runs.find((id) => id !== golden())!;

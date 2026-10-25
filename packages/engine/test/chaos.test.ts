@@ -85,7 +85,7 @@ describe('what a preset answers', () => {
     expect(presetResult('malformed', { status: 200, headers: {}, body: '<p>x</p>', encoding: 'text' }, 'http')).toEqual({ refused: 'its recorded response is text, not JSON' });
     expect(presetResult('malformed', { status: 200, headers: {}, body: 'AAAA', encoding: 'base64' }, 'http')).toEqual({ refused: 'its recorded response is binary' });
     const mcp = presetResult('malformed', { content: [{ type: 'text', text: JSON.stringify(order) }] }, 'mcp') as { result: { content: Array<{ text: string }> } };
-    expect(() => JSON.parse(mcp.result.content[0]!.text)).toThrow();
+    expect(() => JSON.parse(mcp.result.content[0].text)).toThrow();
   });
 
   it('oversized: its longest text repeated, JSON kept JSON', () => {

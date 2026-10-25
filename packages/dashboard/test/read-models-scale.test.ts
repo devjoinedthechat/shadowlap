@@ -67,7 +67,7 @@ beforeAll(() => {
       const n = i === 0 ? 1200 : 20 + Math.floor(rnd() * 81);
       const pick = rnd();
       if (recordings.length && pick < 0.45) {
-        const parent = recordings[Math.floor(rnd() * recordings.length)]!;
+        const parent = recordings[Math.floor(rnd() * recordings.length)];
         const clean = pick < 0.15;
         const forkAt = 2 + Math.floor(rnd() * (parent.n - 1));
         const meta: RunMeta = pick < 0.05 ? { repeat: { group: `g${i}`, attempt: 1, of: 3 } } : pick < 0.07 ? { probe: { of: parent.id, callNo: forkAt, passed: rnd() < 0.5 }, repeat: { group: `b${i}`, attempt: 1, of: 4 } } : pick < 0.09 ? { test: { golden: `goldens/g${i % 40}`, session: `s${i % 300}` } } : {};
@@ -246,7 +246,7 @@ describe('read models at scale', () => {
     expect(page.out.runs.every((r) => r.origins.length === r.calls)).toBe(true);
     const spent = bySpent.out.runs.map((r) => r.spent);
     expect(spent).toEqual([...spent].sort((a, b) => b - a));
-    expect(byCalls.out.runs[0]!.calls).toBe(1200);
+    expect(byCalls.out.runs[0].calls).toBe(1200);
     expect(failures.out.total).toBeGreaterThan(0);
     expect(calendar.out.totals.runs).toBeGreaterThan(4500);
     expect(sidebar.out).toHaveLength(500);
@@ -311,9 +311,9 @@ describe('read models at scale', () => {
     }
     const batches = slices.flatMap((s) => s.batches);
     const total = slices.reduce((n, s) => n + s.cpu, 0);
-    const first = slices[0]!.cpu;
+    const first = slices[0].cpu;
     const middle = slices.slice(1, -1).map((s) => s.cpu);
-    const median = [...middle].sort((a, b) => a - b)[Math.floor(middle.length / 2)]!;
+    const median = [...middle].sort((a, b) => a - b)[Math.floor(middle.length / 2)];
     const longest = Math.max(...middle);
     process.stdout.write(`warmed ${RUNS} runs (${batches.reduce((n, b) => n + b.caches.length, 0)} with their prompt cache) in ${slices.length} slices of ${batches.length} batches, ${Math.round(total)} ms CPU in all where a plain read of every call took ${Math.round(plain)} ms: the first ${Math.round(first)} ms CPU, with the run index; then median ${Math.round(median)} ms CPU, the longest ${Math.round(longest)} ms\n`);
 

@@ -25,7 +25,7 @@ describe('activity events paged by time and id', () => {
       const got = store.listEvents({ limit: 2, ...(cursor ?? {}) });
       seen.push(...got.map((e) => e.eventId));
       if (got.length < 2) break;
-      const last = got[got.length - 1]!;
+      const last = got[got.length - 1];
       cursor = { before: last.at, beforeId: last.eventId };
     }
     expect(seen).toEqual(ids);
@@ -53,9 +53,9 @@ describe('write counters', () => {
     expect(start).toMatchObject({ runs: 0, events: 0, calls: 0 });
     const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
     const afterCreate = store.changeCounts();
-    expect(afterCreate.runs).toBeGreaterThan(start.runs!);
+    expect(afterCreate.runs).toBeGreaterThan(start.runs);
     store.updateRunMeta(run.runId, { labels: ['bug'] });
-    expect(store.changeCounts().runs).toBeGreaterThan(afterCreate.runs!);
+    expect(store.changeCounts().runs).toBeGreaterThan(afterCreate.runs);
     const id = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'f'.repeat(64), occurrence: 1 };
     store.appendCallStart({ runId: run.runId, callNo: 1, ...id, origin: 'live', effect: null, requestRef: null, meta: {}, at: 1 });
     expect(store.changeCounts().calls).toBeGreaterThan(0);

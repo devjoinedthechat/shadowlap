@@ -88,10 +88,10 @@ describe('the Claude Agent SDK fence', () => {
 
     const calls = store.getCalls(recording.runId).filter((c) => c.kind === 'tool');
     expect(calls.map((c) => `${c.name}:${c.effect}:${c.end?.outcome}`)).toEqual(['Read:read:ok', 'Bash:write:ok', 'Write:write:ok', 'Bash:write:ok', 'Bash:write:error', 'WebFetch:read:ok', 'Edit:write:ok']);
-    expect(store.getJson(calls[1]!.requestRef!)).toEqual({ args: { command: 'echo hi > out.txt', description: 'write a file' } });
+    expect(store.getJson(calls[1].requestRef!)).toEqual({ args: { command: 'echo hi > out.txt', description: 'write a file' } });
     // Where `cd` left the shell is kept beside its output, for the replay to put it back.
-    expect(store.getJson(calls[3]!.end!.responseRef!)).toMatchObject({ result: { stdout: '', shadowlapCwd: `${ROOT}/sub` } });
-    expect(store.getJson(calls[4]!.end!.responseRef!)).toEqual({ error: { name: 'ToolError', message: 'Exit code 3\ntests failed', code: '3' } });
+    expect(store.getJson(calls[3].end!.responseRef!)).toMatchObject({ result: { stdout: '', shadowlapCwd: `${ROOT}/sub` } });
+    expect(store.getJson(calls[4].end!.responseRef!)).toEqual({ error: { name: 'ToolError', message: 'Exit code 3\ntests failed', code: '3' } });
   });
 
   it('replays without running a write again: the model reads what it read, and the project is left as it was', async () => {
@@ -125,8 +125,8 @@ describe('the Claude Agent SDK fence', () => {
     const { summary } = sidecar.endRun(fork.runId, 'completed');
 
     expect(summary.divergence?.name).toBe('Bash');
-    expect(results[1]!.is_error).toBe(true);
-    expect(results[1]!.content).toMatch(/^PreToolUse:Bash hook error: .*blocked/);
+    expect(results[1].is_error).toBe(true);
+    expect(results[1].content).toMatch(/^PreToolUse:Bash hook error: .*blocked/);
     // Every write after the fork was refused; none ran.
     expect(cc.ran).toEqual([]);
     expect([...cc.files.keys()].filter((f) => f.startsWith(ROOT))).toEqual([`${ROOT}/notes.md`]);
@@ -184,8 +184,8 @@ describe('the Claude Agent SDK fence', () => {
     sidecar.endRun(run.runId, 'completed');
     expect(refused).toEqual({ content: "Claude requested permissions to use Write, but you haven't granted it yet.", is_error: true });
     const [call] = store.getCalls(run.runId).filter((c) => c.kind === 'tool');
-    expect(call!.end?.outcome).toBe('error');
-    expect(store.getJson(call!.end!.responseRef!)).toMatchObject({ error: { name: 'NotRun' } });
+    expect(call.end?.outcome).toBe('error');
+    expect(store.getJson(call.end!.responseRef!)).toMatchObject({ error: { name: 'NotRun' } });
   });
 
   it('forks safely where Claude Code checks a call against a file a fenced write never made', async () => {
@@ -197,7 +197,7 @@ describe('the Claude Agent SDK fence', () => {
     within(rec);
     const first = await agent(session(fenced()), script);
     sidecar.endRun(rec.runId, 'completed');
-    expect(first.results[1]!.is_error).toBe(false);
+    expect(first.results[1].is_error).toBe(false);
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
     within(rep);
@@ -213,17 +213,17 @@ describe('the Claude Agent SDK fence', () => {
 
   it('matches only the tools it records, by an exact list', () => {
     const { PreToolUse } = fenceHooks();
-    const matcher = PreToolUse[0]!.matcher;
+    const matcher = PreToolUse[0].matcher;
     expect(Object.keys(BUILT_IN_EFFECTS).every((t) => matches(matcher, t))).toBe(true);
     expect(['BashOutput', 'TodoWrite', 'Agent', 'mcp__orders__lookup_order'].some((t) => matches(matcher, t))).toBe(false);
-    expect(matches(fenceHooks({ effects: { mcp__issues__search: 'read' } }).PreToolUse[0]!.matcher, 'mcp__issues__search')).toBe(true);
+    expect(matches(fenceHooks({ effects: { mcp__issues__search: 'read' } }).PreToolUse[0].matcher, 'mcp__issues__search')).toBe(true);
   });
 
   it('keeps the query\'s own hooks, and adds its own after them', () => {
     const mine = { matcher: 'Bash', hooks: [async () => ({})] };
     const options = withFence({ cwd: ROOT, hooks: { PreToolUse: [mine] } });
     expect(options.cwd).toBe(ROOT);
-    expect(options.hooks.PreToolUse![0]).toBe(mine);
+    expect(options.hooks.PreToolUse[0]).toBe(mine);
     expect(options.hooks.PreToolUse).toHaveLength(2);
     expect(Object.keys(options.hooks).sort()).toEqual(['PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop']);
   });
@@ -238,27 +238,27 @@ describe('tools of an in-process MCP server', () => {
   it('records them under the names the model calls them by, and replays them without running', async () => {
     const rec = sidecar.startRun({ mode: 'record', command });
     within(rec);
-    expect(await tools[0]!.handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'order A-1: shipped' }] });
-    await tools[1]!.handler({ id: 'A-1' });
+    expect(await tools[0].handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'order A-1: shipped' }] });
+    await tools[1].handler({ id: 'A-1' });
     sidecar.endRun(rec.runId, 'completed');
     expect(store.getCalls(rec.runId).map((c) => `${c.name}:${c.effect}`)).toEqual(['mcp__orders__lookup_order:read', 'mcp__orders__issue_refund:write']);
     expect(ran).toEqual(['lookup A-1', 'refund A-1']);
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
     within(rep);
-    expect(await tools[0]!.handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'order A-1: shipped' }] });
-    expect(await tools[1]!.handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'refunded A-1' }] });
+    expect(await tools[0].handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'order A-1: shipped' }] });
+    expect(await tools[1].handler({ id: 'A-1' })).toEqual({ content: [{ type: 'text', text: 'refunded A-1' }] });
     expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
     expect(ran).toHaveLength(2);
 
     // After a fork the write answers as a tool that failed, which the model reads, and never runs.
     const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
     within(fork);
-    await tools[0]!.handler({ id: 'B-2' });
-    const refused = (await tools[1]!.handler({ id: 'B-2' })) as { isError?: boolean; content: Array<{ text: string }> };
+    await tools[0].handler({ id: 'B-2' });
+    const refused = (await tools[1].handler({ id: 'B-2' })) as { isError?: boolean; content: Array<{ text: string }> };
     sidecar.endRun(fork.runId, 'completed');
     expect(refused.isError).toBe(true);
-    expect(refused.content[0]!.text).toMatch(/blocked/);
+    expect(refused.content[0].text).toMatch(/blocked/);
     expect(ran).toEqual(['lookup A-1', 'refund A-1', 'lookup B-2']);
   });
 

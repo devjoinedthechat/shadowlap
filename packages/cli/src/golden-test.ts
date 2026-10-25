@@ -301,7 +301,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       attempts.length === 1
         ? f
         : {
-            message: `${passed} of ${mine.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${required} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
+            message: `${passed} of ${mine.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${required!} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
             details: `${each()}\n\n${f.details}`,
           };
   }

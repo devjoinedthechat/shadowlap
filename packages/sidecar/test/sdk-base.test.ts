@@ -42,13 +42,13 @@ describe('an SDK base URL with no /v1 under it', () => {
     try {
       paths.length = 0;
       const rec = sidecar.startRun({ mode: 'record', command: { argv: ['a'], cwd: '.' } });
-      expect((await ask(sidecar, rec.runId)).choices[0]!.message.content).toBe('hello');
+      expect((await ask(sidecar, rec.runId)).choices[0].message.content).toBe('hello');
       sidecar.endRun(rec.runId, 'completed');
       expect(paths).toEqual(['/inference/chat/completions']);
       expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['POST /v1/chat/completions']);
 
       const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' } });
-      expect((await ask(sidecar, rep.runId)).choices[0]!.message.content).toBe('hello');
+      expect((await ask(sidecar, rep.runId)).choices[0].message.content).toBe('hello');
       expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
       expect(paths).toHaveLength(1);
     } finally {

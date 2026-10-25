@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { receiptDuration } from '../ui/format.js';
 import { countOrigins, type Origin7 } from '../ui/origins.js';
-import { bannerFor, beforeFork, failedCheckText, failureText, fencedWords, fixCheckText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
+import { bannerFor, failedCheckText, failureText, fixCheckText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
 import { metricItems, type MetricInput } from '../ui/run/metrics.js';
 import { blameOf, checksOf } from '../ui/run/model.js';
 

@@ -26,7 +26,7 @@ describe('reading what Python printed', () => {
         {
           id: 'toolu_2',
           caller: null,
-          input: { order_id: 'A-1042', amount: 240, rate: 0.1, big: 12345678901234567890, tiny: 1e-7, huge: 1e16, neg: -3.5, ok: true, no: false, none: null, list: [1, 'two', [3]], nested: { k: { k2: [] } }, empty: {}, quote: "it's", both: `it's "x"` },
+          input: { order_id: 'A-1042', amount: 240, rate: 0.1, big: Number('12345678901234567890'), tiny: 1e-7, huge: 1e16, neg: -3.5, ok: true, no: false, none: null, list: [1, 'two', [3]], nested: { k: { k2: [] } }, empty: {}, quote: "it's", both: `it's "x"` },
           name: 'issue_refund',
           type: 'tool_use',
           toolset_name: null,

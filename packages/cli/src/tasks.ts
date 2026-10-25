@@ -276,7 +276,7 @@ export function cannotScore(task: LoadedTask, target: ModelTarget, takeover?: nu
   // A model list, an embedding or a token count asks a model nothing: nothing takes over there.
   if (!call || call.kind !== 'api' || !isModelRequest(call.name)) return `#${k} is not a model call of ${task.golden}'s run${call ? ` (${call.name})` : ''}`;
   if (task.scope !== null && takeover !== undefined && (typeof call.meta.scope === 'string' ? call.meta.scope : null) !== task.scope) return `#${k} is not made in the agent's scope (${task.scope})`;
-  const provider = (call.end?.meta.provider ?? call.meta.provider) as string | undefined;
+  const provider = (call.end?.meta.provider ?? call.meta.provider);
   if (!provider) return `${task.golden} can't be scored: its recording doesn't say which provider #${k} went to`;
   // The model the recording asked, asked again on its own provider: nothing is switched, so a cloud's
   // signed URL, regional address or deployment goes on as the agent made it, and answers as recorded.
@@ -441,7 +441,7 @@ export async function scoreTask(
       }
       // The score must be the model under test's: the takeover upstream says so on every answer it gives.
       if (at?.end?.meta.headers?.[ANSWERED_BY] !== target.model) {
-        const went = at ? ((at.end?.meta.provider ?? at.meta.provider) as string | undefined) : undefined;
+        const went = at ? ((at.end?.meta.provider ?? at.meta.provider)) : undefined;
         return stop(`${target.model} didn't answer #${k}: ${!at ? `the agent made no call #${k}` : went && went !== provider ? `the agent sent it to ${went}, not ${provider}` : 'its answer came from somewhere else'} (run ${a.run.runId})`);
       }
       const exit: ScoredCheck = { check: EXIT_LABEL, pass: a.code === 0, detail: a.code === 0 ? null : a.failures.find((f) => /exited|timed out/.test(f)) ?? `the agent exited with code ${a.code}` };

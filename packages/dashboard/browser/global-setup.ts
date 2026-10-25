@@ -37,7 +37,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   if (!existsSync(join(root, 'packages', 'dashboard', 'dist', 'ui', 'assets', 'app.js'))) throw new Error('build the dashboard first: npm run build');
   const given = process.env.SHADOWLAP_DEMO_DIR;
   const reuse = !!given && existsSync(join(given, 'runs.json'));
-  const demo = reuse ? given! : mkdtempSync(join(tmpdir(), 'shadowlap-browser-demo-'));
+  const demo = reuse ? given : mkdtempSync(join(tmpdir(), 'shadowlap-browser-demo-'));
   if (!reuse) execFileSync(process.execPath, [join(root, 'scripts', 'demo-store.mjs'), demo, '--fast'], { stdio: ['ignore', 'ignore', 'inherit'] });
 
   const port = await freePort();
@@ -46,7 +46,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const link = await new Promise<string>((resolve, reject) => {
     let said = '';
     const timer = setTimeout(() => reject(new Error(`the dashboard printed no link in 30 s:\n${said}`)), 30_000);
-    child.stderr!.on('data', (chunk: Buffer) => {
+    child.stderr.on('data', (chunk: Buffer) => {
       said += chunk.toString('utf8');
       const m = /(http:\/\/127\.0\.0\.1:\d+\/#token=[\w-]+)/.exec(said);
       if (m) {

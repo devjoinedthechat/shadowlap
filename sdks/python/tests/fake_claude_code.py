@@ -9,7 +9,7 @@ rewrite, a deny read as "PreToolUse:<tool> hook error: <reason>", a hook that ra
 
 import asyncio
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 RANK = {"deny": 3, "ask": 2, "allow": 1}
 
@@ -48,19 +48,19 @@ def unquote(s: str) -> str:
 
 
 class FakeClaudeCode:
-    def __init__(self, hooks: Dict[str, List[Any]], root: str):
+    def __init__(self, hooks: dict[str, list[Any]], root: str):
         self.hooks = hooks
         self.root = root
         self.cwd = root
-        self.files: Dict[str, str] = {}
+        self.files: dict[str, str] = {}
         self.read_state: set = set()
-        self.ran: List[str] = []
-        self.web: Dict[str, str] = {}
+        self.ran: list[str] = []
+        self.web: dict[str, str] = {}
         self.asked_model = 0
-        self.notes: List[str] = []
-        self.can_use_tool: Callable[[str, Dict[str, Any]], Dict[str, Any]] = lambda tool, inp: {"behavior": "deny", "message": f"Claude requested permissions to use {tool}, but you haven't granted it yet."}
+        self.notes: list[str] = []
+        self.can_use_tool: Callable[[str, dict[str, Any]], dict[str, Any]] = lambda tool, inp: {"behavior": "deny", "message": f"Claude requested permissions to use {tool}, but you haven't granted it yet."}
 
-    async def call(self, tool: str, given: Dict[str, Any], tool_use_id: str) -> Dict[str, Any]:
+    async def call(self, tool: str, given: dict[str, Any], tool_use_id: str) -> dict[str, Any]:
         checked = self._parse(tool, given)
         if isinstance(checked, str):
             return {"content": f"<tool_use_error>InputValidationError: {checked}</tool_use_error>", "is_error": True}
@@ -105,10 +105,10 @@ class FakeClaudeCode:
     async def stop(self) -> None:
         await self._run("Stop", "", {"session_id": "s", "cwd": self.cwd, "hook_event_name": "Stop", "stop_hook_active": False}, None)
 
-    async def _run(self, event: str, tool: str, data: Dict[str, Any], tool_use_id: Optional[str]) -> List[Dict[str, Any]]:
+    async def _run(self, event: str, tool: str, data: dict[str, Any], tool_use_id: Optional[str]) -> list[dict[str, Any]]:
         callbacks = [cb for m in self.hooks.get(event, []) if event == "Stop" or matches(m.matcher, tool) for cb in m.hooks]
 
-        async def one(cb: Any) -> Dict[str, Any]:
+        async def one(cb: Any) -> dict[str, Any]:
             try:
                 return await cb(data, tool_use_id, {"signal": None})
             except Exception:
@@ -116,7 +116,7 @@ class FakeClaudeCode:
 
         return list(await asyncio.gather(*(one(cb) for cb in callbacks)))
 
-    def _parse(self, tool: str, given: Dict[str, Any]) -> Any:
+    def _parse(self, tool: str, given: dict[str, Any]) -> Any:
         known = INPUTS.get(tool)
         if known is None:
             return dict(given)
@@ -129,7 +129,7 @@ class FakeClaudeCode:
         s = str(p)
         return s if s.startswith("/") else f"{self.cwd}/{s}"
 
-    def _validate(self, tool: str, inp: Dict[str, Any]) -> Optional[str]:
+    def _validate(self, tool: str, inp: dict[str, Any]) -> Optional[str]:
         if tool == "Read" and self._path(inp["file_path"]) not in self.files:
             return "File does not exist."
         if tool == "Write":
@@ -151,10 +151,10 @@ class FakeClaudeCode:
             return "File has not been read yet. Read it first before writing to it."
         return None
 
-    def _needs_permission(self, tool: str, inp: Dict[str, Any]) -> bool:
+    def _needs_permission(self, tool: str, inp: dict[str, Any]) -> bool:
         return tool in ("Write", "Edit", "Read") and not self._path(inp["file_path"]).startswith(self.root)
 
-    def _execute(self, tool: str, inp: Dict[str, Any]) -> Any:
+    def _execute(self, tool: str, inp: dict[str, Any]) -> Any:
         if tool == "Bash":
             return self._bash(str(inp["command"]))
         if tool == "Write":
@@ -185,7 +185,7 @@ class FakeClaudeCode:
             return {"new_source": str(inp["new_source"]), "cell_type": "code", "language": "python", "edit_mode": "replace", "notebook_path": str(inp["notebook_path"]), "original_file": "", "updated_file": ""}
         return {"content": [{"type": "text", "text": tool + " ran"}]}
 
-    def _bash(self, command: str) -> Dict[str, Any]:
+    def _bash(self, command: str) -> dict[str, Any]:
         self.ran.append(command)
         ok = {"stdout": "", "stderr": "", "interrupted": False, "isImage": False}
         if command == "true":

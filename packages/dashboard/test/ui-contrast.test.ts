@@ -57,23 +57,23 @@ function resolve(value: string, depth = 0): Rgb | null {
   if (depth > 10) throw new Error(`a var() loop at ${value}`);
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
   if (hex) {
-    const h = hex[1]!.length === 3 ? [...hex[1]!].map((c) => c + c).join('') : hex[1]!;
+    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join('') : hex[1];
     const n = parseInt(h, 16);
     return [n >> 16, (n >> 8) & 255, n & 255];
   }
   const ref = /^var\((--[\w-]+)\)$/.exec(v);
   if (ref) {
-    const t = tokens.get(ref[1]!);
+    const t = tokens.get(ref[1]);
     if (t === undefined) throw new Error(`no token ${ref[1]}`);
     return resolve(t, depth + 1);
   }
   const mix = /^color-mix\(in srgb,\s*(.+?)\s+(\d+(?:\.\d+)?)%,\s*(.+)\)$/.exec(v);
   if (mix) {
-    const a = resolve(mix[1]!, depth + 1);
-    const b = resolve(mix[3]!, depth + 1);
+    const a = resolve(mix[1], depth + 1);
+    const b = resolve(mix[3], depth + 1);
     if (!a || !b) return null;
     const p = Number(mix[2]) / 100;
-    return [0, 1, 2].map((i) => Math.round(a[i]! * p + b[i]! * (1 - p))) as Rgb;
+    return [0, 1, 2].map((i) => Math.round(a[i] * p + b[i] * (1 - p))) as Rgb;
   }
   return null;
 }

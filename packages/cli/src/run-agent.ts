@@ -229,7 +229,7 @@ export async function testAttempt(
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
       notStarted = startFailure(err, argv[0]!, o.cwd);
-      output += `failed to start ${argv[0]}: ${err.message}\n`;
+      output += `failed to start ${argv[0]!}: ${err.message}\n`;
       res(127);
     });
     child.on('exit', (c, signal) => res(exitStatus(c, signal)));
@@ -291,7 +291,7 @@ export async function testAttempt(
     // Stopped at the time limit fails, even when the agent caught the signal and exited 0.
     kind = 'exit';
     // A command that never started did so for its own reason, whatever its empty summary would suggest about the environment.
-    const why = notStarted as ReturnType<typeof startFailure> | null;
+    const why = notStarted;
     failure = why ? { message: why.message, details: output.trim() } : { message: timedOut ? `the agent was stopped after ${formatDuration(o.timeoutMs!)}` : `the agent exited with code ${code}`, details: divergence + formatSummary(summary) };
   } else if (summary.total === 0) {
     kind = 'no-calls';
@@ -311,7 +311,7 @@ export async function testAttempt(
     const others = definite.length ? definite.length - 1 : failedChecks.length - 1;
     const more = others > 0 ? `; ${others} more check${others > 1 ? 's' : ''} ${word}` : '';
     const inconclusive = definite.length && failedChecks.length > definite.length ? `; ${failedChecks.length - definite.length} inconclusive` : '';
-    failure = { message: `check ${word}: ${first.label}, but ${first.detail}${more}${inconclusive}`, details: divergence + formatSummary(summary) };
+    failure = { message: `check ${word}: ${first.label}, but ${first.detail!}${more}${inconclusive}`, details: divergence + formatSummary(summary) };
   }
   return { ended, code, ms: Date.now() - started, output, stdout, checks, failure, kind, interrupted };
 }
@@ -535,7 +535,7 @@ export function onPath(name: string, env: NodeJS.ProcessEnv = process.env, platf
  * command again with the one that is there. `again` gives the command line to show for an argv.
  */
 export function notFoundMessage(argv: readonly string[], again: (argv: string[]) => string, has: (name: string) => boolean = (name) => onPath(name)): string {
-  const lines = [`${p.red('✗')} ${argv[0]}: command not found on PATH`];
+  const lines = [`${p.red('✗')} ${argv[0]!}: command not found on PATH`];
   const other = argv[0] === 'python' ? 'python3' : argv[0] === 'python3' ? 'python' : argv[0] === 'pip' ? 'pip3' : null;
   if (other && has(other)) lines.push(`  ${other} is on PATH: ${again([other, ...argv.slice(1)])}`);
   return lines.join('\n');
@@ -650,7 +650,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const result = endRun(interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   stop.stop();
   if (unasked) result.summary.warnings.push(AGENT_NODE_MAYBE_TOO_OLD);
-  const why = notStarted as ReturnType<typeof startFailure> | null;
+  const why = notStarted;
   if (why) {
     // Not a failed recording, or a replay that made no calls: the agent never ran. The run goes, and
     // so does the paragraph about the environment its empty summary would print.
@@ -702,7 +702,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     ...(config.tools ? { trust: config.tools } : {}),
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
-  const results: AttemptResult[] = new Array(count);
+  const results = new Array<AttemptResult>(count);
   let stopped = false;
   // Streamed one at a time, an attempt reads this process's stdin: in a terminal it shares the
   // terminal's process group, where the terminal's own Ctrl-C reaches it once. In a dashboard job
@@ -762,7 +762,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       }
       const code = await new Promise<number>((resolveCode) => {
         child.on('error', (err) => {
-          output += `failed to start ${argv[0]}: ${err.message}\n`;
+          output += `failed to start ${argv[0]!}: ${err.message}\n`;
           resolveCode(127);
         });
         // Piped output is read to the end before it is printed or checked.
@@ -805,7 +805,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       // Once too: the command is the same for every attempt, and so is why no preload loaded in it.
       if (ended.preloads?.failed && !unwatched) {
         unwatched = true;
-        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing}`) + '\n');
+        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing!}`) + '\n');
       }
     }
   };

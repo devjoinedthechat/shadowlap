@@ -12,7 +12,7 @@ const action = readFileSync(join(ROOT, 'action.yml'), 'utf8');
 
 /** A top-level `key: value` of action.yml, or one under `branding:`, unquoted. */
 function field(key: string, under?: string): string | undefined {
-  const text = under ? action.slice(action.indexOf(`\n${under}:\n`) + under.length + 3).split(/\n(?! )/)[0]! : action;
+  const text = under ? action.slice(action.indexOf(`\n${under}:\n`) + under.length + 3).split(/\n(?! )/)[0] : action;
   const m = new RegExp(`^${under ? ' {2}' : ''}${key}: (.*)$`, 'm').exec(text);
   return m?.[1]?.replace(/^"(.*)"$/, '$1');
 }

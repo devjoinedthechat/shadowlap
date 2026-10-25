@@ -51,13 +51,13 @@ describe('import litellm', () => {
   it('imports a run with its usage and model', () => {
     const store = open();
     const [run] = importLitellm(store, file(record()), { source: 'cap.jsonl' });
-    expect(run!.key).toBe('incident-42');
-    expect(run!.imported).toHaveLength(1);
-    expect(run!.imported[0]).toMatchObject({ name: 'POST /v1/chat/completions', provider: 'openai', model: 'gpt-4.1-mini' });
-    const [call] = store.getCalls(run!.run.runId);
+    expect(run.key).toBe('incident-42');
+    expect(run.imported).toHaveLength(1);
+    expect(run.imported[0]).toMatchObject({ name: 'POST /v1/chat/completions', provider: 'openai', model: 'gpt-4.1-mini' });
+    const [call] = store.getCalls(run.run.runId);
     expect(call.end?.meta.usage).toEqual({ inputTokens: 42, outputTokens: 7 });
     expect(call.end?.meta.latencyMs).toBe(180);
-    expect(run!.run.meta?.covers).toEqual(['api']);
+    expect(run.run.meta?.covers).toEqual(['api']);
     store.close();
   });
 
@@ -87,31 +87,31 @@ describe('import litellm', () => {
     delete (noKey as Record<string, unknown>).runKey;
     const runs = importLitellm(store, file(noKey, { ...noKey, requestBody: body('second') }), { source: 'cap.jsonl' });
     expect(runs).toHaveLength(1);
-    expect(runs[0]!.key).toBeNull();
-    expect(runs[0]!.imported).toHaveLength(2);
+    expect(runs[0].key).toBeNull();
+    expect(runs[0].imported).toHaveLength(2);
     store.close();
   });
 
   it('counts a repeated identical request as a second occurrence within its run', () => {
     const store = open();
     const [run] = importLitellm(store, file(record(), record()), { source: 'cap.jsonl' });
-    expect(store.getCalls(run!.run.runId).map((c) => c.occurrence)).toEqual([1, 2]);
+    expect(store.getCalls(run.run.runId).map((c) => c.occurrence)).toEqual([1, 2]);
     store.close();
   });
 
   it('tolerates a half-written last line, because a proxy appends while serving', () => {
     const store = open();
     const groups = readLitellmGroups(file(record()) + '{"format":"shadowlap-cap');
-    expect(groups[0]!.calls).toHaveLength(1);
-    expect(groups[0]!.skipped.map((s) => s.reason)).toEqual(['not JSON (a partly written line?)']);
+    expect(groups[0].calls).toHaveLength(1);
+    expect(groups[0].skipped.map((s) => s.reason)).toEqual(['not JSON (a partly written line?)']);
     store.close();
   });
 
   it('skips a route it does not recognise, and refuses a file that is not a capture', () => {
     const store = open();
     const groups = readLitellmGroups(file(record({ url: 'http://127.0.0.1:4410/health' })));
-    expect(groups[0]!.calls).toHaveLength(0);
-    expect(groups[0]!.skipped[0]!.reason).toMatch(/not a route/);
+    expect(groups[0].calls).toHaveLength(0);
+    expect(groups[0].skipped[0].reason).toMatch(/not a route/);
     expect(() => readLitellmGroups('{"hello":"world"}')).toThrow(/not a Shadowlap capture/);
     expect(() => readLitellmGroups('')).toThrow(/not a Shadowlap capture/);
     store.close();
@@ -129,7 +129,7 @@ describe('import litellm', () => {
       file(record({ requestBody: { ...body('s'), stream: true }, responseHeaders: { 'content-type': 'text/event-stream' }, responseBody: sse })),
       { source: 'cap.jsonl' },
     );
-    const [call] = store.getCalls(run!.run.runId);
+    const [call] = store.getCalls(run.run.runId);
     expect(call.end?.meta.headers?.['content-type']).toBe('text/event-stream');
     expect(store.getBlob(call.end!.responseRef!)!.toString('utf8')).toBe(sse);
     store.close();
@@ -160,7 +160,7 @@ describe('import litellm', () => {
       },
       { source: 'in.har' },
     );
-    expect(a.getCalls(fromGateway!.run.runId)[0].fingerprint).toBe(b.getCalls(fromHar.run.runId)[0].fingerprint);
+    expect(a.getCalls(fromGateway.run.runId)[0].fingerprint).toBe(b.getCalls(fromHar.run.runId)[0].fingerprint);
     a.close();
     b.close();
   });

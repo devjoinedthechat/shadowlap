@@ -59,7 +59,7 @@ const RUN_SEARCH = 'run id, command, revision or label contains';
 function goldenStore(): { store: Store; runId: string } {
   const store = Store.open(':memory:');
   const { imported } = unpackRun(store, GOLDEN);
-  return { store, runId: imported[0]! };
+  return { store, runId: imported[0] };
 }
 
 describe('TUI', () => {
@@ -101,7 +101,7 @@ describe('TUI', () => {
     const { store } = goldenStore();
     const at = async (columns: number) => {
       const { lastFrame, unmount } = render(<App store={store} columns={columns} rows={20} />);
-      const line = (await frameWith(lastFrame, '1 run')).split('\n')[0]!;
+      const line = (await frameWith(lastFrame, '1 run')).split('\n')[0];
       unmount();
       return line;
     };
@@ -321,7 +321,7 @@ describe('a recording whose process was killed', () => {
     await frameWith(lastFrame, '1/2 runs');
     stdin.write('\r');
     // The timeline's header says so where it would say recording….
-    const header = (await frameWith(lastFrame, 'interrupted · 2d ago')).split('\n')[0]!;
+    const header = (await frameWith(lastFrame, 'interrupted · 2d ago')).split('\n')[0];
     expect(header).toContain(left.runId.slice(0, 10));
     expect(header).not.toContain('recording…');
     stdin.write(':');
@@ -467,7 +467,7 @@ describe('actions palette', () => {
     const spawnCli = () => {
       throw new Error('nothing is run here');
     };
-    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli as never} columns={100} rows={30} />);
+    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />);
     await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
@@ -575,7 +575,7 @@ describe('render helpers', () => {
   });
 
   it('formats a divergence for the diff view', () => {
-    expect(diffLines(null, 80)[0]!.text).toContain('did not diverge');
+    expect(diffLines(null, 80)[0].text).toContain('did not diverge');
     const lines = diffLines({ type: 'forced', callNo: 4, kind: 'tool', name: 'search_web', replayedBefore: 3 }, 80).map((l) => l.text);
     expect(lines[0]).toContain('Diverged at call 4 (tool search_web)');
     expect(lines[1]).toContain('forced live');

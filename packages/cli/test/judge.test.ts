@@ -73,7 +73,7 @@ async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv
   const report = join(work, `report-${Math.random().toString(36).slice(2)}.json`);
   const r = await shadowlap(['test', golden, '--json', report, ...extra], env);
   const parsed = JSON.parse(readFileSync(report, 'utf8')) as { results: Result[] };
-  return { ...r, result: parsed.results[0]!, report: parsed };
+  return { ...r, result: parsed.results[0], report: parsed };
 }
 
 /** The judge calls a pack holds. */
@@ -121,11 +121,11 @@ describe('a golden with a judge check', () => {
       expect(r.result).toMatchObject({ ok: true, upstreamRequests: 0, judge: { calls: 1, replayed: 1, live: 0, upstreamRequests: 0, spent: 0 } });
       expect(r.result.checks[0]).toMatchObject({ status: 'passed', judge: { verdict: 'yes', source: 'recording', cost: 0 } });
     }
-    expect(second.result.checks[0]!.reason).toBe(first.result.checks[0]!.reason);
+    expect(second.result.checks[0].reason).toBe(first.result.checks[0].reason);
     // The JSON shapes the reference lists.
     expect(departures('testResult', first.result)).toEqual({ missing: [], extra: [] });
     expect(keys(first.result.judge)).toEqual(fields('summaryJudge'));
-    expect(keys(first.result.checks[0]!.judge)).toEqual(fields('checkJudge'));
+    expect(keys(first.result.checks[0].judge)).toEqual(fields('checkJudge'));
     expect(mock.requests.length).toBe(sent);
     // The replay holds its judge call, answered from the recording (the newer session keeps its own).
     expect(storeCalls(second.result.runId).filter((c) => c.meta.scope === JUDGE_SCOPE).map((c) => c.origin)).toEqual(['replayed']);
@@ -148,7 +148,7 @@ describe('a golden with a judge check', () => {
     const calls = storeCalls(r.result.runId);
     const judged = calls.filter((c) => c.meta.scope === JUDGE_SCOPE);
     expect(judged).toHaveLength(1);
-    expect(judged[0]).toMatchObject({ origin: 'live', callNo: r.result.checks[0]!.judge!.callNo, end: { outcome: 'ok' } });
+    expect(judged[0]).toMatchObject({ origin: 'live', callNo: r.result.checks[0].judge!.callNo, end: { outcome: 'ok' } });
     // The fork is the agent's: its replay forked at the prompt, and the judge was never its divergence.
     expect(r.out).toContain('Forked at call 3');
   }, 60_000);
@@ -205,7 +205,7 @@ describe('a golden with a judge check', () => {
     const q = judgeRequests(mock.requests).at(-1)!;
     expect(q.material).toContain('assistant called send_email (write) with {"body":"Replay works.","subject":"Research summary","to":"<email>"}');
     expect(q.material).not.toContain('team@example.com');
-    expect(q.request.messages[0]!.content).toContain('masked here too');
+    expect(q.request.messages[0].content).toContain('masked here too');
     // Its replay reads the run the same way, so the verdict comes from the recording.
     const t = await test('goldens/run');
     expect(t.code, t.out).toBe(0);

@@ -27,9 +27,10 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
   const listed = useMemo(() => (runs ?? []).filter((r) => !isAttempt(r)), [runs]);
   // An exported copy of many runs holds only the pairs with its first run: it opens on one of those.
   const pair = a ? null : defaultComparePair(listed, exported ? (meta?.compareWith ?? null) : null);
+  const [pairA, pairB] = [pair?.[0], pair?.[1]];
   useEffect(() => {
-    if (pair) navigate(href.compare(pair[0], pair[1]), true);
-  }, [pair?.[0], pair?.[1]]);
+    if (pairA !== undefined && pairB !== undefined) navigate(href.compare(pairA, pairB), true);
+  }, [pairA, pairB]);
 
   // One run named: it is paired with what it was replayed into, or what it came from.
   if (a && !b) return <OneRun key={a} id={a} />;
@@ -77,9 +78,10 @@ function OneRun({ id }: { id: string }) {
   const held = useMemo(() => new Set((runs ?? []).map((r) => r.runId)), [runs]);
   const usable = (runId: string) => !live.some((l) => l.runId === runId) && (!exported || held.has(runId));
   const mate = run.data ? oneRunPair(run.data, usable) : null;
+  const [mateA, mateB] = [mate?.[0], mate?.[1]];
   useEffect(() => {
-    if (mate) navigate(href.compare(mate[0], mate[1]), true);
-  }, [mate?.[0], mate?.[1]]);
+    if (mateA !== undefined && mateB !== undefined) navigate(href.compare(mateA, mateB), true);
+  }, [mateA, mateB]);
   const where = exported ? 'this copy' : 'this store';
   if (run.error)
     return (

@@ -54,7 +54,7 @@ export function parseChaosFields(raw: unknown, where: string, parseExpect: Expec
   let presets = DEFAULT_CHAOS.presets;
   if (raw.presets !== undefined) {
     if (!Array.isArray(raw.presets) || !raw.presets.every((p) => typeof p === 'string')) throw new Error(`${where}.presets must be a list of presets: ${CHAOS_PRESETS.join(', ')}`);
-    presets = parsePresets(raw.presets as string[], `${where}.presets`);
+    presets = parsePresets(raw.presets, `${where}.presets`);
   }
   if (raw.tool !== undefined && (typeof raw.tool !== 'string' || !raw.tool.trim())) throw new Error(`${where}.tool must be the name of a tool`);
   let gate: Gate | null = null;

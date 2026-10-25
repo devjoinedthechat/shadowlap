@@ -88,7 +88,7 @@ describe('shadowlap test while the provider is unavailable', () => {
     const r = await shadowlapTest(tests, db);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("the provider was unavailable (HTTP 529 from anthropic at call #3), so that attempt isn't counted; running it again in");
-    const result = r.report.results[0]!;
+    const result = r.report.results[0];
     expect(result).toMatchObject({ verdict: 'passed', attempts: { total: 12, passed: 12, unavailable: 2 }, gate: { decision: 'pass', passes: 12, attempts: 12, unavailable: 2 } });
     // Every run is kept, the two the provider was unavailable for marked so.
     expect(result.runs).toHaveLength(14);
@@ -100,7 +100,7 @@ describe('shadowlap test while the provider is unavailable', () => {
     expect(r.out).not.toContain('2 attempts not counted');
     const store = Store.open(db);
     try {
-      expect(store.listTestResults({ golden: 'goldens/reference-agent' })[0]!.data?.attempts).toMatchObject({ total: 12, passed: 12, unavailable: 2 });
+      expect(store.listTestResults({ golden: 'goldens/reference-agent' })[0].data?.attempts).toMatchObject({ total: 12, passed: 12, unavailable: 2 });
     } finally {
       store.close();
     }
@@ -111,7 +111,7 @@ describe('shadowlap test while the provider is unavailable', () => {
     try {
       const r = await shadowlapTest(tests, join(work, 'gave-up.db'));
       expect(r.code).not.toBe(0);
-      const result = r.report.results[0]!;
+      const result = r.report.results[0];
       expect(result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive', attempts: { total: 0, passed: 0, unavailable: 3 }, gate: { decision: 'continue', attempts: 0, unavailable: 3 } });
       expect(result.message).toMatch(/^provider unavailable: 3 attempts in a row ended on HTTP 529 from anthropic at call #3, so none of them says anything about the agent/);
       expect(result.runs.map((x: { verdict: string }) => x.verdict)).toEqual(['unavailable', 'unavailable', 'unavailable']);

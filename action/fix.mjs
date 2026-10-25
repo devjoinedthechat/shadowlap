@@ -357,7 +357,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     } catch {
       // no report: its output says why
     }
-    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${t.status}`}`, results: new Map() };
+    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}`, results: new Map() };
     return { why: null, results: new Map(report.results.map((r) => [dirOf(r), r])) };
   } finally {
     // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
@@ -365,6 +365,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     for (const swap of swaps) for (const e of PACK_ENTRIES) rmSync(join(resolve(workdir, swap.golden), e), { recursive: true, force: true });
     for (const m of moved) move(join(m.keep, m.e), join(m.dir, m.e));
     rmSync(aside, { recursive: true, force: true });
+    // eslint-disable-next-line no-unsafe-finally -- a fix left in the working tree is said over the result, which the caller would otherwise trust
     if (back && back.status !== 0) throw new Error(`the fix could not be taken back out of the working tree: ${(back.stderr ?? '').trim()}`);
   }
 }
@@ -392,7 +393,7 @@ function commitGoldens({ root, branch, packs, env, scratch }) {
   const body = rest.join('\n').trim();
   const names = packs.map((p) => p.golden);
   const what = names.length === 1 ? `${names[0]} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.` : `${listed(names)} are re-recorded under the fix, from the runs verify accepted: the prompt they send changed, so the recordings made before the fix would diverge here.`;
-  const message = `${subject}\n\n${body ? `${body}\n\n` : ''}${what}\n`;
+  const message = `${String(subject)}\n\n${body ? `${body}\n\n` : ''}${what}\n`;
   const commit = git(root, ['commit-tree', tree, '-p', `${head}^`, '-F', '-'], { ...env, GIT_AUTHOR_NAME: an, GIT_AUTHOR_EMAIL: ae, GIT_AUTHOR_DATE: ad }, message).trim();
   git(root, ['update-ref', `refs/heads/${branch}`, commit, head], env);
   rmSync(index, { force: true });
@@ -639,7 +640,7 @@ export function pushFix({ cli, db, workdir, env, fixIds = [], sentInJob = new Se
     // no report: stderr says why
   }
   if (r.status !== 0 || !out || typeof out !== 'object') {
-    const said = pushError(r.stderr) || r.error?.message || `shadowlap push exited ${r.status ?? r.signal}`;
+    const said = pushError(r.stderr) || r.error?.message || `shadowlap push exited ${String(r.status ?? r.signal)}`;
     return failed(forkPullRequest(env, read) ? `a pull request from a fork, whose job GitHub gives no secrets: ${said}` : said);
   }
   if (out.pullRequest) return { state: 'pr', why: null, pr: String(out.pullRequest) };
@@ -729,7 +730,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
           // no report: stderr says why
         }
         const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
-        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${res.status}`);
+        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${String(res.status ?? res.signal)}`);
         return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch, plan };
       };
       const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
@@ -771,7 +772,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, env: fixEnv, scratch });
         for (const g of branchState.goldens) {
           if (g.state === 'recorded') log(`${g.golden} re-recorded on ${branch}`);
-          else if (g.state === 'stale') log(`${g.golden} not re-recorded on ${branch}: ${g.why}`);
+          else if (g.state === 'stale') log(`${g.golden} not re-recorded on ${branch}: ${String(g.why)}`);
           else if (g.state === 'unfixed') log(`${g.golden} fails the same check, and the fix on ${branch} is not verified for it${g.fork ? '' : `: see whether it fixes it too with shadowlap test ${g.golden} --update on the branch`}`);
           else log(`${g.golden} may fork: left as it is`);
         }
@@ -791,7 +792,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         if (onOrigin.ok) {
           const dispatch = auth.startsWorkflows ? null : await dispatchWorkflow({ env, auth, branch, fetch: fetchFn });
           checks = auth.startsWorkflows ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
-          if (dispatch && !dispatch.dispatched) log(`::warning title=Shadowlap::${commandText(`${names}: the fix's pull request has no check started: ${dispatch.why}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`)}`);
+          if (dispatch && !dispatch.dispatched) log(`::warning title=Shadowlap::${commandText(`${names}: the fix's pull request has no check started: ${String(dispatch.why)}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`)}`);
           writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}\n${evidenceNote(chosen.attempt.plan)}\n${checksNote({ auth, dispatch })}`);
           opened = createPullRequest(root, branch, bodyFile, ghEnv);
         }

@@ -30,7 +30,7 @@ export function MatchingTab() {
   const unreadable = rulesUnreadable(data.config.error, gone);
   const cal = data.calibrate;
   const canCalibrate = !!cal.argv && !app.actionsOff && !gone && app.hasKind(JOB_KINDS.calibrate) && !tree;
-  const calibrateTitle = gone ?? (!cal.argv ? 'Calibrate replays a finished recording made here' : (app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : (tree ?? `${cal.command}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`))));
+  const calibrateTitle = gone ?? (!cal.argv ? 'Calibrate replays a finished recording made here' : (app.actionsOff ?? (!app.hasKind(JOB_KINDS.calibrate) ? 'This dashboard doesn’t run calibrate: shadowlap calibrate in a terminal' : (tree ?? `${cal.command!}${cal.source === 'setup' ? ' · the run this project’s setup recorded' : ''}`))));
   return (
     <>
       {data.config.error ? <ConfigProblem error={data.config.error} /> : null}

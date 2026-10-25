@@ -39,14 +39,14 @@ describe('searching what runs recorded', () => {
     // The index alone puts the recording past the first 200 hits, the depth a fixed window would read.
     const raw = store.searchDocs(searchExpression('refund')!, 1000);
     expect(raw.findIndex((h) => h.runId === rec)).toBeGreaterThan(200);
-    expect(attempts.includes(raw[0]!.runId)).toBe(true);
+    expect(attempts.includes(raw[0].runId)).toBe(true);
 
     const hits = search('refund', 40);
     expect(hits.map((h) => h.runId).sort()).toEqual([rec, fork].sort());
     expect(hits.every((h) => h.attemptOf === null)).toBe(true);
     expect(hits[0]).toMatchObject({ callNo: 1, kind: 'api', name: 'POST /v1/messages', field: 'prompt' });
     expect(hits.find((h) => h.runId === rec)?.runStartedAt).toBe(NOW - DAY);
-    expect(hits[0]!.snippet).toContain('\u0001refund\u0002');
+    expect(hits[0].snippet).toContain('\u0001refund\u0002');
   });
 
   it('gives a run at most two hits, so one long run can’t fill the list', () => {

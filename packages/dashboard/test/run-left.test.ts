@@ -62,7 +62,7 @@ function run(name: string, o: { startedAt: number; parent?: string; forkAt?: num
 function embedded(html: string): StaticPayload {
   const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html);
   expect(m).not.toBeNull();
-  return JSON.parse(m![1]!.split('<\\/').join('</')) as StaticPayload;
+  return JSON.parse(m![1].split('<\\/').join('</')) as StaticPayload;
 }
 
 beforeAll(() => {
@@ -93,19 +93,19 @@ afterAll(() => {
 
 describe('a run whose recorder was killed', () => {
   it('reads interrupted, ended at its last call, in Runs and on its page', () => {
-    expect(store.getRun(id.rec!)!.status, 'the store still marks it running').toBe('running');
-    expect(runState(store, id.rec!)).toMatchObject({ status: 'crashed', endedAt: lastAt.rec, outcome: { kind: 'none' }, failed: false, interrupted: true });
+    expect(store.getRun(id.rec)!.status, 'the store still marks it running').toBe('running');
+    expect(runState(store, id.rec)).toMatchObject({ status: 'crashed', endedAt: lastAt.rec, outcome: { kind: 'none' }, failed: false, interrupted: true });
     const row = listRunsPage(store, { limit: 500 }).runs.find((r) => r.runId === id.rec)!;
     expect(row).toMatchObject({ status: 'crashed', endedAt: lastAt.rec, outcome: { kind: 'none' }, failed: false });
-    const page = runDetail(store, id.rec!)!;
+    const page = runDetail(store, id.rec)!;
     expect(page.run).toMatchObject({ status: 'crashed', endedAt: lastAt.rec });
-    expect(page.summary.durationMs).toBe(lastAt.rec! - (T0 + 1000));
+    expect(page.summary.durationMs).toBe(lastAt.rec - (T0 + 1000));
     // A run recording now is left as it is.
-    expect(runDetail(store, id.live!)!.run).toMatchObject({ status: 'running', endedAt: null });
+    expect(runDetail(store, id.live)!.run).toMatchObject({ status: 'running', endedAt: null });
   });
 
   it('reads interrupted in its family, an attempt the lists leave out included', () => {
-    const nodes = lineage(store, id.base!)!;
+    const nodes = lineage(store, id.base)!;
     const node = (name: string) => nodes.find((x) => x.runId === id[name])!;
     for (const name of ['fork', 'attempt']) expect(node(name), name).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, failed: false });
     expect(node('stopped')).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, failed: false });
@@ -138,18 +138,18 @@ describe('a run whose recorder was killed', () => {
   });
 
   it('is offered Find the commit as a run stopped with Ctrl-C is, never as one still recording', () => {
-    const offer = runOffers(store, id.fork!, { redact: [], config: null })!.bisect!;
+    const offer = runOffers(store, id.fork, { redact: [], config: null })!.bisect!;
     expect(offer.unavailable ?? '').not.toMatch(/still recording/);
     // A fork stopped with Ctrl-C gets the same offer.
-    const stopped = runOffers(store, id.stopped!, { redact: [], config: null })!.bisect!;
+    const stopped = runOffers(store, id.stopped, { redact: [], config: null })!.bisect!;
     expect({ failed: offer.failed, fork: offer.fork, good: offer.good, unavailable: offer.unavailable }).toEqual({ failed: stopped.failed, fork: stopped.fork, good: stopped.good, unavailable: stopped.unavailable });
     // The store is read, never changed.
-    expect(store.getRun(id.fork!)!.status).toBe('running');
+    expect(store.getRun(id.fork)!.status).toBe('running');
   });
 
   it('is copied as interrupted into an HTML file, with redaction rules and without', () => {
     for (const redact of [[EMAIL], []]) {
-      const out = exportHtml({ store, runIds: [id.base!, id.rec!], uiDir, version: null, redact, now: Date.now() });
+      const out = exportHtml({ store, runIds: [id.base, id.rec], uiDir, version: null, redact, now: Date.now() });
       expect(out.redacted).toBe(redact.length > 0);
       const data = embedded(out.html);
       const page = data.responses[`runs/${id.rec}`] as { run: { status: string; endedAt: number | null }; state: { interrupted: boolean } };
@@ -164,12 +164,12 @@ describe('a run whose recorder was killed', () => {
       if (redact.length) expect(out.html).not.toContain('jane@example.com');
     }
     // The store it came from is not changed.
-    expect(store.getRun(id.rec!)!.status).toBe('running');
+    expect(store.getRun(id.rec)!.status).toBe('running');
   });
 
   it('is packed as interrupted, and a teammate who unpacks it reads it so', () => {
     const pack = join(dir, 'pack-left');
-    packRun(store, id.fork!, pack, { lineage: true, redact: [EMAIL] });
+    packRun(store, id.fork, pack, { lineage: true, redact: [EMAIL] });
     const manifest = JSON.parse(readFileSync(join(pack, 'run.json'), 'utf8')) as { runs: Array<{ runId: string; status: string; endedAt: number | null }> };
     expect(manifest.runs.map((r) => [r.runId, r.status, r.endedAt])).toEqual([
       [id.base, 'completed', lastAt.base],
@@ -178,12 +178,12 @@ describe('a run whose recorder was killed', () => {
     const theirs = Store.open(':memory:');
     try {
       expect(unpackRun(theirs, pack).imported).toEqual([id.base, id.fork]);
-      expect(theirs.getRun(id.fork!)).toMatchObject({ status: 'crashed', endedAt: lastAt.fork });
-      expect(runState(theirs, id.fork!)).toMatchObject({ status: 'crashed', interrupted: true });
+      expect(theirs.getRun(id.fork)).toMatchObject({ status: 'crashed', endedAt: lastAt.fork });
+      expect(runState(theirs, id.fork)).toMatchObject({ status: 'crashed', interrupted: true });
     } finally {
       theirs.close();
     }
-    expect(store.getRun(id.fork!)!.status).toBe('running');
+    expect(store.getRun(id.fork)!.status).toBe('running');
   });
 });
 

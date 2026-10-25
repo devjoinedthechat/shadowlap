@@ -25,7 +25,7 @@ const keyed = (baseURL: string, key: string, betas: string[] = []) => new Anthro
 async function recordWith(store: Store, client: (base: string) => Anthropic, clock: 'auto' | 'exact' = 'auto'): Promise<string> {
   const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url }, clock });
   const run = sidecar.startRun({ mode: 'record', command });
-  await ask(client(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!), 'hello');
+  await ask(client(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL), 'hello');
   sidecar.endRun(run.runId, 'completed');
   await sidecar.close();
   return run.runId;
@@ -36,7 +36,7 @@ async function replayWith(store: Store, parentRunId: string, client: (base: stri
   const run = sidecar.startRun({ mode: 'replay', parentRunId, command, replay: { writes: 'block', reads: 'live', liveTools: new Set() }, offline: true });
   let error: unknown;
   try {
-    await ask(client(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!), prompt);
+    await ask(client(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL), prompt);
   } catch (err) {
     error = err;
   }
@@ -50,7 +50,7 @@ describe("a recording made signed in with a profile", () => {
     const store = Store.open(':memory:');
     // Under the exact clock a replay takes the fingerprints the recording stored; under auto it computes them again.
     const parent = await recordWith(store, (base) => signedIn(base), 'exact');
-    expect(store.getCalls(parent)[0]!.meta.fingerprintHeaders).toMatchObject({ 'anthropic-beta': 'oauth-2025-04-20' });
+    expect(store.getCalls(parent)[0].meta.fingerprintHeaders).toMatchObject({ 'anthropic-beta': 'oauth-2025-04-20' });
     const before = mock.requests.length;
     for (const clock of ['exact', 'auto'] as const) {
       for (const key of ['sk-ant-of-ci', PLACEHOLDER_KEY]) {

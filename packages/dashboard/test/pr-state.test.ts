@@ -50,14 +50,14 @@ describe('reading a pull request’s state', () => {
     prs.refresh([open, other, third, merged, gitlab]);
     // Two at once; a merged one and another forge's are never asked about.
     expect(asked.map((a) => a.url)).toEqual([PR, 'https://github.com/acme/support-agent/pull/139']);
-    asked[0]!.done({ state: 'merged' });
-    asked[1]!.done({ state: 'open' });
+    asked[0].done({ state: 'merged' });
+    asked[1].done({ state: 'open' });
     // Only a state that moved is written.
     expect(written).toEqual([[open.fixId, 'merged']]);
     // Read again soon after: only the one not asked yet.
     prs.refresh([open, other, third]);
     expect(asked.map((a) => a.url).slice(2)).toEqual(['https://github.com/acme/support-agent/pull/140']);
-    asked[2]!.done({ state: 'closed' });
+    asked[2].done({ state: 'closed' });
     expect(written.at(-1)).toEqual([third.fixId, 'closed']);
     // Once the answer is old, it is asked about again.
     now += 61_000;

@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatPassK, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -1646,7 +1646,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
       // Newest first: the first pass of the recording this replay failed on, under the checks the
       // golden has now, is the one to offer: an earlier recording of the golden (before an update), or
       // a pass under other checks, may be a commit where it already fails.
-      const counts = r.ok && underChecks(r, source!.checks);
+      const counts = r.ok && underChecks(r, source.checks);
       if (!sameRecording && counts && result?.goldenRunId && r.goldenRunId === result.goldenRunId) sameRecording = r.revision;
       if (!passedHere && counts) passedHere = r.revision;
       const row = at.get(r.revision) ?? { rev: r.revision, at: r.at, runs: 0, failed: 0, inconclusive: 0 };
@@ -1676,8 +1676,8 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
-  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
-  else if (unsure) unavailable = `${golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
+  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find the commit from the golden on Tests`;
+  else if (unsure) unavailable = `${golden!} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
   else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no failure to find the commit of`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.
@@ -1694,7 +1694,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
     revisions: revisions.slice(0, 30),
     expect,
     fork,
-    live: fork || (ofGolden && source!.mode === 'fork'),
+    live: fork || (ofGolden && source.mode === 'fork'),
     unavailable,
     args: good && !unavailable ? bisectArgs(ref, good, bad, fork, expect) : null,
   };
@@ -1785,7 +1785,7 @@ export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<s
  */
 export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
   let golden: string | null;
-  let volatile: VolatileValues | null = null;
+  let volatile: VolatileValues | null;
   let runId: string | undefined;
   if (req.runId !== undefined) {
     const run = typeof req.runId === 'string' && /^[0-9A-Z]{26}$/.test(req.runId) ? store.getRun(req.runId) : null;

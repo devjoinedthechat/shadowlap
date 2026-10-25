@@ -72,7 +72,7 @@ beforeAll(async () => {
   writeFileSync(join(cwd, 'otel-traces.json'), fixture('otel-genai.json'));
   // The same trace with the tool definitions left out, as most instrumentations do by default.
   const stripped = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ attributes: Array<{ key: string }> }> }> }> };
-  for (const s of stripped.resourceSpans[0]!.scopeSpans[0]!.spans) s.attributes = s.attributes.filter((a) => a.key !== 'gen_ai.tool.definitions');
+  for (const s of stripped.resourceSpans[0].scopeSpans[0].spans) s.attributes = s.attributes.filter((a) => a.key !== 'gen_ai.tool.definitions');
   writeFileSync(join(cwd, 'otel-no-tools.json'), JSON.stringify(stripped));
 
   const langfuse = JSON.parse(fixture('langfuse-trace.json')) as unknown;
@@ -137,8 +137,8 @@ describe('shadowlap import otel', () => {
 
   it('reads traces and the log records with their messages from separate files', async () => {
     const [traces, logs] = fixture('otel-logs.jsonl').trim().split('\n');
-    writeFileSync(join(cwd, 'traces.json'), traces!);
-    writeFileSync(join(cwd, 'logs.json'), logs!);
+    writeFileSync(join(cwd, 'traces.json'), traces);
+    writeFileSync(join(cwd, 'logs.json'), logs);
     const alone = await shadowlap(['import', 'otel', 'traces.json', '--json']);
     expect(JSON.parse(alone.out).runs).toEqual([]);
     const r = await shadowlap(['import', 'otel', 'traces.json', 'logs.json', '--json']);
@@ -202,8 +202,8 @@ describe('shadowlap import otel', () => {
     // The replay names no version either: the same calls as the trace's, and a replay of it is clean on the other release.
     const replays = (JSON.parse((await shadowlap(['ls', '--json'])).out) as Array<{ runId: string; parentRunId: string | null }>).filter((x) => x.parentRunId === runId);
     expect(replays).toHaveLength(1);
-    expect((await shadowlap(['diff', runId, replays[0]!.runId])).out).toContain('= identical: every request and every response');
-    expect((await shadowlap(['replay', replays[0]!.runId, '--', process.execPath, AGENT])).out).toContain('answer: Order A-1042 was delivered; it cost $240.');
+    expect((await shadowlap(['diff', runId, replays[0].runId])).out).toContain('= identical: every request and every response');
+    expect((await shadowlap(['replay', replays[0].runId, '--', process.execPath, AGENT])).out).toContain('answer: Order A-1042 was delivered; it cost $240.');
   });
 
   it('forks at the first model call when the trace left out what the agent sends, and runs live from there', async () => {
@@ -342,7 +342,7 @@ describe.skipIf(!PYTHON)("replaying a Python agent that hands the Anthropic SDK'
   const imported = async (args: string[], env: NodeJS.ProcessEnv = {}) => {
     const r = await shadowlap([...args, '--json'], env);
     expect(r.code, r.err).toBe(0);
-    return (JSON.parse(r.out) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
+    return (JSON.parse(r.out) as { runs: Array<{ runId: string }> }).runs[0].runId;
   };
   const phoenixRun = (id: string) => imported(['import', 'phoenix', id, '--host', host, '--project', 'support-agent'], { PHOENIX_API_KEY: PHOENIX_KEY });
   /** trace_agent.py's `support` agent (otel-genai.json's) or `refund` agent (the Phoenix and Logfire fixtures'), replayed against a run. */

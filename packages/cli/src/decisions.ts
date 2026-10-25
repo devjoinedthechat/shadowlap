@@ -74,7 +74,7 @@ import {
   type TokenCount,
   type Usage,
   type VerifyRole,
-  wilsonBound,
+  rateBound,
 } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording } from './attempts.js';
@@ -287,7 +287,7 @@ interface Planned {
 const tokensOf = (u: Usage | null | undefined): TokenCount | null => (u ? { input: u.inputTokens, output: u.outputTokens, cacheRead: u.cacheReadInputTokens ?? 0, cacheWrite: u.cacheCreationInputTokens ?? 0 } : null);
 const usageOf = (t: TokenCount): Usage => ({ inputTokens: t.input, outputTokens: t.output, cacheReadInputTokens: t.cacheRead, cacheCreationInputTokens: t.cacheWrite });
 const addTokens = (a: TokenCount, b: TokenCount | null): TokenCount => (b ? { input: a.input + b.input, output: a.output + b.output, cacheRead: a.cacheRead + b.cacheRead, cacheWrite: a.cacheWrite + b.cacheWrite } : a);
-const recordedModelOf = (call: CallRecord): string | null => (call.end?.meta.model ?? call.meta.model ?? null) as string | null;
+const recordedModelOf = (call: CallRecord): string | null => (call.end?.meta.model ?? call.meta.model ?? null);
 const fieldText = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 
 /** The fields `migrate` changed, each once, with the steps that needed it. */
@@ -408,7 +408,7 @@ export function changeText(s: Pick<DecisionsSettings, 'model' | 'fields' | 'from
   if (s.model) parts.push(`the model ${s.model}`);
   const fields = Object.entries(s.fields).filter(([k]) => k !== 'model');
   if (fields.length) parts.push(fields.map(([k, v]) => `${k}=${fieldText(v)}`).join(', '));
-  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'no change');
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no change');
 }
 
 /** Whether a model call is one `--scope` asks: made in that scope, or with `none`, in none. Shadowlap's own scopes (its judge's) never are. */
@@ -427,7 +427,7 @@ export function modelUse(store: Store, targets: readonly DecisionTarget[], scope
       if (c.kind !== 'api' || !c.requestRef || !inScope(c.meta.scope, scope)) continue;
       const model = recordedModelOf(c);
       if (!model) continue;
-      const had = use.get(model) ?? { model, provider: (c.meta.provider ?? c.end?.meta.provider ?? null) as string | null, calls: 0 };
+      const had = use.get(model) ?? { model, provider: (c.meta.provider ?? c.end?.meta.provider ?? null), calls: 0 };
       had.calls++;
       use.set(model, had);
     }
@@ -522,7 +522,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
     if (isReservedScope(call.meta.scope)) continue;
     step++;
     if (!inScope(call.meta.scope, s.scope)) continue;
-    const provider = (call.meta.provider ?? call.end?.meta.provider ?? null) as string | null;
+    const provider = (call.meta.provider ?? call.end?.meta.provider ?? null);
     const space = call.name.indexOf(' ');
     const method = space > 0 ? call.name.slice(0, space) : 'POST';
     const path = space > 0 ? call.name.slice(space + 1) : call.name;
@@ -588,7 +588,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       const was = modelFamily(recordedModel);
       const now = modelFamily(s.model);
       if (was && now && was !== now) {
-        plan.skip = `${s.model} is a model of another family than ${recordedModel} (${FAMILY_NAMES[now]}, not ${FAMILY_NAMES[was]}): asking the recorded request again can't carry it into that family's request format, so verify that switch instead`;
+        plan.skip = `${s.model} is a model of another family than ${recordedModel!} (${FAMILY_NAMES[now]}, not ${FAMILY_NAMES[was]}): asking the recorded request again can't carry it into that family's request format, so verify that switch instead`;
         continue;
       }
     }
@@ -600,7 +600,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       let body = loadApiRequest(store, call.requestRef!);
       if (requestShape(provider, path, body) === 'other') return { skip: "it is not a conversation (an embeddings call, or a model's native body)" };
       const promptChanged = cap?.changed === true;
-      if (promptChanged) body = withPrompt(body, cap!.prompt);
+      if (promptChanged) body = withPrompt(body, cap.prompt);
       let at = path;
       let modelChanged = false;
       if (s.model && switched) {
@@ -763,7 +763,7 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
     // migrate: a refusal that names what to change is asked once more with it changed.
     const fix = s.remedies && answer.error && (answer.status === 400 || answer.status === 422) ? refusalRemedy(answer.error) : null;
     if (fix) {
-      const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error}`;
+      const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error!}`;
       const fixed = apply(plan, body, fix, why);
       if (fixed) {
         body = fixed.body;
@@ -851,7 +851,7 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
   return {
     callNo: plan.call.callNo,
     step: plan.step,
-    scope: (plan.call.meta.scope ?? null) as string | null,
+    scope: (plan.call.meta.scope ?? null),
     rank: beyond ? beyond.rank : (worst?.c.rank ?? null),
     majority: beyond ? beyond.rank : majorityRank(ranks),
     ...(control ? { control, noise: beyond ? { p: beyond.p } : null, sampled: worst?.c.rank ?? null } : {}),
@@ -1043,7 +1043,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
     for (const r of report.runs) {
       const against = r.baseline && keptRule;
-      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? wilsonBound(r.gate) : null;
+      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? rateBound(r.gate) : null;
       out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule });
     }
     if (report.verdict === 'rejected') out.verdict = 'rejected';

@@ -29,6 +29,7 @@ import {
   StoreUrlError,
   storeKindName,
   teamRunInStore,
+  type CheckStepName,
   type CiProvider,
   type LastCheck,
   type ObjectStore,
@@ -195,7 +196,7 @@ export function writeTarget(t: TeamEnv, loc: StoreLocation): WriteTarget {
 }
 
 function pullRequestLine(target: WriteTarget): string {
-  return `${target.source}: its runs go to pull request ${target.pr}'s own folder in the store, which a pull brings only with --include-pr`;
+  return `${target.source!}: its runs go to pull request ${target.pr!}'s own folder in the store, which a pull brings only with --include-pr`;
 }
 
 // ---------------------------------------------------------------------------------------------- store setup
@@ -278,7 +279,7 @@ export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?:
   return 0;
 }
 
-const STEP_WORDS: Record<string, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
+const STEP_WORDS: Record<CheckStepName, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
 
 /**
  * Checks a store with this machine's credentials: where it writes (in a pull request's job, its own
@@ -356,7 +357,7 @@ function checkFailure(loc: StoreLocation, failure: StoreCheck['failure'], o: { u
 }
 
 export function storePolicy(t: TeamEnv, flags: { provider?: Provider; json?: boolean } = {}): number {
-  let loc: StoreLocation | null = null;
+  let loc: StoreLocation | null;
   try {
     loc = configuredStore(t);
   } catch {
@@ -392,7 +393,7 @@ function goldensOf(cwd: string, packs: string): Array<ReturnType<typeof goldenMo
   } catch {
     // the config being edited: the packs alone
   }
-  let dirs: string[] = [];
+  let dirs: string[];
   try {
     dirs = expandRecordings(packs.split(/\s+/).filter(Boolean), cwd).dirs;
   } catch {
@@ -560,8 +561,8 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
   let result: PushResult;
   let left: number;
   let moved: Moved;
-  let fixTitles = new Map<string, string>();
-  let repairFiles: string[] = [];
+  let fixTitles: Map<string, string>;
+  let repairFiles: string[];
   try {
     const runIds = runList(store, runArgs);
     const who = actor(t);
@@ -651,8 +652,8 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
   let result: PullResult;
   let left: { inStore: number; onlyLocal: number };
   let got: { runs: string[]; attempts: number; byAuthor: Record<string, number> };
-  let fixTitles = new Map<string, string>();
-  let repairFiles: string[] = [];
+  let fixTitles: Map<string, string>;
+  let repairFiles: string[];
   const prs: PullRequestPull[] = [];
   try {
     const log = flags.json ? {} : { log: (l: string) => note(t, p.dim(`  ${safe(l)}`)) };

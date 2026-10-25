@@ -52,7 +52,7 @@ async function start(o: Partial<DashboardOptions> = {}): Promise<Dashboard> {
     spawnCli: (args, options) => {
       spawned.push(args);
       // A repair takes a while; everything else is over at once, unless the test made it slow too.
-      const script = slow.has(args[0]!) ? 'setTimeout(() => {}, 20000)' : '';
+      const script = slow.has(args[0]) ? 'setTimeout(() => {}, 20000)' : '';
       return spawn(process.execPath, ['-e', script], { stdio: options?.events ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
     },
     ...o,
@@ -216,8 +216,8 @@ describe('the Forks view’s bundles', () => {
       ['blame · probe #7', false, '0 of 4', `#/fixes/${fixId}/blame`],
     ]);
     const rescued = report.contrast!.rescuedRunId;
-    expect(blames[1]!.attempts[0]).toEqual({ runId: rescued, passed: true, verdict: 'passed', note: 'passed · called escalate', href: `#/run/${rescued}`, rescued: true });
-    expect(blames[1]!.attempts[1]!.note).toBe('issue_refund called');
+    expect(blames[1].attempts[0]).toEqual({ runId: rescued, passed: true, verdict: 'passed', note: 'passed · called escalate', href: `#/run/${rescued}`, rescued: true });
+    expect(blames[1].attempts[1].note).toBe('issue_refund called');
     expect(blames.every((b) => b.parentRunId === failing)).toBe(true);
 
     // The working tree's verify (rejected) leads to its verdict; the repair's accepted candidate too;
@@ -286,7 +286,7 @@ describe('the Forks view’s bundles', () => {
     attemptRuns(failing, [{ runId: '01M3RZZZZA0000000000000000', passed: true }, { runId: '01M3RZZZZB0000000000000000', passed: false }], (passed) => ({ probe: { of: failing, callNo: 3, passed } }));
     const [b] = fixBundles(store, failing)!;
     expect(b).toMatchObject({ kind: 'blame', title: 'blame · probe #3', passes: 1, fixId: null, href: `#/run/${failing}`, verdictLine: null, rule: null });
-    expect(b!.attempts.map((a) => a.note)).toEqual(['passed', 'failed']);
+    expect(b.attempts.map((a) => a.note)).toEqual(['passed', 'failed']);
   });
 
   it('names the fix of each bundle under a run several fixes verified, which would otherwise read the same', () => {
@@ -435,7 +435,7 @@ describe('the blame job', () => {
     store = Store.open(dbPath);
     const left = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 3_000 }).runId;
     const db = new DatabaseSync(dbPath);
-    db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left);
+    db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, left);
     db.close();
     await start();
     const res = await job({ kind: 'blame', runId: left, expect: null });
@@ -720,7 +720,7 @@ describe('what settles an unsettled fix', () => {
     const { fix } = blame(failing, { expect: { tools: { send_email: 1 } } });
     const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }]);
-    report.runs[0] = { ...report.runs[0]!, verdict: 'open', decision: 'continue', gate: gateResult(gate, [true, true, true, true]) };
+    report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue', gate: gateResult(gate, [true, true, true, true]) };
     Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
     const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012` });
     await start();
@@ -735,7 +735,7 @@ describe('what settles an unsettled fix', () => {
     const run = makeRun(store, { labels: ['double-email'] });
     const report = blameReport(run, 'unrescuable');
     report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
-    report.probes = [{ ...report.probes[0]!, decision: 'inconclusive' }];
+    report.probes = [{ ...report.probes[0], decision: 'inconclusive' }];
     const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: null, command: `shadowlap blame ${run.slice(0, 10)}`, title: 'email twice', checkText: 'send_email called once' });
     const plain = makeRun(store, { labels: ['digest'] });
     const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, title: 'digest', checkText: 'exits 0' });

@@ -196,12 +196,12 @@ export function placeFields(shape: RequestShape, fields: Record<string, unknown>
     switch (shape) {
       case 'gemini':
         if (GEMINI_TOP.has(key)) out.push({ path: [key], value });
-        else if (GEMINI_CONFIG[key]) out.push({ path: ['generationConfig', GEMINI_CONFIG[key]!], value: GEMINI_CONFIG[key] === 'stopSequences' ? asList(value) : value });
+        else if (GEMINI_CONFIG[key]) out.push({ path: ['generationConfig', GEMINI_CONFIG[key]], value: GEMINI_CONFIG[key] === 'stopSequences' ? asList(value) : value });
         else return { refused: `Gemini has no request field "${key}": sampling settings go in generationConfig (temperature, topP, topK, maxOutputTokens, stopSequences, seed); set any other by its path, such as generationConfig.${key}` };
         break;
       case 'converse':
         if (CONVERSE_TOP.has(key)) out.push({ path: [key], value });
-        else if (CONVERSE_INFERENCE[key]) out.push({ path: ['inferenceConfig', CONVERSE_INFERENCE[key]!], value: CONVERSE_INFERENCE[key] === 'stopSequences' ? asList(value) : value });
+        else if (CONVERSE_INFERENCE[key]) out.push({ path: ['inferenceConfig', CONVERSE_INFERENCE[key]], value: CONVERSE_INFERENCE[key] === 'stopSequences' ? asList(value) : value });
         else if (key === 'top_k' || key === 'topK') out.push({ path: ['additionalModelRequestFields', 'top_k'], value });
         else return { refused: `Bedrock Converse has no request field "${key}": sampling settings go in inferenceConfig (temperature, maxTokens, topP, stopSequences) and the model's own in additionalModelRequestFields; set one by its path, such as additionalModelRequestFields.${key}` };
         break;
@@ -267,7 +267,7 @@ export function setRequestFields(shape: RequestShape, body: unknown, fields: Rec
         break;
       }
       const child = holder[slot];
-      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...child] : isObject(child) ? { ...child } : {};
+      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...(child as unknown[])] : isObject(child) ? { ...child } : {};
       holder[slot] = copy;
       node = copy;
     }
@@ -346,7 +346,7 @@ export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs,
     if (shape === 'gemini') return { refused: 'Gemini takes system instructions only in systemInstruction, ahead of the conversation, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     if (shape === 'converse') return { refused: 'Bedrock Converse takes system prompts only in system, ahead of the conversation, and its messages are user and assistant turns, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     const strict = noLateSystemMessage(model);
-    if (strict) return { refused: `${strict} (${model}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
+    if (strict) return { refused: `${strict} (${model!}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
     return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
   }
   // OpenAI chat and Responses carry tool output as turns of their own: after them comes a new user turn.
@@ -377,12 +377,12 @@ function injectedTurn(shape: RequestShape, text: string, as: InjectAs): Record<s
 function extendContent(shape: RequestShape, content: unknown, text: string): unknown {
   if (shape === 'anthropic') {
     const block = { type: 'text', text };
-    return typeof content === 'string' ? [{ type: 'text', text: content }, block] : Array.isArray(content) ? [...content, block] : [block];
+    return typeof content === 'string' ? [{ type: 'text', text: content }, block] : Array.isArray(content) ? [...(content as unknown[]), block] : [block];
   }
   // OpenAI-compatible servers don't all take content parts; a string stays a string.
   if (typeof content === 'string') return content ? `${content}\n\n${text}` : text;
   const part = shape === 'openai-responses' ? { type: 'input_text', text } : shape === 'converse' ? { text } : { type: 'text', text };
-  return Array.isArray(content) ? [...content, part] : [part];
+  return Array.isArray(content) ? [...(content as unknown[]), part] : [part];
 }
 
 /**
@@ -400,7 +400,7 @@ export function applyInjection(shape: RequestShape, body: unknown, text: string,
     next.splice(place.index, 0, injectedTurn(shape, text, as));
   } else {
     const turn = next[place.index] as Record<string, unknown>;
-    next[place.index] = shape === 'gemini' ? { ...turn, parts: [...(Array.isArray(turn.parts) ? turn.parts : []), { text }] } : { ...turn, content: extendContent(shape, turn.content, text) };
+    next[place.index] = shape === 'gemini' ? { ...turn, parts: [...(Array.isArray(turn.parts) ? (turn.parts as unknown[]) : []), { text }] } : { ...turn, content: extendContent(shape, turn.content, text) };
   }
   if (shape === 'gemini') return { ...body, contents: next };
   if (shape === 'openai-responses') {

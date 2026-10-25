@@ -92,8 +92,8 @@ describe('an upstream that fails part way through a streamed answer', () => {
       expect(seen.error).toBeInstanceOf(Error);
       sidecar.endRun(run.runId, 'failed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end).toMatchObject({ outcome: 'error', meta: { status: 200, retryable: true, error: { name: 'UpstreamStreamError' } } });
-      expect(store.getBlob(call!.end!.responseRef!)!.toString('utf8')).toBe(sent);
+      expect(call.end).toMatchObject({ outcome: 'error', meta: { status: 200, retryable: true, error: { name: 'UpstreamStreamError' } } });
+      expect(store.getBlob(call.end!.responseRef!)!.toString('utf8')).toBe(sent);
 
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command, offline: true });
       const again = await streamOnce(replay.runId);
@@ -192,11 +192,11 @@ describe('an agent that leaves before its answer came', () => {
       sidecar.endRun(run.runId, 'completed');
       const calls = store.getCalls(run.runId);
       expect(calls).toHaveLength(1);
-      expect(calls[0]!.attempts).toHaveLength(1);
-      expect(calls[0]!.attempts[0]).toMatchObject({ attempt: 0, outcome: 'error', meta: { retryable: true, error: { name: 'ClientDisconnected' } } });
-      expect(calls[0]!.attempts[0]!.meta.status).toBeUndefined();
-      expect(calls[0]!.end).toMatchObject({ attempt: 1, outcome: 'ok', meta: { status: 200 } });
-      expect(recordedText(store, calls[0]!)).toBe('second try');
+      expect(calls[0].attempts).toHaveLength(1);
+      expect(calls[0].attempts[0]).toMatchObject({ attempt: 0, outcome: 'error', meta: { retryable: true, error: { name: 'ClientDisconnected' } } });
+      expect(calls[0].attempts[0].meta.status).toBeUndefined();
+      expect(calls[0].end).toMatchObject({ attempt: 1, outcome: 'ok', meta: { status: 200 } });
+      expect(recordedText(store, calls[0])).toBe('second try');
 
       // The replay serves the answer the agent got, and nothing else.
       const before = attempts;
@@ -241,7 +241,7 @@ describe('an agent that leaves before its answer came', () => {
       stream.abort();
       await stream.done().catch(() => {});
       await until(() => cut.length === 1);
-      expect(cut[0]! - left).toBeLessThan(1_000);
+      expect(cut[0] - left).toBeLessThan(1_000);
       // It asks again, as its client's retry.
       const again = await client.messages.create({ ...params, stream: true }, { headers: { 'x-stainless-retry-count': '1' } });
       let streamed = '';
@@ -250,8 +250,8 @@ describe('an agent that leaves before its answer came', () => {
       sidecar.endRun(run.runId, 'completed');
       const calls = store.getCalls(run.runId);
       expect(calls).toHaveLength(1);
-      expect(calls[0]!.attempts[0]).toMatchObject({ attempt: 0, outcome: 'error', meta: { status: 200, retryable: true, error: { name: 'ClientDisconnected' } } });
-      expect(calls[0]!.end).toMatchObject({ attempt: 1, outcome: 'ok' });
+      expect(calls[0].attempts[0]).toMatchObject({ attempt: 0, outcome: 'error', meta: { status: 200, retryable: true, error: { name: 'ClientDisconnected' } } });
+      expect(calls[0].end).toMatchObject({ attempt: 1, outcome: 'ok' });
     } finally {
       await sidecar.close();
       store.close();
@@ -304,7 +304,7 @@ describe('an agent that leaves before its answer came, elsewhere on the proxy', 
       sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
       expect(call).toMatchObject({ kind: 'tool', name: `POST ${new URL(host).host}/orders/search` });
-      expect(call!.end).toMatchObject({ outcome: 'error', meta: { error: { name: 'ClientDisconnected' } } });
+      expect(call.end).toMatchObject({ outcome: 'error', meta: { error: { name: 'ClientDisconnected' } } });
 
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
       const replayed = await giveUpAfter(`${sidecar.url}/r/${replay.runId}/http/orders/search`, { 'x-shadowlap-upstream': host }, '{"q":"A-1042"}', 0);
@@ -354,7 +354,7 @@ describe('an agent that leaves before its answer came, elsewhere on the proxy', 
       expect(cut[0]).toBeLessThan(1_000);
       sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end).toMatchObject({ attempt: 0, outcome: 'error', meta: { retryable: true, error: { name: 'ClientDisconnected' } } });
+      expect(call.end).toMatchObject({ attempt: 0, outcome: 'error', meta: { retryable: true, error: { name: 'ClientDisconnected' } } });
     } finally {
       session.close();
       await sidecar.close();
@@ -426,8 +426,8 @@ describe('a store another process holds locked', () => {
       expect(textOf(await anthropic(sidecar, run.runId).messages.create(params))).toBe('an answer the disk will not take');
       const ended = sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end).toMatchObject({ outcome: 'error', responseRef: null, meta: { status: 200, error: { name: 'ShadowlapStoreError' } } });
-      expect(call!.end!.meta.error!.message).toMatch(/disk I\/O error/);
+      expect(call.end).toMatchObject({ outcome: 'error', responseRef: null, meta: { status: 200, error: { name: 'ShadowlapStoreError' } } });
+      expect(call.end!.meta.error!.message).toMatch(/disk I\/O error/);
       expect(ended.summary.warnings.join('\n')).toMatch(/could not be written to the store/);
       expect(logs.filter((l) => l.startsWith('error:'))).toEqual([]);
     } finally {
@@ -467,14 +467,14 @@ function verifySignature(method: string, path: string, headers: Record<string, s
   if (!m) return 'no signature';
   const [, , date, region, service, names, signature] = m as unknown as string[];
   const enc = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-  const canonicalHeaders = names!
+  const canonicalHeaders = names
     .split(';')
     .map((name) => `${name}:${(name === 'host' ? SIGNED_HOST : String(headers[name] ?? '')).trim().replace(/\s+/g, ' ')}\n`)
     .join('');
   const canonical = [method, path.split('/').map(enc).join('/'), '', canonicalHeaders, names, sha256(body)].join('\n');
   const scope = `${date}/${region}/${service}/aws4_request`;
   const toSign = ['AWS4-HMAC-SHA256', String(headers['x-amz-date']), scope, sha256(canonical)].join('\n');
-  const key = hmac(hmac(hmac(hmac(`AWS4${AWS.secretAccessKey}`, date!), region!), service!), 'aws4_request');
+  const key = hmac(hmac(hmac(hmac(`AWS4${AWS.secretAccessKey}`, date), region), service), 'aws4_request');
   return hmac(key, toSign).toString('hex') === signature ? null : `signature mismatch: accept-encoding arrived as ${String(headers['accept-encoding'])}`;
 }
 
@@ -517,8 +517,8 @@ describe('a signed request (AWS SigV4 with accept-encoding signed, as AnthropicB
       expect(JSON.parse(answer.body)).toEqual(BEDROCK_REPLY);
       sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end!.meta.usage).toMatchObject({ inputTokens: 9, outputTokens: 5 });
-      expect(JSON.parse(store.getBlob(call!.end!.responseRef!)!.toString('utf8'))).toEqual(BEDROCK_REPLY);
+      expect(call.end!.meta.usage).toMatchObject({ inputTokens: 9, outputTokens: 5 });
+      expect(JSON.parse(store.getBlob(call.end!.responseRef!)!.toString('utf8'))).toEqual(BEDROCK_REPLY);
     } finally {
       await sidecar.close();
       store.close();
@@ -571,8 +571,8 @@ describe('a signed request (AWS SigV4 with accept-encoding signed, as AnthropicB
       expect(JSON.parse(answer.body)).toEqual(BEDROCK_REPLY);
       sidecar.endRun(run.runId, 'completed');
       const [call] = store.getCalls(run.runId);
-      expect(call!.end!.meta.usage).toMatchObject({ inputTokens: 9, outputTokens: 5 });
-      expect(JSON.parse(store.getBlob(call!.end!.responseRef!)!.toString('utf8'))).toEqual(BEDROCK_REPLY);
+      expect(call.end!.meta.usage).toMatchObject({ inputTokens: 9, outputTokens: 5 });
+      expect(JSON.parse(store.getBlob(call.end!.responseRef!)!.toString('utf8'))).toEqual(BEDROCK_REPLY);
     } finally {
       session.close();
       await sidecar.close();
@@ -591,7 +591,7 @@ function frame(payload: string, masked: boolean): Buffer {
   const head = Buffer.from([0x81, (masked ? 0x80 : 0) | bytes.length]);
   if (!masked) return Buffer.concat([head, bytes]);
   const mask = randomBytes(4);
-  return Buffer.concat([head, mask, Buffer.from(bytes.map((b, i) => b ^ mask[i % 4]!))]);
+  return Buffer.concat([head, mask, Buffer.from(bytes.map((b, i) => b ^ mask[i % 4]))]);
 }
 
 /** The short text frames in `buf`, and what is left of a frame not whole yet. */
@@ -599,12 +599,12 @@ function frames(buf: Buffer): { texts: string[]; rest: Buffer } {
   const texts: string[] = [];
   let at = 0;
   while (buf.length - at >= 2) {
-    const masked = (buf[at + 1]! & 0x80) !== 0;
-    const len = buf[at + 1]! & 0x7f;
+    const masked = (buf[at + 1] & 0x80) !== 0;
+    const len = buf[at + 1] & 0x7f;
     const start = at + 2 + (masked ? 4 : 0);
     if (buf.length < start + len) break;
     const payload = Buffer.from(buf.subarray(start, start + len));
-    if (masked) for (let i = 0; i < len; i++) payload[i]! ^= buf[at + 2 + (i % 4)]!;
+    if (masked) for (let i = 0; i < len; i++) payload[i] ^= buf[at + 2 + (i % 4)];
     texts.push(payload.toString('utf8'));
     at = start + len;
   }
@@ -664,7 +664,7 @@ async function exchange(opened: Extract<Opened, { status: 101 }>, say: string): 
   opened.socket.write(frame(say, true));
   for (const end = Date.now() + 3_000; Date.now() < end; await sleep(10)) {
     const { texts } = frames(opened.received());
-    if (texts.length) return texts[0]!;
+    if (texts.length) return texts[0];
   }
   throw new Error('no answer through the tunnel');
 }
@@ -683,10 +683,10 @@ describe('a WebSocket under a provider (OpenAI Realtime)', () => {
       expect(await exchange(opened, 'hello')).toBe('echo: hello');
       opened.socket.destroy();
       expect(upstream.seen).toHaveLength(1);
-      expect(upstream.seen[0]!.url).toBe('/v1/realtime?model=gpt-realtime');
-      expect(upstream.seen[0]!.headers.authorization).toBe('Bearer sk-test-key');
-      expect(upstream.seen[0]!.headers.host).toBe(new URL(upstream.url).host);
-      expect(Object.keys(upstream.seen[0]!.headers).filter((h) => h.startsWith('x-shadowlap'))).toEqual([]);
+      expect(upstream.seen[0].url).toBe('/v1/realtime?model=gpt-realtime');
+      expect(upstream.seen[0].headers.authorization).toBe('Bearer sk-test-key');
+      expect(upstream.seen[0].headers.host).toBe(new URL(upstream.url).host);
+      expect(Object.keys(upstream.seen[0].headers).filter((h) => h.startsWith('x-shadowlap'))).toEqual([]);
       await sleep(50);
       const ended = sidecar.endRun(run.runId, 'completed');
       expect(store.getCalls(run.runId)).toEqual([]);
@@ -767,7 +767,7 @@ describe("an SDK's own telemetry (the OpenAI Agents SDK's traces, /v1/traces/ing
     try {
       const rec = sidecar.startRun({ mode: 'record', command });
       expect((await trace(rec.runId)).status).toBe(204);
-      expect((await ask(rec.runId)).choices[0]!.message.content).toBe('hello');
+      expect((await ask(rec.runId)).choices[0].message.content).toBe('hello');
       expect((await trace(rec.runId)).status).toBe(204);
       expect(seen).toEqual(['POST /v1/traces/ingest Bearer sk-test', 'POST /v1/chat/completions Bearer sk-test', 'POST /v1/traces/ingest Bearer sk-test']);
       const recorded = sidecar.endRun(rec.runId, 'completed');
@@ -779,7 +779,7 @@ describe("an SDK's own telemetry (the OpenAI Agents SDK's traces, /v1/traces/ing
         const before = seen.length;
         const replay = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, offline });
         expect((await trace(replay.runId)).status).toBe(204);
-        expect((await ask(replay.runId)).choices[0]!.message.content).toBe('hello');
+        expect((await ask(replay.runId)).choices[0].message.content).toBe('hello');
         expect((await trace(replay.runId)).status).toBe(204);
         expect(seen.length).toBe(before);
         const ended = sidecar.endRun(replay.runId, 'completed');
@@ -815,7 +815,7 @@ describe("a model call's query string", () => {
       });
       expect(res.status).toBe(200);
       sidecar.endRun(run.runId, 'completed');
-      expect(store.getCalls(run.runId)[0]!.meta.query).toBe('api-version=2024-10-21');
+      expect(store.getCalls(run.runId)[0].meta.query).toBe('api-version=2024-10-21');
     } finally {
       await sidecar.close();
       store.close();

@@ -165,7 +165,7 @@ function openaiDeltas(events: Array<{ data: unknown }>, at: (i: number) => numbe
 
 function openaiJson(body: Record<string, unknown>): { blocks: Block[]; stopReason: string | null } | null {
   if (Array.isArray(body.choices)) {
-    const ch = body.choices[0];
+    const ch = (body.choices as unknown[])[0];
     if (!isObject(ch) || !isObject(ch.message)) return { blocks: [], stopReason: null };
     const m = ch.message;
     const blocks: Block[] = [];
@@ -265,7 +265,7 @@ function geminiDeltas(events: Array<{ data: unknown }>, at: (i: number) => numbe
   events.forEach((e, n) => {
     const d = e.data;
     if (!isObject(d) || !Array.isArray(d.candidates)) return;
-    const c = d.candidates[0];
+    const c = (d.candidates as unknown[])[0];
     if (!isObject(c)) return;
     const t = at(n);
     const parts = isObject(c.content) && Array.isArray(c.content.parts) ? c.content.parts : [];
@@ -288,7 +288,7 @@ function geminiDeltas(events: Array<{ data: unknown }>, at: (i: number) => numbe
 
 function geminiJson(body: Record<string, unknown>): { blocks: Block[]; stopReason: string | null } | null {
   if (!Array.isArray(body.candidates)) return null;
-  const c = body.candidates[0];
+  const c = (body.candidates as unknown[])[0];
   const blocks: Block[] = [];
   if (isObject(c) && isObject(c.content) && Array.isArray(c.content.parts)) geminiParts(c.content.parts, (b) => blocks.push(b));
   return { blocks, stopReason: isObject(c) && typeof c.finishReason === 'string' ? c.finishReason : null };

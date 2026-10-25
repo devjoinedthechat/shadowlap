@@ -125,14 +125,14 @@ export class BaseCheckout {
       git(root, ['worktree', 'add', '--detach', '--force', worktree, spec.revision]);
     } catch (err) {
       remove();
-      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`);
+      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, { cause: err });
     }
     const worktreeCwd = join(worktree, inRepo);
     if (spec.build) {
       const b = spawnSync(spec.build, { cwd: worktreeCwd, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       if (b.status !== 0) {
         remove();
-        throw new Error(`the base ${spec.label} could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${spec.build} exited ${b.status ?? b.signal}`}`);
+        throw new Error(`the base ${spec.label} could not be built: ${`${b.stdout ?? ''}${b.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ') || `${spec.build} exited ${b.status ?? b.signal!}`}`);
       }
     } else {
       // The working tree's packages serve the checkout, this repository's own as they were at the base.

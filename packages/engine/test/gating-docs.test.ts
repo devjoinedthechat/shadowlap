@@ -132,7 +132,7 @@ describe('docs/gating.md, figure by figure', () => {
       says(`| A gate per golden at its own 5%, \`max\` ${max} | ${(goldens * o.fail).toFixed(2)} | ${perRun(goldens * o.inconclusive)} | ${whole(runsRed(o, goldens, 'fail'))} | ${whole(runsRed(o, goldens, 'warn'))} | ${o.attempts.toFixed(1)} |`);
     }
     const plan = planSuite(Array.from({ length: goldens }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!;
-    const split = gateOdds(plan.planned[0]!.gate, 0.95);
+    const split = gateOdds(plan.planned[0].gate, 0.95);
     expect(goldens * split.inconclusive).toBeLessThan(0.0001);
     const red = runsRed(split, goldens, 'fail');
     says(`| The default: 5% for the suite, split 100 ways | ${String(+(goldens * split.fail).toPrecision(1))} | under 0.0001 | ${(100 * red).toPrecision(2)}% | ${(100 * runsRed(split, goldens, 'warn')).toPrecision(2)}% | ${split.attempts.toFixed(2)} |`);
@@ -144,7 +144,7 @@ describe('docs/gating.md, figure by figure', () => {
 
   it('one risk for the whole suite: the split, each gate’s share and limit, and what it costs', () => {
     const plan = planSuite(Array.from({ length: 100 }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false, rate: 0.95, costPerAttempt: 0.025 })))!;
-    const g = plan.planned[0]!.gate as SprtGate;
+    const g = plan.planned[0].gate as SprtGate;
     says(`with 100, ${riskPercent(plan.perGoldenRisk)} each`);
     says(`With 100 goldens of \`"gate": {}\`, that is ${riskPercent(g.failRisk!)}: the gate fails only after about ${attemptsToFail(g)} straight failures, where it took ${attemptsToFail(sprt())}.`);
     // Its max: the fewest from 80 that leave at most half the share inconclusive at good.
@@ -157,7 +157,7 @@ describe('docs/gating.md, figure by figure', () => {
     expect(plan.red).toBeCloseTo(100 * (atGood.fail + atGood.inconclusive), 12);
     says(`the default suite goes red ${pct(runsRed(atGood, 100))} of the time when its goldens are independent, and at most ${pct(plan.red, 2)} whatever they share; at 95%, ${(100 * runsRed(gateOdds(g, 0.95), 100)).toPrecision(2)}%.`);
     // A single golden keeps the default gate whole.
-    expect(planSuite([{ golden: 'goldens/one', gate: sprt(), maxGiven: false }])!.planned[0]!.gate).toEqual(sprt());
+    expect(planSuite([{ golden: 'goldens/one', gate: sprt(), maxGiven: false }])!.planned[0].gate).toEqual(sprt());
     const single = gateOdds(sprt(), 0.9);
     expect(single.fail + single.inconclusive).toBeLessThanOrEqual(0.05);
     says(`the default gate, at ${pct(single.fail)} failed and ${pct(single.inconclusive)} inconclusive at its \`good\` rate, already fits the whole 5%`);
@@ -184,7 +184,7 @@ describe('docs/gating.md, figure by figure', () => {
     // At the rate its history shows: failed as rarely as that, and most often against the weakest history.
     const own = ([[0.94, { passes: 47, attempts: 50 }], [0.95, { passes: 95, attempts: 100 }], [0.8, { passes: 40, attempts: 50 }], [0.6, { passes: 30, attempts: 50 }]] as const).map(([p, h]) => gateOdds(g, p, h).fail);
     expect(Math.max(...own)).toBe(own[3]);
-    says(`an agent that passes as often as its history says is failed ${pct(own[0]!)} of the time against 47 of 50, and at most ${pct(own[3]!)} against a history that passes far less often (30 of 50)`);
+    says(`an agent that passes as often as its history says is failed ${pct(own[0])} of the time against 47 of 50, and at most ${pct(own[3])} against a history that passes far less often (30 of 50)`);
     // The chance it fails a golden, inconclusive in brackets where it rounds to a tenth of a point or more.
     const cell = (o: GateOdds) => `${pct(o.fail)}${o.inconclusive >= 0.0005 ? ` (+${pct(o.inconclusive)})` : ''}`;
     for (const [name, h] of [['47 of 50', H47], ['95 of 100', { passes: 95, attempts: 100 }], ['50 of 50', { passes: 50, attempts: 50 }], ['5 of 5', { passes: 5, attempts: 5 }], ['none: its recording', null]] as const) {

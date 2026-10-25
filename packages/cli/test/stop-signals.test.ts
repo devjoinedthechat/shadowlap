@@ -43,8 +43,8 @@ function start(name: string, args: string[], env: Record<string, string> = {}): 
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let out = '';
-  child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
-  child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+  child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+  child.stderr.on('data', (d: Buffer) => (out += d.toString()));
   const ended = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
   return { child, cwd, out: () => out, ended };
 }
@@ -72,7 +72,7 @@ describe.skipIf(process.platform === 'win32')('a stop signal', () => {
   it('ends the run shadowlap serve records on a closed terminal (SIGHUP), as on Ctrl-C, with 129', async () => {
     const serve = start('serve', ['serve']);
     await until(() => serve.out().includes('Ctrl-C to end it'), 20_000, 'serve to start recording');
-    const runId = /recording run (\w{26})/.exec(serve.out())![1]!;
+    const runId = /recording run (\w{26})/.exec(serve.out())![1];
     serve.child.kill('SIGHUP');
     expect(await endedWithin(serve, 15_000), serve.out()).toEqual({ code: 129, signal: null });
     const store = Store.open(join(serve.cwd, 'store.db'));

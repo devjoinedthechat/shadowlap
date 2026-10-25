@@ -151,7 +151,10 @@ const mcpSeen = new WeakMap<Store, Map<string, NonNullable<CallMeta['mcp']> | nu
  */
 function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
   let seen = mcpSeen.get(store);
-  if (!seen) mcpSeen.set(store, (seen = new Map()));
+  if (!seen) {
+    seen = new Map();
+    mcpSeen.set(store, seen);
+  }
   if (seen.has(tool)) return seen.get(tool)!;
   const found = readMcpMeta(store, tool);
   seen.set(tool, found);

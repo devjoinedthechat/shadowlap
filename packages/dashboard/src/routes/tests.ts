@@ -146,7 +146,7 @@ export function register(router: Router, ctx: RouteContext): void {
   // choices for any run (`before`: the calendar's first day picked, in milliseconds).
   router.get('/tests/runs/:id', async (r) => {
     const run = ctx.store.getRun(r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     const raw = r.query.get('before');
     const before = raw === null || raw === '' ? undefined : Number(raw);
     if (before !== undefined && !Number.isFinite(before)) throw new HttpError(400, 'before is a time in milliseconds');

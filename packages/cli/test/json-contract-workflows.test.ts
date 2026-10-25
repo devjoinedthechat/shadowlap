@@ -126,13 +126,13 @@ describe('Fixes: blame, verify, repair and fix', () => {
     expect((await cli(project, ['label', good, 'good'])).code).toBe(0);
     alternate = true;
 
-    const blame = await cli(project, ['blame', failed[0]!, '--expect', ORACLE, '--attempts', '2', '--passes', '1', '--json']);
+    const blame = await cli(project, ['blame', failed[0], '--expect', ORACLE, '--attempts', '2', '--passes', '1', '--json']);
     expect(blame.code, blame.out).toBe(0);
     const b = json(blame);
     expect(b.outcome).toBe('blamed');
     hold([['blame', b], ['blameCall', b.blamed], ['blameCall', b.lost], ['blameContrast', b.contrast], ['blameProbe', first(b.probes)], ['blameFix', b.fix]]);
 
-    const verify = await cli(project, ['verify', '--fixes', failed[0]!, '--keeps', 'label:good', '--expect', ORACLE, '--attempts', '2', '--json']);
+    const verify = await cli(project, ['verify', '--fixes', failed[0], '--keeps', 'label:good', '--expect', ORACLE, '--attempts', '2', '--json']);
     const v = json(verify);
     hold([['verify', v], ['verifyRun', first(v.runs)], ['verifySummary', v.summary]]);
 
@@ -276,9 +276,9 @@ describe('the team store', () => {
         ['storeCheck', json(refused).check],
         ['storeCheck', json(check)],
         ['push', json(push)],
-        ['pushFixes', (json(push) as { fixes: unknown }).fixes],
+        ['pushFixes', json<{ fixes: unknown }>(push).fixes],
         ['pull', json(pull)],
-        ['pullFixes', (json(pull) as { fixes: unknown }).fixes],
+        ['pullFixes', json<{ fixes: unknown }>(pull).fixes],
         ['share', json(share)],
         ['storeShow', json(await cli(work, ['store', 'show', '--json'], env))],
         ['storePolicy', json(await cli(work, ['store', 'policy', '--json'], env))],

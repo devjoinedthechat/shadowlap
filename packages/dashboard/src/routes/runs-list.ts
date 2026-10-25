@@ -97,7 +97,7 @@ export function register(router: Router, ctx: RouteContext): void {
       earlier ??= { run, choices };
     }
     if (!earlier) return r.json({ runId: null, reason: 'that run is gone' } satisfies DaysBisect);
-    r.json(offer(earlier.run, { ...earlier.choices, unavailable: `${earlier.choices.unavailable}, and no failure on the days picked started later` }) satisfies DaysBisect);
+    r.json(offer(earlier.run, { ...earlier.choices, unavailable: `${earlier.choices.unavailable!}, and no failure on the days picked started later` }) satisfies DaysBisect);
   });
 
   router.post('/runs/labels', async (r) => {

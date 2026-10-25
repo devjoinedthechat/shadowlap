@@ -188,8 +188,8 @@ describe('the preloads say they loaded, from real processes', () => {
   });
 
   it.skipIf(!PYTHON)('from Python, once per process, and not from python -I, which skips it', async () => {
-    await run(PYTHON![0]!, [...PYTHON!.slice(1), '-c', 'pass'], { env: env('warn', 'R-py') });
-    await run(PYTHON![0]!, [...PYTHON!.slice(1), '-I', '-c', 'pass'], { env: env('warn', 'R-py-isolated') });
+    await run(PYTHON![0], [...PYTHON!.slice(1), '-c', 'pass'], { env: env('warn', 'R-py') });
+    await run(PYTHON![0], [...PYTHON!.slice(1), '-I', '-c', 'pass'], { env: env('warn', 'R-py-isolated') });
     expect(hellos.filter((h) => h.run === 'R-py').map((h) => h.body)).toEqual([expect.objectContaining({ runtime: 'python', guard: 'warn', capture: true })]);
     expect(hellos.filter((h) => h.run === 'R-py-isolated')).toEqual([]);
   });
@@ -235,7 +235,7 @@ echo answered
     expect(recorded.code, recorded.out).toBe(0);
     expect(recorded.out).toContain('No Shadowlap preload loaded in the agent');
     expect(recorded.out).toContain('The command runs Bun, which loads no Node preload');
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/bun'], cwd)).code).toBe(0);
 
     const blocked = await shadowlap(['test', 'goldens/bun'], cwd);
@@ -256,7 +256,7 @@ echo answered
     const { cwd, bun } = bunProject('bun-replay');
     const recorded = await shadowlap(['run', '--', bun, 'agent.ts'], cwd);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const failsBecause = 'under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails';
 
     const blocked = await shadowlap(['replay', runId, '--guard', 'block'], cwd);

@@ -95,7 +95,7 @@ describe('the plugin', () => {
     expect(marketplace.name).toMatch(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/);
     expect(marketplace.owner?.name).toBeTruthy();
     expect(marketplace.plugins).toHaveLength(1);
-    const entry = marketplace.plugins[0]!;
+    const entry = marketplace.plugins[0];
     expect(entry.name, 'the entry and the manifest name the plugin alike').toBe(plugin.name);
     expect(entry.source).toBe(`./${PLUGIN_DIR}`);
     expect(existsSync(join(ROOT, entry.source, '.claude-plugin', 'plugin.json'))).toBe(true);

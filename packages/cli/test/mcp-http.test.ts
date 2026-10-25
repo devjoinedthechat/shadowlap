@@ -64,13 +64,13 @@ function rpc(input: NodeJS.WritableStream, output: NodeJS.ReadableStream) {
   return { request, notify, handshake, notifications, batch, call: (name: string, args: unknown) => request('tools/call', { name, arguments: args }) };
 }
 
-const text = (m: Message) => (m.result as { content: Array<{ text: string }> }).content[0]!.text;
+const text = (m: Message) => (m.result as { content: Array<{ text: string }> }).content[0].text;
 
 describe('shadowlap mcp --url', () => {
   let store: Store;
   let sidecar: Sidecar;
   let server: FakeMcpHttpServer;
-  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL!, runId });
+  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL, runId });
 
   /** A client in front of a proxy in this process. */
   function client(sidecarTarget: ProxySidecar, opts: { headers?: Record<string, string>; effects?: Record<string, 'pure' | 'read' | 'write'> } = {}) {
@@ -123,10 +123,10 @@ describe('shadowlap mcp --url', () => {
       ['send_note', 'write', 'ok'],
       ['boom', 'write', 'error'],
     ]);
-    expect(calls[0]!.meta.implHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(calls[0].meta.implHash).toMatch(/^[0-9a-f]{64}$/);
     // Each call names its server by host (never its path, which can hold a key); the first lists the server's tools.
     const host = new URL(server.url).host;
-    expect(calls[0]!.meta.mcp).toEqual({ transport: 'http', server: host, tools: [{ name: 'boom', effect: 'write' }, { name: 'read_note', effect: 'read' }, { name: 'send_note', effect: 'write' }] });
+    expect(calls[0].meta.mcp).toEqual({ transport: 'http', server: host, tools: [{ name: 'boom', effect: 'write' }, { name: 'read_note', effect: 'read' }, { name: 'send_note', effect: 'write' }] });
     expect(calls.slice(1).map((x) => x.meta.mcp)).toEqual([{ transport: 'http', server: host }, { transport: 'http', server: host }]);
 
     // Every request after initialize carried the session and the protocol version; every one carried the header.
@@ -190,7 +190,7 @@ describe('shadowlap mcp --url', () => {
     await o.call('send_note', { to: 'z' });
     await o.close();
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getCalls(rec.runId)[0]!.effect).toBe('read');
+    expect(store.getCalls(rec.runId)[0].effect).toBe('read');
   });
 
   it('starts a new session when the server ends one, and sends the request again in it', async () => {
@@ -279,7 +279,7 @@ describe('shadowlap mcp --url', () => {
       ['b1', -32600],
       ['b2', -32600],
     ]);
-    expect((answers[0]!.error as { message: string }).message).toMatch(/send each tools\/call on its own/);
+    expect((answers[0].error as { message: string }).message).toMatch(/send each tools\/call on its own/);
     await c.close();
     sidecar.endRun(rec.runId, 'completed');
     expect(server.calls).toEqual([]);
@@ -290,7 +290,7 @@ describe('shadowlap mcp --url', () => {
     const t = client(null);
     await t.handshake();
     const passed = await t.batch([{ jsonrpc: '2.0', id: 'b3', method: 'tools/call', params: { name: 'send_note', arguments: { to: 'y' } } }]);
-    expect(passed[0]!.result).toBeDefined();
+    expect(passed[0].result).toBeDefined();
     await t.close();
     expect(server.calls.map((x) => x.name)).toEqual(['send_note']);
   });
@@ -450,7 +450,7 @@ describe('shadowlap mcp started with a minimal environment', () => {
     expect(rec.code, rec.out).toBe(0);
     expect(rec.out).toContain('send_note -> send_note:{"to":"billing"}:2');
     expect(server.calls.map((x) => x.name)).toEqual(['read_note', 'send_note']);
-    const runId = /recording run (\w{26})/.exec(rec.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(rec.out)![1];
     const store = Store.open(join(cwd, 'store.db'));
     expect(store.getCalls(runId).map((x) => [x.name, x.effect, x.end?.outcome])).toEqual([
       ['read_note', 'read', 'ok'],

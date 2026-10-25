@@ -28,7 +28,7 @@ from __future__ import annotations
 import contextvars
 import functools
 import inspect
-from typing import Any, Callable, List, Optional, Tuple, TypeVar, cast
+from typing import Any, Callable, Optional, TypeVar, cast
 
 from shadowlap import tool
 
@@ -61,7 +61,7 @@ def _as_pair(fn: Callable[..., Any]) -> Callable[..., Any]:
 _TAG = "__shadowlap__"
 
 
-def _langgraph_types() -> Tuple[Any, Any]:
+def _langgraph_types() -> tuple[Any, Any]:
     try:
         from langgraph.types import Command, Send
     except ImportError:
@@ -132,7 +132,7 @@ def _decode(value: Any) -> Any:
 
 # The live result of the call in progress: the graph gets the tool's own object while recording, and
 # the object rebuilt from the recording on replay.
-_LIVE: "contextvars.ContextVar[Optional[List[Any]]]" = contextvars.ContextVar("shadowlap_langchain_live", default=None)
+_LIVE: contextvars.ContextVar[Optional[list[Any]]] = contextvars.ContextVar("shadowlap_langchain_live", default=None)
 
 
 def _with_codec(fn: Callable[..., Any], wrap: Callable[[Callable[..., Any]], Callable[..., Any]]) -> Callable[..., Any]:
@@ -151,7 +151,7 @@ def _with_codec(fn: Callable[..., Any], wrap: Callable[[Callable[..., Any]], Cal
 
         @functools.wraps(fn)
         async def decoded_async(*args: Any, **kwargs: Any) -> Any:
-            box: List[Any] = []
+            box: list[Any] = []
             token = _LIVE.set(box)
             try:
                 result = await recorded_async(*args, **kwargs)
@@ -173,7 +173,7 @@ def _with_codec(fn: Callable[..., Any], wrap: Callable[[Callable[..., Any]], Cal
 
     @functools.wraps(fn)
     def decoded(*args: Any, **kwargs: Any) -> Any:
-        box: List[Any] = []
+        box: list[Any] = []
         token = _LIVE.set(box)
         try:
             result = recorded(*args, **kwargs)
@@ -184,7 +184,7 @@ def _with_codec(fn: Callable[..., Any], wrap: Callable[[Callable[..., Any]], Cal
     return decoded
 
 
-def with_effect(lc_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: Tuple[str, ...] = (), trust: Optional[str] = None) -> T:
+def with_effect(lc_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple[str, ...] = (), trust: Optional[str] = None) -> T:
     """Records and replays a LangChain tool instance as `effect`, and returns the same instance."""
     t: Any = lc_tool
     name = getattr(t, "name", None) or type(t).__name__

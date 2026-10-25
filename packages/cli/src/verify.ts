@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, wilsonBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -176,7 +176,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
 
   try {
     const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const results: VerifiedRun[] = new Array(input.runs.length);
+    const results = new Array<VerifiedRun>(input.runs.length);
     let failed = false;
 
     const verifyOne = async (i: number): Promise<void> => {
@@ -186,7 +186,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const recorded = { ...runner.judgeRecorded(parent, parentCalls), footprint: footprintOf(parentCalls, runner.costOf) };
       // With --from, the first model call made with one of those models: a call before it is another model's.
       const from = s.fromModels?.length ? s.fromModels : null;
-      const firstModelCall = parentCalls.find((c) => c.kind === 'api' && (!from || from.some((m) => sameModel((c.end?.meta.model ?? c.meta.model) as string | null | undefined, m))))?.callNo;
+      const firstModelCall = parentCalls.find((c) => c.kind === 'api' && (!from || from.some((m) => sameModel((c.end?.meta.model ?? c.meta.model), m))))?.callNo;
       const interventions: Interventions | undefined = Object.keys(s.fields).length && firstModelCall !== undefined ? { set: { fromCall: firstModelCall, fields: s.fields, ...(from ? { models: from } : {}) } } : undefined;
       const result: VerifiedRun = { runId: parent.runId, role, attempts: [], passes: 0, deterministic: false, verdict: 'open', recorded };
       results[i] = result;
@@ -381,7 +381,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       // The tally and its bound beside the outcome; the rule was said once, above. A run an attempt it
       // could not judge stopped has neither: its gate decided nothing, and its attempt's line says why.
       const g = result.gate;
-      const said = result.baseline && !result.undecided ? p.dim(` · ${result.passes} of ${result.attempts.length}, baseline ${result.baseline.passes} of ${result.baseline.attempts}`) : g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ')}`) : '';
+      const said = result.baseline && !result.undecided ? p.dim(` · ${result.passes} of ${result.attempts.length}, baseline ${result.baseline.passes} of ${result.baseline.attempts}`) : g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, rateBound(g)].filter(Boolean).join(' · ')}`) : '';
       log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
     };
 

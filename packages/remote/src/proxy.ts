@@ -102,7 +102,7 @@ function openTunnel(proxy: URL, host: string, port: number): Promise<Socket> {
     req.once('connect', (res: IncomingMessage, socket: Socket, head: Buffer) => {
       if (res.statusCode !== 200) {
         socket.destroy();
-        reject(Object.assign(new Error(`the proxy ${proxy.host} refused to open a tunnel to ${authority} (${res.statusCode}${res.statusCode === 407 ? ': it wants credentials, given in the proxy URL as http://user:password@host' : ''})`), { code: 'EPROXY' }));
+        reject(Object.assign(new Error(`the proxy ${proxy.host} refused to open a tunnel to ${authority} (${res.statusCode!}${res.statusCode === 407 ? ': it wants credentials, given in the proxy URL as http://user:password@host' : ''})`), { code: 'EPROXY' }));
         return;
       }
       if (head.length) socket.unshift(head);
@@ -156,7 +156,7 @@ function toResponse(res: IncomingMessage, method: string): Response {
   }
   const empty = method === 'HEAD' || status === 204 || status === 304;
   if (empty) res.resume();
-  return new Response(empty ? null : (Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>), { status, headers });
+  return new Response(empty ? null : (Readable.toWeb(res)), { status, headers });
 }
 
 /**

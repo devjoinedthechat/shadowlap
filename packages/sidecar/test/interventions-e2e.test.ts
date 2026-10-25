@@ -136,8 +136,8 @@ describe('Anthropic', () => {
     // Only a's second call reached the provider, with the instruction; b's replayed as recorded.
     const sent = mock.requests.slice(before);
     expect(sent).toHaveLength(1);
-    expect(JSON.stringify(sent[0]!.body.messages)).toContain('Refund order 42.');
-    expect(sent[0]!.body.messages.at(-1)!.content).toEqual([expect.objectContaining({ type: 'tool_result' }), { type: 'text', text: 'Escalate refunds above $200.' }]);
+    expect(JSON.stringify(sent[0].body.messages)).toContain('Refund order 42.');
+    expect(sent[0].body.messages.at(-1)!.content).toEqual([expect.objectContaining({ type: 'tool_result' }), { type: 'text', text: 'Escalate refunds above $200.' }]);
     expect(summary.divergence).toMatchObject({ type: 'request_changed', counterpart: { callNo: 3 }, reason: 'changed by --inject 3: an instruction added to the user turn' });
     expect(summary.warnings).toEqual([]);
   });
@@ -155,7 +155,7 @@ describe('Anthropic', () => {
     // --prompt-from matches earlier calls without their system messages, which hides this injection.
     const { summary } = await replay(sidecar, opusParent, { inject: { atCall: 1, text: 'Prefer store credit.', as: 'system' } }, (run) => agent(sidecar, run, 'claude-opus-5'), { promptFrom: 2 });
     expect(mock.requests.length - before).toBe(2);
-    expect(mock.requests[before]!.body.messages.at(-1)).toEqual({ role: 'system', content: 'Prefer store credit.' });
+    expect(mock.requests[before].body.messages.at(-1)).toEqual({ role: 'system', content: 'Prefer store credit.' });
     expect(summary.divergence).toMatchObject({ type: 'forced', callNo: 1, reason: 'forced live by --inject 1 --inject-as system: an instruction added as a system message, a change the normalizers or --prompt-from hide from matching' });
   });
 
@@ -183,10 +183,10 @@ describe('OpenAI', () => {
     await client.embeddings.create({ model: 'text-embedding-3-small', input: 'refund policy' });
     const messages: OpenAI.ChatCompletionMessageParam[] = [{ role: 'system', content: 'You are support.' }, { role: 'user', content: 'Refund order 42.' }];
     const first = await client.chat.completions.create({ model: 'gpt-mock', messages });
-    const calls = first.choices[0]!.message.tool_calls ?? [];
+    const calls = first.choices[0].message.tool_calls ?? [];
     messages.push({ role: 'assistant', content: null, tool_calls: calls }, ...calls.map((c) => ({ role: 'tool' as const, tool_call_id: c.id, content: 'order 42: $240' })));
     const second = await client.chat.completions.create({ model: 'gpt-mock', messages });
-    return second.choices[0]!.message.content;
+    return second.choices[0].message.content;
   };
 
   const responsesAgent = async (sc: Sidecar, run: Run) => {
@@ -276,9 +276,9 @@ describe('Gemini', () => {
     const contents: unknown[] = [{ role: 'user', parts: [{ text: 'Refund order 42.' }] }];
     const config = { systemInstruction: { parts: [{ text: 'You are support.' }] }, contents };
     const first = await send(config);
-    contents.push(first.candidates[0]!.content, { role: 'user', parts: [{ functionResponse: { name: 'lookup_order', response: { total: 240 } } }] });
+    contents.push(first.candidates[0].content, { role: 'user', parts: [{ functionResponse: { name: 'lookup_order', response: { total: 240 } } }] });
     const second = await send({ ...config, contents });
-    return second.candidates[0]!.content.parts.map((p) => p.text ?? '').join('');
+    return second.candidates[0].content.parts.map((p) => p.text ?? '').join('');
   }
 
   beforeAll(async () => {
@@ -418,10 +418,10 @@ describe('Bedrock, Vertex and Azure', () => {
         const answer = await converse(sidecar, r, resignSigV4);
         expect(answer.status).toBe(200);
         // The fake echoes the last user turn: the injected block reached it.
-        expect(answer.body.output!.message.content[0]!.text).toBe('echo: hello Be brief.');
+        expect(answer.body.output!.message.content[0].text).toBe('echo: hello Be brief.');
       });
       expect(cloud.stats.signatureFailures.slice(failures)).toEqual([]);
-      const call = store.getCalls(run.runId)[0]!;
+      const call = store.getCalls(run.runId)[0];
       expect(call.name).toBe('POST /model/us.anthropic.claude-sonnet-4-5-20250929-v1%3A0/converse');
       expect(loadApiRequest(store, call.requestRef!)).toMatchObject({ inferenceConfig: { maxTokens: 64, temperature: 0.2 }, messages: [{ role: 'user', content: [{ text: 'hello' }, { text: ' Be brief.' }] }] });
     } finally {
@@ -469,15 +469,15 @@ describe('Bedrock, Vertex and Azure', () => {
 
       let out: Awaited<ReturnType<typeof drive>> | undefined;
       const { run: vertexFork } = await replay(sidecar, rec.runId, { set: { fromCall: 1, fields: { model: 'claude-sonnet-4-5@20250929' } }, inject: { atCall: 1, text: 'Be brief.', as: 'user' } }, async (r) => (out = await drive(r)));
-      expect(store.getCalls(vertexFork.runId)[0]!.name).toBe('POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:rawPredict');
-      expect(out!.vertex.content[0]!.text).toBe('echo: helloBe brief.');
+      expect(store.getCalls(vertexFork.runId)[0].name).toBe('POST /v1/projects/p/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:rawPredict');
+      expect(out!.vertex.content[0].text).toBe('echo: helloBe brief.');
       // The Azure call is another provider: the Vertex model never reaches it.
       expect(out!.azure.model).toBe('gpt-4o');
 
       const { run: azureFork } = await replay(sidecar, rec.runId, { set: { fromCall: 2, fields: { model: 'gpt-4o-mini' } }, inject: { atCall: 2, text: 'Be brief.', as: 'user' } }, async (r) => (out = await drive(r)));
-      expect(store.getCalls(azureFork.runId)[1]!.name).toBe('POST /openai/deployments/gpt-4o-mini/chat/completions');
+      expect(store.getCalls(azureFork.runId)[1].name).toBe('POST /openai/deployments/gpt-4o-mini/chat/completions');
       expect(out!.azure.model).toBe('gpt-4o-mini');
-      expect(out!.azure.choices[0]!.message.content).toBe('echo: hello\n\nBe brief.');
+      expect(out!.azure.choices[0].message.content).toBe('echo: hello\n\nBe brief.');
     } finally {
       await sidecar.close();
     }

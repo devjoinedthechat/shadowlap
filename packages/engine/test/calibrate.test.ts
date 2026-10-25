@@ -40,6 +40,6 @@ describe('calibrate', () => {
     const existing = [{ kind: 'tool' as const, name: 'save', path: '$.args.path', pattern: '/run-\\d+/', replace: 'run-N' }];
     expect(covered(entry, 'tool', 'save', existing)).toBe(true);
     expect(proposeNormalizers(divergence([entry], 'tool', 'save'), existing).proposals).toEqual([]);
-    expect(proposeNormalizers(divergence([entry], 'tool', 'save')).proposals[0]!.normalizer).toMatchObject({ kind: 'tool', name: 'save', path: '$.args.path' });
+    expect(proposeNormalizers(divergence([entry], 'tool', 'save')).proposals[0].normalizer).toMatchObject({ kind: 'tool', name: 'save', path: '$.args.path' });
   });
 });

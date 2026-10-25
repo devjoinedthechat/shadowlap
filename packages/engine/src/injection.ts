@@ -215,7 +215,7 @@ export function parsePayloads(text: string, file: string): Payload[] {
     try {
       parsed = JSON.parse(text);
     } catch (err) {
-      throw new Error(`${name} is not JSON: ${(err as Error).message}`);
+      throw new Error(`${name} is not JSON: ${(err as Error).message}`, { cause: err });
     }
     const list = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.payloads) ? parsed.payloads : null;
     if (!list) throw new Error(`${name}: a JSON file of payloads is a list, or an object with a "payloads" list`);
@@ -227,7 +227,7 @@ export function parsePayloads(text: string, file: string): Payload[] {
       try {
         v = JSON.parse(line);
       } catch (err) {
-        throw new Error(`${name}: line ${i + 1} is not JSON: ${(err as Error).message}`);
+        throw new Error(`${name}: line ${i + 1} is not JSON: ${(err as Error).message}`, { cause: err });
       }
       fromValue(v, `line ${i + 1}`);
     });
@@ -426,7 +426,7 @@ export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrit
   // Where a rule took marks with what it replaced, the canaries go back.
   const restore = (before: unknown, after: unknown): unknown => {
     if (typeof before === 'string' && !(before.match(MARKS) ?? []).length) return after;
-    if (Array.isArray(before) && Array.isArray(after)) return after.map((x, i) => (i < before.length ? restore(before[i], x) : x));
+    if (Array.isArray(before) && Array.isArray(after)) return (after as unknown[]).map((x, i) => (i < before.length ? restore(before[i], x) : x));
     if (isObject(before) && isObject(after)) return Object.fromEntries(Object.entries(after).map(([k, x]) => [k, Object.hasOwn(before, k) ? restore(before[k], x) : x]));
     const held = marksIn(before);
     if (!held.length) return after;

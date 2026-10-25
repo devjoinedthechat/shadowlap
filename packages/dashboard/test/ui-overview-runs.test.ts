@@ -266,7 +266,7 @@ describe('importing a file', () => {
     expect(pickedFormat(sample.name, sample.text.length, sample.text.slice(0, HEAD_BYTES), 64 * 1024 * 1024)).toEqual({ format: 'otel', error: null });
     const [trace, ...more] = readOtel(parseOtlpFile(sample.text)).traces;
     expect(more).toEqual([]);
-    expect(trace!.calls.map((c) => (c.kind === 'model' ? `model ${c.model}` : `tool ${c.name}`))).toEqual(['model claude-haiku-4-5', 'tool lookup_order', 'model claude-haiku-4-5']);
+    expect(trace.calls.map((c) => (c.kind === 'model' ? `model ${c.model}` : `tool ${c.name}`))).toEqual(['model claude-haiku-4-5', 'tool lookup_order', 'model claude-haiku-4-5']);
     // Its own pacing kept: the agent span's 2.6 s end at the moment given.
     const spans = (JSON.parse(sample.text) as OtlpTrace).resourceSpans.flatMap((r) => r.scopeSpans.flatMap((sc) => sc.spans));
     const ms = (v: string | undefined) => Number(BigInt(v!) / 1_000_000n);
@@ -279,7 +279,7 @@ describe('importing a file', () => {
   it('moves a trace in time by whole nanoseconds, and leaves what isn’t a time alone', () => {
     const trace: OtlpTrace = { resourceSpans: [{ scopeSpans: [{ spans: [{ startTimeUnixNano: '1000000000', endTimeUnixNano: '3000000000', events: [{ timeUnixNano: '2500000000', name: 'x' }, { name: 'no time' }] }, { startTimeUnixNano: 'soon' }] }] }] };
     const moved = redateTrace(trace, 10_000);
-    expect(moved.resourceSpans[0]!.scopeSpans[0]!.spans).toEqual([
+    expect(moved.resourceSpans[0].scopeSpans[0].spans).toEqual([
       { startTimeUnixNano: '8000000000', endTimeUnixNano: '10000000000', events: [{ timeUnixNano: '9500000000', name: 'x' }, { name: 'no time' }] },
       { startTimeUnixNano: 'soon' },
     ]);

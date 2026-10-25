@@ -117,7 +117,7 @@ describe('ProjectHost', () => {
     registry.add('~/triage-bot');
     const store = host.current().store();
     store.createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: support } });
-    store.endRun(store.listRuns(1)[0]!.runId, 'completed');
+    store.endRun(store.listRuns(1)[0].runId, 'completed');
     const removed = host.remove('support-agent', { deleteRecordings: true, typedName: 'support-agent' });
     expect(removed).toMatchObject({ current: 'triage-bot', deleted: expect.arrayContaining(['.shadowlap/shadowlap.db']) });
     expect(existsSync(projectDbPath(support))).toBe(false);
@@ -396,7 +396,7 @@ describe('ProjectHost: a project list it can’t use', () => {
     expect(host.list().map((p) => p.id)).toEqual(['support-agent']);
     expect(host.current()).toMatchObject({ id: 'support-agent', path: support });
     host.current().store().createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: support } });
-    expect(host.stats()['support-agent']!.runs).toBe(1);
+    expect(host.stats()['support-agent'].runs).toBe(1);
     expect(() => host.add('~/triage-bot')).toThrow(expect.objectContaining({ code: 'registry' }));
     expect(() => host.remove('support-agent')).toThrow(expect.objectContaining({ code: 'registry', message: host.notice }));
     expect(() => host.confirmCommand('support-agent', { argv: ['python', 'agent.py'], upstream: null })).toThrow(expect.objectContaining({ code: 'registry' }));

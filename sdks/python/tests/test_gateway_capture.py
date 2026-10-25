@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from shadowlap._capture import _agent_body, _headers, _response_text, _run_key  # noqa: E402
+from shadowlap._capture import _agent_body, _headers, _response_text, _run_key
 
 ESC = chr(27)
 
@@ -111,7 +111,7 @@ class ResponseShape(unittest.TestCase):
         # client still has to be able to parse what it gets, which means event-stream framing.
         text = _response_text(Response(CHAT), streamed=True)
         self.assertTrue(text.endswith("data: [DONE]" + chr(10) + chr(10)))
-        events = [l[len("data: "):] for l in text.split(chr(10) + chr(10)) if l.startswith("data: ")]
+        events = [part[len("data: "):] for part in text.split(chr(10) + chr(10)) if part.startswith("data: ")]
         self.assertEqual(len(events), 2)
         chunk = json.loads(events[0])
         self.assertEqual(chunk["object"], "chat.completion.chunk")

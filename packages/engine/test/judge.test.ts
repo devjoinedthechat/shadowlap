@@ -319,7 +319,7 @@ describe('an answer given in place of a recorded one', () => {
     expect(changed.text.split('\n')).toEqual(recorded.text.split('\n').map((line) => (line.startsWith('assistant: A manager will review') ? 'assistant: Your refund is on hold; we wrote to ana@example.com.' : line)));
 
     // An earlier answer is read in the requests after it, as the agent sent it back: one given in its place changes nothing a judge reads.
-    const earlier = new Map([[models[0]!, given('Something else entirely.')]]);
+    const earlier = new Map([[models[0], given('Something else entirely.')]]);
     expect(judgeMaterial(store, calls, 'run', { answers: earlier })).toEqual(recorded);
     expect(judgeMaterial(store, calls, 'answer', { answers: earlier })).toEqual(judgeMaterial(store, calls, 'answer'));
   });

@@ -16,7 +16,7 @@ if (process.env.FAKE_MCP_OPEN_WORLD === '1') {
 const reply = (id, body) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, ...body }) + '\n');
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
-  buf += chunk;
+  buf += String(chunk);
   let i;
   while ((i = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, i);

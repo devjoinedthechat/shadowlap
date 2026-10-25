@@ -83,9 +83,9 @@ describe('Needs a look’s words', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       r = await render(inApp(createElement(NeedsLook, { items: [...held, open], total: 4 })));
-      await r.click(r.all('.attn-more')[0]!);
+      await r.click(r.all('.attn-more')[0]);
       expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial', 'Refunds above the limit issued without approval']);
-      await r.click(r.all('.attn-more')[0]!);
+      await r.click(r.all('.attn-more')[0]);
       expect(r.all('.needs .t').map(text)).toEqual(['A test failed: refund-in-limit', 'A test failed: refund-over-limit', 'A test failed: refund-partial']);
       expect(errors.mock.calls.map((c) => c.map(String).join(' ')).filter((m) => /same key/.test(m))).toEqual([]);
     } finally {

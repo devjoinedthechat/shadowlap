@@ -223,7 +223,7 @@ function PackDialog({ ids, onClose, onRun }: { ids: readonly string[]; onClose: 
 function BulkDataset({ ids, onClose }: { ids: string[]; onClose: () => void }) {
   const { client } = useApp();
   // The project's rules, as a copy made now applies them: the server says per copy, of any run.
-  const offers = useLoad(() => client.offers(ids[0]!), `bulk-dataset-rules:${ids[0]}`);
+  const offers = useLoad(() => client.offers(ids[0]!), `bulk-dataset-rules:${ids[0]!}`);
   const rules = offers.data?.copies.formats.find((f) => f.id === 'dataset')?.rules ?? null;
   return <DatasetDialog ids={ids} rules={rules} onClose={onClose} />;
 }

@@ -35,7 +35,7 @@ export function ActionsView({ actions, title, width, height, active, cliAvailabl
       if (key.escape || input === ':' || input === 'q') onClose();
       else if (key.downArrow || input === 'j') setSelected((s) => Math.min(ordered.length - 1, s + 1));
       else if (key.upArrow || input === 'k') setSelected((s) => Math.max(0, s - 1));
-      else if (key.return && ordered[selected]) onPick(ordered[selected]!);
+      else if (key.return && ordered[selected]) onPick(ordered[selected]);
       else {
         const hit = ordered.find((a) => a.key === input);
         if (hit) onPick(hit);

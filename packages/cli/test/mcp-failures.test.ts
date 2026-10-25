@@ -53,7 +53,7 @@ describe('shadowlap mcp: a tool failed with --fail-at', () => {
   let store: Store;
   let sidecar: Sidecar;
   let parent: string;
-  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL!, runId });
+  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL, runId });
 
   /** Lists the tools, then reads note 7, sends a note and reads note 8: the session every run makes. */
   async function session(runId: string) {
@@ -99,7 +99,7 @@ describe('shadowlap mcp: a tool failed with --fail-at', () => {
       { content: [{ type: 'text', text: 'HTTP 503 Service Unavailable' }], isError: true },
     ]);
     // The server saw none of them: the call after them is the first it counts.
-    expect((after.result as { content: Array<{ text: string }> }).content[0]!.text).toBe('read_note:{"id":9}:1');
+    expect((after.result as { content: Array<{ text: string }> }).content[0].text).toBe('read_note:{"id":9}:1');
 
     const calls = store.getCalls(run.runId);
     expect(calls.slice(0, 3).map((c) => [c.name, c.origin, c.end?.meta.injected])).toEqual([

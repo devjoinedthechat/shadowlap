@@ -12,8 +12,9 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fake_claude_code import FakeClaudeCode  # noqa: E402
-from shadowlap.adapters.claude_agent_sdk import with_fence  # noqa: E402
+from shadowlap.adapters.claude_agent_sdk import with_fence
+
+from fake_claude_code import FakeClaudeCode
 
 ROOT = "/proj"
 

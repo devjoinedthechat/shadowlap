@@ -38,7 +38,7 @@ describe('fix apply after repair --apply', () => {
       writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
       mkdirSync(join(project, 'tests', 'goldens', name), { recursive: true });
       writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r', goldensCopied: [`tests/goldens/${name}`] }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r', goldensCopied: [`tests/goldens/${name}`] }).fixes[0].fix;
       expect(fix).toMatchObject({ status: 'applied', data: { applied: { via: 'repair --apply', goldens: [`tests/goldens/${name}`], tests: 'skipped' } } });
 
       const lines: string[] = [];
@@ -65,7 +65,7 @@ describe('fix apply after repair --apply', () => {
       mkdirSync(join(project, dir, 'goldens', name), { recursive: true });
       writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
       writeFileSync(join(project, 'agent.mjs'), `${AFTER}\n`);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r', goldensCopied: [`../elsewhere/${name}`] }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r', goldensCopied: [`../elsewhere/${name}`] }).fixes[0].fix;
       const lines: string[] = [];
       const result = await applyFix(store, fix, { cwd: project, goldens: 'goldens', test: true, build: null, db: join(project, 'shadowlap.db'), log: (l) => lines.push(l) });
       expect(result.goldens).toEqual([{ from: `${dir}/goldens/${name}`, to: `goldens/${name}`, copied: true }]);
@@ -83,7 +83,7 @@ describe('fix show of a verified fix whose patch is in the working tree already'
       const run = makeRun(store, { labels: ['refund-over-limit'] });
       recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
       const dir = '.shadowlap/repairs/repair-mv9gxsdm';
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report: repairReport({ targets: [run], dir }), expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report: repairReport({ targets: [run], dir }), expect: EXPECT, command: 'r' }).fixes[0].fix;
       expect(fix.status).toBe('verified');
       // git is asked first, beside the thread, and the read model looks its answers up.
       const shown = async () => formatFixDetail(fixDetail(store, fix.fixId, { patchInTree: await patchesInTree(project, patchesToCheck(store)) })!, plain);
@@ -122,7 +122,7 @@ function teammateFix(store: Store, patch: (own: string) => string, o: { pulled?:
   // What a pull writes: the patch and the reports, never the goldens.
   mkdirSync(join(project, dir), { recursive: true });
   writeFileSync(join(project, dir, 'fix.patch'), report.patch);
-  const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+  const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
   if (o.pulled !== false) store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
   return { fix, agent };
 }
@@ -140,7 +140,7 @@ describe("fix apply of a teammate's repair, from the team store", () => {
       // What a pull writes: the patch and the reports, never the goldens.
       mkdirSync(join(project, dir), { recursive: true });
       writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
       store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
       expect(fix.status).toBe('verified');
 
@@ -233,7 +233,7 @@ describe('fix apply of a patch from the store that is more than the change its r
       report.patch = unifiedDiff(dep, code, code.replace(BEFORE, AFTER));
       mkdirSync(join(project, dir), { recursive: true });
       writeFileSync(join(project, dir, 'fix.patch'), report.patch);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
       store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
       const err = await applyFix(store, fix, options([])).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ApplyError);
@@ -266,7 +266,7 @@ describe('fix apply of a patch from the store that is more than the change its r
       report.patch = unifiedDiff(file, code, code.replace(BEFORE, AFTER));
       mkdirSync(join(project, dir), { recursive: true });
       writeFileSync(join(project, dir, 'fix.patch'), report.patch);
-      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
       store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
       const err = await applyFix(store, fix, options([])).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ApplyError);

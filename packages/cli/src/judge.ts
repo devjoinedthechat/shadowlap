@@ -221,8 +221,8 @@ export async function askPreparedJudge(j: JudgeCheck, prepared: PreparedJudge, c
   };
   // A failure that may pass (rate limited, overloaded, a dropped connection) is asked again, twice, as
   // the providers' SDKs do: the sidecar keeps the attempts as one call.
-  let res: Response | null = null;
-  let bytes = Buffer.alloc(0);
+  let res: Response;
+  let bytes: Buffer;
   for (let attempt = 0; ; attempt++) {
     try {
       res = await fetch(`${ctx.sidecar.url}/r/${encodeURIComponent(ctx.runId)}/${target.provider}${request.path}`, { method: 'POST', headers, body: JSON.stringify(request.body) });

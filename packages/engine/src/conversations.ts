@@ -266,7 +266,7 @@ function idField(v: unknown): string | null {
 function digest(store: Store, call: CallRecord, cache: StoreCaches): Digest | null {
   if (!conversationRequest(call)) return null;
   const ref = call.requestRef!;
-  let manifest: RequestManifest | null = null;
+  let manifest: RequestManifest | null;
   try {
     manifest = store.getJson<RequestManifest>(ref);
   } catch {
@@ -386,7 +386,7 @@ function responseIdOf(store: Store, call: CallRecord): string | null {
   return id;
 }
 
-const EMPTY_RESPONSE: ResponseInfo = Object.freeze({ sig: [], tools: [] }) as ResponseInfo;
+const EMPTY_RESPONSE: ResponseInfo = Object.freeze({ sig: [], tools: [] });
 
 /** What a model call's response said and which tools it asked for; cached by response blob. */
 export function responseInfo(store: Store, call: CallRecord): ResponseInfo {

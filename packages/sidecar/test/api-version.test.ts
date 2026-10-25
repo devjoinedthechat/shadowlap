@@ -27,7 +27,7 @@ const sdk = (baseURL: string, version?: string) => new Anthropic({ apiKey: 'sk-a
 async function record(store: Store, clock: 'auto' | 'exact', withVersion = false): Promise<string> {
   const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url }, clock });
   const run = sidecar.startRun({ mode: 'record', command });
-  const base = sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!;
+  const base = sidecar.envFor(run.runId).ANTHROPIC_BASE_URL;
   if (withVersion) await sdk(base).messages.create(REQUEST);
   else await (await fetch(`${base}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'sk-ant-test' }, body: JSON.stringify(REQUEST) })).arrayBuffer();
   sidecar.endRun(run.runId, 'completed');
@@ -40,7 +40,7 @@ async function replayWith(store: Store, parentRunId: string, clock: 'auto' | 'ex
   const run = sidecar.startRun({ mode: 'replay', parentRunId, command, replay: { writes: 'block', reads: 'live', liveTools: new Set() }, offline: true });
   let error: unknown;
   try {
-    await sdk(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!, version).messages.create({ ...REQUEST, messages: [{ role: 'user', content: prompt }] });
+    await sdk(sidecar.envFor(run.runId).ANTHROPIC_BASE_URL, version).messages.create({ ...REQUEST, messages: [{ role: 'user', content: prompt }] });
   } catch (err) {
     error = err;
   }
@@ -55,15 +55,15 @@ describe('a recording that names no API version', () => {
     const before = mock.requests.length;
     for (const clock of ['exact', 'auto'] as const) {
       const parent = await record(store, clock);
-      expect(store.getCalls(parent)[0]!.meta.fingerprintHeaders).toEqual({});
+      expect(store.getCalls(parent)[0].meta.fingerprintHeaders).toEqual({});
       for (const version of [undefined, '2026-10-21']) {
         const r = await replayWith(store, parent, clock, version);
         expect(r.error, `${clock} ${version}`).toBeUndefined();
         expect(r.summary.divergence, `${clock} ${version}`).toBeNull();
         // The replay names no version either: it is the recording's call, as the recording holds it.
         const [call] = store.getCalls(r.runId);
-        expect(call!.meta.fingerprintHeaders, `${clock} ${version}`).toEqual({});
-        expect(call!.fingerprint, `${clock} ${version}`).toBe(store.getCalls(parent)[0]!.fingerprint);
+        expect(call.meta.fingerprintHeaders, `${clock} ${version}`).toEqual({});
+        expect(call.fingerprint, `${clock} ${version}`).toBe(store.getCalls(parent)[0].fingerprint);
         // And a replay of it matches whatever version too: a golden packed from it replays on either release.
         for (const next of [undefined, '2026-10-21']) expect((await replayWith(store, r.runId, clock, next)).summary.divergence, `${clock} ${version} then ${next}`).toBeNull();
       }
@@ -98,7 +98,7 @@ describe('a recording that names an API version', () => {
     const store = Store.open(':memory:');
     for (const clock of ['exact', 'auto'] as const) {
       const parent = await record(store, clock, true);
-      expect(store.getCalls(parent)[0]!.meta.fingerprintHeaders).toEqual({ 'anthropic-version': '2023-06-01' });
+      expect(store.getCalls(parent)[0].meta.fingerprintHeaders).toEqual({ 'anthropic-version': '2023-06-01' });
       expect((await replayWith(store, parent, clock)).summary.divergence, clock).toBeNull();
       const later = await replayWith(store, parent, clock, '2026-10-21');
       expect(later.summary.divergence, clock).toMatchObject({ type: 'request_changed', callNo: 1 });

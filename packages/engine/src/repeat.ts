@@ -131,7 +131,7 @@ export function summarizeRepeats(parentRunId: string, given: RepeatAttemptInput[
   inputs.forEach((input, i) => {
     const seen = new Set<string>();
     for (const c of input.calls) {
-      if (c.kind !== 'tool' || (attempts[i]!.forkedAt !== null && c.callNo < attempts[i]!.forkedAt!)) continue;
+      if (c.kind !== 'tool' || (attempts[i]!.forkedAt !== null && c.callNo < attempts[i]!.forkedAt)) continue;
       const t = tools.get(c.name) ?? { name: c.name, attempts: 0, calls: 0, blocked: 0, stubbed: 0, errors: 0 };
       t.calls++;
       if (c.origin === 'blocked') t.blocked++;
@@ -168,7 +168,7 @@ export function formatRepeats(r: RepeatReport, p: Palette = plain): string {
   const where =
     r.forkedAt.length === 1
       ? forks.length
-        ? `each forked at call ${forks[0]}`
+        ? `each forked at call ${forks[0]!}`
         : 'none forked'
       : `forked at calls ${r.forkedAt.map((f) => (f === null ? 'none' : f)).join(', ')}: the prefix is not deterministic`;
   // An attempt that stopped before its recording did forked nowhere, yet is no clean replay either.

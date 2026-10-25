@@ -54,7 +54,7 @@ describe('the rows after the first page is read again', () => {
     // A run deleted elsewhere is gone from the first page, and from what is kept.
     const without = withFirstPage(had, [...had.slice(0, 10), ...had.slice(11, 51)]);
     expect(without.rows).toHaveLength(149);
-    expect(without.rows.some((r) => r.runId === had[10]!.runId)).toBe(false);
+    expect(without.rows.some((r) => r.runId === had[10].runId)).toBe(false);
     // Nothing left: no rows.
     expect(withFirstPage(had, [])).toEqual({ rows: [], kept: 0 });
   });

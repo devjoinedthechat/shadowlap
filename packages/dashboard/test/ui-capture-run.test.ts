@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countOrigins, type Origin7 } from '../ui/origins.js';
+import { countOrigins } from '../ui/origins.js';
 import { metricItems, type MetricInput } from '../ui/run/metrics.js';
 import { runDuration } from '../ui/run/model.js';
 
@@ -10,7 +10,7 @@ import { runDuration } from '../ui/run/model.js';
  */
 
 describe('a capture', () => {
-  const counts = (s: string) => countOrigins([...s].map(() => 'live' as Origin7));
+  const counts = (s: string) => countOrigins([...s].map(() => 'live'));
   const input = (over: Partial<MetricInput> = {}): MetricInput => ({ total: 4, byKind: { api: 4, tool: 0 }, upstreamRequests: 0, cost: { spent: 0, saved: 0, captured: 0.0005, unknownModels: [] }, tokensNotRespent: 0, counts: counts('llll'), capture: true, live: false, notWaitedMs: null, ...over });
 
   it('says its tool calls were not captured, rather than counting none', () => {

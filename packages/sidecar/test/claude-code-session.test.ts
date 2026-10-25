@@ -46,7 +46,7 @@ describe('a Claude Code session in metadata.user_id', () => {
       expect(mock.requests.length).toBe(sent);
       // Stored as sent: the mask is matching's alone.
       const [call] = store.getCalls(rep.runId);
-      expect((loadApiRequest(store, call!.requestRef!) as { metadata: { user_id: string } }).metadata.user_id).toMatch(/"session_id":"[0-9a-f-]{36}"/);
+      expect((loadApiRequest(store, call.requestRef!) as { metadata: { user_id: string } }).metadata.user_id).toMatch(/"session_id":"[0-9a-f-]{36}"/);
     } finally {
       await sidecar.close();
       store.close();

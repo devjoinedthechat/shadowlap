@@ -8,8 +8,7 @@ testable without LiteLLM installed. The callback module is the thin binding to L
 import json
 import os
 import threading
-import time
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 FORMAT = "shadowlap-capture"
 VERSION = 1
@@ -28,7 +27,7 @@ INJECTED_BODY_PREFIXES = ("litellm_", "_litellm_")
 INJECTED_BODY_KEYS = ("metadata",)
 
 
-def _agent_body(body: Dict[str, Any]) -> Dict[str, Any]:
+def _agent_body(body: dict[str, Any]) -> dict[str, Any]:
     """The inbound body with LiteLLM's own additions removed.
 
     What is left is what the agent sent, with one exception this cannot resolve: LiteLLM adds
@@ -52,7 +51,7 @@ RUN_HEADERS = ("x-shadowlap-run", "x-request-id", "x-correlation-id", "x-trace-i
 _lock = threading.Lock()
 
 
-def _run_key(headers: Dict[str, str]) -> Optional[str]:
+def _run_key(headers: dict[str, str]) -> Optional[str]:
     names = ([os.environ["SHADOWLAP_RUN_HEADER"].lower()] if os.environ.get("SHADOWLAP_RUN_HEADER") else []) + list(RUN_HEADERS)
     for name in names:
         value = (headers.get(name) or "").strip()
@@ -70,8 +69,8 @@ def _capture_path() -> Optional[str]:
     return os.path.join(directory, "shadowlap-%d.jsonl" % os.getpid())
 
 
-def _headers(raw: Any) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _headers(raw: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
     if not isinstance(raw, dict):
         return out
     for name, value in raw.items():

@@ -174,7 +174,7 @@ describe('export har: redaction', () => {
     split.response.content.text = ['Rotated sk-li', 've-9f8e7d', '6c5b4a for ma', 'ya@example', '.com.'].map(delta).join('');
     const { run } = importHar(store, har(split), { source: 'in.har' });
     const { har: out } = runToHar(store, run, store.getCalls(run.runId), { redact: RULES });
-    const stream = Buffer.from((out as { log: { entries: Array<{ response: { content: { text: string } } }> } }).log.entries[0]!.response.content.text, 'base64').toString('utf8');
+    const stream = Buffer.from((out as { log: { entries: Array<{ response: { content: { text: string } } }> } }).log.entries[0].response.content.text, 'base64').toString('utf8');
     expect(stream).not.toMatch(/sk-li|9f8e7d|6c5b4a|maya|example\.com/);
     const texts = [...stream.matchAll(/"text":"([^"]*)"/g)].map((m) => m[1]);
     expect(texts.join('')).toBe('Rotated <KEY> for <EMAIL>.');

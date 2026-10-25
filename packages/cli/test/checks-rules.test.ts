@@ -54,7 +54,7 @@ const input = (calls: CallRecord[], extra: Partial<CheckInput> = {}): CheckInput
 });
 
 const judge = (expect_: unknown, calls: CallRecord[], options = {}): CheckResult[] => evaluateChecks(parseExpect(expect_, '--expect'), input(calls), options);
-const one = (expect_: unknown, calls: CallRecord[]): CheckResult => judge(expect_, calls)[0]!;
+const one = (expect_: unknown, calls: CallRecord[]): CheckResult => judge(expect_, calls)[0];
 
 /** The rule the spec opens with: a refund never more than the order it refunds came to. */
 const REFUND_RULE = { calls: [{ tool: 'issue_refund', after: 'lookup_order', args: { amount: { '<=': '@lookup_order.result.total' } } }] };
@@ -96,7 +96,7 @@ describe('calls: a rule every call of a tool meets', () => {
     expect(one(negated, [tool(3, 'issue_refund', { amount: 10 })]).status).toBe('failed');
     // A reader without results reads none, and so passes nothing that needs one.
     const { resultOf: _results, ...withoutResults } = input([tool(2, 'lookup_order', {}, { total: 10 }), tool(3, 'issue_refund', { amount: 1 })]);
-    expect(evaluateChecks(parseExpect(rule, 'e'), withoutResults)[0]!.detail).toBe('issue_refund #3: lookup_order #2 has no result');
+    expect(evaluateChecks(parseExpect(rule, 'e'), withoutResults)[0].detail).toBe('issue_refund #3: lookup_order #2 has no result');
     // Nor does it switch a condition on a result off quietly: whether it held can't be told.
     const big = parseExpect({ when: [{ if: { tool: 'lookup_order', result: { total: { '>': 5 } } }, then: { tools: { escalate: 1 } } }] }, 'e');
     expect(evaluateChecks(big, withoutResults)[0]).toMatchObject({ status: 'inconclusive', detail: 'could not tell whether the condition held: lookup_order #2: has no result' });
@@ -276,8 +276,8 @@ describe('judge: the grammar, and a verdict given or missing', () => {
     expect(judge({ judge: [JUDGE] }, [])).toEqual([{ status: 'inconclusive', ok: false, label: 'judge "explains-escalation" answers yes', detail: 'not judged: no recorded verdict and no key for anthropic', judge: outcome }]);
     // A key that is there is not named as missing.
     vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test');
-    expect(judge({ judge: [JUDGE] }, [])[0]!.detail).toBe('not judged: no recorded verdict');
-    expect(judge({ judge: [JUDGE] }, [], { judgeMissing: () => 'not judged: the recording holds no verdict' })[0]!.detail).toBe('not judged: the recording holds no verdict');
+    expect(judge({ judge: [JUDGE] }, [])[0].detail).toBe('not judged: no recorded verdict');
+    expect(judge({ judge: [JUDGE] }, [], { judgeMissing: () => 'not judged: the recording holds no verdict' })[0].detail).toBe('not judged: the recording holds no verdict');
   });
 
   it('passes or fails on its verdict, with the reason beside it and where the verdict came from', () => {
@@ -392,7 +392,7 @@ describe('what a spec names and reads', () => {
           when: [{ if: { tool: 'lookup_order', result: { total: { '>': '@read_policy.result.limit' } } }, then: { tools: { approve: 1 } } }],
         },
       },
-    })[0]!.spec;
+    })[0].spec;
     const w = 'shadowlap.config.json: tests["g"].expect';
     expect(toolsNamed(spec, w)).toEqual([
       { tool: 'send_email', use: 'count', at: `${w}.tools["send_email"]`, zero: true },
@@ -414,7 +414,7 @@ describe('what a spec names and reads', () => {
     const recordable = withoutOutput(spec);
     expect(readsOutput(recordable)).toBe(false);
     expect(recordable.when).toHaveLength(1);
-    expect(recordable.when![0]!.then.tools).toEqual([{ name: 'b', count: { min: 1, max: 1 } }]);
+    expect(recordable.when![0].then.tools).toEqual([{ name: 'b', count: { min: 1, max: 1 } }]);
     expect(readsOutput(parseExpect({ judge: [{ name: 'j', question: 'q?', of: 'output', model: 'claude-haiku-4-5' }] }, 'e'))).toBe(true);
   });
 });

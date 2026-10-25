@@ -50,7 +50,7 @@ export function formatCount(n: number): string {
 
 const shortDate = (iso: string) => {
   const [, m, d] = iso.split('-').map(Number);
-  return `${MONTHS[(m ?? 1) - 1]} ${d}`;
+  return `${MONTHS[(m ?? 1) - 1]!} ${d!}`;
 };
 const pct = (part: number, whole: number) => (whole ? Math.round((100 * part) / whole) : 0);
 const height = (v: number, max: number) => (max && v ? Math.max(1.5, (100 * v) / max) : 0);
@@ -81,7 +81,7 @@ function breakdown(title: string, note: string, data: Record<string, number>, la
     ? entries
         .map(
           ([k, v]) =>
-            `<li${hints[k] ? ` title="${esc(hints[k]!)}"` : ''}><span class="k">${esc(labels[k] ?? k)}</span><span class="track" aria-hidden="true"><i style="width:${height(v, max).toFixed(1)}%"></i></span><span class="n">${formatCount(v)}<small>${pct(v, total)}%</small></span></li>`,
+            `<li${hints[k] ? ` title="${esc(hints[k])}"` : ''}><span class="k">${esc(labels[k] ?? k)}</span><span class="track" aria-hidden="true"><i style="width:${height(v, max).toFixed(1)}%"></i></span><span class="n">${formatCount(v)}<small>${pct(v, total)}%</small></span></li>`,
         )
         .join('')
     : '<li class="none">nothing yet</li>';
@@ -109,8 +109,8 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
     .map((w, i) => {
       const [, m, d] = w.week.split('-').map(Number);
       const prevMonth = i ? Number(weeks[i - 1]!.week.split('-')[1]) : 0;
-      const month = m !== prevMonth ? MONTHS[(m ?? 1) - 1] : '';
-      return i === weeks.length - 1 ? `<span class="now"><b>now</b><small>${month}</small></span>` : `<span><b>${d}</b><small>${month}</small></span>`;
+      const month = m !== prevMonth ? MONTHS[(m ?? 1) - 1]! : '';
+      return i === weeks.length - 1 ? `<span class="now"><b>now</b><small>${month}</small></span>` : `<span><b>${d!}</b><small>${month}</small></span>`;
     })
     .join('');
   const weekTable = weeks.map((w) => `<tr><td>${esc(w.week)}</td><td>${w.activeDevelopers}</td><td>${w.replays}</td></tr>`).join('');
@@ -129,7 +129,7 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
     ? `<section class="empty" aria-label="No data yet"><div><h2>No events yet</h2><p>This collector has not received anything. Charts fill in as clients report. To send from a machine you control:</p></div><pre><code>export SHADOWLAP_TELEMETRY_URL=${esc(options.origin ?? 'https://<this host>')}/v1/events</code></pre></section>`
     : '';
 
-  const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><g fill="none" stroke=\"#15140f\" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>')}`;
+  const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><g fill="none" stroke="#15140f" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>')}`;
   const logo = '<svg class="logo" viewBox="0 0 300 300" aria-hidden="true"><g fill="none" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>';
 
   return `<!doctype html>

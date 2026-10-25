@@ -28,7 +28,7 @@ describe('the architecture diagram', () => {
 
   it('claims no route the sidecar does not serve', () => {
     const known = new Set([...providers.map((p) => p.id), 'v1', 'http', 't']);
-    const claimed = [...diagram.matchAll(/\/([a-z0-9]+)(?:\/[a-z0-9]+)*\/\*/g)].map((m) => m[1]!);
+    const claimed = [...diagram.matchAll(/\/([a-z0-9]+)(?:\/[a-z0-9]+)*\/\*/g)].map((m) => m[1]);
     expect(claimed.filter((r) => !known.has(r)), 'routes in the README the sidecar cannot answer').toEqual([]);
   });
 
@@ -36,7 +36,7 @@ describe('the architecture diagram', () => {
     const agent =
       readFileSync(join(root, 'packages', 'cli', 'src', 'run-agent.ts'), 'utf8') +
       readFileSync(join(root, 'packages', 'sidecar', 'src', 'server.ts'), 'utf8');
-    const named = [...new Set([...diagram.matchAll(/\b(SHADOWLAP_[A-Z_]+)\b/g)].map((m) => m[1]!))];
+    const named = [...new Set([...diagram.matchAll(/\b(SHADOWLAP_[A-Z_]+)\b/g)].map((m) => m[1]))];
     expect(named.length).toBeGreaterThan(0);
     expect(named.filter((v) => !agent.includes(v)), 'named in the README but never set').toEqual([]);
   });
@@ -69,7 +69,7 @@ describe('the terminal UI section', () => {
     const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
     expect(frame, 'no terminal UI frame in the README').toBeDefined();
     const lines = frame!.split('\n');
-    const width = [...lines[1]!].length;
+    const width = [...lines[1]].length;
     expect(lines[1]).toMatch(/^╭─+╮$/);
     expect(lines.at(-2)).toMatch(/^╰─+╯$/);
     // The box is as wide as the terminal; the header above it and the footer under it show whole
@@ -77,7 +77,7 @@ describe('the terminal UI section', () => {
     const [header, ...rest] = lines;
     const footer = rest.pop()!;
     expect(rest.filter((l) => [...l].length !== width), 'lines of the box narrower or wider than it').toEqual([]);
-    expect([header, footer].filter((l) => [...l!].length > width), 'a header or footer wider than the frame').toEqual([]);
+    expect([header, footer].filter((l) => [...l].length > width), 'a header or footer wider than the frame').toEqual([]);
   });
 });
 
@@ -119,7 +119,7 @@ function anchors(markdown: string): Set<string> {
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     const m = fenced ? null : /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
     if (!m) continue;
-    const base = anchor(m[1]!);
+    const base = anchor(m[1]);
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
     out.add(n ? `${base}-${n}` : base);

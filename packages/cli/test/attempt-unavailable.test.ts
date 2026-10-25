@@ -80,7 +80,7 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
       const unavailable = r.store.listRuns(10).filter((x) => x.meta?.verify?.verdict === 'unavailable');
       expect(unavailable).toHaveLength(2);
       // And `show` says so of each, never that it failed.
-      const shown = execFileSync(process.execPath, [CLI, '--db', join(dir, 'retried.db'), 'show', unavailable[0]!.runId], { env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' } }).toString();
+      const shown = execFileSync(process.execPath, [CLI, '--db', join(dir, 'retried.db'), 'show', unavailable[0].runId], { env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' } }).toString();
       expect(shown).toContain('an attempt of shadowlap verify, replaying a failing run: not counted, the provider was unavailable');
     } finally {
       await r.close();

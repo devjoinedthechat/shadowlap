@@ -42,7 +42,7 @@ export interface NotesInput {
   preloads?: { guard: string; hellos: Readonly<Record<string, number>>; missing?: string | null } | null;
   websockets?: ReadonlyArray<{ target: string; count: number; action: 'tunnelled' | 'refused' }> | null;
   extraReads?: ReadonlyArray<{ callNo: number; kind: string; name: string }> | null;
-  mode: 'record' | 'replay' | string;
+  mode: 'record' | 'replay' | (string & {});
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`;
@@ -178,7 +178,7 @@ export function preloadWords(p: { guard: string; hellos: Readonly<Record<string,
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .map(([r, n]) => `${num(n)} ${runtimeName(r)} ${n === 1 ? 'process' : 'processes'}`);
-  const said = loaded.length ? `loaded in ${loaded.length > 1 ? `${loaded.slice(0, -1).join(', ')} and ${loaded.at(-1)}` : loaded[0]}` : p.guard === 'off' ? 'no guard' : 'no preload loaded';
+  const said = loaded.length ? `loaded in ${loaded.length > 1 ? `${loaded.slice(0, -1).join(', ')} and ${loaded.at(-1)!}` : loaded[0]!}` : p.guard === 'off' ? 'no guard' : 'no preload loaded';
   return `${p.guard} · ${said}`;
 }
 

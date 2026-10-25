@@ -326,7 +326,7 @@ describe('storeFacts', () => {
     store.createRun({ mode: 'record', command: { argv: ['node', 'a.mjs'], cwd: '/x' }, startedAt: Date.now() - 2 * 60 * 60 * 1000 });
     const f = storeFacts(store);
     expect(f.live).toBe(false);
-    expect(f.recordings[0]!.live).toBe(false);
+    expect(f.recordings[0].live).toBe(false);
     store.close();
   });
 

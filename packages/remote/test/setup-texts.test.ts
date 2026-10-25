@@ -87,8 +87,8 @@ describe('the access to ask the cloud admin for', () => {
       ['s3:GetBucketVersioning,s3:GetBucketObjectLockConfiguration,s3:GetEncryptionConfiguration', 'arn:aws:s3:::northwind-agent-runs'],
     ]);
     // Listing too is kept to the folder; a store at the bucket's root lists the bucket.
-    expect(doc[0]!.Condition).toEqual({ StringLike: { 's3:prefix': ['support-agent/*'] } });
-    expect(statements(accessPolicy('s3', parseStoreUrl('s3://northwind-agent-runs')).writer.text)[0]!.Condition).toBeUndefined();
+    expect(doc[0].Condition).toEqual({ StringLike: { 's3:prefix': ['support-agent/*'] } });
+    expect(statements(accessPolicy('s3', parseStoreUrl('s3://northwind-agent-runs')).writer.text)[0].Condition).toBeUndefined();
     expect(p.writer.for).toBe('people, and CI on protected branches');
   });
 
@@ -105,7 +105,7 @@ describe('the access to ask the cloud admin for', () => {
     for (const s of doc) if (s.Action.some((a) => a !== 's3:ListBucket' && a !== 's3:GetObject')) expect(s.Resource).toMatch(/\/support-agent\/pr\/\*$/);
     expect(p.pullRequest.notes.join(' ')).toMatch(/Without the last statement it is read-only/);
     // At the bucket's root, pr/ is at the root too.
-    expect(statements(accessPolicy('s3', parseStoreUrl('s3://northwind-agent-runs')).pullRequest.text)[2]!.Resource).toBe('arn:aws:s3:::northwind-agent-runs/pr/*');
+    expect(statements(accessPolicy('s3', parseStoreUrl('s3://northwind-agent-runs')).pullRequest.text)[2].Resource).toBe('arn:aws:s3:::northwind-agent-runs/pr/*');
   });
 
   it('suggests an expiry rule for share reports and pull requests only, on every cloud', () => {
@@ -237,7 +237,7 @@ describe('the CI step', () => {
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V });
     expect(r2.oidc).toBe(false);
     expect(r2.pullRequests).toBe('no-push');
-    const [writer, pr] = r2.text.split(/\n(?=  - if: startsWith)/);
+    const [writer, pr] = r2.text.split(/\n(?= {2}- if: startsWith)/);
     expect(writer).toContain('R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}');
     expect(writer).toContain('run: npx shadowlap@9.9.9 test goldens/* --push');
     expect(pr).toContain('run: npx shadowlap@9.9.9 test goldens/*');
@@ -302,7 +302,7 @@ describe('the keys the goldens that run live need', () => {
     expect(s3.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY and OPENAI_API_KEY as repository secrets, which the step's env passes on.");
     // R2: beside the bucket's keys for your branches, and on their own for a pull request's tests.
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V, keys: ['ANTHROPIC_API_KEY'] });
-    const [writer, pr] = r2.text.split(/\n(?=  - if: startsWith)/);
+    const [writer, pr] = r2.text.split(/\n(?= {2}- if: startsWith)/);
     expect(writer).toContain('      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
     expect(pr).toContain('    run: npx shadowlap@9.9.9 test goldens/*\n    env:\n      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');
     expect(pr).not.toContain('R2_');

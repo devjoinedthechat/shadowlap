@@ -39,22 +39,22 @@ describe('import otel: the current GenAI conventions', () => {
     expect(read.spans).toBe(5);
     expect(read.traces).toHaveLength(1);
     const [trace] = read.traces;
-    expect(trace!.id).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
-    expect(trace!.calls.map((c) => `${c.kind}:${c.kind === 'tool' ? c.name : c.model}`)).toEqual(['model:claude-haiku-4-5', 'tool:lookup_order', 'model:claude-haiku-4-5']);
+    expect(trace.id).toBe('4bf92f3577b34da6a3ce929d0e0e4736');
+    expect(trace.calls.map((c) => `${c.kind}:${c.kind === 'tool' ? c.name : c.model}`)).toEqual(['model:claude-haiku-4-5', 'tool:lookup_order', 'model:claude-haiku-4-5']);
   });
 
   it('rebuilds each model call as the Anthropic request its SDK sent, and the response it got', () => {
     const store = open();
-    const { result, counts, dialects } = importTrace(store, otel('otel-genai.json').traces[0]!, { source: '/tmp/otel-genai.json', labels: ['otel'] });
+    const { result, counts, dialects } = importTrace(store, otel('otel-genai.json').traces[0], { source: '/tmp/otel-genai.json', labels: ['otel'] });
     expect(dialects).toEqual({ anthropic: 2 });
     expect(counts).toEqual({ modelCalls: 2, modelCallsImported: 2, withSettings: 2, withToolDefinitions: 2, toolCalls: 1, toolCallsKept: 1 });
     expect(result.run.meta).toMatchObject({ covers: ['api', 'tool:lookup_order'], labels: ['imported', 'otel'], imported: { from: '/tmp/otel-genai.json' } });
 
     const [first, tool, second] = callsOf(store, result.run.runId);
-    expect(first!.name).toBe('POST /v1/messages');
+    expect(first.name).toBe('POST /v1/messages');
     // A trace keeps no API version, so the call names none: a replay matches it whatever version the agent's SDK names.
-    expect(first!.meta.fingerprintHeaders).toEqual({});
-    expect(first!.request).toEqual({
+    expect(first.meta.fingerprintHeaders).toEqual({});
+    expect(first.request).toEqual({
       model: 'claude-haiku-4-5',
       max_tokens: 512,
       temperature: 0,
@@ -62,18 +62,18 @@ describe('import otel: the current GenAI conventions', () => {
       tools: [{ name: 'lookup_order', description: 'Look an order up by its id.', input_schema: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] } }],
       messages: [{ role: 'user', content: 'Where is my order A-1042?' }],
     });
-    expect(JSON.parse(first!.response as string)).toMatchObject({ id: 'msg_01A', type: 'message', content: [{ type: 'tool_use', id: 'toolu_01A', name: 'lookup_order', input: { order_id: 'A-1042' } }], stop_reason: 'tool_use' });
-    expect(first!.end.meta).toMatchObject({ usage: { inputTokens: 412, outputTokens: 38 }, stopReason: 'tool_use', model: 'claude-haiku-4-5', latencyMs: 900 });
+    expect(JSON.parse(first.response as string)).toMatchObject({ id: 'msg_01A', type: 'message', content: [{ type: 'tool_use', id: 'toolu_01A', name: 'lookup_order', input: { order_id: 'A-1042' } }], stop_reason: 'tool_use' });
+    expect(first.end.meta).toMatchObject({ usage: { inputTokens: 412, outputTokens: 38 }, stopReason: 'tool_use', model: 'claude-haiku-4-5', latencyMs: 900 });
 
     // The tool call is stored as the SDK records one, so the agent's own call matches it on replay.
     expect(tool).toMatchObject({ kind: 'tool', name: 'lookup_order', request: { args: { order_id: 'A-1042' } }, response: { result: { order_id: 'A-1042', amount: 240, status: 'delivered' } } });
 
-    expect(second!.request.messages).toEqual([
+    expect(second.request.messages).toEqual([
       { role: 'user', content: 'Where is my order A-1042?' },
       { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_01A', name: 'lookup_order', input: { order_id: 'A-1042' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_01A', content: '{"order_id":"A-1042","amount":240,"status":"delivered"}' }] },
     ]);
-    expect(JSON.parse(second!.response as string).content).toEqual([{ type: 'text', text: 'Order A-1042 was delivered; it cost $240.' }]);
+    expect(JSON.parse(second.response as string).content).toEqual([{ type: 'text', text: 'Order A-1042 was delivered; it cost $240.' }]);
     store.close();
   });
 });
@@ -82,16 +82,16 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
   it('reads flattened gen_ai.prompt attributes, keeps the span closest to the wire, and skips embeddings', () => {
     const [trace] = otel('otel-openllmetry.json').traces;
     // ChatOpenAI.chat wraps the client's openai.chat span for the same call: one call, not two.
-    expect(trace!.calls.filter((c) => c.kind === 'model').map((c) => c.what)).toEqual(['span openai.chat', 'span openai.chat']);
-    expect(trace!.skipped).toEqual([{ url: 'span openai.embeddings', reason: 'an embeddings call: only model and tool calls are imported' }]);
+    expect(trace.calls.filter((c) => c.kind === 'model').map((c) => c.what)).toEqual(['span openai.chat', 'span openai.chat']);
+    expect(trace.skipped).toEqual([{ url: 'span openai.embeddings', reason: 'an embeddings call: only model and tool calls are imported' }]);
 
     const store = open();
-    const { result, counts } = importTrace(store, trace!, { source: 'otel-openllmetry.json', labels: ['otel'] });
+    const { result, counts } = importTrace(store, trace, { source: 'otel-openllmetry.json', labels: ['otel'] });
     expect(counts).toMatchObject({ modelCalls: 2, modelCallsImported: 2, withToolDefinitions: 2, toolCalls: 1, toolCallsKept: 1 });
     expect(result.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
     const [first, tool, second] = callsOf(store, result.run.runId);
-    expect(first!.name).toBe('POST /v1/chat/completions');
-    expect(first!.request).toEqual({
+    expect(first.name).toBe('POST /v1/chat/completions');
+    expect(first.request).toEqual({
       model: 'gpt-4.1-mini',
       temperature: 0.2,
       max_tokens: 256,
@@ -102,15 +102,15 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
       ],
     });
     // The arguments as the model wrote them, which is what the agent sends back.
-    expect(JSON.parse(first!.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
-    expect(first!.end.meta.usage).toEqual({ inputTokens: 96, outputTokens: 18 });
+    expect(JSON.parse(first.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
+    expect(first.end.meta.usage).toEqual({ inputTokens: 96, outputTokens: 18 });
     // OpenLLMetry logs a decorated function's arguments as { args, kwargs }.
-    expect(tool!.request).toEqual({ args: { order_id: 'B-7' } });
-    expect((second!.request.messages as unknown[]).slice(2)).toEqual([
+    expect(tool.request).toEqual({ args: { order_id: 'B-7' } });
+    expect((second.request.messages as unknown[]).slice(2)).toEqual([
       { role: 'assistant', content: null, tool_calls: [{ id: 'call_9x', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] },
       { role: 'tool', tool_call_id: 'call_9x', content: '{"order_id": "B-7", "amount": 40}' },
     ]);
-    expect(JSON.parse(second!.response as string).choices[0].message.content).toBe('Refunded $40 for order B-7.');
+    expect(JSON.parse(second.response as string).choices[0].message.content).toBe('Refunded $40 for order B-7.');
     store.close();
   });
 
@@ -119,20 +119,20 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     expect(read.traces.map((t) => t.id)).toEqual(['6c9f00aa11bb22cc33dd44ee55ff6677', '7d0a11bb22cc33dd44ee55ff66778899']);
     const store = open();
 
-    const events = importTrace(store, read.traces[0]!, { source: 'otel-events.jsonl' });
+    const events = importTrace(store, read.traces[0], { source: 'otel-events.jsonl' });
     const [call] = callsOf(store, events.result.run.runId);
-    expect(call!.request.messages).toEqual([
+    expect(call.request.messages).toEqual([
       { role: 'system', content: 'Classify the alert.' },
       { role: 'user', content: 'disk 91% on db-2' },
     ]);
-    expect(JSON.parse(call!.response as string).choices[0]).toMatchObject({ message: { content: 'warning' }, finish_reason: 'stop' });
+    expect(JSON.parse(call.response as string).choices[0]).toMatchObject({ message: { content: 'warning' }, finish_reason: 'stop' });
 
     // Gemini's dialect, and a call that failed where it ran: it left nothing to serve, so it runs live.
-    const gemini = importTrace(store, read.traces[1]!, { source: 'otel-events.jsonl' });
+    const gemini = importTrace(store, read.traces[1], { source: 'otel-events.jsonl' });
     const [g] = callsOf(store, gemini.result.run.runId);
-    expect(g!.name).toBe('POST /v1beta/models/gemini-2.5-flash:generateContent');
-    expect(g!.request).toEqual({ contents: [{ role: 'user', parts: [{ text: 'Is 91% disk urgent?' }] }] });
-    expect(JSON.parse(g!.response as string)).toMatchObject({ candidates: [{ content: { role: 'model', parts: [{ text: 'Not yet.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 4 } });
+    expect(g.name).toBe('POST /v1beta/models/gemini-2.5-flash:generateContent');
+    expect(g.request).toEqual({ contents: [{ role: 'user', parts: [{ text: 'Is 91% disk urgent?' }] }] });
+    expect(JSON.parse(g.response as string)).toMatchObject({ candidates: [{ content: { role: 'model', parts: [{ text: 'Not yet.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 4 } });
     expect(gemini.result.skipped).toEqual([{ url: 'span chat gemini-2.5-flash', reason: 'the model call failed at its source (429 RESOURCE_EXHAUSTED)' }]);
     store.close();
   });
@@ -141,10 +141,10 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const read = otel('otel-logs.jsonl');
     expect(read.traces).toHaveLength(1);
     const store = open();
-    const { result, counts } = importTrace(store, read.traces[0]!, { source: 'otel-logs.jsonl' });
+    const { result, counts } = importTrace(store, read.traces[0], { source: 'otel-logs.jsonl' });
     expect(counts).toMatchObject({ modelCalls: 2, modelCallsImported: 2 });
     const [first, second] = callsOf(store, result.run.runId);
-    expect(first!.request).toEqual({
+    expect(first.request).toEqual({
       model: 'gpt-4.1-mini',
       temperature: 0,
       messages: [
@@ -152,12 +152,12 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
         { role: 'user', content: 'Why was I charged twice for invoice 7?' },
       ],
     });
-    expect(JSON.parse(first!.response as string)).toMatchObject({ id: 'chatcmpl-Bx81', choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_inv7', function: { name: 'get_invoice', arguments: '{"invoice_id": 7}' } }] } }] });
-    expect((second!.request.messages as unknown[]).slice(2)).toEqual([
+    expect(JSON.parse(first.response as string)).toMatchObject({ id: 'chatcmpl-Bx81', choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_inv7', function: { name: 'get_invoice', arguments: '{"invoice_id": 7}' } }] } }] });
+    expect((second.request.messages as unknown[]).slice(2)).toEqual([
       { role: 'assistant', content: null, tool_calls: [{ id: 'call_inv7', type: 'function', function: { name: 'get_invoice', arguments: '{"invoice_id": 7}' } }] },
       { role: 'tool', tool_call_id: 'call_inv7', content: '{"invoice_id": 7, "lines": [{"amount": 49, "kind": "charge"}, {"amount": 49, "kind": "authorization hold"}]}' },
     ]);
-    expect(JSON.parse(second!.response as string).choices[0].message.content).toBe('You were charged once. The second line is an authorization hold, which drops off within 3 days.');
+    expect(JSON.parse(second.response as string).choices[0].message.content).toBe('You were charged once. The second line is an authorization hold, which drops off within 3 days.');
     store.close();
   });
 
@@ -188,14 +188,14 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
         ],
       },
     ]);
-    const [call] = read.traces[0]!.calls;
+    const [call] = read.traces[0].calls;
     expect(call).toMatchObject({ kind: 'model', messages: [{ role: 'user', parts: [{ type: 'text', text: 'Is invoice 7 paid?' }] }], output: { parts: [{ type: 'text', text: 'Yes, on Oct 2.' }] } });
   });
 
   it('reads a trace downloaded from Grafana Tempo, which calls resourceSpans batches', () => {
     const exported = JSON.parse(fixture('otel-genai.json')) as { resourceSpans: unknown[] };
     const read = readOtel([{ batches: exported.resourceSpans }]);
-    expect(read.traces[0]!.calls).toHaveLength(3);
+    expect(read.traces[0].calls).toHaveLength(3);
   });
 
   it('refuses a file with no spans, survives a parent loop, and reads attributes without touching prototypes', () => {
@@ -213,7 +213,7 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
       ],
     });
     const read = readOtel([{ resourceSpans: [{ scopeSpans: [{ spans: [span('a', 'b'), span('b', 'a')] }] }] }]);
-    expect(read.traces[0]!.calls).toHaveLength(0);
+    expect(read.traces[0].calls).toHaveLength(0);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
@@ -242,8 +242,8 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     ];
     const [withFar, without] = [file(true), file(false)];
     const read = readOtel(withFar);
-    expect(read.traces[0]!.calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
-    expect(readOtel(without).traces[0]!.calls[0]).toEqual(read.traces[0]!.calls[0]);
+    expect(read.traces[0].calls[0]).toMatchObject({ messages: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }], output: { parts: [{ type: 'text', text: 'hello' }] } });
+    expect(readOtel(without).traces[0].calls[0]).toEqual(read.traces[0].calls[0]);
     // Held against this machine, not a number of milliseconds: one and a half to three times what the
     // span takes without them, on Node 22 and 24 alike, where building an array four billion long takes
     // far longer.
@@ -261,7 +261,7 @@ describe('import otel: OpenLLMetry and the older conventions', () => {
     const docs = [{ resourceSpans: [{ scopeSpans: [{ spans }] }] }, { resourceLogs: [{ scopeLogs: [{ logRecords }] }] }];
     const read = readOtel(docs);
     expect(read.spans).toBe(n);
-    const [call] = read.traces[0]!.calls;
+    const [call] = read.traces[0].calls;
     expect(call).toMatchObject({ kind: 'model' });
     expect((call as { messages: unknown[] }).messages).toHaveLength(n);
     // Held against this machine, not a number of milliseconds: 1.5 to 2.5 times what a copy of the file
@@ -277,33 +277,33 @@ describe("import otel: OpenInference's conventions (Arize Phoenix)", () => {
     const read = otel('otel-openinference.json');
     const [trace] = read.traces;
     // The agent's own span and its tool's come from another scope than the client's; time puts them in order.
-    const ordered = [...trace!.calls].sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0));
+    const ordered = [...trace.calls].sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0));
     expect(ordered.map((c) => `${c.kind}:${c.kind === 'tool' ? c.name : c.model}`)).toEqual(['model:gpt-4.1-mini', 'tool:lookup_order', 'model:gpt-4.1-mini']);
     const store = open();
-    const { result, counts } = importTrace(store, trace!, { source: 'otel-openinference.json', labels: ['otel'] });
+    const { result, counts } = importTrace(store, trace, { source: 'otel-openinference.json', labels: ['otel'] });
     expect(counts).toEqual({ modelCalls: 2, modelCallsImported: 2, withSettings: 2, withToolDefinitions: 2, toolCalls: 1, toolCallsKept: 1 });
     expect(result.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
     const logged = JSON.parse(fixture('otel-openinference.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ attributes: Array<{ key: string; value: { stringValue?: string } }> }> }> }> };
-    const value = (span: number, key: string) => JSON.parse(logged.resourceSpans[0]!.scopeSpans[0]!.spans[span]!.attributes.find((x) => x.key === key)!.value.stringValue!);
+    const value = (span: number, key: string) => JSON.parse(logged.resourceSpans[0].scopeSpans[0].spans[span].attributes.find((x) => x.key === key)!.value.stringValue!);
     const [first, tool, second] = callsOf(store, result.run.runId);
-    expect(first!.request).toEqual(value(0, 'input.value'));
-    expect(JSON.parse(first!.response as string)).toEqual(value(0, 'output.value'));
-    expect(tool!.request).toEqual({ args: { order_id: 'B-7' } });
-    expect(tool!.response).toEqual({ result: { order_id: 'B-7', amount: 40, status: 'delivered' } });
-    expect(second!.request).toEqual(value(1, 'input.value'));
-    expect(second!.end.meta.usage).toMatchObject({ inputTokens: 151, outputTokens: 14 });
+    expect(first.request).toEqual(value(0, 'input.value'));
+    expect(JSON.parse(first.response as string)).toEqual(value(0, 'output.value'));
+    expect(tool.request).toEqual({ args: { order_id: 'B-7' } });
+    expect(tool.response).toEqual({ result: { order_id: 'B-7', amount: 40, status: 'delivered' } });
+    expect(second.request).toEqual(value(1, 'input.value'));
+    expect(second.end.meta.usage).toMatchObject({ inputTokens: 151, outputTokens: 14 });
     store.close();
   });
 
   it('rebuilds from the flattened messages and tools when the request itself was not logged', () => {
     const doc = JSON.parse(fixture('otel-openinference.json')) as { resourceSpans: Array<{ scopeSpans: Array<{ scope: { name: string }; spans: Array<{ attributes: Array<{ key: string }> }> }> }> };
     // As the LlamaIndex instrumentation writes it: no provider request in input.value.
-    doc.resourceSpans[0]!.scopeSpans[0]!.scope.name = 'openinference.instrumentation.llama_index';
+    doc.resourceSpans[0].scopeSpans[0].scope.name = 'openinference.instrumentation.llama_index';
     const [trace] = readOtel([doc]).traces;
     const store = open();
-    const { result } = importTrace(store, trace!, { source: 'phoenix.json' });
+    const { result } = importTrace(store, trace, { source: 'phoenix.json' });
     const [first, , second] = callsOf(store, result.run.runId);
-    expect(first!.request).toEqual({
+    expect(first.request).toEqual({
       model: 'gpt-4.1-mini',
       temperature: 0,
       tools: [{ type: 'function', function: { name: 'lookup_order', description: 'Look an order up by its id.', parameters: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] } } }],
@@ -312,8 +312,8 @@ describe("import otel: OpenInference's conventions (Arize Phoenix)", () => {
         { role: 'user', content: 'Refund order B-7, please.' },
       ],
     });
-    expect(JSON.parse(first!.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_b7', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
-    expect((second!.request.messages as unknown[]).slice(2)).toEqual([
+    expect(JSON.parse(first.response as string).choices[0]).toMatchObject({ finish_reason: 'tool_calls', message: { tool_calls: [{ id: 'call_b7', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] } });
+    expect((second.request.messages as unknown[]).slice(2)).toEqual([
       { role: 'assistant', content: null, tool_calls: [{ id: 'call_b7', type: 'function', function: { name: 'lookup_order', arguments: '{"order_id": "B-7"}' } }] },
       { role: 'tool', tool_call_id: 'call_b7', content: '{"order_id":"B-7","amount":40,"status":"delivered"}' },
     ]);
@@ -341,11 +341,11 @@ describe('a trace is a file from anywhere', () => {
       },
     ]);
     const [trace] = read.traces;
-    expect(trace!.id).toBe('abc\\x1b]0;pwned\\x07');
+    expect(trace.id).toBe('abc\\x1b]0;pwned\\x07');
     const store = open();
-    const { result } = importTrace(store, trace!, { source: 's' });
+    const { result } = importTrace(store, trace, { source: 's' });
     expect(result.skipped).toEqual([{ url: 'span chat \\x1b[2J', reason: 'the model call failed at its source (failed\\n\\x1b[31mred)' }]);
-    expect(trace!.calls.find((c) => c.kind === 'tool')).toMatchObject({ name: 'look\\x1b[0mup' });
+    expect(trace.calls.find((c) => c.kind === 'tool')).toMatchObject({ name: 'look\\x1b[0mup' });
     store.close();
   });
 });
@@ -372,11 +372,11 @@ describe('import langfuse', () => {
     expect(result.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
     const calls = callsOf(store, result.run.runId);
     expect(calls.map((c) => `${c.kind}:${c.name}`)).toEqual(['api:POST /v1/chat/completions', 'tool:lookup_order', 'api:POST /v1/chat/completions', 'api:POST /v1/chat/completions']);
-    expect(calls[0]!.request).toMatchObject({ model: 'gpt-4.1-mini', temperature: 0, max_tokens: 512 });
-    expect((calls[0]!.request.tools as unknown[]).length).toBe(2);
-    expect(calls[3]!.request.messages).toHaveLength(6);
-    expect(JSON.parse(calls[3]!.response as string).choices[0].message.content).toBe("I'm sorry it arrived broken. A replacement ships today as S-5531.");
-    expect(calls[0]!.end.meta.usage).toEqual({ inputTokens: 812, outputTokens: 25 });
+    expect(calls[0].request).toMatchObject({ model: 'gpt-4.1-mini', temperature: 0, max_tokens: 512 });
+    expect((calls[0].request.tools as unknown[]).length).toBe(2);
+    expect(calls[3].request.messages).toHaveLength(6);
+    expect(JSON.parse(calls[3].response as string).choices[0].message.content).toBe("I'm sorry it arrived broken. A replacement ships today as S-5531.");
+    expect(calls[0].end.meta.usage).toEqual({ inputTokens: 812, outputTokens: 25 });
     store.close();
   });
 });
@@ -393,7 +393,7 @@ describe('import langsmith', () => {
     // create_replacement logged its arguments as Python text, so it can't match and runs live.
     expect(result.run.meta?.covers).toEqual(['api', 'tool:lookup_order']);
     const [first, tool, second] = callsOf(store, result.run.runId);
-    expect(first!.request).toEqual({
+    expect(first.request).toEqual({
       model: 'claude-haiku-4-5',
       max_tokens: 1024,
       temperature: 0,
@@ -404,25 +404,25 @@ describe('import langsmith', () => {
         { name: 'create_replacement', description: 'Ship a replacement for an order.', input_schema: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] } },
       ],
     });
-    expect(JSON.parse(first!.response as string)).toMatchObject({ content: [{ type: 'tool_use', id: 'toolu_01X', name: 'lookup_order', input: { order_id: 'A-1042' } }], stop_reason: 'tool_use' });
+    expect(JSON.parse(first.response as string)).toMatchObject({ content: [{ type: 'tool_use', id: 'toolu_01X', name: 'lookup_order', input: { order_id: 'A-1042' } }], stop_reason: 'tool_use' });
     // The ToolMessage's content is what the model saw.
     expect(tool).toMatchObject({ request: { args: { order_id: 'A-1042' } }, response: { result: { order_id: 'A-1042', status: 'delivered' } } });
-    expect((second!.request.messages as unknown[]).slice(1)).toEqual([
+    expect((second.request.messages as unknown[]).slice(1)).toEqual([
       { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_01X', name: 'lookup_order', input: { order_id: 'A-1042' } }] },
       { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_01X', content: '{"order_id": "A-1042", "status": "delivered"}' }] },
     ]);
     // LangChain counts cached input as input; Anthropic reports it apart.
-    expect(second!.end.meta.usage).toEqual({ inputTokens: 128, outputTokens: 12, cacheReadInputTokens: 384, cacheCreationInputTokens: 0 });
+    expect(second.end.meta.usage).toEqual({ inputTokens: 128, outputTokens: 12, cacheReadInputTokens: 384, cacheCreationInputTokens: 0 });
     store.close();
   });
 
   it('keeps the request and response a wrapped client logged, exactly', () => {
-    const wrapped = (JSON.parse(fixture('langsmith-wrapped.json')) as { pages: Array<{ runs: Array<Record<string, unknown>> }> }).pages[0]!.runs;
+    const wrapped = (JSON.parse(fixture('langsmith-wrapped.json')) as { pages: Array<{ runs: Array<Record<string, unknown>> }> }).pages[0].runs;
     const store = open();
     const { result } = importTrace(store, readLangsmith(wrapped, '0192f4c1-8e2d-7a3b-b6c4-5d9e0f1a9999'), { source: 'langsmith:0192f4c1' });
     const [call] = callsOf(store, result.run.runId);
-    expect(call!.request).toEqual({ messages: [{ role: 'system', content: 'Answer in one word.' }, { role: 'user', content: 'Capital of France?' }], model: 'gpt-4.1-mini', temperature: 0, max_tokens: 16 });
-    expect(JSON.parse(call!.response as string)).toEqual(wrapped[0]!.outputs);
+    expect(call.request).toEqual({ messages: [{ role: 'system', content: 'Answer in one word.' }, { role: 'user', content: 'Capital of France?' }], model: 'gpt-4.1-mini', temperature: 0, max_tokens: 16 });
+    expect(JSON.parse(call.response as string)).toEqual(wrapped[0].outputs);
     store.close();
   });
 });
@@ -479,10 +479,10 @@ describe('reading what traces log', () => {
     };
     const { result } = importTrace(store, trace, { source: 's' });
     const [call] = callsOf(store, result.run.runId);
-    expect(call!.request).toMatchObject({ stream: true });
-    expect(call!.end.meta.headers?.['content-type']).toMatch(/text\/event-stream/);
-    expect(call!.response).toContain('event: message_stop');
-    expect(call!.end.meta).toMatchObject({ usage: { inputTokens: 10, outputTokens: 2 }, stopReason: 'end_turn' });
+    expect(call.request).toMatchObject({ stream: true });
+    expect(call.end.meta.headers?.['content-type']).toMatch(/text\/event-stream/);
+    expect(call.response).toContain('event: message_stop');
+    expect(call.end.meta).toMatchObject({ usage: { inputTokens: 10, outputTokens: 2 }, stopReason: 'end_turn' });
     store.close();
   });
 });
@@ -504,7 +504,7 @@ describe('reading a trace store', () => {
       });
     });
     await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
-    return `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   };
 
   it('accepts https anywhere and http on this machine only, and never a URL with credentials in it', () => {

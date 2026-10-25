@@ -60,7 +60,7 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], opti
     const bytes = rules.length ? redactBytes(recorded, rules, c) : recorded;
     // A credential header a recording made before it was known to be one kept leaves without its value,
     // and the organization a key belonged to not at all.
-    const responseHeaders = masked(credentialFreeHeaders((c.end.meta.headers ?? {}) as Record<string, string>));
+    const responseHeaders = masked(credentialFreeHeaders((c.end.meta.headers ?? {})));
     const mimeType = responseHeaders['content-type'] ?? 'application/json';
     const time = Math.max(0, (c.end.at ?? c.at) - c.at);
     // The headers that fingerprint have to travel, or a re-import matches nothing.

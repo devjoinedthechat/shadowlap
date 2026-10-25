@@ -1,0 +1,3 @@
+# The Python outside the SDK (the guard's preloads, test agents, the demo store's agents, examples)
+# is linted with the SDK's rules: they live in sdks/python/pyproject.toml.
+extend = "sdks/python/pyproject.toml"

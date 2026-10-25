@@ -32,7 +32,7 @@ beforeAll(() => {
   git('commit', '-qm', 'Shorten the policy summary');
   rev.policy = git('rev-parse', '--short=7', 'HEAD');
   // A branch from the first commit that went its own way.
-  git('checkout', '-q', '-b', 'side', rev.start!);
+  git('checkout', '-q', '-b', 'side', rev.start);
   writeFileSync(join(repo, 'side.txt'), 'elsewhere\n');
   git('add', '-A');
   git('commit', '-qm', 'Try another prompt');
@@ -54,36 +54,36 @@ describe('the code between two revisions', () => {
   });
 
   it('counts the commits from the older revision to the newer, newest subject first', async () => {
-    expect(await readCodeChange(repo, rev.start!, rev.limit!)).toEqual({ commits: 1, newer: 'b', subjects: ['harness: pass refund_limit through'], uncommitted: false });
-    expect(await readCodeChange(repo, rev.start!, rev.policy!)).toEqual({ commits: 2, newer: 'b', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
+    expect(await readCodeChange(repo, rev.start, rev.limit)).toEqual({ commits: 1, newer: 'b', subjects: ['harness: pass refund_limit through'], uncommitted: false });
+    expect(await readCodeChange(repo, rev.start, rev.policy)).toEqual({ commits: 2, newer: 'b', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
     // Compared the other way round, the newer run is a.
-    expect(await readCodeChange(repo, rev.policy!, rev.start!)).toEqual({ commits: 2, newer: 'a', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
+    expect(await readCodeChange(repo, rev.policy, rev.start)).toEqual({ commits: 2, newer: 'a', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
   });
 
   it('says only uncommitted changes differ on the same commit, and that branches went separate ways', async () => {
-    expect(await readCodeChange(repo, rev.limit!, `${rev.limit}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
-    expect(await readCodeChange(repo, rev.policy!, rev.side!)).toEqual({ commits: null, newer: null, subjects: [], uncommitted: false });
+    expect(await readCodeChange(repo, rev.limit, `${rev.limit}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
+    expect(await readCodeChange(repo, rev.policy, rev.side)).toEqual({ commits: null, newer: null, subjects: [], uncommitted: false });
   });
 
   it('knows one commit named by abbreviations of two lengths, as git gives more digits as a repository grows', async () => {
-    const full = execFileSync('git', ['rev-parse', rev.limit!], { cwd: repo }).toString().trim();
+    const full = execFileSync('git', ['rev-parse', rev.limit], { cwd: repo }).toString().trim();
     const longer = full.slice(0, 10);
-    expect(await readCodeChange(repo, rev.limit!, longer)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
-    expect(await readCodeChange(repo, longer, rev.limit!)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
+    expect(await readCodeChange(repo, rev.limit, longer)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
+    expect(await readCodeChange(repo, longer, rev.limit)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: false, same: true });
     // The same commit with uncommitted changes on one side still says so.
-    expect(await readCodeChange(repo, rev.limit!, `${longer}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
+    expect(await readCodeChange(repo, rev.limit, `${longer}+dirty`)).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
   });
 
   it('says nothing for the same revision, a commit this checkout lacks, a name that is no commit, or no folder', async () => {
-    expect(await readCodeChange(repo, rev.limit!, rev.limit!)).toBeNull();
-    expect(await readCodeChange(repo, rev.limit!, '1fb4209c0ffee00000000000000000000000beef')).toBeNull();
-    expect(await readCodeChange(repo, rev.limit!, 'main')).toBeNull();
-    expect(await readCodeChange(repo, null, rev.limit!)).toBeNull();
-    expect(await readCodeChange(null, rev.start!, rev.limit!)).toBeNull();
+    expect(await readCodeChange(repo, rev.limit, rev.limit)).toBeNull();
+    expect(await readCodeChange(repo, rev.limit, '1fb4209c0ffee00000000000000000000000beef')).toBeNull();
+    expect(await readCodeChange(repo, rev.limit, 'main')).toBeNull();
+    expect(await readCodeChange(repo, null, rev.limit)).toBeNull();
+    expect(await readCodeChange(null, rev.start, rev.limit)).toBeNull();
     // A folder that isn't a repository.
     const plain = realpathSync.native(mkdtempSync(join(tmpdir(), 'sl-compare-plain-')));
     try {
-      expect(await readCodeChange(plain, rev.start!, rev.limit!)).toBeNull();
+      expect(await readCodeChange(plain, rev.start, rev.limit)).toBeNull();
     } finally {
       rmSync(plain, { recursive: true, force: true });
     }
@@ -115,8 +115,8 @@ describe('GET /api/compare', () => {
       store.endRun(r.runId, 'completed');
       return r.runId;
     };
-    ids.before = run(rev.start!);
-    ids.after = run(rev.policy!);
+    ids.before = run(rev.start);
+    ids.after = run(rev.policy);
     ids.dirty = run(`${rev.policy}+dirty`);
     // Two runs whose model call #2 saw the policy tool answer differently.
     const policy = (result: string) => ({
@@ -150,11 +150,11 @@ describe('GET /api/compare', () => {
   };
 
   it('adds what git says about the code between the runs, read from the project folder', async () => {
-    const c = await get(ids.before!, ids.after!);
+    const c = await get(ids.before, ids.after);
     expect(c.changes.code).toEqual({ a: rev.start, b: rev.policy });
     expect(c.code).toEqual({ commits: 2, newer: 'b', subjects: ['Shorten the policy summary', 'harness: pass refund_limit through'], uncommitted: false });
-    expect((await get(ids.after!, ids.dirty!)).code).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
-    expect((await get(ids.after!, ids.after!)).code).toBeNull();
+    expect((await get(ids.after, ids.dirty)).code).toEqual({ commits: 0, newer: null, subjects: [], uncommitted: true });
+    expect((await get(ids.after, ids.after)).code).toBeNull();
   });
 
   it('marks the attempts among a run\'s children, so Compare on a recording opens its first fork or replay, never a probe', async () => {
@@ -176,8 +176,8 @@ describe('GET /api/compare', () => {
 
   it('says a prefix of several runs’ ids matches several runs, on the run endpoint and here, and a missing run is not there', async () => {
     let shared = 0;
-    while (ids.before![shared] === ids.after![shared]) shared++;
-    const prefix = ids.before!.slice(0, shared);
+    while (ids.before[shared] === ids.after[shared]) shared++;
+    const prefix = ids.before.slice(0, shared);
     const ask = (path: string) => fetch(`${dash.url}${path}`, { headers: { 'x-shadowlap-token': dash.token } });
     const several = await ask(`/api/runs/${prefix}`);
     expect(several.status).toBe(409);
@@ -192,7 +192,7 @@ describe('GET /api/compare', () => {
   });
 
   it('names what differs in the first request that differs, as the design does, with its path kept', async () => {
-    const c = await get(ids.recorded!, ids.forked!);
+    const c = await get(ids.recorded, ids.forked);
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
   });
 });

@@ -28,7 +28,7 @@ const run = (over: Partial<RunLike> = {}): RunLike => ({
   ...over,
 });
 
-const meta = (over: Partial<Meta> = {}): Meta => ({ version: '0.1.0', dbPath: '/home/dana/agent/.shadowlap/shadowlap.db', actions: true, ...over }) as Meta;
+const meta = (over: Partial<Meta> = {}): Meta => ({ version: '0.1.0', dbPath: '/home/dana/agent/.shadowlap/shadowlap.db', actions: true, ...over });
 
 describe('where the setup shows', () => {
   const at = (hash: string) => parseRoute(hash);
@@ -54,10 +54,10 @@ describe('where the setup shows', () => {
   it('waits until it can tell, never shows in an exported copy, and lets a run page open on its own', () => {
     expect(setupShowsOn(at('#/'), { exported: false, meta: null, runs: null })).toBeNull();
     // The meta's count tells before the run list arrives.
-    expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ counts: { runs: 0, attempts: 0 } } as Partial<Meta>), runs: null })).toBe(true);
+    expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ counts: { runs: 0, attempts: 0 } }), runs: null })).toBe(true);
     expect(setupShowsOn(at('#/run/01M50Y3WTS'), { exported: false, meta: null, runs: null })).toBe(false);
     expect(setupShowsOn(at('#/'), { exported: true, meta: null, runs: [] })).toBe(false);
-    expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ static: true } as Partial<Meta>), runs: [] })).toBe(false);
+    expect(setupShowsOn(at('#/'), { exported: false, meta: meta({ static: true }), runs: [] })).toBe(false);
   });
 });
 
@@ -71,7 +71,7 @@ describe('the setup on a dashboard that serves one store', () => {
     expect(asksForSetup(oneStore)).toBe(false);
     expect(asksForSetup(project)).toBe(true);
     // An exported copy answers without asking.
-    expect(asksForSetup(meta({ static: true } as Partial<Meta>))).toBe(true);
+    expect(asksForSetup(meta({ static: true }))).toBe(true);
   });
 
   it('says there is nothing to set up once the store has runs, and shows the steps from the first before, never made-up progress', () => {

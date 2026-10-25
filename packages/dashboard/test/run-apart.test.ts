@@ -58,7 +58,7 @@ function recording(o: { ended?: boolean } = {}) {
 /** Its recorder was killed: the store still names the process, and it is gone. */
 function leave(runId: string) {
   const db = new DatabaseSync(dbPath);
-  db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, runId);
+  db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, runId);
   db.close();
 }
 
@@ -226,9 +226,9 @@ describe('the HTML download', () => {
       const res = await api(d, `runs/${run.runId}/export`);
       expect(res.status).toBe(200);
       const html = await res.text();
-      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1]!.split('<\\/').join('</')) as { responses: Record<string, { run?: { status: string; endedAt: number | null } }> };
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)![1].split('<\\/').join('</')) as { responses: Record<string, { run?: { status: string; endedAt: number | null } }> };
       // Ended at its last sign of life: its calls here are stamped before it started.
-      expect(data.responses[`runs/${run.runId}`]!.run, `${redact.length} rules`).toMatchObject({ status: 'crashed', endedAt: run.startedAt });
+      expect(data.responses[`runs/${run.runId}`].run, `${redact.length} rules`).toMatchObject({ status: 'crashed', endedAt: run.startedAt });
       await dash?.close();
       dash = null;
     }

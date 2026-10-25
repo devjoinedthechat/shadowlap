@@ -301,7 +301,7 @@ export function chaosOfGolden(store: Store, golden: string): ChaosMatrix | null 
 export function chaosFlags(req: Record<string, unknown>): string[] | { error: string } {
   const out: string[] = [];
   if (req.presets !== undefined) {
-    const list = Array.isArray(req.presets) && req.presets.every((p) => typeof p === 'string') ? (req.presets as string[]) : null;
+    const list = Array.isArray(req.presets) && req.presets.every((p) => typeof p === 'string') ? (req.presets) : null;
     if (!list) return { error: `presets is a list of presets: ${CHAOS_PRESETS.join(', ')}` };
     try {
       out.push('--presets', parsePresets(list, 'presets').join(','));

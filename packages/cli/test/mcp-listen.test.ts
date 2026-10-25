@@ -71,7 +71,7 @@ function httpClient(endpoint: string) {
         if (done) break;
         text += new TextDecoder().decode(value);
         const got = events(text);
-        if (got.length) return { status: res.status, message: got[0]!.data, close: () => abort.abort() };
+        if (got.length) return { status: res.status, message: got[0].data, close: () => abort.abort() };
       }
       throw new Error('the stream ended');
     },
@@ -82,7 +82,7 @@ function httpClient(endpoint: string) {
   };
 }
 
-const text = (m: Message) => (m.result as { content: Array<{ text: string }> }).content[0]!.text;
+const text = (m: Message) => (m.result as { content: Array<{ text: string }> }).content[0].text;
 
 describe('shadowlap mcp --listen', () => {
   let store: Store;
@@ -91,7 +91,7 @@ describe('shadowlap mcp --listen', () => {
   let listener: McpListener;
   /** The run the next session records into: a long-running proxy asks when each session starts. */
   let current: ProxySidecar = null;
-  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL!, runId });
+  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL, runId });
 
   beforeAll(async () => {
     store = Store.open(':memory:');
@@ -141,7 +141,7 @@ describe('shadowlap mcp --listen', () => {
       ['read_note', 'read', 'ok'],
       ['send_note', 'write', 'ok'],
     ]);
-    expect(calls[0]!.meta.mcp).toMatchObject({ transport: 'http', server: new URL(server.url).host });
+    expect(calls[0].meta.mcp).toMatchObject({ transport: 'http', server: new URL(server.url).host });
     // Every request reached the server in its session with the proxy's header; the client's own DELETE ended it.
     expect(server.seen.filter((s) => s.http === 'POST' && s.method !== 'initialize').every((s) => s.session === 'session-1' && s.authorization === 'Bearer t0ken')).toBe(true);
     expect(server.seen.at(-1)).toMatchObject({ http: 'DELETE', session: 'session-1' });
@@ -192,7 +192,7 @@ describe('shadowlap mcp --listen', () => {
     expect(failed.status).toBe(500);
     sidecar.endRun(rec.runId, 'completed');
     const [call] = store.getCalls(rec.runId);
-    expect(call!.end?.outcome).toBe('error');
+    expect(call.end?.outcome).toBe('error');
     current = null;
   });
 
@@ -230,10 +230,10 @@ describe('shadowlap mcp --listen, as a command', () => {
     const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url, '--listen', '127.0.0.1:0'], { cwd: project, env: { ...process.env, SHADOWLAP_URL: '', SHADOWLAP_RUN_ID: '', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     const endpoint = await new Promise<string>((resolve, reject) => {
-      child.stderr!.on('data', (chunk: Buffer) => {
+      child.stderr.on('data', (chunk: Buffer) => {
         err += chunk.toString();
         const m = /serving \S+ at (http:\/\/127\.0\.0\.1:\d+\/mcp)/.exec(err);
-        if (m) resolve(m[1]!);
+        if (m) resolve(m[1]);
       });
       child.once('exit', (code) => reject(new Error(`exited ${code}: ${err}`)));
     });

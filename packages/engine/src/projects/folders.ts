@@ -201,7 +201,7 @@ export function describeFolder(folder: string, options: { home?: string; display
   const names = languages.map((l) => LANGUAGE_NAMES[l]);
   // One language shows its manager (`Python · uv`); two show the languages (`Python · Node`), as a
   // manager no longer says which side it belongs to.
-  const kind = languages.length === 1 && managers.length ? `${names[0]} · ${managers[0]}` : names.join(' · ');
+  const kind = languages.length === 1 && managers.length ? `${names[0]!} · ${managers[0]!}` : names.join(' · ');
   // The files that tell it, manifests then lockfiles, as the folder list shows them: `Python · uv · pyproject.toml · uv.lock`.
   const files = [...manifests.map(([name]) => name), ...locks.map(([name]) => name)];
   return {

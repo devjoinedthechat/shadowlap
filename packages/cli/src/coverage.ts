@@ -120,7 +120,7 @@ export function scanCoverage(
   const notPacked = (o.pack ?? []).filter((p) => !p.golden).map((p) => ({ key: p.key, reason: p.reason ?? ('no-command' as const), why: p.why ?? '' }));
   const infos = listGoldens(o.projectDir, o.tests, o.folder ?? GOLDENS_FOLDER);
   // Effects first: what the config names, then each golden's recorded calls, then the store's.
-  const configured = new Map<string, Effect>(Object.entries(o.config.mcp?.effects ?? {}) as Array<[string, Effect]>);
+  const configured = new Map<string, Effect>(Object.entries<Effect>(o.config.mcp?.effects ?? {}));
   const opened: Array<{ info: (typeof infos)[number]; dir: string; read: { store: Store; run: RunRecord } | null; error: string | null }> = infos.map((info) => {
     const dir = resolve(o.projectDir, info.path);
     if (info.error) return { info, dir, read: null, error: info.error };

@@ -83,13 +83,13 @@ const oneLine = (v: unknown, max = VALUE_SHOWN): string => {
 
 /** A tool call's arguments as stored (`{ args }`), masked by the project's normalizers for that tool. */
 function argsOf(store: Store, c: CallRecord, normalizers: readonly Normalizer[]): unknown {
-  let request: unknown = null;
+  let request: unknown;
   try {
     request = c.requestRef ? store.getJson(c.requestRef) : null;
   } catch {
     request = null;
   }
-  const args = request && typeof request === 'object' && 'args' in request ? (request as { args: unknown }).args : request;
+  const args = request && typeof request === 'object' && 'args' in request ? (request).args : request;
   if (!normalizers.length) return args;
   return (applyNormalizers({ args }, [...normalizers], 'tool', c.name) as { args: unknown }).args;
 }

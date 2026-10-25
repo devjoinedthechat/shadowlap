@@ -59,19 +59,19 @@ describe('read models on threads beside the server', () => {
   it('answer as the same job worked out on the server’s thread', async () => {
     await warmed();
     for (const job of [
-      { kind: 'run', runId: id.rec!, read: {} },
-      { kind: 'run', runId: id.fork!, read: {} },
-      { kind: 'call', runId: id.rec!, read: {}, callNo: 1 },
-      { kind: 'lineage', runId: id.fork!, read: {} },
-      { kind: 'compare', a: id.rec!, b: id.fork!, cwd: null },
+      { kind: 'run', runId: id.rec, read: {} },
+      { kind: 'run', runId: id.fork, read: {} },
+      { kind: 'call', runId: id.rec, read: {}, callNo: 1 },
+      { kind: 'lineage', runId: id.fork, read: {} },
+      { kind: 'compare', a: id.rec, b: id.fork, cwd: null },
       { kind: 'runs-page', options: { q: 'refund_agent' }, team: null },
       { kind: 'runs-days', options: { tz: 'UTC', now: NOW }, team: null },
       { kind: 'recent', read: {} },
       { kind: 'calls', runId: long.runId, read: {}, from: 201, limit: 100 },
-      { kind: 'differences', runId: id.fork!, normalizers: [] },
+      { kind: 'differences', runId: id.fork, normalizers: [] },
       { kind: 'groups', fixId: 'fix_nothing' },
       { kind: 'activity', before: null },
-      { kind: 'show', runId: id.rec!, read: {} },
+      { kind: 'show', runId: id.rec, read: {} },
     ] satisfies ReadJob[]) {
       const [there, here] = await both(job);
       expect(there, job.kind).toEqual(here);

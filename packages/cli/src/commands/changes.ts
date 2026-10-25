@@ -94,7 +94,7 @@ export function decisionsInconclusive(r: DecisionsReport): string | null {
   const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => judgeOpen(s)));
   if (unjudged.length) return `${unjudged.length} run${unjudged.length === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
   if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
-  if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]}`;
+  if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]!}`;
   return null;
 }
 
@@ -145,7 +145,7 @@ export function register(program: Command): void {
           else process.stdout.write(`\n${verifyLines(out.verify, `${out.sessionId}, ${out.change}`)}`);
           emitJobEvent({ type: 'result', data: out as unknown as Record<string, unknown> });
           const v = out.verify;
-          const why = v.verdict === 'incomplete' ? 'verify did not settle every run it took' : v.verdict === 'not-run' && v.reasons.length ? `verify did not run: ${v.reasons[0]}` : null;
+          const why = v.verdict === 'incomplete' ? 'verify did not settle every run it took' : v.verdict === 'not-run' && v.reasons.length ? `verify did not run: ${v.reasons[0]!}` : null;
           process.exitCode = v.verdict === 'rejected' ? EXIT.failed : inconclusiveExit(flags.inconclusive, why);
         } catch (err) {
           failed(err, flags.json, 'decisions');

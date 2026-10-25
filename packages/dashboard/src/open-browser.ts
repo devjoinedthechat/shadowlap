@@ -70,7 +70,7 @@ export async function openInBrowser(url: string, o: OpenOptions = {}): Promise<b
   const [cmd, args] = process.platform === 'darwin' ? ['open', [file]] : process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', file]] : ['xdg-open', [file]];
   return new Promise((resolve) => {
     try {
-      const child = spawn(cmd as string, args as string[], { stdio: 'ignore', detached: true });
+      const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
       child.on('error', () => {
         remove();
         resolve(false);

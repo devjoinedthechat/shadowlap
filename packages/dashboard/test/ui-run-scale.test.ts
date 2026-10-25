@@ -101,14 +101,14 @@ describe('a long list drawn a window at a time', () => {
     const ms = LONG.filter((c) => c.kind === 'api');
     const bars = contextBars(ms, new Map([[25_001, 4096]]));
     expect(bars.length).toBeLessThanOrEqual(MAX_BARS);
-    expect(bars[0]!.first).toBe(1);
+    expect(bars[0].first).toBe(1);
     expect(bars.at(-1)!.last).toBe(49_999);
     expect(bars.reduce((s, b) => s + b.size, 0)).toBe(25_000);
     // The largest context in a range is its last call's here: each reads a little more from the cache.
-    expect(bars[0]!.call.callNo).toBe(bars[0]!.last);
+    expect(bars[0].call.callNo).toBe(bars[0].last);
     const missed = bars.filter((b) => b.miss);
     expect(missed).toHaveLength(1);
-    expect(missed[0]!.miss).toEqual({ tokens: 4096, callNo: 25_001 });
+    expect(missed[0].miss).toEqual({ tokens: 4096, callNo: 25_001 });
     // A short run keeps a bar per call.
     expect(contextBars(ms.slice(0, 30), new Map())).toHaveLength(30);
     const run = { run: { divergence: null }, cache: { misses: [] } } as unknown as RunDetail;

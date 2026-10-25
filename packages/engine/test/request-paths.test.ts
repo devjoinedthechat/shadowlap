@@ -145,7 +145,7 @@ describe('compareRuns names what differs', () => {
     const a = store.createRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
     const b = store.createRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
     const changed = structuredClone(anthropic);
-    changed.messages[2]!.content = [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"approval":"tier2","refund_limit":100}' }];
+    changed.messages[2].content = [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"approval":"tier2","refund_limit":100}' }];
     addApi(store, a, 1, anthropic);
     addApi(store, b, 1, changed);
     const c = compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));

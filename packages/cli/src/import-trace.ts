@@ -179,7 +179,7 @@ export function epochNs(v: unknown): string | null {
   const ms = epochMs(v);
   if (ms === null) return null;
   const fraction = typeof v === 'string' ? /^(.*:\d\d)\.(\d+)(.*)$/.exec(v) : null;
-  const seconds = fraction ? epochMs(`${fraction[1]}${fraction[3]}`) : null;
+  const seconds = fraction ? epochMs(`${fraction[1]!}${fraction[3]!}`) : null;
   if (!fraction || seconds === null) return msToNs(ms);
   return `${BigInt(seconds) * 1_000_000n + BigInt(fraction[2]!.slice(0, 9).padEnd(9, '0'))}`;
 }
@@ -281,7 +281,7 @@ function partsOfContent(content: unknown, role: Role): Part[] {
   if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
   if (!Array.isArray(content)) return content === null || content === undefined ? [] : [{ type: 'text', text: textOf(content) }];
   const parts: Part[] = [];
-  for (const logged of content) {
+  for (const logged of content as unknown[]) {
     const block = (role === 'assistant' && printedBlock(logged)) || logged;
     if (typeof block === 'string') {
       if (block) parts.push({ type: 'text', text: block });
@@ -393,7 +393,8 @@ export function outputOf(raw: unknown): TraceModelCall['output'] {
   }
   // LangChain LLMResult.
   if (Array.isArray(raw.generations)) {
-    const first = Array.isArray(raw.generations[0]) ? raw.generations[0][0] : raw.generations[0];
+    const generations = raw.generations as unknown[];
+    const first: unknown = Array.isArray(generations[0]) ? (generations[0] as unknown[])[0] : generations[0];
     if (!isObject(first)) return null;
     const info = isObject(first.generation_info) ? first.generation_info : {};
     const msg = isObject(first.message) ? messageOf({ type: 'ai', ...unwrapLangchain(first.message) }) : null;
@@ -448,7 +449,7 @@ export function settingsOf(...sources: unknown[]): ModelSettings {
     set('frequencyPenalty', num(pick('frequency_penalty', 'frequencyPenalty')));
     set('presencePenalty', num(pick('presence_penalty', 'presencePenalty')));
     const stop = maybeJson(pick('stop', 'stop_sequences', 'stopSequences', 'ls_stop'));
-    if (Array.isArray(stop) && stop.every((x) => typeof x === 'string') && stop.length) set('stop', stop as string[]);
+    if (Array.isArray(stop) && stop.every((x) => typeof x === 'string') && stop.length) set('stop', stop);
     else if (typeof stop === 'string' && stop) set('stop', [stop]);
   }
   return s;

@@ -114,7 +114,10 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
     for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, asked(store, c));
     return { conversations: runConversations(store, calls, { attribute: true }), asks };
   }
-  if (!byRun) following.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    following.set(store, byRun);
+  }
   let entry = byRun.get(run.runId);
   let conversations = entry?.live.update(calls) ?? null;
   if (!entry || !conversations) {
@@ -145,7 +148,10 @@ export function analysisKnown(store: Store, run: RunRecord, calls: readonly Call
 /** A run's conversations, cache misses and recorded durations, computed once per state of the run. */
 export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
   let byRun = analyses.get(store);
-  if (!byRun) analyses.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    analyses.set(store, byRun);
+  }
   const key = analysisKey(run, calls);
   const known = byRun.get(key);
   if (known) return known;
@@ -197,7 +203,10 @@ export const READ_PAST = LOOKAHEAD;
  */
 export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRecord[]): RunAnalysis {
   let byRun = prefixes.get(store);
-  if (!byRun) prefixes.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    prefixes.set(store, byRun);
+  }
   const key = analysisKey(run, part);
   let analysis = byRun.get(key);
   if (!analysis) {
@@ -281,7 +290,7 @@ function resultShortOf(store: Store, c: CallRecord): string | null {
   const key = `${c.end.responseRef ?? ''}\n${c.origin}\n${c.end.outcome}\n${typeof c.meta.http === 'string' ? 'http' : ''}\n${c.end.meta.error?.message ?? ''}`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let payload: unknown = null;
+  let payload: unknown;
   try {
     payload = c.end.responseRef ? store.getJson(c.end.responseRef) : null;
   } catch {
@@ -309,7 +318,7 @@ function saidLineOf(store: Store, c: CallRecord): string | null {
   const key = `${ref}\nsaid`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let line: string | null = null;
+  let line: string | null;
   try {
     const provider = c.end.meta.provider ?? c.meta.provider;
     const r = normalizeResponse(store.getBlob(ref), c.end.meta.headers?.['content-type'], c.end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
@@ -334,7 +343,7 @@ function valueLineOf(store: Store, c: CallRecord): string | null {
   const key = `${c.end.responseRef}\nvalue`;
   const known = lines.get(key);
   if (known !== undefined) return known;
-  let line: string | null = null;
+  let line: string | null;
   try {
     const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
     const v = payload && typeof payload === 'object' && 'result' in payload ? payload.result : undefined;

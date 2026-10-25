@@ -230,7 +230,7 @@ describe('a long run’s page', () => {
   it('says when a page could not be read, and tries again when a call is asked for', async () => {
     const { client, asked } = server(1200, 200);
     let fail = true;
-    const flaky = { ...client, calls: (id: string, from: number, limit?: number) => (fail ? ((fail = false), Promise.reject(new Error('the server stopped'))) : client.calls(id, from, limit)) } as unknown as Client;
+    const flaky = { ...client, calls: (id: string, from: number, limit?: number) => (fail ? ((fail = false), Promise.reject(new Error('the server stopped'))) : client.calls(id, from, limit)) };
     const out: { current: ReturnType<typeof usePagedRun> | null } = { current: null };
     function Host() {
       out.current = usePagedRun(flaky, answer(1200, 200));
@@ -257,7 +257,7 @@ describe('a long run’s page', () => {
     await r.until('a page asked for', () => needed.length > 0);
     expect(needed[0]).toBe(1);
     expect(pending().length).toBeGreaterThan(0);
-    expect(r.all('table.calls tbody tr[aria-busy] td.name')[0]!.textContent).toBe('Reading…');
+    expect(r.all('table.calls tbody tr[aria-busy] td.name')[0].textContent).toBe('Reading…');
   });
 
   it('reads a recording’s pages before it shows it: its page follows the newest call', async () => {

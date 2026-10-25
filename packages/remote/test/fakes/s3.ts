@@ -70,22 +70,22 @@ function verifyHeaderAuth(opts: FakeS3Options, req: IncomingMessage, rawPath: st
   const m = /^AWS4-HMAC-SHA256 Credential=([^/]+)\/(\d{8})\/([^/]+)\/s3\/aws4_request, SignedHeaders=([a-z0-9;-]+), Signature=([0-9a-f]{64})$/.exec(auth);
   if (!m) return 'AccessDenied';
   const [, keyId, , region, signedHeaders, signature] = m;
-  const secret = opts.keys[keyId!];
+  const secret = opts.keys[keyId];
   if (!secret) return 'InvalidAccessKeyId';
-  const token = opts.tokens?.[keyId!];
+  const token = opts.tokens?.[keyId];
   if (token && req.headers['x-amz-security-token'] !== token) return 'InvalidToken';
   const payloadHash = String(req.headers['x-amz-content-sha256'] ?? '');
   if (payloadHash !== 'UNSIGNED-PAYLOAD' && payloadHash !== createHash('sha256').update(body).digest('hex')) return 'XAmzContentSHA256Mismatch';
   const headers: Record<string, string> = {};
-  for (const name of signedHeaders!.split(';')) {
+  for (const name of signedHeaders.split(';')) {
     const v = req.headers[name];
     if (v === undefined) return 'SignatureDoesNotMatch';
     headers[name] = Array.isArray(v) ? v.join(',') : v;
   }
   const date = parseAmzDate(String(req.headers['x-amz-date'] ?? ''));
-  const scope = { region: region!, service: 's3', date, credentials: { accessKeyId: keyId!, secretAccessKey: secret, source: 'fake' } };
+  const scope = { region: region, service: 's3', date, credentials: { accessKeyId: keyId, secretAccessKey: secret, source: 'fake' } };
   const canon = canonicalRequest({ method: req.method!, path: rawPath, query: rawQuery, headers, payloadHash }, false);
-  const expected = createHmac('sha256', signingKey(secret, m[2]!, region!, 's3')).update(stringToSign(canon.text, scope)).digest('hex');
+  const expected = createHmac('sha256', signingKey(secret, m[2], region, 's3')).update(stringToSign(canon.text, scope)).digest('hex');
   return expected === signature ? null : 'SignatureDoesNotMatch';
 }
 
@@ -106,9 +106,9 @@ function verifyQueryAuth(opts: FakeS3Options, req: IncomingMessage, rawPath: str
     .join('&');
   const headers: Record<string, string> = {};
   for (const name of (params.get('X-Amz-SignedHeaders') ?? '').split(';')) headers[name] = String(req.headers[name] ?? '');
-  const scope = { region: region!, service: 's3', date, credentials: { accessKeyId: keyId!, secretAccessKey: secret, source: 'fake' } };
+  const scope = { region: region, service: 's3', date, credentials: { accessKeyId: keyId, secretAccessKey: secret, source: 'fake' } };
   const canon = canonicalRequest({ method: req.method!, path: rawPath, query: withoutSig, headers, payloadHash: 'UNSIGNED-PAYLOAD' }, false);
-  const expected = createHmac('sha256', signingKey(secret, day!, region!, 's3')).update(stringToSign(canon.text, scope)).digest('hex');
+  const expected = createHmac('sha256', signingKey(secret, day, region, 's3')).update(stringToSign(canon.text, scope)).digest('hex');
   return expected === signature ? null : 'SignatureDoesNotMatch';
 }
 

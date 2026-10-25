@@ -221,7 +221,7 @@ function CallRow({ b }: { b: BlameStep }) {
         {cells.map((c) => {
           if (c.kind === 'gap')
             return (
-              <li key={c.callNo} className="gap" title={`${c.skipped} calls left out`}>
+              <li key={c.callNo} className="gap" title={`${c.skipped!} calls left out`}>
                 <span className="pp" />
                 <span className="pl" />
                 <span className="nr">…</span>

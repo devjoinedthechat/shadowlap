@@ -107,7 +107,7 @@ export class S3Store implements ObjectStore {
   private async request(op: Op, method: string, key: string | null, query: string, opts: { body?: Buffer; headers?: Record<string, string>; maxBytes?: number; what?: string } = {}): Promise<HttpResponse> {
     for (let attempt = 0; ; attempt++) {
       const { origin, bucketPath } = await this.base();
-      const path = `${bucketPath}/${key === null ? '' : encodeKeyPath(key)}` || '/';
+      const path = `${bucketPath}/${key === null ? '' : encodeKeyPath(key)}`;
       const url = new URL(`${origin}${path}${query ? `?${query}` : ''}`);
       const credentials = await this.o.credentials();
       const region = this.o.endpoint ? (this.o.region ?? 'us-east-1') : await this.resolvedRegion();

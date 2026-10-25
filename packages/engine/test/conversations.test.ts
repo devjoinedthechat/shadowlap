@@ -23,10 +23,10 @@ describe('conversations in a batch run', () => {
     }
     // The tools a model call asked for, with the ids the provider gave them.
     const [get, m1, lookup, m2, refund] = byTicket.get(31)!;
-    expect(r.byCall.get(lookup!)).toEqual({ conversation: 31, starts: false, requestedBy: m1, toolUseId: 'toolu_31_1' });
-    expect(r.byCall.get(refund!)).toMatchObject({ requestedBy: m2, toolUseId: 'toolu_31_2' });
+    expect(r.byCall.get(lookup)).toEqual({ conversation: 31, starts: false, requestedBy: m1, toolUseId: 'toolu_31_1' });
+    expect(r.byCall.get(refund)).toMatchObject({ requestedBy: m2, toolUseId: 'toolu_31_2' });
     // Fetched before any model call asked: it goes with the conversation it feeds.
-    expect(r.byCall.get(get!)).toMatchObject({ conversation: 31, requestedBy: null, toolUseId: null });
+    expect(r.byCall.get(get)).toMatchObject({ conversation: 31, requestedBy: null, toolUseId: null });
     store.close();
   });
 
@@ -36,7 +36,7 @@ describe('conversations in a batch run', () => {
     const { r } = conv(store, runId);
     expect(r.conversations).toHaveLength(3);
     const [, m1, lookup] = byTicket.get(2)!;
-    expect(r.byCall.get(lookup!)).toEqual({ conversation: 2, starts: false, requestedBy: m1, toolUseId: 'toolu_2_1' });
+    expect(r.byCall.get(lookup)).toEqual({ conversation: 2, starts: false, requestedBy: m1, toolUseId: 'toolu_2_1' });
     store.close();
   });
 
@@ -124,11 +124,11 @@ describe('what counts as continuing a conversation', () => {
     const q2 = { role: 'user', content: [{ type: 'text', text: 'Summarise the incident.' }] };
     const result = { role: 'user', content: [{ ...toolResult('toolu_1', 'disk full'), cache_control: { type: 'ephemeral' } }] };
     b.model({ messages: [q2, assistant(answer), result] }, [text('The disk filled up.')]);
-    b.model({ messages: [q2, assistant([answer[1]!]), { role: 'user', content: [toolResult('toolu_1', 'disk full')] }, assistant([text('The disk filled up.')]), user('Why?')] }, [text('Logs were not rotated.')]);
+    b.model({ messages: [q2, assistant([answer[1]]), { role: 'user', content: [toolResult('toolu_1', 'disk full')] }, assistant([text('The disk filled up.')]), user('Why?')] }, [text('Logs were not rotated.')]);
     b.end();
     const { r } = conv(store, b.runId);
     expect(r.conversations).toHaveLength(1);
-    expect(r.conversations[0]!.modelCalls).toBe(3);
+    expect(r.conversations[0].modelCalls).toBe(3);
     store.close();
   });
 
@@ -284,7 +284,7 @@ describe('calls no model asked for', () => {
       expect(conversationRequestFor(calls, r, x.get)!.callNo).toBe(x.first);
       expect(r.byCall.get(x.close)!.conversation).toBe(t);
     }
-    expect(r.conversations[0]!.lastCallNo).toBe(byTicket.get(1)!.crm);
+    expect(r.conversations[0].lastCallNo).toBe(byTicket.get(1)!.crm);
     store.close();
   });
 

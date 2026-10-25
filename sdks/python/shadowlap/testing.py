@@ -36,7 +36,7 @@ import urllib.error
 import urllib.request
 import warnings
 from types import TracebackType
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type, cast
+from typing import Any, Literal, Optional, cast
 
 __all__ = ["ShadowlapReplayDiverged", "Recording", "recording", "record_mode", "under_shadowlap_run"]
 
@@ -82,14 +82,14 @@ class _Host:
         # This process's slot: the base URLs, SHADOWLAP_URL for the SDK, and capture's configuration.
         # They hold only while a recording runs (enter() to leave()), so code outside one is left alone.
         self.env = {key: value.replace("__SLOT__", self.slot) for key, value in info["env"].items()}
-        self._saved: Dict[str, Optional[str]] = {}
+        self._saved: dict[str, Optional[str]] = {}
         self._depth = 0
         if info["capture"]["python"] not in sys.path:
             sys.path.insert(0, info["capture"]["python"])
         # Capture reads its configuration when it is imported, so it is imported under the slot's.
         self.enter()
         try:
-            import _shadowlap_capture  # noqa: F401  (patches httpx, httpx2, requests, urllib3 and botocore)
+            import _shadowlap_capture  # noqa: F401 -- loaded for what it patches: httpx, httpx2, requests, urllib3 and botocore
         finally:
             self.leave()
 
@@ -127,12 +127,12 @@ class _Host:
                 os.environ[key] = value
         self._saved = {}
 
-    def post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
         try:
             # Never through a proxy: the host is on this machine's loopback.
             with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=120) as res:
-                return cast(Dict[str, Any], json.loads(res.read().decode("utf-8")))
+                return cast(dict[str, Any], json.loads(res.read().decode("utf-8")))
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")
             try:
@@ -151,7 +151,7 @@ class _Host:
                 self.process.kill()
 
 
-def _cli_command() -> List[str]:
+def _cli_command() -> list[str]:
     cli = os.environ.get("SHADOWLAP_CLI")
     if cli:
         if cli.endswith((".js", ".mjs", ".cjs")):
@@ -170,7 +170,7 @@ def _cli_command() -> List[str]:
 
 
 def _read_line(process: "subprocess.Popen[bytes]", timeout: float) -> str:
-    out: List[bytes] = []
+    out: list[bytes] = []
     stdout = process.stdout
     if stdout is None:
         return ""
@@ -237,7 +237,7 @@ class Recording:
         assert "refund issued" in rec.answer()
     """
 
-    def __init__(self, path: str, name: Optional[str] = None, mode: Optional[str] = None, command: Optional[List[str]] = None, root: Optional[str] = None):
+    def __init__(self, path: str, name: Optional[str] = None, mode: Optional[str] = None, command: Optional[list[str]] = None, root: Optional[str] = None):
         self.path = path
         self.name = name
         self.mode = record_mode(mode)
@@ -246,17 +246,17 @@ class Recording:
         self.run_id: Optional[str] = None
         #: ``record`` or ``replay``, once started.
         self.action: Optional[str] = None
-        self.result: Optional[Dict[str, Any]] = None
+        self.result: Optional[dict[str, Any]] = None
         # Whether this recording has pointed the process at its slot (see _Host.enter).
         self._entered = False
         # The placeholder keys a replay set, each with the value its variable had before (see _place).
-        self._placed: Dict[str, Tuple[Optional[str], str]] = {}
+        self._placed: dict[str, tuple[Optional[str], str]] = {}
 
     def start(self) -> "Recording":
         if under_shadowlap_run():
             return self
         host = _get_host(self.root)
-        body: Dict[str, Any] = {"recording": os.path.abspath(self.path), "slot": host.slot, "mode": self.mode, "name": self.name}
+        body: dict[str, Any] = {"recording": os.path.abspath(self.path), "slot": host.slot, "mode": self.mode, "name": self.name}
         if self.command:
             body["command"] = self.command
         started = host.post("/v1/recordings/start", body)
@@ -269,7 +269,7 @@ class Recording:
         self._place(started.get("placeholders") or {})
         return self
 
-    def _place(self, placeholders: Dict[str, str]) -> None:
+    def _place(self, placeholders: dict[str, str]) -> None:
         """Sets the placeholder keys a replay comes with (``shadowlap-offline-replay-placeholder``), each
         only where the variable holds no value, so a model client built the default way, which takes
         its key from the environment, sends what the recording answers. The replay is offline: no
@@ -292,7 +292,7 @@ class Recording:
                 os.environ[key] = before
         self._placed = {}
 
-    def _read(self) -> Dict[str, Any]:
+    def _read(self) -> dict[str, Any]:
         if self.run_id is None:
             if under_shadowlap_run():
                 raise ShadowlapTestError("this test has no recording of its own to read, because the test runner runs under shadowlap run or replay. Run the tests directly.")
@@ -301,14 +301,14 @@ class Recording:
             raise ShadowlapTestError("the recording has finished: read calls while the test runs")
         return _running_host().post("/v1/recordings/calls", {"runId": self.run_id})
 
-    def calls(self) -> List[Dict[str, Any]]:
+    def calls(self) -> list[dict[str, Any]]:
         """Every call so far, in order: model calls, tool calls, clock and random reads. Each is a dict with
         ``call_no``, ``kind``, ``name``, ``origin`` (``live``, ``replayed``, ``blocked``, ``stubbed``) and
         ``outcome``; tool calls add ``args`` and ``result`` or ``error``, model calls ``model``, and calls
         made in a scope ``scope``."""
         return [_call(c) for c in self._read()["calls"]]
 
-    def tool_calls(self, name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def tool_calls(self, name: Optional[str] = None) -> list[dict[str, Any]]:
         """Tool calls so far, or those of one tool. Calls blocked after a fork are included."""
         return [c for c in self.calls() if c["kind"] == "tool" and (name is None or c["name"] == name)]
 
@@ -345,7 +345,7 @@ class Recording:
     def __enter__(self) -> "Recording":
         return self.start()
 
-    def __exit__(self, exc_type: Optional[Type[BaseException]], exc: Optional[BaseException], tb: Optional[TracebackType]) -> Literal[False]:
+    def __exit__(self, exc_type: Optional[type[BaseException]], exc: Optional[BaseException], tb: Optional[TracebackType]) -> Literal[False]:
         if exc_type is None:
             self.finish(True)
         else:
@@ -356,7 +356,7 @@ class Recording:
         return False
 
 
-def _call(c: Dict[str, Any]) -> Dict[str, Any]:
+def _call(c: dict[str, Any]) -> dict[str, Any]:
     out = {"call_no": c["callNo"], "kind": c["kind"], "name": c["name"], "origin": c["origin"], "outcome": c["outcome"]}
     for key in ("scope", "model", "args", "result", "error"):
         if key in c:

@@ -336,7 +336,7 @@ export function compareDecisions(recorded: ModelDecision, now: ModelDecision, ef
       tool: now.handover ?? recorded.handover ?? undefined,
       before: recorded.handover,
       after: now.handover,
-      detail: now.handover ? (recorded.handover ? `it hands over with ${now.handover}, not ${recorded.handover}` : `it hands over with ${now.handover}`) : `it no longer hands over with ${recorded.handover}`,
+      detail: now.handover ? (recorded.handover ? `it hands over with ${now.handover}, not ${recorded.handover}` : `it hands over with ${now.handover}`) : `it no longer hands over with ${recorded.handover!}`,
     });
   }
 
@@ -862,7 +862,7 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
       lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${colour(`rank ${s.rank}`)}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.rank])}${often}`);
       lines.push(`         ${p.dim('recorded')} ${decisionLine(s.recorded)}`);
       lines.push(`         ${p.dim('now     ')} ${decisionLine(s.now)}${stepDelta(s) ? p.dim(`  ${stepDelta(s)}`) : ''}`);
-      for (const c of s.changes.filter((x) => x.kind === 'write-arguments' || x.kind === 'read-arguments')) for (const d of argsDelta(c.before, c.after)) lines.push(`         ${p.dim(`${c.tool}.`)}${d}`);
+      for (const c of s.changes.filter((x) => x.kind === 'write-arguments' || x.kind === 'read-arguments')) for (const d of argsDelta(c.before, c.after)) lines.push(`         ${p.dim(`${c.tool!}.`)}${d}`);
       for (const j of s.judge ?? []) lines.push(`         ${p.dim(`judge "${safeLine(j.name)}"`)} ${judgeWords(j, p)}`);
     }
     if (run.cost.before !== null || run.cost.after !== null) {

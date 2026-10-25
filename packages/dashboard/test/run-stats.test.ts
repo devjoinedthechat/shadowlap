@@ -120,7 +120,7 @@ describe('run statistics', () => {
         expect(originStrings(next, index, [index.byId.get(fork)!]).get(fork)).toBe('rrrlll');
         expect(runsRead(next)).toBe(0);
         // Totals kept under anything but the run's own key, or unreadable, are worked out again.
-        next.saveRunStats([{ runId: rec, key: 'an older format', stats: '{}' }, { runId: fork, key: next.query(`SELECT key FROM run_stats WHERE run_id = ?`, fork)[0]!.key as string, stats: 'not json' }]);
+        next.saveRunStats([{ runId: rec, key: 'an older format', stats: '{}' }, { runId: fork, key: next.query(`SELECT key FROM run_stats WHERE run_id = ?`, fork)[0].key as string, stats: 'not json' }]);
         const again = Store.open(path);
         try {
           expect(read(again)).toEqual(before);
@@ -240,16 +240,16 @@ describe('the prompt cache', () => {
         expect([runsRead(next), cachesRead(next)]).toEqual([0, 0]);
         // Totals kept before the model was carry three fields a miss: read as they are, with no model.
         const [row] = next.query(`SELECT key, stats FROM run_stats WHERE run_id = ?`, runId);
-        const kept = JSON.parse(String(row!.stats)) as { cache: { misses: unknown[][] } };
+        const kept = JSON.parse(String(row.stats)) as { cache: { misses: unknown[][] } };
         kept.cache.misses = kept.cache.misses.map((m) => m.slice(0, 3));
-        next.saveRunStats([{ runId, key: String(row!.key), stats: JSON.stringify(kept) }]);
+        next.saveRunStats([{ runId, key: String(row.key), stats: JSON.stringify(kept) }]);
       } finally {
         next.close();
       }
       const older = Store.open(path);
       try {
         const i3 = loadRunIndex(older);
-        expect(cacheTotalsOf(older, i3, [i3.byId.get(runId)!]).get(runId)).toEqual({ ...cache.get(runId)!, misses: [[3, null, cache.get(runId)!.misses[0]![2], null]] });
+        expect(cacheTotalsOf(older, i3, [i3.byId.get(runId)!]).get(runId)).toEqual({ ...cache.get(runId)!, misses: [[3, null, cache.get(runId)!.misses[0][2], null]] });
         expect(cachesRead(older)).toBe(0);
       } finally {
         older.close();

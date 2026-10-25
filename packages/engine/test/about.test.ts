@@ -187,6 +187,6 @@ describe('the about line in the browser', () => {
     const entry = fileURLToPath(new URL('../src/about.ts', import.meta.url));
     const out = await build({ entryPoints: [entry], bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent' });
     expect(out.errors).toEqual([]);
-    expect(out.outputFiles[0]!.text).toContain('the first thing the user asked');
+    expect(out.outputFiles[0].text).toContain('the first thing the user asked');
   });
 });

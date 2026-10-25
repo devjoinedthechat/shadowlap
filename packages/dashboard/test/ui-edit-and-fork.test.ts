@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CallDetail, JobView } from '../ui/api.js';
 import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import { render, type FakeElement, type Rendered } from './ui-render.js';
+import { render, type Rendered } from './ui-render.js';
 
 /**
  * Edit and fork, from the inspector: a tool's recorded result, or what a person answered, opens to
@@ -100,7 +100,7 @@ describe('Edit and fork in the inspector', () => {
     await page.click(page.byText('button', 'Edit and fork…'));
     const field = page.one('.editfork textarea');
     await page.type(field, '{"limit": 40,');
-    const ok = page.byText('.dlg-ok', 'Fork') as FakeElement;
+    const ok = page.byText('.dlg-ok', 'Fork');
     expect(ok.disabled).toBe(true);
     expect(field.getAttribute('aria-invalid')).toBe('true');
     expect(page.one('#editforkWhy').textContent).toMatch(/^Not JSON: /);

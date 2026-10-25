@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer as createHttp2Server } from 'node:http2';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { tmpdir } from 'node:os';
@@ -140,7 +141,7 @@ describe('fetch, captured, answered as fetch answers', () => {
   beforeAll(async () => {
     // Stands in for the sidecar: the answers fetch must make of a gzip body, a redirect, a slow body and a reset.
     fake = createServer((req: IncomingMessage, res: ServerResponse) => {
-      seen.push(`${req.method} ${req.url} ${req.headers['x-shadowlap-upstream'] ?? ''} ${req.headers['accept-encoding'] ?? ''} ${req.headers['user-agent'] ?? ''}`);
+      seen.push(`${req.method} ${req.url} ${String(req.headers['x-shadowlap-upstream'] ?? '')} ${req.headers['accept-encoding'] ?? ''} ${req.headers['user-agent'] ?? ''}`);
       req.resume();
       const path = req.url!.replace(/^\/t\/token\/r\/R1\/anthropic/, '');
       if (path === '/v1/gzip') res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync('{"ok":"unzipped"}'));
@@ -196,11 +197,11 @@ describe("the OpenAI SDK's Azure client, with OPENAI_BASE_URL pointed at the sid
     let provider: Server | null = null;
     const asked: string[] = [];
     provider = createServer((req, res) => {
-      asked.push(`${req.method} ${req.url} ${req.headers['api-key'] ?? req.headers.authorization ?? ''}`);
+      asked.push(`${req.method} ${req.url} ${String(req.headers['api-key'] ?? req.headers.authorization ?? '')}`);
       req.resume();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 'c1', object: 'chat.completion', created: 1, model: 'gpt', choices: [{ index: 0, message: { role: 'assistant', content: 'answered' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
     });
-    await new Promise<void>((r) => provider!.listen(0, '127.0.0.1', () => r()));
+    await new Promise<void>((r) => provider.listen(0, '127.0.0.1', () => r()));
     const upstream = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
     const sidecar = await Sidecar.start({ store, upstreams: { azure: upstream, openai: upstream } });
     const saved = process.env.OPENAI_BASE_URL;
@@ -243,7 +244,7 @@ console.log('children', execFileSync('sh', ['-c', 'echo "$OPENAI_BASE_URL"']).to
     } finally {
       if (saved !== undefined) process.env.OPENAI_BASE_URL = saved;
       await sidecar.close();
-      await new Promise<void>((res) => provider!.close(() => res()));
+      await new Promise<void>((res) => provider.close(() => res()));
     }
   });
 });
@@ -257,7 +258,7 @@ async function handshakes(): Promise<{ origin: string; upgrades: Array<{ url: st
     sockets.add(socket);
     upgrades.push({ url: req.url!, upstream: req.headers['x-shadowlap-upstream'] as string | undefined });
     const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
-    const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0]!.trim();
+    const protocol = String(req.headers['sec-websocket-protocol'] ?? '').split(',')[0].trim();
     socket.write(['HTTP/1.1 101 Switching Protocols', 'Upgrade: websocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${accept}`, ...(protocol ? [`Sec-WebSocket-Protocol: ${protocol}`] : []), '', ''].join('\r\n'));
     socket.end(Buffer.from([0x88, 0x00]));
   });
@@ -317,7 +318,7 @@ describe('a WebSocket for the sidecar', () => {
     expect(stdout).toContain('realtime open');
     expect(stdout).toContain('by-host open');
     expect(sidecar.upgrades.map((u) => u.url)).toEqual(['/t/token/openai/v1/realtime?model=m1', '/t/token/openai/v1/realtime?model=m2', '/t/token/openai/v1/realtime?model=m3', '/t/token/r/R1/openai/v1/realtime?model=m4']);
-    expect(sidecar.upgrades[3]!.upstream).toBe('https://api.openai.com');
+    expect(sidecar.upgrades[3].upstream).toBe('https://api.openai.com');
   });
 
   it("goes where it was going for a declared HTTP service, as the sidecar tunnels only a model provider's", async () => {
@@ -340,6 +341,55 @@ describe('a WebSocket for the sidecar', () => {
       expect(sidecar.upgrades).toHaveLength(before);
     } finally {
       await service.close();
+    }
+  });
+});
+
+describe('HTTP/2, captured', () => {
+  it("keeps a request's method, path and headers when the client gives them as raw headers", async () => {
+    // Node's http2 takes a request's headers as an object or as raw headers, [name, value, ...]. The
+    // capture redirects either to the sidecar; spread into an object, raw headers became numbered
+    // keys and the request lost its method and path.
+    const seen: Array<Record<string, unknown>> = [];
+    const upstream = createHttp2Server();
+    upstream.on('stream', (stream, headers) => {
+      seen.push({ method: headers[':method'], path: headers[':path'], test: headers['x-test'], keys: Object.keys(headers).filter((k) => /^\d+$/.test(k)) });
+      stream.resume();
+      stream.on('end', () => {
+        stream.respond({ ':status': 200, 'content-type': 'application/json' });
+        stream.end(JSON.stringify(message([{ type: 'text', text: 'raw and sound' }])));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}` } });
+    try {
+      const r = sidecar.startRun({ mode: 'record', command: { argv: ['node'], cwd: dir } });
+      const { stdout } = await agent(
+        'http2-raw',
+        `
+import http2 from 'node:http2';
+const session = http2.connect('https://bedrock-runtime.us-east-1.amazonaws.com');
+const req = session.request([':method', 'POST', ':path', '/model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke', 'content-type', 'application/json', 'x-test', 'raw']);
+let out = '';
+req.setEncoding('utf8');
+req.on('response', (h) => console.log('status', h[':status']));
+req.on('data', (c) => (out += c));
+req.on('end', () => {
+  console.log('answer', JSON.parse(out).content[0].text);
+  session.close();
+});
+req.end(JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }));
+`,
+        agentEnv(sidecar, r.runId, 'warn', {}),
+      );
+      expect(seen).toEqual([{ method: 'POST', path: '/model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke', test: 'raw', keys: [] }]);
+      expect(stdout).toContain('status 200');
+      expect(stdout).toContain('answer raw and sound');
+      sidecar.endRun(r.runId, 'completed');
+      expect(store.getCalls(r.runId).map((c) => c.name)).toEqual(['POST /model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke']);
+    } finally {
+      await sidecar.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   });
 });

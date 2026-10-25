@@ -105,7 +105,7 @@ describe('jobs', () => {
     expect((await post(`runs/${run.runId}/actions`, { key: 'r' })).status).toBe(429);
     // One stops, and there is room again.
     expect((await post(`jobs/${started[0]}/stop`, {})).status).toBe(200);
-    await waitDone(started[0]!);
+    await waitDone(started[0]);
     expect((await post('jobs', { kind: 'noop' })).status).toBe(202);
     for (const c of children) c.end(0);
     for (const id of started) await waitDone(id);
@@ -134,7 +134,7 @@ describe('jobs', () => {
       c.end(0);
     };
     const first = await waitDone(((await (await post('jobs', { kind: 'noop' })).json()) as JobView).id);
-    const file = first.files[0]!;
+    const file = first.files[0];
     expect(file).toMatchObject({ name: 'out.txt', label: 'Output', bytes: 14, directory: false });
     expect((await api(`files/${file.fileId}`)).status).toBe(200);
     for (let i = 0; i < KEEP_JOBS; i++) await waitDone(((await (await post('jobs', { kind: 'noop' })).json()) as JobView).id);
@@ -173,7 +173,7 @@ describe('uploads', () => {
       // All of them are still arriving: one more is refused before it writes anything.
       await expect(uploads.receive(upload('one-more.har') as unknown as IncomingMessage)).rejects.toMatchObject({ status: 429 });
       // One cut off gives its slot back, and leaves no file.
-      held[0]!.destroy();
+      held[0].destroy();
       await expect(arriving[0]).rejects.toMatchObject({ status: 400 });
       const late = upload('late.har');
       const lateDone = uploads.receive(late as unknown as IncomingMessage);

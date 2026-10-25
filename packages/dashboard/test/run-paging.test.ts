@@ -129,7 +129,7 @@ describe('the pages over HTTP', () => {
     const first = await get(`runs/${rec.runId}`);
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ callsTotal: 1201, callsNext: 201 });
-    const next = await get(`runs/${rec.runId}/calls?from=${first.body.callsNext}&limit=100`);
+    const next = await get(`runs/${rec.runId}/calls?from=${String(first.body.callsNext)}&limit=100`);
     expect(next.status).toBe(200);
     expect(callNos(next.body as never)).toEqual(range(201, 300));
     expect(next.body).toMatchObject({ runId: rec.runId, callsTotal: 1201, callsNext: 301 });
@@ -152,8 +152,8 @@ describe('an exported copy', () => {
     try {
       const rec = longRun(store, 1201);
       const out = exportHtml({ store, runIds: [rec.runId], now: NOW });
-      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(out.html)![1]!.replace(/\\u003c/g, '<')) as { responses: Record<string, RunDetail> };
-      const d = data.responses[`runs/${rec.runId}`]!;
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(out.html)![1].replace(/\\u003c/g, '<')) as { responses: Record<string, RunDetail> };
+      const d = data.responses[`runs/${rec.runId}`];
       expect(d.calls).toHaveLength(1201);
       expect(d.callsNext).toBeNull();
       expect(d.warming).toBeUndefined();

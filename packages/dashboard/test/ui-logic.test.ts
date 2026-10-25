@@ -184,7 +184,7 @@ describe('palette', () => {
 });
 
 describe('strip', () => {
-  const calls = (origins: string): StripItem[] => [...origins].map((ch, i) => ({ n: i + 1, origin: parseOrigins(ch)![0]! }));
+  const calls = (origins: string): StripItem[] => [...origins].map((ch, i) => ({ n: i + 1, origin: parseOrigins(ch)![0] }));
 
   it('keeps one cell per call up to the limit, with the fork and the lost call marked', () => {
     const cells = stripCells(calls('rrrrlb'), { selected: 5, forkAt: 5, lostAt: null });
@@ -295,7 +295,7 @@ describe('cache misses', () => {
       lead: 'Only #17 missed the cache.',
       parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again and wrote the prompt to the cache anew; the calls after it read it from there.'],
     });
-    expect(cacheNote(fork, cacheMisses(fork)).parts.join('')).not.toMatch(/every call after it/);
+    expect(cacheNote(fork, cacheMisses(fork)).parts.map((p) => (typeof p === 'string' ? p : p.code)).join('')).not.toMatch(/every call after it/);
     expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
     // A miss that wrote nothing to the cache says only what it sent again.
     const unwritten = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700)];
@@ -484,8 +484,8 @@ describe('runs', () => {
     // Today's list: an attempt of --repeat is a row like any other, so Runs says nothing about bundles.
     expect(bundlesAttempts([base, fork, clean])).toBe(false);
     // A list that bundles them counts each run's attempts, or names the run an attempt belongs to.
-    expect(bundlesAttempts([{ ...base, attempts: 3 } as RunLike])).toBe(true);
-    expect(bundlesAttempts([{ ...fork, attemptOf: base.runId } as RunLike])).toBe(true);
+    expect(bundlesAttempts([{ ...base, attempts: 3 }])).toBe(true);
+    expect(bundlesAttempts([{ ...fork, attemptOf: base.runId }])).toBe(true);
     // Or classifies it, by the engine's one rule (run-roles.ts): what made it an attempt.
     expect(bundlesAttempts([{ ...fork, attemptKind: 'repeat' }])).toBe(true);
   });
@@ -496,8 +496,8 @@ describe('runs', () => {
     expect(all.filter((r) => matchesChip(r, 'capture')).length).toBe(1);
     expect(all.filter((r) => matchesText(r, 'refund FLOW')).map((r) => r.runId)).toEqual([base.runId]);
     expect(all.filter((r) => matchesText(r, 'har')).map((r) => r.runId)).toEqual([capture.runId]);
-    expect(sortRuns(all, 'spent')[0]!.runId).toBe(base.runId);
-    expect(sortRuns(all, 'when')[0]!.runId).toBe(live.runId);
+    expect(sortRuns(all, 'spent')[0].runId).toBe(base.runId);
+    expect(sortRuns(all, 'when')[0].runId).toBe(live.runId);
     expect(isFailed({ ...base, checks: { passed: 1, total: 2 } })).toBe(true);
   });
 
@@ -533,7 +533,7 @@ describe('runs', () => {
     // A lineage deeper than the sidebar draws keeps to its deepest step: four, where a run's id and a
     // date beside it still fit the sidebar's width.
     const chain: RunLike[] = [base];
-    for (let i = 1; i <= 12; i++) chain.push({ ...fork, runId: `01K5CQ9X${String(i).padStart(2, '0')}0000000000000000`, parentRunId: chain[i - 1]!.runId, startedAt: 3000 + i });
+    for (let i = 1; i <= 12; i++) chain.push({ ...fork, runId: `01K5CQ9X${String(i).padStart(2, '0')}0000000000000000`, parentRunId: chain[i - 1].runId, startedAt: 3000 + i });
     expect(TREE_DEPTH).toBe(4);
     const deep = treeLines(runTree(chain));
     expect(deep.map((x) => x.depth)).toEqual([0, 1, 2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4]);
@@ -781,7 +781,7 @@ describe('overview grid', () => {
     const cells = gridCells(parseOrigins('rrrl')!, 30, 4);
     expect(cells).toHaveLength(30);
     expect(cells.slice(0, 4).map((c) => c.origin)).toEqual(['rep', 'rep', 'rep', 'live']);
-    expect(cells[3]!.fork).toBe(true);
+    expect(cells[3].fork).toBe(true);
     expect(cells[4]).toEqual({ origin: null, fork: false });
     const long = gridCells(parseOrigins('r'.repeat(119) + 'b')!, 120);
     expect(long).toHaveLength(60);
@@ -809,7 +809,7 @@ describe('strip origins of failed and fenced calls', () => {
     const calls = Array.from({ length: 5000 }, (_, i) => ({ n: i + 1, origin: displayOrigin({ origin: i + 1 === 2500 ? 'blocked' : i + 1 > 2000 ? 'live' : 'replayed', outcome: i + 1 === 4000 ? 'error' : 'ok' }) }));
     const cells = stripCells(calls, { selected: 4321, forkAt: 2001, lostAt: null });
     expect(cells.length).toBeLessThanOrEqual(360);
-    expect(cells[0]!.first).toBe(1);
+    expect(cells[0].first).toBe(1);
     expect(cells.at(-1)!.last).toBe(5000);
     expect(cells.find((c) => c.first <= 2500 && c.last >= 2500)).toMatchObject({ origin: 'block', target: 2500 });
     expect(cells.find((c) => c.mark === 'fork')).toMatchObject({ target: 2001 });

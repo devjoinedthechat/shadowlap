@@ -51,9 +51,9 @@ describe('previewRedaction', () => {
     // The system prompt and the first message go out again with every request; each counts once, as
     // does "bob@example.com" in the tool_use input and again in the tool's arguments. So: the system
     // prompt, the user turn, that address, the failed attempt's error and both streamed responses.
-    expect(email!.count).toBe(6);
-    expect(email!.samples).toHaveLength(2);
-    expect(email!.samples[0]).toEqual({ before: '…customers. The account owner is alice@example.com.', after: '…customers. The account owner is <EMAIL>.' });
+    expect(email.count).toBe(6);
+    expect(email.samples).toHaveLength(2);
+    expect(email.samples[0]).toEqual({ before: '…customers. The account owner is alice@example.com.', after: '…customers. The account owner is <EMAIL>.' });
     expect(key).toMatchObject({ n: 2, count: 1, reached: 1, samples: [{ before: 'sk-live-123', after: '<KEY>' }], note: null });
     expect(card).toMatchObject({ count: 0, note: 'no matches in this run', reached: null });
     // Two requests, two different user ids.
@@ -111,11 +111,11 @@ describe('previewRedaction', () => {
     store.endRun(run.runId, 'completed');
     const full = previewRedaction(store, run.runId, [EMAIL]);
     expect(full).toMatchObject({ calls: 5, partial: null, total: 5 });
-    expect(full.rules[0]!.samples[0]).toEqual({ before: 'mailbox of dana@example.com is full', after: 'mailbox of <EMAIL> is full' });
+    expect(full.rules[0].samples[0]).toEqual({ before: 'mailbox of dana@example.com is full', after: 'mailbox of <EMAIL> is full' });
     // The copy pack writes carries the error masked too.
     const dst = Store.open(':memory:');
     redactRun(store, run.runId, [EMAIL], dst);
-    expect(dst.getCalls(run.runId)[0]!.end!.meta.error).toEqual({ name: 'Error', message: 'mailbox of <EMAIL> is full' });
+    expect(dst.getCalls(run.runId)[0].end!.meta.error).toEqual({ name: 'Error', message: 'mailbox of <EMAIL> is full' });
     dst.close();
     expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 2 })).toMatchObject({ calls: 2, partial: { read: 2, of: 5, stopped: 'calls' }, total: 2 });
     expect(previewRedaction(store, run.runId, [EMAIL], { maxCalls: 5 }).partial).toBeNull();
@@ -183,7 +183,7 @@ describe('previewRedaction', () => {
     // The system prompt, each user turn, and each answer once: the event that streamed it holds the
     // same string as the conversation sends back.
     expect(p).toMatchObject({ calls: 400, partial: null });
-    expect(p.rules[0]!.count).toBe(1 + 400 + 400);
+    expect(p.rules[0].count).toBe(1 + 400 + 400);
     store.close();
   }, 30_000);
 
@@ -253,7 +253,7 @@ describe('previewRedaction', () => {
       const dst = Store.open(':memory:');
       redactRun(store, run.runId, [EMAIL], dst, { read });
       expect(dst.getCalls(run.runId).map((c) => c.name)).toEqual(['GET crm.internal:8080/v1/contacts/<EMAIL>', 'notify_bob@example.com']);
-      expect(dst.getCalls(run.runId)[0]!.end!.outcome).toBe('ok');
+      expect(dst.getCalls(run.runId)[0].end!.outcome).toBe('ok');
       expect(dst.getRun(run.runId)!.divergence!.name).toBe('GET crm.internal:8080/v1/contacts/<EMAIL>');
       dst.close();
     }
@@ -267,14 +267,14 @@ describe('previewRedaction', () => {
       const dst = Store.open(':memory:');
       redactRun(store, run.runId, [rule], dst);
       const [copied] = dst.getCalls(run.runId);
-      expect(copied!.name).toBe(name);
-      expect(JSON.stringify(dst.getJson(copied!.requestRef!)).includes('alice.martin'), JSON.stringify(rule)).toBe(name === http.name);
+      expect(copied.name).toBe(name);
+      expect(JSON.stringify(dst.getJson(copied.requestRef!)).includes('alice.martin'), JSON.stringify(rule)).toBe(name === http.name);
       dst.close();
     }
     const [r] = previewRedaction(store, run.runId, [EMAIL]).rules;
     // The address in the call's name and in its URL: two strings the copy changes.
-    expect(r!.count).toBe(2);
-    expect(r!.samples).toEqual([
+    expect(r.count).toBe(2);
+    expect(r.samples).toEqual([
       { before: '…crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…crm.internal:8080/v1/contacts/<EMAIL>' },
       { before: '…//crm.internal:8080/v1/contacts/alice.martin@example.com', after: '…//crm.internal:8080/v1/contacts/<EMAIL>' },
     ]);
@@ -390,13 +390,13 @@ describe("previewRedaction: the run's own record", () => {
     // The label once though blame repeats it; the check's detail, the probes' field, the flag, the diff's value and the header.
     expect(p.rules[0]).toMatchObject({ count: 6, note: null });
     expect(p.total).toBe(6);
-    expect(p.rules[0]!.samples[0]).toEqual({ before: 'dave@example.com', after: '<EMAIL>' });
+    expect(p.rules[0].samples[0]).toEqual({ before: 'dave@example.com', after: '<EMAIL>' });
     expect(p.details.count).toBe(0);
 
     // What the pack's copy masks there, the same values.
     const dst = Store.open(':memory:');
     const copy = redactRun(store, run.runId, [EMAIL], dst);
-    const kept = JSON.stringify([copy.meta?.checks, copy.meta?.blame, copy.meta?.interventions, copy.divergence, dst.getCalls(run.runId)[0]!.end!.meta]);
+    const kept = JSON.stringify([copy.meta?.checks, copy.meta?.blame, copy.meta?.interventions, copy.divergence, dst.getCalls(run.runId)[0].end!.meta]);
     expect(kept).not.toContain('example.com');
     expect(kept.match(/<EMAIL>/g)).toHaveLength(7);
     dst.close();
@@ -410,7 +410,7 @@ describe("previewRedaction: the run's own record", () => {
     store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: '$.args.card', before: 4242424242424242, after: 4000056655665556 }] });
     const p = previewRedaction(store, run.runId, [EMAIL, { kind: 'tool', path: '$.args.card', replace: '<CARD>' }]);
     expect(p.rules.map((r) => r.count)).toEqual([0, 2]);
-    expect(p.rules[1]!.samples).toEqual([{ before: '4242424242424242', after: '<CARD>' }, { before: '4000056655665556', after: '<CARD>' }]);
+    expect(p.rules[1].samples).toEqual([{ before: '4242424242424242', after: '<CARD>' }, { before: '4000056655665556', after: '<CARD>' }]);
     // A path no rule can name gets the rules without a path, each counted as itself.
     store.setDivergence(run.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: 'charge', replayedBefore: 0, diff: [{ op: 'changed', path: "$['a]", before: 'grace@example.com', after: 'x' }] });
     const q = previewRedaction(store, run.runId, [{ kind: 'tool', path: '$.args.card', replace: '<CARD>' }, EMAIL]);
@@ -436,9 +436,9 @@ describe('what a copy leaves as it is', () => {
     // The address, one value as the request and the result hold it, and the result sent back.
     expect(email).toMatchObject({ count: 2, unmasked: { count: 0, samples: [], remedies: [] } });
     // The card as text in the result, and both cards in the string sent back; not the number the result holds.
-    expect(card!.count).toBe(3);
-    expect(card!.samples[0]).toEqual({ before: '4111 1111 1111 1111', after: '<CARD>' });
-    expect(card!.unmasked).toEqual({
+    expect(card.count).toBe(3);
+    expect(card.samples[0]).toEqual({ before: '4111 1111 1111 1111', after: '<CARD>' });
+    expect(card.unmasked).toEqual({
       count: 2,
       samples: [
         { value: '1792155242516', key: false, callNo: 1, kind: 'clock', name: 'now', in: 'response', path: '$.result', event: null },
@@ -455,21 +455,21 @@ describe('what a copy leaves as it is', () => {
 
     // The copy holds exactly that: the strings masked, both numbers as recorded, the layout kept.
     const [clock, lookup] = copied(store, run.runId, [EMAIL, CARD]);
-    expect(clock!.ends[0]!.body).toBe('{"result":1792155242516}');
-    expect(lookup!.ends[0]!.body).toBe('{\n  "result": {"card": 4111111111111111, "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
+    expect(clock.ends[0].body).toBe('{"result":1792155242516}');
+    expect(lookup.ends[0].body).toBe('{\n  "result": {"card": 4111111111111111, "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
 
     // The rule the preview proposes masks the number in a copy that is read, as it says, and a pack
     // still hands the agent the card it got: the preview counts it apart, and says which rule covers it.
-    const fix = card!.unmasked.remedies[0]!.rule;
+    const fix = card.unmasked.remedies[0].rule;
     const after = previewRedaction(store, run.runId, [EMAIL, CARD, fix]);
-    expect(after.rules[1]!.unmasked).toMatchObject({ count: 2, places: 0, remedies: [], covered: [3], reasons: ['replay'] });
+    expect(after.rules[1].unmasked).toMatchObject({ count: 2, places: 0, remedies: [], covered: [3], reasons: ['replay'] });
     expect(after.rules[2]).toMatchObject({ count: 0, reached: 1, note: 'a pack keeps what calls got back, since its replay hands it to the agent', returned: { count: 1, samples: [{ before: '4111111111111111', after: '<CARD>' }] } });
     expect(after).toMatchObject({ total: 5, returned: 1, unmasked: 2 });
-    expect(copied(store, run.runId, [EMAIL, CARD, fix])[1]!.ends[0]!.body).toBe('{\n  "result": {"card": 4111111111111111, "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
+    expect(copied(store, run.runId, [EMAIL, CARD, fix])[1].ends[0].body).toBe('{\n  "result": {"card": 4111111111111111, "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
     const read = copied(store, run.runId, [EMAIL, CARD, fix], { read: true });
-    expect(read[1]!.ends[0]!.body).toBe('{\n  "result": {"card": "<CARD>", "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
+    expect(read[1].ends[0].body).toBe('{\n  "result": {"card": "<CARD>", "on_file": "<CARD>", "owner": "<EMAIL>"}\n}');
     // The clock read stays in every copy.
-    expect(read[0]!.ends[0]!.body).toBe('{"result":1792155242516}');
+    expect(read[0].ends[0].body).toBe('{"result":1792155242516}');
     store.close();
   });
 
@@ -478,11 +478,11 @@ describe('what a copy leaves as it is', () => {
     const run = store.createRun({ mode: 'record', command: cmd });
     const use = (id: string, amount: number) => ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'refund', input: { amount } }] });
     const messages = [{ role: 'user', content: 'Refund both orders.' }, use('t1', 4111111111111111), { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] }, use('t2', 5500000000000004)];
-    addCall(store, run.runId, 1, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 1) }, [{ body: JSON.stringify({ content: messages[1]!.content }) }]);
-    addCall(store, run.runId, 2, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 3) }, [{ body: JSON.stringify({ content: messages[3]!.content }) }]);
+    addCall(store, run.runId, 1, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 1) }, [{ body: JSON.stringify({ content: messages[1].content }) }]);
+    addCall(store, run.runId, 2, 'api', 'POST /v1/messages', { model: 'm', messages: messages.slice(0, 3) }, [{ body: JSON.stringify({ content: messages[3].content }) }]);
     addCall(store, run.runId, 3, 'api', 'POST /v1/messages', { model: 'm', messages }, [{ body: '{"content":[{"type":"text","text":"Done."}]}' }]);
     store.endRun(run.runId, 'completed');
-    const card = previewRedaction(store, run.runId, [CARD]).rules[0]!;
+    const card = previewRedaction(store, run.runId, [CARD]).rules[0];
     expect(card.count).toBe(0);
     expect(card.note).toBe('it matches only numbers here, which a copy leaves as they are');
     // Each amount once, wherever it is sent again; a rule for the responses' place and one for the requests'.
@@ -503,10 +503,10 @@ describe('what a copy leaves as it is', () => {
     const fixed = [CARD, ...card.unmasked.remedies.map((r) => r.rule)];
     const p = previewRedaction(store, run.runId, fixed);
     expect(p).toMatchObject({ total: 2, returned: 2, unmasked: 2 });
-    expect(p.rules[0]!.unmasked).toMatchObject({ places: 0, remedies: [], covered: [3] });
+    expect(p.rules[0].unmasked).toMatchObject({ places: 0, remedies: [], covered: [3] });
     const pack = copied(store, run.runId, fixed);
     expect(pack.map((c) => c.request).join('\n')).not.toMatch(/4111111111111111|5500000000000004/);
-    expect(pack[0]!.ends[0]!.body).toContain('4111111111111111');
+    expect(pack[0].ends[0].body).toContain('4111111111111111');
     expect(JSON.stringify(copied(store, run.runId, fixed, { read: true }))).not.toMatch(/4111111111111111|5500000000000004/);
     store.close();
   });
@@ -519,30 +519,30 @@ describe('what a copy leaves as it is', () => {
     store.endRun(run.runId, 'completed');
     const [email, card] = previewRedaction(store, run.runId, [EMAIL, CARD]).rules;
     // The result's key, and the key of the error's response, which a tool stores as JSON.
-    expect(email!.count).toBe(2);
-    expect(email!.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([
+    expect(email.count).toBe(2);
+    expect(email.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([
       ['bob@example.com', 'request', '$.args["bob@example.com"]'],
       ['dan@example.com', 'error', '$.error.data["dan@example.com"]'],
     ]);
-    expect(email!.unmasked.samples.every((s) => s.key)).toBe(true);
+    expect(email.unmasked.samples.every((s) => s.key)).toBe(true);
     // A key can't be masked alone: a path rule masks the object that holds it, in an error only in the copies that are read.
-    expect(email!.unmasked.remedies.map((r) => [r.command, r.copies])).toEqual([
+    expect(email.unmasked.remedies.map((r) => [r.command, r.copies])).toEqual([
       ["shadowlap redact add --kind tool --name notify --path '$.args' --replace '<EMAIL>'", 'all'],
       ["shadowlap redact add --kind tool --name notify --path '$.error.data' --replace '<EMAIL>'", 'read'],
     ]);
     // The account, as the error's response holds it and as the error in the call's record does.
-    expect(card!.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([['4111111111111111', 'response', '$.error.data.account']]);
-    expect(card!.unmasked.remedies.map((r) => [r.command, r.copies])).toEqual([["shadowlap redact add --kind tool --name notify --path '$.error.data.account' --replace '<CARD>'", 'read']]);
+    expect(card.unmasked.samples.map((s) => [s.value, s.in, s.path])).toEqual([['4111111111111111', 'response', '$.error.data.account']]);
+    expect(card.unmasked.remedies.map((r) => [r.command, r.copies])).toEqual([["shadowlap redact add --kind tool --name notify --path '$.error.data.account' --replace '<CARD>'", 'read']]);
     // In a copy that is read, a path rule reaches the error in the record too, read as the tool stores it.
-    const fix = card!.unmasked.remedies[0]!.rule;
+    const fix = card.unmasked.remedies[0].rule;
     const [notify] = copied(store, run.runId, [EMAIL, CARD, fix], { read: true });
-    expect(notify!.ends[0]!.error).toEqual({ name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: '<CARD>' } });
-    expect(JSON.parse(notify!.ends[0]!.body!)).toEqual({ error: { name: 'Error', message: 'over the limit', data: { '<EMAIL>': 'blocked', account: '<CARD>' } } });
+    expect(notify.ends[0].error).toEqual({ name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: '<CARD>' } });
+    expect(JSON.parse(notify.ends[0].body!)).toEqual({ error: { name: 'Error', message: 'over the limit', data: { '<EMAIL>': 'blocked', account: '<CARD>' } } });
     // A pack keeps the error as the agent got it.
-    expect(copied(store, run.runId, [EMAIL, CARD, fix])[0]!.ends[0]!.error).toEqual({ name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: 4111111111111111 } });
+    expect(copied(store, run.runId, [EMAIL, CARD, fix])[0].ends[0].error).toEqual({ name: 'Error', message: 'over the limit', data: { 'dan@example.com': 'blocked', account: 4111111111111111 } });
     const after = previewRedaction(store, run.runId, [EMAIL, CARD, fix]);
-    expect(after.rules[1]!.unmasked).toMatchObject({ count: 1, remedies: [], covered: [3] });
-    expect(after.rules[2]!.returned.count).toBe(1);
+    expect(after.rules[1].unmasked).toMatchObject({ count: 1, remedies: [], covered: [3] });
+    expect(after.rules[2].returned.count).toBe(1);
     store.close();
   });
 
@@ -554,7 +554,7 @@ describe('what a copy leaves as it is', () => {
     const rule: Normalizer = { kind: 'tool', path: '$.args.card', pattern: '/\\d{16}/', replace: '<CARD>' };
     const [r] = previewRedaction(store, run.runId, [rule]).rules;
     expect(r).toMatchObject({ count: 0, reached: 1, note: 'what /\\d{16}/ matches at $.args.card here is in a number or inside an object, which it leaves as it is: it masks a string at its path' });
-    expect(r!.unmasked).toEqual({
+    expect(r.unmasked).toEqual({
       count: 1,
       samples: [{ value: '4111111111111111', key: false, callNo: 1, kind: 'tool', name: 'charge', in: 'request', path: '$.args.card', event: null }],
       places: 1,
@@ -593,9 +593,9 @@ describe('what calls got back, and why a value gets no rule', () => {
     const rule: Normalizer = { path: '$.result', replace: '<HIDDEN>' };
     for (const read of [false, true]) {
       const [clock, uuid, token] = copied(store, run.runId, [rule], { read });
-      expect(clock!.ends[0]!.body).toBe('{"result":1792155242516}');
-      expect(uuid!.ends[0]!.body).toBe('{"result":"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"}');
-      expect(token!.ends[0]!.body).toBe(read ? '{"result":"<HIDDEN>"}' : '{"result":{"token":"tok-123"}}');
+      expect(clock.ends[0].body).toBe('{"result":1792155242516}');
+      expect(uuid.ends[0].body).toBe('{"result":"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"}');
+      expect(token.ends[0].body).toBe(read ? '{"result":"<HIDDEN>"}' : '{"result":{"token":"tok-123"}}');
     }
     // export html is such a copy.
     const html = Store.open(':memory:');
@@ -618,13 +618,13 @@ describe('what calls got back, and why a value gets no rule', () => {
     // A pack keeps the uuid the agent read, so its replay cuts the same ref from it; so does a copy that is read.
     for (const read of [false, true]) {
       const [random, ticket] = copied(store, run.runId, [UUID], { read });
-      expect(random!.ends[0]!.body).toBe(JSON.stringify({ result: id }));
-      expect(ticket!.request).toBe(JSON.stringify({ args: { ref: 'T-8e9ff1cc', owner: '<REDACTED>' } }));
-      expect(ticket!.ends[0]!.body).toBe(JSON.stringify({ result: { ok: true, ticket: '<REDACTED>' } }));
+      expect(random.ends[0].body).toBe(JSON.stringify({ result: id }));
+      expect(ticket.request).toBe(JSON.stringify({ args: { ref: 'T-8e9ff1cc', owner: '<REDACTED>' } }));
+      expect(ticket.ends[0].body).toBe(JSON.stringify({ result: { ok: true, ticket: '<REDACTED>' } }));
     }
     const [r] = previewRedaction(store, run.runId, [UUID]).rules;
-    expect(r!.count).toBe(1);
-    expect(r!.unmasked).toMatchObject({ count: 1, samples: [{ value: id, key: false, callNo: 1, kind: 'random', name: 'uuid', in: 'response', path: '$.result', event: null }], remedies: [], reasons: ['replay'] });
+    expect(r.count).toBe(1);
+    expect(r.unmasked).toMatchObject({ count: 1, samples: [{ value: id, key: false, callNo: 1, kind: 'random', name: 'uuid', in: 'response', path: '$.result', event: null }], remedies: [], reasons: ['replay'] });
     // Matched only there: the note says so.
     const only = Store.open(':memory:');
     const lone = only.createRun({ mode: 'record', command: cmd });
@@ -644,18 +644,18 @@ describe('what calls got back, and why a value gets no rule', () => {
     const rule: Normalizer = { kind: 'api', path: '$.messages[*].content', pattern: '/\\w+@example\\.com|\\d{16}/', replace: '<X>' };
     const [r] = previewRedaction(store, run.runId, [rule]).rules;
     // The second message's text is a string at the path: masked. The first's blocks are inside a list there.
-    expect(r!.count).toBe(1);
-    expect(r!.unmasked.samples.map((x) => [x.value, x.path])).toEqual([
+    expect(r.count).toBe(1);
+    expect(r.unmasked.samples.map((x) => [x.value, x.path])).toEqual([
       ['Mail bob@example.com the refund.', '$.messages[0].content[0].text'],
       ['4111111111111111', '$.messages[0].content[1].ref'],
     ]);
-    expect(r!.unmasked.remedies.map((x) => x.command)).toEqual([
+    expect(r.unmasked.remedies.map((x) => x.command)).toEqual([
       "shadowlap redact add --kind api --path '$.messages[*].content[*].text' --pattern '/\\w+@example\\.com|\\d{16}/' --replace '<X>'",
       "shadowlap redact add --kind api --path '$.messages[*].content[*].ref' --replace '<X>'",
     ]);
     // Added, they mask the address and the number, and nothing else of the message.
-    const [call] = copied(store, run.runId, [rule, ...r!.unmasked.remedies.map((x) => x.rule)]);
-    expect(JSON.parse(call!.request!).messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Mail <X> the refund.' }, { type: 'tool_result', tool_use_id: 't1', content: 'sent', ref: '<X>' }] }, { role: 'user', content: 'And <X>.' }]);
+    const [call] = copied(store, run.runId, [rule, ...r.unmasked.remedies.map((x) => x.rule)]);
+    expect(JSON.parse(call.request!).messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Mail <X> the refund.' }, { type: 'tool_result', tool_use_id: 't1', content: 'sent', ref: '<X>' }] }, { role: 'user', content: 'And <X>.' }]);
     store.close();
   });
 
@@ -665,11 +665,11 @@ describe('what calls got back, and why a value gets no rule', () => {
     const cards = (n: number, from: number) => Object.fromEntries(Array.from({ length: n }, (_, k) => [`card${k}`, from + k]));
     addCall(store, run.runId, 1, 'tool', 'charge', { args: cards(25, 4111111111111111) }, [{ body: JSON.stringify({ result: cards(3, 5500000000000004) }) }]);
     store.endRun(run.runId, 'completed');
-    const u = previewRedaction(store, run.runId, [CARD]).rules[0]!.unmasked;
+    const u = previewRedaction(store, run.runId, [CARD]).rules[0].unmasked;
     expect(u).toMatchObject({ count: 28, places: 28 });
     expect(u.remedies).toHaveLength(20);
     expect(u.remedies.every((x) => x.copies === 'all')).toBe(true);
-    expect(u.remedies[0]!.command).toBe("shadowlap redact add --kind tool --name charge --path '$.args.card0' --replace '<CARD>'");
+    expect(u.remedies[0].command).toBe("shadowlap redact add --kind tool --name charge --path '$.args.card0' --replace '<CARD>'");
     store.close();
   });
 
@@ -684,7 +684,7 @@ describe('what calls got back, and why a value gets no rule', () => {
     // A key at the top of a request: only a rule on the whole request would mask it.
     addCall(store, run.runId, 5, 'api', 'POST /v1/messages', { model: 'm', '4111111111111112': true, messages: [{ role: 'user', content: 'Hi.' }] }, [{ body: '{"content":[]}' }]);
     store.endRun(run.runId, 'completed');
-    const u = previewRedaction(store, run.runId, [CARD]).rules[0]!.unmasked;
+    const u = previewRedaction(store, run.runId, [CARD]).rules[0].unmasked;
     expect(u).toMatchObject({ count: 5, places: 0, remedies: [], covered: [] });
     expect(u.reasons).toEqual(['replay', 'stream', 'whole', 'key']);
     expect(u.samples[1]).toEqual({ value: '1792155242517', key: false, callNo: 2, kind: 'api', name: 'POST /v1/messages', in: 'response', path: '$.message.usage.input_tokens', event: 1 });
@@ -708,7 +708,7 @@ describe('the rewrite observer', () => {
     ]);
     expect(reached).toEqual([[1, { secret: 1 }], [2, 7]]);
     const text: unknown[] = [];
-    expect(rewriteText('to a@x.io', [rules[1]!, rules[0]!], { changed: (i, b, a, n) => text.push([i, b, a, n]) })).toBe('to <E>');
+    expect(rewriteText('to a@x.io', [rules[1], rules[0]], { changed: (i, b, a, n) => text.push([i, b, a, n]) })).toBe('to <E>');
     expect(text).toEqual([[1, 'to a@x.io', 'to <E>', 1]]);
   });
 });

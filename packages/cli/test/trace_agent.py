@@ -14,9 +14,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "sdks", "python"))
 
-import anthropic  # noqa: E402
+import anthropic
 
-from shadowlap import ShadowlapWriteBlocked, tool  # noqa: E402
+from shadowlap import ShadowlapWriteBlocked, tool
 
 ORDER_ID = {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]}
 AGENTS = {

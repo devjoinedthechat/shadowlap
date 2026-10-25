@@ -123,10 +123,11 @@ export function retirementsView(store: Store, goldens: readonly GoldenSource[], 
     for (const c of store.getCalls(g.runId)) {
       // Shadowlap's own calls (its judge's) are no model the agent uses.
       if (c.kind !== 'api' || isReservedScope(c.meta.scope)) continue;
-      const provider = (c.meta.provider ?? c.end?.meta.provider ?? null) as string | null;
-      const model = (c.end?.meta.model ?? c.meta.model ?? null) as string | null;
-      const key = `${provider}\u0000${model}`;
-      if (!model || seen.has(key)) continue;
+      const provider = (c.meta.provider ?? c.end?.meta.provider ?? null);
+      const model = (c.end?.meta.model ?? c.meta.model ?? null);
+      if (!model) continue;
+      const key = `${String(provider)}\u0000${model}`;
+      if (seen.has(key)) continue;
       seen.add(key);
       const notice = byModel.get(key) ?? (() => {
         const n = retirementOf(provider, model, { now });

@@ -98,7 +98,7 @@ export function stripCells(items: readonly StripItem[], o: StripOptions): Cell[]
       key: `${b.first}-${b.last}`,
       first: b.first,
       last: b.last,
-      target: forkHere ? o.forkAt! : lostHere ? o.lostAt! : within(b, o.selected) ? o.selected! : b.notable,
+      target: forkHere ? o.forkAt! : lostHere ? o.lostAt! : within(b, o.selected) ? o.selected : b.notable,
       origin: b.origin,
       counts: b.counts,
       selected: within(b, o.selected),

@@ -138,7 +138,7 @@ describe('Run blame and Find the commit', () => {
 
   it('names each commit by its subject, and judges a run blame found failing by that check, when the server says', () => {
     const revisions = [{ rev: 'c91d0f4', at: 1, runs: 3, failed: 0, subject: 'Escalate refunds above the limit' }, { rev: 'a7b3c2e', at: 0, runs: 2, failed: 1 }];
-    const c = bisectCopy(RUN, { ...offer({ fork: true, live: true, good: null }), revisions, expect: { tools: { send_email: 1 } } } as BisectOffer);
+    const c = bisectCopy(RUN, { ...offer({ fork: true, live: true, good: null }), revisions, expect: { tools: { send_email: 1 } } });
     expect(c.choices).toEqual([
       { value: 'c91d0f4', label: 'c91d0f4 · Escalate refunds above the limit' },
       { value: 'a7b3c2e', label: 'a7b3c2e · 2 runs, 1 failed' },
@@ -196,10 +196,10 @@ describe('the Calls view’s detail', () => {
     const calls = [call(3, 'api'), call(4, 'tool', { requestedBy: 3 }), call(5, 'tool', { requestedBy: 3, name: 'read_file' }), call(6, 'tool', { requestedBy: 3 }), call(7, 'api', { stopReason: 'end_turn' })];
     const asked = askedTools(calls);
     expect(asked.get(3)).toBe('search_web ×2, read_file');
-    expect(callDetail(calls[0]!, asked.get(3) ?? null)).toEqual({ text: '→ search_web ×2, read_file', err: false });
-    expect(callDetail(calls[4]!, asked.get(7) ?? null)).toEqual({ text: 'end_turn', err: false });
+    expect(callDetail(calls[0], asked.get(3) ?? null)).toEqual({ text: '→ search_web ×2, read_file', err: false });
+    expect(callDetail(calls[4], asked.get(7) ?? null)).toEqual({ text: 'end_turn', err: false });
     // A server that doesn't say which call asked: the model and the stop reason, as before.
-    expect(callDetail(calls[4]!)).toEqual({ text: 'sonnet-5 · end_turn', err: false });
+    expect(callDetail(calls[4])).toEqual({ text: 'sonnet-5 · end_turn', err: false });
   });
 
   it('names the tools a model call’s answer asked for when no tool call of the run says so, as in a capture', () => {
@@ -307,9 +307,9 @@ describe('the diverged test’s actions', () => {
     for (const t of each) {
       const copy = updateGoldenCopy(t, 3, true);
       const plan = updatePlan(tests(t), [t.golden], () => true);
-      expect(copy.name).toBe(plan.goldens[0]!.name);
-      expect(copy.at).toBe(plan.goldens[0]!.where);
-      expect(copy.checks).toBe(plan.steps[1]![1]);
+      expect(copy.name).toBe(plan.goldens[0].name);
+      expect(copy.at).toBe(plan.goldens[0].where);
+      expect(copy.checks).toBe(plan.steps[1][1]);
       expect(copy.ok).toBe(plan.ok);
       expect(copy.advise ? `${copy.advise.path} ${copy.advise.text}` : null).toBe(plan.advise ? `${plan.advise.path} ${plan.advise.text}` : null);
       expect(copy.advise?.instead ?? null).toBe(plan.instead?.label ?? null);

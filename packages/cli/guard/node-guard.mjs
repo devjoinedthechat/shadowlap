@@ -50,7 +50,7 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
   const request = globalThis[Symbol.for('shadowlap.request')]?.['http:'] ?? http.request;
   function report(key, action) {
     try {
-      const req = request(`${url}/v1/guard`, { method: 'POST', agent: direct, headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } }, (res) => res.resume());
+      const req = request(`${String(url)}/v1/guard`, { method: 'POST', agent: direct, headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } }, (res) => res.resume());
       req.on('error', () => {});
       // Held until the sidecar has it, so a connection made just before the agent exits is still
       // listed, but never for long: a sidecar that doesn't answer keeps no agent from ending.

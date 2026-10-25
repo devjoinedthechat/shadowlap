@@ -114,7 +114,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
       setLines([]);
       return;
     }
-    let next: RenderedLine[] = [];
+    let next: RenderedLine[];
     if (tab === 'conversation') {
       const conv = conversationAt(store, calls, index);
       next = conv ? [{ text: `conversation as sent in call #${conv.fromCallNo}`, role: 'label' }, { text: '' }, ...conversationLines(conv.turns, innerWidth)] : [{ text: '(no model request before this call)', role: 'label' }];
@@ -136,7 +136,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
             : `■ ${response?.events ?? 0} events over ${formatDuration(total)}${v.stopReason ? ` · ended: ${v.stopReason}` : ''} · space plays`;
         next.unshift({ text: status, role: 'label' }, { text: '' });
       } else if (responseBytes) {
-        let parsed: unknown = null;
+        let parsed: unknown;
         try {
           parsed = JSON.parse(responseBytes.toString('utf8'));
         } catch {

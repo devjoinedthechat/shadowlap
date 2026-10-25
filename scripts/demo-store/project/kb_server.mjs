@@ -24,7 +24,7 @@ const reply = (id, body) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2
 let buf = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
-  buf += chunk;
+  buf += String(chunk);
   for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
     const line = buf.slice(0, i);
     buf = buf.slice(i + 1);

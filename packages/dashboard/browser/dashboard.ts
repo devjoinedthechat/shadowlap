@@ -33,7 +33,7 @@ const DRAWN: Record<string, string> = {
 };
 
 /** Opens a page of the dashboard with the session token, as its printed link does, and waits for it to draw. */
-export async function openPage(page: Page, path: string, drawn: keyof typeof DRAWN | string): Promise<void> {
+export async function openPage(page: Page, path: string, drawn: string): Promise<void> {
   const { origin, token } = dash();
   await page.goto(`${origin}/#token=${token}&open=${path}`);
   await page.waitForSelector(DRAWN[drawn] ?? drawn, { state: 'visible' });

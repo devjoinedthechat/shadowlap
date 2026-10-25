@@ -48,7 +48,7 @@ describe('/api/runs', () => {
   it('lists the attempts an exported copy holds, as the copy chose them', () => {
     const result = exportHtml({ store, runIds: [id.probe, id.rec], uiDir, now: NOW });
     const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(result.html)!;
-    const data = JSON.parse(m[1]!.split('<\\/').join('</')) as StaticPayload;
+    const data = JSON.parse(m[1].split('<\\/').join('</')) as StaticPayload;
     const listed = (data.responses['runs'] as { runs: RunRow[] }).runs;
     expect(listed.map((r) => [r.runId, r.depth, r.attemptKind])).toEqual([
       [id.rec, 0, null],
@@ -101,8 +101,8 @@ describe('a run’s page and lineage', () => {
       const session = local.startTestSession({ command: ['shadowlap', 'test', 'goldens/*'], startedAt: NOW - 3 * HOUR }).sessionId;
       const runs = [1, 2, 3].map((k) => addRun(local, { parent: rec, startedAt: NOW - 3 * HOUR + k, divergence: 3, calls: 'rrllll', meta: { test: { golden: 'goldens/refund', session, attempt: k } } }));
       const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 3 };
-      local.addTestResult({ sessionId: session, golden: 'goldens/refund', ok: false, failure: 'inconclusive', runId: runs[2]!, goldenRunId: rec, data: { verdict: 'inconclusive', gate: gateResult(gate, [true, false, true], { decision: 'inconclusive' }) } });
-      const tests = lineage(local, runs[0]!)!.filter((n) => n.test).map((n) => n.test!.gate);
+      local.addTestResult({ sessionId: session, golden: 'goldens/refund', ok: false, failure: 'inconclusive', runId: runs[2], goldenRunId: rec, data: { verdict: 'inconclusive', gate: gateResult(gate, [true, false, true], { decision: 'inconclusive' }) } });
+      const tests = lineage(local, runs[0])!.filter((n) => n.test).map((n) => n.test!.gate);
       expect(tests).toEqual([1, 2, 3].map(() => ({ verdict: 'inconclusive · 2 of 3 · rate 0.09 to 1.00 (95%)', rule: 'gate: tells 90%+ from 70%- at <= 5% risk, up to 3 attempts' })));
       // Never "passes at least": the verdict word, the tally and the bound.
       expect(JSON.stringify(tests)).not.toContain('at least');
@@ -132,7 +132,7 @@ describe('a run’s page and lineage', () => {
       ]);
       // A run that is no attempt has no place; nor does one whose group names nothing.
       expect(runDetail(local, rec)!.attemptPlace).toBeNull();
-      const odd = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrrrr', meta: { repeat: { group: '', attempt: 1, of: 2 } } as never });
+      const odd = addRun(local, { parent: rec, startedAt: NOW - HOUR, calls: 'rrrrrr', meta: { repeat: { group: '', attempt: 1, of: 2 } } });
       expect(runDetail(local, odd)!.attemptPlace).toBeNull();
     } finally {
       local.close();

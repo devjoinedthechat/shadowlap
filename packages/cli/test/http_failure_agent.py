@@ -5,7 +5,12 @@ import json
 import os
 
 base = os.environ["SEARCH_URL"]
-body = lambda q: json.dumps({"q": q})  # noqa: E731
+
+
+def body(q):
+    return json.dumps({"q": q})
+
+
 headers = {"content-type": "application/json"}
 out = {}
 

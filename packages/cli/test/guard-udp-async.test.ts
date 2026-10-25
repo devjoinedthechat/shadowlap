@@ -55,7 +55,7 @@ const settle = () => new Promise((r) => setTimeout(r, 200));
 /** Runs a script under the guard in `mode` in a run of its own, and returns what it printed and what the run lists as bypassing. */
 async function guarded(argv: string[], mode: 'warn' | 'block', extra: Record<string, string> = {}) {
   const r = sidecar.startRun({ mode: 'record', command: { argv, cwd: '.' } });
-  const { stdout, stderr } = await run(argv[0]!, argv.slice(1), { env: { ...process.env, ...sidecar.envFor(r.runId), ...guardEnv(mode), TCP_PORT: String(tcpPort), UDP_PORT: String(udpPort), ...extra } });
+  const { stdout, stderr } = await run(argv[0], argv.slice(1), { env: { ...process.env, ...sidecar.envFor(r.runId), ...guardEnv(mode), TCP_PORT: String(tcpPort), UDP_PORT: String(udpPort), ...extra } });
   await settle();
   const { unguarded } = sidecar.endRun(r.runId, 'completed');
   return { out: JSON.parse(stdout.trim().split('\n').at(-1)!) as Record<string, string>, stderr, unguarded };

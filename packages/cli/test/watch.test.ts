@@ -146,7 +146,7 @@ describe('shadowlap replay --watch', () => {
       child.stderr.on('data', (d: Buffer) => (out += d.toString()));
       child.on('exit', () => resolve(out));
     });
-    const runId = /recording run (\w{26})/.exec(recorded)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded)![1];
     const watcher = spawn(process.execPath, [CLI, '--db', 'runs.db', 'replay', runId, '--watch', '--summary-json', 'out.json'], { cwd: project, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     watcher.stdout.on('data', (d: Buffer) => (out += d.toString()));
@@ -177,7 +177,7 @@ describe('shadowlap replay --watch', () => {
       child.stderr.on('data', (d: Buffer) => (out += d.toString()));
       child.on('exit', () => resolve(out));
     });
-    const runId = /recording run (\w{26})/.exec(recorded)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded)![1];
     const watcher = spawn(process.execPath, [CLI, '--db', 'hup.db', 'replay', runId, '--watch'], { cwd: project, env: { ...env, AGENT_WAIT_MS: '5000' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     watcher.stdout.on('data', (d: Buffer) => (out += d.toString()));

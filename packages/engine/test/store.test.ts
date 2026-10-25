@@ -113,11 +113,11 @@ describe('Store', () => {
 
     const calls = store.getCalls(run.runId);
     expect(calls.map((c) => c.callNo)).toEqual([1, 2]);
-    expect(calls[0]!.end?.outcome).toBe('ok');
-    expect(calls[0]!.end?.attempt).toBe(1);
-    expect(calls[0]!.attempts).toHaveLength(1);
-    expect(calls[0]!.attempts[0]!.meta.status).toBe(429);
-    expect(calls[1]!.end).toBeNull();
+    expect(calls[0].end?.outcome).toBe('ok');
+    expect(calls[0].end?.attempt).toBe(1);
+    expect(calls[0].attempts).toHaveLength(1);
+    expect(calls[0].attempts[0].meta.status).toBe(429);
+    expect(calls[1].end).toBeNull();
     expect(store.nextCallNo(run.runId)).toBe(3);
 
     const child = store.createRun({ mode: 'replay', parentRunId: run.runId, command: cmd });
@@ -126,7 +126,7 @@ describe('Store', () => {
     expect(store.childRuns(run.runId).map((r) => r.runId)).toEqual([child.runId]);
     expect(store.getRun(child.runId)?.divergence?.type).toBe('new_call');
     expect(store.getRun(child.runId)?.status).toBe('completed');
-    expect(store.listRuns()[0]!.runId).toBe(child.runId);
+    expect(store.listRuns()[0].runId).toBe(child.runId);
     store.close();
   });
 

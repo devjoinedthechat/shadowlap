@@ -52,10 +52,10 @@ describe('what a fork did differently, on its page', () => {
     const rows = [...html.matchAll(/<li class="r(\d)">([\s\S]*?)<\/li>/g)];
     expect(rows.map((m) => m[1])).toEqual(['1', '1', '2', '3']);
     expect(rows.length).toBe(SHOWN);
-    expect(text(rows[0]![2]!)).toBe('a write issue_refund is no longer called {"order_id":"A-1042","amount":240} #6 in the parent');
-    expect(rows[0]![2]).toContain('<b class="w">issue_refund</b>');
-    expect(text(rows[2]![2]!)).toBe('how it ends it does not fail, where its parent did: failed: issue_refund called 0 times → 1 check passed');
-    expect(rows[2]![2]).toContain('<em class="err">failed: issue_refund called 0 times</em> → <em class="ok">1 check passed</em>');
+    expect(text(rows[0][2])).toBe('a write issue_refund is no longer called {"order_id":"A-1042","amount":240} #6 in the parent');
+    expect(rows[0][2]).toContain('<b class="w">issue_refund</b>');
+    expect(text(rows[2][2])).toBe('how it ends it does not fail, where its parent did: failed: issue_refund called 0 times → 1 check passed');
+    expect(rows[2][2]).toContain('<em class="err">failed: issue_refund called 0 times</em> → <em class="ok">1 check passed</em>');
     // Its writes and what became of each, then a way to every change.
     expect(text(html)).toContain('its writes #6 escalate {"reason":"above the limit"} blocked');
     expect(html).toContain('<em class="fate blocked">blocked</em>');

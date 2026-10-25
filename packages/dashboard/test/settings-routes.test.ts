@@ -129,7 +129,7 @@ describe('reading the tabs', () => {
       expect(s.ciStep.text).toContain(`  - run: npx shadowlap@${VERSION} test goldens/* --push\n    env:\n      ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}`);
       // The store's setup page hands over the same step, and each CI says where the key goes.
       const setup = await read<{ ci: Array<{ ci: string; text: string; notes: string[] }> }>('store/setup');
-      expect(setup.ci[0]!.text).toBe(s.ciStep.text);
+      expect(setup.ci[0].text).toBe(s.ciStep.text);
       expect(setup.ci.find((c) => c.ci === 'gitlab')!.notes.at(-1)).toBe("The goldens that run live (marked fork, or with an injection gate) call your agent's providers: add ANTHROPIC_API_KEY as a masked CI/CD variable, which the job gets in its environment.");
     } finally {
       await withGoldens.close();
@@ -276,7 +276,7 @@ describe('the redaction preview', () => {
     expect(v.command).toBe(`shadowlap redact preview ${run.runId.slice(0, 10)}`);
     const [email, user, card] = v.preview.rules;
     expect(email).toMatchObject({ n: 1, count: 4, reached: null });
-    expect(email!.samples).toHaveLength(2);
+    expect(email.samples).toHaveLength(2);
     expect(user).toMatchObject({ n: 2, count: 2, reached: 2 });
     expect(card).toMatchObject({ n: 3, count: 0, note: 'no tool call in this run' });
     expect(v.preview.total).toBe(6);
@@ -301,17 +301,17 @@ describe('the redaction preview', () => {
     expect(v.preview).toMatchObject({ total: 1, returned: 0, unmasked: 2 });
     const [card] = v.preview.rules;
     expect(card).toMatchObject({ count: 1, note: null });
-    expect(card!.unmasked.samples.map((s) => [s.value, s.kind, s.in, s.path, s.event])).toEqual([
+    expect(card.unmasked.samples.map((s) => [s.value, s.kind, s.in, s.path, s.event])).toEqual([
       ['1792155242516', 'clock', 'response', '$.result', null],
       ['4111111111111111', 'tool', 'response', '$.result.card', null],
     ]);
     // In what the tool returned: a pack keeps it, the copies that are read mask it with this rule. None for the clock read.
-    expect(card!.unmasked).toMatchObject({ places: 1, remedies: [{ command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'", copies: 'read' }], covered: [], reasons: ['replay'] });
+    expect(card.unmasked).toMatchObject({ places: 1, remedies: [{ command: "shadowlap redact add --kind tool --name lookup_card --path '$.result.card' --replace '<CARD>'", copies: 'read' }], covered: [], reasons: ['replay'] });
     // With that rule, the page hears what only a copy that is read masks, and which rule does it.
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [CARD, { kind: 'tool', name: 'lookup_card', path: '$.result.card', replace: '<CARD>' }] }));
     const after = await get<View>(`settings/redaction/preview?run=${run.runId}`);
     expect(after.preview).toMatchObject({ total: 1, returned: 1, unmasked: 2 });
-    expect(after.preview.rules[0]!.unmasked).toMatchObject({ places: 0, remedies: [], covered: [2] });
+    expect(after.preview.rules[0].unmasked).toMatchObject({ places: 0, remedies: [], covered: [2] });
     expect(after.preview.rules[1]).toMatchObject({ count: 0, note: 'a pack keeps what calls got back, since its replay hands it to the agent', returned: { count: 1, samples: [{ before: '4111111111111111', after: '<CARD>' }] } });
   });
 
@@ -512,7 +512,7 @@ describe('calibrate', () => {
     const replay = recording({ mode: 'replay', parent: rec.runId });
     const live = recording({ ended: false });
     const capture = recording({ argv: [NO_COMMAND] });
-    const fromPack = recording({ meta: { imported: { from: 'goldens/refund', at: 1 } } as RunMeta });
+    const fromPack = recording({ meta: { imported: { from: 'goldens/refund', at: 1 } } });
     const refusedReplay = await job({ kind: 'calibrate', runId: replay.runId });
     expect(refusedReplay.status).toBe(409);
     expect(await error(refusedReplay)).toBe(`${replay.runId.slice(0, 10)} is a replay; calibrate the recording it came from (${rec.runId.slice(0, 10)})`);

@@ -40,7 +40,7 @@ export interface CandidateTree {
   /** What git ignores that was linked from the working tree rather than copied, past COPY_LIMIT. */
   linked: string[];
   /** Removes the worktree, and what git keeps about it. Never throws. */
-  remove(): void;
+  remove: () => void;
 }
 
 const git = (cwd: string, args: string[]) => execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 256 * 1024 * 1024 }).toString();
@@ -234,7 +234,7 @@ export function removeCandidateTrees(root: string): string[] {
   // The temporary folder as it was named and as the system resolves it (/var and /private/var on macOS).
   const temps = [...new Set([tmpdir(), physicalPath(tmpdir())])];
   const removed: string[] = [];
-  let listing = '';
+  let listing: string;
   try {
     listing = git(realRoot, ['worktree', 'list', '--porcelain', '-z']);
   } catch {

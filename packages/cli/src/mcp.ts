@@ -419,7 +419,7 @@ export function startMcpProxy(o: McpProxyOptions): { child: ChildProcess; done: 
 
   // Server → client. Responses to tools/call complete the recorded call first; tools/list responses teach the effects.
   lines(
-    child.stdout!,
+    child.stdout,
     async (msg, raw) => {
       const m = isObject(msg) ? (msg as JsonRpcMessage) : null;
       if (!m || m.id === undefined || m.id === null || m.method !== undefined) return toClient(raw);
@@ -574,7 +574,7 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
 
   // `shadowlap run`'s network guard would report this proxy's own connection to its server as
   // traffic Shadowlap doesn't record; the calls it carries are recorded here.
-  const allowGuard = (globalThis as Record<symbol, unknown>)[Symbol.for('shadowlap.guard.allow')];
+  const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${url.hostname.replace(/^\[|\]$/g, '')}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`);
 
   /** The headers of a request; the session's own only for a request inside it (never `initialize`). */
@@ -733,7 +733,9 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
       let chain: Promise<void> = Promise.resolve();
       // The answer ends the request's stream; a server that keeps it open after answering holds nothing up.
       const answered = () => id !== null && !pending.has(idKey(id));
-      const events = new EventStream((data) => (chain = chain.then(() => fromServer(data)).then(() => void (answered() && res.destroy()))));
+      const events = new EventStream((data) => {
+        chain = chain.then(() => fromServer(data)).then(() => void (answered() && res.destroy()));
+      });
       await new Promise<void>((done) => {
         res.on('data', (chunk: string) => events.push(chunk));
         res.on('end', done);
@@ -759,7 +761,9 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
         if (res.statusCode !== 200 || !/text\/event-stream/i.test(String(res.headers['content-type'] ?? ''))) return void res.resume();
         res.setEncoding('utf8');
         let chain: Promise<void> = Promise.resolve();
-        const events = new EventStream((data) => (chain = chain.then(() => fromServer(data))));
+        const events = new EventStream((data) => {
+          chain = chain.then(() => fromServer(data));
+        });
         res.on('data', (chunk: string) => events.push(chunk));
       });
     } catch {
@@ -785,7 +789,7 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
     async (msg, raw) => {
       if (Array.isArray(msg) && !calls.transparent && msg.some(isToolCall)) {
         // The rest of the batch still reaches the server, one message at a time.
-        for (const item of msg) if (!isRequest(item)) await forward(JSON.stringify(item), isObject(item) ? (item as JsonRpcMessage) : null);
+        for (const item of msg) if (!isRequest(item)) await forward(JSON.stringify(item), isObject(item) ? (item) : null);
         const errors = refuseBatch(msg);
         if (errors.length) toClient(errors);
         return;
@@ -909,7 +913,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
   const open = new Set<{ destroy(): void }>();
 
   // As in the stdio mode: the guard leaves the proxy's own connection to its server alone.
-  const allowGuard = (globalThis as Record<symbol, unknown>)[Symbol.for('shadowlap.guard.allow')];
+  const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${upstream.hostname.replace(/^\[|\]$/g, '')}:${upstream.port || (upstream.protocol === 'https:' ? '443' : '80')}`);
 
   const newSession = async (): Promise<ServedSession> => ({ calls: new ToolCalls(await o.sidecar(), o.effects, o.log, origin) });
@@ -1057,7 +1061,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
         if (!isObject(one) || id === null || one.method !== undefined || one.id === undefined || one.id === null || idKey(one.id as JsonRpcId) !== idKey(id)) continue;
         settled = true;
         if (method === 'tools/list') calls.learn(one.result);
-        if (live) await calls.complete(live, one as JsonRpcMessage);
+        if (live) await calls.complete(live, one);
       }
     };
     const unanswered = async (why: string) => {
@@ -1076,7 +1080,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           const type = String(r.headers['content-type'] ?? '');
           // The server names the session in its answer to initialize; later requests carry it.
           const given = r.headers['mcp-session-id'];
-          if (initialize) sessions.set(typeof given === 'string' ? given : '', session!);
+          if (initialize) sessions.set(typeof given === 'string' ? given : '', session);
           relayHead(res, r);
           if (status >= 400 || status === 202 || status === 204 || !/^(application\/json|text\/event-stream)/i.test(type)) {
             // An HTTP error, an accepted notification, or something that isn't MCP: as it came.

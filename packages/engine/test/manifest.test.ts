@@ -27,7 +27,7 @@ function storedBytes(body: (n: number) => unknown, calls: number): number {
   const store = Store.open(':memory:');
   try {
     for (let n = 0; n < calls; n++) storeApiRequest(store, body(n));
-    return Number(store.query('SELECT SUM(size) AS bytes FROM blobs')[0]!.bytes);
+    return Number(store.query('SELECT SUM(size) AS bytes FROM blobs')[0].bytes);
   } finally {
     store.close();
   }
@@ -104,8 +104,8 @@ describe('request manifests', () => {
       source.endRun(run.runId, 'completed');
       packRun(source, run.runId, join(dir, 'golden'));
       const { imported } = unpackRun(target, join(dir, 'golden'));
-      const [call] = target.getCalls(imported[0]!);
-      expect(loadApiRequest(target, call!.requestRef!)).toEqual(bodies.input(3));
+      const [call] = target.getCalls(imported[0]);
+      expect(loadApiRequest(target, call.requestRef!)).toEqual(bodies.input(3));
     } finally {
       source.close();
       target.close();

@@ -60,7 +60,10 @@ function grown(store: Store, runId: string, had: Kept, now: Stamp): CallRecord[]
 /** Every call of a run, in call order, read from the store only when it changed since the last read. Don't change the array. */
 export function runCalls(store: Store, runId: string): readonly CallRecord[] {
   let byRun = kept.get(store);
-  if (!byRun) kept.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    kept.set(store, byRun);
+  }
   const counts = store.changeCounts();
   const now = `${counts.runs ?? 0}|${counts.calls ?? 0}`;
   const hit = byRun.get(runId);

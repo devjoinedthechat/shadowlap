@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { basename, delimiter, join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -42,7 +42,7 @@ const MIN_NODE = [22, 16] as const;
 
 /** Why this Node's built-in SQLite can't hold a store, or null: no `node:sqlite`, or no full-text search in it. */
 function defaultSqlite(): string | null {
-  let db: { exec(sql: string): void; close(): void } | null = null;
+  let db: { exec(sql: string): void; close(): void };
   try {
     const { DatabaseSync } = (globalThis as { process: { getBuiltinModule?: (id: string) => unknown } }).process.getBuiltinModule?.('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
     db = new DatabaseSync(':memory:');
@@ -165,9 +165,13 @@ export function runDoctor(options: DoctorOptions): Check[] {
   const active = join(cwd, '.shadowlap', 'active.json');
   if (existsSync(active)) {
     try {
-      const j = JSON.parse(readFileSync(active, 'utf8')) as { runId?: string; pid?: number; url?: string };
-      const stale = typeof j.pid === 'number' && !alive(j.pid);
-      push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId?.slice(0, 10)} from a process that is gone` : `run ${j.runId?.slice(0, 10)} at ${j.url} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
+      const j = JSON.parse(readFileSync(active, 'utf8')) as { runId?: unknown; pid?: unknown; url?: unknown };
+      // Read as shadowlap mcp reads it: without its run, its process or the sidecar's address, it is no use.
+      if (typeof j.runId !== 'string' || typeof j.pid !== 'number' || typeof j.url !== 'string') push('active run', 'warn', `${active} is incomplete`, 'Delete it.');
+      else {
+        const stale = !alive(j.pid);
+        push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId.slice(0, 10)} from a process that is gone` : `run ${j.runId.slice(0, 10)} at ${j.url} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
+      }
     } catch {
       push('active run', 'warn', `${active} is unreadable`, 'Delete it.');
     }
@@ -233,9 +237,9 @@ export function runDoctor(options: DoctorOptions): Check[] {
 
   // Environment that changes routing
   const upstreams = Object.entries(env).filter(([k, v]) => k.startsWith('SHADOWLAP_UPSTREAM_') && v);
-  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${v}`).join(' '));
+  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${v!}`).join(' '));
   const baseUrls = ['ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_GEMINI_BASE_URL'].filter((k) => env[k]);
-  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${env[k]}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
+  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${env[k]!}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
   if (env.SHADOWLAP_URL) push('SHADOWLAP_URL', 'warn', `${env.SHADOWLAP_URL} (run ${env.SHADOWLAP_RUN_ID ?? '?'})`, 'Set by shadowlap run for the agent; SDK calls made from this shell would go to that sidecar.');
   const offTelemetry = env.SHADOWLAP_TELEMETRY === '0' || env.DO_NOT_TRACK === '1';
   push('telemetry', 'ok', offTelemetry ? 'off (SHADOWLAP_TELEMETRY=0 or DO_NOT_TRACK=1)' : env.SHADOWLAP_TELEMETRY_URL ? `on, anonymous counts only → ${env.SHADOWLAP_TELEMETRY_URL}; SHADOWLAP_TELEMETRY=0 turns it off` : 'off: no collector configured (SHADOWLAP_TELEMETRY_URL), so nothing is sent');
@@ -392,14 +396,14 @@ function withPacks<T>(cwd: string, entries: readonly TestEntry[], given: TestPac
 
 /** `a`, `a and b`, `a, b and c`. */
 function inWords(list: readonly string[]): string {
-  return list.length < 2 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+  return list.length < 2 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)!}`;
 }
 
 /** Check names as a sentence names them: `"a"`, `"a" and "b"`. */
 const quotedList = (list: readonly string[]) => inWords(list.map((n) => `"${n}"`));
 
 /** The variables a provider's key is read from, as a fix names them: `ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)`. */
-const keyNames = (provider: JudgeProvider) => `${JUDGE_KEYS[provider][0]}${JUDGE_KEYS[provider].length > 1 ? ` (or ${JUDGE_KEYS[provider].slice(1).join(' or ')})` : ''}`;
+const keyNames = (provider: JudgeProvider) => `${JUDGE_KEYS[provider][0]!}${JUDGE_KEYS[provider].length > 1 ? ` (or ${JUDGE_KEYS[provider].slice(1).join(' or ')})` : ''}`;
 
 /** Whether a judge can be asked live from this environment: a key for its provider, or an upstream set for it. */
 function askable(provider: JudgeProvider, env: NodeJS.ProcessEnv): boolean {

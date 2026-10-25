@@ -18,7 +18,7 @@ export function refuseUpgrade(socket: Duplex, status: number, message: string): 
 /** The status line and headers of an upstream's answer, as it sent them (names in its own case). */
 function head(res: IncomingMessage, drop: ReadonlySet<string> = new Set()): string {
   const lines = [`HTTP/1.1 ${res.statusCode ?? 502} ${res.statusMessage || STATUS_CODES[res.statusCode ?? 502] || ''}`];
-  for (let i = 0; i + 1 < res.rawHeaders.length; i += 2) if (!drop.has(res.rawHeaders[i]!.toLowerCase())) lines.push(`${res.rawHeaders[i]}: ${res.rawHeaders[i + 1]}`);
+  for (let i = 0; i + 1 < res.rawHeaders.length; i += 2) if (!drop.has(res.rawHeaders[i]!.toLowerCase())) lines.push(`${res.rawHeaders[i]!}: ${res.rawHeaders[i + 1]!}`);
   return `${lines.join('\r\n')}\r\n`;
 }
 

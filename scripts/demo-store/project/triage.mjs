@@ -26,7 +26,7 @@ const folder = process.argv.includes('--folder') ? process.argv[process.argv.ind
 const client = new OpenAI({ apiKey: 'demo-key', maxRetries: 0 });
 const messages = [
   { role: 'system', content: 'You triage the support inbox. Label every unread thread billing, bug or other.' },
-  { role: 'user', content: `Triage the unread threads in ${folder}.` },
+  { role: 'user', content: `Triage the unread threads in ${String(folder)}.` },
 ];
 for (let turn = 0; turn < 8; turn++) {
   const reply = await client.chat.completions.create({ model: 'gpt-5-mini', messages, tools: definitions });

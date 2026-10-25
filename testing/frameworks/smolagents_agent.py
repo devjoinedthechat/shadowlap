@@ -9,10 +9,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from smolagents import OpenAIServerModel, ToolCallingAgent  # noqa: E402
-from smolagents import tool as smol_tool  # noqa: E402
+from smolagents import OpenAIServerModel, ToolCallingAgent
+from smolagents import tool as smol_tool
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

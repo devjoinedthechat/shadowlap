@@ -116,7 +116,7 @@ export class RecordingHost {
     const exists = existsSync(join(dir, 'run.json'));
     const rel = relative(this.root, dir).split('\\').join('/');
     // A test that gives no command starts its agent itself: the run names the test, and has no command to run again.
-    const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command as string[]) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
+    const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
     if (mode === 'all' || (!exists && mode === 'missing')) {
       const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot });
       stampAuthor(this.store, run.runId);

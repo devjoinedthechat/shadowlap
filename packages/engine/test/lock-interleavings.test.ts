@@ -296,7 +296,7 @@ class Harness {
           if (!aged.length) break;
         }
       }
-      const w = waiting[Math.floor(pick() * waiting.length)]!;
+      const w = waiting[Math.floor(pick() * waiting.length)];
       const [op, a, b] = w.at!;
       const recordInPlace = op === 'writeSync' && !!a?.startsWith(`${this.config}.lock`);
       if (recordInPlace) inPlace = true;

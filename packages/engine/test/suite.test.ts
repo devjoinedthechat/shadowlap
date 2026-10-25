@@ -14,11 +14,11 @@ describe('planSuite', () => {
   it('leaves a single golden as it was: its own gate keeps within 5%', () => {
     const plan = planSuite(goldens(1))!;
     expect(plan).toMatchObject({ risk: SUITE_RISK, perGoldenRisk: 0.05, goldens: 1, method: 'bonferroni', inconclusive: 'fail' });
-    expect(plan.planned[0]!.gate).toEqual(sprt());
-    expect(describeGate(plan.planned[0]!.gate)).toBe('tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
+    expect(plan.planned[0].gate).toEqual(sprt());
+    expect(describeGate(plan.planned[0].gate)).toBe('tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     // Red for nothing at its good rate: 3.3% failed and 0.9% inconclusive, within its 5%.
     const odds = gateOdds(sprt(), 0.9);
-    expect(plan.planned[0]!.red).toBeCloseTo(odds.fail + odds.inconclusive, 12);
+    expect(plan.planned[0].red).toBeCloseTo(odds.fail + odds.inconclusive, 12);
     expect(plan.red).toBeLessThanOrEqual(0.05);
   });
 
@@ -45,13 +45,13 @@ describe('planSuite', () => {
 
   it('keeps a max the config set, and says when it leaves too many inconclusive for the share', () => {
     const plan = planSuite(goldens(10, { gate: sprt({ max: 20 }), maxGiven: true }))!;
-    const p = plan.planned[0]!;
+    const p = plan.planned[0];
     expect(p.gate.max).toBe(20);
     expect(p.over).toMatch(/^its max of 20 leaves \d+(\.\d+)?% of attempts at its good rate inconclusive, more than its 0\.5% share of the suite's risk: raise its max/);
     // The red rate it reports is what it is, not what the share asked for.
     expect(plan.red).toBeGreaterThan(0.05);
     // A max the config set that leaves room is kept, with the share for a failure.
-    const roomy = planSuite(goldens(10, { gate: sprt({ max: 300 }), maxGiven: true }))!.planned[0]!;
+    const roomy = planSuite(goldens(10, { gate: sprt({ max: 300 }), maxGiven: true }))!.planned[0];
     expect(roomy.gate.max).toBe(300);
     expect(roomy.over).toBeUndefined();
     expect(roomy.red).toBeLessThanOrEqual(0.005);
@@ -59,25 +59,25 @@ describe('planSuite', () => {
 
   it('under --inconclusive warn, spends the share on failures alone', () => {
     const plan = planSuite(goldens(10), { inconclusive: 'warn' })!;
-    const g = plan.planned[0]!.gate as SprtGate;
+    const g = plan.planned[0].gate as SprtGate;
     const odds = gateOdds(g, 0.9);
     expect(odds.fail).toBeLessThanOrEqual(0.005);
     expect(odds.inconclusive).toBeLessThanOrEqual(INCONCLUSIVE_AT_GOOD);
-    expect(plan.planned[0]!.red).toBeCloseTo(odds.fail, 12);
+    expect(plan.planned[0].red).toBeCloseTo(odds.fail, 12);
   });
 
   it('gives a gate against history its share as its risk, and works out its red rate at its baseline\'s pass rate', () => {
     const base = { passes: 47, attempts: 50 };
-    const one = planSuite([{ golden: 'goldens/h', gate: history(), maxGiven: false, history: base }])!.planned[0]!;
+    const one = planSuite([{ golden: 'goldens/h', gate: history(), maxGiven: false, history: base }])!.planned[0];
     // One golden: unchanged.
     expect(one.gate).toEqual(history());
     expect(one.at).toBeCloseTo(0.94, 12);
     const plan = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: history(), maxGiven: false, history: base })))!;
-    const g = plan.planned[0]!.gate as BaselineGate;
+    const g = plan.planned[0].gate as BaselineGate;
     expect(g.risk).toBeLessThanOrEqual(0.0025);
     const odds = gateOdds(g, 0.94, base);
     expect(odds.fail + odds.inconclusive).toBeLessThanOrEqual(0.0025);
-    expect(plan.planned[0]!.red).toBeCloseTo(odds.fail + odds.inconclusive, 12);
+    expect(plan.planned[0].red).toBeCloseTo(odds.fail + odds.inconclusive, 12);
     expect(describeGate(g)).toMatch(/once 99\.\d+% likely/);
   });
 
@@ -89,13 +89,13 @@ describe('planSuite', () => {
     ])!;
     const [a, b, c] = plan.planned;
     // An agent that always passes needs 12; one with no recent results is forecast at its good rate.
-    expect(a!.attempts).toBeCloseTo(12, 12);
-    expect(b!.forecastAt).toBe(0.9);
-    expect(b!.attempts).toBeCloseTo(gateOdds(b!.gate, 0.9).attempts, 12);
-    expect(c!.cost).toBeNull();
-    expect(plan.forecast.attempts).toBeCloseTo(a!.attempts + b!.attempts + c!.attempts, 9);
-    expect(plan.forecast.most).toBe(a!.most + b!.most + c!.most);
-    expect(plan.forecast.cost).toBeCloseTo(a!.attempts * 0.01 + b!.attempts * 0.02, 9);
+    expect(a.attempts).toBeCloseTo(12, 12);
+    expect(b.forecastAt).toBe(0.9);
+    expect(b.attempts).toBeCloseTo(gateOdds(b.gate, 0.9).attempts, 12);
+    expect(c.cost).toBeNull();
+    expect(plan.forecast.attempts).toBeCloseTo(a.attempts + b.attempts + c.attempts, 9);
+    expect(plan.forecast.most).toBe(a.most + b.most + c.most);
+    expect(plan.forecast.cost).toBeCloseTo(a.attempts * 0.01 + b.attempts * 0.02, 9);
     expect(plan.forecast.unpriced).toBe(1);
   });
 

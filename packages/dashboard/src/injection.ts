@@ -209,7 +209,7 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
     return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : { error: `${key} is a whole number from ${min} to ${max}` };
   };
   let target: string;
-  let runId: string | null = null;
+  let runId: string | null;
   if (typeof req.golden === 'string') {
     const g = goldens.find((x) => x.path === req.golden);
     if (!g || optionLike(g.path)) return { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };

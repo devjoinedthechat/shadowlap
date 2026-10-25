@@ -576,7 +576,7 @@ export function redactQuery(query: string, rules: readonly Normalizer[], call: P
 function redactStartMeta(call: CallRecord, rules: readonly Normalizer[], observer?: RewriteObserver): CallMeta {
   if (typeof call.meta.query !== 'string') return call.meta;
   const { query: recorded, ...rest } = call.meta;
-  const query = redactQuery(recorded as string, rules, call, observer);
+  const query = redactQuery(recorded, rules, call, observer);
   return query === undefined ? rest : { ...rest, query };
 }
 
@@ -616,7 +616,7 @@ export function carriesCredentials(store: Store, runId: string): boolean {
   for (const row of store.query(CALL_METAS_SQL, runId)) {
     const meta = JSON.parse(String(row.meta)) as CallMeta;
     if (typeof meta.query === 'string' && credentialFreeQuery(meta.query) !== meta.query) return true;
-    if (isObject(meta.headers) && credentialFreeHeaders(meta.headers as Record<string, string>) !== meta.headers) return true;
+    if (isObject(meta.headers) && credentialFreeHeaders(meta.headers) !== meta.headers) return true;
   }
   for (const row of store.query(CAPTURED_SQL, runId, runId)) {
     const ref = row.phase === 'start' ? row.requestRef : row.responseRef;
@@ -713,7 +713,7 @@ export function redactArgv(argv: readonly string[], rules: readonly Normalizer[]
     let next = 0;
     const kept: number[] = [];
     for (const m of found) {
-      const start = m.index!;
+      const start = m.index;
       const stop = start + m[0].length;
       there.lastIndex = start;
       const whole = text.replace(there, rule.replace);
@@ -1100,7 +1100,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (rule.pattern !== undefined) compilePattern(rule.pattern);
       if (rule.path !== undefined) parsePath(rule.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
   });
   const per = rules.map(() => ({

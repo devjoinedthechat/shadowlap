@@ -135,7 +135,7 @@ describe('import har', () => {
     const store = open();
     const { run } = importHar(store, har(streamed), { source: 'gemini.har' });
     const [call] = store.getCalls(run.runId);
-    expect(call!.meta.query).toBe('alt=sse');
+    expect(call.meta.query).toBe('alt=sse');
     expect(JSON.stringify(store.getCalls(run.runId))).not.toContain('AIzaSyA');
     // Nothing listens there: a call that missed the recording would fail, not reach a server.
     const sidecar = await Sidecar.start({ store, clock: 'exact', upstreams: { gemini: 'http://127.0.0.1:9' } });

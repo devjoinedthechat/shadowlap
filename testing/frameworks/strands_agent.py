@@ -9,11 +9,11 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "sdks", "python"))
 
-from strands import Agent  # noqa: E402
-from strands import tool as strands_tool  # noqa: E402
-from strands.models.anthropic import AnthropicModel  # noqa: E402
+from strands import Agent
+from strands import tool as strands_tool
+from strands.models.anthropic import AnthropicModel
 
-from shadowlap import tool  # noqa: E402
+from shadowlap import tool
 
 QUERY = os.environ.get("QUERY", "shadowlap")
 executed = []

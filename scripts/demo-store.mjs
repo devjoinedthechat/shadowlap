@@ -206,7 +206,7 @@ function sl(args, { who = 'dana', ok = [0], env = {}, answers = null, dbPath = n
     child.on('error', fail);
     child.on('close', (code) => {
       if (ok.includes(code)) done({ code, out, stdout });
-      else fail(new StepError(`shadowlap ${full.join(' ')} exited with ${code}\n${out}`));
+      else fail(new StepError(`shadowlap ${full.join(' ')} exited with ${String(code)}\n${out}`));
     });
   });
 }
@@ -743,7 +743,7 @@ async function addProjects() {
       };
       dash.stdout.on('data', look);
       dash.stderr.on('data', look);
-      stopped.then(() => fail(new StepError(`the dashboard stopped:\n${out}`)));
+      void stopped.then(() => fail(new StepError(`the dashboard stopped:\n${out}`)));
     });
     const origin = link.split('/#')[0];
     const token = /token=([\w-]+)/.exec(link)[1];

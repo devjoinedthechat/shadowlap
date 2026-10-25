@@ -44,9 +44,11 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayer('dialog', true, onClose);
+  // Where it opens is chosen as it opens: nothing the dialog shows later moves the focus.
+  const [opensOn] = useState(() => dialogFocus(tone, initialFocus));
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>(dialogFocus(tone, initialFocus));
+    const first = ref.current?.querySelector<HTMLElement>(opensOn);
     first?.focus();
     // A line is selected, ready to type over; longer text to edit (a recorded result, a reply) keeps
     // it, with the cursor at its end, as the design's dialogs do.
@@ -54,7 +56,7 @@ export function Dialog({ title, text, children, ok, tone = 'lime', okDisabled = 
     else if (first instanceof HTMLTextAreaElement) first.setSelectionRange(first.value.length, first.value.length);
     // Back where it was; when that is gone (a menu item that opened it) or was nothing, to the page.
     return () => (prev && prev !== document.body && prev.isConnected ? prev : document.querySelector<HTMLElement>('#view'))?.focus?.();
-  }, []);
+  }, [opensOn]);
   // Asked in one project, never answered in another: the page turning to another project closes it.
   const openedIn = useRef(shownProject());
   const close = useRef(onClose);
@@ -137,10 +139,10 @@ export function PromptDialog({
 }) {
   const [value, setValue] = useState(initial);
   const listed = !!choices?.length;
-  const [own, setOwn] = useState(listed && !choices!.some((c) => c.value === initial));
+  const [own, setOwn] = useState(listed && !choices.some((c) => c.value === initial));
   // The few words a picked choice asks for: the message of "error, with a message".
   const [words, setWords] = useState('');
-  const picked = listed && !own ? choices!.find((c) => c.value === value) : undefined;
+  const picked = listed && !own ? choices.find((c) => c.value === value) : undefined;
   const answer = picked ? choiceAnswer(picked, words) : value.trim();
   const ready = answer.length > 0;
   const submit = () => ready && onRun(answer);
@@ -187,7 +189,7 @@ export function PromptDialog({
         }
       }}
     >
-      {choices!.map((c) => (
+      {choices.map((c) => (
         <option key={c.value} value={c.value}>
           {c.label}
         </option>

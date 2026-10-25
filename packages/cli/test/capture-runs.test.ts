@@ -55,7 +55,7 @@ beforeAll(async () => {
   writeFileSync(join(cwd, 'session.har'), JSON.stringify(har));
   const imported = await shadowlap(['import', 'har', 'session.har', '--json']);
   expect(imported.code).toBe(0);
-  runId = (JSON.parse(imported.out) as { runs: Array<{ runId: string }> }).runs[0]!.runId;
+  runId = (JSON.parse(imported.out) as { runs: Array<{ runId: string }> }).runs[0].runId;
 });
 afterAll(() => rmSync(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
 
@@ -65,7 +65,7 @@ describe('a run imported from a capture', () => {
     expect(code).toBe(0);
     const [run] = JSON.parse(out) as Array<Record<string, unknown>>;
     expect(run).toMatchObject({ runId, hasCommand: false, partial: ['api'], repeat: null, checks: null, forkedAt: null });
-    expect((run!.imported as { from: string }).from).toContain('session.har');
+    expect((run.imported as { from: string }).from).toContain('session.har');
   });
 
   it('shows its cost as captured, not spent', async () => {

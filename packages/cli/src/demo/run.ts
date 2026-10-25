@@ -61,7 +61,7 @@ export async function runDemo(o: DemoOptions): Promise<number> {
     for (const [name, text] of Object.entries(demoFiles(model.url))) writeFileSync(join(dir, name), text);
     const git = (...args: string[]) => {
       const r = spawnSync('git', ['-c', 'init.defaultBranch=main', '-c', 'user.name=Shadowlap demo', '-c', 'user.email=demo@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
-      if (r.status !== 0) throw new CliError(EXIT.failed, `git ${args[0]} failed in ${dir}: ${(r.stderr || r.error?.message || '').trim()}`);
+      if (r.status !== 0) throw new CliError(EXIT.failed, `git ${args[0]!} failed in ${dir}: ${(r.stderr || r.error?.message || '').trim()}`);
     };
     git('init', '-q');
     git('add', '-A');
@@ -85,7 +85,7 @@ export async function runDemo(o: DemoOptions): Promise<number> {
       write(`\n${p.dim('$')} ${p.bold(quoteArgv(['shadowlap', ...args]))}\n`);
       const code = await shadowlap(args);
       if (stopped) throw new StepFailed(signalExit(stopped), `stopped by ${stopped}`);
-      if (code !== 0) throw new StepFailed(code, `the demo stopped: shadowlap ${args[0]} exited ${code}, which the story doesn't expect. Run it again with --keep <dir> to look at the folder it ran in`);
+      if (code !== 0) throw new StepFailed(code, `the demo stopped: shadowlap ${args[0]!} exited ${code}, which the story doesn't expect. Run it again with --keep <dir> to look at the folder it ran in`);
     };
     const newest = (): string => {
       const store = Store.open(join(dir, '.shadowlap', 'shadowlap.db'));

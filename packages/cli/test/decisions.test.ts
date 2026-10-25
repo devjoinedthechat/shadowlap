@@ -57,7 +57,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}, dir: string = cw
 async function record(env: NodeJS.ProcessEnv = {}, dir: string = cwd): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT], env, dir);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 const json = <T,>(r: { stdout: string; out: string }): T => {
@@ -115,7 +115,7 @@ describe('shadowlap decisions', () => {
     try {
       const kept = store.getDecisionSession(report.decisionsId!);
       expect(kept).toMatchObject({ kind: 'decisions', change: 'the model claude-sonnet-4-6 and temperature=0', runs: 1, flagged: 0 });
-      expect(kept!.runRows[0]!.data).toEqual(JSON.parse(JSON.stringify(report.runs[0])));
+      expect(kept!.runRows[0].data).toEqual(JSON.parse(JSON.stringify(report.runs[0])));
       expect(store.decisionsOfRun(runId)[0]).toMatchObject({ sessionId: report.decisionsId, kind: 'decisions', rank: null });
       expect(store.listEvents({ kinds: ['decisions.done'] })[0]).toMatchObject({ ref: report.decisionsId, data: { runs: 1, flagged: 0 } });
     } finally {
@@ -135,7 +135,7 @@ describe('shadowlap decisions', () => {
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([runId]);
     expect(report.counts).toMatchObject({ 1: 1, 2: 0, same: 10 });
-    const step = report.runs[0]!.decisions[0]!;
+    const step = report.runs[0].decisions[0];
     expect(step).toMatchObject({ callNo: emailStep, rank: 1, recorded: { stop: 'tools', tools: [{ name: 'send_email', effect: 'write' }] }, now: { stop: 'answer', tools: [] } });
     expect(step.changes.map((c) => c.kind)).toEqual(['write-removed', 'stops', 'text']);
     // The change is the prompt the working tree sends, read offline: nothing ran, nothing was kept but the recording.
@@ -160,8 +160,8 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_MODEL: 'claude-haiku-4-5' });
     expect(r.code, r.out).toBe(3);
     const report = json<DecisionsReport>(r);
-    expect(report.runs[0]!.asked).toBe(0);
-    expect(report.runs[0]!.refused).toMatch(/^the first model request \(#\d+\) differs in more than its system prompt and tools \(\$\.model changed\): --from-code previews a prompt change/);
+    expect(report.runs[0].asked).toBe(0);
+    expect(report.runs[0].refused).toMatch(/^the first model request \(#\d+\) differs in more than its system prompt and tools \(\$\.model changed\): --from-code previews a prompt change/);
     expect(mock.requests.length).toBe(before);
   }, 120_000);
 
@@ -171,7 +171,7 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.', AGENT_LATE_CHANGE: '1' });
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    const run = report.runs[0]!;
+    const run = report.runs[0];
     expect(run.refused).toBeNull();
     expect(run.warnings.join('\n')).toMatch(/From model call #\d+ on, the working tree sends more than a new prompt \(\$\.messages\[\d+\] added\)/);
     expect(run.warnings.join('\n')).toMatch(/The offline replay reached 6 of the run's 11 model calls/);
@@ -202,7 +202,7 @@ describe('shadowlap decisions', () => {
       expect(turns.slice(0, -1).some(hasThinking)).toBe(false);
       if (turns.length) expect(opensWithThinking(turns.at(-1)!)).toBe(true);
     }
-    expect(changed.runs[0]!.thinkingStripped).toBe(45);
+    expect(changed.runs[0].thinkingStripped).toBe(45);
     expect(changed.notes.join('\n')).toMatch(/Reasoning from earlier turns was left out of 9 requests: providers tie it to the prompt it was made under/);
 
     // A new model is sent the reasoning as the agent would send it after a switch.
@@ -212,7 +212,7 @@ describe('shadowlap decisions', () => {
     const switched = json<DecisionsReport>(model);
     sent = mock.requests.slice(before).map((q) => q.body as unknown as Sent);
     expect(sent.every((q) => q.model === 'claude-haiku-4-5' && assistantTurns(q).every(opensWithThinking))).toBe(true);
-    expect(switched.runs[0]!.thinkingStripped).toBe(0);
+    expect(switched.runs[0].thinkingStripped).toBe(0);
     expect(switched.notes.join('\n')).not.toMatch(/Reasoning from earlier turns/);
 
     // Claude 4.7 and later refuse the budget: decisions sends the change as given, and says what the model takes.
@@ -232,14 +232,14 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--samples', '2', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    const changed = report.runs[0]!.decisions.filter((s) => s.rank !== null);
-    expect(changed.map((s) => [s.rank, s.changes[0]!.kind, s.changes[0]!.tool])).toEqual([
+    const changed = report.runs[0].decisions.filter((s) => s.rank !== null);
+    expect(changed.map((s) => [s.rank, s.changes[0].kind, s.changes[0].tool])).toEqual([
       [1, 'write-arguments', 'send_email'],
       [3, 'read-removed', 'fetch_page'],
       [4, 'read-arguments', 'search_web'],
     ]);
     expect(changed.every((s) => s.samples.asked === 2 && s.samples.changed === 2)).toBe(true);
-    expect(changed[0]!.changes[0]).toMatchObject({ before: { body: 'Replay works.' }, after: { body: 'Replay works; forks fence writes.' } });
+    expect(changed[0].changes[0]).toMatchObject({ before: { body: 'Replay works.' }, after: { body: 'Replay works; forks fence writes.' } });
     // Cheaper per run: the same tokens at a lower price.
     expect(report.cost.after!).toBeLessThan(report.cost.before!);
     expect(report.cost.upstreamRequests).toBe(22);
@@ -249,7 +249,7 @@ describe('shadowlap decisions', () => {
     const full = await record();
     // A run that crashes after its third model call never reaches the email: the prompt change doesn't touch its decisions.
     const short = await shadowlap(['run', '--', process.execPath, AGENT], { AGENT_FAIL_AFTER_CALL: '3' });
-    const shortId = /recording run (\w{26})/.exec(short.out)![1]!;
+    const shortId = /recording run (\w{26})/.exec(short.out)![1];
     const r = await shadowlap(['decisions', full, shortId, '--from-code', '--then-verify', '--attempts', '2', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
     const report = json<DecisionsReport>(r);
     expect(report.flagged).toEqual([full]);
@@ -422,7 +422,7 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3', '--strict', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    const step = report.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    const step = report.runs[0].decisions.find((s) => s.callNo === emailStep)!;
     // One changed sample of three against none of three is a split one time in two: not beyond chance.
     expect(step).toMatchObject({ rank: null, majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1 }, control: { asked: 3, answered: 3, changed: 0, ranks: [0, 0, 0] } });
     expect(step.noise!.p).toBeCloseTo(0.5, 12);
@@ -432,13 +432,13 @@ describe('shadowlap decisions', () => {
     expect(report.counts.noise).toBe(1);
     expect(report.notes).toContain("1 step decided otherwise no more often than it did as recorded: listed with both counts, not ranked, as the model's own variation.");
     // Each sample of the change went with one of the request as recorded: six requests a step.
-    expect(report.cost.upstreamRequests).toBe(6 * report.runs[0]!.asked);
+    expect(report.cost.upstreamRequests).toBe(6 * report.runs[0].asked);
     const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3']);
-    expect(text.stdout).toMatch(/step 10  within the model's own variation  send_email is called with other arguments · in 1 of 3 samples, 0 of 3 as recorded/);
+    expect(text.stdout).toMatch(/step 10 {2}within the model's own variation {2}send_email is called with other arguments · in 1 of 3 samples, 0 of 3 as recorded/);
     expect(text.stdout).toMatch(/11 steps asked, 3 samples each and as many as recorded: 1 within the model's own variation, 10 the same/);
     // Below 3 samples no split can reach 5%, so there is no control: the change's own samples decide, by what most show.
     const two = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '2', '--strict', '--json']));
-    const twoStep = two.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    const twoStep = two.runs[0].decisions.find((s) => s.callNo === emailStep)!;
     expect(twoStep.control).toBeUndefined();
     expect(two.notes).toContain("Each step was asked 2 times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.");
   }, 120_000);
@@ -450,7 +450,7 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--from-code', '--json'], { AGENT_SYSTEM_SUFFIX: 'Do not email the summary.' });
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    const step = report.runs[0]!.decisions.find((s) => s.callNo === emailStep)!;
+    const step = report.runs[0].decisions.find((s) => s.callNo === emailStep)!;
     // Three of three against none of three: the one split of twenty that comes out so, 5%.
     expect(step).toMatchObject({ rank: 1, majority: 1, sampled: 1, samples: { asked: 3, changed: 3 }, control: { asked: 3, answered: 3, changed: 0 } });
     expect(step.noise!.p).toBeCloseTo(1 / 20, 12);
@@ -458,7 +458,7 @@ describe('shadowlap decisions', () => {
     // The control asks each changed step's request as recorded: the recorded system prompt, three times.
     const sent = mock.requests.slice(before).map((q) => JSON.stringify(q.body.system ?? ''));
     const changed = sent.filter((x) => x.includes('Do not email the summary.')).length;
-    expect(changed).toBe(3 * report.runs[0]!.asked);
+    expect(changed).toBe(3 * report.runs[0].asked);
     expect(sent.length - changed).toBe(changed);
   }, 120_000);
 
@@ -471,9 +471,9 @@ describe('shadowlap decisions', () => {
     expect(r.code, r.out).toBe(0);
     expect(r.stdout).not.toContain('Replay works');
     const report = json<DecisionsReport>(r);
-    const email = report.runs[0]!.decisions[0]!;
+    const email = report.runs[0].decisions[0];
     expect(email.changes[0]).toMatchObject({ kind: 'write-arguments', before: { body: '<masked>.' }, after: { body: '<masked>; forks fence writes.' } });
-    expect(email.recorded.tools[0]!.args).toMatchObject({ body: '<masked>.' });
+    expect(email.recorded.tools[0].args).toMatchObject({ body: '<masked>.' });
     expect(report.notes).toContain("The project's redaction rules masked the values this report shows, as they mask every export, pack and share link.");
     // The comparison read the values themselves: the email still changed, rank 1.
     expect(report.flagged).toEqual([runId]);
@@ -491,11 +491,11 @@ describe('shadowlap decisions', () => {
     const r = await shadowlap(['decisions', runId, '--model', 'claude-haiku-4-5', '--json'], {}, project);
     expect(r.code, r.out).toBe(0);
     const report = json<DecisionsReport>(r);
-    const fetch = report.runs[0]!.decisions.find((s) => s.changes.some((c) => c.tool === 'fetch_page'))!;
+    const fetch = report.runs[0].decisions.find((s) => s.changes.some((c) => c.tool === 'fetch_page'))!;
     expect(fetch).toMatchObject({ rank: 1, changes: [{ kind: 'write-removed', tool: 'fetch_page', effect: 'write', detail: 'fetch_page is no longer called' }] });
     expect(fetch.recorded.tools.find((t) => t.name === 'fetch_page')!.effect).toBe('write');
     // Where the config says nothing, the run's own effects stand: the search is still a read asked differently.
-    expect(report.runs[0]!.decisions.find((s) => s.changes.some((c) => c.tool === 'search_web'))).toMatchObject({ rank: 4 });
+    expect(report.runs[0].decisions.find((s) => s.changes.some((c) => c.tool === 'search_web'))).toMatchObject({ rank: 4 });
   }, 120_000);
 
   it("verifies a kept session's flagged runs with --verify, each golden under its own checks", async () => {
@@ -548,7 +548,7 @@ describe('shadowlap decisions', () => {
     expect(r.code).toBe(3);
     const report = json<DecisionsReport>(r);
     expect(report.stopReason).toBe('the budget of $0.01 is spent');
-    expect(report.runs[0]!.asked).toBeLessThan(11);
+    expect(report.runs[0].asked).toBeLessThan(11);
     expect(report.counts.notAsked).toBeGreaterThan(0);
   }, 120_000);
 
@@ -559,9 +559,9 @@ describe('shadowlap decisions', () => {
       departures('decisions', report),
       departures('decisionsChange', report.change),
       departures('decisionsRun', report.runs[0]),
-      departures('decisionsStep', report.runs[0]!.decisions[0]),
-      departures('decisionsDifference', report.runs[0]!.decisions[0]!.changes[0]),
-      departures('decisionsView', report.runs[0]!.decisions[0]!.recorded),
+      departures('decisionsStep', report.runs[0].decisions[0]),
+      departures('decisionsDifference', report.runs[0].decisions[0].changes[0]),
+      departures('decisionsView', report.runs[0].decisions[0].recorded),
     ];
     expect(problems.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
   }, 120_000);

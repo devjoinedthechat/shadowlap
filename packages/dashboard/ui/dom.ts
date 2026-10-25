@@ -12,6 +12,7 @@ export function copyText(text: string): Promise<boolean> {
 }
 
 export function isMac(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- navigator.platform has no replacement outside Chromium (userAgentData); a browser that drops it answers by its user agent
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 }
 

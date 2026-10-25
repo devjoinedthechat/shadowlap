@@ -150,7 +150,7 @@ function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
   if (!run) return { error: `the run ${id} blamed is gone from the store`, status: 409 };
   const consent = importedCommand([run], req.yes);
   if (consent) return consent;
-  return { args: [...args, ...(req.yes === true ? ['--yes'] : [])], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model}` };
+  return { args: [...args, ...(req.yes === true ? ['--yes'] : [])], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model as string}` };
 }
 
 /**
@@ -187,7 +187,7 @@ function blameJob(req: JobRequest, store: Store, configDir: string | null): JobB
     const found = blameCheckFor(store, run, { tests: configTests(configDir), configDir });
     if (!found) {
       const failed = failedChecks(run);
-      const what = failed.length ? `${id} failed “${failed[0]}”, and neither the run nor shadowlap.config.json gives that check` : `blame needs the check ${id} failed`;
+      const what = failed.length ? `${id} failed “${failed[0]!}”, and neither the run nor shadowlap.config.json gives that check` : `blame needs the check ${id} failed`;
       return { error: `say what a passing run must do: ${what}. Give it as expect JSON, such as {"tools":{"send_email":1}}`, status: 422 };
     }
     expect = found.expect;
@@ -258,7 +258,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/fixes/family/:runId', (r) => {
     const run = lookupRun(store, r.params.runId!);
     const bundles = run ? fixBundles(store, run.runId) : null;
-    if (!bundles) throw new HttpError(404, `no run ${r.params.runId}`);
+    if (!bundles) throw new HttpError(404, `no run ${r.params.runId!}`);
     r.tagged({ bundles });
   });
 

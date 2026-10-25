@@ -45,7 +45,7 @@ function sample(lead: string, nth = 0): string {
   if (from < 0) throw new Error(`docs/checks.md has no line starting "${lead}"`);
   const blocks = [...page.slice(from).matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)];
   if (!blocks[nth]) throw new Error(`docs/checks.md has no code block ${nth + 1} after "${lead}"`);
-  return blocks[nth]![1]!;
+  return blocks[nth][1];
 }
 
 /** Whether `part`'s lines appear one after another in `whole`. A sample with nothing in it shows nothing. */
@@ -105,18 +105,18 @@ describe.skipIf(process.platform === 'win32')('the output docs/checks.md shows',
     await record('small', 'B-7', { refund: 40 });
     await record('latest', 'A-1042', 'escalate');
     for (const [run, label] of [['bug', 'bug'], ['good', 'good']] as const) {
-      const r = await cli(['label', runs[run]!, label]);
+      const r = await cli(['label', runs[run], label]);
       if (r.code !== 0) throw new Error(r.stdout + r.stderr);
     }
     for (const [run, golden] of [['bug', 'refund-over-limit'], ['good', 'refund-escalated'], ['small', 'refund-in-limit']] as const) {
-      const r = await cli(['pack', runs[run]!, join('goldens', golden)]);
+      const r = await cli(['pack', runs[run], join('goldens', golden)]);
       if (r.code !== 0) throw new Error(r.stdout + r.stderr);
     }
     // Doctor first, while the store holds the four recordings alone.
     config({ 'goldens/refund-in-limit': { expect: { calls: [{ tool: 'issue_refund', after: 'lookup_orders' }] } } });
     ran.doctor = await cli(['doctor']);
     writeFileSync(join(dir, 'refund-rule.json'), JSON.stringify(RULE));
-    ran.replay = await cli(['replay', runs.bug!, '--expect', '@refund-rule.json']);
+    ran.replay = await cli(['replay', runs.bug, '--expect', '@refund-rule.json']);
     ran.check = await cli(['check', '--expect', '@refund-rule.json']);
     config({ 'goldens/refund-*': { expect: { ...RULE, ...ESCALATE } } });
     ran.test = await cli(['test', join('goldens', 'refund-escalated'), join('goldens', 'refund-in-limit'), join('goldens', 'refund-over-limit')]);
@@ -127,25 +127,25 @@ describe.skipIf(process.platform === 'win32')('the output docs/checks.md shows',
   });
 
   it('shows the failure of a calls rule as shadowlap replay reports it', () => {
-    expect(ran.replay!.code, ran.replay!.stdout + ran.replay!.stderr).toBe(1);
+    expect(ran.replay.code, ran.replay.stdout + ran.replay.stderr).toBe(1);
     const shown = sample('A rule needs `after`, `args` or both.');
-    expect(within(ran.replay!.stdout + ran.replay!.stderr, shown), `docs/checks.md shows another report than shadowlap replay gives:\n${ran.replay!.stderr}`).toBe(true);
+    expect(within(ran.replay.stdout + ran.replay.stderr, shown), `docs/checks.md shows another report than shadowlap replay gives:\n${ran.replay.stderr}`).toBe(true);
   });
 
   it('shows shadowlap test with a when rule as it prints it', () => {
-    expect(ran.test!.code, ran.test!.stdout + ran.test!.stderr).toBe(1);
+    expect(ran.test.code, ran.test.stdout + ran.test.stderr).toBe(1);
     const shown = sample('- Each check under `then` is reported on its own');
-    expect(within(ran.test!.stdout, shown), `docs/checks.md shows other lines than shadowlap test prints:\n${ran.test!.stdout}`).toBe(true);
+    expect(within(ran.test.stdout, shown), `docs/checks.md shows other lines than shadowlap test prints:\n${ran.test.stdout}`).toBe(true);
   });
 
   it('shows shadowlap check as it prints it', () => {
-    expect(ran.check!.code, ran.check!.stdout + ran.check!.stderr).toBe(1);
+    expect(ran.check.code, ran.check.stdout + ran.check.stderr).toBe(1);
     const shown = sample('```sh\nshadowlap check --expect @refund-rule.json', 1);
-    expect(within(ran.check!.stdout, shown), `docs/checks.md shows another report than shadowlap check prints:\n${ran.check!.stdout}`).toBe(true);
+    expect(within(ran.check.stdout, shown), `docs/checks.md shows another report than shadowlap check prints:\n${ran.check.stdout}`).toBe(true);
   });
 
   it('shows doctor naming a misspelt tool as it prints it', () => {
     const shown = sample('`shadowlap doctor` holds the rules');
-    expect(within(ran.doctor!.stdout, shown, columns), `docs/checks.md shows other lines than shadowlap doctor prints:\n${ran.doctor!.stdout}`).toBe(true);
+    expect(within(ran.doctor.stdout, shown, columns), `docs/checks.md shows other lines than shadowlap doctor prints:\n${ran.doctor.stdout}`).toBe(true);
   });
 });

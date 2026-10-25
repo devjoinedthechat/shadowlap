@@ -69,7 +69,7 @@ describe('userInput', () => {
       }),
     ).rejects.toThrow('the window was closed');
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getCalls(rec.runId)[1]!.end!.outcome).toBe('error');
+    expect(store.getCalls(rec.runId)[1].end!.outcome).toBe('error');
 
     const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' }, replay: { overrides: new Map([[1, 'B-7']]) } });
     use(fork.runId);

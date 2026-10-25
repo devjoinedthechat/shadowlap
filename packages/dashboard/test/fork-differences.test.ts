@@ -69,7 +69,7 @@ afterAll(() => store.close());
 
 describe('what a fork did differently', () => {
   it('ranks a write first, then how the run ended, then reads, then its words, as decisions ranks them', () => {
-    const d = forkDifferences(store, id.fork!)!;
+    const d = forkDifferences(store, id.fork)!;
     expect(d).toMatchObject({ runId: id.fork, parentRunId: id.rec, from: 5, rank: 1, toolCalls: { parent: 1, fork: 2 }, cut: false });
     expect(d.changes.map((c) => [c.rank, c.kind, c.tool])).toEqual([
       [1, 'write-removed', 'issue_refund'],
@@ -88,7 +88,7 @@ describe('what a fork did differently', () => {
   });
 
   it('lists the fork’s writes from where it left its parent, with what became of each', () => {
-    expect(forkDifferences(store, id.fork!)!.writes).toEqual([{ callNo: 6, tool: 'escalate', args: '{"reason":"refund of $240 is above $100"}', fate: 'blocked', href: `#/run/${id.fork}/6` }]);
+    expect(forkDifferences(store, id.fork)!.writes).toEqual([{ callNo: 6, tool: 'escalate', args: '{"reason":"refund of $240 is above $100"}', fate: 'blocked', href: `#/run/${id.fork}/6` }]);
   });
 
   it('counts what a normalizer masks as no change', () => {
@@ -101,8 +101,8 @@ describe('what a fork did differently', () => {
   });
 
   it('has nothing to say of a run that is no fork of a run in the store', () => {
-    expect(forkDifferences(store, id.rec!)).toBeNull();
-    expect(forkDifferences(store, id.clean!)).toBeNull();
+    expect(forkDifferences(store, id.rec)).toBeNull();
+    expect(forkDifferences(store, id.clean)).toBeNull();
     expect(forkDifferences(store, '01NOSUCHRUN000000000000000')).toBeNull();
   });
 });

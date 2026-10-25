@@ -21,7 +21,7 @@ export interface UnrecordedView {
 
 /** The run's unrecorded tools, under the effects the project's config declares. */
 export function runUnrecorded(store: Store, run: Pick<RunRecord, 'runId' | 'meta'>, declared: Readonly<Record<string, 'read' | 'write'>> = {}): UnrecordedView {
-  let tools: UnrecordedTool[] = [];
+  let tools: UnrecordedTool[];
   try {
     tools = unrecordedTools(store, run.runId, { declared });
   } catch {

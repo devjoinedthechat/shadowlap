@@ -28,7 +28,7 @@ function listing(dir) {
   }
   const out = new Map([['.', `${top.mtimeMs}:${top.size}`]]);
   const walk = (at, depth) => {
-    let names = [];
+    let names;
     try {
       names = readdirSync(at);
     } catch {

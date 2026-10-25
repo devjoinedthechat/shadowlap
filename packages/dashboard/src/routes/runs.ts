@@ -71,14 +71,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const out = deleteRuns(store, [r.params.id!]);
     if ('error' in out) throw new HttpError(400, out.error);
     const skipped = out.skipped[0];
-    if (skipped) throw skipped.reason === 'no such run' ? new HttpError(404, `no run ${r.params.id}`) : new HttpError(409, `this run can't be deleted now: ${skipped.reason}`);
+    if (skipped) throw skipped.reason === 'no such run' ? new HttpError(404, `no run ${r.params.id!}`) : new HttpError(409, `this run can't be deleted now: ${skipped.reason}`);
     r.json({ deleted: out.done[0], attempts: out.attempts, blobs: out.blobs, bytes: out.bytes });
   });
 
   router.get('/runs/:id/calls/:n', async (r) => {
     const n = Number(r.params.n);
     const run = Number.isInteger(n) ? lookupRun(ctx.store, r.params.id!) : null;
-    if (!run) throw new HttpError(404, `no call #${r.params.n} in run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no call #${r.params.n!} in run ${r.params.id!}`);
     sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n }, { affinity: run.runId }));
   });
 
@@ -89,17 +89,17 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/:id/provenance', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, run, rules: redact });
     const p = provenance(store, run.runId, { ...ctx.read, ...(redact.length ? { redact } : {}), maskCount: () => mask });
-    if (!p) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!p) throw new HttpError(404, `no run ${r.params.id!}`);
     r.tagged(p);
   });
 
   router.get('/runs/:id/lineage', async (r) => {
     const run = lookupRun(ctx.store, r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     sendAnswer(r, await ctx.reads.run({ kind: 'lineage', runId: run.runId, read: ctx.read }, { affinity: run.runId }));
   });
 
@@ -128,7 +128,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/runs/:id/export', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     if (recordingNow(store, run)) throw new HttpError(409, stillRecording(run));
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const runIds = withAncestors(store, run.runId);

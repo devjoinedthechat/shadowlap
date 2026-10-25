@@ -47,7 +47,7 @@ const FORCED = /^forced live by (--fail-at|--diverge-at|--prompt-from|--live-too
 
 /** The result an overridden call of the replay recorded, in one line: the override as the run kept it. */
 function overriddenResult(store: Store, c: CallRecord): string {
-  let result: unknown = null;
+  let result: unknown;
   try {
     result = c.end?.responseRef ? store.getJson<{ result?: unknown }>(c.end.responseRef)?.result : null;
   } catch {

@@ -127,7 +127,7 @@ export class ShadowlapReplayDiverged extends Error {
     testError?: unknown,
   ) {
     const then = testError === undefined ? '' : `; the test then failed with ${errorLine(testError)}`;
-    super(`${result.message}${then}\n\n${result.report ?? ''}`, testError === undefined ? undefined : { cause: testError });
+    super(`${result.message!}${then}\n\n${result.report ?? ''}`, testError === undefined ? undefined : { cause: testError });
   }
 }
 

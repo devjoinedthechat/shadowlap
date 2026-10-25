@@ -23,7 +23,7 @@ if (mode === 'promises') {
   const ask = () =>
     rl.question('? ', (answer) => {
       if (!answer) return rl.close();
-      heard(answer).then(ask);
+      void heard(answer).then(ask);
     });
   ask();
 } else if (mode === 'promisify') {

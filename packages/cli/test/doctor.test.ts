@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { JUDGE_SCOPE, judgeAskId, packRun, Store } from '@shadowlap/engine';
 import { startMockOpenAI, turn as openaiTurn, withJudge as openaiJudge, type MockServer as OpenAIMock } from '@shadowlap-testing/mock-openai';
 import { Sidecar } from '@shadowlap/sidecar';
-import { defaultDbPath, loadConfig, loadTests } from '../src/config.js';
+import { loadTests } from '../src/config.js';
 import { formatDoctor, pythonCheck, runDoctor } from '../src/doctor.js';
 import { askJudges } from '../src/judge.js';
 
@@ -29,6 +29,20 @@ describe('shadowlap doctor', () => {
     expect(byName.telemetry?.detail).toContain('on');
     expect(checks.every((c) => c.verdict === 'ok')).toBe(true);
     expect(formatDoctor(checks, plain)).toContain('everything looks fine');
+  });
+
+  it('says an active run file without its run, process or address is incomplete, as shadowlap mcp reads it', () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    mkdirSync(join(dir, '.shadowlap'));
+    for (const partial of [{}, { runId: '01ACTIVE000000000000000000', pid: process.pid }, { url: 'http://127.0.0.1:1/t', pid: process.pid }]) {
+      writeFileSync(join(dir, '.shadowlap', 'active.json'), JSON.stringify(partial));
+      const active = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'active run');
+      expect(active).toMatchObject({ verdict: 'warn', detail: `${join(dir, '.shadowlap', 'active.json')} is incomplete`, fix: 'Delete it.' });
+    }
+    // Whole, it says where the run is, as before.
+    writeFileSync(join(dir, '.shadowlap', 'active.json'), JSON.stringify({ url: 'http://127.0.0.1:1/t', runId: '01ACTIVE000000000000000000', pid: process.pid }));
+    const whole = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'active run');
+    expect(whole).toMatchObject({ verdict: 'ok', detail: `run 01ACTIVE00 at http://127.0.0.1:1/t (pid ${process.pid})` });
   });
 
   it('flags old Node, a broken config, a stale active run and leaked agent environment', () => {
@@ -217,7 +231,7 @@ describe('a golden that holds no recorded verdict for a judge check', () => {
       },
     ]);
     // With a way to ask the judge, the command alone records them.
-    expect(judgeVerdicts(dir, loadTests(dir), { OPENAI_API_KEY: 'k' })[0]!.fix).toBe('Record them: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.');
+    expect(judgeVerdicts(dir, loadTests(dir), { OPENAI_API_KEY: 'k' })[0].fix).toBe('Record them: shadowlap test goldens/research --update asks the judge live once and keeps its call in the golden.');
 
     // doctor says both, and so does its JSON.
     const all = runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });

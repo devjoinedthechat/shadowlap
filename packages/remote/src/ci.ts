@@ -51,7 +51,7 @@ export interface CiStepKeys {
 
 /** `A`, `A and B`, `A, B and C`. */
 function andList(items: readonly string[]): string {
-  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`;
 }
 
 /** Where a key can't be named (an unreadable pack, Vertex AI's token): the agent's own, after those that are. */

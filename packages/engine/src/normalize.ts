@@ -86,9 +86,9 @@ export function normalizerApplies(n: Normalizer, kind: CallKind, name: string): 
  */
 export interface RewriteObserver {
   /** A path rule found a value at its path, whether or not it changed it. */
-  reached?(rule: number, value: unknown): void;
+  reached?: (rule: number, value: unknown) => void;
   /** A rule changed a value: `count` matches replaced, or 1 for a whole value. */
-  changed?(rule: number, before: unknown, after: unknown, count: number): void;
+  changed?: (rule: number, before: unknown, after: unknown, count: number) => void;
   /**
    * A rule's pattern matches something the rules leave as it is, so a copy carries it as recorded:
    * a number, which a pattern never rewrites; a key where keys stay (a request's, an error's); or,
@@ -97,14 +97,14 @@ export interface RewriteObserver {
    * applied, at `path` in the value (a key's own name last), with the text matched and how many
    * matches it holds.
    */
-  unmasked?(rule: number, text: string, at: UnmaskedAt, count: number): void;
+  unmasked?: (rule: number, text: string, at: UnmaskedAt, count: number) => void;
   /**
    * A rule's pattern (or a path rule's path) reaches into signed reasoning that a copy which can be
    * replayed keeps as recorded (signed.ts): a thinking block, its signature, encrypted reasoning.
    * Told with the text there and how many matches it holds (1 for a path rule that would have
    * replaced it whole).
    */
-  signed?(rule: number, text: string, at: UnmaskedAt, count: number): void;
+  signed?: (rule: number, text: string, at: UnmaskedAt, count: number) => void;
 }
 
 /** Where a value the rules leave as it is sits, and what it is. */

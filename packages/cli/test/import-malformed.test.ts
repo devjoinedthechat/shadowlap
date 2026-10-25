@@ -73,7 +73,7 @@ describe('a malformed capture', () => {
     const lines = [record, null, [1], { ...record, responseBody: 5 }, { ...record, url: 9 }, { ...record, status: 'ok' }, { ...record, runKey: { id: 1 } }].map((r) => JSON.stringify(r)).join('\n');
     const runs = importLitellm(store, lines, { source: 'captures.jsonl' });
     expect(runs.map((r) => r.imported.length)).toEqual([1]);
-    expect(runs[0]!.skipped).toEqual([
+    expect(runs[0].skipped).toEqual([
       { url: 'line 2', reason: 'not a Shadowlap capture record' },
       { url: 'line 3', reason: 'not a Shadowlap capture record' },
       { url: 'http://127.0.0.1:4410/v1/messages', reason: "not a Shadowlap capture record: responseBody isn't text" },

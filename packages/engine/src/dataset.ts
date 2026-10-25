@@ -148,7 +148,7 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
       if (r.pattern !== undefined) compilePattern(r.pattern);
       if (r.path !== undefined) parsePath(r.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
   });
   const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));
@@ -158,7 +158,7 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
     const models = store.getCalls(run.runId).filter((c) => c.kind === 'api' && c.end?.outcome === 'ok' && !isJudgeCall(c));
     const chosen = opts.calls === 'final' ? models.slice(-1) : models;
     for (const call of chosen) {
-      let e: DatasetExample | null = null;
+      let e: DatasetExample | null;
       try {
         e = example(store, run, call, redact);
       } catch {

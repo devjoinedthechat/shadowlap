@@ -34,7 +34,7 @@ import {
   sprtStep,
   verdictLine,
   wilson,
-  wilsonBound,
+  rateBound,
   type BaselineGate,
   type SprtGate,
 } from '../src/stats.js';
@@ -457,9 +457,9 @@ describe('the baseline gate', () => {
     expect(gateOdds(once, 0.6, history).fail).toBeCloseTo(0.3174, 4);
     expect(gateOdds(once, 0.5, history).fail).toBeCloseTo(0.5, 4);
     expect(countOdds(5, 4, 0.6).fail).toBeCloseTo(0.6630, 4);
-    expect(fails[0.6]!).toBeGreaterThan(countOdds(5, 4, 0.6).fail);
-    expect(fails[0.5]!).toBeGreaterThan(countOdds(5, 4, 0.5).fail);
-    expect(countOdds(5, 4, 0.95).fail / fails[0.95]!).toBeGreaterThan(15);
+    expect(fails[0.6]).toBeGreaterThan(countOdds(5, 4, 0.6).fail);
+    expect(fails[0.5]).toBeGreaterThan(countOdds(5, 4, 0.5).fail);
+    expect(countOdds(5, 4, 0.95).fail / fails[0.95]).toBeGreaterThan(15);
   });
 
   it('without history, compares with its recording: the one attempt it was packed from, which passed', () => {
@@ -595,7 +595,7 @@ describe('what the reports say', () => {
     const b = sprtBounds(SPEC);
     expect(r.evidence).toMatchObject({ upper: b.upper, lower: b.lower, pass: b.pass, fail: b.fail });
     const want = [b.pass, b.pass + b.fail, 2 * b.pass + b.fail];
-    r.evidence.scores.forEach((score, i) => expect(score).toBeCloseTo(want[i]!, 14));
+    r.evidence.scores.forEach((score, i) => expect(score).toBeCloseTo(want[i], 14));
     expect(r.evidence.scores).toHaveLength(3);
     expect(r.decision).toBe('continue');
   });
@@ -624,6 +624,6 @@ describe('what the reports say', () => {
     expect(describeGate(baseline())).toBe('fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40');
     const one = gateResult(SPEC, [true]);
     expect(gateSentence(SPEC, { ...one, decision: 'pass' })).toBe('passed · 1 of 1 · rate >= 0.02 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
-    expect(wilsonBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
+    expect(rateBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
   });
 });

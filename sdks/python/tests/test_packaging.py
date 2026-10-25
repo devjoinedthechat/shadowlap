@@ -48,7 +48,7 @@ class Typed(unittest.TestCase):
             cmd = ["uv", "build", "--wheel", "--out-dir", out, self.ROOT]
         else:
             try:
-                import pip  # noqa: F401
+                import pip  # noqa: F401 -- only whether pip is here to build with
             except ImportError:
                 self.skipTest("neither uv nor pip is here to build a wheel")
             cmd = [sys.executable, "-m", "pip", "wheel", "--no-deps", "--quiet", "-w", out, self.ROOT]

@@ -266,10 +266,10 @@ child.stdout.once('data', (d) => {
     const db = join(dir, 'decisions.db');
     const rec = spawn(process.execPath, [CLI, '--db', db, 'run', '--guard', 'off', '--', process.execPath, AGENT], { cwd: dir, env: env(), stdio: ['ignore', 'pipe', 'pipe'] });
     let recorded = '';
-    rec.stderr!.on('data', (d: Buffer) => (recorded += d.toString()));
-    rec.stdout!.on('data', (d: Buffer) => (recorded += d.toString()));
+    rec.stderr.on('data', (d: Buffer) => (recorded += d.toString()));
+    rec.stdout.on('data', (d: Buffer) => (recorded += d.toString()));
     expect((await exited(rec)).code, recorded).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded)![1];
     // An agent that ignores Ctrl-C and SIGTERM and never sends its first request.
     const pidFile = join(dir, 'stubborn.pid');
     writeFileSync(join(dir, 'stubborn.cjs'), `for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => {}); require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`);

@@ -44,5 +44,5 @@ export function supportScript({ request }) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const mock = await startMockAnthropic({ script: supportScript, eventDelayMs: () => 0 });
   console.log(mock.url);
-  process.on('SIGINT', () => mock.close().then(() => process.exit(0)));
+  process.on('SIGINT', () => void mock.close().then(() => process.exit(0)));
 }

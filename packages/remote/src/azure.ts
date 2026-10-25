@@ -65,8 +65,8 @@ export class AzureStore implements ObjectStore {
     this.account = o.location.account!;
   }
 
-  async credentials(): Promise<string> {
-    return this.o.auth.source;
+  credentials(): Promise<string> {
+    return Promise.resolve(this.o.auth.source);
   }
 
   private async call(op: Op, method: string, path: string, query: string, opts: { body?: Buffer; headers?: Record<string, string>; maxBytes?: number } = {}): Promise<HttpResponse> {

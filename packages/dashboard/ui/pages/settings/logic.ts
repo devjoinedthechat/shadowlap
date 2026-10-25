@@ -330,7 +330,7 @@ export function partialLine(p: { read: number; of: number; stopped?: 'calls' | '
 
 /** `a`, `a or b`, `a, b or c`; with `and`, `a, b and c`. */
 export function orList(items: readonly string[], word: 'or' | 'and' = 'or'): string {
-  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]!}`;
 }
 
 // ---- sizes and counts ----
@@ -345,7 +345,7 @@ export function bytesText(n: number): string {
     v /= 1024;
     i++;
   }
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]!}`;
 }
 
 /** A time as the Store tab's "Last sync" shows it: `10:14` today, `Sep 30` before, `never` without one. */
@@ -581,7 +581,7 @@ const NAME_NOISE = new Set(['mcp', 'api', 'www', 'server', 'servers', 'app', 'co
 export function serverNameFor(transport: 'stdio' | 'http', target: string): string {
   const pick = (words: string[]) => words.map((w) => w.toLowerCase()).find((w) => /^[a-z][a-z0-9-]*$/.test(w) && !NAME_NOISE.has(w)) ?? 'server';
   if (transport === 'http') {
-    let host = '';
+    let host: string;
     try {
       host = new URL(target.trim()).hostname;
     } catch {

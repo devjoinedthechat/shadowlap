@@ -118,7 +118,7 @@ describe('trust on a tool', () => {
     const { summary } = sidecar.endRun(replay.runId, 'completed');
     expect(ran).toBe(1);
     expect(summary.divergence).toBeNull();
-    expect(store.getCalls(replay.runId)[0]!.meta.trust).toBe('untrusted');
+    expect(store.getCalls(replay.runId)[0].meta.trust).toBe('untrusted');
   });
 
   it.skipIf(!python())('is recorded on each call of a tool the Python SDK marks untrusted', async () => {

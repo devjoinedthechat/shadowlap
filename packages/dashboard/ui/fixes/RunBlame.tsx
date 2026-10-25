@@ -49,7 +49,7 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
         return null;
       },
     );
-  const failedText = failed.length ? `It failed “${failed[0]}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
+  const failedText = failed.length ? `It failed “${failed[0]!}”${failed.length > 1 ? ` and ${failed.length - 1} more` : ''}, a check shadowlap.config.json doesn’t give. ` : '';
   return (
     <>
       <button className={className} type="button" disabled={!!why} title={why ?? title} onClick={() => app.guard(() => void start({}))}>

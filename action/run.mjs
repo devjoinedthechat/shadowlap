@@ -115,7 +115,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
 
   process.stdout.write(`shadowlap test ${packs.join(' ')}\n`);
   const r = spawnSync(process.execPath, args, { cwd: workdir, stdio: 'inherit', env: cliEnv });
-  if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${r.status ?? r.signal}); its output is above`);
+  if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${String(r.status ?? r.signal)}); its output is above`);
 
   const report = JSON.parse(readFileSync(json, 'utf8'));
   let fixes = [];
@@ -124,8 +124,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (fixOnFailure && report.failed && !report.interrupted) {
     fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
     for (const f of fixes) {
-      if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${f.pr}\n`);
-      else process.stdout.write(`${f.name}: no fix pull request: ${f.why}\n`);
+      if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${String(f.pr)}\n`);
+      else process.stdout.write(`${f.name}: no fix pull request: ${String(f.why)}\n`);
     }
   }
   // On a pull request, one comment with each golden's verdict, edited in place. Never fails the job.
@@ -133,8 +133,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (comment && !report.interrupted) {
     posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
     if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}\n`);
-    else if (posted.state === 'failed') process.stdout.write(`::warning title=Shadowlap::the pull request comment was not posted: ${posted.why}\n`);
-    else if (posted.state !== 'none') process.stdout.write(`the pull request comment was not posted: ${posted.why}\n`);
+    else if (posted.state === 'failed') process.stdout.write(`::warning title=Shadowlap::the pull request comment was not posted: ${String(posted.why)}\n`);
+    else if (posted.state !== 'none') process.stdout.write(`the pull request comment was not posted: ${String(posted.why)}\n`);
   }
   const outputs = outputsOf(report, fixes, { json, markdown, junit });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));

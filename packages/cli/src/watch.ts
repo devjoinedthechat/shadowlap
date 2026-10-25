@@ -75,7 +75,7 @@ export function watchAndRerun(opts: WatchOptions): Promise<void> {
     }
     if (during.size) {
       const names = [...during].sort();
-      const what = names.length === 1 ? names[0] : `${names.length} files (${names.slice(0, 3).join(', ')}${names.length > 3 ? ', …' : ''})`;
+      const what = names.length === 1 ? names[0]! : `${names.length} files (${names.slice(0, 3).join(', ')}${names.length > 3 ? ', …' : ''})`;
       opts.log(`${what} changed while the replay ran: taken for the replay's own ${names.length === 1 ? 'write' : 'writes'}, so no replay follows. If it was your edit, save it again.`);
     }
   };

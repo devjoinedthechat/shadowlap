@@ -252,7 +252,7 @@ export const MAX_PACK_RUNS = 100;
 export function packFolders(runIds: readonly string[], dir: string): Array<{ runId: string; folder: string }> {
   const parent = dir.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   const shorts = runIds.map(short);
-  return runIds.map((runId, i) => ({ runId, folder: `${parent}/${shorts.indexOf(shorts[i]!) === shorts.lastIndexOf(shorts[i]!) ? shorts[i] : runId.toLowerCase()}` }));
+  return runIds.map((runId, i) => ({ runId, folder: `${parent}/${shorts.indexOf(shorts[i]!) === shorts.lastIndexOf(shorts[i]!) ? shorts[i]! : runId.toLowerCase()}` }));
 }
 
 /** Several runs packed by one job, each into its own folder inside `dir` (`.shadowlap/exports` unless asked). */

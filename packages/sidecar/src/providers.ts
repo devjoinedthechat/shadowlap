@@ -12,7 +12,7 @@ export interface Provider {
   /** Where live calls go. Empty for a provider whose host depends on the account, region or deployment. */
   upstream: string;
   /** Environment to point the provider's official SDKs at the sidecar. `baseUrl` is the sidecar's provider root. */
-  env(baseUrl: string): Record<string, string>;
+  env: (baseUrl: string) => Record<string, string>;
   /**
    * The path `env` adds to the provider root for the SDK's base URL (`/v1` for OpenAI): the SDK's own
    * paths (`/chat/completions`) arrive under it. See `sdkBasesFromEnvironment`.
@@ -24,13 +24,13 @@ export interface Provider {
    * ANTHROPIC_BASE_URL for an API root ending in `/v1` and sends `/messages`, where the official SDKs
    * send `/v1/messages`. The call is recorded, matched and forwarded under the path this returns.
    */
-  apiPath?(path: string): string;
+  apiPath?: (path: string) => string;
   /**
    * A request's path as it identifies the call, when part of it names where the call was made rather
    * than what it asks: Vertex AI's `/projects/<project>/locations/<region>`, so a recording replays
    * in a teammate's project or in CI's. The call keeps its full path as its name.
    */
-  matchPath?(path: string): string;
+  matchPath?: (path: string) => string;
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
   /**
@@ -45,7 +45,7 @@ export interface Provider {
    * signed in rather than what it asks: Anthropic's `oauth-…` betas, which a profile's sign-in
    * sends and a key doesn't. The headers are kept as sent; only matching leaves that part out.
    */
-  matchHeaders?(headers: Readonly<Record<string, string>>): Record<string, string>;
+  matchHeaders?: (headers: Readonly<Record<string, string>>) => Record<string, string>;
   /** Lower-cased headers that are forwarded upstream but never stored. */
   credentialHeaders: readonly string[];
   /**
@@ -97,7 +97,7 @@ export interface Provider {
    * The provider that serves a path of this one's hosts in another wire format: Azure's
    * `services.ai.azure.com` serves Claude under `/anthropic` (Microsoft Foundry).
    */
-  forPath?(path: string): Provider | undefined;
+  forPath?: (path: string) => Provider | undefined;
 }
 
 function modelInBody(body: unknown): string | null {
@@ -321,7 +321,7 @@ function geminiUsage(u: unknown): Usage | null {
 }
 
 function geminiStopReason(obj: Record<string, unknown> | null): string | null {
-  const c = obj && Array.isArray(obj.candidates) ? obj.candidates[0] : null;
+  const c = obj && Array.isArray(obj.candidates) ? (obj.candidates as unknown[])[0] : null;
   return isObject(c) && typeof c.finishReason === 'string' ? c.finishReason : null;
 }
 

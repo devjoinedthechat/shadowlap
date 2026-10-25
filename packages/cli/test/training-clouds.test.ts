@@ -123,11 +123,11 @@ function shadowlap(work: string, args: string[], extra: NodeJS.ProcessEnv = {}):
     });
     let out = '';
     let stdout = '';
-    child.stdout!.on('data', (d: Buffer) => {
+    child.stdout.on('data', (d: Buffer) => {
       out += d.toString();
       stdout += d.toString();
     });
-    child.stderr!.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
     child.on('close', (code) => resolve({ code, out, stdout }));
   });
 }
@@ -137,7 +137,7 @@ async function golden(work: string, api: string, stream: boolean): Promise<strin
   const r = await shadowlap(work, ['run', '--', process.execPath, AGENT, api, ...(stream ? ['--stream'] : [])]);
   expect(r.code, r.out).toBe(0);
   expect(r.out).toContain('Refunded $240.');
-  const runId = /recording run (\w{26})/.exec(r.out)![1]!;
+  const runId = /recording run (\w{26})/.exec(r.out)![1];
   expect((await shadowlap(work, ['pack', runId, `goldens/${api}`])).code).toBe(0);
   writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { [`goldens/${api}`]: { expect: { tools: { issue_refund: 0 } }, task: { takeover: 5 } } } }));
   return runId;
@@ -175,7 +175,7 @@ describe('a cloud recording scored with a model at your own endpoint', () => {
         expect(r.stdout).toMatch(/✓ my-finetune · mean 1\.00 · 1 attempt on 1 task/);
         withStore(join(work, '.shadowlap', 'shadowlap.db'), (s) => {
           const [row] = s.listTaskScores();
-          const calls = s.getCalls(row!.runId!);
+          const calls = s.getCalls(row.runId!);
           // The takeover call is the model under test's, recorded as the cloud's call it answered.
           const decision = calls.find((x) => x.callNo === 5)!;
           expect(decision.origin).toBe('live');
@@ -200,7 +200,7 @@ describe('a cloud recording scored with Anthropic\'s API', () => {
       expect(r.code, r.out).toBe(0);
       expect(r.stdout).toMatch(/✓ claude-good · mean 1\.00/);
       // The cloud's version field is gone, and the model named.
-      const first = anthropic.requests[before]!;
+      const first = anthropic.requests[before];
       expect(first.headers['x-api-key']).toBe('test-key');
       expect(first.body).toMatchObject({ model: 'claude-good', stream: false });
       expect(first.body).not.toHaveProperty('anthropic_version');

@@ -62,7 +62,7 @@ function verifyJwt(assertion: string, accounts: Record<string, string>, now: num
 /** Checks a V4 signed URL the way Cloud Storage does, with its own canonical request. */
 function verifySignedUrl(req: IncomingMessage, rawPath: string, params: URLSearchParams, keys: Map<string, KeyObject>, now: number): boolean {
   const credential = params.get('X-Goog-Credential') ?? '';
-  const email = credential.split('/')[0]!;
+  const email = credential.split('/')[0];
   const key = keys.get(email);
   if (!key || params.get('X-Goog-Algorithm') !== 'GOOG4-RSA-SHA256' || params.get('X-Goog-SignedHeaders') !== 'host') return false;
   const date = params.get('X-Goog-Date') ?? '';
@@ -139,7 +139,7 @@ export async function startFakeGcs(opts: FakeGcsOptions): Promise<FakeGcs> {
       const object = /^\/storage\/v1\/b\/([^/]+)\/o\/(.+)$/.exec(rawPath);
       const listing = /^\/storage\/v1\/b\/([^/]+)\/o$/.exec(rawPath);
       const bucketGet = /^\/storage\/v1\/b\/([^/]+)$/.exec(rawPath);
-      const bucketOf = (m: RegExpExecArray) => decodeURIComponent(m[1]!);
+      const bucketOf = (m: RegExpExecArray) => decodeURIComponent(m[1]);
       const m = upload ?? object ?? listing ?? bucketGet;
       if (!m) return fail(404, 'Not Found');
       if (bucketOf(m) !== opts.bucket) return fail(404, 'The specified bucket does not exist.');
@@ -157,7 +157,7 @@ export async function startFakeGcs(opts: FakeGcsOptions): Promise<FakeGcs> {
         return json(res, 200, { name, bucket: opts.bucket, size: String(body.length), generation: String(o.generation), ...(opts.kmsKeyName ? { kmsKeyName: opts.kmsKeyName } : {}) });
       }
       if (object) {
-        const name = decodeURIComponent(object[2]!);
+        const name = decodeURIComponent(object[2]);
         const o = objects.get(name);
         if (req.method === 'DELETE') {
           if (denied('delete')) return fail(403, 'does not have storage.objects.delete access');

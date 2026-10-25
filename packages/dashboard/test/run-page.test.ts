@@ -19,19 +19,19 @@ describe('the run page: conversations', () => {
     expect(d.cache.misses).toEqual([]);
     const [get, m1, lookup, m2, refund, m3] = byTicket.get(31)!;
     const row = (n: number) => d.calls.find((c) => c.callNo === n)!;
-    expect([get, m1, lookup, m2, refund, m3].map((n) => row(n!).conversation)).toEqual([31, 31, 31, 31, 31, 31]);
-    expect(row(m1!).conversationStart).toBe(true);
-    expect(row(m2!).conversationStart).toBe(false);
-    expect(row(lookup!)).toMatchObject({ requestedBy: m1, toolUseId: 'toolu_31_1', resultShort: '{"order_id":"A-2031","amount":71}' });
+    expect([get, m1, lookup, m2, refund, m3].map((n) => row(n).conversation)).toEqual([31, 31, 31, 31, 31, 31]);
+    expect(row(m1).conversationStart).toBe(true);
+    expect(row(m2).conversationStart).toBe(false);
+    expect(row(lookup)).toMatchObject({ requestedBy: m1, toolUseId: 'toolu_31_1', resultShort: '{"order_id":"A-2031","amount":71}' });
     // Each model call says which tools its answer asked for, read from the response; other calls say nothing.
-    expect(row(m1!).asks).toEqual(['lookup_order']);
-    expect(row(lookup!).asks).toBeNull();
+    expect(row(m1).asks).toEqual(['lookup_order']);
+    expect(row(lookup).asks).toBeNull();
     // The tool call's conversation is its own ticket's, as it stood when the tool was called.
-    const tool = callDetail(store, runId, refund!)!;
+    const tool = callDetail(store, runId, refund)!;
     expect(tool.conversation).toMatchObject({ fromCallNo: m2, n: 31 });
     expect(tool.conversation!.turns.find((t) => t.role === 'user')!.blocks[0]).toMatchObject({ type: 'text', text: expect.stringContaining('A-2031') });
     // Fetched before its ticket's first model call: the conversation it feeds.
-    expect(callDetail(store, runId, get!)!.conversation).toMatchObject({ fromCallNo: m1, n: 31 });
+    expect(callDetail(store, runId, get)!.conversation).toMatchObject({ fromCallNo: m1, n: 31 });
     store.close();
   });
 
@@ -128,9 +128,9 @@ describe('the run page: time not waited, blobs and results', () => {
     expect(d.notWaitedMs).toBe(6340);
     // The blobs a call is stored as, for Provenance; a replayed call shares its recording's.
     const recorded = runDetail(store, rec.runId)!;
-    expect(d.calls[1]!.responseRef).toBe(recorded.calls[1]!.responseRef);
-    expect(d.calls[0]!.requestRef).toMatch(/^[0-9a-f]{64}$/);
-    expect(d.calls[0]!.fingerprint).toBe('fp-1');
+    expect(d.calls[1].responseRef).toBe(recorded.calls[1].responseRef);
+    expect(d.calls[0].requestRef).toMatch(/^[0-9a-f]{64}$/);
+    expect(d.calls[0].fingerprint).toBe('fp-1');
     expect(recorded.calls.map((c) => c.recordedMs)).toEqual([null, null, null]);
     expect(recorded.notWaitedMs).toBe(0);
     // A tool's result in a line; a model call's, what it said: nothing for one that only called a tool.
@@ -146,10 +146,10 @@ describe('the run page: time not waited, blobs and results', () => {
     b.model({ messages: [user('Refund A-1042.')] }, [text(`Refunded $240. ${'Thanks for waiting. '.repeat(20)}`)]);
     b.end();
     const [first, , last] = runDetail(store, b.runId)!.calls;
-    expect(first!.resultShort).toBe('Let me look the order up first.');
-    expect(first!.asks).toEqual(['lookup_order']);
-    expect(last!.resultShort).toHaveLength(200);
-    expect(last!.resultShort).toMatch(/^Refunded \$240\. Thanks for waiting\. .*…$/);
+    expect(first.resultShort).toBe('Let me look the order up first.');
+    expect(first.asks).toEqual(['lookup_order']);
+    expect(last.resultShort).toHaveLength(200);
+    expect(last.resultShort).toMatch(/^Refunded \$240\. Thanks for waiting\. .*…$/);
     store.close();
   });
 
@@ -166,10 +166,10 @@ describe('the run page: time not waited, blobs and results', () => {
     store.getJson = ((hash: string) => {
       if (results.has(hash)) reads++;
       return real(hash);
-    }) as typeof store.getJson;
+    });
     const first = runDetail(store, b.runId)!;
-    expect(first.calls[0]!.resultShort).toBe(`${JSON.stringify({ ...big, page: 0 }).slice(0, 71)}…`);
-    expect(first.calls[20]!.resultShort).toBe('stubbed {"stubbed":true}');
+    expect(first.calls[0].resultShort).toBe(`${JSON.stringify({ ...big, page: 0 }).slice(0, 71)}…`);
+    expect(first.calls[20].resultShort).toBe('stubbed {"stubbed":true}');
     expect(reads).toBe(21);
     reads = 0;
     // Asked again, as the run page does every two seconds: no tool result is read again.
@@ -213,7 +213,7 @@ describe('the run page: header and banners', () => {
     expect(d.forkAt).toBe(2);
     expect(d.intervention).toEqual({ flag: '--fail-at', value: '2=529', callNo: 2 });
     expect(d.interventions.map((x) => x.flag)).toEqual(['--fail-at', '--writes']);
-    expect(d.calls[2]!.resultShort).toBe('stubbed {"stubbed":true}');
+    expect(d.calls[2].resultShort).toBe('stubbed {"stubbed":true}');
     // Stored flags win, as the sidecar keeps them: the instruction in its short form.
     store.updateRunMeta(fork, { interventions: describeInterventions(undefined, { inject: { atCall: 2, text: 'Prefer the 2026 policy', as: 'user' } }) });
     expect(runDetail(store, fork)!.intervention).toEqual({ flag: '--inject', value: '2=Prefer the 2026 policy', callNo: 2 });
@@ -259,7 +259,7 @@ describe('the run page: header and banners', () => {
     }
     // Another invocation's attempt under the same recording is not counted with these.
     RunBuilder.start(store, { parent: golden, meta: { repeat: { group: 'g2', attempt: 1, of: 1 }, checks: [{ ok: false, label: 'exit 0', detail: 'exited 1' }] } }).end();
-    expect(runDetail(store, attempts[0]!)!.checks).toEqual([
+    expect(runDetail(store, attempts[0])!.checks).toEqual([
       { label: 'issue_refund never called', ok: true, detail: null, count: 5, of: 5 },
       { label: 'exit 0', ok: true, detail: null, count: 4, of: 5 },
     ]);
@@ -344,12 +344,12 @@ describe('the run page: a fork’s flags in a copy of it', () => {
       const { fork } = forked(store, interventions);
       const html = exportHtml({ store, runIds: [fork], uiDir, redact: rules }).html;
       for (const s of secrets) expect(html, s).not.toContain(s);
-      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1]!.replace(/<\\\//g, '</')) as { responses: Record<string, RunDetailShape> };
-      const shown = data.responses[`runs/${fork}`]!;
+      const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">([\s\S]*?)<\/script>/.exec(html)![1].replace(/<\\\//g, '</')) as { responses: Record<string, RunDetailShape> };
+      const shown = data.responses[`runs/${fork}`];
       // The override as the copy's call recorded it, masked there; a value someone else's pack kept apart from its flag is left out.
       if (interventions === kept) expect(shown.interventions.find((x) => x.flag === '--override')).toEqual({ flag: '--override', value: '2={"email":"<EMAIL>","ssn":"<SSN>"}', callNo: 2 });
       else expect(shown.interventions.map((x) => x.value)).toEqual([null, null, null]);
-      expect(shown.notRecorded!.hosts[0]!.target).toBe('payroll.corp.internal:5432');
+      expect(shown.notRecorded!.hosts[0].target).toBe('payroll.corp.internal:5432');
 
       const dir = mkdtempSync(join(tmpdir(), 'sl-run-page-pack-'));
       try {
@@ -462,7 +462,7 @@ describe('the run endpoint', () => {
       expect(d).toMatchObject({ conversations: [{ n: 1 }, { n: 2 }, { n: 3 }], notWaitedMs: 0, forkAt: null, intervention: null, notRecorded: null, cache: { misses: [] } });
       const [, , lookup] = byTicket.get(2)!;
       const call = await get(`runs/${runId}/calls/${lookup}`);
-      expect(call).toMatchObject({ call: { conversation: 2, requestedBy: lookup! - 1, toolUseId: 'toolu_2_1' }, conversation: { fromCallNo: lookup! - 1, n: 2 } });
+      expect(call).toMatchObject({ call: { conversation: 2, requestedBy: lookup - 1, toolUseId: 'toolu_2_1' }, conversation: { fromCallNo: lookup - 1, n: 2 } });
       // A run in no fix says so; the Provenance tab's record has its own endpoint, as the read model gives it.
       expect(d.fix).toBeNull();
       expect(await get(`runs/${runId}/provenance`)).toEqual(JSON.parse(JSON.stringify(provenance(store, runId))));

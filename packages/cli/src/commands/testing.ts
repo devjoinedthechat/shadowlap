@@ -409,7 +409,7 @@ export function register(program: Command): void {
             const verdict = data.verdict === 'inconclusive' ? 'inconclusive' : 'failed';
             const word = verdict === 'inconclusive' ? 'injection inconclusive' : 'injection';
             const through = verdict === 'inconclusive' ? (gateLetsThrough(data, flags.inconclusive) ? 'Let through by --inconclusive warn. ' : '--inconclusive warn lets an inconclusive gate through. ') : '';
-            const failure = { message: `${word}: ${data.reason}`, details: `${proof ? `${proof}\n` : ''}${through}${verdict === 'inconclusive' ? 'Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` };
+            const failure = { message: `${word}: ${data.reason!}`, details: `${proof ? `${proof}\n` : ''}${through}${verdict === 'inconclusive' ? 'Every attempt, and why: ' : 'Every attempt, with its proof: '}shadowlap injection ${golden} --html report.html` };
             return { outcome: { ...o, ...(o.result ? { result: { ...o.result, verdict } } : {}), failure, kind: 'injection' }, injection: data };
           };
           const printGate = (d: InjectionGateData | null) => {
@@ -480,7 +480,7 @@ export function register(program: Command): void {
               if (u.run) made.push(u.run.runId);
               if (u.checks?.length && !u.interrupted) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
               if (!u.replaced || !u.run) {
-                process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason}\n`);
+                process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason!}\n`);
                 const tail = u.interrupted ? null : outputTail(u.output, 10);
                 if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
               } else {
@@ -619,7 +619,7 @@ export function register(program: Command): void {
           target,
           ...(command.length ? { argv: command } : {}),
           // A command someone else chose runs at every commit only with consent, as a replay of it does.
-          confirm: flags.yes ? async () => true : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
+          confirm: flags.yes ? () => Promise.resolve(true) : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,

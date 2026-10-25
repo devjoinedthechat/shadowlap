@@ -255,7 +255,7 @@ function writePack(dir: string, write: (into: string) => void): void {
           keep = true;
         }
       }
-      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`);
+      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`, { cause: err });
       throw err;
     }
   } finally {

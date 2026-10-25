@@ -127,7 +127,7 @@ function shadowlap(work: string, args: string[], env: NodeJS.ProcessEnv = {}): P
 async function record(work: string, argv: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
   const r = await shadowlap(work, ['run', '--', process.execPath, ...argv], env);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 /**
@@ -161,7 +161,7 @@ async function startFront(): Promise<{ url: string; counted: string[]; close: ()
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const body = Buffer.concat(chunks);
-      const path = (req.url ?? '/').split('?')[0]!;
+      const path = (req.url ?? '/').split('?')[0];
       const json = (value: unknown) => {
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(value));
@@ -211,11 +211,11 @@ describe('shadowlap export pairs', () => {
       expect(r.stdout).toContain('✓ wrote pairs.jsonl · 1 pair');
       const rows = readFileSync(join(work, 'pairs.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { input: { messages: Array<{ role: string; content: string }>; tools: unknown[] }; preferred_output: Array<{ tool_calls: Array<{ function: { name: string } }> }>; non_preferred_output: Array<{ tool_calls: Array<{ function: { name: string; arguments: string } }> }> });
       expect(rows).toHaveLength(1);
-      expect(rows[0]!.input.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'tool']);
-      expect(rows[0]!.input.messages[1]!.content).toBe('The customer asks for a refund on order <ORDER>.');
-      expect(rows[0]!.input.tools).toHaveLength(4);
-      expect(rows[0]!.preferred_output[0]!.tool_calls[0]!.function.name).toBe('escalate');
-      expect(rows[0]!.non_preferred_output[0]!.tool_calls[0]!.function).toEqual({ name: 'issue_refund', arguments: '{"order_id":"<ORDER>","amount":240}' });
+      expect(rows[0].input.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'tool']);
+      expect(rows[0].input.messages[1].content).toBe('The customer asks for a refund on order <ORDER>.');
+      expect(rows[0].input.tools).toHaveLength(4);
+      expect(rows[0].preferred_output[0].tool_calls[0].function.name).toBe('escalate');
+      expect(rows[0].non_preferred_output[0].tool_calls[0].function).toEqual({ name: 'issue_refund', arguments: '{"order_id":"<ORDER>","amount":240}' });
       expect(r.events).toEqual([
         { type: 'file', path: realpathSync(join(work, 'pairs.jsonl')), label: 'pairs.jsonl' },
         { type: 'result', data: expect.objectContaining({ pairs: 1, file: 'pairs.jsonl', format: 'openai-preference', minConfidence: 'high', leftOut: 0, redaction: 1 }) },
@@ -229,7 +229,7 @@ describe('shadowlap export pairs', () => {
       expect(trl.code, trl.out).toBe(0);
       expect(trl.out).toContain('redaction skipped (--no-redact)');
       const row = JSON.parse(trl.stdout.trim()) as { prompt: unknown[]; chosen: Array<{ tool_calls: Array<{ function: { arguments: unknown } }> }>; rejected: unknown[] };
-      expect(row.chosen[0]!.tool_calls[0]!.function.arguments).toEqual({ reason: 'refund of $240 is above $100' });
+      expect(row.chosen[0].tool_calls[0].function.arguments).toEqual({ reason: 'refund of $240 is above $100' });
       expect(JSON.stringify(row)).toContain('A-1042');
       withStore(db, (s) => expect(s.listPairsExports().map((e) => e.file)).toEqual(['-', 'pairs.jsonl']));
       // The dashboard's export goes into the project's exports folder, made when it isn't there yet.
@@ -392,7 +392,7 @@ describe('shadowlap tasks', () => {
         ['weak-model', null, 'goldens/refund-over-limit', 1, 0.33],
         ['weak-model', null, 'goldens/refund-over-limit', 2, 0.33],
       ]);
-      const attempt = s.getRun(rows[0]!.runId!)!;
+      const attempt = s.getRun(rows[0].runId!)!;
       expect(attempt.parentRunId).toBe(golden);
       expect(attempt.divergence).toMatchObject({ type: 'forced', callNo: 5 });
       expect(attempt.meta?.task).toMatchObject({ golden: 'goldens/refund-over-limit', model: 'weak-model', takeover: 5, attempt: 1, of: 2 });
@@ -408,8 +408,8 @@ describe('shadowlap tasks', () => {
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as { mean: number; spent: number; via: string; baseUrl: string; tasks: Array<{ stored: string; attempts: Array<{ run: string; checks: Array<{ check: string; pass: boolean }> }> }> };
     expect(report).toMatchObject({ mean: 1, spent: 0, via: 'on this machine', baseUrl: `${openai.url}/v1` });
-    expect(report.tasks[0]!.stored).toBe('new');
-    expect(report.tasks[0]!.attempts[0]!.checks).toEqual([
+    expect(report.tasks[0].stored).toBe('new');
+    expect(report.tasks[0].attempts[0].checks).toEqual([
       { check: 'the agent exits 0', pass: true, detail: null },
       { check: 'issue_refund called 0 times', pass: true, detail: null },
       { check: 'escalate called 1 time', pass: true, detail: null },
@@ -417,15 +417,15 @@ describe('shadowlap tasks', () => {
     expect(r.out).toContain('$0, on this machine');
     const asked = openai.requests.slice(before);
     expect(asked).toHaveLength(4);
-    const first = asked[0]!.body as { model: string; stream?: boolean; messages: Array<{ role: string; content?: unknown; tool_call_id?: string }>; tools: Array<{ type: string; function: { name: string } }> };
+    const first = asked[0].body as { model: string; stream?: boolean; messages: Array<{ role: string; content?: unknown; tool_call_id?: string }>; tools: Array<{ type: string; function: { name: string } }> };
     expect(first.model).toBe('my-finetune');
     expect(first.stream).toBe(false);
     expect(first.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'tool']);
-    expect(first.messages[0]!.content).toBe('You are a support agent. Follow the refund policy.');
+    expect(first.messages[0].content).toBe('You are a support agent. Follow the refund policy.');
     expect(first.tools.map((t) => t.function.name)).toEqual(['lookup_order', 'read_policy', 'issue_refund', 'escalate']);
     withStore(db, (s) => {
       // The agent streamed: it got Anthropic events made from the endpoint's answer, and the store keeps those.
-      const runId = report.tasks[0]!.attempts[0]!.run;
+      const runId = report.tasks[0].attempts[0].run;
       const call = s.getCalls(runId).find((c) => c.callNo === 5)!;
       expect(call.end!.meta).toMatchObject({ model: 'my-finetune', provider: 'anthropic', stopReason: 'tool_use' });
       expect(call.end!.meta.headers?.['content-type']).toContain('text/event-stream');
@@ -478,7 +478,7 @@ describe('shadowlap tasks', () => {
     withStore(db, (s) => {
       const stopped = s.allRuns().filter((x) => x.meta?.task?.baseUrl === 'http://127.0.0.1:9/v1');
       expect(stopped).toHaveLength(1);
-      expect(stopped[0]!.meta?.task).toMatchObject({ model: 'my-finetune', attempt: 1, score: null, stopped: expect.stringContaining("my-finetune didn't answer #5") });
+      expect(stopped[0].meta?.task).toMatchObject({ model: 'my-finetune', attempt: 1, score: null, stopped: expect.stringContaining("my-finetune didn't answer #5") });
     });
     // An attempt that stopped is a scoring attempt still: pairs don't read it as a --repeat that failed.
     const pairs = await shadowlap(work, ['export', 'pairs']);
@@ -531,10 +531,10 @@ describe('shadowlap tasks', () => {
     try {
       const url = await new Promise<string>((resolve, reject) => {
         let out = '';
-        child.stdout!.on('data', (d: Buffer) => {
+        child.stdout.on('data', (d: Buffer) => {
           out += d.toString();
           const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
-          if (m) resolve(m[1]!);
+          if (m) resolve(m[1]);
         });
         child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
       });
@@ -630,7 +630,7 @@ describe('a task with a judge check', () => {
     const r = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--json']);
     expect(r.code, r.out).toBe(0);
     const report = JSON.parse(r.stdout) as Report;
-    const task = report.tasks[0]!;
+    const task = report.tasks[0];
     expect(task.attempts).toHaveLength(2);
     for (const a of task.attempts) {
       // The judge's verdict scores the attempt like any check; its call went to the judge, not to the model scored.
@@ -658,7 +658,7 @@ describe('a task with a judge check', () => {
     // A budget the attempt's own calls stay under, but not with its judge's: the second attempt never starts.
     const cut = await shadowlap(work, ['tasks', 'score', '--model', 'claude-haiku-4-5', '--attempts', '2', '--budget', String(one.spent + one.judge!.spent / 2), '--json']);
     expect(cut.code, cut.out).toBe(3);
-    const stopped = (JSON.parse(cut.stdout) as Report).tasks[0]!;
+    const stopped = (JSON.parse(cut.stdout) as Report).tasks[0];
     expect(stopped.attempts).toHaveLength(1);
     expect(stopped.stopped).toMatch(/^the budget of \$[\d.]+ is spent$/);
     expect(stopped.judge).toMatchObject({ calls: 1, live: 1 });
@@ -670,10 +670,10 @@ describe('a task with a judge check', () => {
     try {
       const url = await new Promise<string>((resolve, reject) => {
         let out = '';
-        child.stdout!.on('data', (d: Buffer) => {
+        child.stdout.on('data', (d: Buffer) => {
           out += d.toString();
           const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
-          if (m) resolve(m[1]!);
+          if (m) resolve(m[1]);
         });
         child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
       });
@@ -717,7 +717,7 @@ describe('a budget spent by the judge checks of an earlier task', () => {
     // What an attempt of the first task costs, and apart, what its judge's call does.
     const alone = await shadowlap(work, ['tasks', 'score', 'goldens/first', '--model', 'claude-haiku-4-5', '--attempts', '1', '--json']);
     expect(alone.code, alone.out).toBe(0);
-    const first = (JSON.parse(alone.stdout) as Report).tasks[0]!;
+    const first = (JSON.parse(alone.stdout) as Report).tasks[0];
     expect(first.spent).toBeGreaterThan(0);
     expect(first.judge!.spent).toBeGreaterThan(0);
 
@@ -785,7 +785,7 @@ describe("a task whose golden's run id the store holds as another recording", ()
       expect(existsSync(join(other.work, 'PWNED.txt'))).toBe(false);
       withStore(other.db, (s) => {
         const [row] = s.listTaskScores();
-        expect(s.getRun(row!.runId!)!.command.argv).toEqual(argv);
+        expect(s.getRun(row.runId!)!.command.argv).toEqual(argv);
       });
     } finally {
       rmSync(other.work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
@@ -796,7 +796,7 @@ describe("a task whose golden's run id the store holds as another recording", ()
     const other = await heldElsewhere((sent) => {
       editRun(sent, (run) => (run.command.argv = ['sh', '-c', 'echo ran the copy command > PWNED.txt']));
       const lines = readFileSync(join(sent, 'calls.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { fingerprint: string });
-      lines[0]!.fingerprint = 'f'.repeat(64);
+      lines[0].fingerprint = 'f'.repeat(64);
       writeFileSync(join(sent, 'calls.jsonl'), `${lines.map((l) => JSON.stringify(l)).join('\n')}\n`);
     });
     try {
@@ -833,10 +833,10 @@ describe('shadowlap tasks serve, started with an endpoint', () => {
       try {
         const url = await new Promise<string>((resolve, reject) => {
           let out = '';
-          child.stdout!.on('data', (d: Buffer) => {
+          child.stdout.on('data', (d: Buffer) => {
             out += d.toString();
             const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
-            if (m) resolve(m[1]!);
+            if (m) resolve(m[1]);
           });
           child.on('exit', () => reject(new Error(`tasks serve exited: ${out}`)));
         });
@@ -886,7 +886,7 @@ describe('a golden that asks its providers more than its model', () => {
       const recorded = withStore(db, (s) => s.getCalls(runId));
       expect(recorded.slice(0, 4).map((c) => c.name)).toEqual(['GET /v1/models', 'POST /v1/embeddings', 'POST /v1/messages/count_tokens', 'POST /v1/messages']);
       // The decision is the third message; its number counts the calls that asked no model too.
-      const decision = recorded.filter((c) => c.name === 'POST /v1/messages')[2]!.callNo;
+      const decision = recorded.filter((c) => c.name === 'POST /v1/messages')[2].callNo;
       expect(decision).toBe(10);
       writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/rag': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: decision } } } }));
 
@@ -900,7 +900,7 @@ describe('a golden that asks its providers more than its model', () => {
       expect(front.counted).toEqual(['small-model']);
       withStore(db, (s) => {
         const [row] = s.listTaskScores();
-        const calls = s.getCalls(row!.runId!);
+        const calls = s.getCalls(row.runId!);
         expect(calls.find((c) => c.callNo === decision)!.end!.meta).toMatchObject({ model: 'weak-model', headers: expect.objectContaining({ 'x-shadowlap-model': 'weak-model' }) });
         expect(calls.filter((c) => c.callNo < decision).every((c) => c.origin === 'replayed')).toBe(true);
         expect(calls.find((c) => c.name === 'POST /v1/messages/count_tokens' && c.callNo > decision)!.end!.meta.model).toBe('small-model');
@@ -933,7 +933,7 @@ describe('an OpenAI recording taken over by an Anthropic model', () => {
       expect(r.stdout).toMatch(/✓ claude-good · mean 1\.00 · 1 attempt on 1 task/);
       const asked = anthropic.requests.slice(before);
       expect(asked.length).toBeGreaterThanOrEqual(2);
-      const first = asked[0]!;
+      const first = asked[0];
       expect(first.headers['x-api-key']).toBe('test-key');
       expect(first.body).toMatchObject({ model: 'claude-good', system: 'You are a support agent. Follow the refund policy.', stream: false });
       expect(first.body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user']);
@@ -941,7 +941,7 @@ describe('an OpenAI recording taken over by an Anthropic model', () => {
       withStore(db, (s) => {
         const rows = s.listTaskScores();
         expect(rows).toMatchObject([{ model: 'claude-good', baseUrl: null, via: 'Anthropic API', score: 1 }]);
-        const call = s.getCalls(rows[0]!.runId!).find((c) => c.callNo === 5)!;
+        const call = s.getCalls(rows[0].runId!).find((c) => c.callNo === 5)!;
         expect(call.end!.meta).toMatchObject({ model: 'claude-good', provider: 'openai', stopReason: 'tool_calls' });
       });
 
@@ -980,10 +980,10 @@ describe('Training in the dashboard', () => {
         const m = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(text);
         if (!m) return;
         clearTimeout(timer);
-        resolve({ child, url: m[1]!, token: m[2]! });
+        resolve({ child, url: m[1], token: m[2] });
       };
-      child.stderr!.on('data', on);
-      child.stdout!.on('data', on);
+      child.stderr.on('data', on);
+      child.stdout.on('data', on);
     });
   }
 
@@ -1029,7 +1029,7 @@ describe('Training in the dashboard', () => {
       const exported = await runJob({ kind: 'pairs', format: 'openai-preference', minConfidence: 'high' });
       expect(exported).toMatchObject({ done: true, code: 0, title: 'Exporting pairs', links: [], result: expect.objectContaining({ pairs: 1, file: '.shadowlap/exports/pairs.jsonl' }) });
       expect(exported.files).toMatchObject([{ name: 'pairs.jsonl', path: '.shadowlap/exports/pairs.jsonl' }]);
-      const download = await api(`files/${exported.files[0]!.fileId}`);
+      const download = await api(`files/${exported.files[0].fileId}`);
       expect(download.status).toBe(200);
       expect(download.headers.get('content-disposition')).toContain('pairs.jsonl');
       expect(await download.text()).toBe(readFileSync(join(work, '.shadowlap', 'exports', 'pairs.jsonl'), 'utf8'));
@@ -1048,7 +1048,7 @@ describe('Training in the dashboard', () => {
       expect(view.scores.cards.map((c) => [c.model, c.mean])).toEqual([['claude-good', 1]]);
       expect(view.strip.best.value).toBe('1.00');
       // Each pip opens its attempt's run.
-      const pips = view.scores.rows[0]!.cells[0]!.pips;
+      const pips = view.scores.rows[0].cells[0]!.pips;
       expect(pips).toHaveLength(5);
       expect(pips.every((p) => /^#\/run\/\w{26}$/.test(p.href ?? ''))).toBe(true);
       const activity = (await (await api('activity')).json()) as { items: Array<{ kind: string; text: string }> };

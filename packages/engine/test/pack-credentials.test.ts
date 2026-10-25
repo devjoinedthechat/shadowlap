@@ -72,20 +72,20 @@ describe('a pack of a recording that kept credentials', () => {
       // What the pack brings in reads as a recording made today does.
       const into = Store.open(':memory:');
       const [id] = unpackRun(into, dir).imported;
-      const [model, captured] = into.getCalls(id!);
-      expect(model!.meta.query).toBe(rules.length ? 'api-version=2024-10-21&customer=%3CEMAIL%3E' : 'api-version=2024-10-21&customer=alice%40example.com');
-      expect(model!.end!.meta.headers).toEqual({ 'content-type': 'application/json', authorization: CREDENTIAL_PLACEHOLDER });
-      expect(into.getJson(captured!.requestRef!)).toEqual({ args: { method: 'POST', url: `https://keystone.example.com/v3/auth/tokens?password=${CREDENTIAL_PLACEHOLDER}&region=eu`, body: `grant_type=client_credentials&client_secret=${CREDENTIAL_PLACEHOLDER}`, encoding: 'text' } });
-      const result = into.getBlob(captured!.end!.responseRef!)!.toString('utf8');
+      const [model, captured] = into.getCalls(id);
+      expect(model.meta.query).toBe(rules.length ? 'api-version=2024-10-21&customer=%3CEMAIL%3E' : 'api-version=2024-10-21&customer=alice%40example.com');
+      expect(model.end!.meta.headers).toEqual({ 'content-type': 'application/json', authorization: CREDENTIAL_PLACEHOLDER });
+      expect(into.getJson(captured.requestRef!)).toEqual({ args: { method: 'POST', url: `https://keystone.example.com/v3/auth/tokens?password=${CREDENTIAL_PLACEHOLDER}&region=eu`, body: `grant_type=client_credentials&client_secret=${CREDENTIAL_PLACEHOLDER}`, encoding: 'text' } });
+      const result = into.getBlob(captured.end!.responseRef!)!.toString('utf8');
       expect(JSON.parse(result).result.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': CREDENTIAL_PLACEHOLDER });
       // The body the service sent, its 64-bit id with it, byte for byte.
       expect(rawJsonMember(result, ['result', 'body'])).toBe('{"token": {"id": 1234567890123456789}}');
       // A pack made only to mask credentials records no rules.
-      expect(into.getRun(id!)!.meta?.redactions).toEqual(rules.length ? rules : undefined);
+      expect(into.getRun(id)!.meta?.redactions).toEqual(rules.length ? rules : undefined);
       into.close();
     }
     // The local store keeps the recording as it was made.
-    expect(store.getCalls(run.runId)[0]!.meta.query).toContain('SECRET-APIM-123');
+    expect(store.getCalls(run.runId)[0].meta.query).toContain('SECRET-APIM-123');
     store.close();
   });
 
@@ -139,13 +139,13 @@ describe('the rules on a model call\'s query', () => {
     const store = Store.open(':memory:');
     const run = older(store);
     const preview = previewRedaction(store, run.runId, [EMAIL]);
-    expect(preview.rules[0]!.count).toBe(1);
-    expect(preview.rules[0]!.samples[0]).toEqual({ before: 'customer=alice@example.com', after: 'customer=<EMAIL>' });
+    expect(preview.rules[0].count).toBe(1);
+    expect(preview.rules[0].samples[0]).toEqual({ before: 'customer=alice@example.com', after: 'customer=<EMAIL>' });
     // And redactRun writes what the preview counted.
     const copy = Store.open(':memory:');
     redactRun(store, run.runId, [EMAIL], copy);
-    expect(copy.getCalls(run.runId)[0]!.meta.query).toBe('api-version=2024-10-21&customer=%3CEMAIL%3E');
-    expect((loadApiRequest(copy, copy.getCalls(run.runId)[0]!.requestRef!) as { messages: unknown[] }).messages).toHaveLength(1);
+    expect(copy.getCalls(run.runId)[0].meta.query).toBe('api-version=2024-10-21&customer=%3CEMAIL%3E');
+    expect((loadApiRequest(copy, copy.getCalls(run.runId)[0].requestRef!) as { messages: unknown[] }).messages).toHaveLength(1);
     copy.close();
     store.close();
   });
@@ -156,11 +156,11 @@ describe('a call as a push copies it', () => {
     const store = Store.open(':memory:');
     const run = older(store);
     const [model, captured] = store.getCalls(run.runId);
-    const pushed = credentialFreeCall(model!);
+    const pushed = credentialFreeCall(model);
     expect(pushed.meta.query).toBe('api-version=2024-10-21&customer=alice%40example.com');
     expect(pushed.end!.meta.headers).toEqual({ 'content-type': 'application/json', authorization: CREDENTIAL_PLACEHOLDER });
     expect(credentialFreeCall(pushed)).toBe(pushed);
-    expect(credentialFreeCall(captured!)).toBe(captured);
+    expect(credentialFreeCall(captured)).toBe(captured);
     store.close();
   });
 });

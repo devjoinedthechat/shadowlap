@@ -299,7 +299,7 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   }).finally(() => rmSync(dir, { recursive: true, force: true }));
   let d: { is_error?: boolean; result?: string; structured_output?: unknown; modelUsage?: Record<string, unknown>; total_cost_usd?: number; usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } };
   try {
-    d = JSON.parse(stdout);
+    d = JSON.parse(stdout) as typeof d;
   } catch {
     throw new RepairerError(`Claude Code did not answer with its JSON report (exit ${code})`, stderr.trim() ? safeLine(stderr.trim().split('\n').at(-1)!) : null);
   }
@@ -380,7 +380,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) throw REFUSED();
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
-    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
+    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${(err.status as number | undefined) ?? 'with an error'}`, err.message);
     throw unsent(err);
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');

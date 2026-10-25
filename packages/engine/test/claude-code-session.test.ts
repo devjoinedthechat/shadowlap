@@ -98,13 +98,13 @@ describe("Claude Code's session identifier", () => {
       ],
       hints: [{ message: '$.metadata.user_id holds a UUID', normalizer: { kind: 'api', path: '$.metadata.user_id', pattern: 'uuid', replace: '<UUID>' } }],
     };
-    expect(maskedChange(d.diff![0]!, [], d)).toBe(true);
-    expect(maskedChange(d.diff![1]!, [], d)).toBe(false);
+    expect(maskedChange(d.diff![0], [], d)).toBe(true);
+    expect(maskedChange(d.diff![1], [], d)).toBe(false);
     expect(unmaskedHints(d, [])).toEqual([]);
     expect(volatileValues(d).values.map((v) => v.path)).not.toContain('$.metadata.user_id');
     // Another agent's user_id that changed is a change: its hint stays.
     const other: DivergenceReport = { ...d, diff: [{ path: '$.metadata.user_id', op: 'changed', before: randomUUID(), after: randomUUID() }] };
-    expect(maskedChange(other.diff![0]!, [], other)).toBe(false);
+    expect(maskedChange(other.diff![0], [], other)).toBe(false);
     expect(unmaskedHints(other, [])).toHaveLength(1);
     // A user_id the recording didn't send is a change too, whoever sends it.
     expect(maskedChange({ path: '$.metadata.user_id', op: 'added', after: session() }, [], d)).toBe(false);

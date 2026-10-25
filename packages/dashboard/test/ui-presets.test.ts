@@ -173,10 +173,10 @@ describe('a preset’s attempts in the Forks view', () => {
     r = await render(createElement(AppContext.Provider, { value: app as unknown as AppState }, createElement(ForksView, { runId: REC })));
     await r.until('the family to load', () => r!.all('.fnode .f2').length === 4);
     const [, failed, passed, unsure] = r.all('.fnode .f2');
-    expect(failed!.querySelector('em')!.textContent).toBe('preset failed');
-    expect(failed!.textContent.startsWith('preset failed · ')).toBe(true);
-    expect(passed!.querySelector('em')).toBeNull();
-    expect(unsure!.querySelector('em.inc')!.textContent).toBe('preset inconclusive');
+    expect(failed.querySelector('em')!.textContent).toBe('preset failed');
+    expect(failed.textContent.startsWith('preset failed · ')).toBe(true);
+    expect(passed.querySelector('em')).toBeNull();
+    expect(unsure.querySelector('em.inc')!.textContent).toBe('preset inconclusive');
   });
 });
 
@@ -200,7 +200,7 @@ describe('a golden’s presets on Tests', () => {
       store.addChaosResult({ sessionId: 'S', runId: rec, golden: 'goldens/list-inbox', preset: 'empty', verdict: 'passed', callNo: 2, passes: 1, attempts: 1, at: 6, data: { detail: 'list_inbox (#2) answered with nothing: the agent exited 0', runs: [] } });
       store.finishChaosSession('S', { passed: 1, failed: 1, inconclusive: 0, upstreamRequests: 0, endedAt: 7 });
       const goldens: GoldenSource[] = [{ path: 'goldens/list-inbox', runId: rec, packedAt: 1, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
-      return testsView(store, goldens) as unknown as TestsView;
+      return testsView(store, goldens);
     } finally {
       store.close();
     }
@@ -218,7 +218,7 @@ describe('a golden’s presets on Tests', () => {
     expect(last.querySelector('.st')!.className).toBe('st err');
     const line = last.querySelector('a.gpre')!;
     expect(line.textContent).toBe('1 of 2 presets failed: tool timeout #2 · replay not tested yet');
-    expect(line.getAttribute('href')).toBe(`#/run/${v.rows[0]!.presets!.runId}`);
+    expect(line.getAttribute('href')).toBe(`#/run/${v.rows[0].presets!.runId}`);
     expect(r.document.body.textContent).not.toContain('not run yet');
     // The palette's hint for it says the same.
     expect(testsPalette(v, { update: false }).find((e) => e.label === 'list-inbox')?.hint).toBe('presets failed');

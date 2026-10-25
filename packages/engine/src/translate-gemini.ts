@@ -35,7 +35,7 @@ function responseText(response: unknown): string {
   if (typeof response === 'string') return response;
   if (isObject(response)) {
     const keys = Object.keys(response);
-    if (keys.length === 1 && typeof response[keys[0]!] === 'string' && (keys[0] === 'output' || keys[0] === 'result' || keys[0] === 'content')) return response[keys[0]!] as string;
+    if (keys.length === 1 && typeof response[keys[0]!] === 'string' && (keys[0] === 'output' || keys[0] === 'result' || keys[0] === 'content')) return response[keys[0]] as string;
     if (keys.length === 1 && keys[0] === 'error') return `Error: ${str(response.error)}`;
   }
   return JSON.stringify(response ?? {});

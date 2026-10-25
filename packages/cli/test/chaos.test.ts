@@ -80,7 +80,7 @@ interface ReportJson {
   results: Array<{ golden: string | null; runId: string | null; outcomes: PresetJson[]; judge: { source: string; checks: string[] } | null; error: string | null; skipped: string | null }>;
 }
 const report = (name: string) => JSON.parse(readFileSync(join(work, name), 'utf8')) as ReportJson;
-const byPreset = (r: ReportJson) => Object.fromEntries(r.results[0]!.outcomes.map((o) => [o.preset, o]));
+const byPreset = (r: ReportJson) => Object.fromEntries(r.results[0].outcomes.map((o) => [o.preset, o]));
 
 describe('test --chaos', () => {
   it('reports each preset on a golden, and the agent that crashes on malformed JSON fails that one', async () => {
@@ -103,15 +103,15 @@ describe('test --chaos', () => {
     expect(p.empty).toMatchObject({ verdict: 'passed', summary: 'answered with nothing: the agent exited 0' });
     expect(p.oversized).toMatchObject({ verdict: 'passed', summary: 'answered 1,000,000 characters: the agent exited 0' });
     expect(p.malformed).toMatchObject({ verdict: 'failed', passes: 0, attempts: 1 });
-    expect(p.malformed!.detail).toMatch(/^get_forecast \(#3\) answered malformed JSON: the agent exited with code 1 \(SyntaxError: .*JSON.*\)$/);
-    expect(p.malformed!.runs[0]).toMatchObject({ passed: false, exitCode: 1, lastLine: expect.stringMatching(/^SyntaxError: /) });
+    expect(p.malformed.detail).toMatch(/^get_forecast \(#3\) answered malformed JSON: the agent exited with code 1 \(SyntaxError: .*JSON.*\)$/);
+    expect(p.malformed.runs[0]).toMatchObject({ passed: false, exitCode: 1, lastLine: expect.stringMatching(/^SyntaxError: /) });
     // Every write after a fork is stubbed: nothing reached the outbox.
     expect(readFileSync(join(work, 'outbox.jsonl'), 'utf8')).toBe('');
 
     // The table: preset × outcome, under the calls they hit; a failure ends on what the agent died of.
     // docs/cli.md shows it as it is (each runtime words its JSON error its own way).
     const docs = readFileSync(fileURLToPath(new URL('../../../docs/cli.md', import.meta.url)), 'utf8');
-    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1]!;
+    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
     const mask = (t: string) => t.replace(/SyntaxError: .*/g, 'SyntaxError: …').trimEnd();
     expect(mask(r.stdout)).toContain(mask(sample));
     expect(r.stdout).toContain('⚡ goldens/forecast: 6 error-path presets at get_forecast (#3) and model call #4');
@@ -124,7 +124,7 @@ describe('test --chaos', () => {
     try {
       const [session] = store.listChaosSessions();
       expect(session).toMatchObject({ sessionId: out.session, command: ['shadowlap', 'test', 'goldens/forecast', '--chaos', '--json', 'chaos.json'], presets: ['timeout', 'empty', 'malformed', 'oversized', '429', '500'], passed: 5, failed: 1, inconclusive: 0, interrupted: false });
-      expect(session!.endedAt).not.toBeNull();
+      expect(session.endedAt).not.toBeNull();
       const results = store.listChaosResults({ sessionId: out.session });
       expect(results).toHaveLength(6);
       expect(results.find((x) => x.preset === 'malformed')).toMatchObject({ golden: 'goldens/forecast', runId: recording, verdict: 'failed', callNo: 3, passes: 0, attempts: 1 });
@@ -188,7 +188,7 @@ describe('test --chaos', () => {
     const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'limits.json']);
     expect(r.code, r.out).toBe(1);
     const out = report('limits.json');
-    expect(out.results[0]!.judge).toEqual({ source: 'write-limits', checks: ['send_alert called 0 times'] });
+    expect(out.results[0].judge).toEqual({ source: 'write-limits', checks: ['send_alert called 0 times'] });
     const p = byPreset(out);
     expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.oversized).toMatchObject({ verdict: 'failed', reason: 'check failed: send_alert called 0 times, but called 1 time' });
@@ -196,14 +196,14 @@ describe('test --chaos', () => {
     expect(r.stdout).not.toContain('judged on the agent exiting 0 alone');
 
     // shadowlap show says what an attempt is: which preset played what in where.
-    const attempt = p.oversized!.runs[0]!.runId;
+    const attempt = p.oversized.runs[0].runId;
     const shown = await shadowlap(['show', attempt]);
     expect(shown.stdout).toContain('an attempt of the error-path presets: oversized result at get_forecast (#3) of goldens/forecast');
 
     // docs/error-paths.md shows a golden whose expect lets one alert out: every attempt is held to that.
     config({ 'goldens/forecast': { expect: { tools: { send_alert: 1 } } } });
     const docs = readFileSync(fileURLToPath(new URL('../../../docs/error-paths.md', import.meta.url)), 'utf8');
-    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1]!;
+    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
     const mask = (t: string) => t.replace(/SyntaxError: .*/g, 'SyntaxError: …').trimEnd();
     const held = await shadowlap(['test', 'goldens/forecast', '--chaos']);
     expect(held.code, held.out).toBe(1);
@@ -213,7 +213,7 @@ describe('test --chaos', () => {
     config({ 'goldens/forecast': { chaos: { presets: ['timeout'] } } });
     const plain = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'plain.json']);
     expect(plain.code, plain.out).toBe(0);
-    expect(report('plain.json').results[0]!.judge).toEqual({ source: 'exit', checks: [] });
+    expect(report('plain.json').results[0].judge).toEqual({ source: 'exit', checks: [] });
     expect(plain.stdout).toContain('Each preset was judged on the agent exiting 0 alone: no checks say what an error path must do.\nSay it in its tests entry, as "chaos": { "expect": {"tools":{"issue_refund":"<= 1"}} }, or as upper bounds on write tools in its "expect".');
   }, 180_000);
 
@@ -227,17 +227,17 @@ describe('test --chaos', () => {
     const out = report('undecided.json');
     const p = byPreset(out);
     expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0 });
-    expect(p.timeout!.reason).toMatch(/^check inconclusive: judge "calm" answers yes, but not judged: /);
+    expect(p.timeout.reason).toMatch(/^check inconclusive: judge "calm" answers yes, but not judged: /);
     // Its attempt is inconclusive too, wherever it shows: the JSON, the store and, under the default
     // --inconclusive fail, the JUnit case's failure, which lists each attempt by its own verdict.
-    const [attempt] = p.timeout!.runs;
-    expect(attempt).toMatchObject({ verdict: 'inconclusive', passed: false, reason: p.timeout!.reason });
+    const [attempt] = p.timeout.runs;
+    expect(attempt).toMatchObject({ verdict: 'inconclusive', passed: false, reason: p.timeout.reason });
     const xml = readFileSync(join(work, 'undecided.xml'), 'utf8');
-    expect(xml).toContain(`<![CDATA[attempt 1 (run ${attempt!.runId}): inconclusive: check inconclusive: judge "calm" answers yes, but not judged: `);
+    expect(xml).toContain(`<![CDATA[attempt 1 (run ${attempt.runId}): inconclusive: check inconclusive: judge "calm" answers yes, but not judged: `);
     expect(xml).not.toContain('failed:');
     const store = Store.open(db());
     try {
-      expect(store.listChaosResults({ sessionId: out.session })[0]!.data?.runs?.map((x) => x.verdict)).toEqual(['inconclusive']);
+      expect(store.listChaosResults({ sessionId: out.session })[0].data?.runs?.map((x) => x.verdict)).toEqual(['inconclusive']);
     } finally {
       store.close();
     }
@@ -291,7 +291,7 @@ describe.skipIf(process.platform === 'win32')('a session stopped part way', () =
           const store = Store.open(db());
           try {
             const [session] = store.listChaosSessions();
-            seen = { sessionId: session!.sessionId, owner: store.chaosSessionOwner(session!.sessionId), pid: child.pid };
+            seen = { sessionId: session.sessionId, owner: store.chaosSessionOwner(session.sessionId), pid: child.pid };
           } finally {
             store.close();
           }
@@ -310,10 +310,10 @@ describe.skipIf(process.platform === 'win32')('a session stopped part way', () =
     try {
       const [session] = store.listChaosSessions();
       expect(session).toMatchObject({ sessionId: running!.sessionId, interrupted: true });
-      expect(session!.endedAt).not.toBeNull();
+      expect(session.endedAt).not.toBeNull();
       // Ended, it names no process any more.
       expect(store.chaosSessionOwner(running!.sessionId)).toBeNull();
-      const kept = store.listChaosResults({ sessionId: session!.sessionId });
+      const kept = store.listChaosResults({ sessionId: session.sessionId });
       expect(kept.length).toBeGreaterThanOrEqual(1);
       expect(kept.length).toBeLessThan(6);
     } finally {
@@ -332,7 +332,7 @@ describe('replay --chaos', () => {
     const p = byPreset(out);
     expect(p.timeout).toMatchObject({ verdict: 'passed', summary: 'timed out: the agent exited 0, 1 check passed' });
     expect(p.malformed).toMatchObject({ verdict: 'failed' });
-    expect(out.results[0]!.judge).toEqual({ source: '--expect', checks: ['send_alert called at most 1 time'] });
+    expect(out.results[0].judge).toEqual({ source: '--expect', checks: ['send_alert called at most 1 time'] });
     expect(r.stdout).toContain(`⚡ run ${recording.slice(0, 10)}: 2 error-path presets at get_forecast (#3)`);
     expect(r.stdout).toContain('  checks: send_alert called at most 1 time (--expect)');
     const store = Store.open(db());
@@ -355,13 +355,13 @@ describe('replay --chaos', () => {
     expect(never.code, never.out).toBe(3);
     const n = byPreset(report('never.json'));
     expect(n.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 1, passes: 0, reason: expect.stringContaining('so the preset was never played in') });
-    expect(n.timeout!.runs).toEqual([expect.objectContaining({ verdict: 'inconclusive', passed: false, reason: n.timeout!.reason })]);
+    expect(n.timeout.runs).toEqual([expect.objectContaining({ verdict: 'inconclusive', passed: false, reason: n.timeout.reason })]);
     expect(never.stdout).toMatch(/\? tool timeout\s+inconclusive\s+timed out: the replay/);
   }, 120_000);
 
   it('prints what docs/cli.md says', () => {
     const out = report('chaos.json') as unknown as Record<string, unknown> & ReportJson;
-    const problems = [departures('chaos', out), departures('chaosRecording', out.results[0]), departures('chaosPreset', out.results[0]!.outcomes[0]), departures('chaosRun', out.results[0]!.outcomes[0]!.runs[0])].flatMap((d) => [...d.missing, ...d.extra]);
+    const problems = [departures('chaos', out), departures('chaosRecording', out.results[0]), departures('chaosPreset', out.results[0].outcomes[0]), departures('chaosRun', out.results[0].outcomes[0].runs[0])].flatMap((d) => [...d.missing, ...d.extra]);
     expect(problems).toEqual([]);
     for (const shape of ['chaos', 'chaosRecording', 'chaosPreset', 'chaosRun'] as const) expect(SHAPES[shape].fields.filter((f) => !names(docsOf(shape), f)), shape).toEqual([]);
   });

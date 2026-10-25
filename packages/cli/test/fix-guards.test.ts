@@ -28,7 +28,7 @@ function verifiedFix(store: Store, tamper: (report: ReturnType<typeof repairRepo
   recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
   const report = repairReport({ targets: [run], dir: '.shadowlap/repairs/repair-mv9gxsdm' });
   const { dir: repairDir } = tamper(report);
-  return recordRepair(store, { repairId: 'repair-mv9gxsdm', dir: repairDir, report, expect: EXPECT, command: 'r' }).fixes[0]!.fix;
+  return recordRepair(store, { repairId: 'repair-mv9gxsdm', dir: repairDir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
 }
 
 describe('fix apply trusts no path from the store', () => {

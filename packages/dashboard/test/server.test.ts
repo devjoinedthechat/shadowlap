@@ -105,11 +105,11 @@ describe('dashboard server: data', () => {
     expect(runs[0]).toMatchObject({ runId, label: 'recording', calls: 30, depth: 0 });
     // The run was unpacked from a golden someone else recorded: its cost was paid where it was
     // recorded, so it is captured here, not spent, and it is marked as imported.
-    expect(runs[0]!.spent).toBe(0);
-    expect(runs[0]!.captured).toBeGreaterThan(0);
-    expect(runs[0]!.imported).toBe(true);
+    expect(runs[0].spent).toBe(0);
+    expect(runs[0].captured).toBeGreaterThan(0);
+    expect(runs[0].imported).toBe(true);
     // A pack carries its command, so the list shows the command rather than where it came from.
-    expect(runs[0]!.source).toBeNull();
+    expect(runs[0].source).toBeNull();
     const again = await api('runs', { headers: { 'if-none-match': r.headers.get('etag')! } });
     expect(again.status).toBe(304);
   });
@@ -136,7 +136,7 @@ describe('dashboard server: data', () => {
     expect(d.conversation.model).toBe('claude-opus-5');
     expect(d.conversation.tools).toEqual(['search_web', 'read_file', 'fetch_page', 'send_email']);
     expect(d.conversation.turns[0]).toMatchObject({ role: 'system' });
-    expect(d.conversation.turns[1]!.role).toBe('user');
+    expect(d.conversation.turns[1].role).toBe('user');
     expect(d.response.kind).toBe('sse');
     expect(d.response.stopReason).toBe('tool_use');
     expect(d.response.blocks.map((b) => b.type)).toEqual(['text', 'tool_call', 'tool_call']);
@@ -250,7 +250,7 @@ describe('dashboard server: data', () => {
 
   it('reads the rules afresh for each download, makes no file from a config it cannot read, and names no author', async () => {
     const own = Store.open(':memory:');
-    const id = unpackRun(own, GOLDEN).imported[0]!;
+    const id = unpackRun(own, GOLDEN).imported[0];
     own.updateRunMeta(id, { author: 'dana.private@example.com' });
     let config: ProjectConfig | Error = { normalize: [], redact: [] };
     const d = await startDashboard({
@@ -310,7 +310,7 @@ describe('dashboard server: data', () => {
     for (const path of [`runs/${missing}`, 'runs/01ZZZZZZZZ', `runs/${missing}/lineage`, `compare?a=${runId}&b=${missing}`, `compare?a=${missing}&b=${runId}`, 'fixes/fx-01ZZZZZZZZ']) {
       // The page says what is missing itself: an answer, so the browser logs no failed load for it.
       const asked = await api(path, { headers: page });
-      expect({ path, status: asked.status, body: (await asked.json()) as unknown }).toEqual({ path, status: 200, body: { error: expect.stringMatching(/^(no run|one of the runs|no fix)/), notFound: true } });
+      expect({ path, status: asked.status, body: (await asked.json()) }).toEqual({ path, status: 200, body: { error: expect.stringMatching(/^(no run|one of the runs|no fix)/), notFound: true } });
       expect((await api(path)).status).toBe(404);
     }
     // What it holds is answered as ever; a write that names a run it doesn't hold is refused with the 404.

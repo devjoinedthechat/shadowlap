@@ -35,7 +35,7 @@ describe('the Overview while the runs’ totals are added up', () => {
     let asked = 0;
     const client = {
       exported: false,
-      summary: () => Promise.resolve(answers[Math.min(asked++, answers.length - 1)]!),
+      summary: () => Promise.resolve(answers[Math.min(asked++, answers.length - 1)]),
       activity: () => Promise.resolve({ items: [], next: null }),
       teamStore: () => Promise.resolve(null),
     } as unknown as Client;

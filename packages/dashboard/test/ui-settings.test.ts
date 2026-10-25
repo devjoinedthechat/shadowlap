@@ -7,7 +7,6 @@ import { splitCommandLine } from '../src/settings.js';
 import { ONLY_PROJECT, provideProjectRemoval, useProjectRemoval, type ProjectRemoval } from '../ui/project-actions.js';
 import { TeamStoreRow } from '../ui/pages/settings/CiTeamStore.js';
 import { settingsTabLabel } from '../ui/pages/settings/tabs.js';
-import { settingsApi } from '../ui/settings-api.js';
 import {
   MCP_FORMS,
   SETTINGS_TABS,
@@ -62,7 +61,7 @@ function ruleFromCommand(command: string): Record<string, string> {
   const argv = splitCommandLine(command);
   expect(argv.slice(0, 3)).toEqual(['shadowlap', argv[1], 'add']);
   const out: Record<string, string> = {};
-  for (let i = 3; i < argv.length; i += 2) out[argv[i]!.replace(/^--/, '')] = argv[i + 1]!;
+  for (let i = 3; i < argv.length; i += 2) out[argv[i].replace(/^--/, '')] = argv[i + 1]!;
   return out;
 }
 
@@ -75,7 +74,7 @@ describe('when a tab reads again', () => {
     const key = runListKey(runs, 'support-agent');
     // The same runs, reloaded while B records: nothing to read again.
     expect(runListKey(runs.map((r) => ({ ...r })), 'support-agent')).toBe(key);
-    expect(runListKey([{ runId: 'B', status: 'completed' }, runs[1]!], 'support-agent')).not.toBe(key);
+    expect(runListKey([{ runId: 'B', status: 'completed' }, runs[1]], 'support-agent')).not.toBe(key);
     expect(runListKey([{ runId: 'C', status: 'completed' }, ...runs], 'support-agent')).not.toBe(key);
     expect(runListKey(runs.slice(0, 1), 'support-agent')).not.toBe(key);
     expect(runListKey(runs, 'triage-bot')).not.toBe(key);

@@ -73,7 +73,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
     child.on('exit', (code) => resolve({ code, out, stdout }));
   });
 }
-const runIdIn = (out: string) => /(?:recording|replaying) run (\w{26})/.exec(out)![1]!;
+const runIdIn = (out: string) => /(?:recording|replaying) run (\w{26})/.exec(out)![1];
 const json = <T>(r: { stdout: string; out: string }): T => {
   try {
     return JSON.parse(r.stdout) as T;
@@ -149,8 +149,8 @@ describe('shadowlap coverage', () => {
     const [refund, escalate] = out.groups;
     expect(refund).toMatchObject({ covered: false, coveredBy: [], path: ['lookup_order', 'read_policy', 'issue_refund'], writes: ['issue_refund'], outcome: 'answered', runs: 2 });
     // The command the refund's capture would be reproduced with: the recording that sent its first request.
-    expect(refund!.command).toEqual({ argv: [process.execPath, AGENT, 'B-7'], from: refundRun });
-    expect(refund!.nearest).toEqual({ golden: 'goldens/escalate', shared: 2, differs: { step: 3, seen: 'issue_refund', golden: 'escalate' } });
+    expect(refund.command).toEqual({ argv: [process.execPath, AGENT, 'B-7'], from: refundRun });
+    expect(refund.nearest).toEqual({ golden: 'goldens/escalate', shared: 2, differs: { step: 3, seen: 'issue_refund', golden: 'escalate' } });
     expect(escalate).toMatchObject({ covered: true, coveredBy: ['goldens/escalate'], runs: 1, command: null, nearest: null });
 
     // Read by a person: not covered first, the nearest golden and where they part.
@@ -169,13 +169,13 @@ describe('shadowlap coverage', () => {
       expect(scans).toHaveLength(2);
       expect(scans[0]).toMatchObject({ runs: 3, groups: 2, uncovered: 1, goldens: 1, actor: 'dana@example.com' });
       const groups = store.coverageGroups();
-      expect(groups.map((g) => [g.scanId === scans[0]!.scanId, g.coveredBy, g.runs])).toEqual([
+      expect(groups.map((g) => [g.scanId === scans[0].scanId, g.coveredBy, g.runs])).toEqual([
         [true, [], 2],
         [true, ['goldens/escalate'], 1],
       ]);
-      expect(groups[0]!.command).toEqual({ argv: [process.execPath, AGENT, 'B-7'], from: refundRun });
+      expect(groups[0].command).toEqual({ argv: [process.execPath, AGENT, 'B-7'], from: refundRun });
       // The activity feed has a line for each scan.
-      expect(store.listEvents({ kinds: ['coverage.scanned'] })[0]).toMatchObject({ ref: scans[0]!.scanId, actor: 'dana@example.com', data: { runs: 3, groups: 2, uncovered: 1, goldens: 1 } });
+      expect(store.listEvents({ kinds: ['coverage.scanned'] })[0]).toMatchObject({ ref: scans[0].scanId, actor: 'dana@example.com', data: { runs: 3, groups: 2, uncovered: 1, goldens: 1 } });
     } finally {
       store.close();
     }
@@ -188,7 +188,7 @@ describe('shadowlap coverage', () => {
     expect(r.out).toContain(`with ${shownCommand('B-7')}: offline, 3 tool results from its conversation, writes stubbed`);
     const out = json<CoverageOut>(r);
     expect(out.pack).toHaveLength(1);
-    const made = out.pack![0]!;
+    const made = out.pack![0];
     expect(made).toMatchObject({ why: null, command: { argv: [process.execPath, AGENT, 'B-7'], from: refundRun } });
     expect(made.golden).toMatch(/^goldens\/lookup-order-issue-refund-[0-9a-f]{6}$/);
     // The scan after it counts the new golden: every behaviour is covered now.
@@ -200,7 +200,7 @@ describe('shadowlap coverage', () => {
     expect(tested.code, tested.out).toBe(0);
     expect(tested.out).toContain('1 passed, 0 failed · 0 upstream requests');
     // Its run holds the tool calls the conversation answered, with what the agent declares of them.
-    const pack = JSON.parse(readFileSync(join(work, made.golden!, 'calls.jsonl'), 'utf8').split('\n')[0]!) as { runId: string };
+    const pack = JSON.parse(readFileSync(join(work, made.golden!, 'calls.jsonl'), 'utf8').split('\n')[0]) as { runId: string };
     expect(pack.runId).toBe(made.runId);
     const store = Store.open(db());
     try {
@@ -227,7 +227,7 @@ describe('shadowlap coverage', () => {
     // The agent now sends another system prompt: the replay forks at its first model call.
     const r = await shadowlap(['coverage', '--pack', group.key.slice(0, 8), '--json']);
     expect(r.code, r.out).toBe(1);
-    const made = json<CoverageOut>(r).pack![0]!;
+    const made = json<CoverageOut>(r).pack![0];
     // From the capture of it, with the command of the run here that sent its first request.
     expect(made).toMatchObject({ golden: null, mode: null, reason: 'not-reproduced', from: group.runIds[0], command: { argv: [process.execPath, AGENT, 'A-1042'], from: other } });
     expect(made.why).toMatch(/doesn't reproduce \w{10}: diverged at call 1 \(api POST \/v1\/messages\), where the agent sends something else now/);
@@ -241,7 +241,7 @@ describe('shadowlap coverage', () => {
     // Run as production ran it, the command of the run that sent its first request reproduces it.
     const given = await shadowlap(['coverage', '--pack', group.key.slice(0, 8), '--json', '--', process.execPath, AGENT, 'A-1042'], { AGENT_SYSTEM: 'You refund everything.' });
     expect(given.code, given.out).toBe(0);
-    const packed = json<CoverageOut>(given).pack![0]!;
+    const packed = json<CoverageOut>(given).pack![0];
     expect(packed).toMatchObject({ why: null, mode: 'replay', reason: null, command: { argv: [process.execPath, AGENT, 'A-1042'], from: other } });
 
     // A key that names nothing, or one covered already, is refused before anything runs.
@@ -352,7 +352,7 @@ describe('coverage --pack on production traffic', () => {
     // A command with the input fixed starts it with another first message: the wrong one for this capture.
     const fixed = await sl(['coverage', '--pack', '--json', '--', process.execPath, AGENT, 'A-1042']);
     expect(json<CoverageOut>(fixed).pack![0]).toMatchObject({ golden: null, reason: 'other-message', why: expect.stringContaining('starts the agent with another first message than') });
-    expect(json<CoverageOut>(fixed).pack![0]!.why).toContain('production sent “The customer asks for a refund on order B-7.”, the agent sent “The customer asks for a refund on order A-1042.”; put {message} where the agent\'s input goes');
+    expect(json<CoverageOut>(fixed).pack![0].why).toContain('production sent “The customer asks for a refund on order B-7.”, the agent sent “The customer asks for a refund on order A-1042.”; put {message} where the agent\'s input goes');
     // A regex that finds nothing in its first message says so.
     const nothing = await sl(['coverage', '--pack', '--json', '--', process.execPath, AGENT, '{message:/Z-\\d+/}']);
     expect(json<CoverageOut>(nothing).pack![0]).toMatchObject({ reason: 'no-command', why: expect.stringContaining('its first message has no match for /Z-\\d+/') });
@@ -361,7 +361,7 @@ describe('coverage --pack on production traffic', () => {
     const packed = await sl(['coverage', '--pack', '--json', '--', process.execPath, AGENT, ORDER]);
     expect(packed.code, packed.out).toBe(0);
     expect(packed.out).toContain(`with ${shownCommand('B-7')}: offline`);
-    const made = json<CoverageOut>(packed).pack![0]!;
+    const made = json<CoverageOut>(packed).pack![0];
     expect(made).toMatchObject({ mode: 'replay', reason: null, command: { argv: [process.execPath, AGENT, 'B-7'], from: '--' } });
     const tested = await sl(['test', made.golden!]);
     expect(tested.code, tested.out).toBe(0);
@@ -387,7 +387,7 @@ describe('coverage --pack on production traffic', () => {
 
     const forked = await sl(['coverage', '--pack', key, '--fork', '--expect', '{"tools":{"issue_refund":0}}', '--json', '--', process.execPath, AGENT, ORDER]);
     expect(forked.code, forked.out).toBe(0);
-    const made = json<CoverageOut>(forked).pack![0]!;
+    const made = json<CoverageOut>(forked).pack![0];
     expect(made).toMatchObject({ mode: 'fork', reason: null, command: { argv: [process.execPath, AGENT, 'A-1042'], from: '--' } });
     expect(made.golden).toMatch(/^goldens\/lookup-order-issue-refund-escalate-[0-9a-f]{6}$/);
     // Its tests entry says it forks and what it must do: the behaviour is covered.

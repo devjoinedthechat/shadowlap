@@ -126,8 +126,9 @@ async function webIdentity(e: AwsEnv, roleArn: string, tokenFile: string, region
 }
 
 function credentialProcess(command: string, source: string): AwsCredentials {
+  // A process a signal ended has no exit status, only the signal.
   const r = spawnSync(command, { shell: true, encoding: 'utf8', timeout: 60_000, stdio: ['ignore', 'pipe', 'pipe'] });
-  if (r.error || r.status !== 0) throw new StoreError('credentials', `${source}: credential_process failed: ${(r.stderr || r.error?.message || `exit ${r.status}`).trim().slice(0, 300)}`);
+  if (r.error || r.status !== 0) throw new StoreError('credentials', `${source}: credential_process failed: ${(r.stderr || r.error?.message || `exit ${r.status ?? r.signal!}`).trim().slice(0, 300)}`);
   let out: Record<string, unknown>;
   try {
     out = JSON.parse(r.stdout) as Record<string, unknown>;

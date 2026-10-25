@@ -150,10 +150,10 @@ describe('a broken or long rule in the file', () => {
     const closed = new Promise<void>((resolve) => child.on('close', () => resolve()));
     let err = '';
     return new Promise((resolve, reject) => {
-      child.stderr!.on('data', (d: Buffer) => {
+      child.stderr.on('data', (d: Buffer) => {
         err += d.toString();
         const link = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(err);
-        if (link) resolve({ origin: link[1]!, token: link[2]!, stop: () => (child.kill('SIGTERM'), closed) });
+        if (link) resolve({ origin: link[1], token: link[2], stop: () => (child.kill('SIGTERM'), closed) });
       });
       void closed.then(() => reject(new Error(`the dashboard exited: ${err}`)));
     });
@@ -252,7 +252,7 @@ describe('shadowlap redact', () => {
     const preview = JSON.parse(r.out) as { runId: string; total: number; rules: Array<{ n: number; count: number; samples: Array<{ before: string; after: string }> }> };
     expect(preview).toMatchObject({ runId: done, total: 3 });
     expect(preview.rules.map((x) => [x.n, x.count])).toEqual([[1, 2], [2, 1]]);
-    expect(preview.rules[1]!.samples).toEqual([{ before: 'sk-live-1', after: '<KEY>' }]);
+    expect(preview.rules[1].samples).toEqual([{ before: 'sk-live-1', after: '<KEY>' }]);
     expect(r.events).toEqual([{ type: 'result', data: preview }]);
 
     r = await shadowlap(['redact', 'preview']);
@@ -322,11 +322,11 @@ describe('shadowlap redact', () => {
     type Unmasked = { count: number; samples: Array<{ value: string; key: boolean; in: string; path: string; event: number | null }>; places: number; remedies: Array<{ rule: unknown; command: string; copies: string }>; covered: number[]; reasons: string[] };
     const preview = JSON.parse(r.out) as { total: number; returned: number; unmasked: number; rules: Array<{ returned: { count: number }; unmasked: Unmasked }> };
     expect(preview).toMatchObject({ total: 1, returned: 0, unmasked: 2 });
-    expect(preview.rules[0]!.unmasked.samples.map((s) => [s.value, s.key, s.in, s.path, s.event])).toEqual([
+    expect(preview.rules[0].unmasked.samples.map((s) => [s.value, s.key, s.in, s.path, s.event])).toEqual([
       ['1792155242516', false, 'response', '$.result', null],
       ['4111111111111111', false, 'response', '$.result.card', null],
     ]);
-    expect(preview.rules[0]!.unmasked).toMatchObject({
+    expect(preview.rules[0].unmasked).toMatchObject({
       places: 2,
       remedies: [
         { rule: { kind: 'tool', name: 'charge', path: '$.args.card', replace: '<CARD>' }, command: "shadowlap redact add --kind tool --name charge --path '$.args.card' --replace '<CARD>'", copies: 'all' },
@@ -552,7 +552,7 @@ describe('shadowlap gc', () => {
     const plan = JSON.parse(r.out) as GcPlan;
     expect(plan).toMatchObject({ count: 5000, total: 5000 });
     expect(plan.runs).toHaveLength(100);
-    expect(plan.runs[0]!.command.length).toBeLessThanOrEqual(200);
+    expect(plan.runs[0].command.length).toBeLessThanOrEqual(200);
     // What a dashboard job hears: well under its 1 MB limit for one event.
     expect(JSON.stringify(r.events[0]).length).toBeLessThan(64 * 1024);
     r = await shadowlap(['gc', '--before', String(plan.cutoff), '--expect', plan.expect, '--json']);
@@ -599,7 +599,7 @@ describe('shadowlap gc', () => {
     // A run recorded 40 days ago that blame probed yesterday: two probes and a --repeat of one, newer than any cutoff.
     const old = recorded(Date.now() - 40 * 86_400_000, 'failed');
     const probes = [1, 2].map((n) => attempt(old, { probe: { of: old, callNo: 1, passed: false }, repeat: { group: 'b1-1', attempt: n, of: 2 } }));
-    const again = attempt(probes[0]!, { repeat: { group: 'again', attempt: 1, of: 1 } });
+    const again = attempt(probes[0], { repeat: { group: 'again', attempt: 1, of: 1 } });
     // A run from yesterday that verify tried three times.
     const recent = recorded(Date.now() - 86_400_000);
     const verifies = [1, 2, 3].map(() => attempt(recent, { verify: { role: 'target', passed: true } }));
@@ -654,7 +654,7 @@ describe('shadowlap gc', () => {
     };
     // Blame's two probes, a --repeat of one of them, and a fork made on purpose.
     const probes = [1, 2].map((n) => replay(done, { probe: { of: done, callNo: 1, passed: false }, repeat: { group: 'p', attempt: n, of: 2 } }));
-    const again = replay(probes[0]!, { repeat: { group: 'again', attempt: 1, of: 1 } });
+    const again = replay(probes[0], { repeat: { group: 'again', attempt: 1, of: 1 } });
     const fork = replay(done, undefined);
     store.close();
     let r = await shadowlap(['rm', done]);

@@ -17,11 +17,14 @@ npm ci
 npm run build                     # tsc -b, then the dashboard's UI bundle
 npx vitest run                    # unit tests, the fidelity suite, the golden replay, the Python agent
 npm run typecheck:tests           # the test files, under the same strict settings as the source
+npm run lint                      # ESLint with typescript-eslint's typed rules, and ruff on the Python (through uvx)
 node --test testing/conformance/conformance.test.mjs   # the SDK wire protocol, for both SDKs
 cd sdks/python && uv run --no-project --with pytest --with-editable . python -m pytest -q
 ```
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
+
+`npm run lint` reads the packages through their built declarations, so it runs after the build, and it fails on any finding. A finding is fixed; where the code is right as it is, the rule is turned off on that line with the reason (`// eslint-disable-next-line <rule> -- <why>`, `# noqa: <code> -- <why>`). `eslint.config.mjs` and `sdks/python/pyproject.toml` say why each rule that is off is off.
 
 `npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
 

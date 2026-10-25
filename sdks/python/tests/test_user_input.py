@@ -14,8 +14,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
 PRELOAD = os.path.join(HERE, "..", "..", "..", "packages", "cli", "guard", "_shadowlap_input.py")
 
-import shadowlap  # noqa: E402
-from shadowlap import user_input, user_input_async  # noqa: E402
+import shadowlap  # noqa: E402 -- the SDK beside these tests, once its folder is on sys.path
+from shadowlap import user_input, user_input_async  # noqa: E402 -- the same
 
 
 class Sidecar:

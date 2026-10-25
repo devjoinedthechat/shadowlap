@@ -68,7 +68,7 @@ describe('a good run kept against its baseline', () => {
       { runId: good, role: 'good', pass: true },
     ]);
     // Its attempts, filed under it as verify files them.
-    const attempts = report.runs[1]!.attempts.map((a, i) => {
+    const attempts = report.runs[1].attempts.map((a, i) => {
       const runId = `01M5G0000000000000000000A${i}`;
       store.createRun({ runId, mode: 'replay', parentRunId: good, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 2_000 + i, meta: { verify: { role: 'good', passed: true, verdict: 'passed' } } });
       store.endRun(runId, 'completed');
@@ -78,7 +78,7 @@ describe('a good run kept against its baseline', () => {
     report.kept = KEPT;
     recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:refund-bug --keeps label:good', at: 2_000 });
     const [bundle] = fixBundles(store, good)!.filter((b) => b.kind === 'verify');
-    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1]!.passes} of ${report.runs[1]!.attempts.length}, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
+    expect(bundle).toMatchObject({ verdictLine: `kept · ${report.runs[1].passes} of ${report.runs[1].attempts.length}, baseline 38 of 38 · drop <= 0.10 (95%)`, rule: 'baseline: kept unless it drops 10+ points below its baseline at 35034be, attempt for attempt, <= 5% risk, up to 200 pairs' });
   });
 });
 
@@ -88,11 +88,11 @@ describe('a blame that rescued the run from no call', () => {
     const b = makeRun(store, { labels: ['b'] });
     const record = (runId: string, report: BlameReport) => recordBlame(store, { runId, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1_000 });
     // Its first probe found the run lost, with an error past what bears out a claim about every call.
-    const loose: BlameReport = { ...blameReport(a, 'unrescuable'), confidence: 'low', errorBound: 0.3 } as BlameReport;
+    const loose: BlameReport = { ...blameReport(a, 'unrescuable'), confidence: 'low', errorBound: 0.3 };
     record(a, loose);
-    record(b, { ...blameReport(b, 'unrescuable'), confidence: 'high', errorBound: 0.04 } as BlameReport);
-    const titles = fixList(store).fixes.map((f) => f.steps[0]!.title);
+    record(b, { ...blameReport(b, 'unrescuable'), confidence: 'high', errorBound: 0.04 });
+    const titles = fixList(store).fixes.map((f) => f.steps[0].title);
     expect(titles.sort()).toEqual(['Not rescued from any model call', 'Not rescued from the first model call']);
-    expect(fixList(store).fixes.every((f) => f.steps[0]!.short === 'not rescued')).toBe(true);
+    expect(fixList(store).fixes.every((f) => f.steps[0].short === 'not rescued')).toBe(true);
   });
 });

@@ -49,7 +49,7 @@ describe('the card for a refused session token', () => {
   it('says the token isn’t this dashboard’s, from a restart or another dashboard', async () => {
     r = await card(async () => '');
     expect(r.one('#connT').textContent).toBe('This link’s session token isn’t this dashboard’s');
-    expect(r.all('.cb p')[0]!.textContent).toContain('It was restarted, or the link is from another one.');
+    expect(r.all('.cb p')[0].textContent).toContain('It was restarted, or the link is from another one.');
     expect(r.all('.cb .actions button').map((b) => b.textContent)).toEqual(['Copy command', 'Paste the new link']);
   });
 

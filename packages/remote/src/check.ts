@@ -47,7 +47,7 @@ export function versioningHint(loc: StoreLocation): string {
     case 'gcs':
       return `Turn it on: gcloud storage buckets update gs://${loc.bucket} --versioning`;
     case 'azure':
-      return `Turn it on: az storage account blob-service-properties update --account-name ${loc.account} --enable-versioning true`;
+      return `Turn it on: az storage account blob-service-properties update --account-name ${loc.account!} --enable-versioning true`;
     case 'r2':
       return 'R2 keeps no versions; keep a copy elsewhere if the runs matter beyond the bucket.';
   }

@@ -49,6 +49,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training
 
 // Store's methods that are a part's (mixIn, below): their signatures and comments are the part's own,
 // where the methods are written.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- mixIn puts every part named here on Store's prototype when this file loads, and refuses a name defined twice
 export interface Store
   extends Pick<Recording, keyof Recording>,
     Pick<Search, keyof Search>,
@@ -69,6 +70,7 @@ export interface Store
  * Every method is synchronous; SQLite on a local disk is fast enough and it
  * keeps the sidecar's bookkeeping free of interleaving bugs.
  */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- its parts' methods, which the interface above declares, are put on it by mixIn
 export class Store {
   private readonly db: SqliteDatabase;
   private readonly stmts: Statements;
@@ -131,7 +133,7 @@ mixIn([Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, In
 function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
   for (const part of parts) {
     if (Object.getPrototypeOf(part.prototype) !== StorePart.prototype) throw new Error(`${part.name} must extend StorePart`);
-    for (const key of Reflect.ownKeys(part.prototype)) {
+    for (const key of Reflect.ownKeys(part.prototype as object)) {
       if (key === 'constructor') continue;
       if (Object.hasOwn(Store.prototype, key)) throw new Error(`Store.${String(key)} is defined twice`);
       Object.defineProperty(Store.prototype, key, Object.getOwnPropertyDescriptor(part.prototype, key)!);

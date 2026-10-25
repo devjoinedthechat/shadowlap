@@ -80,14 +80,14 @@ describe('the run page', () => {
       kind: 'checks',
       checks: [
         { label: 'issue_refund called 0 times', text: 'issue_refund called 0 times · 1 of 1', status: 'passed' },
-        { label: checks[1]!.label, text: `${checks[1]!.label} · not applicable · the condition never held`, status: 'not-applicable' },
+        { label: checks[1].label, text: `${checks[1].label} · not applicable · the condition never held`, status: 'not-applicable' },
         { label: 'judge "j" answers yes', text: 'judge "j" answers yes · inconclusive · not judged', status: 'inconclusive' },
       ],
       why: 'replayed offline · 0 upstream',
     });
     // A failed check is still the failure, whatever else could not be decided.
-    expect(failureText({ status: 'completed', checks: [checks[2]!, { label: 'send_email called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
-    expect(failureText({ status: 'completed', checks: [checks[2]!], blame: null })).toBeNull();
+    expect(failureText({ status: 'completed', checks: [checks[2], { label: 'send_email called 0 times', ok: false, status: 'failed', detail: 'called 1 time' }], blame: null })).toBe('check failed: send_email called 0 times, but called 1 time');
+    expect(failureText({ status: 'completed', checks: [checks[2]], blame: null })).toBeNull();
   });
 
   it('keeps each check\'s status, and a judge\'s reason, from the server', () => {

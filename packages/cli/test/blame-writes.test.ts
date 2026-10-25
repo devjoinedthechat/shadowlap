@@ -67,7 +67,7 @@ function shadowlap(args: string[]): Promise<{ code: number | null; out: string; 
 async function recordFailing(args: string[] = []): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT, ...args]);
   expect(r.code, r.out).toBe(1);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 const outbox = () => (existsSync(join(work, 'outbox.jsonl')) ? readFileSync(join(work, 'outbox.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { channel: string }) : []);
@@ -106,8 +106,8 @@ describe('shadowlap blame on a run that failed on a tool', () => {
     expect(report.probes.map((p) => [p.callNo, p.passes, p.rescued])).toEqual([[1, 0, false]]);
     // Each attempt's post was the recorded call, answered with its recorded error: none of them ran.
     expect(outbox()).toHaveLength(1);
-    const posts = withStore((s) => report.probes[0]!.runs.flatMap((a) => s.getCalls(a.runId).filter((c) => c.name === 'post_digest').map((c) => [c.origin, c.end?.outcome])));
-    expect(posts.length).toBe(report.probes[0]!.runs.length);
+    const posts = withStore((s) => report.probes[0].runs.flatMap((a) => s.getCalls(a.runId).filter((c) => c.name === 'post_digest').map((c) => [c.origin, c.end?.outcome])));
+    expect(posts.length).toBe(report.probes[0].runs.length);
     expect(new Set(posts.map((p) => p.join(' ')))).toEqual(new Set(['replayed error']));
     // Every outcome is kept with a fix, and the run says no call was blamed.
     expect(report.fix).toMatchObject({ title: 'The agent exited with code 1', opened: true });
@@ -133,7 +133,7 @@ describe('shadowlap blame on a run that failed on a tool', () => {
     expect(report.probes.map((p) => [p.callNo, p.rescued])).toEqual([[1, true]]);
     expect(report.sameAnswer).toEqual({
       callNo: 1,
-      runId: report.probes[0]!.runs.find((a) => a.passed)!.runId,
+      runId: report.probes[0].runs.find((a) => a.passed)!.runId,
       why: 'Every attempt that passed at #1 answered it as the recording did, so what made them pass came after that answer: a read that ran live, or a write that was stubbed.',
     });
     expect(withStore((s) => s.getRun(runId)!.meta!.blame)).toMatchObject({ outcome: 'unrescuable', callNo: null });
@@ -181,7 +181,7 @@ describe('shadowlap repair on a run that failed on a tool', () => {
   const recordPassing = async () => {
     const posted = await shadowlap(['run', '--', process.execPath, AGENT]);
     expect(posted.code, posted.out).toBe(0);
-    return /recording run (\w{26})/.exec(posted.out)![1]!;
+    return /recording run (\w{26})/.exec(posted.out)![1];
   };
   const fixShow = async (fixId: string) => JSON.parse((await shadowlap(['fix', 'show', fixId, '--json'])).stdout) as { failing: number; failingRuns: Array<{ runId: string }> };
 
@@ -194,7 +194,7 @@ describe('shadowlap repair on a run that failed on a tool', () => {
     expect(report).toMatchObject({ outcome: 'no-diagnosis', why: NOT_THE_ANSWER, targets: [{ runId, outcome: 'unrescuable', reused: false }], holdout: [] });
     expect(report.why).not.toContain('--stronger');
     expect(report.warnings).toContain(`${passed.slice(0, 10)} passes the check as recorded, so it is not held out as a failing run`);
-    expect((await fixShow(report.fixes[0]!.fixId)).failingRuns.map((r) => r.runId)).toEqual([runId]);
+    expect((await fixShow(report.fixes[0].fixId)).failingRuns.map((r) => r.runId)).toEqual([runId]);
   });
 
   it('says the same from the blame kept on the run, and leaves a run that passed out of the fix', async () => {
@@ -208,7 +208,7 @@ describe('shadowlap repair on a run that failed on a tool', () => {
     // label:digest brings the run that passed in; the older one is repaired, the other held out.
     const labelled = await repair('label:digest');
     expect(labelled).toMatchObject({ outcome: 'no-diagnosis', targets: [{ runId: passed, outcome: 'passes' }], holdout: [failed], fixes: [{ fixId }] });
-    expect(labelled.why).toBe(`no failing run could be blamed: ${labelled.targets[0]!.note}`);
+    expect(labelled.why).toBe(`no failing run could be blamed: ${labelled.targets[0].note}`);
     expect(labelled.why).toContain(`${passed.slice(0, 10)} passes its oracle when replayed`);
     // The fix's failing runs are as they were: the one that passed is not one of them.
     const shown = await fixShow(fixId);

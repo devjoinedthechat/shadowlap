@@ -24,7 +24,7 @@ describe('pruning older replays', () => {
     const first = store.startTestSession({ command: ['shadowlap', 'test', 'goldens/refund'], startedAt: 1_000 });
     // A golden that may fork goes live from the fork: the replay holds an answer of its own.
     const older = liveReplay(store, 'goldens/refund', first.sessionId, 'an answer only this replay got', 1_100);
-    const answer = store.getCalls(older)[0]!.end!.responseRef!;
+    const answer = store.getCalls(older)[0].end!.responseRef!;
     store.finishTestSession(first.sessionId, { passed: 1, failed: 0, upstreamRequests: 1, endedAt: 1_200 });
 
     // Meanwhile another process records into the same store: its request is in, its call not yet.

@@ -36,7 +36,7 @@ describe('shadowlap calibrate', () => {
   it('finds the values an agent generates on every run, proposes normalizers, and saves them with --write', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
 
     const before = await shadowlap(['replay', runId, '--strict']);
     expect(before.code, 'the replay forks before calibration').toBe(1);
@@ -95,7 +95,7 @@ describe('shadowlap calibrate', () => {
     const dir = mkdtempSync(join(cwd, 'stops-'));
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT], dir);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const json = await shadowlap(['calibrate', runId, '--max-rounds', '1', '--json'], dir);
     expect(json.code, json.out).toBe(1);
     const report = JSON.parse(json.out.slice(json.out.indexOf('{'))) as { clean: boolean; stopped: { why: string } | null; normalizers: unknown[] };

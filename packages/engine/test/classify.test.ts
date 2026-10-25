@@ -185,7 +185,7 @@ describe('runOutcome: what the status column says', () => {
     ];
     expect(checksOf(run({ meta: { checks } }))).toEqual({ passed: 1, total: 2 });
     expect(runOutcome(run({ mode: 'replay', parentRunId: 'P', divergence: { callNo: 3 }, meta: { checks } }))).toEqual({ kind: 'check-failed', check: 'send_email called 1 time' });
-    const passed = runOutcome(run({ mode: 'replay', parentRunId: 'P', meta: { checks: [checks[0]!, { ...checks[0]!, label: 'exit 0' }] } }));
+    const passed = runOutcome(run({ mode: 'replay', parentRunId: 'P', meta: { checks: [checks[0], { ...checks[0], label: 'exit 0' }] } }));
     expect(passed).toEqual({ kind: 'passed', checks: 2 });
     expect(outcomeLabel(passed)).toBe('2 checks passed');
     expect(outcomeLabel({ kind: 'passed', checks: 1 })).toBe('1 check passed');
@@ -324,6 +324,6 @@ describe('the browser bundle', () => {
     const entry = fileURLToPath(new URL('../src/classify.ts', import.meta.url));
     const out = await build({ entryPoints: [entry], bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent' });
     expect(out.errors).toEqual([]);
-    expect(out.outputFiles[0]!.text).toContain('outcomeLabel');
+    expect(out.outputFiles[0].text).toContain('outcomeLabel');
   });
 });

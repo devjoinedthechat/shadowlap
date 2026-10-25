@@ -299,7 +299,7 @@ export class AttemptRunner {
           }, s.timeoutMs);
     const code = await new Promise<number>((resolveCode) => {
       child.on('error', (err) => {
-        output += `failed to start ${argv[0]}: ${err.message}\n`;
+        output += `failed to start ${argv[0]!}: ${err.message}\n`;
         resolveCode(127);
       });
       child.on('exit', (c, signal) => resolveCode(exitStatus(c, signal)));
@@ -420,11 +420,11 @@ function markUnavailable(store: Store, runId: string, meta: Partial<RunMeta> | u
   for (const [key, value] of Object.entries(meta ?? {})) {
     if (value && typeof value === 'object' && !Array.isArray(value) && 'passed' in value) patch[key] = { ...value, passed: false, verdict: 'unavailable' };
   }
-  if (Object.keys(patch).length) store.updateRunMeta(runId, patch as Partial<RunMeta>);
+  if (Object.keys(patch).length) store.updateRunMeta(runId, patch);
 }
 
 /** Why the checks fail a run: each failed check, and each that could not be decided (an inconclusive check never passes). */
-const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail}` : c.detail}`);
+const failed = (checks: readonly CheckResult[]) => checks.filter((c) => !c.ok).map((c) => `${c.label}, but ${c.status === 'inconclusive' ? `it is inconclusive: ${c.detail!}` : c.detail!}`);
 
 /**
  * Why an attempt can't have a verdict for a judge check, or null when it can: an attempt is a fork,

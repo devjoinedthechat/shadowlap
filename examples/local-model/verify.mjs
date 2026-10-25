@@ -44,7 +44,7 @@ function shadowlap(args, env = {}) {
 }
 
 /** What the agent printed, without Shadowlap's own lines. */
-const agentOutput = (stdout) => stdout.split('\n').filter((l) => !/^(\[shadowlap\]|[●✓⑂✗] |  shadowlap show|  \d+ recorded call)/.test(l)).join('\n').trim();
+const agentOutput = (stdout) => stdout.split('\n').filter((l) => !/^(\[shadowlap\]|[●✓⑂✗] | {2}shadowlap show| {2}\d+ recorded call)/.test(l)).join('\n').trim();
 const ticketFiles = () => (existsSync(tickets) ? readdirSync(tickets).sort() : []);
 
 // 0. The server and the model.

@@ -26,7 +26,7 @@ export function timesOf<K extends string>(work: Record<K, () => unknown>, option
     for (const name of names) {
       const started = process.cpuUsage();
       let calls = 0;
-      let ms = 0;
+      let ms: number;
       do {
         work[name]();
         calls++;

@@ -31,7 +31,7 @@ beforeAll(() => {
       startedAt: NOW - 2 * DAY + HOUR + i * MIN,
       divergence: 5,
       calls: 'rrrrllll',
-      meta: { repeat: { group: 'g-5', attempt: i, of: 3 }, probe: { of: id.failed!, callNo: 5, passed }, checks: [{ ok: passed, label: 'issue_refund called 0 times', detail: passed ? null : 'it was called 1 time' }] },
+      meta: { repeat: { group: 'g-5', attempt: i, of: 3 }, probe: { of: id.failed, callNo: 5, passed }, checks: [{ ok: passed, label: 'issue_refund called 0 times', detail: passed ? null : 'it was called 1 time' }] },
     });
   id.p1 = probe(1, true);
   id.p2 = probe(2, false);
@@ -70,7 +70,7 @@ describe('the Runs table', () => {
 
   it('says what kind each run is and how it came out', () => {
     const rows = byId(all().runs);
-    const k = (name: string) => [rows.get(id[name]!)!.kind, rows.get(id[name]!)!.outcome];
+    const k = (name: string) => [rows.get(id[name])!.kind, rows.get(id[name])!.outcome];
     expect(k('rec')).toEqual(['recording', { kind: 'none' }]);
     expect(k('clean')).toEqual(['clean', { kind: 'clean' }]);
     expect(k('fork')).toEqual(['fork', { kind: 'none' }]);
@@ -186,7 +186,7 @@ describe('the Runs table', () => {
       expect(seen.map((r) => r.runId).sort()).toEqual(all().runs.map((r) => r.runId).sort());
       // By calls or spent, the run in progress comes first (its numbers still grow), then the most first.
       const finished = seen.filter((r) => r.status !== 'running');
-      if (sort !== 'when') expect(seen[0]!.runId).toBe(id.live);
+      if (sort !== 'when') expect(seen[0].runId).toBe(id.live);
       if (sort === 'calls') expect(finished.map((r) => r.calls)).toEqual([...finished.map((r) => r.calls)].sort((a, b) => b - a));
       // By what the table shows: a run recorded elsewhere (the capture) by what its calls cost there.
       if (sort === 'spent') expect(finished.map((r) => r.spent + r.captured)).toEqual([...finished.map((r) => r.spent + r.captured)].sort((a, b) => b - a));
@@ -219,7 +219,7 @@ describe('the Runs table', () => {
         }
         expect(new Set(seen.map((r) => r.runId))).toEqual(new Set([...made, live]));
         expect(seen).toHaveLength(7);
-        expect(seen[0]!.runId).toBe(live);
+        expect(seen[0].runId).toBe(live);
       }
     } finally {
       local.close();
@@ -418,12 +418,12 @@ describe('the sidebar’s recent runs', () => {
     expect(tree.map((r) => r.runId).sort()).toEqual(all().runs.map((r) => r.runId).sort());
     const at = new Map(tree.map((r, i) => [r.runId, i]));
     // Oldest family first; a run's replays and forks right under it, deeper by one.
-    expect(tree[0]!.runId).toBe(id.old);
+    expect(tree[0].runId).toBe(id.old);
     for (const r of tree) {
       if (!r.parentRunId || !at.has(r.parentRunId)) expect(r.depth).toBe(0);
       else {
         expect(at.get(r.runId)!).toBeGreaterThan(at.get(r.parentRunId)!);
-        expect(r.depth).toBe(tree[at.get(r.parentRunId)!]!.depth + 1);
+        expect(r.depth).toBe(tree[at.get(r.parentRunId)!].depth + 1);
       }
     }
     expect(tree.find((r) => r.runId === id.fork2)!.depth).toBe(2);
@@ -485,7 +485,7 @@ describe('what the index works out about a run', () => {
       const judge = { code: 'l', scope: 'shadowlap:judge' };
       // A recording that failed after four calls, judged twice after them; its replay served every
       // one of the agent's calls and failed the same way, with no judge asked.
-      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: [...[...'llll'].map((code) => ({ code })), judge, judge] });
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: [...Array.from('llll', (code) => ({ code })), judge, judge] });
       const reproduced = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr' });
       expect(loadRunIndex(local).byId.get(rec)).toMatchObject({ calls: 6, agentCalls: 4 });
       expect(byId(listRunsPage(local).runs).get(reproduced)).toMatchObject({ kind: 'clean', label: 'clean replay' });

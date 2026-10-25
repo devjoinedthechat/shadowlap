@@ -95,10 +95,10 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const log = opts.log ?? (() => {});
   const sendEmail = makeSendEmail(opts.outbox);
   const impls: Record<string, (args: never) => Promise<unknown>> = {
-    search_web: searchWeb as (args: never) => Promise<unknown>,
-    read_file: readFile as (args: never) => Promise<unknown>,
-    fetch_page: fetchPage as (args: never) => Promise<unknown>,
-    send_email: sendEmail as (args: never) => Promise<unknown>,
+    search_web: searchWeb,
+    read_file: readFile,
+    fetch_page: fetchPage,
+    send_email: sendEmail,
   };
 
   const startedAt = await now('start');
@@ -123,7 +123,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     const response = await stream.finalMessage();
     modelCalls++;
     messages.push({ role: 'assistant', content: response.content });
-    log(`model call ${modelCalls}: stop_reason=${response.stop_reason}`);
+    log(`model call ${modelCalls}: stop_reason=${String(response.stop_reason)}`);
 
     const uses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (response.stop_reason !== 'tool_use' || uses.length === 0) {

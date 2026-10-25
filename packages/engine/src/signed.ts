@@ -44,7 +44,11 @@ export function signedParts(value: unknown, at: Array<string | number> = [], out
   if (Array.isArray(value)) value.forEach((v, i) => signedParts(v, [...at, i], out));
   else if (isObject(value)) {
     if (signedBlock(value)) out.push({ place: at, value });
-    else for (const [k, v] of Object.entries(value)) (SIGNED_KEYS.has(k) ? out.push({ place: [...at, k], value: v }) : signedParts(v, [...at, k], out));
+    else
+      for (const [k, v] of Object.entries(value)) {
+        if (SIGNED_KEYS.has(k)) out.push({ place: [...at, k], value: v });
+        else signedParts(v, [...at, k], out);
+      }
   }
   return out;
 }

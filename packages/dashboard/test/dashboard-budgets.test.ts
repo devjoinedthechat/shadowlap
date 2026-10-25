@@ -42,7 +42,7 @@ async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: nu
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const median = (xs: readonly number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+const median = (xs: readonly number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
 /** Asks /api/meta every 20 ms while `work` runs: each answer's time. */
 async function metaBeside<T>(d: Dashboard, work: () => Promise<T>): Promise<{ out: T; metas: number[] }> {
@@ -140,7 +140,7 @@ describe('ten thousand runs, their totals not kept yet', () => {
       // Then the whole of it, every run counted.
       expect(out.body.sums.week.runs + out.body.sums.lastWeek.runs).toBe(RUNS);
       // What was worked out beside the server is kept in the store, through its own connection.
-      expect(store.query('SELECT COUNT(*) AS n FROM run_stats')[0]!.n).toBeGreaterThanOrEqual(RUNS - 100);
+      expect(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n).toBeGreaterThanOrEqual(RUNS - 100);
     } finally {
       await d.close();
       store.close();
@@ -241,7 +241,7 @@ describe('a run of twenty thousand calls', () => {
     }
     // The time a browser waits for it, on this machine as busy as it is: said, not judged.
     const ms = median(firsts.map((f) => f.ms));
-    process.stdout.write(`a run of ${CALLS} calls, its first page over HTTP: median ${ms.toFixed(0)} ms (${firsts.map((f) => f.ms.toFixed(0)).join(', ')}), ${(firsts[0]!.bytes / 1024).toFixed(0)} KB\n`);
+    process.stdout.write(`a run of ${CALLS} calls, its first page over HTTP: median ${ms.toFixed(0)} ms (${firsts.map((f) => f.ms.toFixed(0)).join(', ')}), ${(firsts[0].bytes / 1024).toFixed(0)} KB\n`);
   }, TIMEOUT);
 
   it('compares two of them without holding up any other request', async () => {

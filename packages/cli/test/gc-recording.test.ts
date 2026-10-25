@@ -77,8 +77,8 @@ function cli(args: string[]): Promise<{ code: number | null; out: string; err: s
     const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr!.on('data', (d: Buffer) => (err += d.toString()));
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('close', (code) => resolve({ code, out, err }));
   });
 }
@@ -90,10 +90,10 @@ describe('gc while another process records', () => {
     const writer = spawn(process.execPath, ['--input-type=module', '-e', WRITER, dbPath(), stop, SYSTEM], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
-    writer.stderr!.on('data', (d: Buffer) => (err += d.toString()));
+    writer.stderr.on('data', (d: Buffer) => (err += d.toString()));
     const done = new Promise<void>((resolve) => writer.on('close', () => resolve()));
     await new Promise<void>((resolve) => {
-      writer.stdout!.on('data', (d: Buffer) => {
+      writer.stdout.on('data', (d: Buffer) => {
         out += d.toString();
         if (out.includes('recording\n')) resolve();
       });
@@ -120,7 +120,7 @@ describe('gc while another process records', () => {
     expect(err).toBe('');
     expect(result.calls).toBeGreaterThan(20);
     expect(result.missing).toBe(0);
-    expect(report.recording[0]!.runId).toBe(result.runId);
+    expect(report.recording[0].runId).toBe(result.runId);
 
     // Once nothing records, the old runs' own blobs go, and the recording keeps everything it uses.
     const again = await cli(['gc', '--json']);

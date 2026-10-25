@@ -47,21 +47,21 @@ const RULES: Rule[] = [
     re: /\b(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)(Z|[+-]\d{2}:?\d{2})?/g,
     placeholder: '<datetime>',
     window: CLOCK_WINDOW_MS,
-    time: (m) => Date.parse(`${m[1]}T${m[2]}${m[3] ? (m[3] === 'Z' ? 'Z' : m[3].length === 5 ? `${m[3].slice(0, 3)}:${m[3].slice(3)}` : m[3]) : 'Z'}`),
+    time: (m) => Date.parse(`${m[1]!}T${m[2]!}${m[3] ? (m[3] === 'Z' ? 'Z' : m[3].length === 5 ? `${m[3].slice(0, 3)}:${m[3].slice(3)}` : m[3]) : 'Z'}`),
   },
   {
     // Wed, 16 Sep 2026 10:31:22 GMT (HTTP dates, toUTCString)
     re: new RegExp(`${WEEKDAY}(\\d{1,2}) ${MONTH} (\\d{4}) (\\d{2}:\\d{2}:\\d{2}) (GMT|UTC|[+-]\\d{4})`, 'g'),
     placeholder: '<datetime>',
     window: CLOCK_WINDOW_MS,
-    time: (m) => Date.parse(`${m[1]} ${m[2]} ${m[3]} ${m[4]} ${m[5]}`),
+    time: (m) => Date.parse(`${m[1]!} ${m[2]!} ${m[3]!} ${m[4]!} ${m[5]!}`),
   },
   {
     // Wed Sep 16 2026 10:31:22 GMT+0200 (Central European Summer Time): Date.prototype.toString
     re: new RegExp(`${WEEKDAY}${MONTH} (\\d{1,2}) (\\d{4}) (\\d{2}:\\d{2}:\\d{2}) GMT([+-]\\d{4})(?: \\([^)]*\\))?`, 'g'),
     placeholder: '<datetime>',
     window: CLOCK_WINDOW_MS,
-    time: (m) => Date.parse(`${m[2]} ${m[1]} ${m[3]} ${m[4]} GMT${m[5]}`),
+    time: (m) => Date.parse(`${m[2]!} ${m[1]!} ${m[3]!} ${m[4]!} GMT${m[5]!}`),
   },
   {
     // 2026-09-16

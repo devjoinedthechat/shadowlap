@@ -37,7 +37,8 @@ import re
 import sys
 import tempfile
 import time
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, TypeVar
+from collections.abc import Mapping, Sequence
+from typing import Any, Callable, Optional, TypeVar
 
 from shadowlap import (
     ReplayedError,
@@ -75,7 +76,7 @@ BUILT_IN_EFFECTS: Mapping[str, str] = {
 #: A recorded Bash call that moved the shell's working folder keeps where it left it here, beside its output.
 _CWD = "shadowlapCwd"
 
-Hook = Callable[[Dict[str, Any], Optional[str], Any], Any]
+Hook = Callable[[dict[str, Any], Optional[str], Any], Any]
 Opts = TypeVar("Opts")
 ToolT = TypeVar("ToolT")
 
@@ -85,7 +86,7 @@ class _Matcher:
     """A hook matcher, shaped as the SDK's HookMatcher, for when the SDK isn't importable here."""
 
     matcher: Optional[str] = None
-    hooks: List[Hook] = dataclasses.field(default_factory=list)
+    hooks: list[Hook] = dataclasses.field(default_factory=list)
     timeout: Optional[float] = None
 
 
@@ -102,7 +103,7 @@ def _quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def _bash_failure(error: str) -> Optional[Tuple[int, str]]:
+def _bash_failure(error: str) -> Optional[tuple[int, str]]:
     """The exit code and the rest of a recorded Bash failure, as Claude Code writes one: ``Exit code N``, then the output."""
     m = re.match(r"^Exit code (\d{1,3})(?:\n([\s\S]*))?$", error)
     if not m or not 0 < int(m.group(1)) < 256:
@@ -148,10 +149,10 @@ def _text(value: Any) -> str:
 def fence_hooks(
     effects: Optional[Mapping[str, str]] = None,
     *,
-    on_fork: Optional[Callable[[str, Dict[str, Any], Any], Any]] = None,
+    on_fork: Optional[Callable[[str, dict[str, Any], Any], Any]] = None,
     scratch: Optional[str] = None,
     log: Optional[Callable[[str], None]] = None,
-) -> Dict[str, List[Any]]:
+) -> dict[str, list[Any]]:
     """The hooks that record and fence Claude Code's built-in tools: PreToolUse, PostToolUse,
     PostToolUseFailure, and Stop and SubagentStop, which end a call Claude Code never ran (a
     permission refused it after PreToolUse). Merge them into ``ClaudeAgentOptions.hooks``, or use
@@ -163,24 +164,24 @@ def fence_hooks(
     ``on_fork(tool, input, stand_in_output)`` is what the model gets for a write stubbed after a fork,
     in the tool's own output shape (Claude Code ignores one that isn't); by default the stand-in's
     output, naming the original path where it names the temporary one."""
-    table: Dict[str, str] = {**BUILT_IN_EFFECTS, **(effects or {})}
+    table: dict[str, str] = {**BUILT_IN_EFFECTS, **(effects or {})}
     for name, effect in table.items():
         if effect not in ("pure", "read", "write"):
             raise TypeError(f'effect for {name} must be "pure", "read" or "write", not {effect!r}')
     say = log or (lambda line: print("[shadowlap] " + line, file=sys.stderr))
-    pending: Dict[str, Dict[str, Any]] = {}
+    pending: dict[str, dict[str, Any]] = {}
     files = _Scratch(scratch)
 
-    def allow(updated: Dict[str, Any], why: str) -> Dict[str, Any]:
+    def allow(updated: dict[str, Any], why: str) -> dict[str, Any]:
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": why, "updatedInput": updated}}
 
-    def deny(reason: str) -> Dict[str, Any]:
+    def deny(reason: str) -> dict[str, Any]:
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
 
-    def replaced(output: Any) -> Dict[str, Any]:
+    def replaced(output: Any) -> dict[str, Any]:
         return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": output}}
 
-    def stand_in(name: str, args: Dict[str, Any], recorded: Any) -> Optional[Dict[str, Any]]:
+    def stand_in(name: str, args: dict[str, Any], recorded: Any) -> Optional[dict[str, Any]]:
         """The harmless call that runs in place of a recorded write, as Claude Code accepts it; None where there is none."""
         if name == "Bash":
             cwd = _text(recorded.get(_CWD)) if isinstance(recorded, dict) else ""
@@ -195,26 +196,26 @@ def fence_hooks(
             return {"file_path": files.fresh("edit"), "edits": [{"old_string": "", "new_string": "."}]}
         return None
 
-    def failing_bash(args: Dict[str, Any], code: int, rest: str) -> Dict[str, Any]:
+    def failing_bash(args: dict[str, Any], code: int, rest: str) -> dict[str, Any]:
         """A recorded Bash failure, reproduced: the same output, the same exit code."""
         printed = "cat -- %s" % _quote(files.write("output", rest)) if len(rest) > 16000 or "\0" in rest else "printf '%%s' %s" % _quote(rest)
         return {**args, "command": "%s; exit %d" % (printed, code), "run_in_background": False}
 
-    def stub_output(name: str, args: Dict[str, Any], output: Any) -> Any:
+    def stub_output(name: str, args: dict[str, Any], output: Any) -> Any:
         if on_fork is not None:
             return on_fork(name, args, output)
         if isinstance(output, dict) and isinstance(output.get("filePath"), str) and isinstance(args.get("file_path"), str):
             return {**output, "filePath": args["file_path"]}
         return output
 
-    async def pre(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+    async def pre(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         name = _text(input_data.get("tool_name"))
         effect = table.get(name)
         if effect is None:
             return {}
         key = tool_use_id or _text(input_data.get("tool_use_id"))
         given = input_data.get("tool_input")
-        args: Dict[str, Any] = given if isinstance(given, dict) else {}
+        args: dict[str, Any] = given if isinstance(given, dict) else {}
         agent = _text(input_data.get("agent_id"))
         try:
             r = await _to_thread(_resolve_tool, name, effect, args)
@@ -265,7 +266,7 @@ def fence_hooks(
                 return deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under Shadowlap, since this may be a replay.")
             return {}
 
-    async def post(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+    async def post(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
         if p is None:
             return {}
@@ -290,14 +291,14 @@ def fence_hooks(
             say(f"could not record the result of {p['name']}: {err}")
             return {}
 
-    async def failed(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+    async def failed(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
         if p is None:
             return {}
         try:
             if p["kind"] in ("live", "stubbed"):
                 error = _text(input_data.get("error")) or "the tool failed"
-                serialized: Dict[str, Any] = {"name": "ToolError", "message": error}
+                serialized: dict[str, Any] = {"name": "ToolError", "message": error}
                 code = re.match(r"^Exit code (\d+)", error)
                 if code:
                     serialized["code"] = code.group(1)
@@ -310,7 +311,7 @@ def fence_hooks(
             say(f"could not record the failure of {p['name']}: {err}")
         return {}
 
-    async def settle(input_data: Dict[str, Any], tool_use_id: Optional[str], context: Any) -> Dict[str, Any]:
+    async def settle(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         """Calls PreToolUse saw that never ran (a permission refused them): ended, so the recording has no hole."""
         agent = _text(input_data.get("agent_id"))
         for key, p in list(pending.items()):
@@ -342,7 +343,7 @@ def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fen
     ``query(prompt=..., options=with_fence(options))``. Without Shadowlap the hooks answer ``{}`` at
     once, so the same options serve production."""
     own: Mapping[str, Sequence[Any]] = getattr(options, "hooks", None) or {}
-    hooks: Dict[str, List[Any]] = {event: list(matchers) for event, matchers in own.items()}
+    hooks: dict[str, list[Any]] = {event: list(matchers) for event, matchers in own.items()}
     for event, matchers in fence_hooks(effects, **fence).items():
         hooks[event] = hooks.get(event, []) + matchers
     if dataclasses.is_dataclass(options) and not isinstance(options, type):
@@ -350,7 +351,7 @@ def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fen
     raise TypeError("with_fence: options must be a ClaudeAgentOptions")
 
 
-def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]) -> List[ToolT]:
+def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]) -> list[ToolT]:
     """The tools of an in-process MCP server (``create_sdk_mcp_server``), recorded and fenced like any
     SDK tool under the name the model calls them by, ``mcp__<server>__<tool>``, with the tool's input
     as the call's arguments::
@@ -365,11 +366,11 @@ def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]
     missing = [str(getattr(t, "name", "?")) for t in tools if getattr(t, "name", None) not in effects]
     if missing:
         raise TypeError("with_effects: every tool needs an effect; missing for " + ", ".join(missing))
-    out: List[ToolT] = []
+    out: list[ToolT] = []
     for t in tools:
         name = str(getattr(t, "name"))
         spec = effects[name]
-        options: Dict[str, Any] = dict(spec) if isinstance(spec, Mapping) else {"effect": spec}
+        options: dict[str, Any] = dict(spec) if isinstance(spec, Mapping) else {"effect": spec}
         effect = options.pop("effect", None)
         on_fork = options.pop("on_fork", None)
         trust = options.pop("trust", None)

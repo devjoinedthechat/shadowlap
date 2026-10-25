@@ -29,8 +29,6 @@ function inStore(store: Store, ...runIds: string[]): void {
   for (const runId of runIds) store.setTeamRun(KEY, { runId, state: 'pushed', at: 1, base: {}, baseHash: 'h', remoteHash: 'h', entry: { runId } });
 }
 
-const fixPuts = (remote: MemoryStore) => remote.log.filter((l) => l.op === 'put' && l.key.startsWith('fixes/')).length;
-
 describe('a fix in the team store', () => {
   it('goes with the runs it is about, and a teammate pulls it with its steps', async () => {
     const remote = new MemoryStore(loc);
@@ -165,15 +163,15 @@ describe('a fix in the team store', () => {
       remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(change(doc) ?? doc)), version: `x-${id}`, contentType: 'application/json' });
     };
     const ids = ['fx-01M3RZ0000000000000000000A', 'fx-01M3RZ0000000000000000000B', 'fx-01M3RZ0000000000000000000C', 'fx-01M3RZ0000000000000000000D', 'fx-01M3RZ0000000000000000000E'];
-    hostile(ids[0]!, (d) => void (d.fix.title = 'owned\u001b]0;title\u0007'));
-    hostile(ids[1]!, (d) => {
+    hostile(ids[0], (d) => void (d.fix.title = 'owned\u001b]0;title\u0007'));
+    hostile(ids[1], (d) => {
       const r = repairReport({ targets: [run], dir: '../../.ssh' });
       d.links.push({ kind: 'repair', ref: 'repair-evil', at: 1, data: null });
       d.repairs.push({ repairId: 'repair-evil', at: 1, dir: '../../.ssh', outcome: 'fixed', accepted: true, report: r, expect: null, command: '' });
     });
-    hostile(ids[2]!, (d) => ({ ...d, fix: { ...d.fix, fixId: ids[0] } }));
-    hostile(ids[3]!, (d) => ({ ...d, version: FIX_VERSION + 1 }));
-    hostile(ids[4]!, (d) => void (d.blames[0]!.report.probes = 'all of them' as never));
+    hostile(ids[2], (d) => ({ ...d, fix: { ...d.fix, fixId: ids[0] } }));
+    hostile(ids[3], (d) => ({ ...d, version: FIX_VERSION + 1 }));
+    hostile(ids[4], (d) => void (d.blames[0].report.probes = 'all of them' as never));
     remote.objects.set('fixes/not-a-fix.json', { body: Buffer.from('{}'), version: 'y', contentType: 'application/json' });
     const maya = machine(remote, 'maya@northwind.example');
     const got = await pull(maya);
@@ -207,8 +205,8 @@ describe('a fix in the team store', () => {
     inStore(dana.store, run);
     await push(dana, { runIds: [] });
     const good = parseFixDoc(remote.objects.get(fixKey(fix.fixId))!.body, fix.fixId);
-    expect(good.blames[0]!.report.gate).toEqual(gate);
-    expect(good.blames[0]!.report.probes[0]!.gate).toMatchObject({ kind: 'sprt', decision: expect.any(String), interval: { confidence: 0.95 } });
+    expect(good.blames[0].report.gate).toEqual(gate);
+    expect(good.blames[0].report.probes[0].gate).toMatchObject({ kind: 'sprt', decision: expect.any(String), interval: { confidence: 0.95 } });
 
     const hostile = (id: string, change: (d: FixDoc) => void) => {
       const doc = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: id } })) as FixDoc;
@@ -216,20 +214,20 @@ describe('a fix in the team store', () => {
       remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(doc)), version: `x-${id}`, contentType: 'application/json' });
     };
     const ids = ['fx-01M3RZ0000000000000000001A', 'fx-01M3RZ0000000000000000001C', 'fx-01M3RZ0000000000000000001D', 'fx-01M3RZ0000000000000000001E', 'fx-01M3RZ0000000000000000001F'];
-    hostile(ids[0]!, (d) => void ((d.blames[0]!.report.probes[0] as { gate: unknown }).gate = {}));
-    hostile(ids[1]!, (d) => void ((d.blames[0]!.report as { gate: unknown }).gate = { kind: 'sprt', good: 'most', bad: 0.1, risk: 0.05, max: 20 }));
-    hostile(ids[2]!, (d) => void ((d.blames[0]!.report.probes[0] as { decision: unknown }).decision = 'probably'));
-    hostile(ids[3]!, (d) => void delete (d.blames[0]!.report.probes[0]!.gate as { interval?: unknown }).interval);
-    hostile(ids[4]!, (d) => void ((d.blames[0]!.report.probes[0]!.gate as { sentence: unknown }).sentence = 'passed\u001b[2J'));
+    hostile(ids[0], (d) => void ((d.blames[0].report.probes[0] as { gate: unknown }).gate = {}));
+    hostile(ids[1], (d) => void ((d.blames[0].report as { gate: unknown }).gate = { kind: 'sprt', good: 'most', bad: 0.1, risk: 0.05, max: 20 }));
+    hostile(ids[2], (d) => void ((d.blames[0].report.probes[0] as { decision: unknown }).decision = 'probably'));
+    hostile(ids[3], (d) => void delete (d.blames[0].report.probes[0].gate as { interval?: unknown }).interval);
+    hostile(ids[4], (d) => void ((d.blames[0].report.probes[0].gate as { sentence: unknown }).sentence = 'passed\u001b[2J'));
     const maya = machine(remote, 'maya@northwind.example');
     const got = await pull(maya);
     expect(got.fixes.pulled).toEqual([fix.fixId]);
     expect(Object.fromEntries(got.fixes.failed.map((f) => [f.fixId, f.reason]))).toEqual({
-      [ids[0]!]: expect.stringMatching(/probes\[0\]\.gate\.kind: must be one of "sprt", "baseline"/),
-      [ids[1]!]: expect.stringMatching(/report\.gate\.good: must be a number/),
-      [ids[2]!]: expect.stringMatching(/probes\[0\]\.decision: must be one of "pass", "fail", "continue", "inconclusive"/),
-      [ids[3]!]: expect.stringMatching(/probes\[0\]\.gate\.interval: must be an object/),
-      [ids[4]!]: expect.stringMatching(/control characters|must be one line/),
+      [ids[0]]: expect.stringMatching(/probes\[0\]\.gate\.kind: must be one of "sprt", "baseline"/),
+      [ids[1]]: expect.stringMatching(/report\.gate\.good: must be a number/),
+      [ids[2]]: expect.stringMatching(/probes\[0\]\.decision: must be one of "pass", "fail", "continue", "inconclusive"/),
+      [ids[3]]: expect.stringMatching(/probes\[0\]\.gate\.interval: must be an object/),
+      [ids[4]]: expect.stringMatching(/control characters|must be one line/),
     });
     // What it took reads as the dashboard shows it.
     expect(maya.store.getFix(fix.fixId)).not.toBeNull();
@@ -246,9 +244,9 @@ describe('a fix in the team store', () => {
     inStore(dana.store, run);
     await push(dana, { runIds: [] });
     const good = parseFixDoc(remote.objects.get(fixKey(fixId))!.body, fixId);
-    expect(good.verdicts[0]!.report.runs[0]!.gate).toMatchObject({ decision: 'pass', passes: 12 });
+    expect(good.verdicts[0].report.runs[0].gate).toMatchObject({ decision: 'pass', passes: 12 });
     const doc = JSON.parse(JSON.stringify(good)) as FixDoc;
-    (doc.verdicts[0]!.report.runs[0]!.gate as { interval: unknown }).interval = { lo: 'low', hi: 1, confidence: 0.95 };
+    (doc.verdicts[0].report.runs[0].gate as { interval: unknown }).interval = { lo: 'low', hi: 1, confidence: 0.95 };
     expect(() => parseFixDoc(Buffer.from(JSON.stringify(doc)), fixId)).toThrow(/runs\[0\]\.gate\.interval\.lo: must be a number/);
   });
 
@@ -261,7 +259,7 @@ describe('a fix in the team store', () => {
     await push(dana, { runIds: [] });
     const good = parseFixDoc(remote.objects.get(fixKey(fixId))!.body, fixId);
     expect(good.repairs).toHaveLength(1);
-    const own = good.repairs[0]!.report.patch!;
+    const own = good.repairs[0].report.patch!;
     const evil = ['diff --git a/EVIL.txt b/EVIL.txt', 'new file mode 100644', '--- /dev/null', '+++ b/EVIL.txt', '@@ -0,0 +1 @@', '+from the bucket', ''].join('\n');
     const patches: Record<string, string> = {
       'fx-01M3RZ0000000000000000001A': own + evil,
@@ -270,7 +268,7 @@ describe('a fix in the team store', () => {
     };
     for (const [id, patch] of Object.entries(patches)) {
       const doc = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: id } })) as FixDoc;
-      doc.repairs[0]!.report.patch = patch;
+      doc.repairs[0].report.patch = patch;
       remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(doc)), version: `x-${id}`, contentType: 'application/json' });
     }
     const maya = machine(remote, 'maya@northwind.example');
@@ -420,8 +418,8 @@ describe('two copies of a fix', () => {
     const maya = machine(remote, 'maya@northwind.example');
     const got = await pull(maya);
     expect(got.fixes.failed).toEqual([]);
-    const fix = maya.store.listFixes()[0]!;
-    const block = fixRecords(maya.store, fix).blames[0]!.report.contrast!.rescued[0] as { text: string };
+    const fix = maya.store.listFixes()[0];
+    const block = fixRecords(maya.store, fix).blames[0].report.contrast!.rescued[0] as { text: string };
     expect(block.text).toBe('Above the limit.\r\nEscalating�[1m now');
     // And it isn't sent again for that difference.
     expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([]);

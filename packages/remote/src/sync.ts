@@ -239,7 +239,7 @@ function localProblem(ctx: SyncContext, calls: readonly CallRecord[], blobs: rea
     if (size === null) absent.push(h);
     else if (size > PACK_LIMITS.blobBytes) return `blob ${h} is ${size} bytes, over the ${PACK_LIMITS.blobBytes} a pull reads`;
   }
-  return absent.length ? `this machine's copy is missing ${absent.length === 1 ? 'blob' : `${absent.length} blobs, such as`} ${absent[0]}` : null;
+  return absent.length ? `this machine's copy is missing ${absent.length === 1 ? 'blob' : `${absent.length} blobs, such as`} ${absent[0]!}` : null;
 }
 
 type PushOutcome =
@@ -333,7 +333,7 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
   let existing = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
   if (!existing) {
     const calls = ctx.store.getCalls(run.runId);
-    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) as RunRecord['meta'] & object }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
     const blobs = runBlobs(ctx.store, calls);
     const problem = storeProblem(first.run, calls) ?? localProblem(ctx, calls, blobs);
     if (problem) return { refused: problem };
@@ -365,7 +365,7 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
     }
     const merged = reconcile(run.meta, there.run.meta, row?.base ?? null, madeHere(run.meta));
     if (metaHash(merged) === metaHash(there.run.meta)) return { doc: there, synced: merged, fresh: false, wrote: false };
-    const next: StoredRunDoc = { ...there, run: { ...there.run, meta: withSynced(there.run.meta, merged) as RunRecord['meta'] & object }, pushedAt: now(ctx), pushedBy: ctx.actor };
+    const next: StoredRunDoc = { ...there, run: { ...there.run, meta: withSynced(there.run.meta, merged) }, pushedAt: now(ctx), pushedBy: ctx.actor };
     const problem = storeProblem(next.run, []);
     if (problem) return { refused: problem };
     try {
@@ -608,7 +608,7 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
     }
   }
   fresh.sort();
-  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
+  const segments = new Array<IndexSegment | null>(fresh.length).fill(null);
   await eachLimit(fresh, ctx.concurrency ?? 8, async (key, i) => {
     const got = await ctx.remote.get(key, { maxBytes: 64 * 1024 * 1024 });
     if (!got) {

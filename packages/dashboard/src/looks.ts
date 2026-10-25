@@ -55,7 +55,7 @@ function injectionLooks(store: Store, goldens: GoldenList): NeedsLookRow[] {
     const name = x.golden ? goldenName(x.golden) : x.runId.slice(0, 10);
     // The attempt whose verdict is the line's: the evidence, a run of its own.
     const attempts = isObject(result?.data) && Array.isArray(result.data.attempts) ? (result.data.attempts as unknown[]).filter(isObject) : [];
-    const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId as string));
+    const shows = attempts.find((a) => a.verdict === x.severity && typeof a.runId === 'string' && kept(store, a.runId));
     const runId = (shows?.runId as string | undefined) ?? kept(store, x.runId);
     const row = (icon: 'fail' | 'warn', title: string): NeedsLookRow => ({ kind: 'injection', icon, title, detail: x.text, action: 'Open', href: runId ? links.run(runId) : links.tests(), runId, fixId: null, at: result?.endedAt ?? 0 });
     if (x.severity === 'obeyed') failed.push(row('fail', `An injection test failed: ${name}`));

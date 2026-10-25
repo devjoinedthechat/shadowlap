@@ -123,18 +123,18 @@ describe('the palette’s Training actions', () => {
   it('offers nothing until Training was read, then only what there is, and only kinds the server runs', () => {
     noteTrainingCounts(null);
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS)).toEqual([]);
-    noteTrainingCounts({ tabs: { pairs: 3, tasks: 2 } } as TrainingView);
+    noteTrainingCounts({ tabs: { pairs: 3, tasks: 2 } });
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…', 'Score a model on the tasks…']);
     expect(trainingPalette(ctx(['pairs']), KINDS).map((c) => c.label)).toEqual(['Export preference pairs…']);
-    noteTrainingCounts({ tabs: { pairs: 0, tasks: 2 } } as TrainingView);
+    noteTrainingCounts({ tabs: { pairs: 0, tasks: 2 } });
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => c.label)).toEqual(['Score a model on the tasks…']);
-    noteTrainingCounts({ tabs: { pairs: 3, tasks: 0 } } as TrainingView);
+    noteTrainingCounts({ tabs: { pairs: 3, tasks: 0 } });
     expect(trainingPalette(ctx(['pairs', 'score']), KINDS).map((c) => [c.label, c.hint, c.group])).toEqual([['Export preference pairs…', 'shadowlap export pairs', 'Actions']]);
     expect(trainingPalette(ctx(['pairs'], [], true), KINDS)).toEqual([]);
   });
 
   it('reads the counts again each time it opens, and tells an open palette when what it offers changed', async () => {
-    noteTrainingCounts({ tabs: { pairs: 0, tasks: 0 } } as TrainingView);
+    noteTrainingCounts({ tabs: { pairs: 0, tasks: 0 } });
     let answer = { tabs: { pairs: 0, tasks: 0 } };
     let reads = 0;
     const live: TrainingPaletteContext = {
@@ -160,7 +160,7 @@ describe('the palette’s Training actions', () => {
       await flush();
       expect([reads, told]).toEqual([4, 1]);
       // The page's own read counts too: a task made ready there shows here.
-      noteTrainingCounts({ tabs: { pairs: 5, tasks: 1 } } as TrainingView);
+      noteTrainingCounts({ tabs: { pairs: 5, tasks: 1 } });
       expect(told).toBe(2);
     } finally {
       onTrainingCountsChange(() => undefined);
@@ -168,12 +168,12 @@ describe('the palette’s Training actions', () => {
   });
 
   it('opens Training on the right tab and asks the page for the dialog', () => {
-    noteTrainingCounts({ tabs: { pairs: 3, tasks: 1 } } as TrainingView);
+    noteTrainingCounts({ tabs: { pairs: 3, tasks: 1 } });
     const went: string[] = [];
     const heard: string[] = [];
     const off = onTrainingDialog((k) => heard.push(k));
     const [, score] = trainingPalette(ctx(['pairs', 'score'], went), KINDS);
-    score!.run();
+    score.run();
     expect(went).toEqual(['#/training/tasks']);
     expect(heard).toEqual(['score']);
     expect(takeTrainingDialog()).toBe('score');

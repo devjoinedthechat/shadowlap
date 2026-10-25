@@ -85,7 +85,7 @@ function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code:
 async function record(order?: string): Promise<string> {
   const r = await shadowlap(['run', '--', process.execPath, AGENT, ...(order ? [order] : [])]);
   expect(r.code, r.out).toBe(0);
-  return /recording run (\w{26})/.exec(r.out)![1]!;
+  return /recording run (\w{26})/.exec(r.out)![1];
 }
 
 /** Two runs that refunded $240 against policy, and one that refunded $40 within it, labelled good. */
@@ -161,7 +161,7 @@ describe('shadowlap verify', () => {
     expect(r.code).toBe(1);
     const report = JSON.parse(r.stdout) as Json;
     expect(report.verdict).toBe('rejected');
-    expect(report.runs.map((x) => [x.outcome, x.attempts, x.deterministic, x.runs[0]!.forkedAt])).toEqual([
+    expect(report.runs.map((x) => [x.outcome, x.attempts, x.deterministic, x.runs[0].forkedAt])).toEqual([
       ['not-fixed', 1, true, null],
       ['kept', 1, true, null],
     ]);
@@ -204,7 +204,7 @@ describe('shadowlap verify', () => {
     copyFileSync(AGENT, copy);
     try {
       const r0 = await shadowlap(['run', '--', process.execPath, copy]);
-      const failed = /recording run (\w{26})/.exec(r0.out)![1]!;
+      const failed = /recording run (\w{26})/.exec(r0.out)![1];
       // The fix is in the tool: its policy text now says what the model got wrong.
       writeFileSync(copy, readFileSync(copy, 'utf8').replace("escalate them.' })", "escalate them. Never refund them yourself.' })"));
 
@@ -261,7 +261,7 @@ describe('shadowlap verify', () => {
         const attempts = of(runId);
         expect(attempts).toHaveLength(12);
         // Each started once the one before it had ended.
-        attempts.slice(1).forEach((a, i) => expect(a.startedAt).toBeGreaterThanOrEqual(attempts[i]!.endedAt!));
+        attempts.slice(1).forEach((a, i) => expect(a.startedAt).toBeGreaterThanOrEqual(attempts[i].endedAt!));
       }
       // The runs went at once: another run's attempts ran while the held one waited.
       const held = all.reduce((x, y) => (y.endedAt! - y.startedAt > x.endedAt! - x.startedAt ? y : x));

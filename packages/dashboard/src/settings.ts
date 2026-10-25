@@ -313,7 +313,7 @@ function loadConfigFile(cwd: string, list?: RuleList): { info: ConfigInfo; file:
   try {
     const file = readConfigFile(cwd);
     const raw = list ? file.data[list] : undefined;
-    const error = raw !== undefined && raw !== null && !Array.isArray(raw) ? `${CONFIG_FILE}: ${list} must be a list of rules` : null;
+    const error = raw !== undefined && raw !== null && !Array.isArray(raw) ? `${CONFIG_FILE}: ${list!} must be a list of rules` : null;
     return { info: { file: CONFIG_FILE, path: file.path, exists: file.exists, version: file.version, error }, file };
   } catch (err) {
     return { info: { file: CONFIG_FILE, path, exists: existsSync(path), version: null, error: err instanceof Error ? err.message : String(err) }, file: null };
@@ -450,7 +450,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
   if (!previewError) {
     if (!previewRunId) previewError = 'Record a run first: the preview needs one to read.';
     else if (info.error) previewError = info.error;
-    else if (broken) previewError = `redaction rule #${broken.n}: ${broken.error}`;
+    else if (broken) previewError = `redaction rule #${broken.n}: ${broken.error!}`;
   }
   return { config: info, rules: rows, form: form('redact'), where: REDACTION_EXPORTS, runs, previewRunId, previewError };
 }
@@ -531,7 +531,7 @@ export function codingAgentsSettings(ctx: Pick<SettingsContext, 'cwd'>, options:
       return { path, agents, found: false, type: null, mentions: false };
     }
     if (st.isDirectory()) {
-      let walk = true;
+      let walk: boolean;
       try {
         walk = !lstatSync(full).isSymbolicLink() || inside(realpathSync(full), realpathSync(ctx.cwd));
       } catch {
@@ -849,11 +849,11 @@ function keyLike(segment: string): boolean {
 /** One argument, or a value inside one, with a credential in it hidden. */
 function hideValue(text: string, depth = 0): string {
   const assigned = /^(-{0,2}[A-Za-z_][\w.-]*)=([\s\S]+)$/.exec(text);
-  if (assigned && depth < 3) return secretName(assigned[1]!) ? `${assigned[1]}=${HIDDEN}` : `${assigned[1]}=${hideValue(assigned[2]!, depth + 1)}`;
+  if (assigned && depth < 3) return secretName(assigned[1]!) ? `${assigned[1]!}=${HIDDEN}` : `${assigned[1]!}=${hideValue(assigned[2]!, depth + 1)}`;
   if (URL_LIKE.test(text)) return hideUrlSecrets(text);
   const header = /^([\w-]+)\s*:\s*(\S[\s\S]*)$/.exec(text);
   // A header whose value is only a variable (`Authorization: Bearer $ISSUES_TOKEN`) holds no secret.
-  if (header && secretName(header[1]!) && !headerReference(header[2]!)) return `${header[1]}: ${HIDDEN}`;
+  if (header && secretName(header[1]!) && !headerReference(header[2]!)) return `${header[1]!}: ${HIDDEN}`;
   if (SECRET_VALUE.test(text) || (/^Bearer\s/i.test(text) && !headerReference(text))) return HIDDEN;
   return text.replace(CONNECTION_SECRET, (_m, key: string) => `${key}=${HIDDEN}`);
 }
@@ -1112,7 +1112,7 @@ function headerFlags(value: unknown, server: string, taken: Set<string>, ref: (n
       const text = typeof v === 'string' ? v.trim() : '';
       const scheme = SCHEME.exec(text);
       const token = scheme ? scheme[2]!.trim() : text;
-      const lead = scheme ? `${scheme[1]} ` : '';
+      const lead = scheme ? `${scheme[1]!} ` : '';
       if (PROXY_REFERENCE.test(token)) return { flag: `${name}: ${text}`, env: null, value: '' };
       // A plain variable (`${STRIPE_TOKEN}`, `${env:STRIPE_TOKEN}`) keeps its name; another reference is named as a value would be.
       const plain = REFERENCE.test(token) ? /^\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}$/.exec(token)?.[1] : undefined;

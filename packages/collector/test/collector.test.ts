@@ -37,7 +37,7 @@ describe('validateBatch', () => {
     expect([...PROVIDERS].sort()).toEqual([...KNOWN_PROVIDERS].sort());
   });
   it('accepts a well-formed batch', () => {
-    expect(validateBatch(batch([event()])).events[0]!.type).toBe('replay');
+    expect(validateBatch(batch([event()])).events[0].type).toBe('replay');
   });
   it('rejects unknown fields, free text and out-of-range values', () => {
     expect(() => validateBatch(batch([event({ prompt: 'secret' })]))).toThrow(/unexpected field "prompt"/);
@@ -127,7 +127,7 @@ describe('dashboard', () => {
       expect(stats.ciSystems).toEqual({ github: 1 });
       expect(stats.sdks.mcp).toBe(1);
       expect(stats.weekly).toHaveLength(12);
-      expect(new Date(`${stats.weekly[0]!.week}T00:00:00Z`).getUTCDay()).toBe(1); // Mondays
+      expect(new Date(`${stats.weekly[0].week}T00:00:00Z`).getUTCDay()).toBe(1); // Mondays
       expect(stats.weekly.at(-1)!.activeDevelopers).toBe(1);
       expect(stats.weekly.reduce((n, w) => n + w.replays, 0)).toBe(3);
       expect(stats.daily.reduce((n, d) => n + d.clean, 0)).toBe(2);

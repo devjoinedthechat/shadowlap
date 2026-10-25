@@ -26,7 +26,7 @@ export function whenDone(ms: number, now = Date.now()): string {
   const t = new Date(now);
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   if (d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate()) return time;
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${time}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}, ${time}`;
 }
 
 /** A file as the strip names it: its name (the whole path is on hover), or stdout for `-`. */
@@ -143,7 +143,7 @@ export function notesLine(notes: ModelsView['notes']): string | null {
 export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): string | null {
   if (!leftOut?.length) return null;
   const names = (models: string[]) => (models.length > 3 ? `${models.slice(0, 3).join(', ')} and ${models.length - 3} more` : models.join(', '));
-  return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0] : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
+  return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0]! : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

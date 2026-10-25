@@ -82,7 +82,7 @@ describe('the token the action speaks to GitHub with', () => {
     const seen: string[][] = [];
     const server = createServer((req, res) => {
       const values: string[] = [];
-      for (let i = 0; i < req.rawHeaders.length; i += 2) if (/^authorization$/i.test(req.rawHeaders[i]!)) values.push(req.rawHeaders[i + 1]!);
+      for (let i = 0; i < req.rawHeaders.length; i += 2) if (/^authorization$/i.test(req.rawHeaders[i])) values.push(req.rawHeaders[i + 1]);
       seen.push(values);
       res.writeHead(404).end();
     });
@@ -136,7 +136,7 @@ describe('the pull request comment', () => {
     const fresh = github((c) => (c.method === 'GET' ? { status: 200, json: [comment(1, 'Looks good')] } : { status: 201, json: comment(9, 'x') }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nbody`, fetch: fresh.fetch })).toEqual({ state: 'created', url: 'https://github.test/northwind/agent/pull/12#issuecomment-9', why: null });
     expect(fresh.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET https://api.github.test/repos/northwind/agent/issues/12/comments?per_page=100&page=1', 'POST https://api.github.test/repos/northwind/agent/issues/12/comments']);
-    expect(fresh.calls[1]!.body).toEqual({ body: `${marker}\nbody` });
+    expect(fresh.calls[1].body).toEqual({ body: `${marker}\nbody` });
 
     // The action's comment on the second page, past a hundred others, and a person's quoting the marker before it.
     const page1 = Array.from({ length: 100 }, (_, i) => comment(100 + i, i === 3 ? `> ${marker} quoted` : 'chat'));
@@ -155,7 +155,7 @@ describe('the pull request comment', () => {
   });
 
   /** A test report's result, a golden that replayed clean unless told otherwise. */
-  const result = (over: Partial<ReportResult> & Record<string, unknown>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: true, verdict: 'passed', failure: null, message: null, runId: 'R1', runs: [{ runId: 'R1', ok: true, verdict: 'passed' }], ...over }) as ReportResult;
+  const result = (over: Partial<ReportResult> & Record<string, unknown>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: true, verdict: 'passed', failure: null, message: null, runId: 'R1', runs: [{ runId: 'R1', ok: true, verdict: 'passed' }], ...over });
   const gated = (verdict: 'passed' | 'failed' | 'inconclusive') => ({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80, sentence: `${verdict} · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts` });
 
   it('says each golden\'s verdict in one line, as every report says it: the verdict word first, a gate\'s tally, bound and rule', () => {
@@ -255,7 +255,7 @@ describe('the pull request comment', () => {
       ],
     };
     const base = baseSession([session('M', 'e5f6a7b', [stored('goldens/refund-flow', 'passed', { branch: 'main' }), stored('goldens/triage-inbox', 'passed')])], { baseRef: 'main', baseSha: null, current: 'S' });
-    expect(commentBody({ report: sample, marker: shown!.split('\n')[0]!, base, baseRef: 'main' })).toBe(shown);
+    expect(commentBody({ report: sample, marker: shown!.split('\n')[0], base, baseRef: 'main' })).toBe(shown);
   });
 
   it('is posted on the pull request the job runs for, compared with the base branch from the store, and never on a fork\'s, which may not comment', async () => {
@@ -276,7 +276,7 @@ describe('the pull request comment', () => {
     const gh = github((c) => (c.method === 'GET' ? { status: 200, json: [] } : { status: 201, json: { id: 1, html_url: 'https://github.test/c/1' } }));
     const posted = await postComment({ env, auth, report, store: db, recordings: 'goldens/*', workdir: '.', fetch: gh.fetch });
     expect(posted).toEqual({ state: 'created', url: 'https://github.test/c/1', why: null });
-    const body = (gh.calls[1]!.body as { body: string }).body;
+    const body = (gh.calls[1].body as { body: string }).body;
     expect(body.startsWith(marker)).toBe(true);
     expect(body).toContain('| ✅ | `goldens/triage` | passed · replayed clean | ✅ passed |');
     expect(body).toContain('as the test history last tested it, at `e5f6a7b`');
@@ -295,7 +295,7 @@ describe('the pull request comment', () => {
 });
 
 describe('what a fix is verified on', () => {
-  const failing = (name: string, expect: Record<string, unknown>, over: Partial<ReportResult> & Record<string, unknown> = {}): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: false, verdict: 'failed', failure: 'check', runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: false, verdict: 'failed' }, { runId: `${name}-2`, ok: false, verdict: 'failed' }], expect, ...over }) as ReportResult;
+  const failing = (name: string, expect: Record<string, unknown>, over: Partial<ReportResult> & Record<string, unknown> = {}): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: false, verdict: 'failed', failure: 'check', runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: false, verdict: 'failed' }, { runId: `${name}-2`, ok: false, verdict: 'failed' }], expect, ...over });
   const passing = (name: string, expect: Record<string, unknown> | null): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: true, verdict: 'passed', failure: null, runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: true, verdict: 'passed' }], expect });
   const NO_REFUND = { tools: { issue_refund: 0 } };
   const NO_EMAIL = { tools: { send_email: 0 } };
@@ -304,27 +304,27 @@ describe('what a fix is verified on', () => {
     const results = [failing('a', NO_REFUND), passing('ok-1', NO_REFUND), failing('b', { tools: { issue_refund: 0 } }), failing('c', NO_REFUND), passing('ok-2', NO_REFUND), passing('other', NO_EMAIL), passing('ok-3', NO_REFUND), passing('ok-4', NO_REFUND), failing('d', NO_EMAIL)];
     const groups = groupFixes(planFixes({ results }));
     expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'b', 'c'], ['d']]);
-    const plan = repairPlan(groups[0]!.members, results);
+    const plan = repairPlan(groups[0].members, results);
     expect(plan).toMatchObject({ fixes: ['a-1', 'c-1'], holdout: ['b-1'], keeps: ['ok-1-1', 'ok-2-1'], goldens: { shown: ['goldens/a', 'goldens/c'], heldOut: ['goldens/b'], kept: ['goldens/ok-1', 'goldens/ok-2'] }, gate: null });
     expect(KEEPS_AT_MOST).toBe(2);
     expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
     // A golden alone under its check has nothing to hold out; one that passed the check is still kept.
-    expect(repairPlan(groups[1]!.members, results)).toMatchObject({ fixes: ['d-1'], holdout: [], keeps: ['other-1'], goldens: { shown: ['goldens/d'], heldOut: [], kept: ['goldens/other'] } });
+    expect(repairPlan(groups[1].members, results)).toMatchObject({ fixes: ['d-1'], holdout: [], keeps: ['other-1'], goldens: { shown: ['goldens/d'], heldOut: [], kept: ['goldens/other'] } });
     const lonely = [failing('e', { tools: { delete_thread: 0 } }), ...results];
-    expect(repairPlan(groupFixes(planFixes({ results: lonely }))[0]!.members, lonely)).toMatchObject({ fixes: ['e-1'], holdout: [], keeps: [], goldens: { shown: ['goldens/e'], heldOut: [], kept: [] } });
+    expect(repairPlan(groupFixes(planFixes({ results: lonely }))[0].members, lonely)).toMatchObject({ fixes: ['e-1'], holdout: [], keeps: [], goldens: { shown: ['goldens/e'], heldOut: [], kept: [] } });
   });
 
   it("decides each run by the failing golden's own gate: its figures, its fixed count, or verify's default for one against history", () => {
     const sprt = { kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.01, max: 200, sentence: 'failed · …' };
-    expect(goldenGate(failing('a', NO_REFUND, { gate: sprt } as never))).toEqual({ kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.01, max: 200 });
-    expect(goldenGate(failing('a', NO_REFUND, { attempts: { total: 5, passed: 3, required: 4 } } as never))).toEqual({ kind: 'count', attempts: 5, passes: 4 });
+    expect(goldenGate(failing('a', NO_REFUND, { gate: sprt }))).toEqual({ kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.01, max: 200 });
+    expect(goldenGate(failing('a', NO_REFUND, { attempts: { total: 5, passed: 3, required: 4 } }))).toEqual({ kind: 'count', attempts: 5, passes: 4 });
     expect(goldenGate(failing('a', NO_REFUND, { gate: { kind: 'baseline', drop: 0.1 } } as never))).toEqual({ kind: 'history' });
     expect(goldenGate(failing('a', NO_REFUND))).toBeNull();
-    const results = [failing('a', NO_REFUND, { gate: sprt } as never)];
-    const plan = repairPlan(groupFixes(planFixes({ results }))[0]!.members, results);
+    const results = [failing('a', NO_REFUND, { gate: sprt })];
+    const plan = repairPlan(groupFixes(planFixes({ results }))[0].members, results);
     expect(repairArgs(plan, { db: null, budget: 2, repairer: 'claude-code', expectFile: '/e.json', gateFile: '/g.json' })).toEqual(expect.arrayContaining(['--gate', '@/g.json']));
-    const counted = [failing('a', NO_REFUND, { attempts: { total: 5, passed: 3, required: 4 } } as never)];
-    expect(repairArgs(repairPlan(groupFixes(planFixes({ results: counted }))[0]!.members, counted), { db: null, budget: 2, repairer: '', expectFile: '/e.json' }).join(' ')).toContain('--attempts 5 --passes 4');
+    const counted = [failing('a', NO_REFUND, { attempts: { total: 5, passed: 3, required: 4 } })];
+    expect(repairArgs(repairPlan(groupFixes(planFixes({ results: counted }))[0].members, counted), { db: null, budget: 2, repairer: '', expectFile: '/e.json' }).join(' ')).toContain('--attempts 5 --passes 4');
   });
 
   it('says in the pull request what the fix was verified on, and that it was the failing golden alone when it was', () => {

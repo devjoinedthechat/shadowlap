@@ -126,7 +126,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     if (req.method === 'GET' && url.pathname === '/v1/tasks') return send(res, 200, { tasks: tasks().map(taskView) });
 
     const m = /^\/v1\/tasks\/(.+)\/attempts$/.exec(url.pathname);
-    if (req.method !== 'POST' || !m) return send(res, 404, { error: `no route ${req.method} ${url.pathname}: POST /v1/tasks/<task>/attempts, GET /v1/tasks` });
+    if (req.method !== 'POST' || !m) return send(res, 404, { error: `no route ${req.method!} ${url.pathname}: POST /v1/tasks/<task>/attempts, GET /v1/tasks` });
     let body: Record<string, unknown>;
     try {
       const parsed = JSON.parse((await readBody(req)).toString('utf8') || '{}') as unknown;
@@ -154,14 +154,14 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     if (body.from !== undefined && (typeof body.from !== 'number' || !Number.isSafeInteger(body.from) || body.from < 1)) return send(res, 400, { error: '"from" must be a model call number' });
     if (body.reads !== undefined && body.reads !== 'live' && body.reads !== 'replay') return send(res, 400, { error: '"reads" must be "live" or "replay"' });
     // The endpoint tasks serve was started with, unless the request names another one or a provider.
-    const baseUrl = (body.baseUrl as string | undefined) ?? (s.baseUrl && !/^(anthropic|openai):/.test(body.model.trim()) ? s.baseUrl : undefined);
+    const baseUrl = (body.baseUrl) ?? (s.baseUrl && !/^(anthropic|openai):/.test(body.model.trim()) ? s.baseUrl : undefined);
     let target: ReturnType<typeof resolveTarget>;
     try {
       target = resolveTarget({ model: body.model, baseUrl, keyEnv: s.keyEnv && s.baseUrl && baseUrl && sameOrigin(baseUrl, s.baseUrl) ? s.keyEnv : undefined });
     } catch (err) {
       return send(res, 400, { error: (err as Error).message });
     }
-    const takeover = body.from as number | undefined;
+    const takeover = body.from;
     const refused = cannotScore(task, target, takeover);
     if (refused) return send(res, 409, { error: refused, status: task.status });
 
@@ -172,7 +172,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
       const started = Date.now();
       let score: Awaited<ReturnType<typeof scoreTask>>;
       try {
-        score = await scoreTask(opts, task, target, { attempts: 1, reads: (body.reads as ReadPolicy | undefined) ?? s.reads, concurrency: 1, budget: null, timeoutMs: s.timeoutMs, guard: s.guard, first: n, of: n, ...(takeover !== undefined ? { takeover } : {}) }, { id: session, spentBefore: 0 });
+        score = await scoreTask(opts, task, target, { attempts: 1, reads: (body.reads) ?? s.reads, concurrency: 1, budget: null, timeoutMs: s.timeoutMs, guard: s.guard, first: n, of: n, ...(takeover !== undefined ? { takeover } : {}) }, { id: session, spentBefore: 0 });
       } catch (err) {
         return send(res, 502, { error: err instanceof Error ? err.message : String(err), task: task.name });
       }

@@ -28,7 +28,7 @@ describe('findAnchors', () => {
       [2, 'tool issue_refund', 'Refund an order.'],
       [3, 'tool escalate', 'Hand the case to a manager.'],
     ]);
-    expect(AGENT.slice(anchors[0]!.offset, anchors[0]!.offset + anchors[0]!.text.length)).toBe(anchors[0]!.text);
+    expect(AGENT.slice(anchors[0].offset, anchors[0].offset + anchors[0].text.length)).toBe(anchors[0].text);
   });
 
   it('falls back to sentences when the prompt is assembled, and skips text that appears twice', () => {
@@ -167,12 +167,12 @@ describe('noRepairerOf', () => {
 describe('repairMarkdown', () => {
   it('says in words where each failing run was lost, or that it was not, or that it passed', () => {
     const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB', '01M540RWR1MGKZC97YKV0T4DB6', '01M540RZZZ0000000000000000'], accepted: false });
-    report.targets[1] = { ...report.targets[1]!, outcome: 'unrescuable', callNo: null, step: null, recorded: null, rescued: null };
-    report.targets[2] = { ...report.targets[2]!, outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: '01M540RZZZ passes its oracle when replayed' };
+    report.targets[1] = { ...report.targets[1], outcome: 'unrescuable', callNo: null, step: null, recorded: null, rescued: null };
+    report.targets[2] = { ...report.targets[2], outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: '01M540RZZZ passes its oracle when replayed' };
     const rows = repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540'));
     expect(rows.map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not rescued from any model call', 'passes when replayed']);
     // One whose blame's first probe couldn't tell is not settled, in the pull request and the terminal.
-    report.targets[1] = { ...report.targets[1]!, unsettled: true };
+    report.targets[1] = { ...report.targets[1], unsettled: true };
     expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not settled from the first model call', 'passes when replayed']);
     expect(formatRepair(report)).toMatch(/01M540RWR1 +not settled from the first model call/);
     expect(formatRepair(report)).not.toContain('not rescued');
@@ -182,9 +182,9 @@ describe('repairMarkdown', () => {
     const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB'], good: ['01M540RG00D000000000000000'] });
     const candidate = report.candidates.find((c) => c.id === 3)!;
     const v = candidate.verify!;
-    const pairs = Array.from({ length: 38 }, () => ({ ...v.runs[1]!.attempts[0]! }));
-    const good = { ...v.runs[1]!, attempts: pairs, passes: 38, verdict: 'pass' as const, decision: 'pass' as const, baseline: { passes: 38, attempts: 38, source: 'paired' as const, revision: null }, margin: 0.1, drop: { lo: null, hi: 0.1, confidence: 0.95, method: 'betting' as const }, baselineRuns: pairs };
-    const verify = { ...v, runs: [v.runs[0]!, good], gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null } };
+    const pairs = Array.from({ length: 38 }, () => ({ ...v.runs[1].attempts[0] }));
+    const good = { ...v.runs[1], attempts: pairs, passes: 38, verdict: 'pass' as const, decision: 'pass' as const, baseline: { passes: 38, attempts: 38, source: 'paired' as const, revision: null }, margin: 0.1, drop: { lo: null, hi: 0.1, confidence: 0.95, method: 'betting' as const }, baselineRuns: pairs };
+    const verify = { ...v, runs: [v.runs[0], good], gate: { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 }, kept: { margin: 0.1, risk: 0.05, max: 200, source: 'paired' as const, revision: null, label: null } };
     const kept = { ...report, candidates: report.candidates.map((c) => (c.id === 3 ? { ...c, verify } : c)) };
     const md = repairMarkdown(kept);
     expect(md).toContain('| good | `01M540RG00` | kept | 38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%) |');

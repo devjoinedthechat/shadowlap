@@ -60,14 +60,14 @@ async function entraToken(e: AzureEnv, tenant: string, body: Record<string, stri
     { ...(e.fetch ? { fetch: e.fetch } : {}), maxBytes: 1024 * 1024, attempts: 3 },
   );
   const j = JSON.parse(res.body.toString('utf8') || '{}') as { access_token?: string; expires_in?: number | string; error_description?: string; error?: string };
-  if (res.status !== 200 || !j.access_token) throw new StoreError('credentials', `${source}: Microsoft Entra refused the sign-in (${(j.error_description ?? j.error ?? `answered ${res.status}`).split('\n')[0]})`, res.status);
+  if (res.status !== 200 || !j.access_token) throw new StoreError('credentials', `${source}: Microsoft Entra refused the sign-in (${(j.error_description ?? j.error ?? `answered ${res.status}`).split('\n')[0]!})`, res.status);
   const secs = Number(j.expires_in);
   return { token: j.access_token, expiresAt: Number.isFinite(secs) ? (e.now?.() ?? Date.now()) + secs * 1000 : null };
 }
 
 function defaultAzCli(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(process.platform === 'win32' ? 'az.cmd' : 'az', args, { timeout: 30_000, maxBuffer: 1024 * 1024, shell: process.platform === 'win32' }, (err, stdout, stderr) => {
+    execFile(process.platform === 'win32' ? 'az.cmd' : 'az', args, { timeout: 30_000, maxBuffer: 1024 * 1024, shell: process.platform === 'win32' }, (err: Error | null, stdout, stderr) => {
       if (err) reject(Object.assign(err, { stderr }));
       else resolve(stdout);
     });

@@ -42,11 +42,11 @@ describe('--prompt-from', () => {
   it('replays the model calls before the chosen one despite a changed system prompt, and goes live there with the new prompt', async () => {
     const recorded = await shadowlap(['run', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
-    const runId = /recording run (\w{26})/.exec(recorded.out)![1]!;
-    let store = Store.open(db);
+    const runId = /recording run (\w{26})/.exec(recorded.out)![1];
+    const store = Store.open(db);
     const models = store.getCalls(runId).filter((c) => c.kind === 'api').map((c) => c.callNo);
     store.close();
-    const from = models[5]!;
+    const from = models[5];
 
     const plain = await shadowlap(['replay', runId], { AGENT_SYSTEM_SUFFIX: 'Be brief.' });
     expect(plain.out).toMatch(new RegExp(`Diverged at call ${models[0]} `));
@@ -61,7 +61,7 @@ describe('--prompt-from', () => {
     expect(live).toHaveLength(models.length - 5);
     expect(live.every((r) => JSON.stringify((r.body as { system?: unknown }).system).includes('Be brief.'))).toBe(true);
 
-    const bad = await shadowlap(['replay', runId, '--prompt-from', String(models[0]! + 1)]);
+    const bad = await shadowlap(['replay', runId, '--prompt-from', String(models[0] + 1)]);
     expect(bad.code).toBe(2);
     expect(bad.out).toMatch(/is not a model call/);
   });

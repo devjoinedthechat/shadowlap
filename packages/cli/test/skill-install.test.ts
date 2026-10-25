@@ -165,7 +165,7 @@ describe('Settings → Coding agents, from shadowlap dashboard', () => {
         const m = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([\w-]+)/.exec(out);
         if (!m) return;
         clearTimeout(timer);
-        resolve({ child, url: m[1]!, token: m[2]! });
+        resolve({ child, url: m[1], token: m[2] });
       };
       child.stdout.on('data', on);
       child.stderr.on('data', on);

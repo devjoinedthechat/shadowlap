@@ -56,7 +56,7 @@ function client(sidecar: SidecarTarget | null, effects?: Record<string, 'pure' |
   return { request, call, batch, close };
 }
 
-const text = (m: Record<string, unknown>) => ((m.result as { content: Array<{ text: string }> }).content[0]!.text);
+const text = (m: Record<string, unknown>) => ((m.result as { content: Array<{ text: string }> }).content[0].text);
 
 describe('shadowlap mcp: finding the sidecar safely', () => {
   // A cloned repository can commit .shadowlap/active.json; it must not be able to redirect tool data.
@@ -88,7 +88,7 @@ describe('shadowlap mcp: finding the sidecar safely', () => {
 describe('shadowlap mcp', () => {
   let store: Store;
   let sidecar: Sidecar;
-  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL!, runId });
+  const target = (runId: string): SidecarTarget => ({ url: sidecar.envFor(runId).SHADOWLAP_URL, runId });
   beforeAll(async () => {
     store = Store.open(':memory:');
     sidecar = await Sidecar.start({ store });
@@ -117,10 +117,10 @@ describe('shadowlap mcp', () => {
       ['send_note', 'write', 'ok'],
       ['boom', 'write', 'error'],
     ]);
-    expect(calls[0]!.meta.implHash).toMatch(/^[0-9a-f]{64}$/); // the tool's input schema
+    expect(calls[0].meta.implHash).toMatch(/^[0-9a-f]{64}$/); // the tool's input schema
     // A local server is named by its command, never by its arguments.
     expect(calls.map((c) => c.meta.mcp?.server)).toEqual(['node', 'node', 'node']);
-    expect(calls[0]!.meta.mcp?.tools).toEqual([{ name: 'read_note', effect: 'read' }, { name: 'send_note', effect: 'write' }]);
+    expect(calls[0].meta.mcp?.tools).toEqual([{ name: 'read_note', effect: 'read' }, { name: 'send_note', effect: 'write' }]);
 
     // Replay: the server is a fresh process (counter would restart at 1) but the client gets the recorded results.
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
@@ -160,7 +160,7 @@ describe('shadowlap mcp', () => {
     await c2.call('send_note', { to: 'z' });
     await c2.close();
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getCalls(rec.runId)[0]!.effect).toBe('read');
+    expect(store.getCalls(rec.runId)[0].effect).toBe('read');
   });
 
   it('refuses a batch that carries tools/call, and records a call the server never answered', async () => {

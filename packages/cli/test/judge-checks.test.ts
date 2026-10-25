@@ -41,14 +41,14 @@ describe('a judge check\'s result', () => {
       source: 'recording',
       judge: { name: 'explains', model: 'claude-haiku-4-5', of: 'answer', verdict: 'yes', source: 'recording', cost: 0, redactions: 0, normalized: false, cut: 0 },
     });
-    expect(checkLine(passed!)).toBe('✓ judge "explains" answers yes · It says a manager reviews refunds over $100. (judged from the recording, free)');
+    expect(checkLine(passed)).toBe('✓ judge "explains" answers yes · It says a manager reviews refunds over $100. (judged from the recording, free)');
     const [failed] = judgeResults([{ ...judge, pass: 'no' }], { judgeVerdicts: new Map([['explains', { verdict: 'yes', reason: 'r', source: 'live', cost: 0.0025, redactions: 2, cut: 1200 }]]) });
     expect(failed).toMatchObject({ ok: false, status: 'failed', detail: 'the judge answered yes', reason: 'r' });
-    expect(checkLine(failed!)).toBe('✗ judge "explains" answers no: the judge answered yes · r (judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out)');
-    expect(judgeSource(failed!.judge!)).toBe('judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out');
-    expect(judgeSource({ ...failed!.judge!, cost: 0.0004, redactions: 0, cut: 0 })).toBe('judged live, <$0.001');
-    expect(judgeSource({ ...failed!.judge!, cost: 0, source: 'recording', redactions: 0, normalized: true, cut: 0 })).toBe('judged from the recording, free · values that change every run masked');
-    expect(judgeSource({ ...failed!.judge!, cost: null, redactions: 0, cut: 0 })).toBe('judged live, no price for claude-haiku-4-5');
+    expect(checkLine(failed)).toBe('✗ judge "explains" answers no: the judge answered yes · r (judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out)');
+    expect(judgeSource(failed.judge!)).toBe('judged live, ≈$0.0025 · read with 2 redaction rules applied · 1,200 characters left out');
+    expect(judgeSource({ ...failed.judge!, cost: 0.0004, redactions: 0, cut: 0 })).toBe('judged live, <$0.001');
+    expect(judgeSource({ ...failed.judge!, cost: 0, source: 'recording', redactions: 0, normalized: true, cut: 0 })).toBe('judged from the recording, free · values that change every run masked');
+    expect(judgeSource({ ...failed.judge!, cost: null, redactions: 0, cut: 0 })).toBe('judged live, no price for claude-haiku-4-5');
   });
 
   it('is inconclusive with why when it has no verdict, and never passes', () => {
@@ -56,7 +56,7 @@ describe('a judge check\'s result', () => {
     const [none] = judgeResults([judge], judgedOptions(judged));
     expect(none).toMatchObject({ ok: false, status: 'inconclusive', detail: 'not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)', judge: { verdict: null, source: null } });
     expect(none).not.toHaveProperty('reason');
-    expect(checkLine(none!)).toBe('? judge "explains" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
+    expect(checkLine(none)).toBe('? judge "explains" answers yes: inconclusive · not judged: no recorded verdict and no key for anthropic (ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)');
     // Given nothing at all, as the oracle's labels are worked out: no verdict, and a key only if the environment has one.
     expect(judgeResults([judge])[0]).toMatchObject({ status: 'inconclusive', detail: expect.stringMatching(/^not judged: no recorded verdict/) });
     expect(oracleLabels(parseExpect({ judge: [judge] }, 'expect'))).toEqual(['the agent exits 0', 'judge "explains" answers yes']);
@@ -149,8 +149,8 @@ describe('the config schema', () => {
     const item = schema.$defs.judge;
     expect(Object.keys(item.properties).sort()).toEqual(['model', 'name', 'of', 'pass', 'question']);
     expect(item.required).toEqual(['name', 'question', 'model']);
-    expect(item.properties.of!.enum).toEqual(['answer', 'output', 'run']);
-    const model = new RegExp(item.properties.model!.pattern!);
+    expect(item.properties.of.enum).toEqual(['answer', 'output', 'run']);
+    const model = new RegExp(item.properties.model.pattern!);
     for (const m of ['claude-haiku-4-5', 'gpt-5-mini', 'o4-mini', 'gemini-2.5-flash', 'openai:qwen2.5-7b']) {
       expect(model.test(m), m).toBe(true);
       expect(() => parseExpect({ judge: [{ ...judge, model: m }] }, 'expect'), m).not.toThrow();

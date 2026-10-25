@@ -45,23 +45,23 @@ type Adapter = (impl: Impl) => (input: { id: string }) => Promise<unknown>;
 const adapters: Record<string, Adapter> = {
   'ai-sdk': (impl) => {
     const tools = withEffects({ read_policy: { execute: impl } }, { read_policy: 'read' });
-    return (input) => tools.read_policy.execute!(input, { toolCallId: 'c1' }) as Promise<unknown>;
+    return (input) => tools.read_policy.execute(input, { toolCallId: 'c1' });
   },
   'openai-agents': (impl) => {
     const def = withOpenAIAgentsEffect({ name: 'read_policy', execute: impl }, 'read');
-    return (input) => def.execute(input, {}) as Promise<unknown>;
+    return (input) => def.execute(input, {});
   },
   mastra: (impl) => {
-    const def = withMastraEffect({ id: 'read_policy', execute: impl as (input: never) => unknown }, 'read');
-    return (input) => (def.execute as Impl)(input, {});
+    const def = withMastraEffect({ id: 'read_policy', execute: impl }, 'read');
+    return (input) => (def.execute)(input, {});
   },
   'mastra 0.x': (impl) => {
     const def = withMastraEffectV0({ id: 'read_policy', execute: impl }, 'read');
-    return (input) => def.execute!({ context: input }) as Promise<unknown>;
+    return (input) => def.execute({ context: input });
   },
   anthropic: (impl) => {
     const def = withAnthropicEffect({ name: 'read_policy', run: impl }, 'read');
-    return (input) => def.run(input) as Promise<unknown>;
+    return (input) => def.run(input);
   },
   // @langchain/core's tool(): a DynamicStructuredTool keeps the function in `func`, and its _call calls it.
   langchain: (impl) => {
@@ -91,7 +91,7 @@ describe('a tool changed since its recording', () => {
       activate(rec.runId);
       expect(await wrap(v1)({ id: 'p1' })).toEqual({ policy: 'v1' });
       sidecar.endRun(rec.runId, 'completed');
-      const hash = store.getCalls(rec.runId)[0]!.meta.implHash;
+      const hash = store.getCalls(rec.runId)[0].meta.implHash;
       // The adapters' own wrappers are the same for every tool; the user's function is not.
       expect(hash).toBe(sha(v1));
 

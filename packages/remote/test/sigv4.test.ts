@@ -29,7 +29,7 @@ const suite = JSON.parse(readFileSync(new URL('./fixtures/sigv4-suite.json', imp
 /** `GET /path?query HTTP/1.1`, header lines, a blank line, the body. */
 function parseRequest(text: string): { method: string; path: string; query: string; headers: Record<string, string[]>; body: string } {
   const [head, ...rest] = text.split('\n\n');
-  const lines = head!.split('\n');
+  const lines = head.split('\n');
   const first = lines.shift()!;
   const method = first.slice(0, first.indexOf(' '));
   const target = first.slice(method.length + 1, first.lastIndexOf(' HTTP/'));
@@ -39,7 +39,7 @@ function parseRequest(text: string): { method: string; path: string; query: stri
   for (const line of lines) {
     if (line === '') continue;
     if (/^\s/.test(line) && last) {
-      headers[last]![headers[last]!.length - 1] += `\n${line}`;
+      headers[last][headers[last].length - 1] += `\n${line}`;
       continue;
     }
     const i = line.indexOf(':');

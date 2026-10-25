@@ -32,7 +32,7 @@ describe('requestUpstream', () => {
       let body = '';
       req.on('data', (d) => (body += d));
       req.on('end', () => {
-        seen.push(`${req.method} ${req.headers['x-test']} ${req.headers['content-length']} ${body}`);
+        seen.push(`${req.method} ${String(req.headers['x-test'])} ${req.headers['content-length']} ${body}`);
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write('data: one\n\n');
         // The rest only once the test has read the first event.

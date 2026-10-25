@@ -27,11 +27,11 @@ describe('a failed check, in the CLI’s words', () => {
 
   it('says what was expected and what happened, with the fenced calls counted exactly', () => {
     expect(failureText({ status: 'completed', checks: [check], blame: null, calls: planted })).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked)');
-    const mixed = [{ ...planted[1]!, origin: 'stubbed' }, planted[2]!];
+    const mixed = [{ ...planted[1], origin: 'stubbed' }, planted[2]];
     expect(failedCheckText(check, mixed)).toBe('check failed: send_email called 1 time, but called 2 times (1 blocked, 1 stubbed)');
     // Without the run's calls, or when they count otherwise, the check as kept.
     expect(failedCheckText(check)).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked or stubbed)');
-    expect(failedCheckText(check, [planted[1]!])).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked or stubbed)');
+    expect(failedCheckText(check, [planted[1]])).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked or stubbed)');
     // A check kept since the CLI says it exactly is shown as it is.
     expect(failedCheckText({ label: 'send_email called 1 time', detail: 'called 2 times (2 blocked)' }, planted)).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked)');
   });

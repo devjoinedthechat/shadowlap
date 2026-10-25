@@ -47,7 +47,7 @@ async function forked(body: Record<string, unknown>): Promise<string[]> {
     if (((await (await api(dash, `jobs/${job.id}`)).json()) as JobView).done) break;
     await new Promise((r) => setTimeout(r, 20));
   }
-  return spawned[spawned.length - 1]!;
+  return spawned[spawned.length - 1];
 }
 
 /** A run of a person's ask (a recorded user input), a tool call and a model call. */

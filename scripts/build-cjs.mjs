@@ -13,8 +13,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 /** The packages, each with the source files its CommonJS copy has: every one but those that need import.meta. */
 const PACKAGES = {
-  'packages/sdk': (file) => true,
-  'packages/adapters': (file) => true,
+  'packages/sdk': () => true,
+  'packages/adapters': () => true,
   'packages/test': (file) => ['recording.ts', 'slot.ts'].includes(file),
 };
 

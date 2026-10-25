@@ -113,7 +113,7 @@ function EditDialog({ runId, detail, action, onClose }: { runId: string; detail:
               { key: 'text', label: 'Text' },
             ]}
             value={mode}
-            onChange={(k) => setMode(k as 'json' | 'text')}
+            onChange={(k) => setMode(k)}
           />
           <span>{mode === 'json' ? 'as the tool returns it' : 'sent as one string'}</span>
         </div>

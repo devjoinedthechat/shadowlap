@@ -70,7 +70,7 @@ function versionOf(bytes: Buffer): string {
 }
 
 function parseConfig(path: string, bytes: Buffer): ConfigFile {
-  const text = bytes.toString('utf8').replace(/^﻿/, '');
+  const text = bytes.toString('utf8').replace(/^\uFEFF/, '');
   let data: unknown = {};
   if (text.trim()) {
     try {
@@ -157,9 +157,9 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
   if (tooLong('replace', replace)) throw new RuleError(`replace must be at most ${LIMITS.replace} characters`);
   return {
     ...(kind !== undefined ? { kind: kind as CallKind } : {}),
-    ...(name !== undefined ? { name: name as string } : {}),
-    ...(path !== undefined ? { path: path as string } : {}),
-    ...(pattern !== undefined ? { pattern: pattern as string } : {}),
+    ...(name !== undefined ? { name: name } : {}),
+    ...(path !== undefined ? { path: path } : {}),
+    ...(pattern !== undefined ? { pattern: pattern } : {}),
     replace,
   };
 }
@@ -168,7 +168,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
 function checkStored(entry: unknown): Normalizer {
   if (!isObject(entry)) throw new RuleError('it is not an object');
   const extra = Object.fromEntries(Object.entries(entry).filter(([k]) => !(FIELDS as readonly string[]).includes(k)));
-  return { ...extra, ...checkShape(entry, ALL_KINDS, false) } as Normalizer;
+  return { ...extra, ...checkShape(entry, ALL_KINDS, false) };
 }
 
 /**
@@ -186,7 +186,7 @@ function checkStored(entry: unknown): Normalizer {
 export function validateRule(list: RuleList, input: unknown): Normalizer {
   if (!isObject(input)) throw new RuleError('a rule is an object with a path, a pattern or both, and what to replace them with');
   const unknown = Object.keys(input).filter((k) => !(FIELDS as readonly string[]).includes(k));
-  if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]}: it takes kind, name, path, pattern and replace`);
+  if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]!}: it takes kind, name, path, pattern and replace`);
   // A cleared "Replace with" field, like a missing --replace, takes the default: an empty replacement would delete what it matches.
   const replace = input.replace === undefined || input.replace === null || input.replace === '' ? DEFAULT_REPLACE[list] : input.replace;
   const rule = checkShape({ ...input, replace }, RULE_KINDS[list], true);
@@ -249,7 +249,7 @@ export function parseRules(raw: unknown, list: RuleList): Normalizer[] {
 export function readRules(file: ConfigFile, list: RuleList): Array<{ rule: Normalizer; error: null } | { rule: unknown; error: string }> {
   const raw = file.data[list];
   if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
+  return (raw as unknown[]).map((entry) => {
     try {
       return { rule: checkStored(entry), error: null };
     } catch (err) {

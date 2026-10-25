@@ -45,7 +45,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
 
   const zone = view.deleteZone;
   const deleting = del && !!zone;
-  const mode = deleting ? zone!.mode : view.keep;
+  const mode = deleting ? zone.mode : view.keep;
   const match = !!zone && nameMatches(typed, zone.name);
   const blocked = actionsOff ?? (view.canRemove ? null : view.why);
 

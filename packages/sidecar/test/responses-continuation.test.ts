@@ -30,9 +30,9 @@ function recording(calls: Array<{ request: object; response: object; stream?: bo
   );
   let reads = 0;
   const state = new ResponsesState(records, {
-    request: (rec) => (reads++, calls[rec.callNo - 1]!.request),
+    request: (rec) => (reads++, calls[rec.callNo - 1].request),
     response: (rec) => {
-      const c = calls[rec.callNo - 1]!;
+      const c = calls[rec.callNo - 1];
       return { bytes: c.stream ? sse([{ type: 'response.created', response: { id: (c.response as { id: string }).id } }, { type: 'response.completed', response: c.response }]) : Buffer.from(JSON.stringify(c.response)), contentType: c.stream ? 'text/event-stream' : 'application/json' };
     },
   });

@@ -405,7 +405,11 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
  * one: what it yields is passed on as the caller reads it, its last value is recorded as the result,
  * and a replay yields that value alone (see liveStream). Outside Shadowlap every call goes straight
  * to `impl`, and its stream or promise comes back as `impl` made it.
+ *
+ * An implementation that only throws returns `never`, which every overload would take: the first
+ * one is for it, as its calls return a promise (of a fork's stub, when `onFork` gives one).
  */
+export function tool<A, R = never>(name: string, options: ToolOptions<A, R>, impl: (args: A) => never): (args: A) => Promise<R>;
 export function tool<A, Y>(name: string, options: ToolOptions<A, Y>, impl: (args: A) => AsyncGenerator<Y, unknown, undefined>): (args: A) => AsyncGenerator<Y, void, undefined>;
 export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => R | Promise<R>): (args: A) => Promise<R>;
 export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => unknown): (args: A) => unknown {
@@ -467,7 +471,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args));
       if (r.origin !== 'live') {
         // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
-        yield (await call(cfg, args, async () => null, r)).value;
+        yield (await call(cfg, args, () => Promise.resolve(null), r)).value;
         return;
       }
       yield* liveStream(cfg, r.callNo, stream(args));

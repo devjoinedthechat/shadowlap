@@ -211,7 +211,7 @@ export function parseSegment(bytes: Buffer, key: string): IndexSegment {
     if (typeof e.startedAt !== 'number' || typeof e.metaHash !== 'string' || !HEX64.test(e.metaHash)) continue;
     runs.push({
       runId: e.runId,
-      parentRunId: (e.parentRunId as string | null | undefined) ?? null,
+      parentRunId: (e.parentRunId) ?? null,
       mode: e.mode === 'replay' ? 'replay' : 'record',
       status: (['running', 'completed', 'failed', 'crashed'] as const).find((s) => s === e.status) ?? 'completed',
       startedAt: e.startedAt,

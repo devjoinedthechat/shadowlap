@@ -55,7 +55,7 @@ export const RUNS_TEXT = 'Recordings, and the replays and forks made from them. 
 
 /** What Runs showed last while the dashboard is open, and how far down it was read, and the runs picked. */
 const kept = {
-  filter: ALL_RUNS as RunsFilterRead,
+  filter: ALL_RUNS,
   limit: PAGE,
   picked: new Map<string, PickedRun>(),
 };
@@ -264,8 +264,8 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const store = useTeamStore();
   const tz = useMemo(viewerTimeZone, []);
   const f = useRunsFilter(filter);
-  const chip = f.types as RunChip;
-  const sort = f.sort as RunSort;
+  const chip = f.types;
+  const sort = f.sort;
   const days = f.days;
   const [query, setQuery, q] = useFilterField(f, 250);
   const [limit, setLimitState] = useState(kept.limit);
@@ -398,7 +398,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     const t = calDays ? rangeTimes(calDays, r) : null;
     if (!t) return;
     guard(() =>
-      client.daysBisect({ ...t, types, q }).then(
+      void client.daysBisect({ ...t, types, q }).then(
         (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, earlier: out.earlier ?? null })),
         (err: unknown) => toast(errorText(err), 'error'),
       ),
@@ -470,8 +470,8 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
 function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
   const { runs } = useApp();
   const f = useRunsFilter(filter);
-  const chip = f.types as RunChip;
-  const sort = f.sort as RunSort;
+  const chip = f.types;
+  const sort = f.sort;
   const [query, setQuery] = useFilterField(f, 150);
   const setChip = (c: RunChip) => showRuns({ ...f, q: query, types: c });
   const setSort = (s: RunSort) => showRuns({ ...f, q: query, sort: s });

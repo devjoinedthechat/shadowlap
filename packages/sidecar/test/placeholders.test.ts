@@ -59,7 +59,7 @@ describe('a live call that would carry a placeholder', () => {
   async function recorded(store: Store): Promise<string> {
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
     const run = sidecar.startRun({ mode: 'record', command });
-    await ask(client('sk-recording', sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!), 'hello');
+    await ask(client('sk-recording', sidecar.envFor(run.runId).ANTHROPIC_BASE_URL), 'hello');
     sidecar.endRun(run.runId, 'completed');
     await sidecar.close();
     return run.runId;
@@ -68,7 +68,7 @@ describe('a live call that would carry a placeholder', () => {
   async function replayed(store: Store, parentRunId: string, key: string, prompts: string[], o: { offline?: boolean; upstream?: string; bearer?: boolean } = {}) {
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: o.upstream ?? mock.url } });
     const run = sidecar.startRun({ mode: 'replay', parentRunId, command, replay: replayOptions, offline: o.offline === true });
-    const c = client(key, sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!, o.bearer);
+    const c = client(key, sidecar.envFor(run.runId).ANTHROPIC_BASE_URL, o.bearer);
     const answers: string[] = [];
     let error: unknown;
     try {
@@ -106,8 +106,8 @@ describe('a live call that would carry a placeholder', () => {
       expect(String((r.error as APIError).message)).toContain(LINE);
       // One attempt: a refused key is no failure the SDK retries.
       expect(r.calls).toHaveLength(1);
-      expect(r.calls[0]!.attempts).toHaveLength(0);
-      expect(r.calls[0]!.end?.meta).toMatchObject({ status: 401, refused: true, retryable: false, error: { name: 'ShadowlapPlaceholderKey', message: LINE } });
+      expect(r.calls[0].attempts).toHaveLength(0);
+      expect(r.calls[0].end?.meta).toMatchObject({ status: 401, refused: true, retryable: false, error: { name: 'ShadowlapPlaceholderKey', message: LINE } });
       // Counted as refused, not as an upstream request, and the line printed under the fork.
       expect(r.summary).toMatchObject({ upstreamRequests: 0, refused: 1 });
       expect(r.summary.warnings).toEqual([LINE]);
@@ -124,7 +124,7 @@ describe('a live call that would carry a placeholder', () => {
     const sidecar = await Sidecar.start({ store, upstreams: { anthropic: away } });
     const run = sidecar.startRun({ mode: 'record', command });
     const before = mock.requests.length;
-    await expect(ask(client(PLACEHOLDER_KEY, sidecar.envFor(run.runId).ANTHROPIC_BASE_URL!), 'hello')).rejects.toMatchObject({ status: 401 });
+    await expect(ask(client(PLACEHOLDER_KEY, sidecar.envFor(run.runId).ANTHROPIC_BASE_URL), 'hello')).rejects.toMatchObject({ status: 401 });
     const { summary } = sidecar.endRun(run.runId, 'completed');
     await sidecar.close();
     expect(summary).toMatchObject({ upstreamRequests: 0, refused: 1, warnings: [LINE] });
@@ -256,7 +256,7 @@ describe('a declared HTTP read that passes a placeholder on', () => {
       expect(await res.json()).toEqual({ type: 'error', error: { type: 'shadowlap_placeholder_key', message: line } });
       const { summary } = sidecar.endRun(fork.runId, 'completed');
       expect(summary).toMatchObject({ refused: 1, warnings: [line] });
-      expect(store.getCalls(fork.runId)[0]!.end?.meta).toMatchObject({ status: 401, refused: true, error: { name: 'ShadowlapPlaceholderKey', message: line } });
+      expect(store.getCalls(fork.runId)[0].end?.meta).toMatchObject({ status: 401, refused: true, error: { name: 'ShadowlapPlaceholderKey', message: line } });
       expect(received.length).toBe(before);
     } finally {
       await sidecar.close();

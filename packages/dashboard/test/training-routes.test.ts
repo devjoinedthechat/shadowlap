@@ -42,8 +42,8 @@ const task = (golden: string, status: Task['status'], rewards: string | null, ru
 /** The verify report of a verify that replayed `target`, with the attempts the store holds. */
 function verified(target: string, attempts: Array<{ runId: string; passed: boolean }>): VerifyReport {
   const report = verifyReport([{ runId: target, role: 'target', pass: false, recorded: false }]);
-  const run = report.runs[0]!;
-  run.attempts = attempts.map((a) => ({ ...run.attempts[0]!, runId: a.runId, passed: a.passed, exitCode: a.passed ? 0 : 1 }));
+  const run = report.runs[0];
+  run.attempts = attempts.map((a) => ({ ...run.attempts[0], runId: a.runId, passed: a.passed, exitCode: a.passed ? 0 : 1 }));
   run.passes = attempts.filter((a) => a.passed).length;
   return report;
 }
@@ -359,7 +359,7 @@ describe('the fix a pair source belongs to', () => {
     expect(a.fix).not.toBe(b.fix);
     const report = verifyReport([a, b].map((x) => ({ runId: x.run, role: 'target' as const, pass: false, recorded: false })));
     report.runs.forEach((r, i) => {
-      r.attempts = [a, b][i]!.attempts.map((x) => ({ ...r.attempts[0]!, runId: x.runId, passed: x.passed, exitCode: x.passed ? 0 : 1 }));
+      r.attempts = [a, b][i].attempts.map((x) => ({ ...r.attempts[0], runId: x.runId, passed: x.passed, exitCode: x.passed ? 0 : 1 }));
       r.passes = 1;
     });
     const vf = recordVerdict(s, { report, expect: EXPECT, command: 'shadowlap verify --fixes a b', fixIds: [a.fix, b.fix], at: 4_000 }).verdict.verifyId;
@@ -387,7 +387,7 @@ describe('a repair\'s verifies as pair sources', () => {
     const tried = [attempt(LOST, false, 1), attempt([LOOKUP, POLICY, ESCALATE_3, DONE], true, 2)];
     const report = repairReport({ targets: [run.runId], accepted: false });
     const turnedDown = report.candidates.find((c) => c.id === 2)!;
-    turnedDown.verify!.runs[0]!.attempts = tried.map((a, i) => ({ ...turnedDown.verify!.runs[0]!.attempts[0]!, runId: a.runId, passed: i === 1, exitCode: i === 1 ? 0 : 1 }));
+    turnedDown.verify!.runs[0].attempts = tried.map((a, i) => ({ ...turnedDown.verify!.runs[0].attempts[0], runId: a.runId, passed: i === 1, exitCode: i === 1 ? 0 : 1 }));
     recordRepair(s, { repairId: 'repair-mx1', dir: '.shadowlap/repairs/repair-mx1', report, expect: EXPECT, command: 'shadowlap repair', at: 5_000 });
 
     const view = trainingView(readTraining(s, { tasks: [], fixOf: sourceFixes(s) }));

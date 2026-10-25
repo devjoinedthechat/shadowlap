@@ -93,7 +93,7 @@ function teammate(of: Machine, name: string, email: string, env: NodeJS.ProcessE
 function goldenInto(m: Machine): string {
   const store = Store.open(m.dbPath);
   try {
-    const id = unpackRun(store, GOLDEN).imported[0]!;
+    const id = unpackRun(store, GOLDEN).imported[0];
     // As if recorded here: a run this machine made carries no import marker.
     store.updateRunMeta(id, { imported: undefined } as unknown as Partial<RunMeta>);
     return id;
@@ -203,7 +203,7 @@ describe('push and pull through the bucket', () => {
       expect(fix.status).toBe('verified');
       const rec = fixRecords(mstore, fix);
       expect([rec.failing, rec.blames.length, rec.repairs.length, rec.verdicts.map((v) => v.verdict)]).toEqual([[runId], 1, 1, ['accepted']]);
-      expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'fix.patch'), 'utf8')).toBe(rec.repairs[0]!.report.patch);
+      expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'fix.patch'), 'utf8')).toBe(rec.repairs[0].report.patch);
       expect(readFileSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'report.md'), 'utf8')).toContain('Escalate refunds above the policy limit');
       expect(existsSync(join(maya.cwd, '.shadowlap', 'repairs', 'repair-munzln2i', 'goldens'))).toBe(false);
       // Made on Dana's machine: marked so here, where its recordings aren't.
@@ -402,7 +402,7 @@ describe("a pull request's CI job", () => {
     expect(pusher).not.toBeNull();
     expect(ci.take().err).toContain("--push: a GitLab merge request pipeline: its runs go to pull request 7's own folder in the store");
     const store = Store.open(':memory:');
-    const golden = unpackRun(store, GOLDEN).imported[0]!;
+    const golden = unpackRun(store, GOLDEN).imported[0];
     const attempt = store.createRun({ mode: 'replay', parentRunId: golden, command: { argv: ['node', 'agent.js'], cwd: ci.cwd } });
     store.endRun(attempt.runId, 'completed');
     await pusher!.pushRuns(store, [attempt.runId]);
@@ -571,7 +571,7 @@ describe('store setup', () => {
     expect(existsSync(file)).toBe(false);
     // One that works is checked, then written, and its check kept as the store's last.
     expect(await storeSetChecked(m, storeUrl('set-check'), { provider: 's3' })).toBe(0);
-    ({ out, err } = m.take());
+    ({ out } = m.take());
     expect(out).toContain('✓ list');
     expect(out).toContain(`✓ Store set: ${storeUrl('set-check')}`);
     expect(out).toContain('Next: shadowlap push --all, then commit shadowlap.config.json');
@@ -687,8 +687,8 @@ describe('store setup', () => {
     expect(storePolicy(m)).toBe(0);
     const { out, err } = m.take();
     const [writer, pr] = out.split(/\n(?=\{)/).map((x) => JSON.parse(x) as { Statement: Array<{ Action: string[]; Resource: string }> });
-    expect(writer!.Statement.some((s) => s.Action.includes('s3:PutObject') && s.Resource === 'arn:aws:s3:::northwind-agent-runs/support-agent/*')).toBe(true);
-    expect(pr!.Statement.filter((s) => s.Action.includes('s3:PutObject')).map((s) => s.Resource)).toEqual(['arn:aws:s3:::northwind-agent-runs/support-agent/pr/*']);
+    expect(writer.Statement.some((s) => s.Action.includes('s3:PutObject') && s.Resource === 'arn:aws:s3:::northwind-agent-runs/support-agent/*')).toBe(true);
+    expect(pr.Statement.filter((s) => s.Action.includes('s3:PutObject')).map((s) => s.Resource)).toEqual(['arn:aws:s3:::northwind-agent-runs/support-agent/pr/*']);
     expect(err).toContain('# 1. For people, and CI on protected branches: an IAM policy');
     expect(err).toContain("# 2. For pull requests' CI jobs: an IAM policy that reads the store and writes only under support-agent/pr/");
   });
@@ -760,10 +760,10 @@ describe('a run pushed while it records, and test runs from CI', () => {
     expect(s3.objects.has(`queued-attempts/fixes/${fixId}.json`)).toBe(true);
     const events = Store.open(m.dbPath);
     try {
-      const pushed = events.listEvents({ kinds: ['store.pushed'] })[0]!;
+      const pushed = events.listEvents({ kinds: ['store.pushed'] })[0];
       expect(pushed.data).toMatchObject({ pushed: 0, attempts: 5, fixes: 0, queued: true });
       // The first push sent the golden and the fix: one run, by run, with its fix.
-      expect(events.listEvents({ kinds: ['store.pushed'] })[1]!.data).toMatchObject({ pushed: 1, attempts: 0, fixes: 1 });
+      expect(events.listEvents({ kinds: ['store.pushed'] })[1].data).toMatchObject({ pushed: 1, attempts: 0, fixes: 1 });
     } finally {
       events.close();
     }
@@ -776,7 +776,7 @@ describe('a run pushed while it records, and test runs from CI', () => {
     const pusher = await prepareTestPush(ci);
     expect(pusher).not.toBeNull();
     const store = Store.open(':memory:');
-    const golden = unpackRun(store, GOLDEN).imported[0]!;
+    const golden = unpackRun(store, GOLDEN).imported[0];
     const attempt = store.createRun({ mode: 'replay', parentRunId: golden, command: { argv: ['node', 'agent.js'], cwd: ci.cwd } });
     store.endRun(attempt.runId, 'completed');
     await pusher!.pushRuns(store, [attempt.runId]);

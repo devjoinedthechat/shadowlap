@@ -34,7 +34,7 @@ beforeAll(async () => {
     let body = '';
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
-      const path = (req.url ?? '/').split('?')[0]!;
+      const path = (req.url ?? '/').split('?')[0];
       const s: Seen = { method: req.method ?? '', path: req.url ?? '/', headers: req.headers, body };
       seen.push(s);
       const route = routes.get(`${req.method} ${path}`);
@@ -119,6 +119,15 @@ describe('AWS credentials', () => {
     mkdirSync(join(h, '.aws'), { recursive: true });
     writeFileSync(join(h, '.aws', 'config'), `[default]\ncredential_process = "${process.execPath}" "${script}"\n`);
     expect(await resolveAwsCredentials({ env: {}, home: h })).toMatchObject({ accessKeyId: 'AKIDPROC', sessionToken: 'pt', source: 'AWS profile default' });
+  });
+
+  it.skipIf(process.platform === 'win32')('names the signal that ended a credential_process which said nothing', async () => {
+    // Ended by a signal, a process has no exit status: the failure said "exit null".
+    const script = file('bin/killed.mjs', "process.kill(process.pid, 'SIGKILL');\n");
+    const h = join(home, 'aws-proc-killed');
+    mkdirSync(join(h, '.aws'), { recursive: true });
+    writeFileSync(join(h, '.aws', 'config'), `[default]\ncredential_process = "${process.execPath}" "${script}"\n`);
+    await expect(resolveAwsCredentials({ env: {}, home: h })).rejects.toThrow('AWS profile default: credential_process failed: exit SIGKILL');
   });
 
   it('uses an IAM Identity Center sign-in from the SSO cache', async () => {

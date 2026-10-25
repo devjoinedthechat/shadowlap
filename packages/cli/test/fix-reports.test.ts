@@ -16,8 +16,8 @@ describe('shadowlap fix show', () => {
       // The first probe: one attempt passed, and the next could not be judged, which stopped it.
       const blame = blameReport(failing, 'unrescuable');
       const [first] = blame.probes;
-      const [passed, unjudged] = first!.attempts;
-      blame.probes = [{ ...first!, attempts: [{ ...passed!, passed: true, verdict: 'passed', failures: [] }, { ...unjudged!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 1, rescued: false, decision: 'inconclusive', undecided: why }];
+      const [passed, unjudged] = first.attempts;
+      blame.probes = [{ ...first, attempts: [{ ...passed, passed: true, verdict: 'passed', failures: [] }, { ...unjudged, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 1, rescued: false, decision: 'inconclusive', undecided: why }];
       blame.lost = blame.probes[0]!;
       blame.confidence = 'low';
       const { fix } = recordBlame(store, { runId: failing, report: blame, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1 });
@@ -27,8 +27,8 @@ describe('shadowlap fix show', () => {
         { runId: failing, role: 'target', pass: true },
         { runId: good, role: 'good', pass: true },
       ]);
-      const kept = verify.runs[1]!;
-      const attempts = [kept.attempts[0]!, kept.attempts[1]!, { ...kept.attempts[2]!, runId: runId(), passed: false, verdict: 'inconclusive' as const, failures: [why] }];
+      const kept = verify.runs[1];
+      const attempts = [kept.attempts[0], kept.attempts[1], { ...kept.attempts[2], runId: runId(), passed: false, verdict: 'inconclusive' as const, failures: [why] }];
       verify.runs[1] = { ...kept, attempts, passes: 2, verdict: 'open', undecided: why, gate: gateResult(gate, [true, true], { decision: 'continue' }) };
       verify.gate = gate;
       Object.assign(verify, decideVerify(verify.runs, null));
@@ -73,8 +73,8 @@ describe('verify --json', () => {
       { runId: target, role: 'target', pass: true },
       { runId: good, role: 'good', pass: true },
     ]);
-    const kept = verify.runs[1]!;
-    verify.runs[1] = { ...kept, attempts: [kept.attempts[0]!, { ...kept.attempts[1]!, passed: false, verdict: 'inconclusive', failures: [why] }], passes: 1, verdict: 'open', decision: 'continue', undecided: why, gate: gateResult(gate, [true], { decision: 'continue' }) };
+    const kept = verify.runs[1];
+    verify.runs[1] = { ...kept, attempts: [kept.attempts[0], { ...kept.attempts[1], passed: false, verdict: 'inconclusive', failures: [why] }], passes: 1, verdict: 'open', decision: 'continue', undecided: why, gate: gateResult(gate, [true], { decision: 'continue' }) };
     verify.gate = gate;
     Object.assign(verify, decideVerify(verify.runs, null));
     const json = verifyJson(verify) as { verdict: string; summary: Record<string, { passed: number; inconclusive: number; total: number }>; runs: Array<{ outcome: string; rate: unknown; undecided: string | null }> };

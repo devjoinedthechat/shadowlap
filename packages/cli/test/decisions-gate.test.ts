@@ -77,7 +77,7 @@ describe('a session verified more than once', () => {
     expect(passesOf([run('01A', 'goldens/research')], ['01A'], v, () => true)).toEqual([{ runId: '01A', golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 2, attempts: 2, bound: 'rate 0.34 to 1 (95%)', rule: SHORT, undecided: null } }]);
     // A run kept before runs carried their rule: the one the session's verify states.
     const kept = verified({ runs: [{ runId: '01A', role: 'good', outcome: 'kept', passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)' }] });
-    expect(passesOf([run('01A', 'goldens/research')], ['01A'], kept, () => true)[0]!.tally).toEqual({ passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: GATE, undecided: null });
+    expect(passesOf([run('01A', 'goldens/research')], ['01A'], kept, () => true)[0].tally).toEqual({ passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: GATE, undecided: null });
   });
 });
 
@@ -93,6 +93,6 @@ describe('the exit status of an inconclusive gate', () => {
     const report = { stopReason: null, passes } as unknown as MigrateReport;
     expect(migrateExit(report)).toBe(3);
     expect(migrateExit(report, 'warn')).toBe(0);
-    expect(migrateExit({ ...report, passes: { verdict: 'accepted', runs: [{ ...passes.runs[0]!, verdict: 'passed', outcome: 'kept', tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: GATE } }] } })).toBe(0);
+    expect(migrateExit({ ...report, passes: { verdict: 'accepted', runs: [{ ...passes.runs[0], verdict: 'passed', outcome: 'kept', tally: { passes: 12, attempts: 12, bound: 'rate >= 0.76 (95%)', rule: GATE } }] } })).toBe(0);
   });
 });

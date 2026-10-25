@@ -62,9 +62,9 @@ describe('Claude on Microsoft Foundry', () => {
       const [call] = store.getCalls(rec.runId);
       expect(call).toMatchObject({ name: 'POST /anthropic/v1/messages', meta: { provider: 'anthropic', via: 'foundry' } });
       // Read as Anthropic's stream: the input from message_start, the cache read with it.
-      expect(call!.end!.meta.usage).toEqual({ inputTokens: 120, outputTokens: 9, cacheReadInputTokens: 800, cacheCreationInputTokens: 0 });
-      expect(call!.end!.meta.provider).toBe('anthropic');
-      expect(call!.end!.meta.stopReason).toBe('end_turn');
+      expect(call.end!.meta.usage).toEqual({ inputTokens: 120, outputTokens: 9, cacheReadInputTokens: 800, cacheCreationInputTokens: 0 });
+      expect(call.end!.meta.provider).toBe('anthropic');
+      expect(call.end!.meta.stopReason).toBe('end_turn');
       // The organization the key belongs to is never kept.
       expect(JSON.stringify(store.getCalls(rec.runId))).not.toContain('org-4f6e7a1c');
 
@@ -118,7 +118,7 @@ describe('OpenAI\'s SDK on Bedrock (bedrock-mantle)', () => {
       sidecar.endRun(rec.runId, 'completed');
       const [call] = store.getCalls(rec.runId);
       expect(call).toMatchObject({ name: 'POST /openai/v1/responses', meta: { provider: 'openai', via: 'bedrock-mantle' } });
-      expect(call!.end!.meta.usage?.inputTokens).toBeGreaterThan(0);
+      expect(call.end!.meta.usage?.inputTokens).toBeGreaterThan(0);
 
       const before = mock.otherRequests.length;
       const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, offline: true });
@@ -153,9 +153,9 @@ describe('a host the config declares (an OpenRouter-style gateway)', () => {
       for await (const chunk of stream) {
         for (const tc of chunk.choices[0]?.delta.tool_calls ?? []) {
           calls[tc.index] ??= { id: '', name: '', args: '' };
-          if (tc.id) calls[tc.index]!.id = tc.id;
-          if (tc.function?.name) calls[tc.index]!.name = tc.function.name;
-          calls[tc.index]!.args += tc.function?.arguments ?? '';
+          if (tc.id) calls[tc.index].id = tc.id;
+          if (tc.function?.name) calls[tc.index].name = tc.function.name;
+          calls[tc.index].args += tc.function?.arguments ?? '';
         }
         content += chunk.choices[0]?.delta.content ?? '';
       }
@@ -179,7 +179,7 @@ describe('a host the config declares (an OpenRouter-style gateway)', () => {
       expect(calls.map((c) => c.name)).toEqual(['POST /api/v1/chat/completions', 'POST /api/v1/chat/completions']);
       expect(calls.every((c) => c.meta.provider === 'openai' && c.meta.via === 'openrouter.test')).toBe(true);
       expect(calls.every((c) => (c.end?.meta.usage?.inputTokens ?? 0) > 0)).toBe(true);
-      expect(calls[0]!.end!.meta.chunks?.length).toBeGreaterThan(1);
+      expect(calls[0].end!.meta.chunks?.length).toBeGreaterThan(1);
       expect(JSON.stringify(calls)).not.toContain('sk-or-test');
 
       const before = mock.requests.length;

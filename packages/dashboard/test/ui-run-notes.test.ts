@@ -92,9 +92,9 @@ describe('the notes on a run’s page', () => {
     // What to declare, to copy.
     expect(r.one('.rnhint code.rncopy').textContent).toBe('"tools": { "unrecorded": { "Bash": "write" } }');
     // The extra read's call opens too, and Calls tags it.
-    await r.click(r.all('.rnote.n button.bn')[0]!);
+    await r.click(r.all('.rnote.n button.bn')[0]);
     expect(bar.hash).toBe(`#/run/${RUN}/4`);
-    expect(r.all('table.calls tbody tr')[3]!.querySelector('.eff.extra')!.textContent).toBe('extra');
+    expect(r.all('table.calls tbody tr')[3].querySelector('.eff.extra')!.textContent).toBe('extra');
   });
 
   it('names the host the model calls went through and the guard in Provenance', async () => {

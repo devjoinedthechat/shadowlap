@@ -33,8 +33,8 @@ function readFrames(buf: Buffer): { frames: Frame[]; rest: Buffer } {
   const frames: Frame[] = [];
   let at = 0;
   while (buf.length - at >= 2) {
-    const masked = (buf[at + 1]! & 0x80) !== 0;
-    let len = buf[at + 1]! & 0x7f;
+    const masked = (buf[at + 1] & 0x80) !== 0;
+    let len = buf[at + 1] & 0x7f;
     let head = 2;
     if (len === 126) {
       if (buf.length - at < 4) break;
@@ -48,8 +48,8 @@ function readFrames(buf: Buffer): { frames: Frame[]; rest: Buffer } {
     const start = at + head + (masked ? 4 : 0);
     if (buf.length < start + len) break;
     const payload = Buffer.from(buf.subarray(start, start + len));
-    if (masked) for (let i = 0; i < len; i++) payload[i]! ^= buf[at + head + (i % 4)]!;
-    frames.push({ opcode: buf[at]! & 0x0f, payload });
+    if (masked) for (let i = 0; i < len; i++) payload[i] ^= buf[at + head + (i % 4)];
+    frames.push({ opcode: buf[at] & 0x0f, payload });
     at = start + len;
   }
   return { frames, rest: Buffer.from(buf.subarray(at)) };
@@ -276,7 +276,7 @@ print(json.dumps(said))
     });
     const handshakes = provider.handshakes.slice(before);
     expect(handshakes.map((h) => h.url)).toEqual(Array(3).fill('/v1/realtime?model=gpt-realtime'));
-    expect(handshakes[2]!.headers.authorization).toBe('Bearer sk-test');
+    expect(handshakes[2].headers.authorization).toBe('Bearer sk-test');
     expect(handshakes.flatMap((h) => Object.keys(h.headers).filter((k) => k.startsWith('x-shadowlap')))).toEqual([]);
     expect(out).toContain('3 WebSocket connections went to the provider live and were not recorded: openai /v1/realtime (3)');
     expect(out).not.toContain('bypassed Shadowlap');

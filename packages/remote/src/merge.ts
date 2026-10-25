@@ -146,5 +146,5 @@ export function withSynced<T extends AnyMeta>(meta: T, synced: SharedMeta): Reco
 export function syncedPatch(synced: SharedMeta): Partial<RunMeta> {
   const patch: Record<string, unknown> = {};
   for (const k of SYNCED_META) patch[k] = synced[k];
-  return patch as Partial<RunMeta>;
+  return patch;
 }

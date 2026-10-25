@@ -18,14 +18,14 @@ const rows = (() => {
   const lines = readFileSync(join(ROOT, 'docs', 'dashboard.md'), 'utf8').split('\n');
   const at = lines.findIndex((l) => l.startsWith('| Endpoint |'));
   const out: string[] = [];
-  for (let i = at + 2; at >= 0 && i < lines.length && lines[i]!.startsWith('|'); i++) out.push(lines[i]!);
+  for (let i = at + 2; at >= 0 && i < lines.length && lines[i].startsWith('|'); i++) out.push(lines[i]);
   return out;
 })();
 
 /** Every route the feature modules register, as `GET /injection/:id`. */
 const routes = readdirSync(ROUTES)
   .filter((f) => f.endsWith('.ts'))
-  .flatMap((f) => [...readFileSync(join(ROUTES, f), 'utf8').matchAll(/\brouter\.(get|post|put|delete)\(\s*'([^']+)'/g)].map((m) => ({ method: m[1]!.toUpperCase(), pattern: m[2]!, file: f })));
+  .flatMap((f) => [...readFileSync(join(ROUTES, f), 'utf8').matchAll(/\brouter\.(get|post|put|delete)\(\s*'([^']+)'/g)].map((m) => ({ method: m[1].toUpperCase(), pattern: m[2], file: f })));
 
 /**
  * Whether the table names a route: whole (`/api/injection/:id`), or as the table shortens a family of

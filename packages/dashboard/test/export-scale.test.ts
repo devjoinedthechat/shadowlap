@@ -62,7 +62,7 @@ describe('exporting a long run', () => {
   it('gives each call the details the dashboard gives it, conversation and all', () => {
     const store = Store.open(':memory:');
     try {
-      const runId = unpackRun(store, GOLDEN).imported[0]!;
+      const runId = unpackRun(store, GOLDEN).imported[0];
       const run = store.getRun(runId)!;
       const calls = store.getCalls(runId);
       const analysis = analyseRun(store, run, calls);

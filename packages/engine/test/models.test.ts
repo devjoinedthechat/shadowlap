@@ -13,7 +13,7 @@ type Route = { status?: number; body?: unknown; refuse?: boolean; hang?: boolean
 function fakeFetch(routes: Record<string, Route>): { fetch: typeof fetch; asked: string[] } {
   const asked: string[] = [];
   const impl = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
+    const url = input instanceof Request ? input.url : String(input);
     asked.push(url);
     const r = routes[url];
     if (!r || r.refuse) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
@@ -77,7 +77,7 @@ describe('models to score', () => {
     // A fetch that fails for another reason than a refused connection or a timeout (a port fetch won't use, say).
     const asked: string[] = [];
     const badPort = (async (input: string | URL | Request) => {
-      asked.push(String(input));
+      asked.push(input instanceof Request ? input.url : String(input));
       throw Object.assign(new TypeError('fetch failed'), { cause: { message: 'bad port' } });
     }) as typeof fetch;
     // OPENAI_BASE_URL is Ollama's own server: one note for it, under Ollama's name, and one request.
@@ -120,7 +120,7 @@ describe('models to score', () => {
       ['Ollama, 10.0.0.5:11434', 'qwen3:32b', '--model qwen3:32b --base-url http://10.0.0.5:11434/v1'],
     ]);
     // A model on another machine has no price, rather than a made-up one.
-    expect(listing.choices[2]!.perAttempt).toBeNull();
+    expect(listing.choices[2].perAttempt).toBeNull();
   });
 
   it('takes the recorded models, the models scored before and the tokens to price from the tasks', () => {
@@ -183,7 +183,7 @@ describe('which ready tasks a listed model can answer', () => {
     const gemini = modelReach(choice('gemini-2.5-pro', ['--model', 'gemini-2.5-pro'], null, 'gemini'), tasks);
     expect(gemini.tasks).toEqual(['goldens/gemini']);
     expect(gemini.refused.map((r) => r.why)).toEqual(['it was recorded on Azure OpenAI, and gemini-2.5-pro is asked of the Gemini API', 'it was recorded on Amazon Bedrock, and gemini-2.5-pro is asked of the Gemini API']);
-    expect(modelReach(choice('gpt-other', ['--model', 'gpt-other'], null, 'azure'), tasks).refused[0]!.why).toContain('the deployment in the URL picks the model');
+    expect(modelReach(choice('gpt-other', ['--model', 'gpt-other'], null, 'azure'), tasks).refused[0].why).toContain('the deployment in the URL picks the model');
   });
 
   it('scores the model a cloud recording used on that recording, nothing switched, and still no other model of that cloud', () => {
@@ -215,7 +215,7 @@ describe('which ready tasks a listed model can answer', () => {
     // Another model of Bedrock: the Azure task is listed first, but Bedrock's own refusal says more.
     const nova = modelReach(choice('amazon.nova-lite-v1:0', ['--model', 'amazon.nova-lite-v1:0'], null, 'bedrock'), tasks);
     expect(nova.tasks).toEqual([]);
-    expect(nova.refused[0]!.elsewhere).toBe(true);
+    expect(nova.refused[0].elsewhere).toBe(true);
     expect(mainRefusal(nova)).toMatchObject({ name: 'bedrock-claude', elsewhere: false });
     expect(mainRefusal({ tasks: [], refused: [] })).toBeNull();
     // A Gemini model answers its own task: the three recorded on other clouds are one reason, not three.

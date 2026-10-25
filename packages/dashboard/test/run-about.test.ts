@@ -146,7 +146,7 @@ describe('the about line in a copy that leaves the store', () => {
   it('quotes the redacted copy: a rule masks what the user asked in the list, the run’s page and its family', () => {
     const result = open((s) => exportHtml({ store: s, runIds: [id.rec, id.fork], uiDir, now: NOW, redact: [{ pattern: '/order A-\\d+/', replace: 'order <ORDER>' }] }));
     const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(result.html)!;
-    const data = JSON.parse(m[1]!.split('<\\/').join('</')) as StaticPayload;
+    const data = JSON.parse(m[1].split('<\\/').join('</')) as StaticPayload;
     const listed = (data.responses['runs'] as { runs: RunRow[] }).runs;
     expect(listed.find((r) => r.runId === id.rec)!.about).toEqual({ text: 'A customer asks for a refund of order <ORDER>', from: 'user' });
     expect((data.responses[`runs/${id.rec}`] as { about: { text: string } }).about.text).toBe('A customer asks for a refund of order <ORDER>');
@@ -160,7 +160,7 @@ describe('the about line in a copy that leaves the store', () => {
     expect(open((s) => listRuns(s)).find((r) => r.runId === forked)!.about).toMatchObject({ text: 'metadata.user=c-311@example.com #3', from: 'change' });
     const result = open((s) => exportHtml({ store: s, runIds: [id.rec, forked], uiDir, now: NOW, redact: [{ pattern: 'email', replace: '<EMAIL>' }] }));
     const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(result.html)!;
-    const data = JSON.parse(m[1]!.split('<\\/').join('</')) as StaticPayload;
+    const data = JSON.parse(m[1].split('<\\/').join('</')) as StaticPayload;
     expect((data.responses['runs'] as { runs: RunRow[] }).runs.find((r) => r.runId === forked)!.about.text).toBe('metadata.user=<EMAIL> #3');
     const detail = data.responses[`runs/${forked}`] as { about: { text: string }; interventions: Array<{ flag: string; value?: string }> };
     expect(detail.about.text).toBe('metadata.user=<EMAIL> #3');

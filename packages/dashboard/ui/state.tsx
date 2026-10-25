@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
 import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
@@ -103,7 +103,7 @@ export interface AppState {
   /** Whether a menu or a dialog is open: single-key shortcuts wait until it closes. */
   blockingLayer: () => boolean;
   /** The open run's keys (j, k, 1–4, v, n, p, f, /): true when it handled one. */
-  runKeys: MutableRefObject<((e: KeyboardEvent) => boolean) | null>;
+  runKeys: RefObject<((e: KeyboardEvent) => boolean) | null>;
   sideOpen: boolean;
   setSideOpen: (open: boolean) => void;
   palette: boolean;
@@ -211,7 +211,7 @@ export function useApp(): AppState {
           return d ? { ...d, configurable: true } : undefined;
         },
       }),
-    // A new object when a field read changed: what depends on it runs again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new object when a field read changed (`version`): what depends on it runs again
     [store, t, version],
   );
 }
@@ -382,15 +382,15 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       } finally {
         busy = false;
       }
-      if (alive && connRef.current === 'ok') timer = setTimeout(poll, document.hidden ? POLL_MS * 5 : POLL_MS);
+      if (alive && connRef.current === 'ok') timer = setTimeout(() => void poll(), document.hidden ? POLL_MS * 5 : POLL_MS);
     };
-    timer = setTimeout(poll, POLL_MS);
+    timer = setTimeout(() => void poll(), POLL_MS);
     // A hidden tab asks every 10 s; shown again, it asks at once, so a project switched to in another
     // tab (or a run that ended meanwhile) shows before anything is clicked here.
     const shown = () => {
       if (document.hidden || !alive || busy || connRef.current !== 'ok') return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(poll, 0);
+      timer = setTimeout(() => void poll(), 0);
     };
     document.addEventListener('visibilitychange', shown);
     return () => {
@@ -495,7 +495,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
       const step = async () => {
         if (!following.current.has(first.id)) return;
         if (connRef.current === 'expired') return void following.current.delete(first.id);
-        if (connRef.current !== 'ok') return void setTimeout(step, 1000);
+        if (connRef.current !== 'ok') return void setTimeout(() => void step(), 1000);
         let next: JobView;
         try {
           next = await client.job(first.id, count);
@@ -506,7 +506,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
           const what = afterPollError({ status: err instanceof ApiError ? err.status : null, unreachable: isUnreachable(err), failures });
           if (what === 'stop') following.current.delete(first.id);
           else if (what === 'lost') lose();
-          else setTimeout(step, what === 'wait' ? 1000 : Math.min(8000, 500 * 2 ** failures));
+          else setTimeout(() => void step(), what === 'wait' ? 1000 : Math.min(8000, 500 * 2 ** failures));
           return;
         }
         count = next.total;
@@ -514,7 +514,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         following.current.set(first.id, all);
         setJobs((list) => list.map((w) => (w.job.id === first.id ? { ...w, job: next, lines: all } : w)));
         if (!next.done) {
-          setTimeout(step, 300);
+          setTimeout(() => void step(), 300);
           return;
         }
         following.current.delete(first.id);
@@ -525,7 +525,7 @@ export function AppProvider({ client, children }: { client: Client; children: Re
         const shown = jobsNow.current.find((w) => w.job.id === first.id);
         if (!shown?.open) toast(endToast(next, all), jobStatus(next, all).tone === 'err' ? 'error' : 'notice');
       };
-      setTimeout(step, 200);
+      setTimeout(() => void step(), 200);
     },
     [client, refresh, toast, jobsNow, connRef, fail],
   );

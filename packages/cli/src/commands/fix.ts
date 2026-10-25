@@ -532,7 +532,7 @@ export function register(program: Command): void {
       if (undecidable) throw new InvalidArgumentError(undecidable);
       const config = loadConfig(process.cwd());
       const repairerSpec = flags.repairer ?? config.repair?.repairer;
-      let repairer: Repairer | null = null;
+      let repairer: Repairer | null;
       try {
         repairer = repairerSpec ? parseRepairer(repairerSpec) : null;
       } catch (err) {

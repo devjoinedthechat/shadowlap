@@ -172,7 +172,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 /** `2026-11-30` as a report writes it: `November 30, 2026`. */
 export function longDate(day: string): string {
   const [y, m, d] = day.split('-').map(Number);
-  return `${MONTHS[(m ?? 1) - 1]} ${d}, ${y}`;
+  return `${MONTHS[(m ?? 1) - 1]!} ${d!}, ${y!}`;
 }
 
 const dayMs = (day: string) => Date.parse(`${day}T00:00:00Z`);
@@ -231,7 +231,7 @@ export function retirementOf(provider: string | null | undefined, model: string 
   const otherDays = [...new Set(rows.map((r) => r.retires).filter((d): d is string => !!d && d !== row.retires))].sort();
   const count = (n: number) => (n === 1 ? '1 Region' : `${n} Regions`);
   const inRegions = regions
-    ? ` in ${regions.length === 1 ? regions[0] : count(regions.length)}${otherDays.length ? ` (${otherDays.map((d) => `${dayMs(d) <= now ? 'it reached it on' : 'and on'} ${longDate(d)} in ${count(regionsOn(d).length)}`).join(', ')})` : ''}`
+    ? ` in ${regions.length === 1 ? regions[0]! : count(regions.length)}${otherDays.length ? ` (${otherDays.map((d) => `${dayMs(d) <= now ? 'it reached it on' : 'and on'} ${longDate(d)} in ${count(regionsOn(d).length)}`).join(', ')})` : ''}`
     : '';
   const instead = row.replacement ? `; ${where.owner} recommends ${row.replacement}` : '';
   const text =
@@ -240,8 +240,8 @@ export function retirementOf(provider: string | null | undefined, model: string 
       : state === 'retired'
         ? `${named} ${row.earliest ? 'may have shut down' : 'was retired'} on ${where.name} on ${longDate(row.retires!)}${inRegions}${row.earliest ? '' : ': requests to it fail'}${instead}`
         : row.earliest
-          ? `${named} may shut down on ${where.name} from ${longDate(row.retires!)}, in ${days} day${days === 1 ? '' : 's'}: the earliest date ${where.owner} gives${instead}`
-          : `${named} retires on ${where.name} on ${longDate(row.retires!)}${inRegions}, in ${days} day${days === 1 ? '' : 's'}${instead}`;
+          ? `${named} may shut down on ${where.name} from ${longDate(row.retires!)}, in ${days!} day${days === 1 ? '' : 's'}: the earliest date ${where.owner} gives${instead}`
+          : `${named} retires on ${where.name} on ${longDate(row.retires!)}${inRegions}, in ${days!} day${days === 1 ? '' : 's'}${instead}`;
   return { provider: provider!, model, platform, matched: row.model, deprecated: row.deprecated ?? null, retires: row.retires, earliest: row.earliest === true, regions, replacement: row.replacement ?? null, replacements: replacementModels(row.replacement), state, days, source: row.source, text };
 }
 
@@ -288,7 +288,7 @@ export function retiredFields(provider: string | null | undefined, model: string
     for (const field of rule.fields) {
       const value = fields[field];
       if (value === undefined || (rule.allowed && field in rule.allowed && canonicalize(rule.allowed[field]) === canonicalize(value))) continue;
-      if (rule.when?.[field] && !holds(value, rule.when[field]!)) continue;
+      if (rule.when?.[field] && !holds(value, rule.when[field])) continue;
       out.push({ field, value, rule });
     }
   }

@@ -65,7 +65,7 @@ beforeAll(() => {
     store.close();
   }
   const raw = new DatabaseSync(db);
-  raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid!, left);
+  raw.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(spawnSync(process.execPath, ['-e', '0']).pid, left);
   raw.close();
 });
 afterAll(() => {

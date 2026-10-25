@@ -50,7 +50,7 @@ async function running(code = 'setInterval(() => {}, 1000); process.stdout.write
   const child = spawn(process.execPath, ['--input-type=module', '-e', code], { stdio: ['ignore', 'pipe', 'inherit'] });
   children.push(child);
   await new Promise<void>((resolve, reject) => {
-    child.stdout!.on('data', (d: Buffer) => d.toString().includes('up') && resolve());
+    child.stdout.on('data', (d: Buffer) => d.toString().includes('up') && resolve());
     child.on('exit', (c) => reject(new Error(`exited with ${c}`)));
   });
   return child;
@@ -228,7 +228,7 @@ describe('takeLock', () => {
       ['another boot', record({ pid: GONE, start: 'another-boot:1' })],
       ['another namespace', record({ pid: GONE, ns: 'pid:[1]' })],
     ]) {
-      writeFileSync(lock, text!);
+      writeFileSync(lock, text);
       expect(() => take(50), what).toThrow('busy');
       age(lock);
       releaseLock(take());
@@ -262,21 +262,21 @@ describe('takeLock', () => {
     const guards = [`${lock}.break`, `${lock}.break.break`, `${lock}.break.break.break`];
     const all = [lock, ...guards].map((p) => basename(p)).sort();
     writeFileSync(lock, record({ pid: GONE }));
-    writeFileSync(guards[0]!, record({ pid: GONE }));
-    writeFileSync(guards[1]!, record({ pid: GONE }));
+    writeFileSync(guards[0], record({ pid: GONE }));
+    writeFileSync(guards[1], record({ pid: GONE }));
     // A breaker that runs (this process, standing in for another) holds the last guard: it is waited for.
-    writeFileSync(guards[2]!, record({ pid: process.pid }));
+    writeFileSync(guards[2], record({ pid: process.pid }));
     expect(() => take(100)).toThrow('busy');
     expect(readdirSync(dir).sort()).toEqual(all);
     // That breaker died too: the last guard is still never broken, however long it is waited for.
-    writeFileSync(guards[2]!, record({ pid: GONE }));
-    age(guards[2]!);
+    writeFileSync(guards[2], record({ pid: GONE }));
+    age(guards[2]);
     const started = Date.now();
     expect(() => take(300)).toThrow('busy');
     expect(Date.now() - started).toBeGreaterThanOrEqual(250);
     expect(readdirSync(dir).sort()).toEqual(all);
     // Deleted by hand: each guard left is broken under the one after it, and then the lock.
-    rmSync(guards[2]!);
+    rmSync(guards[2]);
     withLockFile(lock, { wait: 0, busy }, () => expect(readdirSync(dir)).toEqual(['list.json.lock']));
     expect(readdirSync(dir)).toEqual([]);
   });

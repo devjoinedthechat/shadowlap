@@ -44,11 +44,11 @@ describe('a command that is not on PATH', () => {
     const dir = fresh();
     expect(shadowlap(dir, ['run', '--', process.execPath, '-e', '']).code).toBe(0);
     const [recorded] = runs(dir);
-    const r = shadowlap(dir, ['replay', recorded!.runId, '--', MISSING]);
+    const r = shadowlap(dir, ['replay', recorded.runId, '--', MISSING]);
     expect(r.code).toBe(127);
     expect(r.out).toContain(`✗ ${MISSING}: command not found on PATH`);
     expect(r.out).not.toContain('no calls were made');
-    expect(runs(dir).map((x) => x.runId)).toEqual([recorded!.runId]);
+    expect(runs(dir).map((x) => x.runId)).toEqual([recorded.runId]);
   });
 
   it('suggests python3 for python where only python3 is there, as the command was given', () => {
@@ -81,7 +81,7 @@ describe('a command that cannot start for another reason', () => {
     const dir = fresh();
     expect(shadowlap(dir, ['run', '--', process.execPath, '-e', '']).code).toBe(0);
     const [recorded] = runs(dir);
-    expect(shadowlap(dir, ['pack', recorded!.runId, 'goldens/empty']).code).toBe(0);
+    expect(shadowlap(dir, ['pack', recorded.runId, 'goldens/empty']).code).toBe(0);
     const r = shadowlap(dir, ['test', 'goldens/empty', '--cwd', 'nope']);
     expect(r.code).toBe(1);
     expect(r.stdout).toContain(`✗ empty: ${join(dir, 'nope')}: working directory does not exist`);

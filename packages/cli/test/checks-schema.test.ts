@@ -59,7 +59,7 @@ function valid(s: Schema | boolean, value: unknown): boolean {
     const props = (s.properties ?? {}) as Record<string, Schema>;
     for (const k of keys) {
       if (k in props) {
-        if (!valid(props[k]!, value[k])) return false;
+        if (!valid(props[k], value[k])) return false;
       } else if (s.additionalProperties !== undefined && !valid(s.additionalProperties as Schema | boolean, value[k])) return false;
     }
   }
@@ -84,7 +84,11 @@ const parses = (v: unknown) => {
 /** Every `$ref` in the schema, wherever it is. */
 function refs(node: unknown, out: string[] = []): string[] {
   if (Array.isArray(node)) node.forEach((x) => refs(x, out));
-  else if (isObject(node)) for (const [k, v] of Object.entries(node)) k === '$ref' && typeof v === 'string' ? out.push(v) : refs(v, out);
+  else if (isObject(node))
+    for (const [k, v] of Object.entries(node)) {
+      if (k === '$ref' && typeof v === 'string') out.push(v);
+      else refs(v, out);
+    }
   return out;
 }
 
@@ -176,7 +180,7 @@ describe('the expect part of the config schema', () => {
   });
 
   it('takes the same judge models as the parser', () => {
-    const pattern = new RegExp((at('#/$defs/judge').properties as Record<string, Schema>).model!.pattern as string, 'u');
+    const pattern = new RegExp((at('#/$defs/judge').properties as Record<string, Schema>).model.pattern as string, 'u');
     expect(pattern.source).toBe(JUDGE_MODEL.source);
     for (const model of ['claude-haiku-4-5', 'anthropic:x', 'gpt-5.5', 'chatgpt-4o-latest', 'o3', 'o4-mini', 'openai:local', 'gemini-3-flash', 'gemini:tuned', 'llama3', 'm', 'Claude-x', 'bedrock:claude', 'claude haiku', '']) {
       const judge = { judge: [{ name: 'j', question: 'q?', model }] };
@@ -186,7 +190,7 @@ describe('the expect part of the config schema', () => {
 
   it('takes every example on the checks page, which the parser reads too', () => {
     const page = readFileSync(join(ROOT, 'docs', 'checks.md'), 'utf8');
-    const blocks = [...page.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]!) as Record<string, unknown>);
+    const blocks = [...page.matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]) as Record<string, unknown>);
     expect(blocks.length).toBeGreaterThanOrEqual(3);
     let configs = 0;
     for (const block of blocks) {

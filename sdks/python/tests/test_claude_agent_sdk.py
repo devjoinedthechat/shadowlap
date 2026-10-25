@@ -10,14 +10,15 @@ import re
 import sys
 import tempfile
 import unittest
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import shadowlap  # noqa: E402
-from fake_claude_code import FakeClaudeCode, matches  # noqa: E402
-from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, fence_hooks, with_effects, with_fence  # noqa: E402
+import shadowlap
+from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, fence_hooks, with_effects, with_fence
+
+from fake_claude_code import FakeClaudeCode, matches
 
 try:
     import trio
@@ -32,21 +33,21 @@ class Sidecar:
     calls matched by name and arguments, and after the first that doesn't match, refuses (or stubs)
     writes and runs reads live."""
 
-    def __init__(self, recording: Optional[List[Dict[str, Any]]] = None, writes: str = "block", gone: bool = False):
+    def __init__(self, recording: Optional[list[dict[str, Any]]] = None, writes: str = "block", gone: bool = False):
         self.recording = recording
         self.writes = writes
         self.gone = gone
-        self.calls: List[Dict[str, Any]] = []
+        self.calls: list[dict[str, Any]] = []
         self.consumed: set = set()
         self.diverged = False
 
-    def __call__(self, cfg: Any, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    def __call__(self, cfg: Any, path: str, body: dict[str, Any]) -> dict[str, Any]:
         if self.gone:
             raise RuntimeError("shadowlap sidecar /v1/calls/resolve failed: connection refused")
         json.dumps(body, allow_nan=False)
         if path.endswith("/resolve"):
             call_no = len(self.calls) + 1
-            entry: Dict[str, Any] = {"name": body["name"], "effect": body["effect"], "args": body["args"], "end": None}
+            entry: dict[str, Any] = {"name": body["name"], "effect": body["effect"], "args": body["args"], "end": None}
             self.calls.append(entry)
             if self.recording is not None and not self.diverged:
                 for i, rec in enumerate(self.recording):
@@ -80,18 +81,18 @@ SCRIPT = [
 ]
 
 
-def session(hooks: Dict[str, List[Any]]) -> FakeClaudeCode:
+def session(hooks: dict[str, list[Any]]) -> FakeClaudeCode:
     cc = FakeClaudeCode(hooks, ROOT)
     cc.files[f"{ROOT}/notes.md"] = "old line\nmore\n"
     cc.web["https://example.com/docs"] = "the docs page"
     return cc
 
 
-def fenced(**options: Any) -> Dict[str, List[Any]]:
+def fenced(**options: Any) -> dict[str, list[Any]]:
     return fence_hooks(scratch=tempfile.mkdtemp(prefix="shadowlap-fence-test-"), log=lambda line: None, **options)
 
 
-async def agent(cc: FakeClaudeCode, script: List[Any] = SCRIPT) -> Dict[str, Any]:
+async def agent(cc: FakeClaudeCode, script: list[Any] = SCRIPT) -> dict[str, Any]:
     results = [await cc.call(tool, dict(inp), f"toolu_{i}") for i, (tool, inp) in enumerate(script)]
     await cc.stop()
     return {"results": results, "notes": list(cc.notes)}
@@ -220,7 +221,7 @@ class Fence(unittest.TestCase):
         @dataclasses.dataclass
         class Options:
             cwd: str = ROOT
-            hooks: Optional[Dict[str, List[Any]]] = None
+            hooks: Optional[dict[str, list[Any]]] = None
 
         mine = object()
         out = with_fence(Options(hooks={"PreToolUse": [mine]}))
@@ -236,21 +237,21 @@ class SdkMcpTool:
 
     name: str
     description: str
-    input_schema: Dict[str, Any]
-    handler: Callable[[Dict[str, Any]], Any]
+    input_schema: dict[str, Any]
+    handler: Callable[[dict[str, Any]], Any]
 
 
 class McpTools(unittest.TestCase):
     def setUp(self) -> None:
         self._post = shadowlap._post
         os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
-        self.ran: List[str] = []
+        self.ran: list[str] = []
 
-        async def lookup(args: Dict[str, Any]) -> Dict[str, Any]:
+        async def lookup(args: dict[str, Any]) -> dict[str, Any]:
             self.ran.append("lookup " + args["id"])
             return {"content": [{"type": "text", "text": "order %s: shipped" % args["id"]}]}
 
-        async def refund(args: Dict[str, Any]) -> Dict[str, Any]:
+        async def refund(args: dict[str, Any]) -> dict[str, Any]:
             self.ran.append("refund " + args["id"])
             return {"content": [{"type": "text", "text": "refunded " + args["id"]}]}
 

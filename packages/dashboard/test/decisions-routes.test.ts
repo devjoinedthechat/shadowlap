@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, NO_TOKENS, Store, type DecisionRun, type DecisionStep } from '@shadowlap/engine';
-import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
+import { DONE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { decisionRow, decisionSession, retirementsView, runDecisions, type DecisionsListView } from '../src/decisions.js';
 import { commandTreeUse } from '../src/worktree.js';
@@ -90,15 +90,15 @@ describe('the decision read models', () => {
       { runId: refunded, golden: 'goldens/refund', title: 'goldens/refund', rank: 1, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 4, majority: 4, changed: 2, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 1, majority: 1, changed: 2, answered: 2, judge: null }] },
       { runId: failed, golden: null, title: failed.slice(0, 10), rank: 2, cells: [{ callNo: 1, step: 1, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 3, step: 3, rank: 0, majority: 0, changed: 0, answered: 2, judge: null }, { callNo: 5, step: 5, rank: 2, majority: 2, changed: 2, answered: 2, judge: null }] },
     ]);
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null }]);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(2, null, { samples: { asked: 1, answered: 0, changed: 0, ranks: [] }, error: 'HTTP 529' })] }).cells).toEqual([{ callNo: 2, step: 2, rank: null, majority: null, changed: 0, answered: 0, judge: null }]);
     // A write changed in 1 of 3 samples: drawn split, its majority the same.
-    expect(decisionRow({ ...(run.runs as DecisionRun[])[0]!, decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
+    expect(decisionRow({ ...(run.runs as DecisionRun[])[0], decisions: [step(4, 1, { majority: null, samples: { asked: 3, answered: 3, changed: 1, ranks: [1, 0, 0] } })] }).cells).toEqual([{ callNo: 4, step: 4, rank: 1, majority: 0, changed: 1, answered: 3, judge: null }]);
   });
 
   it('marks a text-only change a judge check read: raised to rank 2 when it came out otherwise, inconclusive while it waits on the judge', () => {
     const side = (status: 'passed' | 'failed' | 'inconclusive') => ({ status, verdict: status === 'passed' ? ('yes' as const) : status === 'failed' ? ('no' as const) : null, reason: status === 'inconclusive' ? 'not judged: no recorded verdict and no key for openai (OPENAI_API_KEY)' : 'r', source: status === 'inconclusive' ? null : ('live' as const), cost: status === 'inconclusive' ? null : 0.001, request: null });
     const judged = (now: 'passed' | 'failed' | 'inconclusive') => [{ name: 'fences', of: 'answer' as const, model: 'claude-haiku-4-5', pass: 'yes' as const, recorded: side('passed'), now: side(now), changed: now === 'inconclusive' ? null : now !== 'passed' }];
-    const base = (decisionSession(store, 'dc-01M5000000000000000000000A')!.runs as DecisionRun[])[0]!;
+    const base = (decisionSession(store, 'dc-01M5000000000000000000000A')!.runs as DecisionRun[])[0];
     const samples = (ranks: number[], unjudged: number) => ({ asked: ranks.length, answered: ranks.length, changed: ranks.filter((r) => r).length, unjudged, ranks });
     const cells = decisionRow({
       ...base,

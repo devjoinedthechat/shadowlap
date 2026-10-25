@@ -99,7 +99,7 @@ export function changeForms(s: string): string[] {
   if (!m) return [];
   const parts = m[1]!.split('.');
   const out: string[] = [];
-  for (let k = 1; k < parts.length; k++) if (parts[k]) out.push(`${parts.slice(k).join('.')}=${m[2]}${m[3]}`);
+  for (let k = 1; k < parts.length; k++) if (parts[k]) out.push(`${parts.slice(k).join('.')}=${m[2]!}${m[3]!}`);
   return out;
 }
 

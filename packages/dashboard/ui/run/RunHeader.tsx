@@ -288,7 +288,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
   const enabled = !exported && !actionsOff;
   const change = (add: string[], remove: string[]) =>
     guard(() =>
-      client.labels(run.run.runId, add, remove).then(
+      void client.labels(run.run.runId, add, remove).then(
         (r) => {
           setLabels(r.labels);
           refresh();

@@ -95,7 +95,7 @@ describe('a simulated 95% agent across 100 goldens', () => {
   const gated20 = simulate((s, n) => decide(s, n, sprt20), 4);
   // The default: `gate: {}` on every golden, and the session's 5% split across the 100 of them.
   const plan = planSuite(Array.from({ length: GOLDENS }, (_, i) => ({ golden: `goldens/g${i}`, gate: oneGate, maxGiven: false, rate: AGENT })))!;
-  const suiteGate = plan.planned[0]!.gate as SprtGate;
+  const suiteGate = plan.planned[0].gate as SprtGate;
   const suite = simulate((s, n) => decide(s, n, suiteGate), 7);
   // The same agent at exactly its gates' good rate, 90%: where the suite's risk is spent.
   const suiteAtGood = simulate((s, n) => decide(s, n, suiteGate), 8, suiteGate.good);

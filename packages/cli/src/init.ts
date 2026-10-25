@@ -256,12 +256,12 @@ function scanTools(text: string, file: string): FoundTool[] {
       const name = m[2]!;
       const declared = /@tool\(\s*(?:["'][^"']*["']\s*,\s*)?effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
       const adapted = /@function_tool\([^)]*effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
-      if (declared) push(name, m.index!, 'shadowlap', declared[1] as Effect);
-      else if (adapted) push(name, m.index!, 'openai-agents-python', adapted[1] as Effect);
+      if (declared) push(name, m.index, 'shadowlap', declared[1] as Effect);
+      else if (adapted) push(name, m.index, 'openai-agents-python', adapted[1] as Effect);
       // Pydantic AI: `@agent.tool` passes a RunContext first, `@agent.tool_plain` doesn't; the wrap keeps the one found.
-      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index!, 'pydantic-ai', null, /^[ \t]*(@\w+\.tool(?:_plain)?\b[^\n]*)$/m.exec(decorators)?.[1]?.trim());
-      else if (/@function_tool\b/.test(decorators)) push(name, m.index!, 'openai-agents-python', null);
-      else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(decorators) && /langchain|crewai/.test(text)) push(name, m.index!, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
+      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index, 'pydantic-ai', null, /^[ \t]*(@\w+\.tool(?:_plain)?\b[^\n]*)$/m.exec(decorators)?.[1]?.trim());
+      else if (/@function_tool\b/.test(decorators)) push(name, m.index, 'openai-agents-python', null);
+      else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(decorators) && /langchain|crewai/.test(text)) push(name, m.index, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
     }
     // LangChain and CrewAI tools get their effect where they're used: with_effect(search_web, "read").
     for (const m of text.matchAll(/\bwith_effect\(\s*(\w+)\s*,\s*["'](pure|read|write)["']/g)) {
@@ -271,7 +271,7 @@ function scanTools(text: string, file: string): FoundTool[] {
     return found;
   }
   // @shadowlap/sdk: tool('name', { effect: 'read' }, impl)
-  if (text.includes('@shadowlap/sdk')) for (const m of text.matchAll(/\btool\(\s*['"`]([\w.-]+)['"`]\s*,\s*\{[^}]*?effect:\s*['"`](pure|read|write)['"`]/g)) push(m[1]!, m.index!, 'shadowlap', m[2] as Effect);
+  if (text.includes('@shadowlap/sdk')) for (const m of text.matchAll(/\btool\(\s*['"`]([\w.-]+)['"`]\s*,\s*\{[^}]*?effect:\s*['"`](pure|read|write)['"`]/g)) push(m[1]!, m.index, 'shadowlap', m[2] as Effect);
   const adapted = text.includes('@shadowlap/adapters');
   /**
    * The effect an adapter declares for a tool, if it is wrapped: `tool(withEffect({ … }, 'read'))`,
@@ -293,23 +293,23 @@ function scanTools(text: string, file: string): FoundTool[] {
     return map ? ((map[1] ?? map[2]) as Effect) : null;
   };
   if (/from\s+['"]ai['"]/.test(text)) {
-    for (const m of text.matchAll(/(?:^|[\s,{])['"]?([A-Za-z_][\w-]*)['"]?\s*:\s*tool\(\s*\{/gm)) if (!inComment(m.index! + m[0].indexOf('tool('))) push(m[1]!, m.index! + m[0].indexOf(m[1]!), 'ai-sdk', wrappedEffect(m.index!, m.index! + m[0].length, m.index! + m[0].length, m[1]!));
+    for (const m of text.matchAll(/(?:^|[\s,{])['"]?([A-Za-z_][\w-]*)['"]?\s*:\s*tool\(\s*\{/gm)) if (!inComment(m.index + m[0].indexOf('tool('))) push(m[1]!, m.index + m[0].indexOf(m[1]!), 'ai-sdk', wrappedEffect(m.index, m.index + m[0].length, m.index + m[0].length, m[1]!));
     // A tool kept in a constant, `const searchDocs = tool({ … })`, then given as `tools: { searchDocs }`
     // or `tools: { search_docs: searchDocs }`: the model knows it by the key that names it there.
     for (const m of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?=\s*tool\(\s*\{/g)) {
-      if (inComment(m.index! + m[0].lastIndexOf('tool('))) continue;
+      if (inComment(m.index + m[0].lastIndexOf('tool('))) continue;
       const variable = m[1]!;
       const keys = [...text.matchAll(new RegExp(`(?:^|[\\s,{])['"]?([A-Za-z_][\\w-]*)['"]?\\s*:\\s*${variable.replace(/\$/g, '\\$')}(?![\\w$(])`, 'gm'))].map((k) => k[1]!);
       const name = keys.find((k) => k !== variable && !NOT_TOOL_KEYS.has(k)) ?? variable;
-      push(name, m.index! + m[0].indexOf(variable), 'ai-sdk', wrappedEffect(m.index!, m.index! + m[0].length, m.index! + m[0].length, name));
+      push(name, m.index + m[0].indexOf(variable), 'ai-sdk', wrappedEffect(m.index, m.index + m[0].length, m.index + m[0].length, name));
     }
   }
   const byName = (call: RegExp, key: 'name' | 'id', via: string) => {
     for (const m of text.matchAll(call)) {
-      if (inComment(m.index!)) continue;
-      const window = text.slice(m.index!, m.index! + 1500);
+      if (inComment(m.index)) continue;
+      const window = text.slice(m.index, m.index + 1500);
       const named = new RegExp(`\\b${key}:\\s*['"\`]([\\w.-]+)['"\`]`).exec(window);
-      if (named) push(named[1]!, m.index!, via, wrappedEffect(m.index!, m.index! + m[0].length, m.index! + named.index + named[0].length, named[1]!));
+      if (named) push(named[1]!, m.index, via, wrappedEffect(m.index, m.index + m[0].length, m.index + named.index + named[0].length, named[1]!));
     }
   };
   if (text.includes('@openai/agents')) byName(/\btool\(/g, 'name', 'openai-agents');
@@ -325,12 +325,12 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
   const re = file.endsWith('.py') ? /\bbase_url\s*=\s*["'](https?:\/\/[^"']+)["']/g : /\bbaseURL\s*:\s*['"`](https?:\/\/[^'"`$]+)['"`]/g;
   for (const m of text.matchAll(re)) {
     // `baseURL: process.env.OPENAI_BASE_URL ?? '…'` is fine; only a bare literal bypasses the environment.
-    const lineStart = text.lastIndexOf('\n', m.index!) + 1;
-    const line = text.slice(lineStart, text.indexOf('\n', m.index!) === -1 ? undefined : text.indexOf('\n', m.index!));
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    const line = text.slice(lineStart, text.indexOf('\n', m.index) === -1 ? undefined : text.indexOf('\n', m.index));
     if (/process\.env|os\.environ|getenv|BASE_URL/.test(line)) continue;
-    const before = text.slice(Math.max(0, m.index! - 300), m.index!);
+    const before = text.slice(Math.max(0, m.index - 300), m.index);
     const client = /Anthropic/.test(before) ? 'anthropic' : /OpenAI/.test(before) ? 'openai' : /GoogleGenAI|genai/.test(before) ? 'gemini' : null;
-    out.push({ file, line: lineOf(text, m.index!), url: m[1]!, client });
+    out.push({ file, line: lineOf(text, m.index), url: m[1]!, client });
   }
   return out;
 }
@@ -726,14 +726,14 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
 
   const frameworks: Framework[] = [];
   const js = (id: Framework['id'], name: string, pkgName: string, adapter: string | null) => {
-    if (deps[pkgName]) frameworks.push({ id, name, package: pkgName, version: installedVersion(cwd, pkgName) ?? deps[pkgName]!, adapter });
+    if (deps[pkgName]) frameworks.push({ id, name, package: pkgName, version: installedVersion(cwd, pkgName) ?? deps[pkgName], adapter });
   };
   js('ai-sdk', 'Vercel AI SDK', 'ai', 'ai-sdk');
   js('openai-agents', 'OpenAI Agents SDK', '@openai/agents', 'openai-agents');
   js('mastra', 'Mastra', '@mastra/core', 'mastra');
   if (deps['@langchain/langgraph']) js('langchain', 'LangGraph', '@langchain/langgraph', 'langchain');
   else js('langchain', 'LangChain', '@langchain/core', 'langchain');
-  if (deps['@anthropic-ai/sdk'] && texts.some(([, t]) => /toolRunner\(/.test(t))) frameworks.push({ id: 'anthropic-tool-runner', name: 'Anthropic tool runner', package: '@anthropic-ai/sdk', version: installedVersion(cwd, '@anthropic-ai/sdk') ?? deps['@anthropic-ai/sdk']!, adapter: 'anthropic' });
+  if (deps['@anthropic-ai/sdk'] && texts.some(([, t]) => /toolRunner\(/.test(t))) frameworks.push({ id: 'anthropic-tool-runner', name: 'Anthropic tool runner', package: '@anthropic-ai/sdk', version: installedVersion(cwd, '@anthropic-ai/sdk') ?? deps['@anthropic-ai/sdk'], adapter: 'anthropic' });
   const pyFw = (id: Framework['id'], name: string, names: string[]) => {
     const hit = names.find((n) => py.has(n));
     if (hit) frameworks.push({ id, name, package: hit, version: null, adapter: null });
@@ -932,7 +932,7 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   if (json.modelServer) row('model server', `${json.modelServer.url}   from ${json.modelServer.from}`);
   row('framework', s.framework ?? 'none detected');
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
-  for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
+  for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
   for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
   lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
   return lines.join('\n');
@@ -1001,7 +1001,7 @@ function readText(path: string, limit = 2 * 1024 * 1024): string {
 function pinnedVersion(cwd: string, files: string[]): { version: string; from: string } | null {
   for (const f of files) {
     const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(readText(join(cwd, f), 4096));
-    if (m) return { version: m[2] ? `${m[1]}.${m[2]}` : m[1]!, from: f };
+    if (m) return { version: m[2] ? `${m[1]!}.${m[2]}` : m[1]!, from: f };
   }
   return null;
 }

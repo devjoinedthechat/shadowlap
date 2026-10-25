@@ -50,7 +50,7 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
   // Two abbreviations of one commit (git gives more digits as a repository grows) are no change.
   const sameCommit = !!c.code?.same;
   const codeChanged = (ch.code.a ?? '') !== (ch.code.b ?? '') && !sameCommit;
-  const code = codeChanged ? codeNote(c.code) : { note: ch.code.a ?? 'no revision recorded', tip: sameCommit ? `The same commit, named ${ch.code.a} in one run and ${ch.code.b} in the other.` : null };
+  const code = codeChanged ? codeNote(c.code) : { note: ch.code.a ?? 'no revision recorded', tip: sameCommit ? `The same commit, named ${ch.code.a!} in one run and ${ch.code.b!} in the other.` : null };
   const t = ch.tools;
   const toolsChanged = t.added.length > 0 || t.removed.length > 0 || t.redefined;
   const named = [...t.added.map((x) => `+${x}`), ...t.removed.map((x) => `−${x}`)];
@@ -62,7 +62,7 @@ export function changeCards(c: Pick<CompareView, 'changes' | 'code'>): ChangeCar
   const promptNote = ch.systemPrompt ? 'different prompt' : !prompts ? 'same prompt' : prompts.length === 1 ? shortSha(prompts[0]!) : prompts.length ? `${prompts.length} prompts, the same` : 'no system prompt';
   return [
     { key: 'code', changed: codeChanged, title: codeChanged ? `${ch.code.a ?? '—'} → ${ch.code.b ?? '—'}` : 'unchanged', note: code.note, tip: code.tip },
-    { key: 'system prompt', changed: ch.systemPrompt, title: ch.systemPrompt ? 'changed' : 'unchanged', note: promptNote, tip: !ch.systemPrompt && prompts?.length === 1 ? `The same system prompt, sha256 ${prompts[0]}` : null },
+    { key: 'system prompt', changed: ch.systemPrompt, title: ch.systemPrompt ? 'changed' : 'unchanged', note: promptNote, tip: !ch.systemPrompt && prompts?.length === 1 ? `The same system prompt, sha256 ${prompts[0]!}` : null },
     { key: 'tools', changed: toolsChanged, title: toolsChanged ? 'changed' : 'unchanged', note: toolNote, tip: toolTip },
     { key: 'model', changed: modelsChanged, title: modelsChanged ? `${ch.models.a.join(', ') || 'none'} → ${ch.models.b.join(', ') || 'none'}` : 'unchanged', note: modelsChanged ? 'different model' : ch.models.a.join(', ') || 'no model call', tip: null },
   ];

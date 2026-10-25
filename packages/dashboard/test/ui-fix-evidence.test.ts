@@ -85,21 +85,21 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     const { fixId } = fix({
       blame: (b) => {
         Object.assign(b, { range: { from: 3, to: 5 }, errorBound: 0.04 });
-        Object.assign(b.probes[1]!, { unavailable: 2 });
+        Object.assign(b.probes[1], { unavailable: 2 });
       },
     });
     const page = await open(fixId, 'blame');
     expect(text(page.one('.sh p'))).toMatch(/· confidence high \(error ≤ 0\.04\) · lost between #3 and #5/);
-    const row = page.all('table.probes tbody tr')[1]!;
+    const row = page.all('table.probes tbody tr')[1];
     expect(text(row)).toContain('· 2 unavailable');
   });
 
   it('shows a run’s baseline and margin, its bound’s method on hover and its unavailable attempts', async () => {
     const { fixId } = fix({
       verify: (v) => {
-        const good = v.runs[1]!;
+        const good = v.runs[1];
         Object.assign(good, { baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1, gate: { decision: 'pass', sentence: 'passed', clean: false, attempts: 4, interval: { lo: 0.51, hi: 1, confidence: 0.95 }, bound: { lo: 0.53, confidence: 0.95, method: 'sprt-stagewise' }, unavailable: 1 } });
-        Object.assign(v.runs[0]!, { baseline: { passes: 40, attempts: 50, source: 'history' } });
+        Object.assign(v.runs[0], { baseline: { passes: 40, attempts: 50, source: 'history' } });
       },
     });
     const page = await open(fixId, 'verify');
@@ -141,7 +141,7 @@ describe('a fix’s attempts grouped by what each did', () => {
           },
         ],
       },
-      verify: [{ verifyId: detail.verify[0]!.verifyId, runs: [{ runId: run, role: 'target', attempts: 4, groups: [{ path: [], verdict: 'failed', count: 1, why: 'the agent exited with code 1', example: example('01M3RZ0013AAAAAAAAAAAAAAAA') }, { path: ['escalate (stubbed)'], verdict: 'passed', count: 3, why: null, example: example('01M3RZ0014AAAAAAAAAAAAAAAA') }] }] }],
+      verify: [{ verifyId: detail.verify[0].verifyId, runs: [{ runId: run, role: 'target', attempts: 4, groups: [{ path: [], verdict: 'failed', count: 1, why: 'the agent exited with code 1', example: example('01M3RZ0013AAAAAAAAAAAAAAAA') }, { path: ['escalate (stubbed)'], verdict: 'passed', count: 3, why: null, example: example('01M3RZ0014AAAAAAAAAAAAAAAA') }] }] }],
       cut: false,
     };
     const blamePage = await open(fixId, 'blame', groups);

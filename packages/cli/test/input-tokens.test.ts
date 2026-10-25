@@ -87,7 +87,7 @@ describe('one count of input tokens', () => {
       store.appendCallStart({ runId: rec.runId, callNo: 1, ...c, origin: 'live', effect: null, requestRef: null, meta: { model: 'claude-opus-5' }, at: 1 });
       store.appendCallEnd(c, { runId: rec.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { usage: USAGE, model: 'claude-opus-5', latencyMs: 5 }, at: 2 });
       store.endRun(rec.runId, 'completed');
-      const row = describeCall(store, store.getCalls(rec.runId)[0]!).join(' ');
+      const row = describeCall(store, store.getCalls(rec.runId)[0]).join(' ');
       expect(row).toContain('1.0k→50 tok');
     } finally {
       store.close();

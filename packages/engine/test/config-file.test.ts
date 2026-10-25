@@ -196,7 +196,7 @@ describe('addRules and removeRule', () => {
     ]);
     expect(r.rules.map((x) => [x.n, x.added])).toEqual([[1, false], [2, true], [3, true]]);
     expect(r.events.map((e) => [e.kind, e.ref])).toEqual([['normalizer.added', '$.b'], ['normalizer.added', '$.args.path']]);
-    expect(r.events[1]!.data).toEqual({ kind: 'tool', name: 'save', path: '$.args.path', pattern: '/\\/tmp\\/x-[A-Za-z0-9_]+/', replace: '<VAR>' });
+    expect(r.events[1].data).toEqual({ kind: 'tool', name: 'save', path: '$.args.path', pattern: '/\\/tmp\\/x-[A-Za-z0-9_]+/', replace: '<VAR>' });
     // Nothing is written if one of them is refused.
     expect(() => addRules(cwd, 'normalize', [{ path: '$.c', replace: '<C>' }, { pattern: 'nope' }])).toThrow(RuleError);
     expect((json().normalize as unknown[]).length).toBe(3);

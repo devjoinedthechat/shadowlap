@@ -78,7 +78,7 @@ describe('shadowlap verify while the provider is unavailable', () => {
     expect(r.code, r.out).toBe(3);
     const report = JSON.parse(r.stdout) as Verified & { runs: Array<{ baselineRuns?: unknown[] }> };
     expect(report.runs).toMatchObject([{ role: 'good', outcome: 'inconclusive', unavailable: 3 }]);
-    expect(report.runs[0]!.baselineRuns).toBeUndefined();
+    expect(report.runs[0].baselineRuns).toBeUndefined();
     expect(report.stopReason).toMatch(/^provider unavailable: /);
   }, 180_000);
 });

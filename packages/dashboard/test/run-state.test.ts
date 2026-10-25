@@ -52,7 +52,7 @@ const row = (runId: string) => listRunsPage(store, { limit: 500, includeAttempts
 
 describe('how a run stands, on its page and in the lists', () => {
   it('says a run that was only interrupted is interrupted, not failed, wherever it is shown', () => {
-    for (const runId of [id.crashed!, id.left!]) {
+    for (const runId of [id.crashed, id.left]) {
       const state = runState(store, runId)!;
       expect(state).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, failed: false, interrupted: true, kind: 'recording' });
       expect(row(runId)).toMatchObject({ status: 'crashed', outcome: { kind: 'none' }, failed: false });
@@ -63,20 +63,20 @@ describe('how a run stands, on its page and in the lists', () => {
       expect(detail.run.status).toBe('crashed');
     }
     // Recording now is not interrupted.
-    expect(runState(store, id.live!)).toMatchObject({ status: 'running', outcome: { kind: 'running' }, interrupted: false });
-    expect(runDetail(store, id.live!)!.run.status).toBe('running');
+    expect(runState(store, id.live)).toMatchObject({ status: 'running', outcome: { kind: 'running' }, interrupted: false });
+    expect(runDetail(store, id.live)!.run.status).toBe('running');
   });
 
   it('judges a test of a golden that may fork by its checks, and one held to its recording by where it diverged', () => {
-    expect(runState(store, id.forked!)).toMatchObject({ kind: 'test', outcome: { kind: 'passed', checks: 1 }, failed: false });
-    expect(runState(store, id.forkedFail!)).toMatchObject({ kind: 'test', outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true });
-    expect(runState(store, id.diverged!)).toMatchObject({ kind: 'test', outcome: { kind: 'diverged', callNo: 3 }, failed: true });
+    expect(runState(store, id.forked)).toMatchObject({ kind: 'test', outcome: { kind: 'passed', checks: 1 }, failed: false });
+    expect(runState(store, id.forkedFail)).toMatchObject({ kind: 'test', outcome: { kind: 'check-failed', check: 'at most 29000 input tokens' }, failed: true });
+    expect(runState(store, id.diverged)).toMatchObject({ kind: 'test', outcome: { kind: 'diverged', callNo: 3 }, failed: true });
   });
 
   it('counts a run a fix lists among its failing runs as failing that fix’s check, when it kept no outcome of its own', () => {
-    const state = runState(store, id.target!)!;
+    const state = runState(store, id.target)!;
     expect(state).toMatchObject({ outcome: { kind: 'check-failed', check: 'issue_refund never called with {"amount":240}' }, failed: true, interrupted: false });
-    expect(row(id.target!)).toMatchObject({ outcome: state.outcome, failed: true });
+    expect(row(id.target)).toMatchObject({ outcome: state.outcome, failed: true });
     // The Failed chip counts it.
     expect(listRunsPage(store, { limit: 500, types: ['failed'] }).runs.map((r) => r.runId)).toContain(id.target);
   });

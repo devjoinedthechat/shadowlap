@@ -43,3 +43,39 @@ warn_unreachable = true
 [[tool.mypy.overrides]]
 module = ["litellm.*", "langgraph.*", "langchain_core.*", "agents.*", "crewai.*", "pydantic_core.*", "sniffio", "trio", "anyio", "claude_agent_sdk.*", "google.adk.*", "google.genai.*", "llama_index.*", "_shadowlap_capture"]
 ignore_missing_imports = true
+
+[tool.ruff]
+# The oldest Python the SDK supports (requires-python above): pyupgrade's rewrites stay within it.
+target-version = "py39"
+# Where isort wraps an import, and nothing else: no formatter wraps this code, whose imports run to
+# about 135 characters.
+line-length = 160
+
+[tool.ruff.lint]
+# pycodestyle, Pyflakes, isort, flake8-bugbear, pyupgrade and flake8-async; RUF100 reports a noqa that
+# no longer suppresses anything. `npm run lint` runs it over every Python file in the repository
+# (ruff.toml at its root extends this).
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF100"]
+ignore = [
+  # Line length is a formatter's call, and no formatter wraps this code: its long lines are messages,
+  # docstrings and test data.
+  "E501",
+  # %-formatting is kept where it is written, the guard's preloads throughout; rewriting it is style
+  # only, and the rewrite is unsafe (a tuple or a mapping on the right formats differently).
+  "UP031",
+  # getattr and setattr with a constant name reach what the types don't declare (an attribute set on
+  # sys or on a module, a framework object's field), which mypy --strict refuses as plain attributes.
+  "B009",
+  "B010",
+]
+
+[tool.ruff.lint.isort]
+# The SDK, as the agents and tests elsewhere in the repository import it: its own group, after the others.
+known-first-party = ["shadowlap"]
+# Modules that sit beside the agents and tests importing them: last, in a group of their own.
+known-local-folder = ["answer", "fake_claude_code"]
+
+[tool.ruff.lint.pyupgrade]
+# A tool's annotations stay readable at run time on 3.9, where frameworks read its type hints:
+# `Optional[str]`, never `str | None`, even under `from __future__ import annotations`.
+keep-runtime-typing = true

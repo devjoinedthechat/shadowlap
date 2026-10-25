@@ -78,10 +78,10 @@ describe('a pack of a run with signed reasoning', () => {
     ]);
     const into = Store.open(':memory:');
     const [id] = unpackRun(into, dir).imported;
-    const [first, second] = into.getCalls(id!);
+    const [first, second] = into.getCalls(id);
 
     // What a replay hands the agent: the thinking as it streamed, piece by piece, and its signature.
-    const streamed = events(into.getBlob(first!.end!.responseRef!)!.toString('utf8'));
+    const streamed = events(into.getBlob(first.end!.responseRef!)!.toString('utf8'));
     const thinking = streamed.filter((e) => e.delta?.type === 'thinking_delta').map((e) => e.delta.thinking as string).join('');
     expect(thinking).toBe(THINKING);
     expect(streamed.find((e) => e.delta?.type === 'signature_delta')!.delta.signature).toBe(SIGNATURE);
@@ -89,13 +89,13 @@ describe('a pack of a run with signed reasoning', () => {
     expect(streamed.find((e) => e.delta?.type === 'text_delta')!.delta.text).toBe('Looking up the order for <EMAIL>.');
 
     // The next request keeps the block it sends back, and masks the rest.
-    const request = loadApiRequest(into, second!.requestRef!) as { messages: Array<{ content: any }> };
-    expect(request.messages[0]!.content).toBe('Refund order 4417 for <EMAIL>');
-    expect(request.messages[1]!.content[0]).toEqual({ signature: SIGNATURE, thinking: THINKING, type: 'thinking' });
-    expect(request.messages[1]!.content[1]).toEqual({ type: 'redacted_thinking', data: 'EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qyR' });
-    expect(request.messages[1]!.content[2]).toEqual({ type: 'text', text: 'Looking up the order for <EMAIL>.' });
+    const request = loadApiRequest(into, second.requestRef!) as { messages: Array<{ content: any }> };
+    expect(request.messages[0].content).toBe('Refund order 4417 for <EMAIL>');
+    expect(request.messages[1].content[0]).toEqual({ signature: SIGNATURE, thinking: THINKING, type: 'thinking' });
+    expect(request.messages[1].content[1]).toEqual({ type: 'redacted_thinking', data: 'EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qyR' });
+    expect(request.messages[1].content[2]).toEqual({ type: 'text', text: 'Looking up the order for <EMAIL>.' });
     // A response that is one message keeps its thinking block too.
-    const message = JSON.parse(into.getBlob(second!.end!.responseRef!)!.toString('utf8'));
+    const message = JSON.parse(into.getBlob(second.end!.responseRef!)!.toString('utf8'));
     expect(message.content).toEqual([{ type: 'thinking', thinking: 'Refund approved for alice@example.com.', signature: SIGNATURE }, { type: 'text', text: 'Done: refunded <EMAIL>.' }]);
     into.close();
     store.close();
@@ -107,9 +107,9 @@ describe('a pack of a run with signed reasoning', () => {
     const copy = Store.open(':memory:');
     redactRunWithDetails(store, run.runId, [EMAIL], copy);
     const [first, second] = copy.getCalls(run.runId);
-    expect(copy.getBlob(first!.end!.responseRef!)!.toString('utf8')).not.toContain('alice@example.com');
-    expect(JSON.stringify(loadApiRequest(copy, second!.requestRef!))).not.toContain('alice@example.com');
-    expect(copy.getBlob(second!.end!.responseRef!)!.toString('utf8')).not.toContain('alice@example.com');
+    expect(copy.getBlob(first.end!.responseRef!)!.toString('utf8')).not.toContain('alice@example.com');
+    expect(JSON.stringify(loadApiRequest(copy, second.requestRef!))).not.toContain('alice@example.com');
+    expect(copy.getBlob(second.end!.responseRef!)!.toString('utf8')).not.toContain('alice@example.com');
     store.close();
   });
 
@@ -117,7 +117,7 @@ describe('a pack of a run with signed reasoning', () => {
     const store = Store.open(':memory:');
     const run = recording(store);
     const preview = previewRedaction(store, run.runId, [EMAIL]);
-    const rule = preview.rules[0]!;
+    const rule = preview.rules[0];
     // Masked: the user's message, and the answers' text.
     expect(rule.count).toBe(3);
     expect(rule.unmasked.reasons).toEqual(['signed']);
@@ -126,7 +126,7 @@ describe('a pack of a run with signed reasoning', () => {
     expect(rule.unmasked.samples.map((s) => s.value)).toEqual([THINKING, 'Refund approved for alice@example.com.']);
     expect(rule.unmasked.count).toBe(2);
     // A rule that matches only there says so, and that a pack is what leaves it.
-    expect(previewRedaction(store, run.runId, [TOKENS]).rules[0]!.note).toBe('it matches only signed reasoning (a thinking block, its signature) here, which a pack leaves as they are');
+    expect(previewRedaction(store, run.runId, [TOKENS]).rules[0].note).toBe('it matches only signed reasoning (a thinking block, its signature) here, which a pack leaves as they are');
     store.close();
   });
 });

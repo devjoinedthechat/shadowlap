@@ -189,7 +189,7 @@ export function failureTitle(spec: TestSpec | null, recording: { checks: readonl
   }
   for (const f of recording.failures) {
     const code = /exited with code (\d+)/.exec(f);
-    if (code) return `The agent exited with code ${code[1]}`;
+    if (code) return `The agent exited with code ${code[1]!}`;
     if (/exited with a non-zero code/.test(f)) return 'The agent exited with an error';
     if (/timed out/.test(f)) return 'The agent timed out';
     if (/interrupted/.test(f)) return 'The run was interrupted';

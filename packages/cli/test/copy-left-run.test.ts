@@ -37,7 +37,7 @@ beforeAll(() => {
   store.appendCallEnd(api, { runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from(JSON.stringify(answer))), outcome: 'ok', meta: { provider: 'anthropic', status: 200, model: 'claude-test' }, at: lastAt });
   store.close();
   // Its recorder was killed: the store still names it, and it is gone.
-  const dead = spawnSync(process.execPath, ['-e', '0']).pid!;
+  const dead = spawnSync(process.execPath, ['-e', '0']).pid;
   const db = new DatabaseSync(dbPath);
   db.prepare('UPDATE run_owners SET pid = ? WHERE run_id = ?').run(dead, runId);
   db.close();
@@ -51,8 +51,8 @@ function cli(args: string[]): Promise<{ code: number | null; out: string; err: s
     const child = spawn(process.execPath, [CLI, ...args], { cwd, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', OTEL_EXPORTER_OTLP_ENDPOINT: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
-    child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
-    child.stderr!.on('data', (d: Buffer) => (err += d.toString()));
+    child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+    child.stderr.on('data', (d: Buffer) => (err += d.toString()));
     child.on('close', (code) => resolve({ code, out, err }));
   });
 }
@@ -83,9 +83,9 @@ describe('copies of a run whose recorder was killed', () => {
       expect(r.code, r.err).toBe(0);
       const html = readFileSync(join(cwd, file), 'utf8');
       const m = /<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)!;
-      const data = JSON.parse(m[1]!.split('<\\/').join('</')) as { responses: Record<string, { run?: { status: string; endedAt: number | null }; runs?: Array<{ runId: string; status: string }> }> };
-      expect(data.responses[`runs/${runId}`]!.run, flags.join(' ') || 'redacted').toMatchObject({ status: 'crashed', endedAt: lastAt });
-      expect(data.responses['runs']!.runs!.find((x) => x.runId === runId)).toMatchObject({ status: 'crashed' });
+      const data = JSON.parse(m[1].split('<\\/').join('</')) as { responses: Record<string, { run?: { status: string; endedAt: number | null }; runs?: Array<{ runId: string; status: string }> }> };
+      expect(data.responses[`runs/${runId}`].run, flags.join(' ') || 'redacted').toMatchObject({ status: 'crashed', endedAt: lastAt });
+      expect(data.responses['runs'].runs!.find((x) => x.runId === runId)).toMatchObject({ status: 'crashed' });
     }
     expect(status()).toBe('running');
   });

@@ -246,7 +246,7 @@ export function firstError(stderr: string): string {
 function processTable(note?: (why: string) => void): Map<number, ProcessInfo> | null {
   const failed = (cmd: string, r: SpawnSyncReturns<string>) => {
     const said = firstError(r.stderr ?? '');
-    note?.(`${cmd} ${r.error ? `didn't start (${r.error.message})` : r.status === 0 ? 'printed nothing' : `exited ${r.status ?? r.signal}`}${said ? `: ${said}` : ''}`);
+    note?.(`${cmd} ${r.error ? `didn't start (${r.error.message})` : r.status === 0 ? 'printed nothing' : `exited ${r.status ?? r.signal!}`}${said ? `: ${said}` : ''}`);
     return null;
   };
   try {
@@ -408,17 +408,17 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
       // A file outliving its agent, whose process id now belongs to an unrelated ancestor, is stale.
       const parent = chain[i + 1]?.pid;
       if (parent !== undefined && parent !== j.parent) {
-        skip(`${file} names parent ${j.parent}, but process ${pid}'s parent is ${parent}: left over from an earlier run, ignoring it`);
+        skip(`${file} names parent ${j.parent!}, but process ${pid}'s parent is ${parent}: left over from an earlier run, ignoring it`);
         continue;
       }
       // Where the chain stops, the parent can't be compared: the Shadowlap command that wrote the
       // file must at least still be running, or the file outlived it.
       if (parent === undefined && !alive(j.parent!)) {
-        skip(`${file} was written by process ${j.parent}, which has ended: left over from an earlier run, ignoring it`);
+        skip(`${file} was written by process ${j.parent!}, which has ended: left over from an earlier run, ignoring it`);
         continue;
       }
       if (!isLoopbackUrl(j.url!)) {
-        const answer = refuse(`${file} points at ${j.url}, which is not this machine`);
+        const answer = refuse(`${file} points at ${j.url!}, which is not this machine`);
         if (answer) return answer;
         continue;
       }

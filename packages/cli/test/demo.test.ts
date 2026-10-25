@@ -59,7 +59,7 @@ describe('shadowlap demo', () => {
     expect(done, r.out).not.toBeNull();
     expect(Number(done![1])).toBeLessThan(60);
     // Its folder is gone with it.
-    const dir = /Working in (.+), a git repository removed at the end/.exec(r.out)![1]!;
+    const dir = /Working in (.+), a git repository removed at the end/.exec(r.out)![1];
     expect(existsSync(dir)).toBe(false);
   }, 180_000);
 

@@ -54,7 +54,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
       child.stdout?.off('data', push);
       child.stderr?.off('data', push);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one set of listeners for the child's life: running again for a new onExit would drop the line it holds and add a second exit listener
   }, [child]);
 
   useInput(

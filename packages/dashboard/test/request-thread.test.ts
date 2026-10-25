@@ -33,7 +33,7 @@ beforeAll(async () => {
   id.fork = addRun(store, { parent: id.rec, startedAt: NOW - HOUR, divergence: 3, calls: 'rrl' });
   // A blame of the recording whose probes' attempts were the fork.
   const report = blameReport(id.rec);
-  for (const p of report.probes) p.attempts = p.attempts.map((a) => ({ ...a, runId: id.fork! }));
+  for (const p of report.probes) p.attempts = p.attempts.map((a) => ({ ...a, runId: id.fork }));
   id.fix = recordBlame(store, { runId: id.rec, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW }).fix.fixId;
   // Actions on: no job here gets as far as running the CLI.
   dash = await startDashboard({ store, dbPath, port: 0, spawnCli: () => { throw new Error('no job runs the CLI in this test'); } });
@@ -65,10 +65,10 @@ describe('what the server’s own thread reads', () => {
       expect(read.mock.calls.filter(([, range]) => !range || (range.only === undefined && range.limit === undefined))).toEqual([]);
       read.mockRestore();
       // And they answer as the read models do, worked out here.
-      expect(differences.body).toEqual(JSON.parse(JSON.stringify({ differences: forkDifferences(store, id.fork!) })));
-      expect(groups.body).toEqual(JSON.parse(JSON.stringify(fixAttemptGroups(store, id.fix!))));
+      expect(differences.body).toEqual(JSON.parse(JSON.stringify({ differences: forkDifferences(store, id.fork) })));
+      expect(groups.body).toEqual(JSON.parse(JSON.stringify(fixAttemptGroups(store, id.fix))));
       expect(feed.body).toEqual(JSON.parse(JSON.stringify(activity(store, { limit: 20, before: null }))));
-      expect(json.body).toEqual(JSON.parse(JSON.stringify(showRunJson(store, id.rec!))));
+      expect(json.body).toEqual(JSON.parse(JSON.stringify(showRunJson(store, id.rec))));
       expect(offers.body).toMatchObject({ runId: id.rec });
     } finally {
       read.mockRestore();
@@ -84,10 +84,10 @@ describe('what the server’s own thread reads', () => {
   it('reads the one call a write names, not the run’s every call', async () => {
     const read = vi.spyOn(store, 'getCalls');
     try {
-      expect(actionArgs(store, id.rec!, 2, 'no-such-action', undefined)).toHaveProperty('error');
-      expect(actionArgs(store, id.rec!, 9, 'no-such-action', undefined)).toEqual({ error: `no call #9 in run ${id.rec}` });
-      expect(addNote(store, id.rec!, 2, 'checked by hand')).toEqual({ notes: [expect.objectContaining({ callNo: 2, text: 'checked by hand' })] });
-      expect(addNote(store, id.rec!, 9, 'no such call')).toMatchObject({ status: 404 });
+      expect(actionArgs(store, id.rec, 2, 'no-such-action', undefined)).toHaveProperty('error');
+      expect(actionArgs(store, id.rec, 9, 'no-such-action', undefined)).toEqual({ error: `no call #9 in run ${id.rec}` });
+      expect(addNote(store, id.rec, 2, 'checked by hand')).toEqual({ notes: [expect.objectContaining({ callNo: 2, text: 'checked by hand' })] });
+      expect(addNote(store, id.rec, 9, 'no such call')).toMatchObject({ status: 404 });
       // Edit and fork: the call it overrides read, then the upload it names found missing.
       const res = await fetch(`${dash.url}/api/jobs`, { method: 'POST', headers: { 'x-shadowlap-token': dash.token, 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'override', runId: id.rec, callNo: 2, uploadId: 'up_missing' }) });
       expect(res.status, await res.clone().text()).toBe(400);

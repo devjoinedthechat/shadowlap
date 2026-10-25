@@ -95,8 +95,8 @@ describe('push', () => {
     const b = machine(remote, 'sam@northwind.example');
     await pull(b);
     const [pulled] = b.store.getCalls(run.runId);
-    expect(pulled!.meta.query).toBe('api-version=2024-10-21');
-    expect(pulled!.end!.meta.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': '<CREDENTIAL>' });
+    expect(pulled.meta.query).toBe('api-version=2024-10-21');
+    expect(pulled.end!.meta.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': '<CREDENTIAL>' });
   });
 
   it('names the CI provider with ci as the author, in the run and the index', async () => {
@@ -118,7 +118,7 @@ describe('push', () => {
     await push({ ...dana, ci: null }, { runIds: [mine.runId] });
     expect(dana.store.getRun(mine.runId)!.meta?.ci).toBeUndefined();
     const segment = Buffer.from(JSON.stringify({ format: INDEX_FORMAT, version: LAYOUT_VERSION, at: 1, by: 'ci', runs: [{ runId: r.runId, parentRunId: null, startedAt: 1, metaHash: 'a'.repeat(64), author: 'ci', ci: 'GitHub Actions\u001b[2J' }] }));
-    expect(parseSegment(segment, 'index/x.json').runs[0]!.ci).toBeNull();
+    expect(parseSegment(segment, 'index/x.json').runs[0].ci).toBeNull();
   });
 
   it("gives a run made here the pusher's name, and leaves one that came from elsewhere alone", async () => {
@@ -197,7 +197,7 @@ describe('blobs this machine pushed before', () => {
     const fork = record(a.store, 'fork', { parent: parent.runId });
     await push(a, { all: true });
     // A rule removed one of the parent's own blobs, and the fork's calls.
-    const own = a.store.getCalls(parent.runId)[0]!.end!.responseRef!;
+    const own = a.store.getCalls(parent.runId)[0].end!.responseRef!;
     remote.objects.delete(keys.blob(own));
     remote.objects.delete(keys.calls(fork.runId));
     const b = machine(remote, 'maya@northwind.example');
@@ -466,7 +466,7 @@ describe('pull', () => {
     const r = record(a.store, 'tamper');
     await push(a, { all: true });
     remote.objects.set('index/00000000000000000000000000.json', { body: Buffer.from('not json'), version: 'x', contentType: 'application/json' });
-    const blob = remote.keysUnder('blobs/')[0]!;
+    const blob = remote.keysUnder('blobs/')[0];
     remote.objects.get(blob)!.body = gzipSync(Buffer.from('something else'));
     const lines: string[] = [];
     const b = { ...machine(remote, 'ravi@northwind.example'), log: (l: string) => lines.push(l) };
@@ -938,7 +938,7 @@ describe('the index', () => {
     const a = machine(remote, 'dana@northwind.example');
     const r = record(a.store, 'from a newer Shadowlap');
     await push(a, { all: true });
-    const key = remote.keysUnder('index/')[0]!;
+    const key = remote.keysUnder('index/')[0];
     const body = remote.objects.get(key)!.body;
     // As a newer Shadowlap would write it.
     remote.objects.get(key)!.body = Buffer.from(JSON.stringify({ ...JSON.parse(body.toString()), version: 2 }));

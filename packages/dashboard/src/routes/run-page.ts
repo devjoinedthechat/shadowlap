@@ -21,7 +21,7 @@ import type { GoldenSource } from '../tests.js';
  * the Tests screen's routes need too): Find the commit then bisects a test replay's golden.
  */
 function goldensOf(ctx: RouteContext): GoldenSource[] {
-  const fn = (ctx.options as { goldens?: unknown }).goldens;
+  const fn = (ctx.options as { goldens?: (() => unknown) | undefined }).goldens;
   if (typeof fn !== 'function') return [];
   try {
     const out: unknown = fn();
@@ -54,7 +54,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/runs/:id/offers', async (r) => {
     // A config that can't be read stops the copies when they run, with its reason; it doesn't stop the page.
-    let redact: readonly Normalizer[] = [];
+    let redact: readonly Normalizer[];
     try {
       redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     } catch {
@@ -71,7 +71,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
     const head = ctx.project ? await projectHead(ctx.project.path) : null;
     const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head });
-    if (!offers) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!offers) throw new HttpError(404, `no run ${r.params.id!}`);
     // Find the commit offers only commits this checkout has: a teammate's pulled run names theirs.
     r.tagged(offers.bisect ? { ...offers, bisect: await choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
   });

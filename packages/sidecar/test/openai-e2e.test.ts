@@ -110,9 +110,9 @@ describe('OpenAI-compatible provider', () => {
     expect(summary.byKind).toMatchObject({ api: 3, tool: 2 });
     expect(mock.requests).toHaveLength(3);
     const api = store.getCalls(run.runId).filter((c) => c.kind === 'api');
-    expect(api[0]!.name).toBe('POST /v1/chat/completions');
+    expect(api[0].name).toBe('POST /v1/chat/completions');
     expect(api.every((c) => (c.end?.meta.usage?.inputTokens ?? 0) > 0)).toBe(true);
-    expect(mock.requests[0]!.headers.authorization).toBe('Bearer sk-test'); // forwarded upstream…
+    expect(mock.requests[0].headers.authorization).toBe('Bearer sk-test'); // forwarded upstream…
     expect(JSON.stringify(store.getCalls(run.runId))).not.toContain('sk-test'); // …never stored
   });
 

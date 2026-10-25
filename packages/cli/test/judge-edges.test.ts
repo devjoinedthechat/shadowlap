@@ -82,7 +82,7 @@ beforeAll(async () => {
       },
       (ctx) => {
         const variant = /Variant (\w+)\./.exec(JSON.stringify(ctx.request.system ?? ''))?.[1] ?? 'a';
-        return { message: message([text((answers[variant] ?? answers.a!)())], { stop_reason: 'end_turn', model: 'claude-opus-5', input_tokens: 50, output_tokens: 10 }) };
+        return { message: message([text((answers[variant] ?? answers.a)())], { stop_reason: 'end_turn', model: 'claude-opus-5', input_tokens: 50, output_tokens: 10 }) };
       },
     ),
   });
@@ -141,7 +141,7 @@ type Result = {
 async function test(golden: string, extra: string[] = [], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; result: Result }> {
   const report = join(work, `report-${++counter}.json`);
   const r = await shadowlap(['test', golden, '--json', report, ...extra], env);
-  return { ...r, result: (JSON.parse(readFileSync(report, 'utf8')) as { results: Result[] }).results[0]! };
+  return { ...r, result: (JSON.parse(readFileSync(report, 'utf8')) as { results: Result[] }).results[0] };
 }
 
 const judge = (over: Record<string, unknown>) => ({ name: 'issued', question: 'Did the agent issue the refund?', of: 'answer', model: 'claude-haiku-4-5', ...over });
@@ -318,12 +318,12 @@ describe('an attempt a judge could not answer', () => {
     // after it could say more, so verify stops there and the change is not settled.
     expect(v.verdict).toBe('incomplete');
     expect(v.runs[0]).toMatchObject({ outcome: 'inconclusive', passes: 0, attempts: 1 });
-    expect(v.runs[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
-    expect(v.runs[0]!.undecided).toMatch(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/);
+    expect(v.runs[0].runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    expect(v.runs[0].undecided).toMatch(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/);
     expect(v.reasons).toEqual([expect.stringMatching(new RegExp(`^good run ${rec.slice(0, 10)} inconclusive: attempt 1 could not be judged: judge "issued" answers yes`))]);
     expect(r.code).toBe(3);
     // shadowlap show on the attempt says so too.
-    expect((await shadowlap(['show', v.runs[0]!.runs[0]!.runId])).stdout).toContain('an attempt of shadowlap verify, replaying a good run: inconclusive, a check could not be decided');
+    expect((await shadowlap(['show', v.runs[0].runs[0].runId])).stdout).toContain('an attempt of shadowlap verify, replaying a good run: inconclusive, a check could not be decided');
     const text = await shadowlap(['verify', '--keeps', rec, '--expect', unanswered, '--attempts', '3', '--passes', '3', '--set', 'max_tokens=99'], { VARIANT: 'plain' });
     expect(text.out).toMatch(/attempt 1 {2}\? judge "issued" answers yes, but it is inconclusive: not judged/);
     expect(text.out).toContain('! Incomplete');
@@ -361,7 +361,7 @@ describe('a gated golden whose attempt a judge could not answer', () => {
     expect(JSON.stringify(t.result)).not.toContain('undecided');
     const store = Store.open(join(work, '.shadowlap', 'shadowlap.db'));
     try {
-      const kept = store.listTestResults({ golden: 'goldens/twice', limit: 1 })[0]!;
+      const kept = store.listTestResults({ golden: 'goldens/twice', limit: 1 })[0];
       expect(kept.data).toMatchObject({ verdict: 'inconclusive', attempts: { total: 2, passed: 1, inconclusive: 1 } });
       expect(kept.data?.gate).toBeUndefined();
     } finally {
@@ -420,7 +420,7 @@ describe('a blame probe whose attempt a judge could not answer', () => {
     expect(blame).toMatchObject({ outcome: 'unrescuable', confidence: 'low' });
     expect(blame.probes).toEqual([expect.objectContaining({ callNo: 1, rescued: false, decision: 'inconclusive', undecided: expect.stringMatching(/^judge "issued" answers yes, but it is inconclusive: not judged: the judge's call failed: HTTP 400/) })]);
     // It stopped at the attempt it could not judge, which is no failure.
-    expect(blame.probes[0]!.runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
+    expect(blame.probes[0].runs).toEqual([expect.objectContaining({ passed: false, verdict: 'inconclusive' })]);
     const text = await shadowlap(['blame', rec, '--expect', expect_, '--attempts', '2', '--passes', '1', '--concurrency', '1'], { VARIANT: 'n' });
     expect(text.out).toContain('? Not settled from the first model call');
     expect(text.out).toContain('Resampled from the first model call, #1: an attempt could not be judged: judge "issued" answers yes, but it is inconclusive');

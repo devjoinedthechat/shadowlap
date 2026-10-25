@@ -88,7 +88,7 @@ describe('a fork of a 1,000-call run', () => {
 
       // The second call carries its conversation with its last turn changed: the fork.
       const changed = request(2);
-      changed.messages[1]!.content = 'changed';
+      changed.messages[1].content = 'changed';
       const stall = watchStalls();
       const started = performance.now();
       const answer = (await (await send(changed)).json()) as { id: string };

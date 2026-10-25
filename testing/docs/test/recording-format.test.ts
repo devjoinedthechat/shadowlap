@@ -31,11 +31,11 @@ function listed(start: string): string[] {
   const line = spec.split('\n').find((l) => l.startsWith(start));
   if (!line) throw new Error(`no row starting ${start}`);
   const cells = line.split(' | ');
-  return [...new Set([...cells.at(-1)!.matchAll(/`([^`]+)`/g)].map((m) => m[1]!))];
+  return [...new Set([...cells.at(-1)!.matchAll(/`([^`]+)`/g)].map((m) => m[1]))];
 }
 
 /** Every fenced block's text. */
-const blocks = [...spec.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((m) => m[1]!.replace(/\n$/, ''));
+const blocks = [...spec.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((m) => m[1].replace(/\n$/, ''));
 
 const [run] = (JSON.parse(example.files.get('run.json')!) as { runs: Array<Record<string, unknown>> }).runs;
 const [apiCall, toolCall] = example.files.get('calls.jsonl')!.trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -75,15 +75,15 @@ describe('the recording format', () => {
       ['| `effect` | no |', ['pure', 'read', 'write', 'null'], (v) => validateCall({ ...toolCall, effect: v === 'null' ? null : v }, 'call')],
       ['| `mode` | yes |', ['record', 'replay'], (v) => validateRun({ ...run, mode: v }, 'run')],
       ['| `status` | yes |', ['running', 'completed', 'failed', 'crashed'], (v) => validateRun({ ...run, status: v }, 'run')],
-      ['| `outcome` |', ['ok', 'error'], (v) => validateCall({ ...apiCall, end: { ...(apiCall!.end as object), outcome: v } }, 'call')],
+      ['| `outcome` |', ['ok', 'error'], (v) => validateCall({ ...apiCall, end: { ...(apiCall.end as object), outcome: v } }, 'call')],
     ];
     for (const [row, values, check] of fields) {
       expect(listed(row), row).toEqual(values);
       for (const v of values) expect(accepts(() => check(v)), `${row} ${v}`).toBe(true);
       expect(accepts(() => check('anything-else')), `${row} takes a value the page doesn't list`).toBe(false);
     }
-    const types = /`type` \(([^)]+)\)/.exec(spec.split('\n').find((l) => l.startsWith('| `divergence` |'))!)![1]!;
-    const divergences = [...types.matchAll(/`([^`]+)`/g)].map((m) => m[1]!);
+    const types = /`type` \(([^)]+)\)/.exec(spec.split('\n').find((l) => l.startsWith('| `divergence` |'))!)![1];
+    const divergences = [...types.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
     expect(divergences).toEqual(['request_changed', 'new_call', 'forced', 'beyond_recording', 'ended_early']);
     const divergence = (type: string) => validateRun({ ...run, divergence: { type, callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 } }, 'run');
     for (const type of divergences) expect(accepts(() => divergence(type)), type).toBe(true);
@@ -97,8 +97,8 @@ describe('the recording format', () => {
     const table = new Map<string, string[]>();
     for (const line of spec.slice(spec.indexOf('| Provider | Fingerprint headers |')).split('\n').slice(2)) {
       if (!line.startsWith('|')) break;
-      const [ids, headers] = line.split(' | ').map((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]!));
-      for (const id of ids!) table.set(id, headers!);
+      const [ids, headers] = line.split(' | ').map((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]));
+      for (const id of ids) table.set(id, headers);
     }
     for (const p of [...providers, ...hostedProviders]) expect(table.get(p.id), p.id).toEqual([...p.fingerprintHeaders]);
   });
@@ -156,7 +156,7 @@ describe('its worked example', () => {
 function listBlock(words: string): unknown {
   const m = /^( *)```json\n([\s\S]*?)^ *```/m.exec(spec.slice(spec.indexOf(words)));
   if (!m) throw new Error(`no JSON block after ${words}`);
-  return JSON.parse(m[2]!.split('\n').map((l) => l.slice(m[1]!.length)).join('\n'));
+  return JSON.parse(m[2].split('\n').map((l) => l.slice(m[1].length)).join('\n'));
 }
 /** The page's top-level JSON block that starts with `start`, parsed. */
 const shown = (start: string): Record<string, unknown> => JSON.parse(blocks.find((b) => b.startsWith(start))!) as Record<string, unknown>;
@@ -228,7 +228,7 @@ describe('the page', () => {
   });
 
   it('opens with what a recording is, so that is what a page about it is described by', () => {
-    const lede = spec.split('\n\n')[1]!;
+    const lede = spec.split('\n\n')[1];
     expect(lede).toMatch(/^A recording is everything an agent run said to the world and heard back/);
   });
 });

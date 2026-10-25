@@ -32,8 +32,8 @@ function parse(xml: string): { name: string; attrs: Record<string, string>; text
     if (!open) throw new Error(`not a start tag at ${i}: ${JSON.stringify(xml.slice(i, i + 40))}`);
     i += open[0].length;
     const attrs: Record<string, string> = {};
-    for (const m of open[2]!.matchAll(/([A-Za-z][\w-]*)="([^"]*)"/g)) attrs[m[1]!] = entity(m[2]!, `attribute ${m[1]}`);
-    const el: El = { name: open[1]!, attrs, text: '', children: [] };
+    for (const m of open[2].matchAll(/([A-Za-z][\w-]*)="([^"]*)"/g)) attrs[m[1]] = entity(m[2], `attribute ${m[1]}`);
+    const el: El = { name: open[1], attrs, text: '', children: [] };
     if (open[3]) return el;
     for (;;) {
       if (xml.startsWith('<![CDATA[', i)) {
@@ -70,7 +70,7 @@ describe('junitXml', () => {
     const doc = parse(xml);
     expect(doc.attrs).toMatchObject({ tests: '2', failures: '0', skipped: '1' });
     const [skipped] = doc.children as Array<{ children: Array<{ name: string; attrs: Record<string, string> }> }>;
-    expect(skipped!.children[0]).toMatchObject({ name: 'skipped', attrs: { message: 'inconclusive · 33 of 40 · rate 0.68 to 0.91 (95%) & so on' } });
+    expect(skipped.children[0]).toMatchObject({ name: 'skipped', attrs: { message: 'inconclusive · 33 of 40 · rate 0.68 to 0.91 (95%) & so on' } });
     // A suite with nothing skipped says nothing about it, as before.
     expect(junitXml('shadowlap', [{ name: 'triage', classname: 'shadowlap.replay', timeSeconds: 1 }])).not.toContain('skipped');
   });
@@ -92,18 +92,18 @@ describe('junitXml', () => {
     expect(doc.attrs).toMatchObject({ tests: '2', failures: '1' });
     const [ok, failed] = doc.children as Array<{ attrs: Record<string, string>; children: Array<{ name: string; attrs: Record<string, string>; text: string }> }>;
     // What the agent printed stays readable: each control character shows as its escape, as the Markdown report shows it.
-    expect(ok!.attrs).toMatchObject({ name: 'goldens/01M584ZMKN', classname: 'shadowlap.\\x1b[1mgoldens' });
-    expect(ok!.children[0]).toMatchObject({ name: 'system-out', text: '\\x1b[32mINFO\\x1b[0m starting\n\\x07bell\\x00nul\ttab\nend' });
-    expect(failed!.attrs.name).toBe('goldens/refund\\x1b[31m');
-    const failure = failed!.children.find((c) => c.name === 'failure')!;
+    expect(ok.attrs).toMatchObject({ name: 'goldens/01M584ZMKN', classname: 'shadowlap.\\x1b[1mgoldens' });
+    expect(ok.children[0]).toMatchObject({ name: 'system-out', text: '\\x1b[32mINFO\\x1b[0m starting\n\\x07bell\\x00nul\ttab\nend' });
+    expect(failed.attrs.name).toBe('goldens/refund\\x1b[31m');
+    const failure = failed.children.find((c) => c.name === 'failure')!;
     expect(failure.attrs.message).toBe('diverged at \\x1b[33m#3\\x1b[0m & <tool>');
     expect(failure.text).toContain('divergence\\x1b[0m ]]> and more');
     // What XML has no character for at all becomes the replacement character.
-    expect(failed!.children.find((c) => c.name === 'system-out')!.text).toBe('lone surrogate � and �');
+    expect(failed.children.find((c) => c.name === 'system-out')!.text).toBe('lone surrogate � and �');
   });
 
   it('writes plain output as it is', () => {
     const doc = parse(junitXml('shadowlap', [{ name: 'goldens/a', classname: 'shadowlap.goldens', timeSeconds: 0, systemOut: 'ok "quoted" & <b>\n' }]));
-    expect((doc.children[0] as { children: Array<{ text: string }> }).children[0]!.text).toBe('ok "quoted" & <b>\n');
+    expect((doc.children[0] as { children: Array<{ text: string }> }).children[0].text).toBe('ok "quoted" & <b>\n');
   });
 });
