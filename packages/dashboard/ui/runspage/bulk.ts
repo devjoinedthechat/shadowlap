@@ -87,7 +87,7 @@ export function packOff(runs: number): string | null {
 export function packFolders(ids: readonly string[], dir: string): Array<{ runId: string; folder: string }> {
   const parent = dir.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   const shorts = ids.map((id) => id.slice(0, 10).toLowerCase());
-  return ids.map((runId, i) => ({ runId, folder: `${parent}/${shorts.indexOf(shorts[i]!) === shorts.lastIndexOf(shorts[i]!) ? shorts[i] : runId.toLowerCase()}` }));
+  return ids.map((runId, i) => ({ runId, folder: `${parent}/${shorts.indexOf(shorts[i]!) === shorts.lastIndexOf(shorts[i]!) ? shorts[i]! : runId.toLowerCase()}` }));
 }
 
 /**
@@ -99,7 +99,7 @@ export function packCommand(ids: readonly string[], dir: string): { shown: strin
   const lines = packFolders(ids, dir).map(({ runId, folder }) => jobCommand(['pack', shortId(runId), folder]));
   const full = lines.join(' && ');
   if (lines.length <= 1) return { shown: full, full };
-  return { shown: `${lines[0]} … and\u00a0${num(lines.length - 1)}\u00a0more, one per run`, full };
+  return { shown: `${lines[0]!} … and\u00a0${num(lines.length - 1)}\u00a0more, one per run`, full };
 }
 
 /** The most full ids the bulk routes take in one request (BULK_MAX in src/runs-list.ts): more go in batches. */

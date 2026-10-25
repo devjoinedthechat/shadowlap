@@ -533,9 +533,9 @@ function referenceIn(value: unknown, where: string): Reference | null {
   if (!m) return null;
   let path: Reference['path'];
   try {
-    path = parsePath(`$${m[3]}`);
+    path = parsePath(`$${m[3]!}`);
   } catch (err) {
-    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]}.${m[2]}.total or @${m[1]}.${m[2]}.items[0].sku, or as text, @${value}`, { cause: err });
+    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
   }
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
 }
@@ -546,7 +546,7 @@ const literal = (value: unknown): unknown => (typeof value === 'string' && value
 /** An operator's value: a reference or a literal. A reference with `*` names several values, which only `in` can take. */
 function parseOperand(value: unknown, where: string, op: Operator): Operand {
   const ref = referenceIn(value, where);
-  if (ref && hasWildcard(ref)) throw new Error(`${where}: ${value} names several values (it has *), which only "in" can compare with`);
+  if (ref && hasWildcard(ref)) throw new Error(`${where}: @${ref.text} names several values (it has *), which only "in" can compare with`);
   if (ref) return { ref };
   const v = literal(value);
   if (op === '<' || op === '<=' || op === '>' || op === '>=') {
@@ -681,8 +681,8 @@ function clause(m: Extract<Matcher, { op: keyof typeof PHRASE }>, subject: strin
   return `${subject} ${word} ${operandText(m.operand)}`;
 }
 
-const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
-const orList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`);
+const andList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
+const orList = (items: readonly string[]) => (items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)!}`);
 
 /** `every issue_refund call: after lookup_order, amount <= lookup_order.result.total`. */
 export function callRuleLabel(rule: CallRule): string {

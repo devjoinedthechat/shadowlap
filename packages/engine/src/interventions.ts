@@ -346,7 +346,7 @@ export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs,
     if (shape === 'gemini') return { refused: 'Gemini takes system instructions only in systemInstruction, ahead of the conversation, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     if (shape === 'converse') return { refused: 'Bedrock Converse takes system prompts only in system, ahead of the conversation, and its messages are user and assistant turns, so there is no system message to add at a later turn. Inject it into the user turn instead: --inject-as user (the default)' };
     const strict = noLateSystemMessage(model);
-    if (strict) return { refused: `${strict} (${model}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
+    if (strict) return { refused: `${strict} (${model!}) takes no system message after the conversation has started, and the provider would answer the request with an error. Inject it into the user turn instead: --inject-as user (the default)` };
     return { mode: 'insert', index: turns.length, prefix: prefixHash(turns, turns.length) };
   }
   // OpenAI chat and Responses carry tool output as turns of their own: after them comes a new user turn.

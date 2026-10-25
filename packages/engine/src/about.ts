@@ -172,7 +172,7 @@ const TRACE_STORES: Readonly<Record<string, string>> = { langfuse: 'Langfuse', l
 export function sourceWords(from: string): string {
   const s = oneLine(from);
   const trace = /^(langfuse|langsmith|phoenix|logfire):(.+)$/i.exec(s);
-  if (trace) return `${TRACE_STORES[trace[1]!.toLowerCase()]} trace ${trace[2]!.trim()}`;
+  if (trace) return `${TRACE_STORES[trace[1]!.toLowerCase()]!} trace ${trace[2]!.trim()}`;
   return s
     .split(/,\s*/)
     .map((part) => part.split(/[\\/]/).filter(Boolean).pop() ?? part)

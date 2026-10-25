@@ -202,7 +202,7 @@ export async function startMockAnthropic(opts: MockOptions): Promise<MockServer>
       }
       if (req.method !== 'POST' || url.pathname !== '/v1/messages') {
         res.writeHead(404, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: `mock: no route ${req.method} ${url.pathname}` } }));
+        res.end(JSON.stringify({ type: 'error', error: { type: 'not_found_error', message: `mock: no route ${req.method!} ${url.pathname}` } }));
         return;
       }
       const raw = await readBody(req);

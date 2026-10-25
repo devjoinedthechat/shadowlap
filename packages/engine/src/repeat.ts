@@ -168,7 +168,7 @@ export function formatRepeats(r: RepeatReport, p: Palette = plain): string {
   const where =
     r.forkedAt.length === 1
       ? forks.length
-        ? `each forked at call ${forks[0]}`
+        ? `each forked at call ${forks[0]!}`
         : 'none forked'
       : `forked at calls ${r.forkedAt.map((f) => (f === null ? 'none' : f)).join(', ')}: the prefix is not deterministic`;
   // An attempt that stopped before its recording did forked nowhere, yet is no clean replay either.

@@ -40,7 +40,7 @@ const sameDay = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.g
 /** When a fix was opened: Sep 30, 16:20 (local time). */
 export function fixStamp(ms: number): string {
   const d = new Date(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** A later moment beside an earlier one: only its time on the same day (17:40), else its date too. */
@@ -87,7 +87,7 @@ export function wholeParts(text: string): Array<{ text: string; whole: boolean }
   let at = 0;
   for (let m = re.exec(t); m; m = re.exec(t)) {
     if (m.index > at) out.push({ text: t.slice(at, m.index), whole: false });
-    out.push({ text: `${m[1]}${m[2]}\u00a0${m[3]!.replace(' ', '\u00a0')}`, whole: true });
+    out.push({ text: `${m[1]!}${m[2]!}\u00a0${m[3]!.replace(' ', '\u00a0')}`, whole: true });
     at = m.index + m[0].length;
   }
   if (at < t.length) out.push({ text: t.slice(at), whole: false });
@@ -198,7 +198,7 @@ export function appliedButton(apply: Pick<NonNullable<FixDetail['actions']['appl
  */
 export function applyText(apply: Pick<NonNullable<FixDetail['actions']['apply']>, 'files' | 'pulled'>): string {
   const files = apply.files;
-  const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)}`;
+  const named = !files.length ? 'your files' : files.length === 1 ? files[0]! : `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}`;
   return apply.pulled
     ? `This changes your working tree: the patch below goes into ${named} with git apply. It came from the team store, so nothing here runs it: the recordings the fixed code made stay on the machine that ran the repair, and your goldens aren't replayed against it. Read it first; once it is in and is what you meant, check your goldens with shadowlap test.`
     : `This changes your working tree: the patch below goes into ${named} with git apply, the recordings the fixed code made are copied into goldens/, and shadowlap test replays them. Your other goldens are replayed offline, to name any the change makes diverge. Review the change before you commit it.`;
@@ -809,7 +809,7 @@ export function updateOutdatedAsk(outdated: readonly OutdatedGolden[]): { title:
   const one = names.length === 1;
   const where = [...new Set(outdated.map((g) => `#${g.callNo} ${g.path}`))];
   return {
-    title: one ? `Update ${names[0]!.split('/').pop()}?` : `Update ${names.length} goldens?`,
+    title: one ? `Update ${names[0]!.split('/').pop()!}?` : `Update ${names.length} goldens?`,
     text: `${one ? 'It diverges' : 'They diverge'} on what the patch changed (${where.slice(0, 2).join(', ')}${where.length > 2 ? ', …' : ''}). Use this when the change was intended: ${one ? 'it is' : 'each is'} re-recorded live with writes stubbed, ${one ? 'its' : 'each one’s'} checks run, and the new recording replaces the old one in your working tree only if they pass. You review the change in your pull request.`,
     command: commandText(['test', ...names, '--update']),
     fields: one ? { golden: names[0] } : { goldens: names },

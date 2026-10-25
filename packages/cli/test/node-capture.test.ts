@@ -141,7 +141,7 @@ describe('fetch, captured, answered as fetch answers', () => {
   beforeAll(async () => {
     // Stands in for the sidecar: the answers fetch must make of a gzip body, a redirect, a slow body and a reset.
     fake = createServer((req: IncomingMessage, res: ServerResponse) => {
-      seen.push(`${req.method} ${req.url} ${req.headers['x-shadowlap-upstream'] ?? ''} ${req.headers['accept-encoding'] ?? ''} ${req.headers['user-agent'] ?? ''}`);
+      seen.push(`${req.method} ${req.url} ${String(req.headers['x-shadowlap-upstream'] ?? '')} ${req.headers['accept-encoding'] ?? ''} ${req.headers['user-agent'] ?? ''}`);
       req.resume();
       const path = req.url!.replace(/^\/t\/token\/r\/R1\/anthropic/, '');
       if (path === '/v1/gzip') res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync('{"ok":"unzipped"}'));
@@ -197,7 +197,7 @@ describe("the OpenAI SDK's Azure client, with OPENAI_BASE_URL pointed at the sid
     let provider: Server | null = null;
     const asked: string[] = [];
     provider = createServer((req, res) => {
-      asked.push(`${req.method} ${req.url} ${req.headers['api-key'] ?? req.headers.authorization ?? ''}`);
+      asked.push(`${req.method} ${req.url} ${String(req.headers['api-key'] ?? req.headers.authorization ?? '')}`);
       req.resume();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 'c1', object: 'chat.completion', created: 1, model: 'gpt', choices: [{ index: 0, message: { role: 'assistant', content: 'answered' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
     });

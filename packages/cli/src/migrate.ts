@@ -196,8 +196,8 @@ export function inPlaceDiff(path: string, before: string, after: string): string
     lines.push(`@@ -${start + 1},${stop - start + 1} +${start + 1},${stop - start + 1} @@`);
     for (let i = start; i <= stop; i++) {
       const noEol = i === count - 1 && !before.endsWith('\n');
-      if (a[i] === b[i]) lines.push(` ${a[i]}`);
-      else lines.push(`-${a[i]}`, ...(noEol ? ['\\ No newline at end of file'] : []), `+${b[i]}`);
+      if (a[i] === b[i]) lines.push(` ${a[i]!}`);
+      else lines.push(`-${a[i]!}`, ...(noEol ? ['\\ No newline at end of file'] : []), `+${b[i]!}`);
       if (noEol && a[i] === b[i]) lines.push('\\ No newline at end of file');
     }
   }
@@ -306,7 +306,7 @@ export function remedyText(f: DecisionRemedy, code: (s: string) => string = (s) 
 
 /** The pull request body: the four blocks, short enough to read on the pull request. */
 export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>): { title: string; body: string } {
-  const title = r.from.length === 1 ? `Switch ${r.from[0]} to ${r.to}` : `Switch the model to ${r.to}`;
+  const title = r.from.length === 1 ? `Switch ${r.from[0]!} to ${r.to}` : `Switch the model to ${r.to}`;
   const runs = r.decisions.runs.length;
   const tick = (s: string) => `\`${s}\``;
   const lines: string[] = [`## ${title}`, '', `Checked with \`${r.command}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a write, stop or judged change verified end to end.`];
@@ -392,7 +392,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const steps = decisions.runs.flatMap((r) =>
     r.decisions
       .filter((x) => x.majority !== null && x.majority <= 2)
-      .map((x) => ({ runId: r.runId, golden: r.golden, callNo: x.callNo, rank: x.rank!, detail: x.changes[0]?.detail ?? RANK_LABELS[x.rank!], recorded: decisionLine(x.recorded, 60), now: decisionLine(x.now, 60), arguments: x.changes.filter((c) => c.kind === 'write-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool}.${d}`)) })),
+      .map((x) => ({ runId: r.runId, golden: r.golden, callNo: x.callNo, rank: x.rank!, detail: x.changes[0]?.detail ?? RANK_LABELS[x.rank!], recorded: decisionLine(x.recorded, 60), now: decisionLine(x.now, 60), arguments: x.changes.filter((c) => c.kind === 'write-arguments').flatMap((c) => argsDelta(c.before, c.after).map((d) => `${c.tool!}.${d}`)) })),
   );
   const sum = (side: 'before' | 'after') => {
     const priced = decisions.runs.filter((r) => r.asked && r.cost[side] !== null);

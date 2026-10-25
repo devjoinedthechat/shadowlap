@@ -147,7 +147,7 @@ function McpBlock({ data, gone, onAdd }: { data: ToolsSettings; gone: boolean; o
       {data.mcp.effects.length ? (
         <div className="tchips mcpeffects">
           {data.mcp.effects.map((e) => (
-            <span key={e.tool} className={`tchip${e.effect === 'write' ? ' w' : ''}`} data-tip={tipText(e.error ?? `mcp.effects in the config sets ${e.tool} to ${e.effect}${e.seen ? '' : ' (not recorded yet)'}`)}>
+            <span key={e.tool} className={`tchip${e.effect === 'write' ? ' w' : ''}`} data-tip={tipText(e.error ?? `mcp.effects in the config sets ${e.tool} to ${e.effect!}${e.seen ? '' : ' (not recorded yet)'}`)}>
               <code>{e.tool}</code>
               <em>{e.effect ?? '?'}</em>
             </span>

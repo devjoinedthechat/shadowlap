@@ -38,7 +38,7 @@ export function metricItems(m: MetricInput): MetricItem[] {
   const n = m.counts;
   const unpriced = m.cost.spent === 0 && m.cost.unknownModels.length > 0;
   const by = m.spentBy ? ` · by ${m.spentBy}` : '';
-  const spent: MetricItem = m.capture ? [money(m.cost.captured), 'as captured'] : unpriced ? ['—', `spent${by} · no price for ${m.cost.unknownModels[0]}`] : [approx(m.cost.spent), `spent${by}`];
+  const spent: MetricItem = m.capture ? [money(m.cost.captured), 'as captured'] : unpriced ? ['—', `spent${by} · no price for ${m.cost.unknownModels[0]!}`] : [approx(m.cost.spent), `spent${by}`];
   const upstream: MetricItem = [m.upstreamRequests, m.upstreamRequests === 1 ? 'upstream request' : 'upstream requests'];
   const plain = !n.rep && !n.block && !n.stub && !n.inject && !n.over;
   // Calls an offline replay refused are "refused", as the design says; any other failure, "failed".

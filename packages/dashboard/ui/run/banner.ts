@@ -144,7 +144,7 @@ const replayedBefore = (n: number) => `${num(n)} ${n === 1 ? 'call' : 'calls'} r
 /** `#16`, `#15 and #16`, `#3, #9 and #16`. */
 function callList(nos: readonly number[]): string {
   const ns = nos.map((n) => `#${n}`);
-  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} and ${ns.at(-1)}` : (ns[0] ?? '');
+  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} and ${ns.at(-1)!}` : (ns[0] ?? '');
 }
 
 /**
@@ -222,7 +222,7 @@ export function flagWhy(iv: FlagView, call: BannerInput['flagCall'], forkName: s
 }
 
 function lostWhy(b: NonNullable<BannerInput['blame']>): string {
-  const where = b.modelCall ? `model call ${b.modelCall.k} of ${b.modelCall.m}` : `call #${b.callNo}`;
+  const where = b.modelCall ? `model call ${b.modelCall.k} of ${b.modelCall.m}` : `call #${b.callNo!}`;
   return `${where}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}${b.short ? ` · ${b.short}` : ''}`;
 }
 
@@ -367,7 +367,7 @@ export function fixCheckText(check: string, calls: readonly CheckCall[]): string
   const named = calls.filter((c) => c.kind === 'tool' && c.name === m[1]).length;
   const tools = [...new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name))];
   const more = m[3] && named > n ? `; ${num(named - n)} ${named - n === 1 ? 'call' : 'calls'} with other arguments` : !named && tools.length ? `; tools called: ${tools.join(', ')}` : '';
-  return `check failed: ${m[1]}${m[3] ? ` with ${m[3]}` : ''} called ${countText(range)}, but called ${countText({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}${more}`;
+  return `check failed: ${m[1]!}${m[3] ? ` with ${m[3]}` : ''} called ${countText(range)}, but called ${countText({ min: n, max: n })}${fenced ? ` (${fenced})` : ''}${more}`;
 }
 
 /**
@@ -394,7 +394,7 @@ const failedOne = (c: BannerInput['checks'][number]): boolean => !c.ok && c.stat
  * attempts it held in.
  */
 function checkText(c: BannerInput['checks'][number]): string {
-  const why = c.detail ? ` · ${c.detail.split(':')[0]}` : '';
+  const why = c.detail ? ` · ${c.detail.split(':')[0]!}` : '';
   if (c.status === 'not-applicable') return `${c.label} · not applicable${why}`;
   if (c.status === 'inconclusive') return `${c.label} · inconclusive${why}`;
   return `${c.label}${c.count !== undefined && c.of !== undefined ? ` · ${c.count} of ${c.of}` : ''}`;

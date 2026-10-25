@@ -136,7 +136,7 @@ const ASKS_SQL = `SELECT rowid AS at, run_id AS id, key, ask FROM run_asks WHERE
 
 /** What the asks kept for a run were worked out from: a finished run's never change. */
 const ASK_FORMAT = 'a1';
-export const askKeyOf = (r: Pick<IndexedRun, 'status' | 'endedAt' | 'calls'>): string => `${ASK_FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
+export const askKeyOf = (r: Pick<IndexedRun, 'status' | 'endedAt' | 'calls'>): string => `${ASK_FORMAT}|${r.status}|${String(r.endedAt)}|${r.calls}`;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);

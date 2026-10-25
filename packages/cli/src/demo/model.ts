@@ -153,7 +153,7 @@ export async function startScriptedModel(): Promise<ScriptedModel> {
           const content = repairer(body);
           return send(200, { id: `chatcmpl-scripted-${++ids}`, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: typeof body.model === 'string' ? body.model : SCRIPTED_REPAIRER, choices: [{ index: 0, message: { role: 'assistant', content, refusal: null }, finish_reason: 'stop' }], usage: { prompt_tokens: tokens(body.messages), completion_tokens: tokens(content), total_tokens: tokens(body.messages) + tokens(content) } });
         }
-        return send(404, { type: 'error', error: { type: 'not_found_error', message: `the scripted model has no ${req.method} ${url.pathname}` } });
+        return send(404, { type: 'error', error: { type: 'not_found_error', message: `the scripted model has no ${req.method!} ${url.pathname}` } });
       })
       .catch(() => {
         if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });

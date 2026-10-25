@@ -50,7 +50,7 @@ export function formatCount(n: number): string {
 
 const shortDate = (iso: string) => {
   const [, m, d] = iso.split('-').map(Number);
-  return `${MONTHS[(m ?? 1) - 1]} ${d}`;
+  return `${MONTHS[(m ?? 1) - 1]!} ${d!}`;
 };
 const pct = (part: number, whole: number) => (whole ? Math.round((100 * part) / whole) : 0);
 const height = (v: number, max: number) => (max && v ? Math.max(1.5, (100 * v) / max) : 0);
@@ -109,8 +109,8 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
     .map((w, i) => {
       const [, m, d] = w.week.split('-').map(Number);
       const prevMonth = i ? Number(weeks[i - 1]!.week.split('-')[1]) : 0;
-      const month = m !== prevMonth ? MONTHS[(m ?? 1) - 1] : '';
-      return i === weeks.length - 1 ? `<span class="now"><b>now</b><small>${month}</small></span>` : `<span><b>${d}</b><small>${month}</small></span>`;
+      const month = m !== prevMonth ? MONTHS[(m ?? 1) - 1]! : '';
+      return i === weeks.length - 1 ? `<span class="now"><b>now</b><small>${month}</small></span>` : `<span><b>${d!}</b><small>${month}</small></span>`;
     })
     .join('');
   const weekTable = weeks.map((w) => `<tr><td>${esc(w.week)}</td><td>${w.activeDevelopers}</td><td>${w.replays}</td></tr>`).join('');

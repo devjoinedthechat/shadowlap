@@ -276,7 +276,7 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
    * answer back as it came, streamed. `answer`: it is the model under test's, and says so.
    */
   const relay = async (req: AnyRequest, res: AnyResponse, rest: string, o: { body?: Buffer; answer?: boolean } = {}) => {
-    const name = `${req.method ?? 'GET'} ${rest.split('?')[0]}`;
+    const name = `${req.method ?? 'GET'} ${rest.split('?')[0]!}`;
     if (!upstream) return fail(res, 501, `${name} isn't sent anywhere while ${target.model} takes over: only the model call is`);
     const body = o.body ?? (await readBody(req));
     const headers: Record<string, string> = {};

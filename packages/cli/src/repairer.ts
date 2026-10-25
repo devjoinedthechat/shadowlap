@@ -380,7 +380,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) throw REFUSED();
     if (err instanceof Anthropic.NotFoundError) throw new RepairerError(`the Anthropic API has no model ${r.model}`);
-    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${err.status ?? 'with an error'}`, err.message);
+    if (err instanceof Anthropic.APIError) throw new RepairerError(`the Anthropic API answered ${(err.status as number | undefined) ?? 'with an error'}`, err.message);
     throw unsent(err);
   }
   if (message.stop_reason === 'refusal') throw new RepairerError('the repairer declined to answer');

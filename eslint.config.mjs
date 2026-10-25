@@ -34,6 +34,8 @@ const TESTS = ['packages/*/test/**/*.{ts,tsx}', 'testing/**/test/**/*.ts'];
 /** The dashboard's real-browser tests, on Playwright: tests too, with a program of their own. */
 const BROWSER_TESTS = ['packages/dashboard/browser/**/*.ts'];
 const JS = ['**/*.{js,mjs,cjs}'];
+/** The JavaScript that is tests: agents and fakes the tests run, and the harnesses under testing/. */
+const JS_TESTS = ['packages/*/test/**/*.{js,mjs,cjs}', 'testing/**/*.{js,mjs,cjs}'];
 
 export default defineConfig(
   globalIgnores([
@@ -154,6 +156,12 @@ export default defineConfig(
       '@typescript-eslint/require-await': 'off',
       // Tests hand methods to expect() to check what they are, not to call them.
       '@typescript-eslint/unbound-method': 'off',
+      // A test prints what it got, null and undefined included: in a label or an error that is what it
+      // says, and in a string it compares a stray null fails the comparison. Arrays and objects still may not.
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: true, allowRegExp: true, allowNever: false, allowArray: false },
+      ],
     },
   },
 
@@ -185,6 +193,16 @@ export default defineConfig(
       // back or call them on the patched object with .call(this, …), the Action to restore a warning
       // filter, a test agent to promisify readline's question with its own promisify.custom.
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  {
+    files: JS_TESTS,
+    rules: {
+      // As in the TypeScript tests: what a test prints, null and undefined included, is what it got.
+      '@typescript-eslint/restrict-template-expressions': [
+        'error',
+        { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: true, allowRegExp: true, allowNever: true, allowArray: false },
+      ],
     },
   },
   {

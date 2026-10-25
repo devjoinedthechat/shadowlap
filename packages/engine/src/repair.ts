@@ -489,7 +489,7 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   const dropped = lacking(had.map((p) => p.text), has.map((p) => p.text));
   if (dropped.length) return { ok: false, reason: `it leaves out ${safeLine(dropped.join(', ')).slice(0, 120)}, which the text it replaces has: a rewrite keeps each placeholder as it is written` };
   const stray = lacking(strays(own, syntax), strays(was, syntax));
-  if (stray.length) return { ok: false, reason: `it has ${stray[0]} outside a placeholder, which could start one in ${anchor.file}: a rewrite keeps the placeholders of the text it replaces and adds none` };
+  if (stray.length) return { ok: false, reason: `it has ${stray[0]!} outside a placeholder, which could start one in ${anchor.file}: a rewrite keeps the placeholders of the text it replaces and adds none` };
   // The characters on either side of the span stay: a rewrite that starts after a `$` with a `{`,
   // or ends in a `%` before a `(`, makes a placeholder with them.
   if (anchor.prev !== undefined && OPENS.test(anchor.prev) && replace[0] !== anchor.text[0]) return { ok: false, reason: `it starts differently from the text it replaces, right after the ${anchor.prev} in ${anchor.file}, and the two could make a placeholder` };
@@ -661,7 +661,7 @@ function plainRepoPath(file: string): boolean {
   );
 }
 
-const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).join(', ')} and ${files.at(-1)}` : (files[0] ?? 'nothing'));
+const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}` : (files[0] ?? 'nothing'));
 
 /**
  * Why a repair's patch is not the change its accepted candidate makes, or null when it is (or when
@@ -900,7 +900,7 @@ export function noRepairerOf(r: Pick<RepairReport, 'noRepairer' | 'repairer' | '
   if (r.noRepairer !== undefined || r.repairer) return null;
   for (const w of warnings) {
     // `the repairer could not be asked: <what went wrong>: <what to do>`, kept to what went wrong.
-    if (w.startsWith(`${NO_REPAIRER.notAsked}: `)) return { text: `${NO_REPAIRER.notAsked}: ${w.slice(NO_REPAIRER.notAsked.length + 2).split(': ')[0]}`, warning: w };
+    if (w.startsWith(`${NO_REPAIRER.notAsked}: `)) return { text: `${NO_REPAIRER.notAsked}: ${w.slice(NO_REPAIRER.notAsked.length + 2).split(': ')[0]!}`, warning: w };
     if (w.startsWith(NO_REPAIRER.unconfigured)) return { text: NO_REPAIRER.unconfigured, warning: w };
     if (w.endsWith(NO_REPAIRER.nothingToRewrite)) return { text: NO_REPAIRER.nothingToRewrite, warning: w };
   }
@@ -975,7 +975,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     for (const t of r.targets) {
       const where =
         t.outcome === 'blamed' && t.callNo !== null
-          ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
+          ? `model call #${t.callNo} (${t.step!} of ${t.steps})${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
           : t.outcome === 'unrescuable'
             ? unrescuedWords(t.unsettled === true)
             : safeLine(t.note ?? t.outcome);
@@ -1026,7 +1026,7 @@ export function repairMarkdown(r: RepairReport): string {
     out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
     for (const t of r.targets) {
-      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step!} of ${t.steps})` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
       out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
     }
   } else {

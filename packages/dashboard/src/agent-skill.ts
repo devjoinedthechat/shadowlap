@@ -374,7 +374,7 @@ export function installCodingAgent(cwd: string, agent: CodingAgent, options: { r
     const plugin = TARGETS[agent].kind === 'plugin';
     const reason =
       copy.state === 'other-version'
-        ? `${copy.path} holds ${plugin ? 'the Claude Code plugin' : 'Shadowlap’s skills'} ${copy.installedVersion}, not ${version}`
+        ? `${copy.path} holds ${plugin ? 'the Claude Code plugin' : 'Shadowlap’s skills'} ${copy.installedVersion!}, not ${version}`
         : plugin
           ? `${copy.path} isn’t ${version}’s copy of the plugin (edited here, or from somewhere else)`
           : `Shadowlap’s skills in ${copy.path} aren’t ${version}’s copy (edited here, or from somewhere else)`;

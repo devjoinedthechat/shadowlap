@@ -70,5 +70,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   }
   const outputs = { keep: String(plan.keep), path: plan.path, key: plan.key, 'restore-keys': plan.restoreKeys };
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, outputLines(outputs));
-  process.stdout.write(plan.keep ? `keeping the test history between jobs: ${plan.path[0]}\n` : 'not keeping the test history between jobs\n');
+  process.stdout.write(plan.keep ? `keeping the test history between jobs: ${String(plan.path[0])}\n` : 'not keeping the test history between jobs\n');
 }

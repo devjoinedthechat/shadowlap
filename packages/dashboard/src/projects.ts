@@ -56,7 +56,7 @@ const approx = (usd: number) => (!usd ? '$0' : usd < 0.0005 ? '≈<$0.001' : `�
 /** `38.2 s`, `1m 5s`, as the mock writes a duration. */
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)} ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 /** `a`, `a and b`, `a, b and c`. */
-const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)!}`);
 /** The letter on a project's badge: `Ü` for a folder macOS named `U` and a combining diaeresis. */
 const initial = (name: string) => (/[\p{L}\p{N}]/u.exec(name.normalize('NFC'))?.[0] ?? '?').toUpperCase();
 /** A run id as the setup shows it: the first ten characters, which every command takes. */
@@ -107,7 +107,7 @@ export function shortPath(path: string, max = 32): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   let out = parts[parts.length - 1] ?? path;
   for (let i = parts.length - 2; i >= 0; i--) {
-    const next = `${parts[i]}${sep}${out}`;
+    const next = `${parts[i]!}${sep}${out}`;
     if (next.length + 2 > max) break;
     out = next;
   }
@@ -220,7 +220,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
   folders.sort((a, b) => rank(a) - rank(b));
   const pickedDisplay = picked ? tildePath(picked.path, input.home) : null;
   const addable = !!picked && !!picked.folder.kind && !picked.added;
-  const error = !picked ? null : picked.added ? `${pickedDisplay} is already in the dashboard.` : picked.folder.kind ? null : (picked.folder.why ?? `${pickedDisplay} has no project files.`);
+  const error = !picked ? null : picked.added ? `${pickedDisplay!} is already in the dashboard.` : picked.folder.kind ? null : (picked.folder.why ?? `${pickedDisplay!} has no project files.`);
   const query = input.query.trim();
   return {
     eyebrow: 'projects',
@@ -232,7 +232,7 @@ export function addProjectPage(input: { query: string; suggestions: FolderSugges
     empty: folders.length ? null : (input.suggestions.note ?? (query ? `No folder matches “${query}”.` : 'No folders here.')),
     truncated: input.suggestions.truncated,
     error,
-    button: addable ? { label: `Add ${folderName(picked.path) || pickedDisplay}`, disabled: false, path: picked.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
+    button: addable ? { label: `Add ${folderName(picked.path) || pickedDisplay!}`, disabled: false, path: picked.path, title: pickedDisplay } : { label: 'Add project', disabled: true, path: null, title: null },
     cancel: { label: 'Cancel', href: links.overview() },
     next: {
       title: 'What happens next',

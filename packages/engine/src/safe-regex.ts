@@ -244,7 +244,7 @@ class Reader {
 
   read(): Node {
     const node = this.disjunction();
-    if (this.i < this.s.length) throw new Unread(`an unexpected "${this.s[this.i]}"`);
+    if (this.i < this.s.length) throw new Unread(`an unexpected "${this.s[this.i]!}"`);
     return node;
   }
 

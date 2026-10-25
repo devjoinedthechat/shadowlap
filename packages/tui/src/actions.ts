@@ -373,7 +373,7 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
         flag: `--inject ${n}=… --inject-as user`,
         group: 'call',
         // Named when the call's model is one that rejects it outright, as the dialog the dashboard opens says.
-        hint: `${noLateSystemMessage(model) ? `${noLateSystemMessage(model)} takes no` : 'Not every model takes a'} system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.`,
+        hint: `${noLateSystemMessage(model) ? `${noLateSystemMessage(model)!} takes no` : 'Not every model takes a'} system message mid-conversation, so it goes in as part of the last user message (--inject-as user) and stays in place for every later request of the fork. Calls before it replay.`,
         prompt: { label: `Instruction to add at #${n}:`, placeholder: 'Prefer sources from 2026.', build: (v) => ['replay', id, '--inject', `${n}=${v}`, '--inject-as', 'user'] },
         opensRun: true,
       },

@@ -502,7 +502,7 @@ export function register(program: Command): void {
           try {
             return parseOtlpFile(readFileSync(path, 'utf8'));
           } catch (err) {
-            throw new Error(`${files[i]}: ${(err as Error).message}`, { cause: err });
+            throw new Error(`${files[i]!}: ${(err as Error).message}`, { cause: err });
           }
         });
         read = readOtel(payloads);

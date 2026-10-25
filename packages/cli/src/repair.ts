@@ -293,7 +293,7 @@ export function noDiagnosisWhy(blamed: ReadonlyArray<Pick<Blamed, 'target' | 'no
   const unrescued = blamed.filter((b) => b.target.outcome === 'unrescuable');
   const found = unrescued.map((b) => b.notTheAnswer);
   if (unrescued.length && found.every((f): f is string => f !== null)) {
-    const said = new Set(found).size === 1 ? found[0]! : unrescued.map((b, i) => `${shortId(b.target.runId)}: ${found[i]}`).join('; ');
+    const said = new Set(found).size === 1 ? found[0]! : unrescued.map((b, i) => `${shortId(b.target.runId)}: ${found[i]!}`).join('; ');
     return `${said}: no answer of the model's lost ${unrescued.length === 1 ? 'the run' : 'these runs'}; look at the tools, the harness or the command`;
   }
   // A search that stopped part way (runRepair reports the repair as stopped) learned nothing either way.
@@ -605,7 +605,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     if (same) {
       callNo = stored.callNo;
       rescuedRunId = stored.rescuedRunId;
-      log(`  ${shortId(runId)}: lost at model call #${callNo}, from the blame already stored on it`);
+      log(`  ${shortId(runId)}: lost at model call #${callNo!}, from the blame already stored on it`);
       base.reused = true;
     } else {
       log(`  blaming ${shortId(runId)}${fields.model ? ` with ${String(fields.model)}` : ''}`);
@@ -855,7 +855,7 @@ function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outpu
           try {
             for (const g of out.goldens) cpSync(join(cwd, g), join(goldensDir, basename(g)), { recursive: true });
           } catch (err) {
-            throw new RepairError(`the fix is in the working tree, but copying its recordings to ${goldens} failed: ${err instanceof Error ? err.message : String(err)}`);
+            throw new RepairError(`the fix is in the working tree, but copying its recordings to ${goldens!} failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         if (input.settings.build) {
@@ -903,7 +903,7 @@ function commitMessage(r: RepairReport, c: RepairCandidate): string {
   const pass = (role: VerifyRole) => count(role).filter((x) => x.verdict === 'pass').length;
   const lines = [commitTitle(c), ''];
   if (c.why.trim()) lines.push(c.why.trim(), '');
-  lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo} of ${shortId(t.runId)}`).join(', ')}.`);
+  lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo!} of ${shortId(t.runId)}`).join(', ')}.`);
   if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, ${eachRun(v)}.`);
   if (r.uncommitted?.length) lines.push('', `The runs were replayed on a working tree with uncommitted changes to ${r.uncommitted.join(', ')}, which this commit does not hold: it is HEAD with the fix alone.`);
   return lines.join('\n') + '\n';

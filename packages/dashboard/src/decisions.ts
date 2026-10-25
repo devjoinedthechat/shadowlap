@@ -125,8 +125,9 @@ export function retirementsView(store: Store, goldens: readonly GoldenSource[], 
       if (c.kind !== 'api' || isReservedScope(c.meta.scope)) continue;
       const provider = (c.meta.provider ?? c.end?.meta.provider ?? null);
       const model = (c.end?.meta.model ?? c.meta.model ?? null);
-      const key = `${provider}\u0000${model}`;
-      if (!model || seen.has(key)) continue;
+      if (!model) continue;
+      const key = `${String(provider)}\u0000${model}`;
+      if (seen.has(key)) continue;
       seen.add(key);
       const notice = byModel.get(key) ?? (() => {
         const n = retirementOf(provider, model, { now });

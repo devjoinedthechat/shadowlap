@@ -29,6 +29,7 @@ import {
   StoreUrlError,
   storeKindName,
   teamRunInStore,
+  type CheckStepName,
   type CiProvider,
   type LastCheck,
   type ObjectStore,
@@ -195,7 +196,7 @@ export function writeTarget(t: TeamEnv, loc: StoreLocation): WriteTarget {
 }
 
 function pullRequestLine(target: WriteTarget): string {
-  return `${target.source}: its runs go to pull request ${target.pr}'s own folder in the store, which a pull brings only with --include-pr`;
+  return `${target.source!}: its runs go to pull request ${target.pr!}'s own folder in the store, which a pull brings only with --include-pr`;
 }
 
 // ---------------------------------------------------------------------------------------------- store setup
@@ -278,7 +279,7 @@ export function storePushFromCi(t: TeamEnv, value: 'on' | 'off', flags: { json?:
   return 0;
 }
 
-const STEP_WORDS: Record<string, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
+const STEP_WORDS: Record<CheckStepName, string> = { list: 'list', write: 'write', read: 'read', delete: 'delete' };
 
 /**
  * Checks a store with this machine's credentials: where it writes (in a pull request's job, its own

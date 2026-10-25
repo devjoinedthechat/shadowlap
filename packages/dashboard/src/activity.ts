@@ -78,8 +78,8 @@ const EVENT_TEXT = new Map<string, Describe>([
   ['normalizer.removed', (e, d) => ({ kind: 'setting', text: `Normalizer removed · ${str(d.path) ?? e.ref ?? 'every string'}`, href: links.settings('matching') })],
   // A redaction rule reads by what it puts in place and where, never by its pattern: a pattern can
   // hold the very text the rule is there to hide, and the feed is shown to the whole team.
-  ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: links.settings('redaction') })],
-  ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)}` : ''}`, href: links.settings('redaction') })],
+  ['redaction.added', (_e, d) => ({ kind: 'setting', text: `Redaction rule added · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)!}` : ''}`, href: links.settings('redaction') })],
+  ['redaction.removed', (_e, d) => ({ kind: 'setting', text: `Redaction rule removed · ${str(d.replace) ?? 'a rule'}${str(d.path) ? ` at ${str(d.path)!}` : ''}`, href: links.settings('redaction') })],
   ['clock.set', (e, d) => ({ kind: 'setting', text: `Clock set to ${str(d.clock) ?? e.ref ?? 'auto'}`, href: links.settings('matching') })],
   ['runs.cleaned', (_e, d) => ({ kind: 'setting', text: `Cleaned up ${plural(num(d.runs) ?? 0, 'old run')}`, href: links.settings('project') })],
   ['golden.packed', (e) => ({ kind: 'test', text: `Golden packed · ${e.ref ?? 'a golden'}`, href: links.tests() })],
@@ -101,7 +101,7 @@ const EVENT_TEXT = new Map<string, Describe>([
     },
   ],
   // A golden's answer opens Tests, where it shows above the golden's buttons; a run's, the run.
-  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() })],
+  ['bisect.found', (e, d) => ({ kind: 'test', text: `First bad commit · ${str(d.commit) ?? e.ref ?? ''}${str(d.subject) ? ` ${str(d.subject)!}` : ''}`, href: e.runId ? links.run(e.runId) : links.tests() })],
   [
     'blame.done',
     (e, d) => {
@@ -114,7 +114,7 @@ const EVENT_TEXT = new Map<string, Describe>([
       if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
       if (title) return { kind: 'blame', text: `Blamed · ${title}, lost at model call #${callNo}`, href };
-      return { kind: 'blame', text: parts(`Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)}`), href };
+      return { kind: 'blame', text: parts(`Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)!}`), href };
     },
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
@@ -161,7 +161,7 @@ const EVENT_TEXT = new Map<string, Describe>([
     'store.pulled',
     (_e, d) => {
       const m = moved(num(d.pulled) ?? num(d.runs) ?? 0, num(d.attempts) ?? 0, num(d.fixes));
-      return { kind: 'project', text: parts(`Pulled ${m.what} from the store`, m.fixes, num(d.failed) ? `${num(d.failed)} failed` : null) };
+      return { kind: 'project', text: parts(`Pulled ${m.what} from the store`, m.fixes, num(d.failed) ? `${num(d.failed)!} failed` : null) };
     },
   ],
   ['run.shared', (e, d) => ({ kind: 'project', text: parts(`Shared ${e.runId ? short(e.runId) : 'a run'} as a link`, (num(d.runs) ?? 1) > 1 && `with ${plural(num(d.runs)! - 1, 'more run')}`, d.redacted === true || (num(d.redacted) ?? 0) > 0 ? 'redacted' : null) })],
@@ -267,7 +267,7 @@ export function forkFlag(run: RunRecord, overridden: number[] = []): string | nu
     const m = /^forced live by (--[a-z-]+ [^:,\s]+)/.exec(d.reason);
     if (m) return m[1]!;
   }
-  if (overridden.length) return `--override ${overridden[0]}`;
+  if (overridden.length) return `--override ${overridden[0]!}`;
   return null;
 }
 

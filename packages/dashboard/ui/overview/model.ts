@@ -158,8 +158,8 @@ export function dayText(key: string, weekday = false): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
   if (!m) return key;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  const short = `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
-  return weekday ? `${WEEKDAYS[d.getUTCDay()]}, ${short}` : short;
+  const short = `${MONTHS[d.getUTCMonth()]!} ${d.getUTCDate()}`;
+  return weekday ? `${WEEKDAYS[d.getUTCDay()]!}, ${short}` : short;
 }
 
 /** The icon a run of this kind shows where only its kind is known (a cache miss, a grid row). */

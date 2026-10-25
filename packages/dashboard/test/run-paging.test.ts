@@ -129,7 +129,7 @@ describe('the pages over HTTP', () => {
     const first = await get(`runs/${rec.runId}`);
     expect(first.status).toBe(200);
     expect(first.body).toMatchObject({ callsTotal: 1201, callsNext: 201 });
-    const next = await get(`runs/${rec.runId}/calls?from=${first.body.callsNext}&limit=100`);
+    const next = await get(`runs/${rec.runId}/calls?from=${String(first.body.callsNext)}&limit=100`);
     expect(next.status).toBe(200);
     expect(callNos(next.body as never)).toEqual(range(201, 300));
     expect(next.body).toMatchObject({ runId: rec.runId, callsTotal: 1201, callsNext: 301 });

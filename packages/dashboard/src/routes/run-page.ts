@@ -71,7 +71,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
     const head = ctx.project ? await projectHead(ctx.project.path) : null;
     const offers = runOffers(store, r.params.id!, { redact, config, goldens: goldensOf(ctx), head });
-    if (!offers) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!offers) throw new HttpError(404, `no run ${r.params.id!}`);
     // Find the commit offers only commits this checkout has: a teammate's pulled run names theirs.
     r.tagged(offers.bisect ? { ...offers, bisect: await choicesInCheckout(ctx.project?.path, offers.bisect) } : offers);
   });

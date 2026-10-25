@@ -126,7 +126,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     if (req.method === 'GET' && url.pathname === '/v1/tasks') return send(res, 200, { tasks: tasks().map(taskView) });
 
     const m = /^\/v1\/tasks\/(.+)\/attempts$/.exec(url.pathname);
-    if (req.method !== 'POST' || !m) return send(res, 404, { error: `no route ${req.method} ${url.pathname}: POST /v1/tasks/<task>/attempts, GET /v1/tasks` });
+    if (req.method !== 'POST' || !m) return send(res, 404, { error: `no route ${req.method!} ${url.pathname}: POST /v1/tasks/<task>/attempts, GET /v1/tasks` });
     let body: Record<string, unknown>;
     try {
       const parsed = JSON.parse((await readBody(req)).toString('utf8') || '{}') as unknown;

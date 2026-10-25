@@ -237,9 +237,9 @@ export function runDoctor(options: DoctorOptions): Check[] {
 
   // Environment that changes routing
   const upstreams = Object.entries(env).filter(([k, v]) => k.startsWith('SHADOWLAP_UPSTREAM_') && v);
-  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${v}`).join(' '));
+  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${v!}`).join(' '));
   const baseUrls = ['ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_GEMINI_BASE_URL'].filter((k) => env[k]);
-  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${env[k]}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
+  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${env[k]!}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
   if (env.SHADOWLAP_URL) push('SHADOWLAP_URL', 'warn', `${env.SHADOWLAP_URL} (run ${env.SHADOWLAP_RUN_ID ?? '?'})`, 'Set by shadowlap run for the agent; SDK calls made from this shell would go to that sidecar.');
   const offTelemetry = env.SHADOWLAP_TELEMETRY === '0' || env.DO_NOT_TRACK === '1';
   push('telemetry', 'ok', offTelemetry ? 'off (SHADOWLAP_TELEMETRY=0 or DO_NOT_TRACK=1)' : env.SHADOWLAP_TELEMETRY_URL ? `on, anonymous counts only → ${env.SHADOWLAP_TELEMETRY_URL}; SHADOWLAP_TELEMETRY=0 turns it off` : 'off: no collector configured (SHADOWLAP_TELEMETRY_URL), so nothing is sent');
@@ -396,14 +396,14 @@ function withPacks<T>(cwd: string, entries: readonly TestEntry[], given: TestPac
 
 /** `a`, `a and b`, `a, b and c`. */
 function inWords(list: readonly string[]): string {
-  return list.length < 2 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)}`;
+  return list.length < 2 ? (list[0] ?? '') : `${list.slice(0, -1).join(', ')} and ${list.at(-1)!}`;
 }
 
 /** Check names as a sentence names them: `"a"`, `"a" and "b"`. */
 const quotedList = (list: readonly string[]) => inWords(list.map((n) => `"${n}"`));
 
 /** The variables a provider's key is read from, as a fix names them: `ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN)`. */
-const keyNames = (provider: JudgeProvider) => `${JUDGE_KEYS[provider][0]}${JUDGE_KEYS[provider].length > 1 ? ` (or ${JUDGE_KEYS[provider].slice(1).join(' or ')})` : ''}`;
+const keyNames = (provider: JudgeProvider) => `${JUDGE_KEYS[provider][0]!}${JUDGE_KEYS[provider].length > 1 ? ` (or ${JUDGE_KEYS[provider].slice(1).join(' or ')})` : ''}`;
 
 /** Whether a judge can be asked live from this environment: a key for its provider, or an upstream set for it. */
 function askable(provider: JudgeProvider, env: NodeJS.ProcessEnv): boolean {

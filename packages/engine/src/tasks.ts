@@ -403,7 +403,7 @@ export function describeTask(input: TaskInput): Task {
   if (fields.takeover !== undefined) {
     const call = golden.calls.find((c) => c.callNo === fields.takeover);
     if (!call || call.kind !== 'api' || !isModelRequest(call.name)) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is not a model call of the golden's run${call ? ` (${safeLine(call.name)})` : ''}` };
-    if (base.scope !== null && scopeOf(call) !== base.scope) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is made in ${scopeOf(call) === null ? 'no scope' : `scope ${scopeOf(call)}`}, not the agent's (${base.scope})` };
+    if (base.scope !== null && scopeOf(call) !== base.scope) return { ...base, status: 'not-a-task', note: `#${fields.takeover} is made in ${scopeOf(call) === null ? 'no scope' : `scope ${scopeOf(call)!}`}, not the agent's (${base.scope})` };
     takeover = { callNo: fields.takeover, why: fields.why ?? 'set in shadowlap.config.json', from: 'config' };
   } else {
     takeover = defaultTakeover(golden, input.ancestors ?? [], base.scope);

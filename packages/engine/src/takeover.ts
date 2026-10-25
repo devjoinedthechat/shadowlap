@@ -59,7 +59,7 @@ export function switchTakeoverModel(provider: string, method: string, path: stri
   if (provider === 'openai') return /\/(chat\/completions|completions|responses)$/.test(path) ? { path, field: true } : null;
   if (provider === 'gemini') {
     const m = /^(.*\/)(?:models|tunedModels)\/[^/:]+(:(?:stream)?generateContent)$/i.exec(path);
-    return m ? { path: `${m[1]}${model.includes('/') ? model : `models/${model}`}${m[2]}`, field: false } : null;
+    return m ? { path: `${m[1]!}${model.includes('/') ? model : `models/${model}`}${m[2]!}`, field: false } : null;
   }
   return null;
 }

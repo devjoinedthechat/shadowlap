@@ -24,6 +24,7 @@ import {
   type PairFormat,
   type ReadPolicy,
   type Store,
+  type TaskStatus,
 } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { formatBudget } from '../attempts.js';
@@ -44,7 +45,7 @@ import { palette as p, quoteArgv, shortId } from '../ui.js';
  */
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const STATUS: Record<string, string> = { ready: 'ready', blocked: 'blocked', 'not-a-task': 'not a task', 'no-golden': 'no golden' };
+const STATUS: Record<TaskStatus, string> = { ready: 'ready', blocked: 'blocked', 'not-a-task': 'not a task', 'no-golden': 'no golden' };
 
 function parseUsd(value: string): number {
   const n = Number(value.replace(/^\$/, ''));
@@ -94,7 +95,7 @@ function under(root: string, goldens: readonly string[], all: LoadedTask[]): Arr
 
 /** A task as `shadowlap tasks` lists it. */
 function describeRow(t: LoadedTask): string[] {
-  const status = t.status === 'ready' ? p.green('ready') : t.status === 'blocked' ? p.yellow('blocked') : p.dim(STATUS[t.status]!);
+  const status = t.status === 'ready' ? p.green('ready') : t.status === 'blocked' ? p.yellow('blocked') : p.dim(STATUS[t.status]);
   const lines = [`  ${safeLine(t.golden)}  ${status}${t.note ? p.dim(` · ${safeLine(t.note)}`) : ''}`];
   // Which scope the model plays matters only when another one answers too, as a simulated user does.
   const scope = t.scope !== null && t.scopes.length > 1 ? ` · plays scope ${safeLine(t.scope)}` : '';

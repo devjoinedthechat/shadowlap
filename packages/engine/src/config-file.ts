@@ -186,7 +186,7 @@ function checkStored(entry: unknown): Normalizer {
 export function validateRule(list: RuleList, input: unknown): Normalizer {
   if (!isObject(input)) throw new RuleError('a rule is an object with a path, a pattern or both, and what to replace them with');
   const unknown = Object.keys(input).filter((k) => !(FIELDS as readonly string[]).includes(k));
-  if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]}: it takes kind, name, path, pattern and replace`);
+  if (unknown.length) throw new RuleError(`a rule has no field ${unknown[0]!}: it takes kind, name, path, pattern and replace`);
   // A cleared "Replace with" field, like a missing --replace, takes the default: an empty replacement would delete what it matches.
   const replace = input.replace === undefined || input.replace === null || input.replace === '' ? DEFAULT_REPLACE[list] : input.replace;
   const rule = checkShape({ ...input, replace }, RULE_KINDS[list], true);

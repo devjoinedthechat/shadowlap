@@ -83,7 +83,7 @@ export function exportedLine(o: { exportedAt?: number | null; rules?: number | n
   let when = '';
   if (typeof o.exportedAt === 'number') {
     const d = new Date(o.exportedAt);
-    when = ` ${MONTHS[d.getMonth()]} ${d.getDate()}${d.getFullYear() !== new Date(now).getFullYear() ? `, ${d.getFullYear()}` : ''}`;
+    when = ` ${MONTHS[d.getMonth()]!} ${d.getDate()}${d.getFullYear() !== new Date(now).getFullYear() ? `, ${d.getFullYear()}` : ''}`;
   }
   const rules = typeof o.rules === 'number' ? o.rules : o.redacted === false ? 0 : null;
   if (rules === 0) return `Exported${when} with no redaction rules: it holds what was recorded.`;

@@ -68,7 +68,7 @@ export function usedCache(calls: readonly UsageCall[]): boolean {
 function missList(misses: readonly CacheMiss[], shown = 8): string {
   const ns = misses.slice(0, shown).map((m) => `#${m.callNo}`);
   if (misses.length > shown) return `${ns.join(', ')} and ${num(misses.length - shown)} more`;
-  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} and ${ns.at(-1)}` : (ns[0] ?? '');
+  return ns.length > 1 ? `${ns.slice(0, -1).join(', ')} and ${ns.at(-1)!}` : (ns[0] ?? '');
 }
 
 /**

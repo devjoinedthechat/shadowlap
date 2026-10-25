@@ -240,7 +240,7 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
                         {words.err ? <em>{words.err}</em> : null}
                         {words.text}
                         {here ? ' · this run' : ''}
-                        {revOf.get(n.runId) ? ` · rev ${revOf.get(n.runId)}` : ''} · {stamp(n.startedAt)}
+                        {revOf.get(n.runId) ? ` · rev ${revOf.get(n.runId)!}` : ''} · {stamp(n.startedAt)}
                       </small>
                     </li>
                   );

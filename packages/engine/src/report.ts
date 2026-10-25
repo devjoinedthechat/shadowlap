@@ -290,7 +290,7 @@ export function replayedBeforeWords(d: Pick<DivergenceReport, 'callNo' | 'replay
   const n = Math.max(0, d.replayedBefore - over.length);
   const replayed = `${n} ${n === 1 ? 'call' : 'calls'} replayed`;
   if (!over.length) return replayed;
-  const named = over.length > 1 ? `${over.slice(0, -1).join(', ')} and ${over.at(-1)}` : over[0];
+  const named = over.length > 1 ? `${over.slice(0, -1).join(', ')} and ${over.at(-1)!}` : over[0]!;
   return `${replayed} and ${named} overridden`;
 }
 

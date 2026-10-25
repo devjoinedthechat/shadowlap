@@ -330,7 +330,7 @@ export function partialLine(p: { read: number; of: number; stopped?: 'calls' | '
 
 /** `a`, `a or b`, `a, b or c`; with `and`, `a, b and c`. */
 export function orList(items: readonly string[], word: 'or' | 'and' = 'or'): string {
-  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]}`;
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} ${word} ${items[items.length - 1]!}`;
 }
 
 // ---- sizes and counts ----
@@ -345,7 +345,7 @@ export function bytesText(n: number): string {
     v /= 1024;
     i++;
   }
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]!}`;
 }
 
 /** A time as the Store tab's "Last sync" shows it: `10:14` today, `Sep 30` before, `never` without one. */

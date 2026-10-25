@@ -236,7 +236,7 @@ let htmlDetail = exported.out;
 try {
   const html = readFileSync(join(app, 'run.html'), 'utf8');
   const data = JSON.parse(/<script type="application\/json" id="shadowlap-data">(.*?)<\/script>/s.exec(html)[1].split('<\\/').join('</'));
-  htmlOk = exported.code === 0 && !/<script[^>]+src=/.test(html) && !!data.responses[`runs/${runId}`] && html.includes('url(data:font/woff2;base64,');
+  htmlOk = exported.code === 0 && !/<script[^>]+src=/.test(html) && !!data.responses[`runs/${String(runId)}`] && html.includes('url(data:font/woff2;base64,');
   htmlDetail += `\n${(html.length / 1024).toFixed(0)} KB, ${Object.keys(data.responses).length} views`;
 } catch (err) {
   htmlDetail += `\n${err.message}`;

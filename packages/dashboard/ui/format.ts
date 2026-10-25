@@ -86,13 +86,13 @@ export function whenShort(ms: number, now = Date.now()): string {
   const d = new Date(ms);
   const t = new Date(now);
   if (d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate()) return clock(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}`;
 }
 
 /** Oct 1, 09:41:07, local time. */
 export function stamp(ms: number): string {
   const d = new Date(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 /** 2026-10-01 09:41:07 UTC: for a record, where the reader's time zone must not matter. */
@@ -117,7 +117,7 @@ export function compactPath(path: string, max = 36): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   let out = parts[parts.length - 1] ?? p;
   for (let i = parts.length - 2; i >= 0; i--) {
-    const next = `${parts[i]}/${out}`;
+    const next = `${parts[i]!}/${out}`;
     if (next.length + 2 > max) break;
     out = next;
   }

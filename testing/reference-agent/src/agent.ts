@@ -123,7 +123,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     const response = await stream.finalMessage();
     modelCalls++;
     messages.push({ role: 'assistant', content: response.content });
-    log(`model call ${modelCalls}: stop_reason=${response.stop_reason}`);
+    log(`model call ${modelCalls}: stop_reason=${String(response.stop_reason)}`);
 
     const uses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
     if (response.stop_reason !== 'tool_use' || uses.length === 0) {

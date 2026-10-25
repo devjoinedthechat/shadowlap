@@ -801,7 +801,7 @@ export class JobManager {
     this.endOrphanedRuns(job);
     this.o.uploads?.discard(job.id);
     this.version++;
-    this.o.log?.(`job ${job.id} (${job.kind}: shadowlap ${job.args.join(' ')}) exited ${code}`);
+    this.o.log?.(`job ${job.id} (${job.kind}: shadowlap ${job.args.join(' ')}) exited ${String(code)}`);
     this.notify(job, { type: 'end' });
     job.markEnded();
   }

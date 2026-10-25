@@ -362,7 +362,7 @@ const listed = (r: RunRecord): GcRun => {
 
 function emptyReport(dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const expect = expectToken([]);
-  if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]} the dry run listed: there is no store at ${dbPath}`);
+  if (flags.expect !== undefined && flags.expect !== expect) throw new Error(`gc would delete 0 runs, not the ${flags.expect.split('-')[0]!} the dry run listed: there is no store at ${dbPath}`);
   return { dryRun: flags.dryRun === true, olderThanDays: flags.olderThan ?? null, keep: flags.keep ?? null, cutoff: cutoffOf(flags, now), total: 0, count: 0, attempts: 0, runs: [], expect, blobs: 0, bytes: 0, recording: [], recordingCount: 0, abandoned: [], abandonedCount: 0, held: [], heldCount: 0, deferred: false, store: { path: dbPath, before: 0, free: 0, after: flags.dryRun ? null : 0 } };
 }
 

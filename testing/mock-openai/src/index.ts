@@ -226,7 +226,7 @@ export async function startMockOpenAI(opts: { script: Script; responses?: Respon
       }
       if (req.method !== 'POST' || url.pathname !== '/v1/chat/completions') {
         res.writeHead(404, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: { message: `mock: no route ${req.method} ${url.pathname}`, type: 'invalid_request_error' } }));
+        res.end(JSON.stringify({ error: { message: `mock: no route ${req.method!} ${url.pathname}`, type: 'invalid_request_error' } }));
         return;
       }
       const body = JSON.parse((await readBody(req)).toString('utf8')) as ChatRequest;

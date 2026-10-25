@@ -174,7 +174,7 @@ function providerApi(provider: string | null): string {
  */
 export function listingInput(tasks: readonly Task[], scores: readonly TaskScoreRow[]): Pick<ListModelsInput, 'recorded' | 'scored' | 'tokens'> {
   const ready = tasks.filter((t) => t.status === 'ready');
-  const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model}\n${t.provider ?? ''}`, { model: t.model!, provider: t.provider }])).values()];
+  const recorded = [...new Map(ready.filter((t) => t.model).map((t) => [`${t.model!}\n${t.provider ?? ''}`, { model: t.model!, provider: t.provider }])).values()];
   const scored = [...new Map(scores.map((s) => [`${s.model}\n${s.baseUrl ?? ''}`, { model: s.model, baseUrl: s.baseUrl, via: s.via }])).values()];
   return { recorded, scored, tokens: averageTokens(ready) };
 }
@@ -335,7 +335,7 @@ export function refusedLine(c: Pick<ModelChoice, 'provider'>, reach: ModelReach)
   const elsewhere = reach.refused.filter((r) => r.elsewhere);
   if (elsewhere.length) {
     const apis = [...new Set(elsewhere.map((r) => onApi(r.provider ?? 'another')))];
-    const on = apis.length > 1 ? `${apis.slice(0, -1).join(', ')} and ${apis.at(-1)}` : apis[0];
+    const on = apis.length > 1 ? `${apis.slice(0, -1).join(', ')} and ${apis.at(-1)!}` : apis[0]!;
     groups.push({ names: elsewhere.map((r) => r.name), why: `recorded on ${on}${c.provider ? `, not ${onApi(c.provider)}` : ''}` });
   }
   for (const r of reach.refused.filter((x) => !x.elsewhere)) {

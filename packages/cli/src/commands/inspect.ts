@@ -146,7 +146,7 @@ export function register(program: Command): void {
       const calls = store.getCalls(run.runId);
       if (flags.request !== undefined || flags.response !== undefined) {
         const c = calls.find((x) => x.callNo === (flags.request ?? flags.response));
-        if (!c) throw new Error(`no call #${flags.request ?? flags.response} in run ${run.runId}`);
+        if (!c) throw new Error(`no call #${flags.request ?? flags.response!} in run ${run.runId}`);
         if (flags.request !== undefined) {
           const req = c.requestRef ? (c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef)) : null;
           process.stdout.write(JSON.stringify(req, null, 2) + '\n');
@@ -203,7 +203,7 @@ export function register(program: Command): void {
       if (blame) {
         const found =
           blame.outcome === 'blamed' && Number.isInteger(blame.callNo)
-            ? `lost at model call #${blame.callNo} (${safe(String(blame.confidence))} confidence)${typeof blame.rescuedRunId === 'string' ? `, rescued by ${safe(shortId(blame.rescuedRunId))}` : ''}`
+            ? `lost at model call #${blame.callNo!} (${safe(String(blame.confidence))} confidence)${typeof blame.rescuedRunId === 'string' ? `, rescued by ${safe(shortId(blame.rescuedRunId))}` : ''}`
             : blame.outcome === 'unrescuable'
               ? unrescuedWords(blame.unsettled === true)
               : 'stopped before it finished';

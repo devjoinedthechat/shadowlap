@@ -27,7 +27,7 @@ const declarations = [
 
 const channel = process.argv.includes('--channel') ? process.argv[process.argv.indexOf('--channel') + 1] : '#support-leads';
 const ai = new GoogleGenAI({ apiKey: 'demo-key' });
-const contents = [{ role: 'user', parts: [{ text: `Write this week's refund digest and post it to ${channel}.` }] }];
+const contents = [{ role: 'user', parts: [{ text: `Write this week's refund digest and post it to ${String(channel)}.` }] }];
 for (let turn = 0; turn < 8; turn++) {
   const reply = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents, config: { systemInstruction: 'You write short, factual digests for the support leads.', tools: [{ functionDeclarations: declarations }] } });
   const calls = reply.functionCalls ?? [];

@@ -38,7 +38,7 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/chaos/runs/:id', (r) => {
     const run = lookupRun(ctx.store, r.params.id!);
-    if (!run) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     r.tagged({ runId: run.runId, matrix: chaosOfRun(ctx.store, run.runId) });
   });
 

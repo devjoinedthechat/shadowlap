@@ -15,7 +15,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 /** Oct 1, 10:02, local time. */
 export function dayClock(ms: number): string {
   const d = new Date(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** Sep 30, from a date git or the store gives (ISO, or milliseconds); as given when it isn't one. */
@@ -23,7 +23,7 @@ export function shortDate(date: string | number): string {
   const ms = typeof date === 'number' ? date : Date.parse(date);
   if (!Number.isFinite(ms)) return String(date);
   const d = new Date(ms);
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  return `${MONTHS[d.getMonth()]!} ${d.getDate()}`;
 }
 
 const n = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
@@ -150,13 +150,13 @@ export function historyTip(cell: HistoryCell, name: string): { title: string; la
  */
 export function checkWords(label: string): string {
   let m = /^(.+) called 0 times$/.exec(label);
-  if (m) return `${m[1]} never called`;
+  if (m) return `${m[1]!} never called`;
   m = /^(.+) called 1 time$/.exec(label);
-  if (m) return `${m[1]} called once`;
+  if (m) return `${m[1]!} called once`;
   m = /^at (most|least) (\d+) (input|output) tokens?$/.exec(label);
-  if (m) return `${m[3]} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
+  if (m) return `${m[3]!} tokens ${m[1] === 'most' ? '≤' : '≥'} ${Number(m[2]).toLocaleString('en-US')}`;
   m = /^cost at (most|least) (\$[\d.]+)$/.exec(label);
-  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]}`;
+  if (m) return `cost ${m[1] === 'most' ? '≤' : '≥'} ${m[2]!}`;
   return label;
 }
 
@@ -315,7 +315,7 @@ export function inconclusiveHint(v: InconclusiveView): string {
     return `Its pack holds no verdict for the judge check ${j.name}, and the test replays offline, so the judge can’t be asked. Update golden asks it once, live, and keeps its verdict in the pack: every test after judges from the recording, free.`;
   }
   // A fork golden asks its judges live, from the environment the test runs in.
-  if (j?.keys?.length) return `The test runs this golden live, and the judge check ${j.name} had no key to ask ${j.model} with: set ${j.keys[0]}${j.keys.length > 1 ? ` (or ${j.keys.slice(1).join(' or ')})` : ''} where the tests run, in CI as a secret, and run it again.`;
+  if (j?.keys?.length) return `The test runs this golden live, and the judge check ${j.name} had no key to ask ${j.model} with: set ${j.keys[0]!}${j.keys.length > 1 ? ` (or ${j.keys.slice(1).join(' or ')})` : ''} where the tests run, in CI as a secret, and run it again.`;
   if (!v.gate) return 'A check could not be decided, as its line above says, so the golden is neither passed nor failed: settle what it lacks and run it again.';
   const more = v.gate.more;
   const cost = more?.cost !== null && more?.cost !== undefined ? `, about $${more.cost.toFixed(2)}` : '';

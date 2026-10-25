@@ -932,7 +932,7 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   if (json.modelServer) row('model server', `${json.modelServer.url}   from ${json.modelServer.from}`);
   row('framework', s.framework ?? 'none detected');
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
-  for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
+  for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
   for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
   lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
   return lines.join('\n');
@@ -1001,7 +1001,7 @@ function readText(path: string, limit = 2 * 1024 * 1024): string {
 function pinnedVersion(cwd: string, files: string[]): { version: string; from: string } | null {
   for (const f of files) {
     const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(readText(join(cwd, f), 4096));
-    if (m) return { version: m[2] ? `${m[1]}.${m[2]}` : m[1]!, from: f };
+    if (m) return { version: m[2] ? `${m[1]!}.${m[2]}` : m[1]!, from: f };
   }
   return null;
 }

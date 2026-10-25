@@ -464,7 +464,7 @@ export function scoreDialogView(tasks: readonly Task[], scores: readonly TaskSco
     const flag = (name: string) => (c.flags.includes(name) ? (c.flags[c.flags.indexOf(name) + 1] ?? null) : null);
     const some = reach.refused.length > 0;
     // The tasks it leaves out, grouped by why: three tasks recorded on other clouds are one reason, not three.
-    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)}` : scoreNote(c, last);
+    const note = some ? `${scoreNote(c, last)} · scores ${reach.tasks.length} of ${plural(ready.length, 'task')}, not ${refusedLine(c, reach)!}` : scoreNote(c, last);
     options.push({ ...c, key: modelKey(c.id, c.baseUrl), request: { model: flag('--model') ?? c.id, baseUrl: flag('--base-url'), goldens: some ? reach.tasks : null }, label: last === null ? c.id : `${c.id} · scored ${last.toFixed(2)}`, lastScore: last, note });
   }
   // The first model not scored yet that answers every ready task, else the first not scored yet.
@@ -638,7 +638,7 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
   const warning = warn
     ? {
         ...warn,
-        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once}.` : ''}`,
+        text: `All of them reward “${warn.rewards}”, so a model that learned only that would score full marks.${opposite ? ` ${opposite.name} rewards the opposite once ${once!}.` : ''}`,
         name: opposite?.name ?? null,
         once,
         fix: oppositeUpdate ? { label: 'Update the golden…', href: null, update: oppositeUpdate } : opposite?.status === 'blocked' ? { label: `${isInconclusiveNote(opposite.note) ? 'Settle' : 'Fix'} it on Tests`, href: links.tests(), update: null } : null,

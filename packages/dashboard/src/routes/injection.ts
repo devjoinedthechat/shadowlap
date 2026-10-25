@@ -65,17 +65,17 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/injection/tools', (r) => r.tagged(toolTrust(store, tools())));
   router.get('/injection/needs-look', (r) => r.tagged({ items: injectionNeedsLook(store) }));
   router.get('/injection/runs/:id', (r) => {
-    if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id}`);
+    if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!}`);
     r.tagged(runInjection(store, r.params.id!, tools()));
   });
   router.get('/injection/:id', (r) => {
     const found = injectionResult(store, r.params.id!);
-    if (!found) throw new HttpError(404, `no injection result ${r.params.id}`);
+    if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     r.tagged(found);
   });
   router.get('/injection/:id/report', (r) => {
     const found = injectionResult(store, r.params.id!);
-    if (!found) throw new HttpError(404, `no injection result ${r.params.id}`);
+    if (!found) throw new HttpError(404, `no injection result ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const html = injectionReportHtml([found.report], { redact, version: ctx.options.version ?? null });
     r.res.writeHead(200, {

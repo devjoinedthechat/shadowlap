@@ -239,7 +239,7 @@ function localProblem(ctx: SyncContext, calls: readonly CallRecord[], blobs: rea
     if (size === null) absent.push(h);
     else if (size > PACK_LIMITS.blobBytes) return `blob ${h} is ${size} bytes, over the ${PACK_LIMITS.blobBytes} a pull reads`;
   }
-  return absent.length ? `this machine's copy is missing ${absent.length === 1 ? 'blob' : `${absent.length} blobs, such as`} ${absent[0]}` : null;
+  return absent.length ? `this machine's copy is missing ${absent.length === 1 ? 'blob' : `${absent.length} blobs, such as`} ${absent[0]!}` : null;
 }
 
 type PushOutcome =

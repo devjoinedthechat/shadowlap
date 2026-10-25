@@ -179,7 +179,7 @@ export function epochNs(v: unknown): string | null {
   const ms = epochMs(v);
   if (ms === null) return null;
   const fraction = typeof v === 'string' ? /^(.*:\d\d)\.(\d+)(.*)$/.exec(v) : null;
-  const seconds = fraction ? epochMs(`${fraction[1]}${fraction[3]}`) : null;
+  const seconds = fraction ? epochMs(`${fraction[1]!}${fraction[3]!}`) : null;
   if (!fraction || seconds === null) return msToNs(ms);
   return `${BigInt(seconds) * 1_000_000n + BigInt(fraction[2]!.slice(0, 9).padEnd(9, '0'))}`;
 }

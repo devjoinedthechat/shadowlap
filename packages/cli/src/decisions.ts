@@ -408,7 +408,7 @@ export function changeText(s: Pick<DecisionsSettings, 'model' | 'fields' | 'from
   if (s.model) parts.push(`the model ${s.model}`);
   const fields = Object.entries(s.fields).filter(([k]) => k !== 'model');
   if (fields.length) parts.push(fields.map(([k, v]) => `${k}=${fieldText(v)}`).join(', '));
-  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? 'no change');
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)!}` : (parts[0] ?? 'no change');
 }
 
 /** Whether a model call is one `--scope` asks: made in that scope, or with `none`, in none. Shadowlap's own scopes (its judge's) never are. */
@@ -588,7 +588,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
       const was = modelFamily(recordedModel);
       const now = modelFamily(s.model);
       if (was && now && was !== now) {
-        plan.skip = `${s.model} is a model of another family than ${recordedModel} (${FAMILY_NAMES[now]}, not ${FAMILY_NAMES[was]}): asking the recorded request again can't carry it into that family's request format, so verify that switch instead`;
+        plan.skip = `${s.model} is a model of another family than ${recordedModel!} (${FAMILY_NAMES[now]}, not ${FAMILY_NAMES[was]}): asking the recorded request again can't carry it into that family's request format, so verify that switch instead`;
         continue;
       }
     }
@@ -763,7 +763,7 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
     // migrate: a refusal that names what to change is asked once more with it changed.
     const fix = s.remedies && answer.error && (answer.status === 400 || answer.status === 422) ? refusalRemedy(answer.error) : null;
     if (fix) {
-      const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error}`;
+      const why = `${plan.askedModel ?? 'the new model'} refused the recorded request: ${answer.error!}`;
       const fixed = apply(plan, body, fix, why);
       if (fixed) {
         body = fixed.body;

@@ -87,7 +87,7 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
       });
     }
     case 'r2': {
-      const endpoint = location.endpoint ?? `https://${location.account}.r2.cloudflarestorage.com`;
+      const endpoint = location.endpoint ?? `https://${location.account!}.r2.cloudflarestorage.com`;
       const fromR2 = staticKeys(env.R2_ACCESS_KEY_ID, env.R2_SECRET_ACCESS_KEY, 'R2_ACCESS_KEY_ID');
       return new S3Store({
         location,

@@ -87,7 +87,7 @@ const FORMAT = 't4';
 const CACHE_AHEAD_MS = 8 * 24 * 60 * 60 * 1000;
 
 /** What a run's totals were worked out from: a finished run's never change. */
-const keyOf = (r: IndexedRun) => `${FORMAT}|${r.status}|${r.endedAt}|${r.calls}`;
+const keyOf = (r: IndexedRun) => `${FORMAT}|${r.status}|${String(r.endedAt)}|${r.calls}`;
 
 /** The final answer of each call: its end row with the highest attempt. */
 const FINAL_END = `LEFT JOIN call_events e ON e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end'

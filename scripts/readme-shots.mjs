@@ -328,7 +328,7 @@ try {
       await send('Emulation.setDeviceMetricsOverride', { width: s.width, height: s.height, deviceScaleFactor: 2, mobile: s.mobile });
       await send('Emulation.setTouchEmulationEnabled', s.mobile ? { enabled: true, maxTouchPoints: 5 } : { enabled: false });
       await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
-      await send('Page.navigate', { url: `${origin}/#token=${token}&open=${shot.open}` });
+      await send('Page.navigate', { url: `${origin}/#token=${String(token)}&open=${shot.open}` });
       await shot.ready();
       await evaluate('document.fonts.ready.then(() => true)');
       await wait(700);

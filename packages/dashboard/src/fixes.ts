@@ -694,7 +694,7 @@ export function shortFailure(f: string | undefined): string {
   const m = /^(\S+)(?: with .*?)? called (.+?), but called (\d+) times?/.exec(f);
   if (m) {
     const n = Number(m[3]);
-    return m[2] === '0 times' ? `${m[1]} called` : `${m[1]} called ${n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`}`;
+    return m[2] === '0 times' ? `${m[1]!} called` : `${m[1]!} called ${n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`}`;
   }
   return f.split(' (')[0]!;
 }
@@ -889,7 +889,7 @@ function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: strin
     rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
-      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
+      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step!} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
@@ -2079,7 +2079,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
       kind: g.kind,
       key,
       parentRunId: g.parent.runId,
-      title: g.kind === 'blame' ? `blame · probe #${g.callNo}` : `verify · ${g.role}`,
+      title: g.kind === 'blame' ? `blame · probe #${g.callNo!}` : `verify · ${g.role!}`,
       callNo: g.callNo,
       blamed,
       change: null,

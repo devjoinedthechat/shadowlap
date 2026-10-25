@@ -365,14 +365,14 @@ export function hasPlaceholder(argv: readonly string[]): boolean {
 export function checkCommandTemplate(argv: readonly string[]): string | null {
   if (!hasPlaceholder(argv)) return null;
   const program = basename(argv[0] ?? '').toLowerCase();
-  if (SHELLS.has(program)) return `${argv[0]} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
+  if (SHELLS.has(program)) return `${argv[0]!} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
   // The interpreter's own flags: those before its script (the first argument that isn't a flag).
   let leading = 1;
   while (leading < argv.length && argv[leading]!.startsWith('-')) leading++;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     for (const m of arg.matchAll(PLACEHOLDER)) {
-      if (i > 0 && i <= leading && CODE_FLAGS.has(argv[i - 1]!.toLowerCase())) return `{message} after ${argv[i - 1]} would run as code: give the agent's own command, with {message} as one of its arguments`;
+      if (i > 0 && i <= leading && CODE_FLAGS.has(argv[i - 1]!.toLowerCase())) return `{message} after ${argv[i - 1]!} would run as code: give the agent's own command, with {message} as one of its arguments`;
       if (m[1] !== undefined) {
         try {
           new RegExp(m[1], m[2]);
@@ -405,5 +405,5 @@ export function fillCommand(argv: readonly string[], message: string | null): { 
       }),
     );
   }
-  return missing.length ? { why: `its first message has no match for ${missing[0]}` } : { argv: out };
+  return missing.length ? { why: `its first message has no match for ${missing[0]!}` } : { argv: out };
 }

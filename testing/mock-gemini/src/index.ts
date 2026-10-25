@@ -77,7 +77,7 @@ export async function startMockGemini(opts: { script: Script }): Promise<MockSer
       const m = /^\/v1beta\/models\/([^:/]+):(generateContent|streamGenerateContent)$/.exec(url.pathname);
       if (req.method !== 'POST' || !m) {
         res.writeHead(404, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: { code: 404, message: `mock: no route ${req.method} ${url.pathname}`, status: 'NOT_FOUND' } }));
+        res.end(JSON.stringify({ error: { code: 404, message: `mock: no route ${req.method!} ${url.pathname}`, status: 'NOT_FOUND' } }));
         return;
       }
       const model = m[1]!;

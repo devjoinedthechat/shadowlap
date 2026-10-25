@@ -229,7 +229,7 @@ export async function testAttempt(
   const code = await new Promise<number>((res) => {
     child.on('error', (err) => {
       notStarted = startFailure(err, argv[0]!, o.cwd);
-      output += `failed to start ${argv[0]}: ${err.message}\n`;
+      output += `failed to start ${argv[0]!}: ${err.message}\n`;
       res(127);
     });
     child.on('exit', (c, signal) => res(exitStatus(c, signal)));
@@ -311,7 +311,7 @@ export async function testAttempt(
     const others = definite.length ? definite.length - 1 : failedChecks.length - 1;
     const more = others > 0 ? `; ${others} more check${others > 1 ? 's' : ''} ${word}` : '';
     const inconclusive = definite.length && failedChecks.length > definite.length ? `; ${failedChecks.length - definite.length} inconclusive` : '';
-    failure = { message: `check ${word}: ${first.label}, but ${first.detail}${more}${inconclusive}`, details: divergence + formatSummary(summary) };
+    failure = { message: `check ${word}: ${first.label}, but ${first.detail!}${more}${inconclusive}`, details: divergence + formatSummary(summary) };
   }
   return { ended, code, ms: Date.now() - started, output, stdout, checks, failure, kind, interrupted };
 }
@@ -535,7 +535,7 @@ export function onPath(name: string, env: NodeJS.ProcessEnv = process.env, platf
  * command again with the one that is there. `again` gives the command line to show for an argv.
  */
 export function notFoundMessage(argv: readonly string[], again: (argv: string[]) => string, has: (name: string) => boolean = (name) => onPath(name)): string {
-  const lines = [`${p.red('✗')} ${argv[0]}: command not found on PATH`];
+  const lines = [`${p.red('✗')} ${argv[0]!}: command not found on PATH`];
   const other = argv[0] === 'python' ? 'python3' : argv[0] === 'python3' ? 'python' : argv[0] === 'pip' ? 'pip3' : null;
   if (other && has(other)) lines.push(`  ${other} is on PATH: ${again([other, ...argv.slice(1)])}`);
   return lines.join('\n');
@@ -762,7 +762,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       }
       const code = await new Promise<number>((resolveCode) => {
         child.on('error', (err) => {
-          output += `failed to start ${argv[0]}: ${err.message}\n`;
+          output += `failed to start ${argv[0]!}: ${err.message}\n`;
           resolveCode(127);
         });
         // Piped output is read to the end before it is printed or checked.
@@ -805,7 +805,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       // Once too: the command is the same for every attempt, and so is why no preload loaded in it.
       if (ended.preloads?.failed && !unwatched) {
         unwatched = true;
-        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing}`) + '\n');
+        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing!}`) + '\n');
       }
     }
   };

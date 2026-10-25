@@ -436,7 +436,7 @@ export function formatPresets(name: string, outcomes: readonly PresetOutcome[], 
   const hit = (kind: 'tool' | 'api') => outcomes.find((o) => o.target?.kind === kind && o.callNo !== null);
   const tool = hit('tool');
   const model = hit('api');
-  const at = [tool ? `${safeLine(tool.target!.name)} (#${tool.callNo})` : null, model ? `model call #${model.callNo}` : null].filter(Boolean).join(' and ');
+  const at = [tool ? `${safeLine(tool.target!.name)} (#${tool.callNo!})` : null, model ? `model call #${model.callNo!}` : null].filter(Boolean).join(' and ');
   const lines = [`${p.yellow('⚡')} ${p.bold(safeLine(name))}: ${plural(outcomes.length, 'error-path preset')}${at ? ` at ${at}` : ''}`];
   const width = Math.max(...outcomes.map((o) => o.label.length));
   // As wide as the longest verdict word the table holds, so a line stays within a terminal's width.

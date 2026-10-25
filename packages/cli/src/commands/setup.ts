@@ -29,7 +29,7 @@ export function register(program: Command): void {
       const result = { ...json, project: noteInspected(process.cwd(), json) };
       // As a dashboard job, what it found and nothing else: the setup's own buttons are the next steps there.
       process.stdout.write((flags.json ? JSON.stringify(result, null, 2) : inDashboardJob() ? formatInitJob(json, p) : formatInit(report, p, wrote, { globalCli: installedGlobally() })) + '\n');
-      if (!flags.json && result.project.id && !result.project.noted) process.stderr.write(`${p.yellow('!')} The dashboard’s setup of ${result.project.id} didn’t take this in: ${result.project.why}\n`);
+      if (!flags.json && result.project.id && !result.project.noted) process.stderr.write(`${p.yellow('!')} The dashboard’s setup of ${result.project.id} didn’t take this in: ${result.project.why!}\n`);
       emitJobEvent({ type: 'result', data: result });
     });
 

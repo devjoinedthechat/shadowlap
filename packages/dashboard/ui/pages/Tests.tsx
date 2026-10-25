@@ -164,7 +164,7 @@ export function TestsPage() {
                   <th className="hist">
                     <span className="hn">By revision</span>
                     {view.revisions.map((r, i) => (
-                      <span key={`${r}:${i}`} className={revClass(i, view.revisions.length)} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
+                      <span key={`${String(r)}:${i}`} className={revClass(i, view.revisions.length)} data-tip={tipText(r ? `revision ${r}` : 'no revision: not in a git repository')}>
                         {revLabel(r)}
                       </span>
                     ))}
@@ -373,7 +373,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
           {showHistory ? (
             <span className="gstrip" aria-hidden="true">
               {row.history.map((h, i) => (
-                <i key={`${h.revision}:${i}`} className={cellClass(h)} />
+                <i key={`${String(h.revision)}:${i}`} className={cellClass(h)} />
               ))}
             </span>
           ) : null}
@@ -403,7 +403,7 @@ function GoldenTr({ row, showHistory }: { row: GoldenRow; showHistory: boolean }
             const t = historyTip(h, row.name);
             return (
               <i
-                key={`${h.revision}:${i}`}
+                key={`${String(h.revision)}:${i}`}
                 className={`${cellClass(h)} ${revClass(i, n)}${h.updated ? ' upd' : ''}${h.runId ? ' go' : ''}`}
                 data-tip={tipCard(t.title, [{ label: t.label, value: t.value, color: t.color }])}
                 onClick={

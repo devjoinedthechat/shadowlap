@@ -148,7 +148,7 @@ function Preview({ data, pick, onPick }: { data: RedactionSettings; pick: string
   const broken = data.rules.find((r) => r.error);
   const can = !!pick && !data.config.error && !broken && data.rules.length > 0;
   // Read again when the rules change (the file's version) or another run is picked.
-  const p = usePreview(can ? pick : null, `preview:${pick}:${data.config.version}:${data.rules.length}`);
+  const p = usePreview(can ? pick : null, `preview:${String(pick)}:${String(data.config.version)}:${data.rules.length}`);
   if (!pick || !data.runs.length) {
     return (
       <div className="pbody preview">

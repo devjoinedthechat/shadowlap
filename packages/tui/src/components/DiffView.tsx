@@ -52,7 +52,7 @@ export function diffLines(d: DivergenceReport | null, width: number): Line[] {
         out.push({ text: `hint: ${h.message}`, color: 'yellow' });
         if (h.normalizer) {
           const n = h.normalizer;
-          const args = [n.kind ? `--kind ${n.kind}` : '', n.name ? `--name ${JSON.stringify(n.name)}` : '', `--path '${n.path}'`, n.pattern ? `--pattern ${n.pattern}` : ''].filter(Boolean).join(' ');
+          const args = [n.kind ? `--kind ${n.kind}` : '', n.name ? `--name ${JSON.stringify(n.name)}` : '', `--path '${n.path!}'`, n.pattern ? `--pattern ${n.pattern}` : ''].filter(Boolean).join(' ');
           out.push({ text: `      shadowlap normalize add ${args}`, color: 'yellow' });
         }
       }

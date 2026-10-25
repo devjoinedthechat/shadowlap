@@ -282,7 +282,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const notes = useMemo(() => runNotes({ unrecorded, preloads: run.run.meta?.preloads ?? null, websockets: run.websockets ?? null, extraReads: run.summary.extraReads ?? null, mode: run.run.mode }), [unrecorded, run.run.meta?.preloads, run.websockets, run.summary.extraReads, run.run.mode]);
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
-  const detailKey = `${runId}:${selected}:${selectedRow?.outcome ?? 'pending'}`;
+  const detailKey = `${runId}:${String(selected)}:${selectedRow?.outcome ?? 'pending'}`;
   const detail = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
   const change = useChange(run, detail.data, forkAt);
   const chain = useAncestors(run);

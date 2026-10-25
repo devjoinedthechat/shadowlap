@@ -75,7 +75,7 @@ export function providerUnavailable(calls: readonly CallRecord[]): Unavailable |
     const connection = error !== null && CONNECTION_ERRORS.has(error);
     if (!connection && !(status !== null && unavailableStatus(status))) continue;
     const provider = typeof meta.provider === 'string' ? meta.provider : typeof c.meta.provider === 'string' ? c.meta.provider : null;
-    const what = connection ? (error === 'UpstreamStreamError' ? 'a stream cut short' : error === 'UpstreamResponseError' ? 'an answer that could not be passed on' : 'a connection that failed') : `HTTP ${status}`;
+    const what = connection ? (error === 'UpstreamStreamError' ? 'a stream cut short' : error === 'UpstreamResponseError' ? 'an answer that could not be passed on' : 'a connection that failed') : `HTTP ${status!}`;
     found = { callNo: c.callNo, provider, status, error: connection ? error : null, retryAfterMs: retryAfter(meta.headers, c.end.at), reason: `${what}${provider ? ` from ${provider}` : ''} at call #${c.callNo}` };
   }
   return found;

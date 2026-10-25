@@ -1676,8 +1676,8 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   let unavailable: string | null = null;
   if (run.status === 'running') unavailable = 'this run is still recording';
   // A test replay a signal cut short has no result: it says nothing about its golden either way.
-  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden}: find the commit from the golden on Tests`;
-  else if (unsure) unavailable = `${golden} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
+  else if (ofGolden && run.status === 'crashed' && !result) unavailable = `this replay was cut short, so it says nothing about ${golden!}: find the commit from the golden on Tests`;
+  else if (unsure) unavailable = `${golden!} came out inconclusive in this replay's session, neither passed nor failed, so there is no failure to find the commit of: Tests says what settles it`;
   else if (undecided) unavailable = `this run is inconclusive, neither passed nor failed: a check could not be decided (${undecided.label}), so there is no failure to find the commit of`;
   else if (!ofGolden && !hasRecordedCommand(run)) unavailable = `this run ${withoutCommand(run)}, so there is no command to run at each commit: replay it once with your agent (shadowlap replay ${run.runId} -- <command>) and find the commit from that run`;
   // Someone else chose its command, and bisect would run it at every commit: the CLI asks first, which a job can't.

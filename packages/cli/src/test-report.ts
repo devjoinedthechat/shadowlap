@@ -171,7 +171,7 @@ export function markdownReport(report: TestReport): string {
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.
     const of = r.divergence?.type === 'ended_early' && r.divergence.recorded !== undefined ? r.divergence.recorded : r.calls?.total;
-    const replayed = r.calls ? `${r.calls.replayed}/${of}` : '';
+    const replayed = r.calls ? `${r.calls.replayed}/${of!}` : '';
     const tokens = r.tokensNotRespent !== null ? formatTokens(r.tokensNotRespent) : '';
     lines.push(`| ${mark(r)} | \`${cell(r.name)}\` | ${verdictOf(r) === 'passed' ? cell(passedLabel(r)) : cell(notPassedLabel(r))} | ${replayed} | ${tokens} |`);
   }
