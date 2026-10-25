@@ -608,7 +608,7 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
     }
   }
   fresh.sort();
-  const segments: Array<IndexSegment | null> = new Array(fresh.length).fill(null);
+  const segments = new Array<IndexSegment | null>(fresh.length).fill(null);
   await eachLimit(fresh, ctx.concurrency ?? 8, async (key, i) => {
     const got = await ctx.remote.get(key, { maxBytes: 64 * 1024 * 1024 });
     if (!got) {

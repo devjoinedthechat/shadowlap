@@ -26,7 +26,7 @@ const MAX_RECORDINGS = 200;
 /** The expect object a request gives, checked for its shape (the CLI reads the rest), or why not. */
 function expectOf(raw: unknown): { expect: Record<string, unknown> | null } | { error: string } {
   if (raw === undefined || raw === null || raw === '') return { expect: null };
-  let value = raw;
+  let value: unknown = raw;
   if (typeof raw === 'string') {
     if (raw.length > MAX_EXPECT) return { error: 'that check is too long' };
     try {

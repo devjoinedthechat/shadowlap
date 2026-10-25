@@ -176,7 +176,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
 
   try {
     const group = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const results: VerifiedRun[] = new Array(input.runs.length);
+    const results = new Array<VerifiedRun>(input.runs.length);
     let failed = false;
 
     const verifyOne = async (i: number): Promise<void> => {

@@ -1636,7 +1636,7 @@ export class Sidecar {
       if (RESPONSE_DROP.has(key) || provider.credentialHeaders.includes(key)) return;
       responseHeaders[key] = v;
     });
-    const reader = answer.body?.getReader();
+    const reader = (answer.body as ReadableStream<Uint8Array> | null)?.getReader();
     const timer = new SseTimer(attempt.started);
     const chunks: Buffer[] = [];
     let streamError: SerializedError | undefined;
@@ -2372,9 +2372,12 @@ function mcpCallMeta(raw: unknown): CallMeta['mcp'] | undefined {
   if ((transport !== 'stdio' && transport !== 'http') || typeof server !== 'string' || !server) return undefined;
   const text = (v: string) => v.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
   const listed = Array.isArray(tools)
-    ? tools
+    ? (tools as unknown[])
         .slice(0, 1000)
-        .filter((t): t is { name: string; effect: Effect; trust?: unknown } => typeof t === 'object' && t !== null && typeof t.name === 'string' && (t.effect === 'pure' || t.effect === 'read' || t.effect === 'write'))
+        .filter((t): t is { name: string; effect: Effect; trust?: unknown } => {
+          const tool = t as { name?: unknown; effect?: unknown } | null;
+          return typeof t === 'object' && tool !== null && typeof tool.name === 'string' && (tool.effect === 'pure' || tool.effect === 'read' || tool.effect === 'write');
+        })
         .map((t) => ({ name: text(t.name), effect: t.effect, ...(t.trust === 'untrusted' ? { trust: 'untrusted' as const } : {}) }))
     : undefined;
   return { transport, server: text(server), ...(listed ? { tools: listed } : {}) };

@@ -321,7 +321,7 @@ function geminiUsage(u: unknown): Usage | null {
 }
 
 function geminiStopReason(obj: Record<string, unknown> | null): string | null {
-  const c = obj && Array.isArray(obj.candidates) ? obj.candidates[0] : null;
+  const c = obj && Array.isArray(obj.candidates) ? (obj.candidates as unknown[])[0] : null;
   return isObject(c) && typeof c.finishReason === 'string' ? c.finishReason : null;
 }
 

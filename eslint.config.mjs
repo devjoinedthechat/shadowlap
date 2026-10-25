@@ -31,6 +31,8 @@ const program = (files, project, ignores = []) => ({
 });
 
 const TESTS = ['packages/*/test/**/*.{ts,tsx}', 'testing/**/test/**/*.ts'];
+/** The dashboard's real-browser tests, on Playwright: tests too, with a program of their own. */
+const BROWSER_TESTS = ['packages/dashboard/browser/**/*.ts'];
 const JS = ['**/*.{js,mjs,cjs}'];
 
 export default defineConfig(
@@ -126,14 +128,14 @@ export default defineConfig(
   ...packages.map((p) => program([`packages/${p}/src/**/*.{ts,tsx}`], `packages/${p}/tsconfig.json`)),
   ...testingPackages.map((p) => program([`testing/${p}/src/**/*.ts`], `testing/${p}/tsconfig.json`)),
   program(['packages/dashboard/ui/**/*.{ts,tsx}'], 'packages/dashboard/ui/tsconfig.json'),
-  program(['packages/dashboard/browser/**/*.ts'], 'packages/dashboard/browser/tsconfig.json'),
+  program(BROWSER_TESTS, 'packages/dashboard/browser/tsconfig.json'),
   program([...TESTS, '**/*.d.mts'], 'tsconfig.test.json', domTests),
   program(domTests, 'tsconfig.test-dom.json'),
   program([...JS, 'vitest.config.ts'], 'tsconfig.lint.json'),
 
   // The tests.
   {
-    files: [...TESTS, ...domTests],
+    files: [...TESTS, ...domTests, ...BROWSER_TESTS],
     rules: {
       // Tests read the CLI's JSON and their fixtures as any, and the assertion is the check.
       '@typescript-eslint/no-unsafe-argument': 'off',

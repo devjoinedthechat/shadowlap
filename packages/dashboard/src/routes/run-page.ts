@@ -21,7 +21,7 @@ import type { GoldenSource } from '../tests.js';
  * the Tests screen's routes need too): Find the commit then bisects a test replay's golden.
  */
 function goldensOf(ctx: RouteContext): GoldenSource[] {
-  const fn = (ctx.options as { goldens?: unknown }).goldens;
+  const fn = (ctx.options as { goldens?: (() => unknown) | undefined }).goldens;
   if (typeof fn !== 'function') return [];
   try {
     const out: unknown = fn();

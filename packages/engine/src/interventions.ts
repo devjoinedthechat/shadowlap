@@ -267,7 +267,7 @@ export function setRequestFields(shape: RequestShape, body: unknown, fields: Rec
         break;
       }
       const child = holder[slot];
-      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...child] : isObject(child) ? { ...child } : {};
+      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...(child as unknown[])] : isObject(child) ? { ...child } : {};
       holder[slot] = copy;
       node = copy;
     }
@@ -377,12 +377,12 @@ function injectedTurn(shape: RequestShape, text: string, as: InjectAs): Record<s
 function extendContent(shape: RequestShape, content: unknown, text: string): unknown {
   if (shape === 'anthropic') {
     const block = { type: 'text', text };
-    return typeof content === 'string' ? [{ type: 'text', text: content }, block] : Array.isArray(content) ? [...content, block] : [block];
+    return typeof content === 'string' ? [{ type: 'text', text: content }, block] : Array.isArray(content) ? [...(content as unknown[]), block] : [block];
   }
   // OpenAI-compatible servers don't all take content parts; a string stays a string.
   if (typeof content === 'string') return content ? `${content}\n\n${text}` : text;
   const part = shape === 'openai-responses' ? { type: 'input_text', text } : shape === 'converse' ? { text } : { type: 'text', text };
-  return Array.isArray(content) ? [...content, part] : [part];
+  return Array.isArray(content) ? [...(content as unknown[]), part] : [part];
 }
 
 /**
@@ -400,7 +400,7 @@ export function applyInjection(shape: RequestShape, body: unknown, text: string,
     next.splice(place.index, 0, injectedTurn(shape, text, as));
   } else {
     const turn = next[place.index] as Record<string, unknown>;
-    next[place.index] = shape === 'gemini' ? { ...turn, parts: [...(Array.isArray(turn.parts) ? turn.parts : []), { text }] } : { ...turn, content: extendContent(shape, turn.content, text) };
+    next[place.index] = shape === 'gemini' ? { ...turn, parts: [...(Array.isArray(turn.parts) ? (turn.parts as unknown[]) : []), { text }] } : { ...turn, content: extendContent(shape, turn.content, text) };
   }
   if (shape === 'gemini') return { ...body, contents: next };
   if (shape === 'openai-responses') {

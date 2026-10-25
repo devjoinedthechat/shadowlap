@@ -21,7 +21,10 @@ const answeredKept = new WeakMap<Store, Map<string, boolean>>();
 function answered(store: Store, parentRunId: string | null, callNo: number | null): boolean {
   if (!parentRunId || callNo === null) return false;
   let kept = answeredKept.get(store);
-  if (!kept) answeredKept.set(store, (kept = new Map()));
+  if (!kept) {
+    kept = new Map();
+    answeredKept.set(store, kept);
+  }
   const key = `${parentRunId}#${callNo}`;
   const hit = kept.get(key);
   if (hit !== undefined) return hit;

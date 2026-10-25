@@ -349,7 +349,7 @@ export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunO
 function firstCheck(run: ClassifiableRun, status: 'failed' | 'inconclusive'): string | null {
   const checks = run.meta?.checks;
   if (!Array.isArray(checks)) return null;
-  const found = checks.find((c) => isObject(c) && checkStatus(c) === status);
+  const found = (checks as unknown[]).find((c): c is Record<string, unknown> => isObject(c) && checkStatus(c) === status);
   return found && typeof found.label === 'string' ? found.label : null;
 }
 

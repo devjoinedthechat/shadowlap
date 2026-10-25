@@ -897,7 +897,7 @@ function valuesAt(value: unknown, path: Reference['path']): unknown[] {
           const i = seg.index < 0 ? v.length + seg.index : seg.index;
           if (i >= 0 && i < v.length) next.push(v[i]);
         }
-      } else if (Array.isArray(v)) next.push(...v);
+      } else if (Array.isArray(v)) next.push(...(v as unknown[]));
       else if (isObject(v)) next.push(...Object.values(v));
     }
     current = next.filter((x) => x !== undefined);

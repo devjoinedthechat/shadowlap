@@ -370,7 +370,7 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
 function clean<T>(v: T, depth = 0): T {
   if (typeof v === 'string') return v.replace(CONTROL_IN_TEXT_ALL, '\uFFFD') as T;
   if (v === null || typeof v !== 'object' || depth > 40) return v;
-  if (Array.isArray(v)) return v.map((x) => clean(x, depth + 1)) as T;
+  if (Array.isArray(v)) return (v as unknown[]).map((x) => clean(x, depth + 1)) as T;
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k.replace(CONTROL_IN_TEXT_ALL, '\uFFFD'), clean(x, depth + 1)])) as T;
 }
 

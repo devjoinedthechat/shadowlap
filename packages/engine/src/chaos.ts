@@ -174,7 +174,7 @@ function longestList(v: unknown, at: Array<string | number> = []): { at: Array<s
 function setAt(v: unknown, at: ReadonlyArray<string | number>, value: unknown): unknown {
   if (!at.length) return value;
   const [k, ...rest] = at;
-  if (Array.isArray(v)) return v.map((x, i) => (i === k ? setAt(x, rest, value) : x));
+  if (Array.isArray(v)) return (v as unknown[]).map((x, i) => (i === k ? setAt(x, rest, value) : x));
   if (isObject(v)) return { ...v, [k as string]: setAt(v[k as string], rest, value) };
   return v;
 }
@@ -222,7 +222,7 @@ const isHttp = (v: unknown): v is HttpLike => isObject(v) && typeof v.status ===
 const refuse = (why: string): Refusal => ({ refused: why });
 
 /** The text blocks of an MCP tool's result. */
-const mcpTexts = (v: Record<string, unknown>) => (Array.isArray(v.content) ? v.content : []).map((b, i) => ({ b, i })).filter((x): x is { b: { type: 'text'; text: string }; i: number } => isObject(x.b) && x.b.type === 'text' && typeof x.b.text === 'string');
+const mcpTexts = (v: Record<string, unknown>) => (Array.isArray(v.content) ? (v.content as unknown[]) : []).map((b, i) => ({ b, i })).filter((x): x is { b: { type: 'text'; text: string }; i: number } => isObject(x.b) && x.b.type === 'text' && typeof x.b.text === 'string');
 
 /**
  * The result a tool preset serves in place of the recorded one, or why it can't. A result the preset
@@ -263,7 +263,7 @@ function served(preset: Exclude<ChaosPreset, 'timeout' | '429' | '500'>, recorde
   }
   if (shape === 'mcp' && isObject(recorded) && Array.isArray(recorded.content)) {
     const texts = mcpTexts(recorded);
-    const content = [...recorded.content];
+    const content = [...(recorded.content as unknown[])];
     if (preset === 'empty') return { result: { ...recorded, content: [], ...('structuredContent' in recorded ? { structuredContent: emptyOf(recorded.structuredContent) } : {}) } };
     if (preset === 'malformed') {
       const json = texts.filter((x) => parses(x.b.text));

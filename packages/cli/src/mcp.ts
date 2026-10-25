@@ -574,7 +574,7 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
 
   // `shadowlap run`'s network guard would report this proxy's own connection to its server as
   // traffic Shadowlap doesn't record; the calls it carries are recorded here.
-  const allowGuard = (globalThis as Record<symbol, unknown>)[Symbol.for('shadowlap.guard.allow')];
+  const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${url.hostname.replace(/^\[|\]$/g, '')}:${url.port || (url.protocol === 'https:' ? '443' : '80')}`);
 
   /** The headers of a request; the session's own only for a request inside it (never `initialize`). */
@@ -909,7 +909,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
   const open = new Set<{ destroy(): void }>();
 
   // As in the stdio mode: the guard leaves the proxy's own connection to its server alone.
-  const allowGuard = (globalThis as Record<symbol, unknown>)[Symbol.for('shadowlap.guard.allow')];
+  const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${upstream.hostname.replace(/^\[|\]$/g, '')}:${upstream.port || (upstream.protocol === 'https:' ? '443' : '80')}`);
 
   const newSession = async (): Promise<ServedSession> => ({ calls: new ToolCalls(await o.sidecar(), o.effects, o.log, origin) });

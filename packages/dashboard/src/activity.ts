@@ -217,7 +217,10 @@ const factsCache = new WeakMap<Store, Map<string, Facts>>();
 /** What a run's calls add up to; read once for a finished run. */
 function facts(store: Store, run: RunRecord): Facts {
   let cache = factsCache.get(store);
-  if (!cache) factsCache.set(store, (cache = new Map()));
+  if (!cache) {
+    cache = new Map();
+    factsCache.set(store, cache);
+  }
   const key = `${run.runId}:${run.status}`;
   const hit = cache.get(key);
   if (hit) return hit;

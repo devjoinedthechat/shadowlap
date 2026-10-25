@@ -249,7 +249,7 @@ export function parseRules(raw: unknown, list: RuleList): Normalizer[] {
 export function readRules(file: ConfigFile, list: RuleList): Array<{ rule: Normalizer; error: null } | { rule: unknown; error: string }> {
   const raw = file.data[list];
   if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
+  return (raw as unknown[]).map((entry) => {
     try {
       return { rule: checkStored(entry), error: null };
     } catch (err) {

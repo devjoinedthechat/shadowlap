@@ -702,7 +702,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     ...(config.tools ? { trust: config.tools } : {}),
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
-  const results: AttemptResult[] = new Array(count);
+  const results = new Array<AttemptResult>(count);
   let stopped = false;
   // Streamed one at a time, an attempt reads this process's stdin: in a terminal it shares the
   // terminal's process group, where the terminal's own Ctrl-C reaches it once. In a dashboard job

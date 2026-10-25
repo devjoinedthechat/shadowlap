@@ -114,7 +114,10 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
     for (const c of calls) if (c.kind === 'api') asks.set(c.callNo, asked(store, c));
     return { conversations: runConversations(store, calls, { attribute: true }), asks };
   }
-  if (!byRun) following.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    following.set(store, byRun);
+  }
   let entry = byRun.get(run.runId);
   let conversations = entry?.live.update(calls) ?? null;
   if (!entry || !conversations) {
@@ -145,7 +148,10 @@ export function analysisKnown(store: Store, run: RunRecord, calls: readonly Call
 /** A run's conversations, cache misses and recorded durations, computed once per state of the run. */
 export function analyseRun(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
   let byRun = analyses.get(store);
-  if (!byRun) analyses.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    analyses.set(store, byRun);
+  }
   const key = analysisKey(run, calls);
   const known = byRun.get(key);
   if (known) return known;
@@ -197,7 +203,10 @@ export const READ_PAST = LOOKAHEAD;
  */
 export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRecord[]): RunAnalysis {
   let byRun = prefixes.get(store);
-  if (!byRun) prefixes.set(store, (byRun = new Map()));
+  if (!byRun) {
+    byRun = new Map();
+    prefixes.set(store, byRun);
+  }
   const key = analysisKey(run, part);
   let analysis = byRun.get(key);
   if (!analysis) {

@@ -57,7 +57,7 @@ async function readCapped(res: Response, maxBytes: number, idleMs: number, contr
   if (!res.body) return Buffer.alloc(0);
   const chunks: Buffer[] = [];
   let total = 0;
-  const reader = res.body.getReader();
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   for (;;) {
     // A slow transfer is fine; one that stops is not.
     const idle = setTimeout(() => controller.abort(), idleMs);

@@ -93,7 +93,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     const raw = parsed.providers as unknown;
     if (!Array.isArray(raw)) throw new Error(`${file}: providers must be a list, such as [{ "host": "openrouter.ai", "format": "openai", "root": "/api/v1" }]`);
     const seen = new Set<string>();
-    config.providers = raw.map((given, i) => {
+    config.providers = (raw as unknown[]).map((given, i) => {
       // Host names read in any case, as under http.
       const entry = typeof given === 'object' && given !== null && typeof (given as { host?: unknown }).host === 'string' ? { ...(given as object), host: (given as { host: string }).host.toLowerCase() } : given;
       const problem = formatHostProblem(entry, `providers[${i}]`);

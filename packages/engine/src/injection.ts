@@ -426,7 +426,7 @@ export function keepingCanaries<T>(value: T, canaries: readonly Canary[], rewrit
   // Where a rule took marks with what it replaced, the canaries go back.
   const restore = (before: unknown, after: unknown): unknown => {
     if (typeof before === 'string' && !(before.match(MARKS) ?? []).length) return after;
-    if (Array.isArray(before) && Array.isArray(after)) return after.map((x, i) => (i < before.length ? restore(before[i], x) : x));
+    if (Array.isArray(before) && Array.isArray(after)) return (after as unknown[]).map((x, i) => (i < before.length ? restore(before[i], x) : x));
     if (isObject(before) && isObject(after)) return Object.fromEntries(Object.entries(after).map(([k, x]) => [k, Object.hasOwn(before, k) ? restore(before[k], x) : x]));
     const held = marksIn(before);
     if (!held.length) return after;

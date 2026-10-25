@@ -517,7 +517,10 @@ function sumCalls(store: Store, index: RunIndex, runs: readonly IndexedRun[]): M
       }
       if (parents.has(runId)) {
         let table = durations.get(runId);
-        if (!table) durations.set(runId, (table = new Map()));
+        if (!table) {
+          table = new Map();
+          durations.set(runId, table);
+        }
         table.set(Number(row.call), { latency: recordedMs ?? n(j?.[5]), source: origin === 'replayed' && recordedMs === null ? replayedFrom : null });
       }
 

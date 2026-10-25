@@ -121,7 +121,7 @@ export function requestFor(mode: 'to-openai' | 'anthropic-api', shape: ChatShape
     const { anthropic_version: _v, stream: _s, thinking, ...rest } = body;
     if (thinking !== undefined) dropped.add('the thinking setting');
     const messages = Array.isArray(rest.messages)
-      ? rest.messages.map((m) => {
+      ? (rest.messages as unknown[]).map((m) => {
           if (typeof m !== 'object' || m === null || !Array.isArray((m as Json).content)) return m;
           // Thinking is bound to the model that wrote it: another model's API refuses it.
           const content = ((m as Json).content as unknown[]).filter((b) => {

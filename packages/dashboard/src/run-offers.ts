@@ -147,7 +147,10 @@ const MADE_MODEL_CALL_SQL = `SELECT EXISTS (SELECT 1 FROM call_events WHERE run_
 /** Whether a run that has ended made a model call: blame asks model calls again, so it needs one. */
 function madeModelCall(store: Store, run: RunRecord): boolean {
   let seen = modelCalls.get(store);
-  if (!seen) modelCalls.set(store, (seen = new Map()));
+  if (!seen) {
+    seen = new Map();
+    modelCalls.set(store, seen);
+  }
   const known = seen.get(run.runId);
   if (known !== undefined) return known;
   const made = Number(store.query(MADE_MODEL_CALL_SQL, run.runId)[0]?.made ?? 0) === 1;

@@ -131,7 +131,7 @@ mixIn([Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, In
 function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
   for (const part of parts) {
     if (Object.getPrototypeOf(part.prototype) !== StorePart.prototype) throw new Error(`${part.name} must extend StorePart`);
-    for (const key of Reflect.ownKeys(part.prototype)) {
+    for (const key of Reflect.ownKeys(part.prototype as object)) {
       if (key === 'constructor') continue;
       if (Object.hasOwn(Store.prototype, key)) throw new Error(`Store.${String(key)} is defined twice`);
       Object.defineProperty(Store.prototype, key, Object.getOwnPropertyDescriptor(part.prototype, key)!);
