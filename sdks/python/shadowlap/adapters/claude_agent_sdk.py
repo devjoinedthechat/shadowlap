@@ -32,6 +32,7 @@ them with ``with_effects``, which records and fences them like any SDK tool.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import os
 import re
@@ -53,8 +54,8 @@ from shadowlap import (
     _is_cancellation,
     _recordable,
     _replay_cancellation,
+    _resolve_shielded,
     _resolve_tool,
-    _to_thread,
     serialize_error,
 )
 from shadowlap.adapters._claude_hooks import DEFAULT_TIMEOUT_S, as_output, combine, matcher_picks, run_hooks, settings_pre_tool_use
@@ -281,7 +282,7 @@ def fence_hooks(
         effect = table[name]
         agent = _text(input_data.get("agent_id"))
         try:
-            r = await _to_thread(_resolve_tool, name, effect, args)
+            r = await _resolve_shielded(functools.partial(_resolve_tool, name, effect, args), _complete_call)
             if r is None:
                 return {}
             origin = r.get("origin")
@@ -549,7 +550,7 @@ def _recorded_handler(recorded: str, name: str, effect: str, handler: Callable[[
 
 
 async def _call(recorded: str, name: str, effect: str, args: Any, handler: Callable[[Any], Any], on_fork: Optional[Callable[[Any], Any]], trust: Optional[str]) -> Any:
-    r = await _to_thread(_resolve_tool, recorded, effect, _check_args(recorded, args), trust)
+    r = await _resolve_shielded(functools.partial(_resolve_tool, recorded, effect, _check_args(recorded, args), trust), _complete_call)
     if r is None:
         return await handler(args)
     origin = r.get("origin")
@@ -569,7 +570,7 @@ async def _call(recorded: str, name: str, effect: str, args: Any, handler: Calla
             value = on_fork(args)
             if hasattr(value, "__await__"):
                 value = await value
-        await _to_thread(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, value)})
+        await _finish(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, value)})
         return value
     if origin != "live":
         raise RuntimeError(f"shadowlap sidecar answered {recorded} with an unknown origin {origin!r}; update the shadowlap package")
@@ -582,5 +583,5 @@ async def _call(recorded: str, name: str, effect: str, args: Any, handler: Calla
         error_body = _cancelled_error(err) if _is_cancellation(err) else serialize_error(err)
         await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": error_body, "latencyMs": int((time.time() - started) * 1000)})
         raise
-    await _to_thread(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, result), "latencyMs": int((time.time() - started) * 1000)})
+    await _finish(_complete_call, r["callNo"], {"outcome": "ok", "result": _recordable(recorded, result), "latencyMs": int((time.time() - started) * 1000)})
     return result

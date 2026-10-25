@@ -337,16 +337,57 @@ async def _to_thread(fn: Callable[..., _T], *args: Any) -> _T:
     return context.run(fn, *args)
 
 
-async def _finish(fn: Callable[..., _T], *args: Any) -> _T:
-    """``_to_thread`` for what must reach the sidecar even while the caller is being cancelled: the
-    end of a call. Under trio a cancelled task can't wait on anything outside a shielded scope;
-    under asyncio the thread goes on even if the caller is cancelled again meanwhile."""
-    if _async_library() == "trio":
+async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[BaseException]]:
+    """``fn(*args)`` on a worker thread, run to its end whatever the caller does meanwhile, with the
+    cancel that came while it ran, if one did, for the caller to go on with once it has the answer.
+    Under trio it runs in a shielded scope (a cancelled task can wait on nothing outside one), and a
+    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out."""
+    library = _async_library()
+    if library == "trio":
         import trio
 
         with trio.CancelScope(shield=True):
-            return await _to_thread(fn, *args)
-    return await _to_thread(fn, *args)
+            return await _to_thread(fn, *args), None
+    if library != "asyncio":
+        return await _to_thread(fn, *args), None
+    done = asyncio.ensure_future(_to_thread(fn, *args))
+    cancel: Optional[BaseException] = None
+    while True:
+        try:
+            return await asyncio.shield(done), cancel
+        except asyncio.CancelledError as err:
+            if done.cancelled():
+                raise
+            cancel = cancel or err
+
+
+async def _finish(fn: Callable[..., _T], *args: Any) -> _T:
+    """``_to_thread`` for what must reach the sidecar even while the caller is being cancelled: the
+    end of a call. It runs to its end, and a cancel that came meanwhile goes on after it."""
+    result, cancel = await _shielded(fn, *args)
+    if cancel is not None:
+        raise cancel
+    return result
+
+
+async def _resolve_shielded(resolve: Callable[[], Optional[Resolution]], complete: Callable[[int, dict[str, Any]], Any]) -> Optional[Resolution]:
+    """What the sidecar says about a call, asked off the loop, with the start of the call it makes
+    never lost to a cancel: the question runs to its end (``_shielded``), and a call cancelled while
+    it was asked never runs. A live or stubbed one is ended as the caller's cancel, so no call is
+    left pending, and the cancel goes on; its replay waits for the caller to cancel it again."""
+    r, cancel = await _shielded(resolve)
+    if cancel is None and _async_library() == "trio":
+        import trio
+
+        try:
+            await trio.lowlevel.checkpoint_if_cancelled()
+        except trio.Cancelled as err:
+            cancel = err
+    if cancel is not None:
+        if r is not None and r.get("origin") in ("live", "stubbed"):
+            await _finish(complete, r["callNo"], {"outcome": "error", "error": _cancelled_error(cancel), "latencyMs": 0})
+        raise cancel
+    return r
 
 
 def _is_cancellation(err: BaseException) -> bool:
@@ -793,6 +834,12 @@ class _Tool:
     def complete(self, cfg: Config, call_no: int, body: dict[str, Any]) -> None:
         _post(cfg, f"/v1/calls/{call_no}/complete", body)
 
+    async def resolve_async(self, cfg: Config, args: dict[str, Any]) -> Resolution:
+        """``resolve``, asked off the loop, shielded from a cancel: see ``_resolve_shielded``."""
+        r = await _resolve_shielded(functools.partial(self.resolve, cfg, args), functools.partial(self.complete, cfg))
+        assert r is not None  # a tool's resolve always answers
+        return r
+
     def replayed(self, r: Resolution, bound: dict[str, Any]) -> Any:
         """A recorded call's answer: its result, or its error raised again."""
         if r["outcome"] == "ok":
@@ -861,13 +908,13 @@ class _Tool:
             if cfg is None:
                 return await fn(*args, **kwargs)
             bound = _bind_args(fn, args, kwargs, self.exclude)
-            r = await _to_thread(self.resolve, cfg, _check_args(self.name, bound))
+            r = await self.resolve_async(cfg, _check_args(self.name, bound))
             if r["origin"] == "replayed":
                 return await self.replayed_async(r, bound)
             self.refuse(r, bound)
             if r["origin"] == "stubbed":
                 stub = await self.stub_async(bound)
-                await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, stub, 0)
+                await _finish(_complete_ok, self.complete, cfg, r["callNo"], self.name, stub, 0)
                 return stub
             started = time.time()
             try:
@@ -879,7 +926,7 @@ class _Tool:
                 # the end of the call reaches the sidecar, even if the caller cancels again meanwhile.
                 await _finish(self.complete, cfg, r["callNo"], self.failed(err, started))
                 raise
-            await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, result, _since(started))
+            await _finish(_complete_ok, self.complete, cfg, r["callNo"], self.name, result, _since(started))
             return result
 
         return wrapper
@@ -900,7 +947,7 @@ class _Tool:
             live: Optional[_LiveStream] = None
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = await _to_thread(tool_.resolve, cfg, _check_args(tool_.name, bound))
+                r = await tool_.resolve_async(cfg, _check_args(tool_.name, bound))
                 if r["origin"] == "replayed":
                     # The implementation doesn't run: the recorded values are the stream, in order,
                     # and a failure comes after the values it followed.
@@ -917,7 +964,7 @@ class _Tool:
                 tool_.refuse(r, bound)
                 if r["origin"] == "stubbed":
                     stub = await tool_.stub_async(bound)
-                    await _to_thread(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
+                    await _finish(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
                     yield stub
                     return
                 live = _LiveStream(tool_, cfg, r["callNo"])
@@ -928,7 +975,7 @@ class _Tool:
                 value = await stream.__anext__()
             except StopAsyncIteration:
                 if live:
-                    await _to_thread(live.ended)
+                    await _finish(live.ended)
                 return
             except BaseException as err:
                 if live:
@@ -955,7 +1002,7 @@ class _Tool:
                     value = await step
                 except StopAsyncIteration:
                     if live:
-                        await _to_thread(live.ended)
+                        await _finish(live.ended)
                     return
                 except BaseException as err:
                     if live:
@@ -1248,7 +1295,9 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
     if cfg is None:
         answer = read(prompt)
         return cast(str, await answer if inspect.isawaitable(answer) else answer)
-    r = await _to_thread(_resolve_input, cfg, prompt)
+    asked = await _resolve_shielded(functools.partial(_resolve_input, cfg, prompt), lambda call_no, body: _post(cfg, f"/v1/calls/{call_no}/complete", body))
+    assert asked is not None  # the sidecar always answers an input
+    r = asked
     if r["origin"] == "replayed":
         if r["outcome"] != "ok":
             await _replay_cancellation(r.get("error") or {})
@@ -1269,5 +1318,5 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         error = _cancelled_error(err) if _is_cancellation(err) else serialize_error(err)
         await _finish(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": error, "latencyMs": _since(started)})
         raise
-    await _to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
+    await _finish(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
     return cast(str, text)
