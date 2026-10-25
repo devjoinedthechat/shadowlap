@@ -74,7 +74,8 @@ const text = (el: FakeElement) => el.textContent.replace(/\s+/g, ' ').trim();
 const newRun = (o: Parameters<typeof makeRun>[1] = {}): string => makeRun(store as unknown as Parameters<typeof makeRun>[0], o);
 
 function blame(runId: string, o: { report?: BlameReport; expect?: unknown; title?: string } = {}) {
-  return recordBlame(store, { runId, report: o.report ?? blameReport(runId), expect: o.expect === undefined ? EXPECT : o.expect, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, title: o.title ?? 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
+  // With the flags it ran with beside its command line, as the CLI keeps them (blameRerun).
+  return recordBlame(store, { runId, report: o.report ?? blameReport(runId), expect: o.expect === undefined ? EXPECT : o.expect, scope: null, command: `shadowlap blame ${runId.slice(0, 10)}`, rerun: { flags: [], command: null }, title: o.title ?? 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
 }
 
 describe('what failed', () => {
@@ -319,13 +320,14 @@ describe('what settles a fix left unsettled', () => {
     const gate = { kind: 'sprt' as const, good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
     const report = verifyReport([{ runId: run, role: 'target', pass: true }]);
     report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue' };
-    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
-    const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: 'shadowlap verify --fixes label:double-email --set temperature=1 --budget 0.012', at: NOW + 1 });
+    // The fields its --set gave and the flags it ran with, as verify keeps them beside its command line.
+    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80, fields: { temperature: 1 } });
+    const { verdict } = recordVerdict(store, { report, expect: EXPECT, command: `shadowlap verify --fixes label:double-email --expect '${JSON.stringify(EXPECT)}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: NOW + 1 });
     const started: Array<[string, unknown]> = [];
     await open(fix.fixId, 'verify', null, { started });
     const more = r!.byText('.verdict .actions button', 'Run more attempts');
     expect(more.className).toBe('btn sm lime');
-    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --set temperature=1` });
+    expect(JSON.parse(String(more.props['data-tip']))).toMatchObject({ t: 'Verifies the change again from the start, up to 80 attempts a run', s: `$ shadowlap verify --fixes ${run} --expect '${JSON.stringify(EXPECT)}' --set temperature=1` });
     // The header's Repair from here reads plain while the step leads.
     expect(r!.byText('.ph .actions button', 'Repair from here').className).toBe('btn');
     expect(text(r!.one('.fxreceipt.vmore'))).toBe(`${run.slice(0, 10)} is not settled: the budget of $0.01 is spent. Run more attempts verifies again from the start (verify has no --continue), up to 80 a run, without its --budget 0.012: about 12 attempts, ≈$0.144.`);

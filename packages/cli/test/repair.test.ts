@@ -320,7 +320,8 @@ process.stdin.on('end', () => {
       expect(report.repairer).toMatchObject({ served: 'claude-opus-5-5', cost: 0.0061 });
 
       const call = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; system: string; cwd: string; claudecode: string | null; input: string };
-      expect(call.args.slice(0, 7)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2']);
+      // No tool, MCP server, hook or project or user settings: what it reads is the failing runs' content.
+      expect(call.args.slice(0, 12)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--disallowed-tools', 'mcp__*', '--strict-mcp-config', '--setting-sources', '', '--max-turns', '2']);
       // The schema reaches it whole, quotes and all, through cmd.exe on Windows too.
       expect(JSON.parse(call.args[call.args.indexOf('--json-schema') + 1])).toMatchObject({ type: 'object', required: ['diagnosis', 'candidates'] });
       expect(call.args.slice(-2)).toEqual(['--model', 'claude-opus-5-5']);
