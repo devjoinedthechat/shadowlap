@@ -1,13 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, findAnchors, footprintDelta, forbiddenDetails, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
 import { candidateTree, COPY_LIMIT, fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
-import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_ANTHROPIC_REPAIRER, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -99,6 +99,27 @@ export class HandOverError extends RepairError {
 }
 
 const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
+
+/** The longest answer the repairer is asked for, in tokens: what the Anthropic request allows it (max_tokens). */
+export const REPAIRER_ANSWER_TOKENS = 16_000;
+
+/**
+ * The characters one token of the repairer's prompt is taken to hold when what asking it could cost is
+ * worked out: fewer than tokenizers fit into a token of English (about 4), so its tokens are counted
+ * high, and so is the cost, which is what a budget is checked against.
+ */
+export const PROMPT_CHARS_PER_TOKEN = 3;
+
+/**
+ * The most asking the repairer could cost, before it is asked: its prompt, counted high, and the
+ * longest answer it may give, at its model's price (Claude Code's own default is priced as
+ * Shadowlap's, DEFAULT_ANTHROPIC_REPAIRER). Null for a model with no price, which no budget can
+ * count beforehand: its reported cost, when it has one, is counted once it answers.
+ */
+export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { system: string; user: string }, prices?: Record<string, Price>): number | null {
+  const model = r.model || (r.provider === 'claude-code' ? DEFAULT_ANTHROPIC_REPAIRER : null);
+  return estimateCost(model, { inputTokens: Math.ceil((prompt.system.length + prompt.user.length) / PROMPT_CHARS_PER_TOKEN), outputTokens: REPAIRER_ANSWER_TOKENS }, prices);
+}
 
 /** What is copied of the files git ignores into a candidate's worktree, in MB, as a warning says it. */
 const REPAIR_COPY_LIMIT_MB = COPY_LIMIT / 1024 / 1024;
@@ -524,6 +545,10 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         notAsked(unaskable);
       } else {
         const request = buildRepairPrompt({ oracle, system: instructions.system, tools: instructions.tools, cases: learned.map((b) => b.repairCase!), anchors, candidates: s.candidates });
+        // Its call counts against the budget like any other: it is asked only when what is left covers the most it could cost.
+        const most = repairerMost(s.repairer, request, config.prices);
+        const left = budgetLeft();
+        if (left !== null && most !== null && most > left) return stopped(`asking the repairer could cost up to ${formatUsd(most)} (its prompt, and an answer of up to ${REPAIRER_ANSWER_TOKENS.toLocaleString('en-US')} tokens), more than the ${formatUsd(Math.max(left, 0))} left of the budget of $${s.budget!.toFixed(2)}, so it was not asked`);
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
         let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {

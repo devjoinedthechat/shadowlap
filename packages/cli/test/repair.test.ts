@@ -460,6 +460,25 @@ process.stdin.on('end', () => {
     expect(md).not.toContain('stubbed');
   });
 
+  it('asks the repairer only when what is left of the budget covers the most asking it could cost', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    const before = mock.requests.length;
+    // Blame costs nothing here (its model has no price); the repairer's answer alone could cost $0.32 at Opus 5.5's price.
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.20', '--json']);
+    expect(r.code, r.out).toBe(3);
+    const report = JSON.parse(r.stdout) as Report & { cost: { repairer: number | null } };
+    expect(report.outcome).toBe('stopped');
+    expect(report.why).toMatch(/^asking the repairer could cost up to \$0\.3\d\d \(its prompt, and an answer of up to 16,000 tokens\), more than the \$0\.200 left of the budget of \$0\.20, so it was not asked$/);
+    expect(report.targets.every((t) => t.outcome === 'blamed')).toBe(true);
+    expect(report.cost.repairer).toBeNull();
+    expect(mock.requests.slice(before).some((q) => JSON.stringify(q.body.system).includes('You improve AI agents'))).toBe(false);
+    // With enough left, it is asked as before.
+    const enough = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '5', '--json']);
+    expect(enough.code, enough.out).toBe(0);
+    expect((JSON.parse(enough.stdout) as Report).outcome).toBe('fixed');
+  });
+
   it('finds out before it blames anything that an Anthropic repairer cannot sign in: no credentials, or a key refused', async () => {
     const failed = await record();
     mode = 'alternate';
