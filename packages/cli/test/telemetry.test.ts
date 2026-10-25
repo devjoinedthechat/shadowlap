@@ -11,8 +11,8 @@ function fakeFetch(): { fetch: typeof fetch; batches: TelemetryBatch[]; urls: st
   const batches: TelemetryBatch[] = [];
   const urls: string[] = [];
   const fetchImpl = async (url: string | URL | Request, init?: RequestInit) => {
-    urls.push(String(url));
-    batches.push(JSON.parse(String(init?.body)) as TelemetryBatch);
+    urls.push(url instanceof Request ? url.url : String(url));
+    batches.push(JSON.parse(init?.body as string) as TelemetryBatch);
     return new Response('{}', { status: 202 });
   };
   return { fetch: fetchImpl, batches, urls };

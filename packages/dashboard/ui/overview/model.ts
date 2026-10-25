@@ -182,7 +182,7 @@ export function kindGlyph(kind: string, o: { failed?: boolean; live?: boolean } 
 }
 
 /** An activity entry's icon among the dashboard's glyphs; a kind it does not know shows as a recording. */
-export function activityGlyph(kind: ActivityIcon | string): GlyphKind {
+export function activityGlyph(kind: ActivityIcon | (string & {})): GlyphKind {
   const known: readonly string[] = ['live', 'rec', 'fail', 'warn', 'clean', 'fork', 'cap', 'test', 'blame', 'fixok', 'fixbad', 'project', 'setting', 'train'];
   return known.includes(kind) ? (kind as GlyphKind) : 'rec';
 }

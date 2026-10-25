@@ -70,7 +70,7 @@ describe('subpath exports under moduleResolution node', () => {
     writeFileSync(join(project, 'index.ts'), imports.join('\n') + '\n');
     writeFileSync(join(project, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'commonjs', moduleResolution: 'node', target: 'es2022', strict: true, noEmit: true, skipLibCheck: false, types: ['node'] }, files: ['index.ts'] }));
     const tsc = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: { stdout?: string }) => ({ stdout: err.stdout ?? String(err) }));
+    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: Error & { stdout?: string }) => ({ stdout: err.stdout ?? String(err) }));
     expect(out.stdout).toBe('');
   });
 

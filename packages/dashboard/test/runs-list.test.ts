@@ -485,7 +485,7 @@ describe('what the index works out about a run', () => {
       const judge = { code: 'l', scope: 'shadowlap:judge' };
       // A recording that failed after four calls, judged twice after them; its replay served every
       // one of the agent's calls and failed the same way, with no judge asked.
-      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: [...[...'llll'].map((code) => ({ code })), judge, judge] });
+      const rec = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: [...Array.from('llll', (code) => ({ code })), judge, judge] });
       const reproduced = addRun(local, { parent: rec, startedAt: NOW - HOUR, status: 'failed', calls: 'rrrr' });
       expect(loadRunIndex(local).byId.get(rec)).toMatchObject({ calls: 6, agentCalls: 4 });
       expect(byId(listRunsPage(local).runs).get(reproduced)).toMatchObject({ kind: 'clean', label: 'clean replay' });

@@ -105,6 +105,9 @@ export default defineConfig(
         },
       ],
 
+      // A destructuring that declares one variable to reassign keeps the others beside it.
+      'prefer-const': ['error', { destructuring: 'all' }],
+
       // Off, each for its reason:
       // TypeScript keeps a variable narrowed when a callback assigns it (a flag a signal handler sets, the
       // best result a helper keeps), so nearly all of this rule's 416 findings here were checks that matter;
@@ -121,6 +124,9 @@ export default defineConfig(
       '@typescript-eslint/no-non-null-assertion': 'off',
       // `() => setOpen(false)` returning the call's void is the code's idiom for handlers.
       '@typescript-eslint/no-confusing-void-expression': 'off',
+      // `this` is aliased to name the object a patched or spied method was called on (`const rl = this`,
+      // `program = this`) and to walk a fake DOM up from an element: each of its 7 findings here was that.
+      '@typescript-eslint/no-this-alias': 'off',
     },
   },
 
@@ -138,6 +144,7 @@ export default defineConfig(
     files: [...TESTS, ...domTests, ...BROWSER_TESTS],
     rules: {
       // Tests read the CLI's JSON and their fixtures as any, and the assertion is the check.
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',

@@ -295,7 +295,7 @@ describe('cache misses', () => {
       lead: 'Only #17 missed the cache.',
       parts: ['The prompt changed at ', { code: '$.model' }, ', so #17 sent 2,300 tokens again and wrote the prompt to the cache anew; the calls after it read it from there.'],
     });
-    expect(cacheNote(fork, cacheMisses(fork)).parts.join('')).not.toMatch(/every call after it/);
+    expect(cacheNote(fork, cacheMisses(fork)).parts.map((p) => (typeof p === 'string' ? p : p.code)).join('')).not.toMatch(/every call after it/);
     expect(cacheNote(cached, cacheMisses(cached), { callNo: 5, path: '$.messages[3]' }).parts).toHaveLength(1);
     // A miss that wrote nothing to the cache says only what it sent again.
     const unwritten = [m(1, 0, 200, 3000), m(3, 3000, 100, 400), m(17, 1200, 2700)];

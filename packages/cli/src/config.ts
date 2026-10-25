@@ -95,7 +95,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     const seen = new Set<string>();
     config.providers = (raw as unknown[]).map((given, i) => {
       // Host names read in any case, as under http.
-      const entry = typeof given === 'object' && given !== null && typeof (given as { host?: unknown }).host === 'string' ? { ...(given as object), host: (given as { host: string }).host.toLowerCase() } : given;
+      const entry = typeof given === 'object' && given !== null && typeof (given as { host?: unknown }).host === 'string' ? { ...given, host: (given as { host: string }).host.toLowerCase() } : given;
       const problem = formatHostProblem(entry, `providers[${i}]`);
       if (problem) throw new Error(`${file}: ${problem}`);
       const { host, format, root } = entry as FormatHost;

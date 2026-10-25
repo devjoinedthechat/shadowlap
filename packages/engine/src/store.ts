@@ -49,6 +49,7 @@ export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training
 
 // Store's methods that are a part's (mixIn, below): their signatures and comments are the part's own,
 // where the methods are written.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- mixIn puts every part named here on Store's prototype when this file loads, and refuses a name defined twice
 export interface Store
   extends Pick<Recording, keyof Recording>,
     Pick<Search, keyof Search>,
@@ -69,6 +70,7 @@ export interface Store
  * Every method is synchronous; SQLite on a local disk is fast enough and it
  * keeps the sidecar's bookkeeping free of interleaving bugs.
  */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- its parts' methods, which the interface above declares, are put on it by mixIn
 export class Store {
   private readonly db: SqliteDatabase;
   private readonly stmts: Statements;

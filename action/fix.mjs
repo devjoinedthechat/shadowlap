@@ -365,6 +365,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     for (const swap of swaps) for (const e of PACK_ENTRIES) rmSync(join(resolve(workdir, swap.golden), e), { recursive: true, force: true });
     for (const m of moved) move(join(m.keep, m.e), join(m.dir, m.e));
     rmSync(aside, { recursive: true, force: true });
+    // eslint-disable-next-line no-unsafe-finally -- a fix left in the working tree is said over the result, which the caller would otherwise trust
     if (back && back.status !== 0) throw new Error(`the fix could not be taken back out of the working tree: ${(back.stderr ?? '').trim()}`);
   }
 }

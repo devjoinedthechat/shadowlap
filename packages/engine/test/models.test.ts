@@ -13,7 +13,7 @@ type Route = { status?: number; body?: unknown; refuse?: boolean; hang?: boolean
 function fakeFetch(routes: Record<string, Route>): { fetch: typeof fetch; asked: string[] } {
   const asked: string[] = [];
   const impl = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
+    const url = input instanceof Request ? input.url : String(input);
     asked.push(url);
     const r = routes[url];
     if (!r || r.refuse) throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
@@ -77,7 +77,7 @@ describe('models to score', () => {
     // A fetch that fails for another reason than a refused connection or a timeout (a port fetch won't use, say).
     const asked: string[] = [];
     const badPort = (async (input: string | URL | Request) => {
-      asked.push(String(input));
+      asked.push(input instanceof Request ? input.url : String(input));
       throw Object.assign(new TypeError('fetch failed'), { cause: { message: 'bad port' } });
     }) as typeof fetch;
     // OPENAI_BASE_URL is Ollama's own server: one note for it, under Ollama's name, and one request.

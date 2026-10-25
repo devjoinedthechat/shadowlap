@@ -183,7 +183,7 @@ function setAt(v: unknown, at: ReadonlyArray<string | number>, value: unknown): 
  * A value grown to at least `chars` characters of JSON: its longest text repeated, else its longest
  * list's items repeated. Null when it has neither (a number, an object of numbers).
  */
-function grownValue(v: unknown, chars: number): unknown | null {
+function grownValue(v: unknown, chars: number): unknown {
   const text = longestText(v);
   if (text && text.text.length) {
     const others = jsonText(v).length - text.text.length;

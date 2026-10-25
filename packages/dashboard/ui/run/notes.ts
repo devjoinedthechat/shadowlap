@@ -42,7 +42,7 @@ export interface NotesInput {
   preloads?: { guard: string; hellos: Readonly<Record<string, number>>; missing?: string | null } | null;
   websockets?: ReadonlyArray<{ target: string; count: number; action: 'tunnelled' | 'refused' }> | null;
   extraReads?: ReadonlyArray<{ callNo: number; kind: string; name: string }> | null;
-  mode: 'record' | 'replay' | string;
+  mode: 'record' | 'replay' | (string & {});
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`;
