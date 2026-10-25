@@ -1,6 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import type { Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
+import { serverIdle } from './idle.js';
 import { runJob, type ReadAnswer, type ReadJob } from './read-jobs.js';
 import type { FromReadWorker, ToReadWorker } from './read-worker.js';
 import type { RouteRequest } from './router.js';
@@ -46,6 +47,13 @@ export const READ_LIMITS = {
   warmSliceMs: 250,
   /** How long a thread has to close its connection when the dashboard stops, before it is ended. */
   closeMs: 2000,
+  /**
+   * The longest a thread may work on one job, in milliseconds: past it the thread is ended, the
+   * request is answered that it took too long, and a new thread takes the rest. A request, two
+   * minutes; what can wait (a long run's whole analysis), ten.
+   */
+  jobMs: 120_000,
+  backgroundMs: 600_000,
 };
 
 /** The worker's script, beside this module once built; run from the TypeScript source (the tests), the built one. */
@@ -79,6 +87,8 @@ interface Slot {
   pinned: Pending[];
   /** What can wait for this thread: the whole analysis of the runs it answered from their first calls. */
   later: Pending[];
+  /** Ends the thread when the job it is on runs past its time (`READ_LIMITS.jobMs`). */
+  limit: ReturnType<typeof setTimeout> | null;
 }
 
 /** A run's thread is remembered for this many runs. */
@@ -108,7 +118,7 @@ export class ReadPool implements ReadModels {
     },
   ) {
     const size = Math.max(1, o.size ?? READ_LIMITS.size);
-    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [] }));
+    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null }));
     // The threads start with the dashboard, so the page's first request finds one ready; and the
     // warm-up with them, so the first look at the Overview finds totals kept.
     for (const slot of this.slots) this.spawn(slot);
@@ -200,6 +210,21 @@ export class ReadPool implements ReadModels {
     if (p.affinity !== null && !p.borrowed) this.own(p.affinity, slot.index);
     if (!slot.worker) this.spawn(slot);
     else if (slot.ready) this.post(slot, { type: 'job', id: p.id, job: p.job });
+    this.time(slot, p);
+  }
+
+  /** Ends the thread when `p` runs past its time: a job that never ends would hold the thread, and every request for its runs, for good. */
+  private time(slot: Slot, p: Pending): void {
+    if (slot.limit) clearTimeout(slot.limit);
+    const ms = p.background ? READ_LIMITS.backgroundMs : READ_LIMITS.jobMs;
+    slot.limit = setTimeout(() => {
+      slot.limit = null;
+      const worker = slot.worker;
+      if (slot.busy !== p || !worker) return;
+      const s = ms / 1000;
+      this.lost(slot, worker, `a ${p.job.kind} job took more than ${s >= 60 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} s`}`, true);
+    }, ms);
+    slot.limit.unref();
   }
 
   private own(runId: string, index: number): void {
@@ -245,6 +270,8 @@ export class ReadPool implements ReadModels {
         const p = slot.busy;
         if (!p || p.id !== m.id) return;
         slot.busy = null;
+        if (slot.limit) clearTimeout(slot.limit);
+        slot.limit = null;
         // A thread built before a kind of job it is given answers nothing for it: that fails, rather than waits for good.
         if (m.type === 'answer' && !m.answer) {
           this.o.log?.(`a read-model thread answered nothing for a ${p.job.kind} job: is the dashboard built?`);
@@ -267,11 +294,16 @@ export class ReadPool implements ReadModels {
     }
   }
 
-  /** A thread that stopped: what it was doing fails, what was asked of it goes to the others, and a new one starts when needed. */
-  private lost(slot: Slot, worker: Worker, why: string): void {
+  /**
+   * A thread that stopped, or was ended because its job ran past its time (`late`): what it was doing
+   * fails, what was asked of it goes to the others, and a new one starts when needed.
+   */
+  private lost(slot: Slot, worker: Worker, why: string, late = false): void {
     if (slot.worker !== worker) return;
     slot.worker = null;
     slot.ready = false;
+    if (slot.limit) clearTimeout(slot.limit);
+    slot.limit = null;
     void worker.terminate().catch(() => undefined);
     const busy = slot.busy;
     slot.busy = null;
@@ -282,7 +314,7 @@ export class ReadPool implements ReadModels {
     this.o.log?.(`a read-model thread stopped: ${why}`);
     // A thread that can't open the store fails each job given to it, one at a time, and the warm-up
     // stops at its first: what waits drains, and nothing starts threads for good.
-    busy?.reject(new Error(`the read model's thread stopped: ${why}`));
+    busy?.reject(late ? new HttpError(503, `${why}, so it was stopped: try again, or ask for less`) : new Error(`the read model's thread stopped: ${why}`));
     this.dispatch();
   }
 
@@ -303,6 +335,8 @@ export class ReadPool implements ReadModels {
           });
           worker.postMessage({ type: 'close' } satisfies ToReadWorker);
           await closed;
+          if (slot.limit) clearTimeout(slot.limit);
+          slot.limit = null;
           slot.busy?.reject(stopping);
           slot.busy = null;
           slot.worker = null;
@@ -317,7 +351,7 @@ export class ReadPool implements ReadModels {
  * The read models of a store with no file (in memory), worked out on the server's own thread, as no
  * other can open it: each answer whole, what is not known yet worked out as it is asked for (a store
  * in memory is a small one); what can wait right after the answer, and the warm-up in slices of
- * 50 ms while the server is otherwise idle.
+ * 50 ms while the server answers no request (idle.ts).
  */
 export class LocalReads implements ReadModels {
   private warming: 'running' | 'done' = 'running';
@@ -342,6 +376,8 @@ export class LocalReads implements ReadModels {
     if (this.timer || this.stopped) return;
     this.timer = setTimeout(() => {
       this.timer = null;
+      // A request is being answered: its answer goes first.
+      if (!serverIdle()) return this.schedule(20);
       void runJob(this.store(), { kind: 'warm', budgetMs: 50 }).then(
         (a) => {
           if (a.warm?.done) this.warming = 'done';

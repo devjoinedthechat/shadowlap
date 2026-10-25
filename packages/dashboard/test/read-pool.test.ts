@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { runJob, type ReadJob } from '../src/read-jobs.js';
-import { ReadPool } from '../src/read-pool.js';
+import { READ_LIMITS, ReadPool } from '../src/read-pool.js';
 import { recordLoop } from './long-run.js';
 import { addRun, DAY, HOUR } from './read-model-store.js';
 
@@ -165,6 +165,42 @@ describe('read models on threads beside the server', () => {
       for (const x of each) expect(x.analysed, `thread ${x.thread}`).toBe(x.thread === first.thread ? 1 : 0);
     } finally {
       await slow.close();
+    }
+  });
+
+  it('ends a thread whose job runs past its time, says so, and answers what comes after on a new one', async () => {
+    // A thread that never answers a page of calls.
+    const script = join(dir, 'stuck-worker.mjs');
+    writeFileSync(
+      script,
+      [
+        "import { parentPort, threadId } from 'node:worker_threads';",
+        "parentPort.postMessage({ type: 'ready' });",
+        'parentPort.on(\'message\', (m) => {',
+        "  if (m.type === 'close') return parentPort.postMessage({ type: 'closed' });",
+        "  if (m.job.kind === 'calls') return;",
+        "  parentPort.postMessage({ type: 'answer', id: m.id, answer: { status: 200, body: JSON.stringify({ thread: threadId }), etag: null, ...(m.job.kind === 'warm' ? { warm: { done: true, walked: 0, total: 0 } } : {}) } });",
+        '});',
+      ].join('\n'),
+    );
+    const was = READ_LIMITS.jobMs;
+    READ_LIMITS.jobMs = 300;
+    const lines: string[] = [];
+    const stuck = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 1, script: pathToFileURL(script), log: (l) => lines.push(l) });
+    try {
+      const first = JSON.parse((await stuck.run({ kind: 'recent', read: {} })).body) as { thread: number };
+      const t0 = Date.now();
+      const late = stuck.run({ kind: 'calls', runId: 'R', read: {}, from: 1, limit: 500 }, { affinity: 'R' });
+      // Asked while the thread is stuck: answered once it has been ended, by the next one.
+      const after = stuck.run({ kind: 'recent', read: {} });
+      await expect(late).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/^a calls job took more than 0\.3 s, so it was stopped/) });
+      expect(Date.now() - t0).toBeLessThan(5000);
+      const next = JSON.parse((await after).body) as { thread: number };
+      expect(next.thread).not.toBe(first.thread);
+      expect(lines.join('\n')).toMatch(/a read-model thread stopped: a calls job took more than 0\.3 s/);
+    } finally {
+      READ_LIMITS.jobMs = was;
+      await stuck.close();
     }
   });
 

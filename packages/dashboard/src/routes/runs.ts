@@ -1,4 +1,4 @@
-import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun, provenance } from '../api.js';
+import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
@@ -91,15 +91,15 @@ export function register(router: Router, ctx: RouteContext): void {
   // project's redaction rules, read afresh as the download reads them. The count is the Redaction
   // tab's preview of the run, read on a thread of its own (run-mask.ts): a rule that takes minutes
   // on the run's text leaves it uncounted, with why, rather than holding the server up.
+  // The rest of the record reads every call of the run: worked out beside the server, by the thread
+  // that read the run last (it held the server's thread 0.9 s at 100,000 calls).
   router.get('/runs/:id/provenance', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, run, rules: redact });
-    const p = provenance(store, run.runId, { ...ctx.read, ...(redact.length ? { redact } : {}), maskCount: () => mask });
-    if (!p) throw new HttpError(404, `no run ${r.params.id!}`);
-    r.tagged(p);
+    sendAnswer(r, await ctx.reads.run({ kind: 'provenance', runId: run.runId, read: ctx.read, mask }, { affinity: run.runId }));
   });
 
   router.get('/runs/:id/lineage', async (r) => {

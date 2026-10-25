@@ -2,6 +2,7 @@ import type { Normalizer, Price, Store } from '@shadowlap/engine';
 import type { ReadOptions } from './api.js';
 import type { JobManager, ProjectInfo } from './jobs.js';
 import type { ReadModels } from './read-pool.js';
+import type { SearchIndex } from './search-index.js';
 import type { DashboardOptions } from './server.js';
 import type { UploadStore } from './uploads.js';
 
@@ -51,6 +52,8 @@ export interface RouteContext {
    * store with a file (read-pool.ts), so a first look at a big store holds up no other request.
    */
   reads: ReadModels;
+  /** The store's search index, brought up to date beside the requests (search-index.ts). */
+  search: SearchIndex;
   /** The project folder jobs run in, or null; its `id` with several projects. */
   project: ProjectInfo | null;
   /**

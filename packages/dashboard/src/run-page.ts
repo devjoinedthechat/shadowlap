@@ -35,6 +35,7 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/engine';
+import { runCalls } from './run-calls.js';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
 /**
@@ -780,9 +781,11 @@ function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: nu
 }
 
 export function runProvenance(store: Store, run: RunRecord, options: ProvenanceOptions = {}): RunProvenance {
-  const calls = store.getCalls(run.runId);
+  // As the run's page read them, on the thread that read it last.
+  const calls = runCalls(store, run.runId);
   const modelOf = modelResolver(store);
-  const summary = summarizeRun(run, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+  // summarizeRun reads the calls, and changes none of them.
+  const summary = summarizeRun(run, calls as CallRecord[], [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
   const models = calls.filter((c) => c.kind === 'api');
   const lineage: RunProvenance['lineage'] = [];
   const seen = new Set<string>();

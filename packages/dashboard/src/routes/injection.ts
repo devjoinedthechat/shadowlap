@@ -1,8 +1,9 @@
 import { describeEvent } from '../activity.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
-import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView, runInjection, toolTrust } from '../injection.js';
+import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, injectionTemplatesView } from '../injection.js';
 import { injectionReportHtml } from '../injection-report.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 
 /**
@@ -62,11 +63,16 @@ export function register(router: Router, ctx: RouteContext): void {
     r.tagged(injectionResults(store, { ...(r.query.get('run') ? { runId: r.query.get('run')! } : {}), ...(r.query.get('golden') ? { golden: r.query.get('golden')! } : {}), ...(n !== undefined ? { limit: n } : {}) }));
   });
   router.get('/injection/templates', (r) => r.tagged(injectionTemplatesView()));
-  router.get('/injection/tools', (r) => r.tagged(toolTrust(store, tools())));
+  // Both read every call they are about, of a run or of every run: worked out beside the server.
+  router.get('/injection/tools', async (r) => {
+    const trust = tools();
+    sendAnswer(r, await ctx.reads.run({ kind: 'tool-trust', ...(trust ? { tools: trust } : {}) }));
+  });
   router.get('/injection/needs-look', (r) => r.tagged({ items: injectionNeedsLook(store) }));
-  router.get('/injection/runs/:id', (r) => {
+  router.get('/injection/runs/:id', async (r) => {
     if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!}`);
-    r.tagged(runInjection(store, r.params.id!, tools()));
+    const trust = tools();
+    sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}) }, { affinity: r.params.id! }));
   });
   router.get('/injection/:id', (r) => {
     const found = injectionResult(store, r.params.id!);

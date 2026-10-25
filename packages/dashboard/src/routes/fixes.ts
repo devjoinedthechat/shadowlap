@@ -1,13 +1,15 @@
 import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv, type PatchCheck } from '../fixes.js';
+import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
 import { leftWords } from '../rerun.js';
 import { storePrStates } from '../pr-state.js';
 import { repairerProblem } from '../repairer-check.js';
+import { sendAnswer } from '../read-pool.js';
+import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
 import type { Router } from '../router.js';
 
@@ -63,9 +65,15 @@ function configuredRepairer(ctx: RouteContext): string | null {
  * Whether a verified fix's patch is in the project's working tree already, as git says it there,
  * asked beside the server before the read model looks the answer up; none without a project folder.
  */
-async function patchCheck(ctx: RouteContext, store: Store, fix: StoredFix): Promise<{ patchInTree?: PatchCheck }> {
+/**
+ * A fix's page, worked out beside the server (read-jobs.ts `fix`): it reads the blamed run's calls,
+ * every one of them. What git says of its patch is asked here first, and handed over as data.
+ */
+async function fixAnswer(ctx: RouteContext, store: Store, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
-  return project ? { patchInTree: await patchesInTree(project, patchesToCheck(store, [fix])) } : {};
+  const patches = project ? patchesToCheck(store, [fix]) : [];
+  const check = project && patches.length ? await patchesInTree(project, patches) : null;
+  return ctx.reads.run({ kind: 'fix', fixId: fix.fixId, repairer: configuredRepairer(ctx), ...(check ? { inTree: patches.map((p): [string, boolean | null] => [p, check(p)]) } : {}) });
 }
 
 /** The config's `tests` in `folder`, as written: where a run judged by the config gets its checks. A config that can't be read gives none. */
@@ -290,8 +298,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/fixes/:id', async (r) => {
     const fix = findFix(store, r.params.id);
     prs?.refresh([fix]);
-    const check = await patchCheck(ctx, store, fix);
-    r.tagged(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem, ...check }));
+    sendAnswer(r, await fixAnswer(ctx, store, fix));
   });
 
   router.put('/fixes/:id/title', async (r) => {
@@ -299,8 +306,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const fix = findFix(store, r.params.id);
     if (typeof body.title !== 'string' || !body.title.trim()) throw new HttpError(400, 'a title needs some text');
     setFixTitle(store, fix.fixId, body.title);
-    const check = await patchCheck(ctx, store, fix);
-    r.json(fixDetail(store, fix.fixId, { repairer: configuredRepairer(ctx), checkRepairer: repairerProblem, ...check }));
+    sendAnswer(r, await fixAnswer(ctx, store, fix), { etag: null });
   });
 
   // Repair and apply change the working tree, and blame runs the agent from it: the job manager

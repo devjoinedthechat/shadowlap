@@ -1,21 +1,25 @@
 import { createHash } from 'node:crypto';
 import type { Normalizer, Price, Store, ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
-import { callDetail, lineage, listRuns, lookupRun, noSuchRun, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
+import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
 import { codeChangeCache, compareView } from './compare.js';
-import { patchesToCheck } from './fixes.js';
+import { fixDetail, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
+import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
+import { repairerProblem } from './repairer-check.js';
 import { localRunIds } from './routes/store.js';
+import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
 import { listRunsPage, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
+import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.js';
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
@@ -24,7 +28,7 @@ import type { GoldenSource } from './tests.js';
  * The read models that read every call of a run, or of every run: the Overview, a run's page and
  * its calls, a call's details, a run's family, Compare, what a fork did differently, a fix's
  * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent among them),
- * the calendar and the sidebar's runs, and the warm-up that works run totals out ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
+ * the calendar and the sidebar's runs, a search of what runs recorded, and the warm-up that works run totals out ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
  * thread of its own (read-worker.ts, for a store with a file) as here (a store in memory). What the
  * server needs to answer it (who asks, the project's config) is read before, on its own thread.
  */
@@ -67,7 +71,21 @@ export type ReadJob =
   /** The whole analysis of a long run whose first page was answered from its first calls. */
   | { kind: 'analyse'; runId: string }
   /** A slice of the warm-up (run-stats.ts `warmRunStats`), about `budgetMs` long. */
-  | { kind: 'warm'; budgetMs: number };
+  | { kind: 'warm'; budgetMs: number }
+  /** A search of what runs recorded, from what the search index holds, and how many runs it has yet to cover (search-hits.ts). */
+  | { kind: 'search'; q: string; limit: number }
+  /** A run's record for the Provenance tab, with what a copy would mask, counted before on a thread of its own (run-mask.ts). */
+  | { kind: 'provenance'; runId: string; read: ReadOptions; mask: MaskCount }
+  /** What `shadowlap injection` would plant in a run's untrusted reads, and its results (injection.ts). */
+  | { kind: 'injection-run'; runId: string; tools?: ToolTrust }
+  /** Every tool the store's recordings called, with its trust, for Settings → Tools (injection.ts). */
+  | { kind: 'tool-trust'; tools?: ToolTrust }
+  /**
+   * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
+   * the config names, and whether each patch the fix could apply is in the working tree, as git said
+   * on the server's thread.
+   */
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]> };
 
 export interface ReadAnswer {
   status: number;
@@ -225,6 +243,25 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         const done = warmRunStats(store, { budgetMs: job.budgetMs });
         const at = warmProgress(store);
         return { ...answer(null), warm: { done, walked: at?.walked ?? 0, total: at?.total ?? 0 } };
+      }
+      case 'provenance': {
+        const p = provenance(store, job.runId, { ...job.read, maskCount: () => job.mask });
+        return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
+      }
+      case 'injection-run':
+        return store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`);
+      case 'tool-trust':
+        return answer(toolTrust(store, job.tools), { tagged: true });
+      case 'fix': {
+        const inTree = job.inTree ? new Map(job.inTree) : null;
+        const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
+        return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+      }
+      case 'search': {
+        const index = loadRunIndex(store);
+        const behind = searchBehind(store, index);
+        const found: SearchAnswer = { hits: searchRecorded(store, job.q, job.limit, index), ...(behind ? { indexing: { runs: behind, of: index.runs.length } } : {}) };
+        return answer(found);
       }
     }
   } catch (err) {
