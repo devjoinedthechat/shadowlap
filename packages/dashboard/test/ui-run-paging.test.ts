@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallRow, CallsPage, Client, RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { CallsTable } from '../ui/run/CallsView.js';
-import { PAGES_AFTER_MS, usePagedRun } from '../ui/run/paged-run.js';
+import { ASKING_PAUSE_MS, PAGES_AFTER_MS, usePagedRun } from '../ui/run/paged-run.js';
 import { followPages, listedCalls, nextRead, PAGE, rangeOf, withPage, withRange } from '../ui/run/paging.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -252,13 +252,13 @@ describe('a long run’s page', () => {
 
   it('reads a jump into a long run and a scroll after it in a page each, none asked for twice', async () => {
     // A server that takes its time, as one does while it works a long run out: 300 ms a page.
-    const asked: Array<{ from: number; limit: number; at: number }> = [];
+    const asked: Array<{ from: number; limit: number; at: number; whole: boolean }> = [];
     let flying = 0;
     let most = 0;
     const t0 = performance.now();
     const slow = {
-      calls: (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
-        asked.push({ from, limit, at: performance.now() - t0 });
+      calls: (_id: string, from: number, limit = PAGE, o?: { whole?: boolean }): Promise<CallsPage> => {
+        asked.push({ from, limit, at: performance.now() - t0, whole: !!o?.whole });
         most = Math.max(most, ++flying);
         const to = Math.min(20_000, from + Math.min(limit, PAGE) - 1);
         return new Promise((resolve) =>
@@ -277,13 +277,16 @@ describe('a long run’s page', () => {
     r = await render(createElement(Host));
     // The jump: call 15,001, as a link opens it. Then a wheel scroll down from it, as the window asks
     // for the first call not read in view at every step: 40 steps of 12 rows, 50 ms apart.
+    const needed: number[] = [performance.now() - t0];
     out.current!.paging!.need(15_001);
     for (let i = 0; i < 40; i++) {
       await r.wait(50);
       const top = 15_001 + i * 12;
       const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
       const pendingInView = range(top, top + 30).find((n) => !shown.has(n));
-      if (pendingInView !== undefined) out.current!.paging!.need(pendingInView);
+      if (pendingInView === undefined) continue;
+      needed.push(performance.now() - t0);
+      out.current!.paging!.need(pendingInView);
     }
     await r.until('the rows in view', () => {
       const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
@@ -301,8 +304,12 @@ describe('a long run’s page', () => {
       return to;
     }, 0);
     expect(most).toBeLessThanOrEqual(2);
-    // The pages read in order went one at a time beside them: at most a page each 300 ms.
+    // The pages read in order went one at a time beside them, each once the window had rested a moment.
     expect(asked.length).toBeLessThanOrEqual(2 + Math.ceil((performance.now() - t0) / 300));
+    for (const a of asked.filter((x) => x.whole)) {
+      const last = Math.max(...needed.filter((t) => t <= a.at));
+      expect(a.at - last, `the page from ${a.from}, asked ${Math.round(a.at - last)} ms after a call not read was`).toBeGreaterThanOrEqual(ASKING_PAUSE_MS - 50);
+    }
   });
 
   it('reads a page deep in a run being analysed at once, then again with every fact in order', async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallRow, Client, RunDetail } from '../api.js';
 import { useLatest } from '../hooks.js';
 import { parseOrigins, type Origin7 } from '../origins.js';
@@ -14,7 +14,8 @@ import { isRead, nextRead, rangeOf, withPage, withRange, type Read } from './pag
  * A page on its way counts as read when the next is picked, so a call it holds is never asked for
  * again and no two pages overlap; the pages read in order wait for it. Scrolling asks for a call at
  * every step: while a page is on its way, the call asked for waits for the window to settle
- * (`NEED_SETTLE_MS`), so only where it stops is read, and at most two pages are on their way at once.
+ * (`NEED_SETTLE_MS`), so only where it stops is read, at most two pages are on their way at once, and
+ * the pages read in order wait until the window has stopped a moment (`ASKING_PAUSE_MS`).
  * A jump into a 20,000-call run and a scroll after it asked for 44 overlapping pages, 16.9 MB.
  *
  * Deep in a long run the server is still analysing, the page of a call asked for comes at once from
@@ -40,6 +41,8 @@ export const PAGES_AFTER_MS = 250;
 export const NEED_SETTLE_MS = 90;
 /** At most this many pages on their way at once: a call asked for may go beside one other. */
 export const IN_FLIGHT = 2;
+/** How long the pages read in order wait after a call not read was last asked for: while the window moves, only what it shows is read. */
+export const ASKING_PAUSE_MS = 600;
 
 interface Pages {
   runId: string;
@@ -75,9 +78,12 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
   const [wanted, setWanted] = useState<{ runId: string; n: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const readNow = useLatest(read);
+  /** When a call not read was last asked for: the pages read in order wait a moment after it. */
+  const askedAt = useRef(0);
   const need = useCallback(
     (n: number) => {
       if (isRead(readNow.current, n)) return;
+      askedAt.current = Date.now();
       setError(null);
       setWanted((w) => (w?.runId === runId && w.n === n ? w : { runId, n }));
     },
@@ -101,6 +107,8 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
   const wait = want !== null ? (flight.length ? NEED_SETTLE_MS : 0) : own.read.length ? 0 : PAGES_AFTER_MS;
   useEffect(() => {
     if (!go || from === null || limit === null) return;
+    // The pages read in order give way while the window moves: it asks for a call at every step.
+    const delay = exactly ? Math.max(wait, askedAt.current + ASKING_PAUSE_MS - Date.now()) : wait;
     const t = setTimeout(() => {
       const range = [from, from + limit - 1] as const;
       setPages((p) => {
@@ -123,7 +131,7 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
           setError(err instanceof Error ? err.message : String(err));
         },
       );
-    }, wait);
+    }, delay);
     return () => clearTimeout(t);
   }, [client, runId, runNow, from, limit, wait, go, exactly]);
 
