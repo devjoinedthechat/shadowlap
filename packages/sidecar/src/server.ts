@@ -423,6 +423,26 @@ interface ModelCall {
   retrying: boolean;
 }
 
+/** A tool, clock or random call as the SDK asked for it (routeToolCall). */
+interface ToolCall {
+  ctx: RunContext;
+  body: ResolveBody;
+  scope: string | undefined;
+  kind: Exclude<CallKind, 'api'>;
+  name: string;
+  effect: Effect | null;
+  /** What it is stored and matched by: a tool's arguments, or a clock or random read's label. */
+  request: { args: unknown } | { label: string };
+  /** A person's answer (`user_input`): after a fork it is served from the recording, in order. */
+  input: boolean;
+}
+
+/** A tool, clock or random call once resolved (resolveToolCall). */
+interface PlacedToolCall {
+  callNo: number;
+  tracked: TrackedCall;
+}
+
 /**
  * A call to a declared HTTP host as the agent sent it (routeHttpCall): its run, the host it was for,
  * and its request as it is stored and matched.
@@ -2269,23 +2289,31 @@ export class Sidecar {
 
   // ---- tool / clock / random resolution ----
 
+  /**
+   * A tool, clock or random call the SDK resolves, in stages as a model call is: route
+   * (`routeToolCall`) checks what it asks for, resolve (`resolveToolCall`) works out which call it is
+   * and records its start, and serve (`serveToolCall`) answers it from the recording, with a failure
+   * or a result a flag gives, blocked or stubbed, or tells the SDK to run it live. Each answer given
+   * here is recorded as the SDK got it (`endToolCall`); a call the SDK runs ends with completeCall.
+   */
   private resolveCall(ctx: RunContext, body: ResolveBody, scope?: string): ResolveResponse {
-    const kind = body.kind;
-    if (kind !== 'tool' && kind !== 'clock' && kind !== 'random') throw new HttpError(400, `bad kind ${String(kind)}`);
-    if (typeof body.name !== 'string' || !body.name) throw new HttpError(400, 'name is required');
-    const effect: Effect | null = kind === 'tool' ? (body.effect ?? null) : null;
-    if (kind === 'tool' && effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new HttpError(400, `tool ${body.name} must declare effect pure|read|write`);
+    const call = routeToolCall(ctx, body, scope);
+    const placed = this.resolveToolCall(call);
+    return this.serveToolCall(call, placed);
+  }
 
-    const request = kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' };
-    const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.name, body.label ?? '');
+  /**
+   * Resolve: which call a tool, clock or random call is, as the session decides it, and its start
+   * recorded with what it keeps beside its request: its code's hash, its scope, a person's input, an
+   * MCP server's, a read the recording held no counterpart for, and how far its result is trusted.
+   */
+  private resolveToolCall(call: ToolCall): PlacedToolCall {
+    const { ctx, body, scope, kind, name, effect, request, input } = call;
+    const { fingerprint } = 'args' in request ? fingerprintTool(name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind as 'clock' | 'random', name, request.label);
     const callNo = ctx.nextCallNo++;
-    // A person's answer (`user_input`): after a fork it is served from the recording in order.
-    const input = kind === 'tool' && body.input === true;
     // The session diffs requests as plain JSON, with an integer past 2^53 as its digits, as loadRequest reads the recorded side.
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
-    const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
-    const stored = storedOrigin(kind, decision);
-    const tracked: TrackedCall = { identity, effect, origin: stored, decision, attempts: 0, inFlight: 0, retryable: false, done: false };
+    const decision = ctx.session.resolve({ callNo, kind, name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+    const tracked: TrackedCall = { identity: { kind, name, fingerprint, occurrence: decision.occurrence }, effect, origin: storedOrigin(kind, decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
 
@@ -2299,70 +2327,83 @@ export class Sidecar {
     if (mcp) meta.mcp = mcp;
     // A tool that brings outside text in, as the config's `tools`, the SDK's `trust` or an MCP
     // server's openWorldHint says. Kept on the call, never in its fingerprint: marking a tool changes no replay.
-    if (kind === 'tool') Object.assign(meta, this.trustMeta(body.name, null, body.trust === 'untrusted' ? (mcp ? 'mcp' : 'sdk') : null));
+    if (kind === 'tool') Object.assign(meta, this.trustMeta(name, null, body.trust === 'untrusted' ? (mcp ? 'mcp' : 'sdk') : null));
     const requestRef = this.recordToolStart(ctx, callNo, tracked, request, meta);
-    if (kind === 'tool') this.cacheToolFingerprint(ctx, callNo, { name: body.name, normalizers: ctx.normalizers }, false, fingerprint, request.args, requestRef);
-    /** The call's end: `response` the value to store, or the ref of what is stored already. */
-    const end = (response: { value: unknown } | string | null, outcome: 'ok' | 'error', endMeta: CallStartRow['meta']) => {
-      this.recordEnd(ctx, callNo, identity, { attempt: 0, outcome, meta: endMeta, ...(response !== null && typeof response === 'object' ? { response: jsonBytes(response.value) } : { responseRef: response }) }, 'result');
-      tracked.done = true;
-    };
+    if ('args' in request) this.cacheToolFingerprint(ctx, callNo, { name, normalizers: ctx.normalizers }, false, fingerprint, request.args, requestRef);
+    return { callNo, tracked };
+  }
 
-    if (decision.origin === 'injected') {
-      // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
-      // of failure asked for; a client that predates this raises it as a replayed error.
-      const error = toolFailureError(body.name, decision.failure);
-      end({ value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
-      this.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${body.name}`);
-      return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
-    }
+  /** Record: a tool, clock or random call's end, `response` the value to store, or the ref of what is stored already. */
+  private endToolCall(call: ToolCall, placed: PlacedToolCall, response: { value: unknown } | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']): void {
+    this.recordEnd(call.ctx, placed.callNo, placed.tracked.identity, { attempt: 0, outcome, meta, ...(response !== null && typeof response === 'object' ? { response: jsonBytes(response.value) } : { responseRef: response }) }, 'result');
+    placed.tracked.done = true;
+  }
 
-    if (decision.origin === 'planted') {
-      const record = decision.record;
-      const recorded = record.end!;
-      const payload = (recorded.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
-      if (!refused(planted)) {
-        end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
-        return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
+  /**
+   * Serve: the SDK's answer, as the session decided the call. A failure `--fail-at` asks for, a result
+   * with text planted in it (`--inject-result`) or given in its place (`--override`), and a recorded
+   * result are answered here, as are a clock or random value, generated here so the SDK needs no
+   * second round trip, and a blocked tool. A stubbed or live tool is the SDK's to run.
+   */
+  private serveToolCall(call: ToolCall, placed: PlacedToolCall): ResolveResponse {
+    const { ctx, body, kind, name, effect } = call;
+    const { callNo } = placed;
+    const decision = placed.tracked.decision;
+    const end = (response: { value: unknown } | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => this.endToolCall(call, placed, response, outcome, meta);
+    switch (decision.origin) {
+      case 'injected': {
+        // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
+        // of failure asked for; a client that predates this raises it as a replayed error.
+        const error = toolFailureError(name, decision.failure);
+        end({ value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
+        this.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${name}`);
+        return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
       }
-      // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
-      ctx.session.declined(record.callNo);
-      ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? this.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
-    }
-
-    if (decision.origin === 'overridden') {
-      // The user's substitute result stands in for the recording; the agent builds its next request from it.
-      const record = decision.record;
-      end({ value: { result: decision.result } }, 'ok', { overriddenFrom: record.callNo, latencyMs: 0 });
-      return { origin: 'replayed', callNo, outcome: 'ok', result: decision.result };
-    }
-
-    if (decision.origin === 'replayed') {
-      const record = decision.record;
-      const recorded = record.end!;
-      // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
-      const payload = (recorded.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(body.name)) {
-        ctx.warnOnce(body.name, `${body.name} changed since the recording; pass --live-tool ${body.name} to run it live`);
+      case 'planted': {
+        const record = decision.record;
+        const recorded = record.end!;
+        const payload = (recorded.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+        const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
+        if (!refused(planted)) {
+          end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
+          return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
+        }
+        // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
+        ctx.session.declined(record.callNo);
+        ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
+        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+        if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? this.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
+        return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
       }
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+      case 'overridden':
+        // The user's substitute result stands in for the recording; the agent builds its next request from it.
+        end({ value: { result: decision.result } }, 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
+        return { origin: 'replayed', callNo, outcome: 'ok', result: decision.result };
+      case 'replayed': {
+        const record = decision.record;
+        const recorded = record.end!;
+        // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
+        const payload = (recorded.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+        if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(name)) {
+          ctx.warnOnce(name, `${name} changed since the recording; pass --live-tool ${name} to run it live`);
+        }
+        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+        if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+        return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+      }
+      case 'blocked':
+      case 'stubbed':
+      case 'live':
+        break;
     }
-
     if (kind !== 'tool') {
       // Clock and random values are generated here so the SDK needs no second round-trip.
-      const result = kind === 'clock' ? Date.now() : body.name === 'uuid' ? randomUUID() : Math.random();
+      const result = kind === 'clock' ? Date.now() : name === 'uuid' ? randomUUID() : Math.random();
       end({ value: { result } }, 'ok', {});
       return { origin: 'live', callNo, outcome: 'ok', result };
     }
-
     if (decision.origin === 'blocked') {
-      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${body.name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${body.name} blocked after divergence (use --writes stub|allow to change this)` };
+      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${name} blocked after divergence (use --writes stub|allow to change this)` };
       end({ value: { error } }, 'error', { error });
       return { origin: 'blocked', callNo, outcome: 'error', error };
     }
@@ -2697,6 +2738,19 @@ export interface ResolveBody {
   mcp?: unknown;
   /** `untrusted`: the tool brings outside text in, where `shadowlap injection` plants (see docs/protocol.md). */
   trust?: 'trusted' | 'untrusted';
+}
+
+/**
+ * Route: what a tool, clock or random call asks for, checked: its kind, a name, and a tool's declared
+ * effect. Refused with 400 when it doesn't say.
+ */
+function routeToolCall(ctx: RunContext, body: ResolveBody, scope: string | undefined): ToolCall {
+  const kind = body.kind;
+  if (kind !== 'tool' && kind !== 'clock' && kind !== 'random') throw new HttpError(400, `bad kind ${String(kind)}`);
+  if (typeof body.name !== 'string' || !body.name) throw new HttpError(400, 'name is required');
+  const effect: Effect | null = kind === 'tool' ? (body.effect ?? null) : null;
+  if (kind === 'tool' && effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new HttpError(400, `tool ${body.name} must declare effect pure|read|write`);
+  return { ctx, body, scope, kind, name: body.name, effect, request: kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' }, input: kind === 'tool' && body.input === true };
 }
 
 /** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
