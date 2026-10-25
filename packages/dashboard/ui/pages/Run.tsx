@@ -283,7 +283,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${String(selected)}:${selectedRow?.outcome ?? 'pending'}`;
-  const detail = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
+  const quick = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
+  // Deep in a long run still analysed, the details come at once from the calls around the call, its
+  // conversation's number left out; asked again, they wait for the analysis and take their place.
+  const whole = useLoad<CallDetail>(() => (selected !== null && quick.data?.around ? client.call(runId, selected, { whole: true }) : null), `${detailKey}:whole:${quick.data?.around ? 'part' : ''}`);
+  const detail = whole.data ? whole : quick;
   const change = useChange(run, detail.data, forkAt);
   const chain = useAncestors(run);
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);

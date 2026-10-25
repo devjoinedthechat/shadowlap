@@ -141,9 +141,14 @@ export interface Client {
   runs(): Promise<RunListItem[]>;
   /** A run's page; `after`, for a recording the page follows: only the calls numbered after it (`RunDetail.after`). */
   run(id: string, after?: number): Promise<RunDetail>;
-  /** A page of the run's calls after the one its page came with: from call `from` on, `limit` at most (500). */
-  calls(id: string, from: number, limit?: number): Promise<CallsPage>;
-  call(id: string, n: number): Promise<CallDetail>;
+  /**
+   * A page of the run's calls after the one its page came with: from call `from` on, `limit` at most
+   * (500). Deep in a long run being analysed, it comes from the calls around it (`around`); `whole`
+   * waits for the analysis.
+   */
+  calls(id: string, from: number, limit?: number, o?: { whole?: boolean }): Promise<CallsPage>;
+  /** A call's details; `whole` as a page of calls takes it. */
+  call(id: string, n: number, o?: { whole?: boolean }): Promise<CallDetail>;
   lineage(id: string): Promise<LineageNode[]>;
   /** The run's record for Provenance, or null when the server does not work it out. */
   provenance(id: string): Promise<ProvenanceView | null>;
@@ -375,8 +380,8 @@ export function createClient(token: string): Client {
         noteParent([runId, out.run.runId], out.run.parentRunId ?? null);
         return out;
       }),
-    calls: (runId, from, limit) => request<CallsPage>(`runs/${id(runId)}/calls?from=${from}${limit === undefined ? '' : `&limit=${limit}`}`),
-    call: (runId, n) => request<CallDetail>(`runs/${id(runId)}/calls/${n}`).then((d) => shape(d, normalizeCallDetail)),
+    calls: (runId, from, limit, o) => request<CallsPage>(`runs/${id(runId)}/calls?from=${from}${limit === undefined ? '' : `&limit=${limit}`}${o?.whole ? '&whole=1' : ''}`),
+    call: (runId, n, o) => request<CallDetail>(`runs/${id(runId)}/calls/${n}${o?.whole ? '?whole=1' : ''}`).then((d) => shape(d, normalizeCallDetail)),
     lineage: (runId) => request<{ nodes: LineageNode[] }>(`runs/${id(runId)}/lineage`).then((r) => r.nodes),
     provenance: async (runId) => {
       if (hasProvenance === false) return null;

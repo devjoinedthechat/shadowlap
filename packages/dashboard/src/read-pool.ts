@@ -17,8 +17,11 @@ import type { Keeper } from './run-stats.js';
  * run last, which keeps its calls and its analysis. When a thread has nothing asked of it, it does
  * what can wait: the whole analysis of a long run whose first page was answered from its first calls,
  * and the warm-up, which works each finished run's totals out ahead, newest first, a slice at a time
- * (run-stats.ts `warmRunStats`), so a request waits for at most one slice. What a thread works out
- * that is worth keeping comes back here, and the server's connection writes it to the store.
+ * (run-stats.ts `warmRunStats`), so a request waits for at most one slice. A page of a run's calls,
+ * a call's details or a run's first page asked while the run's thread analyses that run is answered
+ * on a free thread from a part of the run (`borrowed`), and only one that asks for the whole
+ * analysis (`whole`) waits for it. What a thread works out that is worth keeping comes back here, and
+ * the server's connection writes it to the store.
  */
 
 export interface ReadModels {
@@ -57,6 +60,12 @@ interface Pending {
   affinity: string | null;
   /** What can wait: done only when nothing is asked of the thread. */
   background: boolean;
+  /**
+   * Taken by a free thread from the thread that keeps its run while that thread analyses the run:
+   * answered from a part of the run, it leaves the run that thread's, and the analysis it would ask
+   * for (`then`) that thread's to finish.
+   */
+  borrowed?: boolean;
   resolve(a: ReadAnswer): void;
   reject(err: Error): void;
 }
@@ -74,6 +83,9 @@ interface Slot {
 
 /** A run's thread is remembered for this many runs. */
 const OWNERS = 64;
+
+/** A job a part of its run answers, while the whole of it is analysed elsewhere: a page of its calls, a call, its first page. */
+const answersFromPart = (job: ReadJob): boolean => (job.kind === 'calls' || job.kind === 'call' ? !job.whole : job.kind === 'run' && job.after === undefined);
 
 export class ReadPool implements ReadModels {
   private readonly slots: Slot[];
@@ -147,15 +159,20 @@ export class ReadPool implements ReadModels {
   /**
    * A request waiting for the thread that read its run, while that thread does what can wait: a free
    * thread takes it, reading the run's page again rather than waiting seconds for a long analysis.
+   * One about the run that thread is analysing is borrowed when a part of the run answers it (a page
+   * of its calls, a call, its first page): at 100,000 calls the page at #50,000 waited 13.8 s for the
+   * analysis. One that asks for the whole analysis (`whole`) is answered right after, from it.
    */
   private unpin(): Pending | undefined {
     for (const s of this.slots) {
       const busy = s.busy;
       if (!busy?.background) continue;
-      // The run it is analysing: the request is answered right after, from that analysis.
       const analysing = busy.job.kind === 'analyse' ? busy.job.runId : null;
-      const i = s.pinned.findIndex((p) => p.affinity !== analysing);
-      if (i >= 0) return s.pinned.splice(i, 1)[0];
+      const i = s.pinned.findIndex((p) => p.affinity !== analysing || answersFromPart(p.job));
+      if (i < 0) continue;
+      const p = s.pinned.splice(i, 1)[0]!;
+      if (p.affinity === analysing) p.borrowed = true;
+      return p;
     }
     return undefined;
   }
@@ -180,7 +197,7 @@ export class ReadPool implements ReadModels {
 
   private start(slot: Slot, p: Pending): void {
     slot.busy = p;
-    if (p.affinity !== null) this.own(p.affinity, slot.index);
+    if (p.affinity !== null && !p.borrowed) this.own(p.affinity, slot.index);
     if (!slot.worker) this.spawn(slot);
     else if (slot.ready) this.post(slot, { type: 'job', id: p.id, job: p.job });
   }
@@ -235,7 +252,7 @@ export class ReadPool implements ReadModels {
         } else if (m.type === 'answer') {
           // A long run answered from its first calls is analysed whole when the thread is free.
           const then = m.answer.then;
-          if (then && !slot.later.some((x) => x.job.kind === then.kind && 'runId' in x.job && 'runId' in then && x.job.runId === then.runId)) {
+          if (then && !p.borrowed && !slot.later.some((x) => x.job.kind === then.kind && 'runId' in x.job && 'runId' in then && x.job.runId === then.runId)) {
             slot.later.push({ id: this.nextId++, job: then, affinity: null, background: true, resolve: () => undefined, reject: () => undefined });
           }
           p.resolve(m.answer);

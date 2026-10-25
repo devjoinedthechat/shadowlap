@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord, type RunSummary } from '@shadowlap/engine';
-import { runCallsPage, runDetail, type RunDetail } from '../src/api.js';
+import { callDetail, runCallsPage, runDetail, type RunDetail } from '../src/api.js';
 import { exportHtml, startDashboard } from '../src/index.js';
 import { runCalls } from '../src/run-calls.js';
 import { analyseRun } from '../src/run-page.js';
@@ -66,11 +66,24 @@ describe('a run a page at a time', () => {
     expect(second).toMatchObject({ runId: rec.runId, callsTotal: 3001, callsNext: 701, warming: { done: 800, total: 3001 } });
     const short = runCallsPage(store, rec.runId, { from: 1001, limit: 50 })!;
     expect(callNos(short)).toEqual(range(1001, 1050));
-    // A page far into the run reads the whole of it: the last.
+    // A page far into the run reads the calls around it: two hundred before it, and those after up to the run's end.
     const last = runCallsPage(store, rec.runId, { from: 2801, limit: 900 })!;
     expect(callNos(last)).toEqual(range(2801, 3001));
-    expect(last.callsNext).toBeNull();
-    expect(last.warming).toBeUndefined();
+    expect(last).toMatchObject({ callsNext: null, around: { from: 2601, to: 3001 }, warming: { done: 401, total: 3001 } });
+    const deep = runCallsPage(store, rec.runId, { from: 2001 })!;
+    expect(callNos(deep)).toEqual(range(2001, 2500));
+    expect(deep).toMatchObject({ callsNext: 2501, around: { from: 1801, to: 2600 } });
+    // Each call's conversation is left unnumbered there: the run's conversations are counted from its first call.
+    expect(deep.calls.every((c) => c.conversation === null && !c.conversationStart)).toBe(true);
+    const deepCall = callDetail(store, rec.runId, 2002)!;
+    expect(deepCall).toMatchObject({ around: { from: 1802, to: 2102 }, conversation: { fromCallNo: 2001, n: null } });
+    // Asked for the whole analysis, the same calls with every fact.
+    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false }));
+    const exact = runCallsPage(store, rec.runId, { from: 2001 }, {}, { whole: true })!;
+    expect(exact.around).toBeUndefined();
+    expect(exact.calls.every((c) => c.conversation === 1)).toBe(true);
+    expect(unnumbered(deep)).toEqual(unnumbered(exact));
+    expect({ ...deepCall, around: undefined, call: { ...deepCall.call, conversation: 1 }, conversation: { ...deepCall.conversation, n: 1 } }).toEqual({ ...callDetail(store, rec.runId, 2002, {}, { whole: true })!, around: undefined });
 
     // Once the whole run is read and analysed (beside the server, after the first answer): the same calls, the same run.
     analyseRun(store, rec, runCalls(store, rec.runId));
@@ -95,6 +108,24 @@ describe('a run a page at a time', () => {
     analyseRun(store, store.getRun(fork.runId)!, runCalls(store, fork.runId));
     const whole = runDetail(store, fork.runId)!;
     expect(ofRun(quick)).toEqual(ofRun(whole));
+    store.close();
+  });
+
+  it('gives a page deep in a long fork the time its recording waited for each replayed call, reading only those calls of it', () => {
+    const store = Store.open(':memory:');
+    const rec = longRun(store, 2600);
+    const fork = longRun(store, 2600, { parent: rec, liveFrom: 2401 });
+    const reads: string[] = [];
+    const spy = Object.create(store, { getCalls: { value: (runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }) => (reads.push(`${runId === rec.runId ? 'parent' : 'fork'}:${range?.only ? `only ${range.only.length}` : range ? `after ${range.after}` : 'all'}`), store.getCalls(runId, range)) } }) as Store;
+    const deep = runCallsPage(spy, fork.runId, { from: 2101 })!;
+    expect(deep.around).toEqual({ from: 1901, to: 2600 });
+    // The replayed calls the page and the calls around it hold, read of the recording one by one: not every call of it.
+    expect(reads).toEqual(['fork:after 1900', 'parent:only 500']);
+    expect(deep.calls.find((c) => c.callNo === 2101)).toMatchObject({ origin: 'replayed', recordedMs: 900 });
+    expect(deep.calls.find((c) => c.callNo === 2102)).toMatchObject({ origin: 'replayed', recordedMs: 2 });
+    expect(deep.calls.find((c) => c.callNo === 2401)).toMatchObject({ origin: 'live', recordedMs: null });
+    const unnumbered = (d: { calls: readonly object[] }) => d.calls.map((c) => ({ ...c, conversation: null, conversationStart: false }));
+    expect(unnumbered(deep)).toEqual(unnumbered(runCallsPage(store, fork.runId, { from: 2101 }, {}, { whole: true })!));
     store.close();
   });
 

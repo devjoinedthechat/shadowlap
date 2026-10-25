@@ -6,7 +6,7 @@ import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
 import { recentRuns, type RunRow } from './runs-list.js';
-import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_PAST, runPageFacts, runProvenance, runShowJson, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
+import { analysisFor, blameAt, conversationSource, modelName, NO_FACTS, ownFacts, partAnalysis, QUICK_FROM, READ_BEFORE, READ_PAST, runPageFacts, runProvenance, runShowJson, windowAnalysis, type CallFacts, type ProvenanceOptions, type RunAnalysis, type RunPageFacts, type RunProvenance } from './run-page.js';
 import { keptCalls, runCalls } from './run-calls.js';
 import { blameStep, runWholeFacts } from './run-summary.js';
 // How a run stands, as the run list works it out: a run's page and its family read the same state.
@@ -199,6 +199,8 @@ export interface CallDetail {
   actions: ActionItem[];
   /** The fork menu's header for this call: `At #19 · search_web · read tool`. */
   forkTitle: string;
+  /** As a page of calls has it (`CallsPage.around`): details of a call deep in a long run, answered from the calls around it while the run is analysed; the conversation's number comes with `whole=1`. */
+  around?: { from: number; to: number };
 }
 
 export interface ActionItem {
@@ -343,9 +345,11 @@ function originCodes(calls: readonly CallRecord[]): string {
 /**
  * What a page of a run's calls (or one call's details) is drawn from: the calls it shows (from `at`,
  * at most `limit`), where the next page starts, and the analysis of the run that gives their facts,
- * whole or of its first calls (`whole`, `done`). A page of a long run that has ended, and that this
- * thread has not read lately, reads the calls up to it and a few past it rather than the whole run,
- * which is read and analysed beside the server meanwhile; a page far into the run reads it whole.
+ * whole or of a part of the run (`whole`, `done`). A page of a long run that has ended, and that this
+ * thread has not read lately, reads a part of the run rather than the whole of it, which is read and
+ * analysed beside the server meanwhile: a page near the start the calls up to it and a few past it;
+ * a page deeper in (past `PREFIX_MAX`) the calls around it alone (`around`), so its cost grows with
+ * the page, not with how deep in the run it is. `whole` reads and analyses the whole run.
  */
 interface PageRead {
   page: readonly CallRecord[];
@@ -353,9 +357,14 @@ interface PageRead {
   analysis: RunAnalysis;
   whole: boolean;
   done: number;
-  /** Every call of the run, as read: null when only those up to the page were. */
+  /** Every call of the run, as read: null when only a part of it was. */
   calls: readonly CallRecord[] | null;
+  /** The calls a page deep in the run was read with, when they are what its facts come from (`windowAnalysis`). */
+  around: { from: number; to: number } | null;
 }
+
+/** The furthest call a page is read up to from the run's first call; past it, only the calls around the page are. */
+export const PREFIX_MAX = 2000;
 
 function readPage(store: Store, run: RunRecord, at: { after?: number; from?: number }, limit: number, o: { whole?: boolean } = {}): PageRead {
   const held = keptCalls(store, run.runId);
@@ -363,17 +372,25 @@ function readPage(store: Store, run: RunRecord, at: { after?: number; from?: num
   if (!held && !o.whole && run.status !== 'running') {
     const total = store.countCalls(run.runId);
     const upTo = first - 1 + limit + READ_PAST;
-    if (total >= QUICK_FROM && upTo * 2 < total) {
+    if (total >= QUICK_FROM && upTo <= PREFIX_MAX && upTo * 2 < total) {
       // The run's calls from its first up to the page and a few past it: what the page's facts come from.
       const part = store.getCalls(run.runId, { after: 0, limit: upTo });
       const { page, next } = pageOf(part, at, limit);
-      return { page, next, analysis: partAnalysis(store, run, part), whole: false, done: part.length, calls: null };
+      return { page, next, analysis: partAnalysis(store, run, part), whole: false, done: part.length, calls: null, around: null };
+    }
+    if (total >= QUICK_FROM && upTo > PREFIX_MAX) {
+      // The calls around the page: a few hundred before it, and a hundred after.
+      const after = Math.max(0, first - 1 - READ_BEFORE);
+      const part = store.getCalls(run.runId, { after, limit: first - 1 - after + limit + READ_PAST });
+      // Read with a hundred calls past it: the page after starts among them, unless the run ends with it.
+      const { page, next } = pageOf(part, at, limit);
+      return { page, next, analysis: windowAnalysis(store, run, part), whole: false, done: part.length, calls: null, around: { from: part[0]?.callNo ?? first, to: part.at(-1)?.callNo ?? first } };
     }
   }
   const calls = held ?? runCalls(store, run.runId);
   const { page, next } = pageOf(calls, at, limit);
   const { analysis, whole, done } = analysisFor(store, run, calls, page.at(-1)?.callNo ?? 0);
-  return { page, next, analysis, whole, done, calls };
+  return { page, next, analysis, whole, done, calls, around: null };
 }
 
 /** The calls a replay's flags are read from (run-facts.ts `runInterventions`): its overridden ones, those injected with a failure, and one it stubbed. */
@@ -474,16 +491,26 @@ export interface CallsPage {
   callsTotal: number;
   /** Where the page after starts, or null at the run's end. */
   callsNext: number | null;
-  /** As on the run's page (`RunDetail.warming`): the facts of these calls come from the run's first `done` calls, and may change once the whole run is analysed. */
+  /** As on the run's page (`RunDetail.warming`): the facts of these calls come from `done` of the run's calls, and may change once the whole run is analysed. */
   warming?: { done: number; total: number };
+  /**
+   * For a page deep in a long run answered while the run is analysed: the calls its facts come from,
+   * those around it, from `from` to `to`. Each call's conversation number is left out (null), and a
+   * fact a call before them would decide (the model call that asked for a tool call) may come later:
+   * asked again with `whole=1`, the page waits for the whole run's analysis.
+   */
+  around?: { from: number; to: number };
 }
 
-/** The calls of a run from call `from` on, at most `limit`, as the run's page shows them; null for a run that isn't there. */
-export function runCallsPage(store: Store, idOrPrefix: string, at: { from: number; limit?: number }, options: ReadOptions = {}): CallsPage | null {
+/**
+ * The calls of a run from call `from` on, at most `limit`, as the run's page shows them; null for a
+ * run that isn't there. `whole` waits for the whole run's analysis rather than answer from a part.
+ */
+export function runCallsPage(store: Store, idOrPrefix: string, at: { from: number; limit?: number }, options: ReadOptions = {}, o: { whole?: boolean } = {}): CallsPage | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
   const state = runState(store, run.runId);
-  const read = readPage(store, run, { from: at.from }, Math.max(1, Math.min(CALLS_PAGE, at.limit ?? CALLS_PAGE)));
+  const read = readPage(store, run, { from: at.from }, Math.max(1, Math.min(CALLS_PAGE, at.limit ?? CALLS_PAGE)), o.whole ? { whole: true } : {});
   const recording = (state?.status ?? run.status) === 'running';
   const total = read.calls?.length ?? store.countCalls(run.runId);
   return {
@@ -492,6 +519,7 @@ export function runCallsPage(store: Store, idOrPrefix: string, at: { from: numbe
     callsTotal: total,
     callsNext: read.next,
     ...(read.whole ? {} : { warming: { done: read.done, total } }),
+    ...(read.around ? { around: read.around } : {}),
   };
 }
 
@@ -531,13 +559,15 @@ function modelInPath(name: string): string | null {
   return bedrock ? decodeURIComponent(bedrock) : null;
 }
 
-export function callDetail(store: Store, idOrPrefix: string, callNo: number, options: ReadOptions = {}): CallDetail | null {
+export function callDetail(store: Store, idOrPrefix: string, callNo: number, options: ReadOptions = {}, o: { whole?: boolean } = {}): CallDetail | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return null;
   // Read once while the run stays the same: the inspector asks for its calls one by one. Of a long
-  // run not read here lately, the calls up to this one (and a few past it) are.
-  const read = readPage(store, run, { from: callNo }, 1);
-  return callDetailFrom(store, run, read.calls ?? [], read.analysis, callNo, options);
+  // run not read here lately, the calls up to this one (and a few past it) are, or deep in the run
+  // those around it.
+  const read = readPage(store, run, { from: callNo }, 1, o.whole ? { whole: true } : {});
+  const d = callDetailFrom(store, run, read.calls ?? [], read.analysis, callNo, options);
+  return d && read.around ? { ...d, around: read.around } : d;
 }
 
 /**

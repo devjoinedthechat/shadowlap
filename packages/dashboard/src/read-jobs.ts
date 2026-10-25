@@ -46,8 +46,9 @@ export interface SummaryWork {
 export type ReadJob =
   | { kind: 'summary'; work: SummaryWork }
   | { kind: 'run'; runId: string; read: ReadOptions; after?: number }
-  | { kind: 'calls'; runId: string; read: ReadOptions; from: number; limit: number }
-  | { kind: 'call'; runId: string; read: ReadOptions; callNo: number }
+  /** A page of a run's calls; `whole` waits for the whole run's analysis rather than answer from a part of the run. */
+  | { kind: 'calls'; runId: string; read: ReadOptions; from: number; limit: number; whole?: boolean }
+  | { kind: 'call'; runId: string; read: ReadOptions; callNo: number; whole?: boolean }
   | { kind: 'lineage'; runId: string; read: ReadOptions }
   | { kind: 'compare'; a: string; b: string; cwd: string | null }
   | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null }
@@ -158,13 +159,15 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         return { ...answer(d), ...(d.warming ? { then: { kind: 'analyse', runId: d.run.runId } } : {}) };
       }
       case 'calls': {
-        const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read);
+        const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});
         if (!page) return noRun(store, job.runId);
         return { ...answer(page, { tagged: true }), ...(page.warming ? { then: { kind: 'analyse', runId: page.runId } } : {}) };
       }
       case 'call': {
-        const d = callDetail(store, job.runId, job.callNo, job.read);
-        return d ? answer(d, { tagged: true }) : failed(404, `no call #${job.callNo} in run ${job.runId}`);
+        const d = callDetail(store, job.runId, job.callNo, job.read, job.whole ? { whole: true } : {});
+        if (!d) return failed(404, `no call #${job.callNo} in run ${job.runId}`);
+        // Answered from the calls around it: the whole run is analysed beside the server, for the page to ask again.
+        return { ...answer(d, { tagged: true }), ...(d.around ? { then: { kind: 'analyse', runId: job.runId } as const } : {}) };
       }
       case 'lineage': {
         const nodes = lineage(store, job.runId, job.read);
