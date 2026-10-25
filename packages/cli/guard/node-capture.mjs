@@ -230,13 +230,17 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   // NO_PROXY) would send the proxy the call, its key and the session token. The request and its
   // answer are fetch's all the same: its default headers, its body types, redirects, an AbortSignal,
   // a decoded body, and its errors.
+  /** A fetch, captured or left to fetch itself; `redirects` is how many it followed to get here. */
+  function routedFetch(input, init, redirects) {
+    const url = parseUrl(typeof input === 'string' || input instanceof URL ? input : input?.url);
+    if (!url) return originalFetch(input, init);
+    const provider = providerFor(url);
+    if (!provider && !toSidecar(url)) return originalFetch(input, init);
+    return fetchViaSidecar(input, init, url, provider, redirects).then((response) => (provider === 'http' ? failedFetch(response) : response));
+  }
   if (typeof originalFetch === 'function') {
     globalThis.fetch = function capturedFetch(input, init) {
-      const url = parseUrl(typeof input === 'string' || input instanceof URL ? input : input?.url);
-      if (!url) return originalFetch(input, init);
-      const provider = providerFor(url);
-      if (!provider && !toSidecar(url)) return originalFetch(input, init);
-      return fetchViaSidecar(input, init, url, provider, 0).then((response) => (provider === 'http' ? failedFetch(response) : response));
+      return routedFetch(input, init, 0);
     };
   }
 
@@ -292,7 +296,11 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       if (!asGet && request.body !== null && !whole) throw new TypeError('fetch failed', { cause: new Error('a streamed body cannot be sent again for a redirect') });
       if (asGet) for (const name of ['content-type', 'content-length', 'content-encoding', 'content-language', 'content-location']) headers.delete(name);
       for (const name of ['x-shadowlap-upstream', 'x-shadowlap-failures', 'x-shadowlap-scope']) headers.delete(name);
-      const followed = await globalThis.fetch(next, { method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal });
+      // Off the origin the agent sent it to, its credentials go no further, as fetch's own redirects
+      // drop them: an answer that moves the request elsewhere never takes its key or session along.
+      if (next.origin !== url.origin) for (const name of ['authorization', 'proxy-authorization', 'cookie', 'host']) headers.delete(name);
+      // Counted across every hop, as fetch counts them: a loop of redirects ends at the twentieth.
+      const followed = await routedFetch(next, { method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal }, redirects + 1);
       Object.defineProperty(followed, 'redirected', { value: true });
       return followed;
     }
