@@ -21,7 +21,7 @@ pip install shadowlap
 
 `@shadowlap/sdk` also records the clock and randomness; `@shadowlap/adapters` declares effects through your framework, next to the SDK; `@shadowlap/test` brings the `shadowlap` CLI it runs. The Python package holds the SDK, the adapters and the pytest plugin. [`shadowlap init`](./cli.md#init) prints the install step with your project's package manager.
 
-`pip install shadowlap` also puts a `shadowlap` command on your `PATH`, for a Python project with no npm in it. It runs the CLI from npm at the Python package's own version, so the two always speak the same protocol: a `shadowlap` of that version installed with npm when one is on `PATH`, otherwise `npx --yes shadowlap@<version>`, which fetches it once. The CLI runs on Node.js 22.16 or later (not 23); without one, the command says so and how to get it, and exits 2. `SHADOWLAP_CLI` names another CLI to run instead, as it does for the [pytest plugin](./testing.md#pytest).
+`pip install shadowlap` also puts a `shadowlap` command on your `PATH`, for a Python project with no npm in it. It runs the CLI from npm at the Python package's own version, so the two always speak the same protocol: a `shadowlap` of that version installed with npm when one is on `PATH`, otherwise `npx --yes shadowlap@<version>`, which fetches it once. The CLI runs on Node.js 22.16 or later (not 23); without one, the command says so and how to get it, and exits 2. `SHADOWLAP_CLI` names another CLI to run instead, as it does for the [pytest plugin](./testing.md#pytest). The command never runs itself: when what it runs runs it again, as `SHADOWLAP_CLI=shadowlap` would, which names this command rather than the CLI, it says so and exits 2 rather than go on without end.
 
 ## TypeScript
 

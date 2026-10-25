@@ -3,6 +3,7 @@ package's own version, and says plainly how to get a Node.js when there is none 
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -15,6 +16,12 @@ import shadowlap
 from shadowlap import _cli
 
 POSIX = os.name != "nt"
+SDK = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO = os.path.dirname(os.path.dirname(SDK))
+CLI = os.path.join(REPO, "packages", "cli", "bin", "shadowlap.js")
+BUILT = os.path.exists(os.path.join(REPO, "packages", "cli", "dist", "index.js")) and shutil.which("node")
+#: The console script's entry point, as Python code to run with -c.
+MAIN = "import sys; sys.path.insert(0, %r); from shadowlap._cli import main; main()" % SDK
 
 
 def script(folder: str, name: str, body: str) -> str:
@@ -28,9 +35,8 @@ def script(folder: str, name: str, body: str) -> str:
 def run(argv, path, extra_env=None):
     """The console script's entry point, as a process with only `path` on PATH."""
     env = {"PATH": path, "HOME": os.environ.get("HOME", "/tmp"), **(extra_env or {})}
-    code = "import sys; sys.path.insert(0, %r); from shadowlap._cli import main; main()" % os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     # -B: its environment is its own, so nothing tells it not to write bytecode beside the SDK.
-    return subprocess.run([sys.executable, "-B", "-c", code, *argv], env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run([sys.executable, "-B", "-c", MAIN, *argv], env=env, capture_output=True, text=True, timeout=60)
 
 
 @unittest.skipUnless(POSIX, "the fake node and npx here are shell scripts")
@@ -114,6 +120,52 @@ class ConsoleScript(unittest.TestCase):
         out = run(["ls"], self.dir, {"SHADOWLAP_CLI": "/repo/packages/cli/bin/shadowlap.js"})
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(self.logged(), "node /repo/packages/cli/bin/shadowlap.js ls")
+
+    def console_script(self):
+        """This console script as the `shadowlap` on PATH, as pip installs it. Each start is logged, and
+        the sixth runs nothing, so one that runs itself without end ends there."""
+        count = os.path.join(self.dir, "starts")
+        script(self.dir, "shadowlap", 'echo shadowlap "$@" >> %s\nn=0; [ -f %s ] && read n < %s; n=$((n + 1)); echo $n > %s\n[ $n -gt 5 ] && exit 99\nexec %s -B -c "%s" "$@"' % (self.log, count, count, count, sys.executable, MAIN))
+
+    def test_it_never_runs_itself_through_shadowlap_cli(self):
+        # SHADOWLAP_CLI=shadowlap names this command, not the CLI: it would run itself without end.
+        self.fake_node()
+        self.console_script()
+        out = run(["ls"], self.dir, {"SHADOWLAP_CLI": "shadowlap"})
+        self.assertEqual(out.returncode, 2, out.stderr)
+        self.assertEqual(self.logged(), "shadowlap ls")
+        self.assertEqual(
+            out.stderr.strip(),
+            "shadowlap: SHADOWLAP_CLI=shadowlap ran this command again (the shadowlap that pip install shadowlap gives, not the CLI), and it would go on "
+            "without end. Point SHADOWLAP_CLI at the CLI itself, its bin/shadowlap.js or a shadowlap that npm installed, or unset it, and this command runs the CLI from npm.",
+        )
+
+    def test_nor_through_an_npx_that_finds_it(self):
+        # An npx that runs the shadowlap on PATH for the package it was asked for, which is this command.
+        self.fake_node()
+        self.console_script()
+        npx = script(self.dir, "npx", 'echo npx "$@" >> %s\nshift 2\nexec shadowlap "$@"' % self.log)
+        out = run(["ls"], self.dir)
+        self.assertEqual(out.returncode, 2, out.stderr)
+        self.assertEqual(self.logged(), "npx --yes shadowlap@%s ls\nshadowlap ls" % shadowlap.__version__)
+        self.assertIn("shadowlap: %s, which this command ran to run the CLI, ran this command again" % npx, out.stderr)
+        self.assertIn("Install the CLI with npm install -g shadowlap@%s" % shadowlap.__version__, out.stderr)
+
+
+@unittest.skipUnless(POSIX and BUILT, "the shadowlap CLI of this repository is not built")
+class UnderTheCli(unittest.TestCase):
+    def test_an_agent_the_cli_runs_runs_this_command_as_any_other(self):
+        # The CLI unsets the mark this command sets for it, so an agent it runs, or a script, that runs
+        # shadowlap is never taken for this command running itself.
+        work = tempfile.mkdtemp()
+        agent = "import os, subprocess, sys; print('mark:', os.environ.get(%r)); sys.exit(subprocess.call([sys.executable, '-B', '-c', %r, '--version']))" % (_cli.RUNNING, MAIN)
+        env = {**os.environ, "SHADOWLAP_CLI": CLI, "SHADOWLAP_HOME": os.path.join(work, "home"), "SHADOWLAP_TELEMETRY": "0", "NO_COLOR": "1"}
+        env.pop(_cli.RUNNING, None)
+        out = subprocess.run([sys.executable, "-B", "-c", MAIN, "run", "--guard", "off", "--", sys.executable, "-B", "-c", agent], cwd=work, env=env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("mark: None", out.stdout)
+        with open(os.path.join(REPO, "packages", "cli", "package.json"), encoding="utf-8") as f:
+            self.assertIn(json.load(f)["version"], out.stdout)
 
 
 class Declared(unittest.TestCase):

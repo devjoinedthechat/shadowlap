@@ -9,6 +9,11 @@ if (!((major === 22 && minor >= 16) || major >= 24)) {
   process.exit(2);
 }
 
+// The Python package's shadowlap command marks what it runs, so it can tell when that runs it again
+// (SHADOWLAP_CLI=shadowlap names it). This is the CLI it runs: nothing this starts, an agent that
+// runs that command among them, is running it again.
+delete process.env.SHADOWLAP_CONSOLE_SCRIPT;
+
 // `shadowlap show <run> | head` closes the pipe early: that is not an error.
 for (const stream of [process.stdout, process.stderr]) {
   stream.on('error', (err) => {
