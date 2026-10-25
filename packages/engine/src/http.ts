@@ -168,35 +168,107 @@ export function credentialFreeQuery(query: string): string | undefined {
 }
 
 /**
- * Response headers whose value is a credential: a token a service hands back (OpenStack's
- * `x-subject-token`, Swift's `x-auth-token` and `x-storage-token`), and the request's own
- * credential headers, should a server echo one. A captured call's response keeps each of them with
+ * Response headers whose whole value is a credential: a token a service hands back (OpenStack's
+ * `x-subject-token`, Swift's `x-auth-token` and `x-storage-token`, GitLab's `private-token`,
+ * OAuth's `x-access-token`/`x-refresh-token`, a CSRF or Vault token), and the request's own
+ * credential headers, should a server echo one. Beyond this list, any header `credentialParam` reads
+ * as a credential is masked too (credentialHeader), so a service's own `*-token`, `*-key` or
+ * `*-secret` header is covered without being named here. A captured call's response keeps each with
  * CREDENTIAL_PLACEHOLDER for its value, so a client that reads its token from one still finds the
- * header on replay.
+ * header on replay. `www-authenticate` and `location` carry a credential inside a larger value
+ * (TOKEN_IN_VALUE), masked in place rather than whole.
  */
-export const CREDENTIAL_HEADERS: readonly string[] = ['authorization', 'proxy-authorization', 'cookie', 'x-subject-token', 'x-auth-token', 'x-storage-token', 'x-api-key', 'api-key', 'x-goog-api-key', 'ocp-apim-subscription-key', 'x-amz-security-token'];
+export const CREDENTIAL_HEADERS: readonly string[] = [
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'x-subject-token',
+  'x-auth-token',
+  'x-storage-token',
+  'x-access-token',
+  'x-refresh-token',
+  'x-csrf-token',
+  'x-xsrf-token',
+  'x-vault-token',
+  'private-token',
+  'x-api-key',
+  'api-key',
+  'x-goog-api-key',
+  'ocp-apim-subscription-key',
+  'x-amz-security-token',
+];
+
+/**
+ * Response headers whose value holds a credential among other text, masked in place: a `location`
+ * that carries an OAuth code or token in its query or fragment, and a `www-authenticate` challenge
+ * whose token the server hands back (a Negotiate/NTLM blob, a `token=` parameter).
+ */
+export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>> = {
+  location: maskLocation,
+  'www-authenticate': maskChallenge,
+  'proxy-authenticate': maskChallenge,
+};
 
 /** Response headers that set state in the client: never stored, nor handed to the agent on replay. */
 export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 
 /**
- * Headers as a recording keeps them: each credential header (CREDENTIAL_HEADERS) with
- * CREDENTIAL_PLACEHOLDER for its value, and the headers that set a cookie or name the account a
- * call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
- * nothing changes.
+ * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, or a name
+ * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
+ * `*-key`). The explicit list covers `cookie` and the echoed request headers, which read by their
+ * words alone aren't credentials.
+ */
+export function credentialHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower);
+}
+
+/** Credential query and fragment parameters in a (possibly relative) URL masked, by name alone, as a redirect's are. */
+export function maskLocation(location: string): string {
+  const hash = location.indexOf('#');
+  const head = hash < 0 ? location : location.slice(0, hash);
+  const q = head.indexOf('?');
+  const base = q < 0 ? head : head.slice(0, q + 1) + maskParamsByName(head.slice(q + 1));
+  return hash < 0 ? base : `${base}#${maskParamsByName(location.slice(hash + 1))}`;
+}
+
+/** `a=b&c=d` with the value of each credential parameter (by name, as a redirect carries one) replaced; the rest byte for byte. */
+function maskParamsByName(encoded: string): string {
+  return encoded.replace(/(^|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => (value && credentialParam(decodedParam(raw)) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole));
+}
+
+/**
+ * An HTTP authentication challenge (`WWW-Authenticate`, `Proxy-Authenticate`) with its credential
+ * masked in place: the value of any `name=value` auth-parameter whose name is a credential
+ * (`token=…`), quoted or not, and a single token68 blob after the scheme (a Negotiate or NTLM
+ * GSSAPI token). The scheme, the realm and an error stay as the server sent them.
+ */
+export function maskChallenge(value: string): string {
+  const params = value.replace(/([A-Za-z][\w-]*)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,]+)/g, (whole, name: string, v: string) => (credentialParam(name) ? `${name}=${v.startsWith('"') ? `"${CREDENTIAL_PLACEHOLDER}"` : CREDENTIAL_PLACEHOLDER}` : whole));
+  // A scheme and one token68 blob, the whole value: Negotiate/NTLM hand back a GSSAPI token this way.
+  return params.replace(/^(\s*[A-Za-z][\w-]*\s+)([A-Za-z0-9._~+/-]+={0,2})(\s*)$/, (_whole, scheme: string, _token: string, tail: string) => `${scheme}${CREDENTIAL_PLACEHOLDER}${tail}`);
+}
+
+/**
+ * Headers as a recording keeps them: each credential header (credentialHeader) with
+ * CREDENTIAL_PLACEHOLDER for its value, the credential inside a `location` or a challenge masked in
+ * place (TOKEN_IN_VALUE), and the headers that set a cookie or name the account a call was made with
+ * (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when nothing changes.
  */
 export function credentialFreeHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
   let out: Record<string, string> | null = null;
   for (const [name, value] of Object.entries(headers)) {
     const lower = name.toLowerCase();
     const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
-    const credential = !state && CREDENTIAL_HEADERS.includes(lower) && value !== CREDENTIAL_PLACEHOLDER;
-    if (!state && !credential) continue;
+    const inValue = !state ? TOKEN_IN_VALUE[lower] : undefined;
+    const credential = !state && !inValue && credentialHeader(lower) && value !== CREDENTIAL_PLACEHOLDER;
+    const masked = inValue ? inValue(value) : value;
+    if (!state && !credential && masked === value) continue;
     out ??= { ...headers };
     if (state) delete out[name];
-    else out[name] = CREDENTIAL_PLACEHOLDER;
+    else out[name] = credential ? CREDENTIAL_PLACEHOLDER : masked;
   }
-  return out ?? (headers);
+  return out ?? headers;
 }
 
 const WS = new Set([' ', '\t', '\n', '\r']);

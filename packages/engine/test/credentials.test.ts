@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER, credentialFreeHeaders, credentialFreeQuery, credentialFreeResult, credentialParam, rawJsonMember, resultBlob, withoutCredentials } from '../src/http.js';
+import { CREDENTIAL_PLACEHOLDER, credentialFreeHeaders, credentialFreeQuery, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskLocation, rawJsonMember, resultBlob, withoutCredentials } from '../src/http.js';
 
 describe('credentialParam: the one list of credential parameters', () => {
   it('names every credential a service takes in a query or a form, in any case', () => {
@@ -85,6 +85,61 @@ describe('response headers as a recording keeps them', () => {
     expect(credentialFreeHeaders(headers)).toEqual({ 'content-type': 'application/json', 'X-Subject-Token': CREDENTIAL_PLACEHOLDER, authorization: CREDENTIAL_PLACEHOLDER, 'x-auth-token': CREDENTIAL_PLACEHOLDER, 'x-request-id': 'req_1' });
     const clean = { 'content-type': 'application/json', 'x-subject-token': CREDENTIAL_PLACEHOLDER };
     expect(credentialFreeHeaders(clean)).toBe(clean);
+  });
+
+  it('mask the tokens the review’s list names, by their name or the value in them, and keep what a client needs', () => {
+    // The reviewer's planted response headers (harness/servers.mjs): each token gone, the rest kept.
+    const headers = {
+      'content-type': 'application/json',
+      authorization: 'Bearer SLSEC_RH_AUTHZ',
+      'proxy-authorization': 'Basic SLSEC_RH_PROXYAUTHZ',
+      'x-subject-token': 'SLSEC_RH_SUBJECT',
+      'x-auth-token': 'SLSEC_RH_XAUTH',
+      'x-access-token': 'SLSEC_RH_XACCESS',
+      'x-refresh-token': 'SLSEC_RH_XREFRESH',
+      'x-csrf-token': 'SLSEC_RH_CSRF',
+      'x-vault-token': 'SLSEC_RH_VAULT',
+      'private-token': 'SLSEC_RH_GITLAB',
+      'x-amz-security-token': 'SLSEC_RH_AMZTOKEN',
+      'x-goog-api-key': 'SLSEC_RH_GOOGKEY',
+      'api-key': 'SLSEC_RH_APIKEY',
+      'x-api-key': 'SLSEC_RH_XAPIKEY',
+      location: 'https://app.example.com/callback?code=SLSEC_RH_LOCCODE_0123456789&state=xyz#access_token=SLSEC_RH_LOCFRAG_0123456789',
+      'www-authenticate': 'Bearer realm="api", error="invalid_token", token="SLSEC_RH_WWWAUTH_0123456789"',
+      'set-cookie': 'session=SLSEC_RH_COOKIE',
+      'anthropic-organization-id': 'SLSEC_RH_ORGID',
+      'openai-organization': 'SLSEC_RH_OAIORG',
+      'openai-project': 'SLSEC_RH_OAIPROJ',
+      'x-request-id': 'req_1',
+    };
+    const out = credentialFreeHeaders(headers);
+    // No planted token survives, in any header.
+    expect(JSON.stringify(out)).not.toMatch(/SLSEC_RH_/);
+    // The account-naming and cookie-setting headers are gone; a request id stays.
+    for (const gone of ['set-cookie', 'anthropic-organization-id', 'openai-organization', 'openai-project']) expect(out).not.toHaveProperty(gone);
+    expect(out['x-request-id']).toBe('req_1');
+    // A redirect keeps what a client needs (state), the challenge its scheme, realm and error.
+    expect(out.location).toBe(`https://app.example.com/callback?code=${CREDENTIAL_PLACEHOLDER}&state=xyz#access_token=${CREDENTIAL_PLACEHOLDER}`);
+    expect(out['www-authenticate']).toBe(`Bearer realm="api", error="invalid_token", token="${CREDENTIAL_PLACEHOLDER}"`);
+  });
+
+  it('read a service’s own *-token, *-key and *-secret headers as credentials, and leave a page cursor and a content header alone', () => {
+    expect(credentialHeader('x-gitlab-token')).toBe(true);
+    expect(credentialHeader('x-session-token')).toBe(true);
+    expect(credentialHeader('x-client-secret')).toBe(true);
+    expect(credentialHeader('x-amz-security-token')).toBe(true);
+    expect(credentialHeader('location')).toBe(false);
+    expect(credentialHeader('www-authenticate')).toBe(false);
+    expect(credentialHeader('x-next-page-token')).toBe(false);
+    expect(credentialHeader('content-type')).toBe(false);
+    expect(credentialHeader('x-request-id')).toBe(false);
+  });
+
+  it('mask a Negotiate token68 blob but leave a plain redirect and a bare realm alone', () => {
+    expect(maskChallenge('Negotiate oYG3MIG0oAMKAQWhAwoBAKKBqw==')).toBe(`Negotiate ${CREDENTIAL_PLACEHOLDER}`);
+    expect(maskChallenge('Basic realm="corp"')).toBe('Basic realm="corp"');
+    expect(maskLocation('/dashboard?next=/home')).toBe('/dashboard?next=/home');
+    expect(maskLocation('https://example.com/cb#id_token=aaaa.bbbb.cccc&token_type=Bearer')).toBe(`https://example.com/cb#id_token=${CREDENTIAL_PLACEHOLDER}&token_type=Bearer`);
   });
 
   it('rewrite a stored result\'s headers and keep its body\'s bytes', () => {

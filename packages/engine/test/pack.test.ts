@@ -197,7 +197,7 @@ describe('a copy of a run recorded before the organization id was left out', () 
         expect(lines, pack).toContain('"content-type":"application/json"');
       }
       expect(credentialFreeHeaders({ 'Anthropic-Organization-Id': 'org-1a2b3c', 'request-id': 'req_1' })).toEqual({ 'request-id': 'req_1' });
-      expect(ACCOUNT_HEADERS).toEqual(['anthropic-organization-id']);
+      expect(ACCOUNT_HEADERS).toEqual(['anthropic-organization-id', 'openai-organization', 'openai-project']);
     } finally {
       store.close();
       rmSync(dir, { recursive: true, force: true });
