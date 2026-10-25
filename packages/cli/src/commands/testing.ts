@@ -619,7 +619,7 @@ export function register(program: Command): void {
           target,
           ...(command.length ? { argv: command } : {}),
           // A command someone else chose runs at every commit only with consent, as a replay of it does.
-          confirm: flags.yes ? async () => true : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
+          confirm: flags.yes ? () => Promise.resolve(true) : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,

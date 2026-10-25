@@ -51,7 +51,7 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
         if (htmlCopyVia({ actionsOff, hasJob: hasKind(JOB_KINDS.exportHtml) }) === 'job') return job(JOB_KINDS.exportHtml, { runId: id });
         // Where jobs can't run (read-only), or a server without the job: the file comes straight from it.
         return guard(() =>
-          client.exportHtml(id).then(
+          void client.exportHtml(id).then(
             (r) => toast(`Saved ${r.filename}${run.parent ? ' with the runs it came from' : ''} · ${r.redacted ? 'redaction rules applied' : 'no redaction rules to apply'}`),
             (err: unknown) => toast(errorText(err), 'error'),
           ),

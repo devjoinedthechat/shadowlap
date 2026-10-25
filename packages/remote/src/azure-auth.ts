@@ -67,7 +67,7 @@ async function entraToken(e: AzureEnv, tenant: string, body: Record<string, stri
 
 function defaultAzCli(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(process.platform === 'win32' ? 'az.cmd' : 'az', args, { timeout: 30_000, maxBuffer: 1024 * 1024, shell: process.platform === 'win32' }, (err, stdout, stderr) => {
+    execFile(process.platform === 'win32' ? 'az.cmd' : 'az', args, { timeout: 30_000, maxBuffer: 1024 * 1024, shell: process.platform === 'win32' }, (err: Error | null, stdout, stderr) => {
       if (err) reject(Object.assign(err, { stderr }));
       else resolve(stdout);
     });

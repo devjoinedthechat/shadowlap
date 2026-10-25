@@ -471,7 +471,7 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
       const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args));
       if (r.origin !== 'live') {
         // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
-        yield (await call(cfg, args, async () => null, r)).value;
+        yield (await call(cfg, args, () => Promise.resolve(null), r)).value;
         return;
       }
       yield* liveStream(cfg, r.callNo, stream(args));

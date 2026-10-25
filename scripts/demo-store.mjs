@@ -743,7 +743,7 @@ async function addProjects() {
       };
       dash.stdout.on('data', look);
       dash.stderr.on('data', look);
-      stopped.then(() => fail(new StepError(`the dashboard stopped:\n${out}`)));
+      void stopped.then(() => fail(new StepError(`the dashboard stopped:\n${out}`)));
     });
     const origin = link.split('/#')[0];
     const token = /token=([\w-]+)/.exec(link)[1];

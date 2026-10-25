@@ -112,7 +112,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           if (!alive) return;
           setHits(limitRecorded(a.hits));
           setIndexing(a.indexing ?? null);
-          if (a.indexing) timer = setTimeout(ask, INDEXING_RETRY_MS);
+          if (a.indexing) timer = setTimeout(() => void ask(), INDEXING_RETRY_MS);
         },
         () => {
           if (!alive) return;
@@ -120,7 +120,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
           setIndexing(null);
         },
       );
-    timer = setTimeout(ask, 220);
+    timer = setTimeout(() => void ask(), 220);
     return () => {
       alive = false;
       clearTimeout(timer);

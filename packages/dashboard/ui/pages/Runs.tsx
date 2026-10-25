@@ -398,7 +398,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     const t = calDays ? rangeTimes(calDays, r) : null;
     if (!t) return;
     guard(() =>
-      client.daysBisect({ ...t, types, q }).then(
+      void client.daysBisect({ ...t, types, q }).then(
         (out) => ('reason' in out ? toast(sentence(out.reason)) : setDialog({ runId: out.runId, choices: out.choices, earlier: out.earlier ?? null })),
         (err: unknown) => toast(errorText(err), 'error'),
       ),

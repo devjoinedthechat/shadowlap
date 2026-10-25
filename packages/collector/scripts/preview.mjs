@@ -44,5 +44,5 @@ if (!empty) {
   }
 }
 console.log(`dashboard preview (${empty ? 'empty' : 'synthetic data'}): ${c.url}/`);
-process.on('SIGINT', () => c.close().then(() => process.exit(0)));
-process.on('SIGTERM', () => c.close().then(() => process.exit(0)));
+process.on('SIGINT', () => void c.close().then(() => process.exit(0)));
+process.on('SIGTERM', () => void c.close().then(() => process.exit(0)));

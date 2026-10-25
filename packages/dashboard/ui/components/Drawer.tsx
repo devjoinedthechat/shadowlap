@@ -162,7 +162,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
             className="btn"
             type="button"
             onClick={() =>
-              client.downloadFile(f).then(
+              void client.downloadFile(f).then(
                 () => toast(`Saved ${f.name}`),
                 (err: unknown) => toast(errorText(err), 'error'),
               )

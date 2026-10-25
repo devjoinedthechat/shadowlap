@@ -30,7 +30,7 @@ export interface OpenOptions {
 function staticKeys(id: string | undefined, secret: string | undefined, source: string): (() => Promise<AwsCredentials>) | null {
   if (!id || !secret) return null;
   const creds: AwsCredentials = { accessKeyId: id, secretAccessKey: secret, source };
-  return async () => creds;
+  return () => Promise.resolve(creds);
 }
 
 const GOOGLE_HOSTS = /(^|\.)googleapis\.com$/i;
@@ -112,9 +112,7 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
           pathStyle: true,
           credentials:
             keys ??
-            (async () => {
-              throw new StoreError('credentials', 'gs://…?auth=hmac uses HMAC keys: set GCS_HMAC_ACCESS_KEY_ID and GCS_HMAC_SECRET_ACCESS_KEY (create them under Cloud Storage → Settings → Interoperability).');
-            }),
+            (() => Promise.reject(new StoreError('credentials', 'gs://…?auth=hmac uses HMAC keys: set GCS_HMAC_ACCESS_KEY_ID and GCS_HMAC_SECRET_ACCESS_KEY (create them under Cloud Storage → Settings → Interoperability).'))),
           versioning: true,
           alwaysEncrypted: 'Google-managed (Cloud Storage encrypts every object)',
           ...common,
@@ -124,16 +122,17 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
         const endpoint = location.endpoint;
         const token = credentialsMayGoTo(endpoint, 'gcs')
           ? googleTokenProvider(awsEnv)
-          : async (): Promise<never> => {
-              throw new StoreError('credentials', `${endpoint} isn't Google's: Shadowlap doesn't send your Google sign-in there. Use Cloud Storage's own address (https://storage.googleapis.com, or a *.googleapis.com private endpoint); for an emulator, set STORAGE_EMULATOR_HOST instead, which is sent no credentials.`);
-            };
+          : (): Promise<never> =>
+              Promise.reject(
+                new StoreError('credentials', `${endpoint} isn't Google's: Shadowlap doesn't send your Google sign-in there. Use Cloud Storage's own address (https://storage.googleapis.com, or a *.googleapis.com private endpoint); for an emulator, set STORAGE_EMULATOR_HOST instead, which is sent no credentials.`),
+              );
         return new GcsStore({ location, endpoint: endpoint.replace(/\/+$/, ''), token, ...common });
       }
       if (env.STORAGE_EMULATOR_HOST) {
         // As Google's own client libraries do: an emulator is sent no credentials.
         const host = env.STORAGE_EMULATOR_HOST;
         const endpoint = /^https?:\/\//.test(host) ? host : `http://${host}`;
-        return new GcsStore({ location, endpoint: endpoint.replace(/\/+$/, ''), token: async () => ({ accessToken: '', expiresAt: null, source: 'no credentials (STORAGE_EMULATOR_HOST)' }), ...common });
+        return new GcsStore({ location, endpoint: endpoint.replace(/\/+$/, ''), token: () => Promise.resolve({ accessToken: '', expiresAt: null, source: 'no credentials (STORAGE_EMULATOR_HOST)' }), ...common });
       }
       return new GcsStore({ location, endpoint: 'https://storage.googleapis.com', token: googleTokenProvider(awsEnv), ...common });
     }
@@ -149,12 +148,13 @@ export function openObjectStore(location: StoreLocation, options: OpenOptions = 
         auth = {
           kind: 'bearer',
           source: auth.source,
-          token: async () => {
-            throw new StoreError(
-              'credentials',
-              `${where} isn't an Azure Storage address, and the store URL comes from a committed file: Shadowlap doesn't send requests made with your Azure credentials there. Use the account's own endpoint (https://${account}.blob.core.windows.net). For Azurite or Azure Stack at another address, give it on this machine instead: AZURE_STORAGE_CONNECTION_STRING with BlobEndpoint=…, and the store URL without ?endpoint=.`,
-            );
-          },
+          token: () =>
+            Promise.reject(
+              new StoreError(
+                'credentials',
+                `${where} isn't an Azure Storage address, and the store URL comes from a committed file: Shadowlap doesn't send requests made with your Azure credentials there. Use the account's own endpoint (https://${account}.blob.core.windows.net). For Azurite or Azure Stack at another address, give it on this machine instead: AZURE_STORAGE_CONNECTION_STRING with BlobEndpoint=…, and the store URL without ?endpoint=.`,
+              ),
+            ),
         };
       }
       return new AzureStore({ location, endpoint: endpoint.replace(/\/+$/, ''), auth, ...common });

@@ -59,7 +59,7 @@ export function useMarkRun(onLabels: (runId: string, labels: string[]) => void):
               label: 'Undo',
               run: () =>
                 guard(() =>
-                  client.labels(runId, undo.add, undo.remove).then(
+                  void client.labels(runId, undo.add, undo.remove).then(
                     (u) => {
                       onLabels(runId, u.labels);
                       refresh();

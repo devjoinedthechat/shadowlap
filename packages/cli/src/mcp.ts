@@ -733,7 +733,9 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
       let chain: Promise<void> = Promise.resolve();
       // The answer ends the request's stream; a server that keeps it open after answering holds nothing up.
       const answered = () => id !== null && !pending.has(idKey(id));
-      const events = new EventStream((data) => (chain = chain.then(() => fromServer(data)).then(() => void (answered() && res.destroy()))));
+      const events = new EventStream((data) => {
+        chain = chain.then(() => fromServer(data)).then(() => void (answered() && res.destroy()));
+      });
       await new Promise<void>((done) => {
         res.on('data', (chunk: string) => events.push(chunk));
         res.on('end', done);
@@ -759,7 +761,9 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
         if (res.statusCode !== 200 || !/text\/event-stream/i.test(String(res.headers['content-type'] ?? ''))) return void res.resume();
         res.setEncoding('utf8');
         let chain: Promise<void> = Promise.resolve();
-        const events = new EventStream((data) => (chain = chain.then(() => fromServer(data))));
+        const events = new EventStream((data) => {
+          chain = chain.then(() => fromServer(data));
+        });
         res.on('data', (chunk: string) => events.push(chunk));
       });
     } catch {

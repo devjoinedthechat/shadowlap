@@ -255,7 +255,7 @@ interface Many {
 async function importMany(program: Command, m: Many, w: BulkWindow, asJson: boolean): Promise<void> {
   const found = await m.list(w);
   const store = openStore(program.opts<GlobalOpts>());
-  let stopped: unknown = null;
+  let stopped: { error: unknown } | null = null;
   try {
     const who = author();
     const before = importedTraces(store, m.format);
@@ -295,7 +295,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
         }
         Object.assign(entry, { outcome: 'failed', reason });
         line(p.red(`failed: ${reason}`));
-        stopped = err;
+        stopped = { error: err };
         break;
       }
       const imported = importTrace(store, trace, { source: `${m.format}:${t.id.slice(0, 8)}`, labels: [m.format], author: who, key: t.id });
@@ -346,7 +346,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
   } finally {
     store.close();
   }
-  if (stopped) throw stopped;
+  if (stopped) throw stopped.error;
 }
 
 export function register(program: Command): void {
