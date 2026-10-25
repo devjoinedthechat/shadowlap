@@ -72,7 +72,7 @@ describe('checkEdit', () => {
     expect(edit('x', 9)).toEqual({ ok: false, reason: 'anchor 9 does not exist' });
     expect(edit('  ')).toEqual({ ok: false, reason: 'the replacement is empty' });
     expect(edit('You are a support agent. Follow the refund policy.')).toMatchObject({ ok: false });
-    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining('quotes') });
+    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining("adds a ' quote the text it replaces has none of") });
     expect(edit('You are a support agent.\nFollow the refund policy.')).toEqual({ ok: false, reason: expect.stringContaining('several lines') });
     expect(edit('a'.repeat(700))).toEqual({ ok: false, reason: expect.stringContaining('far longer') });
   });

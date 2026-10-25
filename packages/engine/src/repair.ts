@@ -226,9 +226,25 @@ function outsidePlaceholders(text: string, found: readonly Placeholder[]): strin
   return out + text.slice(at);
 }
 
-/** Syntax that starts or ends a placeholder when it stands on its own: a brace, `<%`, `%>`, and in other code `#{` and `$(`. */
+/**
+ * The characters, outside a placeholder, that a rewrite may add no more of than the text it replaces
+ * already had, counted one at a time as `lacking` counts placeholders: a brace, `<%`, `%>`, and in
+ * other code `#{` and `$(`, each of which starts or ends a placeholder on its own; and, in anything
+ * but prose, each quote (`"`, `'`, `` ` ``) and the backslash, any of which could end or escape the
+ * string literal the span sits in. A prose file (a Markdown policy) is text, not a string, so its
+ * quotes and backslashes are left alone.
+ */
 function strays(text: string, syntax: TemplateSyntax): string[] {
-  return [...text.matchAll(syntax === 'code' ? /[{}]|<%|%>|#\{|\$\(/g : /[{}]|<%|%>/g)].map((m) => m[0]);
+  const re =
+    syntax === 'prose' ? /[{}]|<%|%>/g : syntax === 'code' ? /["'`\\{}]|<%|%>|#\{|\$\(/g : /["'`\\{}]|<%|%>/g;
+  return [...text.matchAll(re)].map((m) => m[0]);
+}
+
+/** Why a stray character the replacement adds is refused: a quote or backslash breaks the string, anything else starts a placeholder. */
+function strayReason(ch: string, file: string): string {
+  if (ch === '\\') return `it adds a backslash the text it replaces has none of, which could escape the string it goes into in ${file}`;
+  if (ch === '"' || ch === "'" || ch === '`') return `it adds a ${ch} quote the text it replaces has none of, which could end the string it goes into in ${file}`;
+  return `it has ${ch} outside a placeholder, which could start one in ${file}: a rewrite keeps the placeholders of the text it replaces and adds none`;
 }
 
 /** What `from` has that `to` lacks, counting repeats: the placeholders a rewrite dropped, or added. */
@@ -480,17 +496,20 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   const has = placeholders(replace, syntax);
   const own = outsidePlaceholders(replace, has);
   const was = outsidePlaceholders(anchor.text, had);
-  // A one-line span stays one line. In code it sits in a string, which quotes and backslashes would
-  // end or escape; in a prose file (a Markdown policy) they are just punctuation.
-  if (/[\n\r]/.test(replace) && !/[\n\r]/.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
-  if (!isProse(anchor.file) && /["'`\\]/.test(own) && !/["'`\\]/.test(was)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
+  // A one-line span stays one line: CR and LF, and the Unicode line and paragraph separators, which
+  // break a line as much and show nothing. In code the span sits in a string literal, whose quotes
+  // and backslashes the stray check below counts; in a prose file they are just punctuation.
+  const newline = /[\n\r\u2028\u2029]/;
+  if (newline.test(replace) && !newline.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
   if (replace.length > longestRewrite(anchor.text.length)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
   const added = lacking(has.map((p) => p.text), had.map((p) => p.text));
   if (added.length) return { ok: false, reason: `it brings in ${safeLine(added.join(', ')).slice(0, 120)}, which ${anchor.file} could fill in when the agent builds its prompt, as code or as a value of the agent's: a rewrite keeps the placeholders of the text it replaces and adds none` };
   const dropped = lacking(had.map((p) => p.text), has.map((p) => p.text));
   if (dropped.length) return { ok: false, reason: `it leaves out ${safeLine(dropped.join(', ')).slice(0, 120)}, which the text it replaces has: a rewrite keeps each placeholder as it is written` };
+  // A quote, backslash or stray brace the replacement adds beyond what the span had: counted one at a
+  // time, so a span that already holds an apostrophe can't add its literal's delimiter or a backslash.
   const stray = lacking(strays(own, syntax), strays(was, syntax));
-  if (stray.length) return { ok: false, reason: `it has ${stray[0]!} outside a placeholder, which could start one in ${anchor.file}: a rewrite keeps the placeholders of the text it replaces and adds none` };
+  if (stray.length) return { ok: false, reason: strayReason(safeLine(stray[0]!), anchor.file) };
   // The characters on either side of the span stay: a rewrite that starts after a `$` with a `{`,
   // or ends in a `%` before a `(`, makes a placeholder with them.
   if (anchor.prev !== undefined && OPENS.test(anchor.prev) && replace[0] !== anchor.text[0]) return { ok: false, reason: `it starts differently from the text it replaces, right after the ${anchor.prev} in ${anchor.file}, and the two could make a placeholder` };
