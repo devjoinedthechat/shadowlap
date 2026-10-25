@@ -157,7 +157,7 @@ describe('shadowlap migrate', () => {
       expect(report.pullRequest.body).toMatch(/- goldens\/research: passed \(kept, verified · 6 of 6, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\)/);
       expect(report.pullRequest.body).toContain(`Verified by \`shadowlap verify\`, ${kept(200)}.`);
       const text = formatMigrate(report).replace(/\x1b\[[0-9;]*m/g, '');
-      expect(text).toMatch(/goldens\/research +passed · kept, verified · 6 of 6, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\n  kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs\n/);
+      expect(text).toMatch(/goldens\/research +passed · kept, verified · 6 of 6, baseline 6 of 6 · drop <= 0\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs\n/);
       // A session verified again under other figures holds runs different rules decided: each rule is stated once, with its runs.
       const shortGate = 'gate: tells 90%+ from 50%- at <= 5% risk, up to 7 attempts';
       const other = { ...report.passes.runs[0], runId: '01M5000000000000000000000X', golden: 'goldens/other', verdict: 'inconclusive' as const, outcome: 'inconclusive', tally: { passes: 5, attempts: 7, bound: 'rate 0.36 to 0.92 (95%)', rule: shortGate } };
@@ -180,7 +180,7 @@ describe('shadowlap migrate', () => {
       expect(warned.code, warned.out).toBe(0);
       expect(warned.out).toContain('! inconclusive, and --inconclusive warn lets it pass: verify did not settle every run it took');
       // The counter goes on from where the first left it, so this time the change's failures fall elsewhere.
-      expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · \d of 7, baseline \d of 7 · drop -?\d\.\d\d to \d\.\d\d \(95%\)\n  kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 7 pairs\n/);
+      expect(warned.stdout).toMatch(/goldens\/research +inconclusive · verified · \d of 7, baseline \d of 7 · drop -?\d\.\d\d to \d\.\d\d \(95%\)\n {2}kept unless it drops 50\+ points below its baseline, attempt for attempt, <= 5% risk, up to 7 pairs\n/);
 
       // The inconclusive migration verified again as the dashboard's Verify the changed runs verifies it: no count
       // and no gate of its own, the golden's own command. Kept against its baseline, and What still passes says so.

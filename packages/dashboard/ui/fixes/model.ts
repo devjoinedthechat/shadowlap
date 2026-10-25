@@ -81,13 +81,13 @@ export function failedMust(f: Pick<FixRow, 'title' | 'failed' | 'check'>): { fai
  * side starts a line alone.
  */
 export function wholeParts(text: string): Array<{ text: string; whole: boolean }> {
-  const t = text.replace(/(\d) (times?|attempts?)\b/g, '$1 $2');
+  const t = text.replace(/(\d) (times?|attempts?)\b/g, '$1\u00a0$2');
   const out: Array<{ text: string; whole: boolean }> = [];
   const re = /(\S+ (?:\d[\d.,]* )?)(<=|>=|!=|<|>) (\S+(?: \d[\d.,]*\b)?)/g;
   let at = 0;
   for (let m = re.exec(t); m; m = re.exec(t)) {
     if (m.index > at) out.push({ text: t.slice(at, m.index), whole: false });
-    out.push({ text: `${m[1]}${m[2]} ${m[3]!.replace(' ', ' ')}`, whole: true });
+    out.push({ text: `${m[1]}${m[2]}\u00a0${m[3]!.replace(' ', '\u00a0')}`, whole: true });
     at = m.index + m[0].length;
   }
   if (at < t.length) out.push({ text: t.slice(at), whole: false });

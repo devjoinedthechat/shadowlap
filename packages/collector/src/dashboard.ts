@@ -129,7 +129,7 @@ export function renderDashboard(s: Stats, options: DashboardOptions = {}): strin
     ? `<section class="empty" aria-label="No data yet"><div><h2>No events yet</h2><p>This collector has not received anything. Charts fill in as clients report. To send from a machine you control:</p></div><pre><code>export SHADOWLAP_TELEMETRY_URL=${esc(options.origin ?? 'https://<this host>')}/v1/events</code></pre></section>`
     : '';
 
-  const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><g fill="none" stroke=\"#15140f\" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>')}`;
+  const favicon = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300"><g fill="none" stroke="#15140f" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>')}`;
   const logo = '<svg class="logo" viewBox="0 0 300 300" aria-hidden="true"><g fill="none" stroke-width="46"><path d="M100 262V185A122 122 0 0 1 222 63"/><path d="M176 262V185A46 46 0 0 1 222 139"/></g></svg>';
 
   return `<!doctype html>

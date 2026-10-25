@@ -36,7 +36,7 @@ export function historyPlan({ keep, workdir, store, config, branch, defaultBranc
 
 function readConfig(workdir) {
   try {
-    return JSON.parse(readFileSync(join(workdir, 'shadowlap.config.json'), 'utf8').replace(/^﻿/, ''));
+    return JSON.parse(readFileSync(join(workdir, 'shadowlap.config.json'), 'utf8').replace(/^\uFEFF/, ''));
   } catch {
     // No config, or one shadowlap test will report: nothing names a gate against history.
     return null;

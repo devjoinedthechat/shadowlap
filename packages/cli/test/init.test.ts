@@ -334,11 +334,11 @@ from shadowlap.adapters.langchain import with_effect
 
 @tool
 def lookup(query: str) -> str:
-    \"\"\"Look up.\"\"\"
+    """Look up."""
 
 @tool
 def delete_row(id: str) -> str:
-    \"\"\"Delete.\"\"\"
+    """Delete."""
 
 tools = [with_effect(lookup, "read")]
 `,

@@ -70,7 +70,7 @@ function versionOf(bytes: Buffer): string {
 }
 
 function parseConfig(path: string, bytes: Buffer): ConfigFile {
-  const text = bytes.toString('utf8').replace(/^﻿/, '');
+  const text = bytes.toString('utf8').replace(/^\uFEFF/, '');
   let data: unknown = {};
   if (text.trim()) {
     try {

@@ -477,7 +477,7 @@ function spansOf(payload: unknown): Span[] {
 
 /** The OTLP requests in a file: one JSON object (or an array of them), or one object per line. Traces and logs may sit in the same file or in separate ones. */
 export function parseOtlpFile(contents: string): unknown[] {
-  const text = contents.replace(/^﻿/, '');
+  const text = contents.replace(/^\uFEFF/, '');
   try {
     const whole = JSON.parse(text) as unknown;
     return Array.isArray(whole) ? whole : [whole];

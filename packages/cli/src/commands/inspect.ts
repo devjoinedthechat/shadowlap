@@ -194,7 +194,7 @@ export function register(program: Command): void {
         // A trace covers some tools by name (`tool:<name>`): the other tools are what runs live.
         const someTools = run.meta.covers.some((k) => k.startsWith('tool:'));
         const missing = (['api', 'tool', 'clock', 'random'] as const).filter((k) => !run.meta!.covers!.includes(k)).map((k) => (k === 'tool' && someTools ? 'other tool' : k));
-        head.push(p.dim(`  partial recording: ${safe(run.meta.covers.join(', '))} only — ${missing.join(', ')} calls run live on replay`));
+        head.push(p.dim(`  partial recording: ${safe(run.meta.covers.join(', '))} only\u2009—\u2009${missing.join(', ')} calls run live on replay`));
       }
       if (run.meta?.labels?.length) head.push(`  ${p.cyan(safe(run.meta.labels.join(', ')))}`);
       for (const n of run.meta?.notes ?? []) head.push(`  ${p.yellow('✎')} ${n.callNo !== null ? p.dim(`#${n.callNo} `) : ''}${safe(n.text)}`);

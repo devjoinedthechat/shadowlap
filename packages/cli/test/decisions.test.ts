@@ -434,7 +434,7 @@ describe('shadowlap decisions', () => {
     // Each sample of the change went with one of the request as recorded: six requests a step.
     expect(report.cost.upstreamRequests).toBe(6 * report.runs[0].asked);
     const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3']);
-    expect(text.stdout).toMatch(/step 10  within the model's own variation  send_email is called with other arguments · in 1 of 3 samples, 0 of 3 as recorded/);
+    expect(text.stdout).toMatch(/step 10 {2}within the model's own variation {2}send_email is called with other arguments · in 1 of 3 samples, 0 of 3 as recorded/);
     expect(text.stdout).toMatch(/11 steps asked, 3 samples each and as many as recorded: 1 within the model's own variation, 10 the same/);
     // Below 3 samples no split can reach 5%, so there is no control: the change's own samples decide, by what most show.
     const two = json<DecisionsReport>(await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '2', '--strict', '--json']));

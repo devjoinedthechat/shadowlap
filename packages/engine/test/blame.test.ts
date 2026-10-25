@@ -212,7 +212,7 @@ describe('formatBlame', () => {
     expect(text).toContain('Confidence: high');
     expect(text).toContain('issue_refund({"order_id":"A-1042"})');
     expect(text).toContain('"Over the limit.", escalate({})');
-    expect(text).toMatch(/#11 +3 of 4 +2 of 2 passed +rescued  ◂ blamed/);
+    expect(text).toMatch(/#11 +3 of 4 +2 of 2 passed +rescued {2}◂ blamed/);
     expect(text).toContain('9 attempts · 18 upstream requests');
     expect(text).toContain('shadowlap diff 01K5CQ4N7G 01K5CR1100');
   });
