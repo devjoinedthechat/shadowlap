@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { SPRT_DEFAULTS, planSuite, type SprtGate, type SuiteGolden } from '@shadowlap/engine';
+import { SPRT_DEFAULTS, planSuite, riskPercent, type SprtGate, type SuiteGolden } from '@shadowlap/engine';
 import { suiteJson, suiteLines } from '../src/suite-plan.js';
+import { markdownReport, testReport } from '../src/test-report.js';
 
 /**
  * What a test session says before any golden runs (suite-plan.ts): the forecast and how its one risk
@@ -29,6 +30,24 @@ describe('the session plan', () => {
     expect(suite.red).toBeLessThanOrEqual(0.05);
     // No price for its models: the cost is unknown, and says so.
     expect(suiteLines(plan)[0]).toMatch(/^forecast: about \d+ attempts \([\d.]+ a golden on average\), up to 164 · cost unknown: no price for their models$/);
+  });
+
+  it('says what the plan works out, not the risk it was given, when a golden can’t keep within its share', () => {
+    // Nine goldens the session sizes, and one whose config pins its max at 20: a fifth of its
+    // attempts at its good rate run out inconclusive, far past its 0.5% share.
+    const plan = planSuite([...goldens(9), { golden: 'goldens/pinned', gate: { ...gate, max: 20 }, maxGiven: true }])!;
+    expect(plan.red).toBeGreaterThan(0.5);
+    const lines = suiteLines(plan);
+    expect(lines[1]).toBe(`suite risk 5%: 10 gated goldens, 0.5% each, but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer`);
+    expect(lines[1]).not.toContain('in 5% of runs or fewer');
+    expect(lines[2]).toMatch(/^goldens\/pinned: its max of 20 leaves /);
+    // The JSON says how many, and the Markdown summary says what the terminal does.
+    const suite = suiteJson(plan);
+    expect(suite).toMatchObject({ red: plan.red, over: 1 });
+    const md = markdownReport(testReport([], null, suite));
+    expect(md).toContain(`Suite risk 5%, split across 10 gated goldens (0.5% each), but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer.`);
+    // Within the risk, the line is as before, and the risk it says is the one given.
+    expect(suiteLines(planSuite(goldens(10))!)[1]).toBe('suite risk 5%: 10 gated goldens, 0.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer');
   });
 
   it('says nothing of a split for one golden, and names one whose max can’t keep within its share', () => {
