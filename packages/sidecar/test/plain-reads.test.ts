@@ -47,7 +47,7 @@ describe('clock and random reads', () => {
       const [first, second] = store.getCalls(rep.runId);
       expect(first).toMatchObject({ name: 'random', origin: 'live', meta: { extraRead: true } });
       expect(second).toMatchObject({ name: 'uuid', origin: 'replayed' });
-      expect(second!.end!.meta.replayedFrom).toBe(1);
+      expect(second.end!.meta.replayedFrom).toBe(1);
     } finally {
       await sidecar.close();
       store.close();
