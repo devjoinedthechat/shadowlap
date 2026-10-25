@@ -62,6 +62,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (!Number.isFinite(budget) || budget <= 0) fail(`input fix-budget must be an amount in dollars, such as 2.00, not "${input('FIX_BUDGET')}"`);
   const repairer = input('REPAIRER');
   if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`input repairer must be claude-code, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
+  // What builds the agent once a fix changes its source, as shadowlap repair --build runs it.
+  const fixBuild = input('FIX_BUILD');
   // The test history, and the runs a fix starts from: the project's store unless one is named.
   const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
   // The team store: the test runs and the session's report (test --push), then any fix opened.
@@ -122,7 +124,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
   if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
   if (fixOnFailure && report.failed && !report.interrupted) {
-    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
+    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuild, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
     for (const f of fixes) {
       if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${String(f.pr)}\n`);
       else process.stdout.write(`${f.name}: no fix pull request: ${String(f.why)}\n`);

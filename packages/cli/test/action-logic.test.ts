@@ -362,9 +362,9 @@ describe('what a fix is verified on', () => {
     expect(plan).toMatchObject({ fixes: ['a-1', 'c-1'], holdout: ['b-1'], keeps: ['ok-1-1', 'ok-2-1'], goldens: { shown: ['goldens/a', 'goldens/c'], heldOut: ['goldens/b'], kept: ['goldens/ok-1', 'goldens/ok-2'] }, gate: null });
     expect(KEEPS_AT_MOST).toBe(2);
     expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--guard', 'block', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
-    // The step's network guard, as its test ran under it.
-    const args = repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json', guard: 'warn' });
-    expect(args.slice(args.indexOf('--guard'), args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
+    // The step's network guard, as its test ran under it, and its build for the agent once a fix is in.
+    const args = repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json', guard: 'warn', build: 'npm run build' });
+    expect(args.slice(args.indexOf('--guard'), args.indexOf('--guard') + 4)).toEqual(['--guard', 'warn', '--build', 'npm run build']);
     // A golden alone under its check has nothing to hold out; one that passed the check is still kept.
     expect(repairPlan(groups[1].members, results)).toMatchObject({ fixes: ['d-1'], holdout: [], keeps: ['other-1'], goldens: { shown: ['goldens/d'], heldOut: [], kept: ['goldens/other'] } });
     const lonely = [failing('e', { tools: { delete_thread: 0 } }), ...results];
@@ -475,8 +475,9 @@ describe("the step's outputs", () => {
 describe('the inputs in action.yml', () => {
   const yml = readFileSync(join(ROOT, 'action.yml'), 'utf8');
 
-  it('declares github-token, comment and build-from-source, and passes the tokens to the step that keeps them from the CLI', () => {
-    for (const input of ['github-token:', 'comment:', 'build-from-source:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+  it('declares github-token, comment, build-from-source and fix-build, and passes the tokens to the step that keeps them from the CLI', () => {
+    for (const input of ['github-token:', 'comment:', 'build-from-source:', 'fix-build:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+    expect(yml).toContain('INPUT_FIX_BUILD: ${{ inputs.fix-build }}');
     expect(yml).not.toMatch(/GH_TOKEN/);
     expect(yml).toContain("\n  comment:\n    description: On a pull request, keep one comment on it with each golden's verdict line");
     expect(yml).toMatch(/\n {2}comment:\n {4}description: [^\n]*\n {4}default: 'true'\n/);

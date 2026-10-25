@@ -291,6 +291,7 @@ The CLI, and the agent it runs, get none of GitHub's tokens. The action takes th
 | `push` | `false` | Push every test run and the session's report to the [team store](./team.md#push-from-ci) set in `shadowlap.config.json` (`shadowlap test --push`), and each fix that `fix-on-failure` opens ([below](#fixes-in-the-team-store)); the job needs credentials for the bucket, and a push that can't happen is a warning, never a failure |
 | `fix-on-failure` | `false` | Open a fix pull request when a golden fails an outcome check ([below](#fix-on-failure)) |
 | `fix-budget` | `2.00` | Dollars that may be spent per failing golden on finding and proving a fix |
+| `fix-build` | empty | A command that builds the agent once a fix changes its source, such as `npm run build`, as `shadowlap repair --build` runs it ([below](#fix-on-failure)) |
 | `repairer` | empty | The model that proposes fixes, as for `shadowlap repair --repairer`; empty uses `repair.repairer` in the config |
 | `github-token` | empty | The token a fix's branch is pushed, its pull request opened and the [pull request comment](#the-pull-request-comment) kept with: a GitHub App's token or a personal access token, for which GitHub starts the fix pull request's workflows. Empty uses the job's `GITHUB_TOKEN`, and the action [starts the workflow itself](#how-a-fix-pull-requests-checks-start). The CLI and your agent never get it |
 | `comment` | `true` | On a pull request, keep one [comment](#the-pull-request-comment) on it with each golden's verdict |
@@ -382,7 +383,7 @@ They are the steps of a job of their own: the branch checked out, Node 22.16 or 
 - a branch checked out, as the first step does: on a pull request from this repository, its branch (`github.head_ref`), as its job checks out a detached merge commit otherwise, so the fix becomes a pull request into it. A pull request from a fork checks out its merge commit (`github.ref`): a fork's branch name could name another branch here, with other code, and its job's token may not push one, so its job tests the pull request and opens no fix;
 - Node 22.16 or later on the runner, not 23, as the second step sets up.
 
-Blame and verify run the agent live under the step's `guard`, as its test does.
+Blame and verify run the agent live under the step's `guard`, as its test does. An agent that runs from what a build makes, such as a TypeScript agent's `dist/`, needs `fix-build: npm run build`, the command that builds it: it runs in each candidate's worktree once the candidate is in it, as `shadowlap repair --build` runs it ([repair](./repair.md#candidates-are-tried-in-a-worktree-of-their-own)), and in the working tree around the replay of the fix's branch, then once more when the fix is taken back out, so the steps after this one see the working tree's own build.
 
 The dashboard's Settings → CI writes the agent's provider keys into the step's `env` by name, from the providers its goldens' recordings called, in place of that last comment; the comment stays after them when a golden's keys can't be named (its pack can't be read, or it calls Vertex AI, which signs in with a token).
 

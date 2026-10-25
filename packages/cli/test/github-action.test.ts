@@ -492,7 +492,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     return dir;
   }
 
-  it("runs repair under the step's guard, and hands neither it nor the test any of GitHub's tokens", () => {
+  it("runs repair under the step's guard and fix-build, and hands neither it nor the test any of GitHub's tokens", () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
     dirs.push(dir);
     const fake = fakeCli(dir);
@@ -501,7 +501,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     const oidc = 'oidc_request_token_for_the_test';
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${job}`).toString('base64')}`;
     const r = action(
-      { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
+      { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', FIX_BUILD: 'npm run build', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
       { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
     );
     expect(r.code, r.out).toBe(0);
@@ -512,10 +512,10 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
       for (const secret of [job, pat, oidc, header]) expect(text, `${args[0]}: ${secret}`).not.toContain(secret);
       for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'MY_COPY_OF_THE_TOKEN', 'GIT_CONFIG_COUNT']) expect(env, name).not.toHaveProperty(name);
     }
-    // The test ran under the step's guard, and so did repair.
+    // The test ran under the step's guard, and so did repair, with the step's build for the agent.
     const repair = seen[1].args;
     expect(seen[0].args.slice(seen[0].args.indexOf('--guard'), seen[0].args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
-    expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
+    expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 4)).toEqual(['--guard', 'warn', '--build', 'npm run build']);
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
   });
 

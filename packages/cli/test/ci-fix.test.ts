@@ -932,6 +932,45 @@ describe('pushing a fix CI opened to the team store', () => {
   });
 });
 
+describe("the fix's branch, with fix-build", () => {
+  it.skipIf(process.platform === 'win32')("builds the agent with fix-build around the fix's test on its branch, and again once the fix is out", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-branch-build-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'prompt.txt'), 'Refund within policy.\n');
+      writeFileSync(join(dir, '.gitignore'), 'dist/\n');
+      mkdirSync(join(dir, 'goldens', 'refund-flow'), { recursive: true });
+      writeFileSync(join(dir, 'goldens', 'refund-flow', 'README'), 'golden\n');
+      git('add', '-A');
+      git('commit', '-qm', 'agent');
+      writeFileSync(join(dir, 'prompt.txt'), 'Check the policy, then refund.\n');
+      writeFileSync(join(dir, 'fix.patch'), git('diff'));
+      git('checkout', '--', 'prompt.txt');
+      mkdirSync(join(dir, 'recorded'));
+      // The agent runs from what its build makes, which the fix's test on the branch reads.
+      const build = `"${process.execPath}" -e "require('fs').mkdirSync('dist',{recursive:true});require('fs').copyFileSync('prompt.txt','dist/prompt.txt')"`;
+      execFileSync('sh', ['-c', build], { cwd: dir });
+      const cli = join(dir, 'cli.mjs');
+      writeFileSync(cli, ["import { readFileSync, writeFileSync } from 'node:fs';", "const args = process.argv.slice(2);", "writeFileSync('seen.txt', readFileSync('dist/prompt.txt', 'utf8'));", "writeFileSync(args[args.indexOf('--json') + 1], JSON.stringify({ results: [{ name: 'refund-flow', dir: 'goldens/refund-flow', mode: 'replay', ok: true, verdict: 'passed' }] }));"].join('\n'));
+      const member = { result: { name: 'refund-flow', dir: 'goldens/refund-flow', mode: 'replay' as const, ok: false }, skip: null };
+      const state = refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-refund-flow' } }, build, env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      // The test on the branch ran on the fix's build...
+      expect(readFileSync(join(dir, 'seen.txt'), 'utf8')).toBe('Check the policy, then refund.\n');
+      expect(state.warning).toBeNull();
+      // ...and the working tree is its own again, its build too.
+      expect(readFileSync(join(dir, 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+      expect(readFileSync(join(dir, 'dist', 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+      // A build that fails with the fix in place is why nothing was re-recorded.
+      const failing = refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-refund-flow' } }, build: 'exit 7', env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      expect(failing.goldens).toEqual([{ state: 'stale', golden: 'goldens/refund-flow', why: 'exit 7 failed with the fix in place: exit 7' }]);
+      expect(readFileSync(join(dir, 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('a repair that ends before it reports', () => {
   it.skipIf(process.platform === 'win32')('names the signal that ended it, which leaves no exit status', async () => {
     // A repair killed before it printed anything (for memory, say) has no exit status, only the signal.

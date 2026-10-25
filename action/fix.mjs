@@ -188,11 +188,12 @@ export function repairPlan(members, results = []) {
 /**
  * The arguments for `shadowlap repair` on a plan: its failing runs, those held out, those kept, the
  * check, and the golden's gate (`gateFile` holds an SPRT gate's figures). Blame and verify run the
- * agent live under the step's network guard (`guard`), as its test did. It commits the fix it keeps
- * to a new branch; the branch is pushed and the pull request opened here, once the golden is
- * re-recorded on it.
+ * agent live under the step's network guard (`guard`), as its test did, and with `build` (the
+ * fix-build input) each candidate's worktree is built once the candidate is in it. It commits the
+ * fix it keeps to a new branch; the branch is pushed and the pull request opened here, once the
+ * golden is re-recorded on it.
  */
-export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null, guard = 'block' }) {
+export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null, guard = 'block', build = '' }) {
   const gate = plan.gate ?? null;
   return [
     ...(db ? ['--db', db] : []),
@@ -209,6 +210,7 @@ export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = 
     ...(repairer ? ['--repairer', repairer] : []),
     '--guard',
     guard,
+    ...(build ? ['--build', build] : []),
     '--branch',
     branchName(plan.result),
     '--yes',
@@ -332,16 +334,27 @@ const dirOf = (r) => String(r?.dir ?? r?.golden ?? '').replace(/\\/g, '/').repla
 /** Names in a sentence: `a`, `a and b`, `a, b and c`. */
 const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 
+/** Runs the fix-build command in `cwd`: whether it passed, and the last lines it printed. */
+function runBuild(build, cwd, env) {
+  const r = spawnSync(build, { cwd, env, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ');
+  return { ok: r.status === 0, tail: tail || `exit ${String(r.status ?? r.signal)}` };
+}
+
 /**
  * The branch, tried in the working tree, where the agent's dependencies are, as verify ran it: each
  * golden in `swaps` gets the recording verify accepted in place of its pack entries, the patch is
- * applied, `shadowlap test` replays `dirs` (their checks included), and everything is put back.
- * Returns each folder's result, or why the test could not run.
+ * applied, the agent is built with `build` (the fix-build input) when there is one, `shadowlap test`
+ * replays `dirs` (their checks included), and everything is put back, the build run again so what it
+ * makes is the working tree's own. Returns each folder's result, or why the test could not run, and
+ * a warning when the build after the fix came out failed.
  */
-function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, scratch }) {
+function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build = '', env, scratch }) {
   const aside = join(scratch, 'golden-aside');
   const moved = [];
   let applied = false;
+  // What it found: the finally below can still add the warning to it once it has been returned.
+  const out = { why: null, results: new Map(), warning: null };
   try {
     swaps.forEach((swap, i) => {
       const dir = resolve(workdir, swap.golden);
@@ -355,8 +368,12 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
       for (const e of PACK_ENTRIES) if (present(join(swap.pack, e))) cpSync(join(swap.pack, e), join(dir, e), { recursive: true });
     });
     const apply = run('git', ['apply', '--whitespace=nowarn', patch], root, env);
-    if (apply.status !== 0) return { why: `the fix does not apply to the working tree: ${(apply.stderr ?? '').trim()}`, results: new Map() };
+    if (apply.status !== 0) return Object.assign(out, { why: `the fix does not apply to the working tree: ${(apply.stderr ?? '').trim()}` });
     applied = true;
+    if (build) {
+      const b = runBuild(build, workdir, env);
+      if (!b.ok) return Object.assign(out, { why: `${build} failed with the fix in place: ${b.tail}` });
+    }
     const json = join(scratch, 'branch-test.json');
     rmSync(json, { force: true });
     const t = run(process.execPath, [cli, '--db', ':memory:', 'test', ...dirs, '--json', json, '--guard', guard], workdir, env);
@@ -366,8 +383,8 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     } catch {
       // no report: its output says why
     }
-    if (!Array.isArray(report?.results)) return { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}`, results: new Map() };
-    return { why: null, results: new Map(report.results.map((r) => [dirOf(r), r])) };
+    if (!Array.isArray(report?.results)) return Object.assign(out, { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}` });
+    return Object.assign(out, { results: new Map(report.results.map((r) => [dirOf(r), r])) });
   } finally {
     // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
     const back = applied ? run('git', ['apply', '-R', '--whitespace=nowarn', patch], root, env) : null;
@@ -376,6 +393,11 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, env, sc
     rmSync(aside, { recursive: true, force: true });
     // eslint-disable-next-line no-unsafe-finally -- a fix left in the working tree is said over the result, which the caller would otherwise trust
     if (back && back.status !== 0) throw new Error(`the fix could not be taken back out of the working tree: ${(back.stderr ?? '').trim()}`);
+    // What the build made with the fix in place is made again without it, for the steps after this one.
+    if (back && build) {
+      const b = runBuild(build, workdir, env);
+      if (!b.ok) out.warning = `${build} failed once the fix was taken back out of the working tree, so what it built there may still be the fix's: ${b.tail}`;
+    }
   }
 }
 
@@ -423,7 +445,7 @@ function commitGoldens({ root, branch, packs, env, scratch }) {
  * that): each is `unfixed`, as it was, and the pull request says how to see whether the fix repairs
  * it too.
  */
-export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy = null, results = [], repair, guard = 'block', env, scratch }) {
+export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy = null, results = [], repair, guard = 'block', build = '', env, scratch }) {
   const goldens = [];
   const candidates = [];
   const recordings = repair.output?.goldens ?? [];
@@ -446,7 +468,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
   const own = new Set([...members, ...unfixed].map((m) => dirOf(m.result)));
   const others = results.filter((r) => dirOf(r) && !own.has(dirOf(r)));
   const replayed = others.filter((r) => r.mode !== 'fork');
-  const out = { goldens, others: { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null };
+  const out = { goldens, others: { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null, warning: null };
   if (!usable || (!candidates.length && !replayed.length)) {
     out.checked = usable;
     return out;
@@ -468,7 +490,8 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     }
     const dirs = [...swaps.map((c) => c.golden), ...replayed.map(dirOf)];
     if (!dirs.length) return out;
-    const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, repair.output.patch), guard, env, scratch });
+    const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, repair.output.patch), guard, build, env, scratch });
+    out.warning = tried.warning;
     if (tried.why) {
       cannot(tried.why);
       return out;
@@ -693,11 +716,12 @@ const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' |
  * within their budgets added up), and says how each went. When no patch fixes all the goldens of a
  * group, each is repaired on its own, in the report's order, within what the group has left, until
  * one fix is accepted: that fix gets the group's one pull request, which names the goldens it was
- * not verified for, and no other. Repair runs the agent under the step's `guard`. `auth` is the
- * token the branch is pushed and the pull request opened with (githubToken); with the job's own
- * GITHUB_TOKEN, the workflow is started on the branch between the two, through `fetch`.
+ * not verified for, and no other. Repair runs the agent under the step's `guard`, and with `build`
+ * (the fix-build input) builds it once a candidate is in. `auth` is the token the branch is pushed
+ * and the pull request opened with (githubToken); with the job's own GITHUB_TOKEN, the workflow is
+ * started on the branch between the two, through `fetch`.
  */
-export async function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, auth = githubToken(env), fetch: fetchFn = globalThis.fetch, log = () => {} }) {
+export async function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', build = '', push = false, env, auth = githubToken(env), fetch: fetchFn = globalThis.fetch, log = () => {} }) {
   const plans = planFixes(report);
   const blocked = plans.some((x) => !x.skip) ? cannotFix(workdir, env) : null;
   const groups = groupFixes(plans);
@@ -730,7 +754,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const gateFile = plan.gate?.kind === 'sprt' ? join(scratch, `${n}-gate.json`) : null;
         if (gateFile) writeFileSync(gateFile, JSON.stringify({ good: plan.gate.good, bad: plan.gate.bad, risk: plan.gate.risk, max: plan.gate.max }));
         log(line);
-        const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile, guard })], workdir, fixEnv);
+        const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile, guard, build })], workdir, fixEnv);
         if (res.stderr) process.stderr.write(res.stderr);
         let repair = null;
         try {
@@ -778,7 +802,8 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const branch = repair.output.branch;
         const leftOut = group.members.filter((m) => !chosen.members.includes(m));
         const unfixedWhy = leftOut.length ? `no fix was accepted for ${listed(goldens.map((g) => `\`${g}\``))} together (${together.why}), and this one was verified for ${listed(chosen.members.map((m) => `\`${goldenOf(m)}\``))} alone` : null;
-        const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, env: fixEnv, scratch });
+        const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, build, env: fixEnv, scratch });
+        if (branchState.warning) log(`::warning title=Shadowlap::${commandText(`${names}: ${branchState.warning}`)}`);
         for (const g of branchState.goldens) {
           if (g.state === 'recorded') log(`${g.golden} re-recorded on ${branch}`);
           else if (g.state === 'stale') log(`${g.golden} not re-recorded on ${branch}: ${String(g.why)}`);
