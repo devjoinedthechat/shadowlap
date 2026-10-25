@@ -180,6 +180,13 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
   sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
   way.
+- **A teammate's blame or verdict is run again only from what was checked.** A pull marks every
+  blame and verdict it brings as pulled, on this machine only. **Blame again**, **Run more
+  attempts** and **Verify again** build their command from the report and the flags kept beside
+  it, each one a flag Shadowlap allows with a value of its shape, never from the command line the
+  fix carries. A pulled one runs without the teammate's `--build`, `--base` and command after
+  `--`, which ran on their machine, and only once you confirm the exact command line, which the
+  question shows. Its page offers the command made here to copy, not theirs.
 - **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
   machine is verified on the others, with its patch ready to apply there, and stays in their Needs
   a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once
