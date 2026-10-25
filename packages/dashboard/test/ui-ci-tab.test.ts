@@ -50,7 +50,8 @@ describe('Settings → CI', () => {
     // One code block on the tab: your workflow, Slack on and no fix by default.
     expect(r.all('.settab .codebox')).toHaveLength(1);
     const code = () => r!.one('#workflow .codebox').textContent;
-    expect(code()).toContain('- uses: actions/checkout@v7\n- uses: actions/setup-node@v7\n');
+    // Checked out without the job's token left in .git/config, which the agent's steps could read.
+    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    persist-credentials: false\n- uses: actions/setup-node@v7\n');
     expect(code()).toContain('  id: goldens\n  with:\n    version: 0.1.0\n    recordings: goldens/*\n    fail-on-divergence: false\n');
     expect(code()).toContain('- name: Tell Slack');
     expect(r.one('#fix-on-failure').className).toBe('panel set cip off');

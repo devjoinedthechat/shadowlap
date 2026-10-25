@@ -109,7 +109,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (bool('ANNOTATIONS', true)) args.push('--annotations');
   if (push) args.push('--push');
   // The token the action pushes, opens pull requests and comments with goes to git, gh and GitHub's
-  // API only: the CLI, and the agent it runs, never get it.
+  // API only: the CLI, and the agent it runs, never get it, nor any other of GitHub's tokens in the job.
   const auth = githubToken(env);
   const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
 

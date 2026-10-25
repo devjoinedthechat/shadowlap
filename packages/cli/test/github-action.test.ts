@@ -453,3 +453,66 @@ describe('the pull request comment the GitHub Action keeps', () => {
     expect(calls.at(-1)?.authorization).toBe('Bearer github_pat_secret');
   }, 60_000);
 });
+
+describe("the GitHub Action, fix on failure and the job's tokens", () => {
+  /**
+   * A stand-in for the CLI that writes down, for each command it is run as, its arguments and its
+   * environment, then answers as shadowlap does: test with one golden that fails a check, repair with
+   * no fix (the gate accepted none).
+   */
+  function fakeCli(dir: string): { cli: string; seen: () => Array<{ args: string[]; env: Record<string, string> }> } {
+    const cli = join(dir, 'fake-cli.mjs');
+    const log = join(dir, 'seen.jsonl');
+    writeFileSync(
+      cli,
+      [
+        "import { appendFileSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        'const at = (flag) => args[args.indexOf(flag) + 1];',
+        `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, env: process.env }) + '\\n');`,
+        "if (args.includes('repair')) { process.stdout.write(JSON.stringify({ outcome: 'not-fixed', why: 'the gate accepted none of the 1 candidate tried', cost: { blame: 0.1, repairer: 0.01, verify: 0.2 }, candidates: [], output: {} })); process.exit(1); }",
+        "const result = { name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', mode: 'replay', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', expect: { tools: { issue_refund: 0 } }, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }], runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', ok: false, verdict: 'failed' }] };",
+        "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 0, failed: 1, inconclusive: 0, interrupted: false, results: [result] }));",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording failed\\n');",
+        'process.exit(1);',
+      ].join('\n'),
+    );
+    return { cli, seen: () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { args: string[]; env: Record<string, string> }) };
+  }
+
+  /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name. */
+  function project(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-'));
+    dirs.push(dir);
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'refund-flow'), { recursive: true });
+    git('add', '-A');
+    git('commit', '-qm', 'agent');
+    return dir;
+  }
+
+  it("hands neither repair nor the test any of GitHub's tokens", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
+    dirs.push(dir);
+    const fake = fakeCli(dir);
+    const job = 'ghs_job_token_for_the_test';
+    const pat = 'github_pat_for_the_test';
+    const oidc = 'oidc_request_token_for_the_test';
+    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${job}`).toString('base64')}`;
+    const r = action(
+      { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
+      { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
+    );
+    expect(r.code, r.out).toBe(0);
+    const seen = fake.seen();
+    expect(seen.map((s) => s.args.find((a) => a === 'test' || a === 'repair'))).toEqual(['test', 'repair']);
+    for (const { args, env } of seen) {
+      const text = JSON.stringify(env);
+      for (const secret of [job, pat, oidc, header]) expect(text, `${args[0]}: ${secret}`).not.toContain(secret);
+      for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'MY_COPY_OF_THE_TOKEN', 'GIT_CONFIG_COUNT']) expect(env, name).not.toHaveProperty(name);
+    }
+    expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
+  });
+
+});

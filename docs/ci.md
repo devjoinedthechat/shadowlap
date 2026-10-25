@@ -253,6 +253,7 @@ The Shadowlap action is the one step to add after your agent is built:
 
 ```yaml
 - uses: actions/checkout@v7
+  with: { persist-credentials: false }
 - uses: actions/setup-node@v7
   with: { node-version: 22 }
 - run: npm ci && npm run build          # whatever your agent needs to run
@@ -267,6 +268,8 @@ It replays each recording offline and fails the check when one diverges, makes a
 A Python agent needs its interpreter and packages installed before the action, as for any other step. The action itself needs Node 22.16 or later, not 23.
 
 The step names a release twice: the action at its tag, and in `version:` the `shadowlap` CLI it installs from npm. Keep the two the same release, the one your project uses: when they differ, as after an update that moved only the tag, the step warns and names the version to set. With `version:` left out, the action installs its own release, the version in its `packages/cli/package.json`. With `fix-on-failure`, it installs the Anthropic SDK beside the CLI at the version the release was tested with. No package's install script runs, since the job may hold provider keys and tokens. An action used at a commit that is no release has no CLI on npm to install: `build-from-source: true` builds it from the action's own source instead, which adds about a minute, with none of the job's environment but what npm and Node need (`PATH`, `HOME`, a proxy and the like), so the scripts the build runs never see a secret, key or token the step was given.
+
+The CLI, and the agent it runs, get none of GitHub's tokens. The action takes the job's own `GITHUB_TOKEN`, `github-token`, a `GH_TOKEN` or `GITHUB_TOKEN` in the step's `env`, the token the job asks GitHub for OIDC tokens with, and any other variable that holds one of them, out of their environment, so the agent can't send one to a model or write it into a recording. It pushes a fix's branch with the token in git's environment for that push alone, never in a command line. `actions/checkout` leaves the job's token in the repository's git config, where the agent could read it from the disk, unless the step says `persist-credentials: false`, as every step on this page does: nothing after the checkout needs it. On a runner GitHub hosts, code in a job can still reach the job's token another way (the runner holds it, and a job may use `sudo`), so it is the job's `permissions` that bound what an agent with a tool that runs code could do with it: give a job no more than its steps need.
 
 | Input | Default | Effect |
 |---|---|---|
@@ -351,6 +354,7 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
 - uses: actions/checkout@v7
   with:
     ref: ${{ github.head_ref || github.ref }}
+    persist-credentials: false
 - uses: actions/setup-node@v7
   with:
     node-version: 22
@@ -365,7 +369,6 @@ A fix changes what the agent sends, so a golden that must replay exactly would d
     repairer: claude-code
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     # and your agent's own provider keys: blame and verify run it live
 ```
 
@@ -373,7 +376,7 @@ They are the steps of a job of their own: the branch checked out, Node 22.16 or 
 
 - a model key for the repairer: `ANTHROPIC_API_KEY` for `claude-code` and `anthropic`, `OPENAI_API_KEY` for `openai:<model>`. The `claude-code` repairer runs Claude Code in print mode, so the runner needs it installed, which the first step does; `anthropic` and `openai:<model>` need nothing installed. An `anthropic` repairer without its key (a secret not set, or a pull request from a fork, which gets none) is found out before anything is blamed, so the job spends nothing on it and its summary says *the repairer could not be asked: no Anthropic credentials*;
 - your agent's own provider keys in the same `env`, as for `shadowlap run`: blame re-runs the failing replay live from the call it probes, and verify runs the agent with the fix. An agent on OpenAI with the `anthropic` repairer needs `OPENAI_API_KEY` as well as `ANTHROPIC_API_KEY`; without its keys, blame fails and no fix is proposed;
-- permission to push a branch (`contents: write`) and to open the pull request and keep the [comment](#the-pull-request-comment) on it (`pull-requests: write`), in the job's `permissions`, as the first comment says. The action gives `gh` the job's token, or `github-token`; a `GH_TOKEN` in the step's `env`, as above, is the same token;
+- permission to push a branch (`contents: write`) and to open the pull request and keep the [comment](#the-pull-request-comment) on it (`pull-requests: write`), in the job's `permissions`, as the first comment says. The action pushes the branch and runs `gh` with the job's token, or `github-token`: neither goes in the step's `env`, and the CLI and your agent get neither;
 - for the pull request's checks to start, either `github-token`, or `actions: write` in the job's `permissions` and a `workflow_dispatch:` trigger in the workflow, as the first two comments say ([below](#how-a-fix-pull-requests-checks-start));
 - with Push from CI on, the bucket's credentials, so each fix reaches the [team store](#fixes-in-the-team-store) too;
 - a branch checked out, as the first step does (`ref: ${{ github.head_ref || github.ref }}`). A pull request's own workflow checks out a detached merge commit, so it checks out its branch, and the fix becomes a pull request into it;
@@ -387,7 +390,7 @@ It never opens a pull request for a divergence (most are intended: [update the g
 
 GitHub starts no workflow for a push or a pull request made with the job's own `GITHUB_TOKEN`, so a fix pull request opened with it would sit with its required checks never started. Two ways around it:
 
-- **`github-token`**: a GitHub App's installation token (from `actions/create-github-app-token`, say) or a personal access token with `contents` and `pull-requests` write. The branch is pushed and the pull request opened with it, and GitHub starts the pull request's workflows as for any other. It goes to git (as the Authorization header `actions/checkout` set up, replaced for the push through git's environment, never on a command line), to `gh`, and to GitHub's API, never to the CLI or your agent.
+- **`github-token`**: a GitHub App's installation token (from `actions/create-github-app-token`, say) or a personal access token with `contents` and `pull-requests` write. The branch is pushed and the pull request opened with it, and GitHub starts the pull request's workflows as for any other. It goes to git, as an Authorization header in git's environment for the push alone (never on a command line, nor in the repository's config), to `gh`, and to GitHub's API, never to the CLI or your agent. Without one, the job's own token goes the same way.
 - **Without one**, the action pushes the branch and opens the pull request with the job's token, and in between starts the workflow it runs in on the fix's branch, with a `workflow_dispatch` event, which GitHub does start for that token. That run checks the branch, and the pull request shows it. The workflow needs a `workflow_dispatch:` trigger, and the job `actions: write`:
 
 ```yaml
@@ -410,6 +413,7 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
 - uses: actions/checkout@v7
   with:
     ref: ${{ github.head_ref || github.ref }}
+    persist-credentials: false
 - uses: actions/setup-node@v7
   with:
     node-version: 22
@@ -426,7 +430,6 @@ A job's store usually goes with the job, so to reach your teammates a fix has to
     push: true
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     # and your agent's own provider keys: blame and verify run it live
 ```
 
@@ -443,6 +446,7 @@ Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's fol
 - uses: actions/checkout@v7
   with:
     ref: ${{ github.head_ref || github.ref }}
+    persist-credentials: false
 - uses: actions/setup-node@v7
   with:
     node-version: 22
@@ -458,7 +462,6 @@ Cloudflare R2 has no OIDC, and an R2 token can't be kept to a pull request's fol
     push: ${{ !startsWith(github.event_name, 'pull_request') }}
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}
     R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}
     # and your agent's own provider keys: blame and verify run it live
@@ -478,6 +481,8 @@ To hear about failures in Slack, let the action count them without failing, post
 ```yaml
 # the job needs: permissions: { contents: read, pull-requests: write }
 - uses: actions/checkout@v7
+  with:
+    persist-credentials: false
 - uses: actions/setup-node@v7
   with:
     node-version: 22
@@ -515,6 +520,7 @@ Fix on failure, Alerts and the team store's push are inputs and steps around one
 - uses: actions/checkout@v7
   with:
     ref: ${{ github.head_ref || github.ref }}
+    persist-credentials: false
 - uses: actions/setup-node@v7
   with:
     node-version: 22
@@ -533,7 +539,6 @@ Fix on failure, Alerts and the team store's push are inputs and steps around one
     push: true
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     # and your agent's own provider keys: blame and verify run it live
 
 - name: Tell Slack

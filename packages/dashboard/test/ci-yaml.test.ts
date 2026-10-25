@@ -30,8 +30,10 @@ describe('the version the steps pin', () => {
 
 /** What every step needs before the action in a job of its own: Node 22.16 or later, and the agent's dependencies. */
 const SETUP = ['- uses: actions/setup-node@v7', '  with:', '    node-version: 22', '- run: npm ci && npm run build   # whatever your agent needs to run'];
-/** Fix on failure's checkout: the branch itself, which its pull request goes into. */
-const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}'];
+/** Fix on failure's checkout: the branch itself, which its pull request goes into; the job's token left off the disk. */
+const BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}', '    persist-credentials: false'];
+/** Every other checkout: the job's token left off the disk, where the agent could read it. */
+const CHECKOUT = ['- uses: actions/checkout@v7', '  with:', '    persist-credentials: false'];
 
 describe('the Fix on failure step', () => {
   it('runs the action with fix-on-failure, its budget and repairer, and says what the job needs', () => {
@@ -51,7 +53,6 @@ describe('the Fix on failure step', () => {
         '    repairer: claude-code',
         '  env:',
         '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
-        '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
         "    # and your agent's own provider keys: blame and verify run it live",
       ].join('\n'),
     );
@@ -102,7 +103,6 @@ describe('the Fix on failure step', () => {
         '    push: true',
         '  env:',
         '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
-        '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
         "    # and your agent's own provider keys: blame and verify run it live",
       ].join('\n'),
     );
@@ -132,7 +132,6 @@ describe('the Fix on failure step', () => {
         "    push: ${{ !startsWith(github.event_name, 'pull_request') }}",
         '  env:',
         '    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}',
-        '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
         "    R2_ACCESS_KEY_ID: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_ACCESS_KEY_ID || '' }}",
         "    R2_SECRET_ACCESS_KEY: ${{ !startsWith(github.event_name, 'pull_request') && secrets.R2_SECRET_ACCESS_KEY || '' }}",
         "    # and your agent's own provider keys: blame and verify run it live",
@@ -170,13 +169,13 @@ describe('the Fix on failure step', () => {
   it('names the agent’s provider keys the goldens call, beside the repairer’s, once each', () => {
     // An agent on OpenAI with the anthropic repairer: both keys, by name, and no comment to add them.
     const both = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] });
-    expect(both).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
+    expect(both).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}');
     expect(both.match(/ANTHROPIC_API_KEY:/g)).toHaveLength(1);
     expect(both.match(/OPENAI_API_KEY:/g)).toHaveLength(1);
     expect(both).not.toContain("# and your agent's own provider keys");
     expect(both.trimEnd().endsWith('OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}')).toBe(true);
     // Its repairer's key alone: nothing to add, and nothing to say.
-    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', keys: ['ANTHROPIC_API_KEY'] }).trimEnd().endsWith('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}')).toBe(true);
+    expect(fixOnFailureYaml({ budget: '2.00', repairer: 'claude-code', keys: ['ANTHROPIC_API_KEY'] }).trimEnd().endsWith('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}')).toBe(true);
     // Goldens that tell nothing: the comment says to add them.
     expect(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: [] })).toBe(fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic' }));
     expect(fixOnFailureNeeds('anthropic', null, ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'])[1]).toEqual(['your agent’s provider keys: blame and verify run it live', 'OPENAI_API_KEY, ANTHROPIC_API_KEY']);
@@ -187,7 +186,7 @@ describe('the Fix on failure step', () => {
     const steps = yaml.split('\n').filter((l) => l.startsWith('- '));
     expect(steps).toEqual(['- uses: actions/checkout@v7', '- uses: actions/setup-node@v7', '- run: npm ci && npm run build   # whatever your agent needs to run', `- uses: ${ACTION}`]);
     // The branch: a pull request's own job checks out a detached merge commit, which no fix can go into.
-    expect(yaml).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
+    expect(yaml).toContain(`${BRANCH.join('\n')}\n`);
   });
 
   it('passes only inputs the action has', () => {
@@ -241,10 +240,10 @@ describe('your workflow', () => {
   it('opens a fix and tells Slack from the same step, the fix’s branch checked out and its keys in its env', () => {
     const yaml = workflowYaml({ fix, alerts, keys: ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] });
     expect(yaml.split('\n').slice(0, 2)).toEqual(['# the job needs: permissions: { contents: write, pull-requests: write, actions: write }', DISPATCH_COMMENT]);
-    expect(yaml).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
+    expect(yaml).toContain(`${BRANCH.join('\n')}\n`);
     expect(yaml).toContain('- run: npm install -g @anthropic-ai/claude-code\n');
     expect(withKeys(yaml)).toEqual(['version', 'recordings', 'fail-on-divergence', 'fix-on-failure', 'fix-budget', 'repairer']);
-    expect(yaml).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n\n- name: Tell Slack\n');
+    expect(yaml).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n\n- name: Tell Slack\n');
     expect(steps(yaml).slice(-2)).toEqual(['- name: Tell Slack', '- name: Fail the job']);
   });
 
@@ -307,7 +306,7 @@ describe('the Alerts steps', () => {
 
   it('work as a job of their own, with the keys of the providers the goldens that run live call', () => {
     const yaml = alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' });
-    expect(yaml.startsWith(['# the job needs: permissions: { contents: read, pull-requests: write }', '- uses: actions/checkout@v7', ...SETUP, `- uses: ${ACTION}`].join('\n'))).toBe(true);
+    expect(yaml.startsWith(['# the job needs: permissions: { contents: read, pull-requests: write }', ...CHECKOUT, ...SETUP, `- uses: ${ACTION}`].join('\n'))).toBe(true);
     // Every golden replays offline: no key, no env.
     expect(yaml).not.toContain('  env:');
     // Two goldens fork: their provider's key goes to the test step, or they fail and Slack hears of it on every run.
@@ -343,7 +342,7 @@ describe('the Alerts steps', () => {
     expect(alerts).not.toContain('  env:');
     expect(alertsNeeds('X', null, true).at(-2)).toEqual(['which goldens run live, and their keys, from shadowlap.config.json', 'can’t be read', 'warn']);
     const fix = fixOnFailureYaml({ budget: '2.00', repairer: 'anthropic', keys: ['ANTHROPIC_API_KEY'], unreadable: true });
-    expect(fix.endsWith("    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out")).toBe(true);
+    expect(fix.endsWith("    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n    # shadowlap.config.json can't be read: push (Push from CI) and the judges' keys are left out")).toBe(true);
     expect(fix).not.toContain('push:');
     expect(fixOnFailureNeeds('anthropic', null, ['ANTHROPIC_API_KEY'], true)).toContainEqual(['Push from CI and the judges’ keys, from shadowlap.config.json', 'can’t be read', 'warn']);
     // Read, nothing changes.
@@ -390,7 +389,7 @@ describe('the Alerts steps', () => {
   });
 });
 
-// A step on a branch runs whatever lands there, in jobs that may hold GH_TOKEN and provider keys, and
+// A step on a branch runs whatever lands there, in jobs that may hold the job's token and provider keys, and
 // one with no version builds the CLI on every run: every step pins the release the packages are at.
 describe('the release the steps pin', () => {
   it('is the packages’ version: the action’s tag and the CLI it installs, on every page that shows the step', () => {
@@ -410,6 +409,41 @@ describe('the release the steps pin', () => {
       expect(installs.filter((v) => v !== version), page).toEqual([]);
     }
   });
+});
+
+describe('the job’s tokens in the steps', () => {
+  /** Every step Settings → CI can write, whatever is turned on. */
+  const every = () => {
+    const out: string[] = [];
+    for (const push of [null, 'oidc', 'keys'] as const) {
+      for (const repairer of ['claude-code', 'anthropic', 'openai:gpt-5']) {
+        out.push(fixOnFailureYaml({ budget: '2.00', repairer, push }), fixOnFailureYaml({ budget: '2.00', repairer, push, keys: ['OPENAI_API_KEY'], unreadable: true }));
+        for (const alerts of [null, { onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }]) out.push(workflowYaml({ fix: { budget: '2.00', repairer }, alerts, push }), workflowYaml({ fix: null, alerts, push, liveKeys: ['ANTHROPIC_API_KEY'] }));
+      }
+    }
+    out.push(alertsYaml({ onlyMain: true, secret: 'SLACK_WEBHOOK_URL' }), alertsYaml({ onlyMain: false, secret: 'X', keys: ['ANTHROPIC_API_KEY'], keysUnknown: true }));
+    return out;
+  };
+
+  it('give the job’s token to no step’s env: the action takes it itself, and keeps it from the agent', () => {
+    for (const yaml of every()) {
+      expect(yaml).not.toMatch(/GH_TOKEN|GITHUB_TOKEN|github\.token/);
+      // The agent's keys, the repairer's and R2's are what the env holds.
+      for (const line of yaml.split('\n').filter((l) => /^ {4}[A-Z0-9_]+: /.test(l))) expect(line).toMatch(/^ {4}(ANTHROPIC_API_KEY|OPENAI_API_KEY|R2_ACCESS_KEY_ID|R2_SECRET_ACCESS_KEY): /);
+    }
+  });
+
+  /** The checkout step's lines under its `- uses:`. */
+  const checkoutOf = (yaml: string) => {
+    const lines = yaml.split('\n');
+    const at = lines.indexOf('- uses: actions/checkout@v7');
+    return lines.slice(at + 1, lines.findIndex((l, i) => i > at && l.startsWith('- ')));
+  };
+
+  it('check out with the job’s token left off the disk, where the agent would find it', () => {
+    for (const yaml of every()) expect(checkoutOf(yaml), yaml).toContain('    persist-credentials: false');
+  });
+
 });
 
 describe('docs/ci.md', () => {

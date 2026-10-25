@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
 import { cannotFix, checksNote, evidenceNote, goldenGate, groupFixes, KEEPS_AT_MOST, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
-import { dispatchWorkflow, githubToken, pullRequestOf, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
+import { dispatchWorkflow, githubToken, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
 
 /**
@@ -69,14 +69,62 @@ describe('the token the action speaks to GitHub with', () => {
     expect(env.PATH).toBe('/bin');
   });
 
+  it('keeps every GitHub token the job holds from the CLI and the agent: gh\'s, the OIDC request\'s, and any copy of one under another name', () => {
+    const header = (t: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${t}`).toString('base64')}`;
+    const job = {
+      ...ACTIONS,
+      PATH: '/bin',
+      ANTHROPIC_API_KEY: 'sk-ant-test',
+      INPUT_GITHUB_TOKEN: 'github_pat_input',
+      // The docs' old step: the job's own token as GH_TOKEN, and a personal access token as GITHUB_TOKEN.
+      GH_TOKEN: JOB,
+      GITHUB_TOKEN: 'github_pat_env',
+      GH_ENTERPRISE_TOKEN: 'ghe_token_1',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc_request_token',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/?api-version=2',
+      ACTIONS_RUNTIME_TOKEN: 'runtime_token_1',
+      // The same tokens again, as a step's own env or a script might hold them.
+      MY_TOKEN: JOB,
+      AUTH_HEADER: 'Bearer github_pat_input',
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'core.autocrlf',
+      GIT_CONFIG_VALUE_0: 'false',
+      GIT_CONFIG_KEY_1: 'http.https://github.com/.extraheader',
+      GIT_CONFIG_VALUE_1: header(JOB),
+      // Not a token, though it is short and the same as nothing: kept.
+      CI: 'true',
+    };
+    const cli = withoutTokens(job);
+    expect(Object.keys(cli).sort()).toEqual(['ANTHROPIC_API_KEY', 'CI', 'GITHUB_ACTIONS', 'GITHUB_API_URL', 'GITHUB_REPOSITORY', 'GITHUB_WORKFLOW_REF', 'PATH']);
+    for (const name of TOKEN_VARIABLES) expect(cli).not.toHaveProperty(name);
+    const text = JSON.stringify(cli);
+    for (const token of [JOB, 'github_pat_input', 'github_pat_env', 'ghe_token_1', 'oidc_request_token', 'runtime_token_1']) {
+      expect(text).not.toContain(token);
+      expect(text).not.toContain(Buffer.from(`x-access-token:${token}`).toString('base64'));
+    }
+    // git's settings go whole with a token among them, as git refuses a count with a key or value missing; without one they stay.
+    expect(withoutTokens({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false', GH_TOKEN: JOB })).toEqual({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false' });
+    // A token too short to be one GitHub issues is no reason to drop a variable that happens to match it.
+    expect(withoutTokens({ GH_TOKEN: 'x', NAME: 'x' })).toEqual({ NAME: 'x' });
+
+    // As the reviewer's harness found it: the documented step's GH_TOKEN, a personal access token as
+    // GH_TOKEN, used for the push and handed to the CLI, and the job's token pushed through checkout's header.
+    const doc = { SHADOWLAP_JOB_TOKEN: JOB, GH_TOKEN: JOB, INPUT_GITHUB_TOKEN: '' };
+    expect(githubToken(doc)).toMatchObject({ token: JOB, source: 'github-token' });
+    expect(withoutTokens(doc)).toEqual({});
+    const pat = { SHADOWLAP_JOB_TOKEN: JOB, GH_TOKEN: 'github_pat_gh' };
+    expect(githubToken(pat)).toMatchObject({ token: 'github_pat_gh', source: 'gh-token' });
+    expect(withoutTokens(pat)).toEqual({});
+  });
+
   it("gives git the token's own Authorization header in place of the job's that checkout left, through the environment, and gh the token", async () => {
     const auth = githubToken({ ...ACTIONS, INPUT_GITHUB_TOKEN: 'github_pat_1' });
     const env = tokenEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false', GITHUB_SERVER_URL: 'https://github.test' }, auth);
     expect(env).toMatchObject({ GH_TOKEN: 'github_pat_1', GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_KEY_1: 'http.https://github.test/.extraheader', GIT_CONFIG_VALUE_1: '', GIT_CONFIG_KEY_2: 'http.https://github.test/.extraheader' });
     expect(Buffer.from(env.GIT_CONFIG_VALUE_2!.replace('AUTHORIZATION: basic ', ''), 'base64').toString()).toBe('x-access-token:github_pat_1');
-    // The job's own token is what checkout left already: only gh is given it.
+    // The job's own token goes the same way: the push needs nothing checkout left on the disk.
     const job = tokenEnv({}, githubToken(ACTIONS));
-    expect(job).toEqual({ GH_TOKEN: JOB });
+    expect(job).toEqual({ GH_TOKEN: JOB, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: '', GIT_CONFIG_KEY_1: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${JOB}`).toString('base64')}` });
 
     // As git sends it: one Authorization header, the token's, to a server whose header the repository's config sets.
     const seen: string[][] = [];
@@ -96,6 +144,12 @@ describe('the token the action speaks to GitHub with', () => {
       await new Promise<void>((resolve) => spawn('git', ['ls-remote', `${url}/northwind/agent.git`], { cwd: repo, env: gitEnv, stdio: 'ignore' }).on('exit', () => resolve()));
       expect(seen.length).toBeGreaterThan(0);
       expect(seen[0]).toEqual([`basic ${Buffer.from('x-access-token:github_pat_1').toString('base64')}`]);
+      // A checkout with persist-credentials: false leaves no header: the job's token reaches git from its environment alone.
+      const bare = temp('sl-token-git-bare-');
+      execFileSync('git', ['init', '-q'], { cwd: bare });
+      seen.length = 0;
+      await new Promise<void>((resolve) => spawn('git', ['ls-remote', `${url}/northwind/agent.git`], { cwd: bare, env: tokenEnv({ ...process.env, GITHUB_SERVER_URL: url, GIT_TERMINAL_PROMPT: '0' }, githubToken(ACTIONS)), stdio: 'ignore' }).on('exit', () => resolve()));
+      expect(seen[0]).toEqual([`basic ${Buffer.from(`x-access-token:${JOB}`).toString('base64')}`]);
     } finally {
       server.close();
     }
@@ -404,6 +458,7 @@ describe('the inputs in action.yml', () => {
 
   it('declares github-token, comment and build-from-source, and passes the tokens to the step that keeps them from the CLI', () => {
     for (const input of ['github-token:', 'comment:', 'build-from-source:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+    expect(yml).not.toMatch(/GH_TOKEN/);
     expect(yml).toContain("\n  comment:\n    description: On a pull request, keep one comment on it with each golden's verdict line");
     expect(yml).toMatch(/\n {2}comment:\n {4}description: [^\n]*\n {4}default: 'true'\n/);
     expect(yml).toContain('INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}');

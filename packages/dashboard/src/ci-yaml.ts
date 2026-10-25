@@ -34,12 +34,18 @@ export const FIX_BUDGETS: readonly string[] = ['1.00', '2.00', '5.00'];
  */
 const SETUP_NODE = ['- uses: actions/setup-node@v7', '  with:', '    node-version: 22'];
 const INSTALL = '- run: npm ci && npm run build   # whatever your agent needs to run';
-const CHECKOUT = '- uses: actions/checkout@v7';
+/**
+ * The checkout, without the job's token left in the repository's git config, where the agent the job
+ * runs could read it: nothing after it needs it, as the action pushes a fix's branch with the token
+ * in git's environment for that push alone.
+ */
+const NO_CREDENTIALS = '    persist-credentials: false';
+const CHECKOUT = ['- uses: actions/checkout@v7', '  with:', NO_CREDENTIALS];
 /**
  * Fix on failure's checkout: the branch itself, which the fix's pull request goes into. A pull
  * request's own job checks out a detached merge commit otherwise, which no fix can be opened against.
  */
-const CHECKOUT_BRANCH = [CHECKOUT, '  with:', '    ref: ${{ github.head_ref || github.ref }}'];
+const CHECKOUT_BRANCH = ['- uses: actions/checkout@v7', '  with:', '    ref: ${{ github.head_ref || github.ref }}', NO_CREDENTIALS];
 
 /** The secret a key variable is kept in, as the step's env takes it: `ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}`. */
 const keyLine = (key: string) => `    ${key}: \${{ secrets.${key} }}`;
@@ -194,7 +200,6 @@ export function fixOnFailureYaml(s: FixOnFailureSettings): string {
     ...(push === 'oidc' ? ['    push: true'] : push === 'keys' ? [`    push: \${{ ${NOT_A_PULL_REQUEST} }}`] : []),
     '  env:',
     keyLine(key),
-    '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}',
     // Empty in a pull request's job, which then neither has them nor pushes.
     ...(push === 'keys' ? R2_KEYS.map((k) => `    ${k}: \${{ ${NOT_A_PULL_REQUEST} && secrets.${k} || '' }}`) : []),
     ...agentKeys.map(keyLine),
@@ -310,7 +315,7 @@ export function alertsYaml(s: AlertsSettings): string {
   const notes = [...(s.keysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];
   return [
     permissionsLine(false, null),
-    CHECKOUT,
+    ...CHECKOUT,
     ...SETUP_NODE,
     INSTALL,
     `- uses: ${ACTION}`,
@@ -340,8 +345,8 @@ export function alertsYaml(s: AlertsSettings): string {
 /**
  * Your workflow, as Settings → CI writes it: one job, in which the action runs the goldens once
  * (`id: goldens`), then the steps of what is turned on. `fix` opens a fix pull request when a check
- * fails (the branch checked out, Claude Code installed for its repairer, its inputs, its keys and
- * GH_TOKEN, the permissions it needs); `alerts` tells Slack, so the action counts the failures
+ * fails (the branch checked out, Claude Code installed for its repairer, its inputs, its keys,
+ * the permissions it needs); `alerts` tells Slack, so the action counts the failures
  * without failing (`fail-on-divergence: false`), then Slack is told and the job fails; `push`
  * follows Push from CI: the test runs, and each fix, go to the team store, with the bucket's
  * credentials as `shadowlap store ci` gives them. Neither on is the plain test step, which fails the
@@ -369,7 +374,7 @@ export function workflowYaml(s: WorkflowSettings): string {
   const lines: string[] = [];
   lines.push(permissionsLine(!!fix, push), ...(fix ? [DISPATCH_COMMENT] : []));
   if (push === 'keys') lines.push(BUCKET_COMMENT.keys);
-  lines.push(...(fix ? CHECKOUT_BRANCH : [CHECKOUT]), ...SETUP_NODE, INSTALL);
+  lines.push(...(fix ? CHECKOUT_BRANCH : CHECKOUT), ...SETUP_NODE, INSTALL);
   if (fix && (fix.repairer === 'claude-code' || fix.repairer.startsWith('claude-code:'))) lines.push('- run: npm install -g @anthropic-ai/claude-code');
   if (push === 'oidc') lines.push(BUCKET_COMMENT.oidc);
   lines.push(
@@ -388,7 +393,7 @@ export function workflowYaml(s: WorkflowSettings): string {
     const key = repairerKey(fix.repairer);
     const known = (s.keys ?? []).length > 0 && !s.keysUnknown;
     const agentKeys = (s.keys ?? []).filter((k, i, all) => k !== key && all.indexOf(k) === i);
-    lines.push('  env:', keyLine(key), '    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}', ...r2.map((l) => `    ${l}`), ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : []));
+    lines.push('  env:', keyLine(key), ...r2.map((l) => `    ${l}`), ...agentKeys.map(keyLine), ...(known ? [] : [`    ${AGENT_KEYS_COMMENT}`]), ...(s.unreadable ? [`    ${FIX_UNREADABLE_COMMENT}`] : []));
   } else {
     const keys = [...new Set(s.liveKeys ?? [])];
     const notes = [...(s.liveKeysUnknown ? [`# ${keys.length ? 'and ' : ''}your agent's own provider keys: the goldens that run live call them`] : []), ...(s.unreadable ? [ALERTS_UNREADABLE_COMMENT] : [])];

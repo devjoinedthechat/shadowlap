@@ -11,6 +11,8 @@ export type Fetch = (url: string, init: { method: string; headers: Record<string
 
 export function githubToken(env: NodeJS.ProcessEnv): GitHubAuth;
 export function tokenEnv(env: NodeJS.ProcessEnv, auth: GitHubAuth): NodeJS.ProcessEnv;
+/** The variables a job holds GitHub's tokens in, which the CLI and the agent never get. */
+export const TOKEN_VARIABLES: readonly string[];
 export function withoutTokens(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function repositoryOf(env: NodeJS.ProcessEnv): { api: string; repo: string | null };
 export function workflowFile(env: NodeJS.ProcessEnv): string | null;

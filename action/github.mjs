@@ -12,7 +12,8 @@ const API_VERSION = '2022-11-28';
  * (`SHADOWLAP_JOB_TOKEN`, which action.yml passes from `github.token`), so a fix's pull request
  * opened with it would sit with its required checks never started. A `github-token` input (a GitHub
  * App's token or a personal access token) does start them; so does a GH_TOKEN the step was given that
- * is another token than the job's. `source` says which: `input`, `gh-token`, `github-token`, or `none`.
+ * is another token than the job's, as steps written before the input had it. `source` says which:
+ * `input`, `gh-token`, `github-token`, or `none`. Whichever it is, the CLI never gets it (withoutTokens).
  */
 export function githubToken(env) {
   const given = (env.INPUT_GITHUB_TOKEN ?? '').trim();
@@ -24,17 +25,19 @@ export function githubToken(env) {
   return token ? { token, source: 'github-token', startsWorkflows: false } : { token: null, source: 'none', startsWorkflows: false };
 }
 
+/** The Authorization header git sends a token in, as actions/checkout writes it: `AUTHORIZATION: basic <base64>`. */
+const basicHeader = (token) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+
 /**
- * The environment git and gh run with to push and open a fix's pull request with `auth`'s token. gh
- * reads GH_TOKEN. actions/checkout leaves the job's token in the repository's git config, as an
- * Authorization header for the server; a token of another kind replaces it, through git's
- * GIT_CONFIG_* variables (an empty value clears the header the config has, the next one sets the
- * token's), so it never appears in a command line.
+ * The environment git and gh run with to push and open a fix's pull request with `auth`'s token, for
+ * those two alone. gh reads GH_TOKEN. git gets the token as an Authorization header for the server
+ * through its GIT_CONFIG_* variables: an empty value clears any header the repository's config has
+ * (actions/checkout leaves the job's own there unless persist-credentials is false), the next sets
+ * the token's. So the push needs nothing on disk, and the token never appears in a command line.
  */
 export function tokenEnv(env, auth) {
   if (!auth?.token) return env;
   const out = { ...env, GH_TOKEN: auth.token };
-  if (auth.source !== 'input' && auth.source !== 'gh-token') return out;
   const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, '');
   const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
   const key = `http.${server}/.extraheader`;
@@ -42,15 +45,39 @@ export function tokenEnv(env, auth) {
   out[`GIT_CONFIG_KEY_${n}`] = key;
   out[`GIT_CONFIG_VALUE_${n}`] = '';
   out[`GIT_CONFIG_KEY_${n + 1}`] = key;
-  out[`GIT_CONFIG_VALUE_${n + 1}`] = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${auth.token}`).toString('base64')}`;
+  out[`GIT_CONFIG_VALUE_${n + 1}`] = basicHeader(auth.token);
   return out;
 }
 
-/** The environment without the tokens action.yml hands the action: what the CLI, and the agent it runs, get. */
+/**
+ * The variables a job holds GitHub's tokens in: the action's input and the job's own token, which
+ * action.yml passes; gh's (GH_TOKEN, GITHUB_TOKEN, and their names for a GitHub Enterprise Server);
+ * the one the job asks GitHub for an OIDC token with, which can sign in to any cloud role that trusts
+ * the repository; and the runner's own, for the cache and artifacts.
+ */
+export const TOKEN_VARIABLES = ['INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_RUNTIME_TOKEN'];
+
+/** A token shorter than this is no token GitHub issues: a variable equal to such a value is left alone. */
+const SHORTEST_TOKEN = 8;
+
+/**
+ * The environment without GitHub's tokens: what the CLI, and the agent it runs, get. Each variable in
+ * TOKEN_VARIABLES goes, and so does any other that holds one of their tokens, as it is or as the
+ * Authorization header git sends it in: a copy under another name (`MY_TOKEN: ${{ github.token }}`),
+ * a `Bearer` header, a git setting in GIT_CONFIG_*. A token in one of git's settings takes all of
+ * them with it, as git refuses a GIT_CONFIG_COUNT whose keys or values are missing.
+ */
 export function withoutTokens(env) {
-  const out = { ...env };
-  delete out.INPUT_GITHUB_TOKEN;
-  delete out.SHADOWLAP_JOB_TOKEN;
+  const tokens = [...new Set(TOKEN_VARIABLES.map((k) => (env[k] ?? '').trim()).filter((t) => t.length >= SHORTEST_TOKEN))];
+  const forms = tokens.flatMap((t) => [t, Buffer.from(`x-access-token:${t}`).toString('base64')]);
+  const holds = (v) => typeof v === 'string' && forms.some((f) => v.includes(f));
+  const out = {};
+  const gitConfig = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
+  const gitHolds = Object.entries(env).some(([k, v]) => gitConfig.test(k) && holds(v));
+  for (const [k, v] of Object.entries(env)) {
+    if (TOKEN_VARIABLES.includes(k) || holds(v) || (gitHolds && gitConfig.test(k))) continue;
+    out[k] = v;
+  }
   return out;
 }
 
