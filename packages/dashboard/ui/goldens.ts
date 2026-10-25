@@ -1,5 +1,5 @@
 import { approx } from './format.js';
-import { wilsonBound } from '../../engine/src/stats.js';
+import { rateBound } from '../../engine/src/stats.js';
 import { href } from './route.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
@@ -594,7 +594,7 @@ export function goldenHint(r: Pick<GoldenRow, 'last' | 'error' | 'presets'>): st
   const g = r.last.gate;
   if (!g || g.attempts === 0) return verdict;
   if (g.clean) return `${verdict} · a clean replay`;
-  return [verdict, `${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ');
+  return [verdict, `${g.passes} of ${g.attempts}`, rateBound(g)].filter(Boolean).join(' · ');
 }
 
 /**

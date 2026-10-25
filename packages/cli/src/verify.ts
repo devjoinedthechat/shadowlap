@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, wilsonBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -381,7 +381,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       // The tally and its bound beside the outcome; the rule was said once, above. A run an attempt it
       // could not judge stopped has neither: its gate decided nothing, and its attempt's line says why.
       const g = result.gate;
-      const said = result.baseline && !result.undecided ? p.dim(` · ${result.passes} of ${result.attempts.length}, baseline ${result.baseline.passes} of ${result.baseline.attempts}`) : g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, wilsonBound(g)].filter(Boolean).join(' · ')}`) : '';
+      const said = result.baseline && !result.undecided ? p.dim(` · ${result.passes} of ${result.attempts.length}, baseline ${result.baseline.passes} of ${result.baseline.attempts}`) : g && !result.deterministic && !result.undecided && result.decision !== 'continue' ? p.dim(` · ${[`${g.passes} of ${g.attempts}`, rateBound(g)].filter(Boolean).join(' · ')}`) : '';
       log(`  ${label}  ${!result.attempts.length ? p.yellow('not started') : o === 'fixed' || o === 'kept' ? p.green(o) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o) : p.red(o)}${said}`);
     };
 

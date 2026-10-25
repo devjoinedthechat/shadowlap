@@ -34,7 +34,7 @@ import {
   sprtStep,
   verdictLine,
   wilson,
-  wilsonBound,
+  rateBound,
   type BaselineGate,
   type SprtGate,
 } from '../src/stats.js';
@@ -624,6 +624,6 @@ describe('what the reports say', () => {
     expect(describeGate(baseline())).toBe('fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40');
     const one = gateResult(SPEC, [true]);
     expect(gateSentence(SPEC, { ...one, decision: 'pass' })).toBe('passed · 1 of 1 · rate >= 0.02 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts');
-    expect(wilsonBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
+    expect(rateBound({ attempts: 0, interval: { lo: 0, hi: 1, confidence: 0.95 }, decision: 'pass' })).toBeNull();
   });
 });

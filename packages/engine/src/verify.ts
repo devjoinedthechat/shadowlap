@@ -2,7 +2,7 @@ import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, decide, describeGate, percent, wilsonBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decide, describeGate, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -200,7 +200,7 @@ function tally(r: VerifiedRun): string {
   if (r.deterministic) return 'clean replay';
   if (r.baseline) return keptTally(r, r.baseline);
   const g = r.gate;
-  const bound = g && r.attempts.length ? wilsonBound(g) : null;
+  const bound = g && r.attempts.length ? rateBound(g) : null;
   return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
 }
 

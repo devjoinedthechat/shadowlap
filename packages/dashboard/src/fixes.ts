@@ -40,7 +40,7 @@ import {
   unrescuedHead,
   unrescuedWhy,
   verdictCounts,
-  wilsonBound,
+  rateBound,
   type Block,
   type FixData,
   type FixRecords,
@@ -89,7 +89,7 @@ function rateOf(g: unknown): VerifyRow['rate'] {
   const attempts = finite(x.attempts) ? x.attempts : 0;
   const decision = x.decision === 'pass' || x.decision === 'fail' || x.decision === 'inconclusive' || x.decision === 'continue' ? x.decision : undefined;
   // A clean replay's one attempt has no rate to show: it comes out the same every time.
-  return { decision: x.decision, lo: i.lo, hi: i.hi, confidence: i.confidence, sentence: x.sentence, bound: decision && x.clean !== true ? wilsonBound({ attempts, interval: { lo: i.lo, hi: i.hi, confidence: i.confidence }, decision }) : null };
+  return { decision: x.decision, lo: i.lo, hi: i.hi, confidence: i.confidence, sentence: x.sentence, bound: decision && x.clean !== true ? rateBound({ attempts, interval: { lo: i.lo, hi: i.hi, confidence: i.confidence }, decision }) : null };
 }
 
 /**

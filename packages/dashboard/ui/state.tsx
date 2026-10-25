@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { ApiError, JOB_KINDS, type Client, type JobView, type LiveRun, type Meta, type RunListItem } from './api.js';
 import { isUnreachable } from './backoff.js';
 import { connStart, connStep, feedCursor, feedMoves, onTick, secondsLeft, withLiveCalls, type Conn } from './connection.js';
@@ -103,7 +103,7 @@ export interface AppState {
   /** Whether a menu or a dialog is open: single-key shortcuts wait until it closes. */
   blockingLayer: () => boolean;
   /** The open run's keys (j, k, 1–4, v, n, p, f, /): true when it handled one. */
-  runKeys: MutableRefObject<((e: KeyboardEvent) => boolean) | null>;
+  runKeys: RefObject<((e: KeyboardEvent) => boolean) | null>;
   sideOpen: boolean;
   setSideOpen: (open: boolean) => void;
   palette: boolean;

@@ -74,7 +74,7 @@ import {
   type TokenCount,
   type Usage,
   type VerifyRole,
-  wilsonBound,
+  rateBound,
 } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording } from './attempts.js';
@@ -1043,7 +1043,7 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     const keptRule = report.kept ? describeBaselineRule({ ...report.kept, revision: report.kept.label ?? report.kept.revision ?? null }) : null;
     for (const r of report.runs) {
       const against = r.baseline && keptRule;
-      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? wilsonBound(r.gate) : null;
+      const bound = r.undecided || r.deterministic ? null : against ? (r.drop ? dropBound(r.drop, r.decision) : null) : r.gate ? rateBound(r.gate) : null;
       out.runs.push({ runId: r.runId, role: r.role, outcome: outcomeOf(r).replace(' ', '-'), passes: r.passes, attempts: r.attempts.length, ...(against ? { baseline: { passes: r.baseline!.passes, attempts: r.baseline!.attempts } } : {}), bound, undecided: r.undecided ?? null, rule: against ? keptRule : rule });
     }
     if (report.verdict === 'rejected') out.verdict = 'rejected';

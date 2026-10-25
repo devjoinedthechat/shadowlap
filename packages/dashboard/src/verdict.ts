@@ -1,4 +1,4 @@
-import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, verdictLine, wilsonBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
+import { decisionWord, describeBaselineRule, describeGate, dropBound, gateOf, outcomeOf, probeFinding, rescueRule, verdictLine, rateBound, type BlameProbe, type BlameReport, type Gate, type GateResult, type SprtGate, type VerifiedRun, type VerifyReport } from '@shadowlap/engine';
 
 /**
  * A gate's verdict as every page says it (decision 9): the verdict word, the tally and the Wilson
@@ -82,7 +82,7 @@ export function verifiedLine(x: VerifiedRun): { line: string; tone: VerdictTone 
   }
   let bound: string | null;
   try {
-    bound = x.gate && x.attempts.length ? wilsonBound(x.gate) : null;
+    bound = x.gate && x.attempts.length ? rateBound(x.gate) : null;
   } catch {
     bound = null;
   }
