@@ -643,6 +643,23 @@ def context_params(fn: Callable[..., Any]) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _receiver(fn: Callable[..., Any]) -> tuple[str, ...]:
+    """The parameter a method defined in a class body takes its instance or class by, ``self`` or a
+    classmethod's ``cls``: no part of what the tool was asked to do, nor JSON. Empty for a function
+    defined anywhere else, whatever its parameters are called."""
+    if not inspect.isfunction(fn):
+        return ()
+    scope = getattr(fn, "__qualname__", "").split(".")[:-1]
+    if not scope or scope[-1] == "<locals>":
+        return ()
+    try:
+        first = next(iter(inspect.signature(fn).parameters.values()), None)
+    except (TypeError, ValueError):
+        return ()
+    positional = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    return (first.name,) if first is not None and first.name in ("self", "cls") and first.kind in positional else ()
+
+
 def _bind_args(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], exclude: tuple[str, ...] = ()) -> dict[str, Any]:
     """Tool arguments are recorded by name, however the tool was called. `exclude` drops
     framework context parameters that are neither JSON nor part of the call's identity."""
@@ -1148,7 +1165,8 @@ def tool(
 
     Parameters a framework injects are left out of the recording automatically: Pydantic AI's
     `RunContext`, the OpenAI Agents SDK's `RunContextWrapper` and `ToolContext`, LangChain's
-    `RunnableConfig`, callback managers and `Injected…` arguments. `exclude` names any others:
+    `RunnableConfig`, callback managers and `Injected…` arguments, and on a method defined in a
+    class, its `self` (a classmethod's `cls`). `exclude` names any others:
 
         @agent.tool
         @tool(effect="read")
@@ -1163,7 +1181,9 @@ def tool(
     def decorate(fn: F) -> F:
         if not callable(fn):
             raise TypeError(f"tool: {fn!r} is not callable")
-        excluded = explicit + tuple(p for p in context_params(fn) if p not in explicit)
+        # A method's self or cls, then a framework's context, beside what `exclude` names.
+        implied = _receiver(fn) + context_params(fn)
+        excluded = explicit + tuple(p for p in implied if p not in explicit)
         wrapped = _Tool(fn, name or _callable_name(fn), effect, on_fork, excluded, trust)
         if _is_async_stream(fn):
             return cast(F, wrapped.async_stream())
