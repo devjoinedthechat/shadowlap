@@ -39,6 +39,7 @@ class Sidecar:
         self.writes = writes
         self.gone = gone
         self.calls: list[dict[str, Any]] = []
+        self.hellos: list[dict[str, Any]] = []
         self.consumed: set = set()
         self.diverged = False
 
@@ -46,6 +47,9 @@ class Sidecar:
         if self.gone:
             raise RuntimeError("shadowlap sidecar /v1/calls/resolve failed: connection refused")
         json.dumps(body, allow_nan=False)
+        if path.endswith("/v1/hello"):
+            self.hellos.append(body)
+            return {"ok": True}
         if path.endswith("/resolve"):
             call_no = len(self.calls) + 1
             entry: dict[str, Any] = {"name": body["name"], "effect": body["effect"], "args": body["args"], "end": None}
@@ -249,7 +253,21 @@ class Fence(unittest.TestCase):
         # It waits as long as the longest of theirs.
         self.assertEqual(out.hooks["PostToolUse"][0].timeout, 900)
         self.assertIs(out.hooks["Stop"][0], stop)
-        self.assertEqual(sorted(out.hooks), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop"])
+        self.assertEqual(sorted(out.hooks), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop", "UserPromptSubmit"])
+
+    def test_says_the_claude_code_cli_runs_with_no_guard_once(self) -> None:
+        sidecar = Sidecar()
+        shadowlap._post = sidecar
+        hooks = fenced()
+        asyncio.run(hooks["UserPromptSubmit"][0].hooks[0]({"hook_event_name": "UserPromptSubmit", "prompt": "go", "cwd": ROOT}, None, {}))
+        asyncio.run(agent(session(hooks), [("Bash", {"command": "true"})]))
+        self.assertEqual(sidecar.hellos, [{"runtimeVersion": "", "ppid": os.getppid(), "runtime": "claude-code", "pid": os.getpid(), "guard": "off", "capture": False}])
+        # Outside Shadowlap it says nothing.
+        os.environ.pop("SHADOWLAP_URL", None)
+        quiet = Sidecar()
+        shadowlap._post = quiet
+        asyncio.run(fenced()["UserPromptSubmit"][0].hooks[0]({"hook_event_name": "UserPromptSubmit", "prompt": "go"}, None, {}))
+        self.assertEqual(quiet.hellos, [])
 
     def test_picks_the_tools_claude_code_picks(self) -> None:
         cases = [(None, "Bash"), ("", "Bash"), ("*", "Write"), ("Bash", "Bash"), ("Bash", "BashOutput"), ("Edit|Write", "Write"), ("Edit, Write", "Edit"), ("Edit.*", "NotebookEdit"), ("^Edit$", "NotebookEdit"), ("mcp__kb__.*", "mcp__kb__search")]

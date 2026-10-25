@@ -288,7 +288,7 @@ export async function testAttempt(
   } else if (ended.preloads?.failed) {
     // Nothing watched the agent's connections under --guard block: whatever else came out, it proves nothing.
     kind = 'guard';
-    failure = { message: ended.preloads.missing!, details: divergence + formatSummary(summary) };
+    failure = { message: ended.preloads.missing ?? ended.preloads.unguarded!, details: divergence + formatSummary(summary) };
   } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
@@ -816,7 +816,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       // Once too: the command is the same for every attempt, and so is why no preload loaded in it.
       if (ended.preloads?.failed && !unwatched) {
         unwatched = true;
-        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing!}`) + '\n');
+        process.stderr.write(p.yellow(`   ! ${ended.preloads.missing ?? ended.preloads.unguarded!}`) + '\n');
       }
     }
   };

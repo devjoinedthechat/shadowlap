@@ -1,4 +1,4 @@
-import { completeToolCall, resolveToolCall, ShadowlapInjectedFailure, ShadowlapWriteBlocked, type Effect, type Resolution } from '@shadowlap/sdk';
+import { completeToolCall, resolveToolCall, sayHello, ShadowlapInjectedFailure, ShadowlapWriteBlocked, type Effect, type Resolution } from '@shadowlap/sdk';
 import { asOutput, combine, matcherPicks, runHooks, settingsPreToolUse, type HookMatcherLike, type SettingsHook, type SettingsPlaces } from './claude-hooks.js';
 import { toOptions, wrapFirstArg, type EffectSpec } from './core.js';
 
@@ -187,9 +187,18 @@ function longest(matchers: readonly HookMatcherLike[] | undefined): number | und
  * permission refused it after PreToolUse). Use `withFence`, which runs the query's own PreToolUse and
  * PostToolUse hooks inside these; merged into the query's `hooks` by hand, pass those as `hooks`.
  */
-export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'PostToolBatch' | 'Stop' | 'SubagentStop', FenceMatcher[]> {
+export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'PostToolBatch' | 'Stop' | 'SubagentStop', FenceMatcher[]> {
   const effects: Record<string, Effect> = { ...BUILT_IN_EFFECTS, ...o.effects };
   const log = o.log ?? ((line: string) => process.stderr.write(`[shadowlap] ${line}\n`));
+  /**
+   * The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
+   * into, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP
+   * server). The fence says so for it, once, as a preload says it loaded: the run's summary names
+   * it, and `--guard block` fails the run. From this process, the one the CLI's hooks answer in.
+   */
+  let greeted: Promise<void> | null = null;
+  const greet = (): Promise<void> =>
+    (greeted ??= sayHello({ runtime: 'claude-code', pid: process.pid, ppid: process.ppid, guard: 'off', capture: false }).catch((err: unknown) => log(`could not tell Shadowlap that the Claude Code CLI runs unguarded: ${message(err)}`)));
   const pending = new Map<string, Pending>();
   let scratch: Promise<Scratch> | undefined;
   const scratchDir = () => (scratch ??= makeScratch(o.scratch));
@@ -328,6 +337,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
 
   const pre: FenceHook = async (input, toolUseID, options) => {
     projectDir ??= text(input.cwd) || null;
+    await greet();
     const name = text(input.tool_name);
     // The query's own hooks first, as Claude Code would run them: a refusal of theirs stands, and
     // nothing runs, so nothing is recorded or fenced; a rewrite of theirs is what the call runs with.
@@ -440,7 +450,9 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
     const timeout = longest(inner);
     return [{ ...(matcher ? { matcher } : {}), hooks: [hook], ...(timeout ? { timeout } : {}) }];
   };
-  return { PreToolUse: on(pre, o.hooks?.PreToolUse), PostToolUse: on(post, o.hooks?.PostToolUse), PostToolUseFailure: on(failed), PostToolBatch: [{ hooks: [settle] }], Stop: [{ hooks: [settle] }], SubagentStop: [{ hooks: [settle] }] };
+  // The first prompt comes before any model call or tool: the CLI is running, and says hello then.
+  const prompted: FenceHook = async () => (await greet(), {});
+  return { UserPromptSubmit: [{ hooks: [prompted] }], PreToolUse: on(pre, o.hooks?.PreToolUse), PostToolUse: on(post, o.hooks?.PostToolUse), PostToolUseFailure: on(failed), PostToolBatch: [{ hooks: [settle] }], Stop: [{ hooks: [settle] }], SubagentStop: [{ hooks: [settle] }] };
 }
 
 /** The options of a query that say where Claude Code finds its settings and hooks. */

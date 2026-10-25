@@ -56,6 +56,7 @@ from shadowlap import (
     _replay_cancellation,
     _resolve_shielded,
     _resolve_tool,
+    _say_hello,
     serialize_error,
 )
 from shadowlap.adapters._claude_hooks import DEFAULT_TIMEOUT_S, as_output, combine, matcher_picks, run_hooks, settings_pre_tool_use
@@ -211,6 +212,20 @@ def fence_hooks(
     # The folder the session started in, where Claude Code reads the project's settings: the first hook's, unless with_fence said.
     project: dict[str, Optional[str]] = {"dir": places.get("cwd")}
     said: set[str] = set()
+    greeted: dict[str, bool] = {"done": False}
+
+    async def greet() -> None:
+        """The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
+        into, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP
+        server). The fence says so for it, once, as a preload says it loaded: the run's summary names
+        it, and ``--guard block`` fails the run. From this process, the one the CLI's hooks answer in."""
+        if greeted["done"]:
+            return
+        greeted["done"] = True
+        try:
+            await _finish(_say_hello, {"runtime": "claude-code", "pid": os.getpid(), "ppid": os.getppid(), "guard": "off", "capture": False})
+        except Exception as err:
+            say(f"could not tell Shadowlap that the Claude Code CLI runs unguarded: {err}")
 
     def once(key: str, line: str) -> None:
         if key not in said:
@@ -347,6 +362,7 @@ def fence_hooks(
     async def pre(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         if project["dir"] is None:
             project["dir"] = _text(input_data.get("cwd")) or None
+        await greet()
         name = _text(input_data.get("tool_name"))
         # The query's own hooks first, as Claude Code would run them: a refusal of theirs stands, and
         # nothing runs, so nothing is recorded or fenced; a rewrite of theirs is what the call runs with.
@@ -469,7 +485,13 @@ def fence_hooks(
     def on(hook: Hook, inner: Optional[Sequence[Any]] = None) -> list[Any]:
         return [_matcher(None if inner else listed, hook, _longest(inner))]
 
+    async def prompted(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+        """The first prompt comes before any model call or tool: the CLI is running, and says hello then."""
+        await greet()
+        return {}
+
     return {
+        "UserPromptSubmit": [_matcher(None, prompted)],
         "PreToolUse": on(pre, inner_pre),
         "PostToolUse": on(post, inner_post),
         "PostToolUseFailure": on(failed),

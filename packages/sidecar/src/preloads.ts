@@ -33,8 +33,35 @@ export interface PreloadReport {
   hellos: Record<string, number>;
   /** Why no preload loaded, when the run made model or tool calls and none did; else null. */
   missing: string | null;
+  /** The processes that said they run with no guard, when the run has one (unguardedLine); else null. */
+  unguarded: string | null;
   /** The run failed for it: under `--guard block`, nothing stopped a connection that bypassed Shadowlap. */
   failed: boolean;
+}
+
+/** The runtime the Claude Agent SDK's fence says hello for: the Claude Code CLI, which loads no preload. */
+export const CLAUDE_CODE_RUNTIME = 'claude-code';
+
+/**
+ * The summary's line for processes of the agent that said they run with no network guard while the
+ * run has one, under `guard`, or null when none did: the Claude Code CLI the Claude Agent SDK runs,
+ * which loads no preload (its fence says so for it), and a Node or Python process whose guard could
+ * not start. Nothing watched their connections, so under `--guard block` the run fails.
+ */
+export function unguardedLine(hellos: Iterable<Hello>, guard: GuardMode): string | null {
+  if (guard === 'off') return null;
+  const off = [...hellos].filter((h) => h.guard === 'off');
+  if (!off.length) return null;
+  const claude = off.filter((h) => h.runtime === CLAUDE_CODE_RUNTIME).length;
+  const others = countHellos(off.filter((h) => h.runtime !== CLAUDE_CODE_RUNTIME));
+  const parts = [
+    ...(claude ? [`the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched`] : []),
+    ...Object.entries(others).map(([runtime, n]) => `${n} ${runtime === 'node' ? 'Node' : runtime === 'python' ? 'Python' : runtime} process${n === 1 ? '' : 'es'} whose preload loaded with the guard off`),
+  ];
+  const what = parts.join('; and ');
+  return guard === 'block'
+    ? `The network guard could not watch every process of the agent: ${what}. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can't watch.`
+    : `The network guard could not watch every process of the agent: ${what}. A connection one of them made that bypassed Shadowlap went unseen.`;
 }
 
 /** More hellos than this in one run are counted, not kept: a fork bomb of short processes says nothing more. */

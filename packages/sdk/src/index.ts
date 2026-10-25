@@ -311,6 +311,28 @@ export async function resolveToolCall(call: ToolCallRequest): Promise<Resolution
   });
 }
 
+/** A process of the agent's, as a hello names it to the sidecar: its runtime, ids, guard and capture. */
+export interface ProcessHello {
+  runtime: string;
+  runtimeVersion?: string;
+  pid: number;
+  ppid?: number;
+  guard: 'warn' | 'block' | 'off';
+  capture: boolean;
+}
+
+/**
+ * Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
+ * they tell it about their own (`POST /v1/hello`): the Claude Code CLI the Claude Agent SDK runs,
+ * whose fence says it runs with no guard, so the run's summary names it and `--guard block` fails
+ * the run. Does nothing outside Shadowlap.
+ */
+export async function sayHello(hello: ProcessHello): Promise<void> {
+  const cfg = config();
+  if (!cfg) return;
+  await post(cfg, '/v1/hello', { runtimeVersion: '', ppid: 0, ...hello });
+}
+
 /** Records how a call `resolveToolCall` answered `live` or `stubbed` ended. Does nothing outside Shadowlap. */
 export async function completeToolCall(callNo: number, end: CallEnd): Promise<void> {
   const cfg = config();

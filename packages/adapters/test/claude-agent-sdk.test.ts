@@ -247,7 +247,23 @@ describe('the Claude Agent SDK fence', () => {
     expect((options.hooks.PostToolUse[0] as { timeout?: number }).timeout).toBe(900);
     expect(options.hooks.Stop[0]).toBe(stop);
     expect(options.hooks.Stop).toHaveLength(2);
-    expect(Object.keys(options.hooks).sort()).toEqual(['PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop']);
+    expect(Object.keys(options.hooks).sort()).toEqual(['PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop', 'UserPromptSubmit']);
+  });
+
+  it('says the Claude Code CLI runs with no guard, once, so the run names it and --guard block fails it', async () => {
+    const run = sidecar.startRun({ mode: 'record', command });
+    sidecar.expectPreloads(run.runId, 'block');
+    within(run);
+    const hooks = fenced() as unknown as Record<string, Array<{ hooks: Array<(input: Record<string, unknown>, id: string | undefined, o: { signal: AbortSignal }) => Promise<unknown>> }>>;
+    const signal = new AbortController().signal;
+    // The first prompt comes before any model call: the CLI says hello then, and only then.
+    await hooks.UserPromptSubmit[0].hooks[0]({ hook_event_name: 'UserPromptSubmit', prompt: 'go', cwd: ROOT }, undefined, { signal });
+    const cc = new FakeClaudeCode(hooks as unknown as Hooks, ROOT);
+    await cc.call('Bash', { command: 'true' }, 'toolu_h');
+    const ended = sidecar.endRun(run.runId, 'completed');
+    expect(ended.preloads).toMatchObject({ guard: 'block', hellos: { 'claude-code': 1 }, failed: true });
+    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload');
+    expect(ended.run.status).toBe('failed');
   });
 
   it('picks the tools Claude Code picks, by its matcher rules', () => {

@@ -56,8 +56,12 @@ describe.skipIf(!PYTHON)('the Python Claude Agent SDK fence, against a real side
 
   it('records each built-in tool, and the tools really run', async () => {
     recording = sidecar.startRun({ mode: 'record', command });
+    sidecar.expectPreloads(recording.runId, 'warn');
     recorded = await agent(recording);
-    sidecar.endRun(recording.runId, 'completed');
+    const ended = sidecar.endRun(recording.runId, 'completed');
+    // The fence said the Claude Code CLI runs with no guard: the run names it.
+    expect(ended.preloads?.hellos).toEqual({ 'claude-code': 1 });
+    expect(ended.preloads?.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs');
     expect(recorded.ran).toEqual(['echo hi > out.txt', 'cd sub', 'fail 3 tests failed']);
     expect(recorded.project).toEqual(['/proj/notes.md', '/proj/out.txt', '/proj/report.md']);
     const calls = store.getCalls(recording.runId).filter((c) => c.kind === 'tool');

@@ -346,7 +346,7 @@ export class AttemptRunner {
     const bypassed = !calls.some((c) => c.kind === 'api' && !isJudgeCall(c)) && this.recordedModelCalls(parent.runId) > 0;
     if (bypassed) this.warnings.add(BYPASSED);
     const checks = this.check(calls, output, s.spec, judged);
-    const failures = [...(bypassed ? [BYPASSED] : []), ...(ended.preloads?.failed ? [ended.preloads.missing!] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
+    const failures = [...(bypassed ? [BYPASSED] : []), ...(ended.preloads?.failed ? [ended.preloads.missing ?? ended.preloads.unguarded!] : []), ...(timedOut ? [`timed out after ${formatDuration(s.timeoutMs!)}`] : code !== 0 ? [`the agent exited with code ${code}`] : []), ...failed(checks)];
     // Failed while its provider was unavailable, by no time limit of ours: no evidence about the
     // agent, so never tallied, though what it spent counts. A replay no preload loaded in failed by
     // itself (the guard), whatever its provider answered: that is never the provider's doing.
