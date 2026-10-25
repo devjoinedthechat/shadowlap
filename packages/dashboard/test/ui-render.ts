@@ -3,8 +3,8 @@ import { act, createContext, type ReactElement } from 'react';
 
 /**
  * Renders the dashboard's components in Node, with effects, state and events, and no DOM library:
- * React's own reconciler (react-reconciler, installed with the terminal UI's Ink, which
- * @shadowlap/tui and so the dashboard depend on) draws into a tree of plain elements that answer
+ * React's own reconciler (react-reconciler, a development dependency here, at the version the
+ * terminal UI's Ink uses) draws into a tree of plain elements that answer
  * what the components and the shell ask of the DOM: focus and the element that has it, the
  * selectors they query, contains and closest. Events go to the props that take them and bubble as
  * in a browser, then to the document's and the window's listeners. Tab, unless a listener prevented

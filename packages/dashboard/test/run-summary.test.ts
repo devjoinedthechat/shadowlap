@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { displayOrigin, JUDGE_SCOPE, ORIGIN_CODE, Store, storeApiRequest, summarizeRun, type CallKind, type Origin, type Price, type RunMeta, type RunRecord, type RunSummary } from '@shadowlap/engine';
-import { modelResolver } from '@shadowlap/tui/data';
+import { modelResolver } from '@shadowlap/engine';
 import { modelName, runPageFacts } from '../src/run-page.js';
 import { blameStep, runWholeFacts } from '../src/run-summary.js';
 

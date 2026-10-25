@@ -1,5 +1,5 @@
 import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
-import { modelResolver } from '@shadowlap/tui/data';
+import { modelResolver } from '@shadowlap/engine';
 import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
 /**
