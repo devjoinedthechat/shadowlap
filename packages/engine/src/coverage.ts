@@ -358,21 +358,40 @@ export function hasPlaceholder(argv: readonly string[]): boolean {
 }
 
 /**
+ * Programs that run another command their arguments name (`env NAME=value node agent.js`, `npx
+ * tsx agent.ts`, `sudo …`): a message must never become the command they run.
+ */
+const RUNNERS = new Set(['env', 'npx', 'pnpx', 'bunx', 'uvx', 'pipx', 'nohup', 'exec', 'xargs', 'sudo', 'doas', 'timeout', 'nice', 'time', 'command', 'stdbuf', 'caffeinate']);
+/** Interpreters, whose first argument that isn't a flag is the script they run: a message must never become it, nor one of their own flags. */
+const INTERPRETERS = new Set(['node', 'nodejs', 'deno', 'bun', 'tsx', 'ts-node', 'python', 'python3', 'python2', 'py', 'pypy', 'pypy3', 'ruby', 'perl', 'php', 'lua', 'rscript', 'julia']);
+
+/**
  * Why a command's placeholders can't be used, or null: each regex compiles, and none is where it
- * would be run as code (a shell's script; an interpreter's `-c`, `-e` or `-m` before its script).
- * The message comes from production traffic: it is only ever an argument, passed as it is.
+ * would name what runs or run as code: the program; the command a runner (`env`, `npx`) runs; an
+ * interpreter's own flags, joined to their values or not (`--eval={message}`), and the script it
+ * runs (`node {message}`); a shell's script; the argument after an interpreter's `-c`, `-e` or `-m`.
+ * The message comes from production traffic: it is only ever an argument of the agent's, passed as
+ * it is, and fillCommand refuses one that would start an argument with a dash.
  */
 export function checkCommandTemplate(argv: readonly string[]): string | null {
   if (!hasPlaceholder(argv)) return null;
-  const program = basename(argv[0] ?? '').toLowerCase();
-  if (SHELLS.has(program)) return `${argv[0]!} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
+  const name = (i: number) => basename(argv[i] ?? '').toLowerCase();
+  if (SHELLS.has(name(0))) return `${argv[0]!} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
+  // The command that runs: the program, or the one a runner runs, past the runner's own flags and env's NAME=value words.
+  let command = 0;
+  while (command < argv.length && RUNNERS.has(name(command))) {
+    command++;
+    while (command < argv.length && (argv[command]!.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[command]!))) command++;
+  }
   // The interpreter's own flags: those before its script (the first argument that isn't a flag).
-  let leading = 1;
+  let leading = command + 1;
   while (leading < argv.length && argv[leading]!.startsWith('-')) leading++;
+  const names = INTERPRETERS.has(name(command)) ? leading : command;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     for (const m of arg.matchAll(PLACEHOLDER)) {
       if (i > 0 && i <= leading && CODE_FLAGS.has(argv[i - 1]!.toLowerCase())) return `{message} after ${argv[i - 1]!} would run as code: give the agent's own command, with {message} as one of its arguments`;
+      if (i <= names) return `{message} in ${arg} would name what runs, or one of its interpreter's flags, and is text from production: give the agent's own command, with {message} as one of its arguments`;
       if (m[1] !== undefined) {
         try {
           new RegExp(m[1], m[2]);
@@ -405,5 +424,8 @@ export function fillCommand(argv: readonly string[], message: string | null): { 
       }),
     );
   }
-  return missing.length ? { why: `its first message has no match for ${missing[0]!}` } : { argv: out };
+  if (missing.length) return { why: `its first message has no match for ${missing[0]!}` };
+  // A message that would put a dash first in an argument would be read as one of the agent's flags.
+  if (out.some((a, i) => a.startsWith('-') && !argv[i]!.startsWith('-'))) return { why: 'its first message starts with "-", which the command would read as one of its flags' };
+  return { argv: out };
 }
