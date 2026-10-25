@@ -474,13 +474,9 @@ export function register(program: Command): void {
     .option('--listen <address>', 'serve the --url server over Streamable HTTP at http://<address>/mcp, for an agent whose MCP client speaks HTTP: 127.0.0.1:8931, or a port alone (this machine only)')
     .passThroughOptions()
     .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }) => {
-      let code: number;
-      try {
-        code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
-      } catch (err) {
-        throw new InvalidArgumentError((err as Error).message);
-      }
-      process.exitCode = code;
+      // What it throws ends it with the contract's status: 2 for a flag or config to fix, 1 for a
+      // host that didn't answer, 70 for a bug.
+      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
     });
 
 }
