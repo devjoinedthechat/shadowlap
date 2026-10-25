@@ -102,12 +102,12 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
                 </td>
                 <td className="fxwhere">
                   {x.note}
-                  {/* Kept against the run's own baseline, within a margin, when verify's JSON says so. */}
+                  {/* Kept against the run's own baseline, with the bound on its drop as the CLI says it, when verify's JSON says so. */}
                   {x.evidence?.baseline ? (
-                    <span className="fxbase">
+                    <span className="fxbase" title={x.evidence.margin !== null ? `Kept unless its pass rate drops ${Math.round(x.evidence.margin * 100)} points or more below its baseline’s` : undefined}>
                       baseline {x.evidence.baseline.passes} of {x.evidence.baseline.attempts}
                       {x.evidence.baseline.source === 'paired' ? `, paired${x.evidence.baseline.revision ? ` at ${x.evidence.baseline.revision}` : ''}` : ', from history'}
-                      {x.evidence.margin !== null ? ` · margin ${x.evidence.margin}` : ''}
+                      {x.evidence.drop ? ` · ${x.evidence.drop}` : x.evidence.margin !== null ? ` · margin ${x.evidence.margin}` : ''}
                     </span>
                   ) : null}
                 </td>
