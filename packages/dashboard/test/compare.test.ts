@@ -3,8 +3,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store, storeApiRequest } from '@shadowlap/engine';
-import { codeChangeCache, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
+import { compareRuns, Store, storeApiRequest, type RunRecord } from '@shadowlap/engine';
+import { codeChangeCache, compareHead, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { compareTarget } from '../ui/runs.js';
 
@@ -194,5 +194,53 @@ describe('GET /api/compare', () => {
   it('names what differs in the first request that differs, as the design does, with its path kept', async () => {
     const c = await get(ids.recorded, ids.forked);
     expect(c.firstRequestDifference?.diff).toEqual([{ path: '$.messages[2].content[0].content', op: 'changed', before: '{"approval":"tier2"}', after: '{"refund_limit":100,"approval":"tier2"}', what: 'tool_result lookup_policy' }]);
+  });
+});
+
+describe('what Compare shows first', () => {
+  /** A run of model calls, each asking `ask[i]` (its fingerprint and request) and answered `got[i]`; a call in `judge` is a judge check's. */
+  function run(store: Store, o: { parent?: RunRecord; ask: string[]; got: string[]; judge?: number[] }): RunRecord {
+    const r = store.createRun({ mode: o.parent ? 'replay' : 'record', ...(o.parent ? { parentRunId: o.parent.runId } : {}), command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, startedAt: 1_760_000_000_000 });
+    o.ask.forEach((ask, i) => {
+      const callNo = i + 1;
+      const judge = o.judge?.includes(callNo) ?? false;
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `${judge ? 'judge-' : ''}${ask}`, occurrence: 1 };
+      const requestRef = storeApiRequest(store, { model: 'claude-sonnet-4-5', max_tokens: 512, system: ask === 'x' ? 'Be brief.' : 'Be thorough.', messages: [{ role: 'user', content: `Question ${ask}` }] });
+      store.appendCallStart({ runId: r.runId, callNo, ...identity, origin: 'live', effect: null, requestRef, meta: judge ? { scope: 'shadowlap:judge' } : {}, at: callNo });
+      store.appendCallEnd(identity, { runId: r.runId, callNo, attempt: 0, responseRef: store.putJson({ said: o.got[i] }), outcome: 'ok', meta: { latencyMs: 10 }, at: callNo + 1 });
+    });
+    store.endRun(r.runId, 'completed', 99);
+    return store.getRun(r.runId)!;
+  }
+  const whole = (store: Store, a: RunRecord, b: RunRecord) => compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
+  const same = (store: Store, a: RunRecord, b: RunRecord) => {
+    const h = compareHead(store, a.runId, b.runId)!;
+    const c = whole(store, a, b);
+    expect({ a: h.a, b: h.b, identicalPrefix: h.identicalPrefix, firstRequestDifference: h.firstRequestDifference, onlyInA: h.onlyInA, onlyInB: h.onlyInB }).toEqual({ a: c.a, b: c.b, identicalPrefix: c.identicalPrefix, firstRequestDifference: c.firstRequestDifference, onlyInA: c.onlyInA, onlyInB: c.onlyInB });
+    expect(h.answersDiffer).toBe(c.responseDifferences.length);
+    return h;
+  };
+
+  it('says the identical prefix and the first request that differs as the whole comparison does, reading two requests', () => {
+    const store = Store.open(':memory:');
+    const rec = run(store, { ask: ['a', 'b', 'c', 'd', 'e'], got: ['1', '2', '3', '4', '5'] });
+    // A fork: the same until #4, whose request differs.
+    const fork = run(store, { parent: rec, ask: ['a', 'b', 'c', 'x', 'y'], got: ['1', '2', '3', '6', '7'] });
+    const h = same(store, rec, fork);
+    expect(h).toMatchObject({ identicalPrefix: 3, firstRequestDifference: { callNo: 4 } });
+    expect(h.firstRequestDifference!.diff!.length).toBeGreaterThan(0);
+    // Another answer to the same request before it: the prefix ends there, and the answer is counted.
+    const other = run(store, { parent: rec, ask: ['a', 'b', 'c', 'x'], got: ['1', '9', '3', '6'] });
+    expect(same(store, rec, other)).toMatchObject({ identicalPrefix: 1, answersDiffer: 1, firstRequestDifference: { callNo: 4 } });
+    // The same calls, one run going on further; a judge check's calls left out, as the whole comparison leaves them.
+    const longer = run(store, { parent: rec, ask: ['a', 'j', 'b', 'c', 'd', 'e', 'f'], got: ['1', 'yes', '2', '3', '4', '5', '8'], judge: [2] });
+    expect(same(store, rec, longer)).toMatchObject({ identicalPrefix: 5, firstRequestDifference: null, onlyInB: 1 });
+    expect(same(store, rec, rec)).toMatchObject({ identicalPrefix: 5, firstRequestDifference: null, onlyInA: 0, onlyInB: 0 });
+    // Of the requests, only the two at the first difference are read whole.
+    const reads: string[] = [];
+    const spy = Object.create(store, { getCalls: { value: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) } }) as Store;
+    compareHead(spy, rec.runId, fork.runId);
+    expect(reads).toEqual(['a:4', 'b:4']);
+    store.close();
   });
 });

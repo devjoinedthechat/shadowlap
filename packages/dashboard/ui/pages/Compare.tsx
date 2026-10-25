@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo } from 'react';
+import type { CompareHead } from '../../src/compare.js';
 import { ApiError, type CallRow, type CompareView, type RunDetail, type RunListItem } from '../api.js';
 import { CmdLine, Org, PageHeader, Tag } from '../components/bits.js';
 import { Page } from '../components/Page.js';
 import { answersSub, changedAnswers, changeCards, comparingLive, diffTexts, oneRunPair, pickable, prefixLine, replayCommand, samePlaces } from '../compare/model.js';
 import { RunPicker } from '../compare/RunPicker.js';
-import { callName, clip, num, shortId } from '../format.js';
+import { callName, clip, num, plural, shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { displayOrigin } from '../origins.js';
 import { href } from '../route.js';
@@ -148,6 +149,9 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
   const nested = !same && (x.startsWith(y) || y.startsWith(x));
   // The server's comparison, with the code card's commits when it can read the project's git (an exported copy has none).
   const cmp = useLoad<CompareView>(() => (same || nested ? null : client.compare(a, b)), `${a}:${b}`, refresh);
+  // Meanwhile, the identical prefix and the first request that differs, which come at once: a long
+  // pair's whole comparison reads every model call's request of both runs.
+  const head = useLoad<CompareHead | null>(() => (same || nested ? null : client.compareHead(a, b).catch(() => null)), `${a}:${b}:head`, refresh);
   const ra = useLoad(() => client.run(a), a, refresh);
   const rb = useLoad(() => client.run(b), b, refresh);
   const hub = exported ? (meta?.compareWith ?? null) : null;
@@ -215,7 +219,9 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
           {ra.data && rb.data ? <Paths c={c} a={ra.data} b={rb.data} /> : null}
           <ResponseDifferences c={c} />
         </>
-      ) : cmp.error ? null : (
+      ) : cmp.error ? null : head.data ? (
+        <HeadFirst h={head.data} />
+      ) : (
         <div className="empty">Comparing…</div>
       )}
     </Page>
@@ -258,7 +264,28 @@ function Changes({ c }: { c: CompareView }) {
   );
 }
 
-function Prefix({ c }: { c: CompareView }) {
+/**
+ * What a comparison shows while the rest of it is worked out: the identical prefix and the first
+ * request that differs, then what is still to come, said as it is under way.
+ */
+function HeadFirst({ h }: { h: CompareHead }) {
+  const rest = [
+    'what changed between the two runs',
+    ...(h.answersDiffer ? [`what ${plural(h.answersDiffer, 'call')} with the same request got instead`] : []),
+    ...(h.firstRequestDifference ? [`where each went from #${h.firstRequestDifference.callNo}`] : []),
+  ];
+  return (
+    <>
+      <Prefix c={{ ...h, responseDifferences: [], intervention: null }} />
+      {h.firstRequestDifference ? <FirstDifference c={h} /> : null}
+      <p className="cmpwait" role="status">
+        Comparing the rest: {rest.length > 1 ? `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)!}` : rest[0]}…
+      </p>
+    </>
+  );
+}
+
+function Prefix({ c }: { c: Parameters<typeof prefixLine>[0] }) {
   const n = c.identicalPrefix;
   const cells = Math.max(1, Math.min(n, 120));
   const line = prefixLine(c);
@@ -282,7 +309,7 @@ function Prefix({ c }: { c: CompareView }) {
 /** How many differing fields the panel shows. */
 const DIFF_SHOWN = 12;
 
-function FirstDifference({ c }: { c: CompareView }) {
+function FirstDifference({ c }: { c: Pick<CompareView, 'a' | 'b' | 'firstRequestDifference'> }) {
   const f = c.firstRequestDifference!;
   const diff = f.diff ?? [];
   const shown = diff.slice(0, DIFF_SHOWN);

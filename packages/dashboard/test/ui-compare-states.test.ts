@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { CompareHead } from '../src/compare.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { oneRunPair, replayCommand } from '../ui/compare/model.js';
 import { ComparePage } from '../ui/pages/Compare.js';
@@ -36,7 +37,7 @@ function addressBar(hash: string): { hash: string } {
 
 function app(client: Partial<Client>, runs: RunListItem[] = []): AppState {
   return {
-    client: { jobs: () => Promise.resolve([]), ...client } as unknown as Client,
+    client: { jobs: () => Promise.resolve([]), compareHead: () => Promise.resolve(null), ...client } as unknown as Client,
     exported: false,
     meta: null,
     tick: 0,
@@ -138,6 +139,21 @@ describe('two runs named', () => {
     await page.until('the panel', () => page!.all('.stepempty h3').length > 0);
     expect(page.one('.stepempty h3').textContent).toBe('The same run on both sides');
     expect(compared).toBe(0);
+  });
+
+  it('shows the identical prefix and the first request that differs while the rest is compared', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    let whole: (c: CompareView) => void = () => undefined;
+    const head: CompareHead = { a: { runId: REC, calls: 20_000 }, b: { runId: FORK, calls: 20_000 }, identicalPrefix: 19_976, firstRequestDifference: { callNo: 19_977, kind: 'api', name: 'POST /v1/messages', diff: [{ path: '$.system', op: 'changed', before: 'Be thorough.', after: 'Be brief.', what: 'system prompt' }] }, onlyInA: 0, onlyInB: 0, answersDiffer: 0 };
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compareHead: () => Promise.resolve(head), compare: () => new Promise<CompareView>((resolve) => (whole = resolve)) };
+    page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
+    await page.until('the head', () => page!.all('.prefix').length > 0);
+    expect(page.one('.prefix').textContent).toBe('#1–#19,976 identical. The first request that differs is #19977.');
+    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#19977 in 01M5GRVTKS', '#19977 in 01M5GRXFM1']);
+    expect(page.one('.cmpwait[role="status"]').textContent).toBe('Comparing the rest: what changed between the two runs and where each went from #19977…');
+    // The whole comparison takes its place once it comes.
+    whole({ ...head, prefix: [], responseDifferences: [], after: null, changes: { systemPrompt: true, systems: { a: ['x'], b: ['y'] }, tools: { added: [], removed: [], redefined: false }, models: { a: [], b: [] }, code: { a: null, b: null } }, intervention: null, code: null } as unknown as CompareView);
+    await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.changes').length > 0);
   });
 
   it('names the run the store doesn’t hold, and the side to pick again', async () => {

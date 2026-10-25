@@ -3,7 +3,7 @@ import type { Normalizer, Price, Store, ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
-import { codeChangeCache, compareView } from './compare.js';
+import { codeChangeCache, compareHead, compareView } from './compare.js';
 import { fixDetail, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
 import { runInjection, toolTrust } from './injection.js';
@@ -55,6 +55,8 @@ export type ReadJob =
   | { kind: 'call'; runId: string; read: ReadOptions; callNo: number; whole?: boolean }
   | { kind: 'lineage'; runId: string; read: ReadOptions }
   | { kind: 'compare'; a: string; b: string; cwd: string | null }
+  /** What Compare shows first while the whole comparison is worked out: the identical prefix and the first request that differs (compare.ts `compareHead`). */
+  | { kind: 'compare-head'; a: string; b: string }
   | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'recent'; read: ReadOptions }
@@ -199,6 +201,15 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         }
         const c = await compareView(store, job.a, job.b, { cwd: job.cwd, code });
         return c ? answer(c, { tagged: true }) : failed(404, 'one of the runs does not exist');
+      }
+      case 'compare-head': {
+        for (const id of [job.a, job.b]) {
+          if (lookupRun(store, id)) continue;
+          const no = noSuchRun(store, id);
+          return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
+        }
+        const h = compareHead(store, job.a, job.b);
+        return h ? answer(h, { tagged: true }) : failed(404, 'one of the runs does not exist');
       }
       case 'runs-page':
         return runsPage(store, job.options, job.team, whole);

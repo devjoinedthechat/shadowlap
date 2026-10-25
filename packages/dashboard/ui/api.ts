@@ -1,4 +1,5 @@
 import type { RunComparison } from '../../engine/src/compare.js';
+import type { CompareHead } from '../src/compare.js';
 import type { SearchHit } from '../../engine/src/search.js';
 import type { RunNote } from '../../engine/src/types.js';
 import { bundleSource } from './fixes/model.js';
@@ -157,6 +158,8 @@ export interface Client {
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
   compare(a: string, b: string): Promise<RunComparison>;
+  /** What Compare shows while the whole comparison is worked out: the identical prefix and the first request that differs; null where there is none to ask for (an exported copy). */
+  compareHead(a: string, b: string): Promise<CompareHead | null>;
   /**
    * What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to,
    * and while the server's index is behind, how many runs it has yet to cover (`indexing`).
@@ -415,6 +418,7 @@ export function createClient(token: string): Client {
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
+    compareHead: (a, b) => request<CompareHead>(`compare?a=${id(a)}&b=${id(b)}&part=head`),
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
@@ -543,6 +547,8 @@ export function createExportedClient(data: StaticPayload): Client {
     offers: () => Promise.resolve(null),
     showJson: (runId) => get<unknown>(`runs/${full(runId)}/show`),
     compare: (a, b) => get<RunComparison>(`compare?a=${full(a)}&b=${full(b)}`),
+    // A copy holds each comparison whole.
+    compareHead: () => Promise.resolve(null),
     search: () => Promise.resolve({ hits: [] }),
     labels: readOnly,
     note: readOnly,
