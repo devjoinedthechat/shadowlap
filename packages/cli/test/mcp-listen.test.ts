@@ -224,7 +224,7 @@ describe('shadowlap mcp --listen', () => {
 });
 
 describe('shadowlap mcp --listen, as a command', () => {
-  it('says where it serves, records into the run active in its folder, and stops on a signal', async () => {
+  it('says where it serves, refuses the writes of a session with no run, and stops on a signal', async () => {
     const server = await startFakeMcpHttpServer({ streams: true });
     const project = mkdtempSync(join(tmpdir(), 'shadowlap-listen-'));
     const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url, '--listen', '127.0.0.1:0'], { cwd: project, env: { ...process.env, SHADOWLAP_URL: '', SHADOWLAP_RUN_ID: '', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
@@ -237,11 +237,16 @@ describe('shadowlap mcp --listen, as a command', () => {
       });
       child.once('exit', (code) => reject(new Error(`exited ${code}: ${err}`)));
     });
-    expect(err).toMatch(/started on its own/);
+    expect(err).toMatch(/started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none/);
     const c = httpClient(endpoint);
     await c.handshake();
+    await c.request('tools/list');
+    // This test's process is no agent a Shadowlap command started: reads pass through unrecorded, a write is refused.
     expect(text((await c.call('read_note', { id: 1 })).answer)).toBe('read_note:{"id":1}:1');
-    expect(err).toMatch(/no active run here: passing it through/);
+    const sent = (await c.call('send_note', { to: 'y' })).answer;
+    expect(text(sent)).toMatch(/^shadowlap: send_note was not sent\. It is a write, and it can't be recorded: no Shadowlap run is active for it\./);
+    expect(server.calls.map((x) => x.name)).toEqual(['read_note']);
+    expect(err).toMatch(/a session started that can't be recorded \(no Shadowlap run is active for it\): write tools are refused, read tools pass through unrecorded/);
     const code = new Promise<number | null>((resolve) => child.once('exit', resolve));
     child.kill('SIGTERM');
     expect(await code).toBe(143);

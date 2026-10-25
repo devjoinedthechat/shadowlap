@@ -7,7 +7,7 @@ import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
-import { isLoopbackUrl, lookupRegistration, parentRegistration, processAncestors, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
+import { ancestorsOf, findRegistration, isLoopbackUrl, lookupDirs, lookupRegistration, parentRegistration, peerProcess, processAncestors, registeredRuns, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
@@ -866,10 +866,10 @@ export interface McpListenOptions {
   /** Sent with every request to the server, e.g. `{ authorization: 'Bearer …' }`. Never recorded. */
   headers?: Record<string, string>;
   /**
-   * The sidecar a session records into, asked when the session starts (the client's `initialize`):
-   * a long-running proxy serves one run after another.
+   * The sidecar a session records into, asked when the session starts (the client's `initialize`),
+   * with the client's end of its connection: a long-running proxy serves one run after another.
    */
-  sidecar: () => ProxySidecar | Promise<ProxySidecar>;
+  sidecar: (client: ClientEnd) => ProxySidecar | Promise<ProxySidecar>;
   /** Effects by tool name; wins over the server's annotations. */
   effects?: Record<string, Effect>;
   log?: (line: string) => void;
@@ -879,6 +879,12 @@ export interface McpListener {
   /** The endpoint agents connect to: `http://<host>:<port>/mcp`. */
   url: string;
   close(): Promise<void>;
+}
+
+/** A client's connection to the listener, as the session's run is found from it: the client's port, and the listener's. */
+export interface ClientEnd {
+  port: number | undefined;
+  serverPort: number | undefined;
 }
 
 /** The headers of the server's answer that the client needs: what it is, the session, and how to sign in. */
@@ -916,7 +922,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
   const allowGuard = (globalThis as Record<symbol, ((target: string) => void) | undefined>)[Symbol.for('shadowlap.guard.allow')];
   if (typeof allowGuard === 'function') allowGuard(`${upstream.hostname.replace(/^\[|\]$/g, '')}:${upstream.port || (upstream.protocol === 'https:' ? '443' : '80')}`);
 
-  const newSession = async (): Promise<ServedSession> => ({ calls: new ToolCalls(await o.sidecar(), o.effects, o.log, origin) });
+  const newSession = async (req: IncomingMessage): Promise<ServedSession> => ({ calls: new ToolCalls(await o.sidecar({ port: req.socket.remotePort, serverPort: req.socket.localPort }), o.effects, o.log, origin) });
 
   const server: Server = createServer((req, res) => {
     void serve(req, res).catch((err: unknown) => {
@@ -1034,7 +1040,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     // hasn't seen (it was restarted) starts one too.
     let session = initialize ? undefined : sessions.get(sid);
     if (!session) {
-      session = await newSession();
+      session = await newSession(req);
       if (!initialize) sessions.set(sid, session);
     }
     const { calls } = session;
@@ -1233,23 +1239,57 @@ function readText(res: IncomingMessage): Promise<string> {
 }
 
 /**
+ * The run a session of a listener started on its own belongs to, found when the session starts: the
+ * run registered for the client's process or one of its ancestors (agent-registry.ts), which every
+ * agent a Shadowlap command starts has, whichever folder it runs in and however many run at once.
+ * Where the system won't say which process connected, the one run active for this user decides: the
+ * runs registered for agents running now, and the folder's `.shadowlap/active.json`. `none` when no
+ * run is found for the session, and `unusable` when several could be its own.
+ */
+export function sessionRun(client: ClientEnd, cwd: string, skip: DiscoverySkip = () => {}, o: { home?: string | null } = {}): SidecarLookup {
+  const home = o.home === undefined ? {} : { home: o.home };
+  const pid = client.port !== undefined && client.serverPort !== undefined ? peerProcess(client.port, client.serverPort, skip) : null;
+  const chain = pid !== null ? ancestorsOf(pid, skip) : null;
+  if (chain) return findRegistration(chain, lookupDirs(cwd, o.home), skip) ?? { kind: 'none' };
+  const runs = new Map<string, { target: SidecarTarget; from: string }>();
+  for (const r of registeredRuns({ cwd, ...home, skip })) runs.set(r.target.runId, r);
+  const active = discoverSidecar({}, cwd, skip);
+  if (active && !runs.has(active.runId)) runs.set(active.runId, { target: active, from: join(cwd, '.shadowlap', 'active.json') });
+  const all = [...runs.values()];
+  if (all.length === 1) return { kind: 'sidecar', target: all[0]!.target, from: all[0]!.from };
+  if (all.length > 1) return { kind: 'unusable', reason: `${all.length} Shadowlap runs are active (${all.map((r) => r.target.runId.slice(0, 10)).join(', ')}), and which one this session's client belongs to can't be told` };
+  return { kind: 'none' };
+}
+
+/**
+ * The sidecar a session of a listener started on its own records into: its run's (sessionRun), or,
+ * with none found, or several it can't tell apart, one that refuses writes, since this could be a
+ * replay, and passes reads through unrecorded. Said on the log, a line a session.
+ */
+export function sessionSidecar(client: ClientEnd, cwd: string, log: (line: string) => void, o: { home?: string | null } = {}): ProxySidecar {
+  const run = sessionRun(client, cwd, log, o);
+  if (run.kind === 'sidecar') {
+    log(`a session started: recording into run ${run.target.runId}`);
+    return run.target;
+  }
+  const why = run.kind === 'unusable' ? run.reason : 'no Shadowlap run is active for it';
+  log(`a session started that can't be recorded (${why}): write tools are refused, read tools pass through unrecorded`);
+  return { unusable: why };
+}
+
+/**
  * `shadowlap mcp --url <server> --listen <address>`: the server, served over Streamable HTTP for
  * agents whose MCP client speaks HTTP, until the proxy is stopped. Started by a Shadowlap command
  * (or under one), every session records into that command's run. Started on its own, it serves one
- * run after another: each session the client starts records into the run active in the working
- * folder then (`.shadowlap/active.json`, which `run` and `replay` keep there), and passes through
- * when none is. Resolves with the exit code for the signal that stopped it.
+ * run after another: each session records into the run its client belongs to (sessionRun). A
+ * session with no run found, or one it can't tell among several, can't be recorded, and this could
+ * be a replay: its writes are refused and its reads pass through unrecorded. Resolves with the exit
+ * code for the signal that stopped it.
  */
 async function listen(url: URL, at: { host: string; port: number }, headers: Record<string, string>, effects: Record<string, Effect>, found: SidecarLookup, log: (line: string) => void): Promise<number> {
   const cwd = process.cwd();
-  const sidecar = (): ProxySidecar => {
-    if (found.kind === 'sidecar') return found.target;
-    if (found.kind === 'unusable') return { unusable: found.reason };
-    const active = discoverSidecar({}, cwd, log);
-    log(active ? `a session started: recording into run ${active.runId}` : 'a session started with no active run here: passing it through');
-    return active;
-  };
-  if (found.kind === 'none') log('started on its own: each session records into the run active in this folder when it starts, if any');
+  const sidecar = (client: ClientEnd): ProxySidecar => (found.kind === 'sidecar' ? found.target : found.kind === 'unusable' ? { unusable: found.reason } : sessionSidecar(client, cwd, log));
+  if (found.kind === 'none') log('started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none');
   const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, log });
   log(`serving ${url.host} at ${listener.url}`);
   return new Promise((resolve) => {
