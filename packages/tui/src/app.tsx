@@ -72,7 +72,7 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
       return () => clearInterval(t);
     }
     return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the timers follow the view's kind, run and status: the view and open are new on every refresh, and taking them in would restart the timers each time
   }, [view.kind, view.kind === 'timeline' ? view.run.runId : '', view.kind === 'timeline' ? view.run.status : '']);
 
   useInput(

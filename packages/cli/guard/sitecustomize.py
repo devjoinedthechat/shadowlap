@@ -35,7 +35,7 @@ _mode = os.environ.get("SHADOWLAP_GUARD", "warn")
 # In-process capture of model API calls a base URL can't redirect (Bedrock, Azure, Vertex, hardcoded URLs).
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import _shadowlap_capture  # noqa: F401
+    import _shadowlap_capture  # noqa: F401 -- loaded for what it patches
 except Exception as _capture_error:  # never break the agent
     sys.stderr.write("[shadowlap] in-process capture is off: %s\n" % _capture_error)
 finally:
@@ -44,7 +44,7 @@ finally:
 # Recorded user input: input() and reads of sys.stdin become user_input calls a replay serves.
 try:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import _shadowlap_input  # noqa: F401
+    import _shadowlap_input  # noqa: F401 -- loaded for what it patches
 except Exception as _input_error:  # never break the agent
     sys.stderr.write("[shadowlap] recorded user input is off: %s\n" % _input_error)
 finally:

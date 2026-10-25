@@ -20,7 +20,7 @@ CLI = os.path.join(SDK, "..", "..", "packages", "cli", "bin", "shadowlap.js")
 BUILT = os.path.exists(os.path.join(SDK, "..", "..", "packages", "cli", "dist", "index.js")) and shutil.which("node")
 
 try:
-    import pytest  # noqa: F401
+    import pytest  # noqa: F401 -- only whether pytest is installed
 
     HAS_PYTEST = True
 except ImportError:

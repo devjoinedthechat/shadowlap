@@ -89,7 +89,7 @@ class _Host:
         # Capture reads its configuration when it is imported, so it is imported under the slot's.
         self.enter()
         try:
-            import _shadowlap_capture  # noqa: F401  (patches httpx, httpx2, requests, urllib3 and botocore)
+            import _shadowlap_capture  # noqa: F401 -- loaded for what it patches: httpx, httpx2, requests, urllib3 and botocore
         finally:
             self.leave()
 

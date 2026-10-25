@@ -185,6 +185,8 @@ export default defineConfig(
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      // For the same reason a value it can't type is any, and one past code TypeScript can't follow reads as
+      // never; null, undefined, objects and arrays are still refused.
       '@typescript-eslint/restrict-template-expressions': [
         'error',
         { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: false, allowRegExp: false, allowNever: true, allowArray: false },
