@@ -216,6 +216,35 @@ jobs:
       - run: python -m pip install --quiet ${{ matrix.pytest || 'pytest' }} ${{ matrix.async || 'trio anyio' }} -e sdks/python
       - run: python -m pytest -q sdks/python/tests
 
+  # The network guard and in-process capture load into every Python process of an agent as a
+  # sitecustomize, and patch socket and asyncio, whose insides change from one version to the next.
+  # The test job runs their tests on 3.12; this runs them on the oldest Python the SDK supports and
+  # on the others up to the newest, as an agent's Python may be any of them. Node 24, as nothing
+  # here changes with the Node.
+  python-guard:
+    name: python guard on ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.10', '3.11', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --quiet anthropic openai google-genai boto3 aiohttp websockets aiobotocore uvloop
+      - run: npm ci
+      - run: npm run build
+      - name: The guard's and capture's tests, in this Python
+        env:
+          SHADOWLAP_PYTHON: python
+        run: npx vitest run packages/cli/test/guard.test.ts packages/cli/test/guard-hosts.test.ts packages/cli/test/guard-udp-async.test.ts packages/cli/test/python-capture-async.test.ts packages/cli/test/realtime-tunnel.test.ts packages/cli/test/preload-hello.test.ts testing/default-clients/test
+
   # The SDK's types, to mypy's strictest settings (sdks/python/pyproject.toml), checked against the
   # real types of trio, anyio and pytest. Pinned, so a new mypy changes this job only when the pin does.
   python-sdk-types:
