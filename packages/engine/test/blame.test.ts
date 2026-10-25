@@ -99,9 +99,9 @@ describe('searchBlame', () => {
     expect(r.blamed?.callNo).toBe(steps[5]);
   });
 
-  it("reads a fixed count's own error into the label: 2 of 5 is wrong up to 8.7% of the time a probe", async () => {
+  it("reads a fixed count's own error into the label: 2 of 5 is wrong up to 8.8% of the time a probe, rounded up", async () => {
     // 2 of 5 rescues a call the model gets right 10% of the time 8.15% of the time, and loses one at
-    // 60% 8.70%: four probes that decided can be wrong up to 34.8% of the time together.
+    // 60% 8.70%: four probes that decided can be wrong up to 34.82% of the time together, which reads 34.9%.
     const risk = probeRisk({ attempts: 5, needed: 2 });
     expect(risk).toBeCloseTo(0.087, 4);
     const steps = calls(6);
@@ -110,7 +110,7 @@ describe('searchBlame', () => {
     expect(r.blamed?.step).toBe(3);
     expect(r.errorBound).toBeCloseTo(4 * risk, 10);
     expect(r.confidence).toBe('low');
-    expect(confidenceWhy(r)).toBe('<= 34.8% risk that the call is wrong: 4 probes decided, at <= 8.7% risk each');
+    expect(confidenceWhy(r)).toBe('<= 34.9% risk that the call is wrong: 4 probes decided, at <= 8.8% risk each');
     // One probe of it is within twice the risk, or 20%: medium.
     const one = await searchBlame({ steps: [1], probe: probes([1], () => 4, 5, 2, risk).probe, scan: 0 });
     expect(one).toMatchObject({ confidence: 'medium', errorBound: risk });

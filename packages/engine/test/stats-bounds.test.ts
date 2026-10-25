@@ -6,12 +6,12 @@ import {
   BLAME_DEFAULTS,
   SPRT_DEFAULTS,
   clopperPearson,
+  confidencePercent,
   confidenceSequence,
   decide,
   decideCount,
   gateInterval,
   gateResult,
-  percent,
   rateBound,
   stagewiseInterval,
   tallyInterval,
@@ -227,7 +227,7 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
     expect(c.worst).toBeLessThan(0.97);
   });
 
-  it("under a blame probe's gate, at its share of the search's 5%: 0.6 / 0.1 at 0.625%, up to 34 attempts, its bound at 99.4%", () => {
+  it("under a blame probe's gate, at its share of the search's 5%: 0.6 / 0.1 at 0.625%, up to 34 attempts, its bound at 99.3%", () => {
     expect(PROBE).toMatchObject({ good: 0.6, bad: 0.1, max: 34 });
     expect(PROBE.risk).toBeCloseTo(0.00625, 12);
     const c = COVERED.blame();
@@ -266,7 +266,7 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
   it('as the page states it: the worst the printed bound does under each gate, read on both sides of every printed end, not on a grid of hundredths', () => {
     // A coverage is a floor, so the page rounds it down.
     const floor = (x: number) => `${(Math.floor(1000 * x) / 10).toFixed(1)}%`;
-    says(`The worst the printed bound does is ${floor(COVERED.default().worst)} under the default gate, ${floor(COVERED.split().worst)} under a gate split 100 ways, ${floor(COVERED.history().worst)} under the gate against history against 47 of 50, and ${floor(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${percent(1 - PROBE.risk)}.`);
+    says(`The worst the printed bound does is ${floor(COVERED.default().worst)} under the default gate, ${floor(COVERED.split().worst)} under a gate split 100 ways, ${floor(COVERED.history().worst)} under the gate against history against 47 of 50, and ${floor(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${confidencePercent(1 - PROBE.risk)}.`);
     // Read only at the hundredths, where both kinds of printed end hold, each gate looks better than it is.
     for (const c of [COVERED.default(), COVERED.split(), COVERED.history(), COVERED.blame()]) expect(c.onGrid).toBeGreaterThan(c.worst);
     // Its worst is just off a hundredth, where a printed end stops holding.

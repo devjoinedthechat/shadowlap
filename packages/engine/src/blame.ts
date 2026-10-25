@@ -2,7 +2,7 @@ import type { Block } from './deltas.js';
 import { fisherGreater } from './exact-tests.js';
 import { antitonic } from './isotonic.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -209,7 +209,7 @@ export function probeFinding(x: Pick<BlameProbe, 'rescued' | 'decision' | 'passe
 export function rescueRule(r: Pick<BlameReport, 'needed' | 'attemptsPerProbe'> & { gate?: SprtGate | null | undefined; probeBudget?: number | null | undefined }): string {
   if (!r.gate) return `a rescue needs ${r.needed} of ${r.attemptsPerProbe} attempts to pass`;
   const max = r.probeBudget ? probeGate(r.gate, r.probeBudget).max : r.gate.max;
-  return `gate: rescue at ${atLeast(r.gate.good)}, lost at ${atMost(r.gate.bad)}, <= ${percent(r.gate.risk)} risk, up to ${max} attempts`;
+  return `gate: rescue at ${atLeast(r.gate.good)}, lost at ${atMost(r.gate.bad)}, <= ${riskPercent(r.gate.risk)} risk, up to ${max} attempts`;
 }
 
 /**
@@ -598,8 +598,8 @@ export function pooledRates(r: Pick<BlameReport, 'probes'> & { fit?: BlameSearch
   return groups.filter((g) => g.calls.length > 1 && g.calls.some((c) => Math.abs(judgedRate(r.probes.find((x) => x.callNo === c)!).rate - g.rate) > 1e-9));
 }
 
-/** A share as a percentage for an error bound: below 0.1% it says so rather than round to 0%. */
-const share = (x: number): string => (x > 0 && x < 0.001 ? '<0.1%' : percent(x));
+/** An error bound as a percentage, to a tenth of a point and rounded up, so it never reads as less than it is; below 0.1% it says so rather than round to 0%. */
+const share = (x: number): string => (x > 0 && x < 0.001 ? '<0.1%' : `${+(Math.ceil(+(x * 1000).toPrecision(12)) / 10).toFixed(1)}%`);
 
 /**
  * The range a blame reports, as its calls: where it ends (null when pinned to one call), the probe

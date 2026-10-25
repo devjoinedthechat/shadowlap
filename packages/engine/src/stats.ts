@@ -874,16 +874,32 @@ export function percent(x: number): string {
   return `${+(x * 100).toFixed(1)}%`;
 }
 
+/** x rounded to `places` decimals, up or down, through 12 significant digits so 0.05 × 100 is 5, not 5.000000000000001. */
+const rounded = (x: number, places: number, way: 'up' | 'down'): number => {
+  const scale = 10 ** places;
+  const scaled = +(x * scale).toPrecision(12);
+  return (way === 'up' ? Math.ceil(scaled) : Math.floor(scaled)) / scale;
+};
+
 /**
- * A risk as a percentage: as `percent` from 1% up, and to two significant digits below it, rounded
- * up so it never reads as less than it is: 0.0005 is 0.05%, 0.000437 is 0.044%.
+ * A risk as a percentage, rounded up so it never reads as less than it is: to a tenth of a point
+ * from 1% up (0.0525 is 5.3%), to two significant digits below it (0.0005 is 0.05%, 0.000437 is
+ * 0.044%). What a line says a verdict is wrong at most.
  */
 export function riskPercent(x: number): string {
   const v = x * 100;
-  if (!(v > 0) || v >= 1) return percent(x);
-  const places = 1 - Math.floor(Math.log10(v));
-  const scale = 10 ** places;
-  return `${+(Math.ceil(+(v * scale).toPrecision(12)) / scale).toFixed(places)}%`;
+  if (!(v > 0)) return percent(x);
+  const places = v >= 1 ? 1 : 1 - Math.floor(Math.log10(v));
+  return `${+rounded(v, places, 'up').toFixed(places)}%`;
+}
+
+/**
+ * A confidence as a percentage, rounded down to a tenth of a point so it never reads as more than it
+ * is: 1 − 0.05/6 is 99.1%, where `percent` says 99.2%, and 1 − 0.0005 is 99.9%, not 100%. What a
+ * bound says it is sure of.
+ */
+export function confidencePercent(x: number): string {
+  return `${+rounded(x * 100, 1, 'down').toFixed(1)}%`;
 }
 
 /** A rate to two places: 0.7 is 0.70. */
@@ -903,7 +919,7 @@ const points = (drop: number) => `${+(drop * 100).toFixed(1)}`;
 /** An SPRT gate's risks in words: `5% risk`, or with a lower risk for a failure, `5% risk to pass and <= 0.05% to fail`. */
 function risks(g: SprtFigures): string {
   const fail = g.failRisk ?? g.risk;
-  return fail === g.risk ? `${percent(g.risk)} risk` : `${percent(g.risk)} risk to pass and <= ${riskPercent(fail)} to fail`;
+  return fail === g.risk ? `${riskPercent(g.risk)} risk` : `${riskPercent(g.risk)} risk to pass and <= ${riskPercent(fail)} to fail`;
 }
 
 /**
@@ -916,9 +932,10 @@ function risks(g: SprtFigures): string {
  */
 export function describeGate(gate: Gate): string {
   if (gate.kind === 'sprt') return `tells ${atLeast(gate.good)} from ${atMost(gate.bad)} at <= ${risks(gate)}, up to ${plural(gate.max, 'attempt')}`;
-  const sure = 1 - gate.risk;
-  // A share of a suite's risk can be finer than a tenth of a point: 99.95% likely.
-  const likely = gate.risk >= 0.01 ? percent(sure) : `${+(sure * 100).toFixed(Math.min(6, 2 - Math.floor(Math.log10(gate.risk * 100))))}%`;
+  // A share of a suite's risk can be finer than a tenth of a point: 99.95% likely, never more than it is.
+  const doubt = gate.risk * 100;
+  const places = doubt < 1 ? Math.min(6, 2 - Math.floor(Math.log10(doubt))) : 1;
+  const likely = `${+rounded(100 - doubt, places, 'down').toFixed(places)}%`;
   return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${likely} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}`;
 }
 
@@ -930,7 +947,7 @@ export function describeGate(gate: Gate): string {
  */
 export function rateBound(r: Pick<GateResult, 'attempts' | 'interval'> & { decision?: GateDecision | undefined }): string | null {
   if (r.attempts === 0) return null;
-  const at = `(${percent(r.interval.confidence)})`;
+  const at = `(${confidencePercent(r.interval.confidence)})`;
   if (r.decision === undefined || r.decision === 'pass') return `rate >= ${lowEnd(r.interval.lo)} ${at}`;
   if (r.decision === 'fail') return `rate <= ${highEnd(r.interval.hi)} ${at}`;
   return `rate ${lowEnd(r.interval.lo)} to ${highEnd(r.interval.hi)} ${at}`;

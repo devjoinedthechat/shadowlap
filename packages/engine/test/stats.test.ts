@@ -7,6 +7,7 @@ import {
   SPRT_DEFAULTS,
   attemptsToFail,
   attemptsToPass,
+  confidencePercent,
   betaCdf,
   betaPdf,
   binomialTail,
@@ -35,6 +36,7 @@ import {
   verdictLine,
   wilson,
   rateBound,
+  riskPercent,
   type BaselineGate,
   type SprtGate,
 } from '../src/stats.js';
@@ -528,6 +530,32 @@ describe('the baseline gate', () => {
     expect(gateOdds(g, 0, null)).toEqual({ pass: 0, fail: 1, inconclusive: 0, attempts: 14 });
     // It says little: an agent that passes 30% of the time mostly ends inconclusive.
     expect(gateOdds(g, 0.3, null).inconclusive).toBeCloseTo(0.7786, 4);
+  });
+});
+
+describe('what a label rounds to', () => {
+  it('never says a bound is surer, or a risk smaller, than worked out: confidences round down, risks up, on a grid', () => {
+    // A probe at a sixth of 5% is 99.17% sure: 99.1%, where rounding to the nearest said 99.2%.
+    expect(confidencePercent(1 - 0.05 / 6)).toBe('99.1%');
+    expect(percent(1 - 0.05 / 6)).toBe('99.2%');
+    expect([confidencePercent(0.95), confidencePercent(1 - 0.05 / 8), confidencePercent(0.9995)]).toEqual(['95%', '99.3%', '99.9%']);
+    expect([riskPercent(0.05), riskPercent(0.0525), riskPercent(0.087), riskPercent(0.0005), riskPercent(0.000437)]).toEqual(['5%', '5.3%', '8.7%', '0.05%', '0.044%']);
+    expect(riskPercent(0.08704)).toBe('8.8%');
+    const read = (label: string) => Number(label.replace('%', '')) / 100;
+    for (let i = 1; i < 100_000; i += 7) {
+      const x = i / 100_000;
+      expect(read(confidencePercent(x)), String(x)).toBeLessThanOrEqual(x + 1e-12);
+      expect(read(riskPercent(x)), String(x)).toBeGreaterThanOrEqual(x - 1e-12);
+    }
+  });
+
+  it('prints a bound and a history gate’s rule at a confidence no higher than the gate’s', () => {
+    // A gate at a ninth of 5%: 99.44% sure, read 99.4%.
+    const g = sprt({ risk: 0.05 / 9 });
+    expect(rateBound(gateResult(g, Array(attemptsToPass(g)).fill(true)))).toMatch(/\(99\.4%\)$/);
+    const h: BaselineGate = { kind: 'baseline', ...BASELINE_DEFAULTS, risk: 0.00045 };
+    expect(describeGate(h)).toContain('once 99.955% likely');
+    expect(describeGate({ ...h, risk: 1 / 600 })).toContain('once 99.833% likely');
   });
 });
 

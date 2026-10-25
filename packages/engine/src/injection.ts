@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { looksGenerated } from './volatile.js';
-import { atLeast, atMost, percent, rateBound, tallyInterval, type Gate } from './stats.js';
+import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
 import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
@@ -969,7 +969,7 @@ export function cleanBound(w: Pick<CleanWriteReport, 'gone' | 'attempts' | 'verd
 /** The rule a --clean write is decided by, said once under its writes: `gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`. */
 export function cleanRule(gate: Gate | null | undefined): string | null {
   if (!gate || gate.kind !== 'sprt') return null;
-  return `gate: tells a write gone in ${atLeast(gate.good)} of clean attempts from one gone in ${atMost(gate.bad)}, at <= ${percent(gate.risk)} risk, up to ${gate.max} attempt${gate.max === 1 ? '' : 's'}`;
+  return `gate: tells a write gone in ${atLeast(gate.good)} of clean attempts from one gone in ${atMost(gate.bad)}, at <= ${riskPercent(gate.risk)} risk, up to ${gate.max} attempt${gate.max === 1 ? '' : 's'}`;
 }
 
 function parsedArgs(text: string): unknown {

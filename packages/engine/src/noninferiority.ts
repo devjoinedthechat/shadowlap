@@ -1,4 +1,4 @@
-import { betaCdf, percent, type Tally } from './stats.js';
+import { betaCdf, confidencePercent, riskPercent, type Tally } from './stats.js';
 
 /**
  * Whether a change keeps a good run: not worse than the run's own baseline by `margin` or more. A
@@ -476,7 +476,7 @@ const points = (x: number) => `${+(x * 100).toFixed(1)}`;
  */
 export function describeBaselineRule(r: BaselineRule & { source: BaselineSource; revision?: string | null }): string {
   const against = r.source === 'paired' ? `its baseline${r.revision ? ` at ${r.revision}` : ''}, attempt for attempt` : "its golden's history";
-  return `kept unless it drops ${points(r.margin)}+ points below ${against}, <= ${percent(r.risk)} risk, up to ${r.max} ${r.source === 'paired' ? 'pairs' : 'attempts'}`;
+  return `kept unless it drops ${points(r.margin)}+ points below ${against}, <= ${riskPercent(r.risk)} risk, up to ${r.max} ${r.source === 'paired' ? 'pairs' : 'attempts'}`;
 }
 
 /**
@@ -485,7 +485,7 @@ export function describeBaselineRule(r: BaselineRule & { source: BaselineSource;
  * `risk` of the time.
  */
 export function baselineShort(r: Pick<BaselineRule, 'margin' | 'risk'>): string {
-  return `tells no drop from one of ${points(r.margin)}+ points at <= ${percent(r.risk)} risk`;
+  return `tells no drop from one of ${points(r.margin)}+ points at <= ${riskPercent(r.risk)} risk`;
 }
 
 /** A drop to two places, signed: `0.07`, `-0.03`. */
@@ -497,7 +497,7 @@ const signed = (x: number) => (Math.abs(x) < 0.005 ? '0.00' : x.toFixed(2));
  * test stopped. Null with nothing to bound.
  */
 export function dropBound(d: DropBound, decision: BaselineDecision | 'pass' | 'fail' | null | undefined): string | null {
-  const at = `(${percent(d.confidence)})`;
+  const at = `(${confidencePercent(d.confidence)})`;
   if ((decision === 'kept' || decision === 'pass') && d.hi !== null) return `drop <= ${signed(d.hi)} ${at}`;
   if ((decision === 'broken' || decision === 'fail') && d.lo !== null) return `drop >= ${signed(d.lo)} ${at}`;
   if (d.lo === null && d.hi === null) return null;

@@ -2,7 +2,7 @@ import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, decide, describeGate, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decide, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -319,7 +319,7 @@ export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | '
 
 /** A gate's rule in a few words, for a step's line: `tells 90%+ from 70%- at <= 5% risk`. */
 export function gateShort(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): string {
-  return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${percent(g.risk)} risk`;
+  return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${riskPercent(g.risk)} risk`;
 }
 
 /**
