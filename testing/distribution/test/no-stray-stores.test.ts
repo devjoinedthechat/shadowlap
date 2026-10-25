@@ -1,14 +1,15 @@
-import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import setup, { check, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
+import setup, { changedMessage, check, checkoutMessage, checkoutStatus, isOutput, leftInCheckout, setupOptions, snapshot, strays, WATCHED } from '../../no-stray-stores.mjs';
 
 /**
- * A test that leaves a .shadowlap folder where the suites run (the repository's root, testing/frameworks)
- * fails the run that left it: Vitest's global setup, and the wrapper the framework tests run under.
+ * A test that leaves a .shadowlap folder where the suites run (the repository's root, testing/frameworks),
+ * or anything in the checkout, fails the run that left it: Vitest's global setup, and the wrapper the
+ * framework tests run under.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const SCRIPT = fileURLToPath(new URL('../../no-stray-stores.mjs', import.meta.url));
@@ -53,7 +54,7 @@ describe('what tests leave where the suites run', () => {
     const after = join(dir, 'after', '.shadowlap');
     mkdirSync(join(before, 'agents'), { recursive: true });
     const warned: string[] = [];
-    const teardown = check([before, after], (line) => warned.push(line));
+    const teardown = check([before, after], (line) => warned.push(line), { root: null });
     expect(warned).toEqual([`${before}/ is there from before this run, left by a shadowlap command run there: a test that runs the CLI in a folder inside the repository finds it as its project's store. Remove it.`]);
     expect(teardown).not.toThrow();
     mkdirSync(after, { recursive: true });
@@ -83,5 +84,80 @@ describe('what tests leave where the suites run', () => {
     const again = run('process.exit(0)');
     expect(again.status, again.stderr).toBe(0);
     expect(again.stderr).toContain(`! ${watched}/ is there from before this run`);
+  });
+});
+
+describe('what tests leave in the checkout', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { cwd, stdio: 'ignore' });
+  /** A git repository with a test folder, a Python package and a built one in it, each with a committed file. */
+  function repository(): string {
+    const repo = realpathSync.native(mkdtempSync(join(dir, 'checkout-')));
+    git(repo, 'init', '-q');
+    for (const folder of ['test', 'guard', 'pkg']) mkdirSync(join(repo, folder));
+    writeFileSync(join(repo, '.gitignore'), 'node_modules/\ndist/\n__pycache__/\n*.tsbuildinfo\nvitest-junit.xml\n.DS_Store\n');
+    for (const file of ['test/a.test.ts', 'guard/hook.py', 'pkg/index.ts', 'notes.md']) writeFileSync(join(repo, file), 'as committed\n');
+    git(repo, 'add', '.');
+    git(repo, 'commit', '-q', '-m', 'files');
+    return repo;
+  }
+  const put = (path: string) => {
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, '');
+  };
+
+  it("is what git lists after the run that it didn't list before, build outputs, test reports and the system's own files aside", () => {
+    const repo = repository();
+    put(join(repo, 'draft.md'));
+    const before = checkoutStatus(repo)!;
+    expect([...before]).toEqual([['draft.md', '??']]);
+    // What a run may build or write of its own.
+    for (const file of ['node_modules/x/index.js', 'pkg/dist/index.js', 'pkg/dist/index.js.map', 'pkg/tsconfig.tsbuildinfo', 'vitest-junit.xml', 'coverage/index.html', 'test/.DS_Store']) put(join(repo, file));
+    expect(leftInCheckout(before, checkoutStatus(repo)!)).toEqual({ left: [], changed: [] });
+    // What tests used to leave: a project next to a test, a script beside it, Python's bytecode, a tracked file changed.
+    put(join(repo, 'test', '.tmp-fixes-4242-0', 'agent.mjs'));
+    put(join(repo, 'test', '.realtime-agent-4242.mjs'));
+    put(join(repo, 'guard', '__pycache__', 'hook.cpython-312.pyc'));
+    writeFileSync(join(repo, 'notes.md'), 'changed by a test\n');
+    expect(leftInCheckout(before, checkoutStatus(repo)!)).toEqual({ left: ['guard/__pycache__/', 'test/.realtime-agent-4242.mjs', 'test/.tmp-fixes-4242-0/'], changed: ['notes.md'] });
+  });
+
+  it('fails the run on what appeared, and on a tracked file changed under CI, which elsewhere it says', () => {
+    const repo = repository();
+    const warned: string[] = [];
+    const lax = check([], (line) => warned.push(line), { root: repo, strict: false });
+    const strict = check([], () => {}, { root: repo, strict: true });
+    writeFileSync(join(repo, 'notes.md'), 'edited while the tests ran\n');
+    expect(lax).not.toThrow();
+    expect(warned).toEqual([changedMessage(['notes.md'])]);
+    expect(strict).toThrow(changedMessage(['notes.md']));
+    put(join(repo, 'test', '.tmp-repair-4242-1', 'agent.mjs'));
+    expect(lax).toThrow(checkoutMessage(['test/.tmp-repair-4242-1/']));
+    expect(checkoutMessage(['test/.tmp-repair-4242-1/'])).toBe('tests left files in the checkout: test/.tmp-repair-4242-1/. A test writes in a temporary folder of its own, with links to the packages what it runs imports (testing/temp-project.mjs); remove these.');
+  });
+
+  it('says which project an earlier run left, and leaves a folder that is no git checkout alone', () => {
+    const repo = repository();
+    put(join(repo, 'test', '.tmp-fixes-1-0', 'agent.mjs'));
+    const warned: string[] = [];
+    expect(check([], (line) => warned.push(line), { root: repo })).not.toThrow();
+    expect(warned).toEqual(['test/.tmp-fixes-1-0/ is there from before this run, a project a test made in the checkout and never removed. Remove it.']);
+    const plain = mkdtempSync(join(dir, 'plain-'));
+    expect(checkoutStatus(plain)).toBeNull();
+    expect(check([], () => {}, { root: plain })).not.toThrow();
+  });
+
+  it('counts a part of a path as an output by its name', () => {
+    expect(['node_modules/', 'packages/cli/dist/', 'packages/cli/tsconfig.tsbuildinfo', 'testing/frameworks/node_modules/', 'sdks/python/build/', 'sdks/python/shadowlap.egg-info/', 'vitest-junit.xml', 'coverage/'].filter((p) => !isOutput(p))).toEqual([]);
+    expect(['packages/cli/test/.tmp-fixes-1-0/', 'packages/cli/guard/__pycache__/', '.shadowlap/', 'packages/cli/test/distant.ts', 'sdks/python/.pytest_cache/'].filter(isOutput)).toEqual([]);
+  });
+
+  it('leaves the checkout to a run in watch mode, where files change as you edit, and runs Python without bytecode', () => {
+    expect(setupOptions({ config: { watch: true } })).toEqual({ root: null });
+    expect(setupOptions({ config: { watch: false } })).toEqual({});
+    expect(setupOptions()).toEqual({});
+    // The suite's own processes, and what the framework tests' wrapper runs.
+    expect(process.env.PYTHONDONTWRITEBYTECODE).toBe('1');
+    const env = spawnSync(process.execPath, [SCRIPT, '--watch', join(dir, 'env', '.shadowlap'), 'node', '-e', 'process.exit(process.env.PYTHONDONTWRITEBYTECODE === "1" ? 0 : 5)'], { encoding: 'utf8', env: { ...process.env, PYTHONDONTWRITEBYTECODE: '' } });
+    expect(env.status, env.stderr).toBe(0);
   });
 });

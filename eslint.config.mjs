@@ -44,7 +44,6 @@ export default defineConfig(
     '**/.shadowlap/**',
     // A Python virtualenv, as .gitignore has it: its packages ship JavaScript of their own.
     '**/.venv/**',
-    'testing/frameworks/.tmp-*/**',
     'scripts/out/**',
     'sdks/python/build/**',
   ]),

@@ -4,11 +4,12 @@
 // divergence when a request changes.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, it } from 'node:test';
+import { REPO_MODULES, removeTempProject, tempProject } from '../temp-project.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const JEST = join(HERE, 'node_modules', 'jest', 'bin', 'jest.js');
@@ -29,13 +30,14 @@ describe('@shadowlap/test with Jest', { skip: existsSync(JEST) ? false : 'jest i
       });
     });
     await new Promise((r) => mock.listen(0, '127.0.0.1', r));
-    // Inside this directory, so the project resolves the SDKs installed here and the workspace packages above.
-    project = mkdtempSync(join(HERE, '.tmp-jest-'));
+    // In the temporary folder, below links to the SDKs installed here and then to the repository's
+    // packages: what a project inside this folder would find.
+    project = tempProject('sl-jest-project-', [join(HERE, 'node_modules'), REPO_MODULES]);
     cpSync(join(HERE, 'jest-project'), project, { recursive: true });
   });
   after(async () => {
     await new Promise((r) => mock.close(r));
-    rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    removeTempProject(project);
   });
 
   const model = () => `http://127.0.0.1:${mock.address().port}`;

@@ -26,8 +26,11 @@ export default defineConfig({
   },
   test: {
     include: ['packages/*/test/**/*.test.{ts,tsx}', 'testing/**/test/**/*.test.ts', 'experiments/*/test/**/*.test.mjs'],
-    // Fails the run when a test leaves a .shadowlap folder in the repository's root or testing/frameworks.
+    // Fails the run when a test leaves a .shadowlap folder in the repository's root or testing/frameworks,
+    // or anything in the checkout that git lists and the run didn't build.
     globalSetup: ['./testing/no-stray-stores.mjs'],
+    // Python, which the guard's and the SDK's tests start, writes no __pycache__ beside what it imports.
+    env: { PYTHONDONTWRITEBYTECODE: '1' },
     // A JUnit report alongside the usual output, so a failure survives the run. Test files execute
     // in parallel workers, and a summary line scrolling past in a CI log is how an intermittent
     // failure becomes "something failed once" instead of a name you can act on. No `retry`: a flake
