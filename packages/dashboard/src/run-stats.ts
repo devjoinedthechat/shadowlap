@@ -135,7 +135,7 @@ interface Kept {
    * call they record, but not while the store does not, so the parts of one read model that ask
    * for them again read their calls once.
    */
-  running: { index: RunIndex | null; totals: Map<string, CallTotals> };
+  running: { index: RunIndex | null; events: number; totals: Map<string, CallTotals> };
   /** Runs whose calls were read to work out their totals, for tests that check how much a read model reads. */
   runsRead: number;
   /** Runs whose calls and requests were read to work out their prompt cache. */
@@ -149,7 +149,7 @@ const kept = new WeakMap<Store, Kept>();
 function keptFor(store: Store): Kept {
   let k = kept.get(store);
   if (!k) {
-    k = { memory: new Map(), asks: new Map(), runningAsks: new Map(), running: { index: null, totals: new Map() }, runsRead: 0, cachesRead: 0, asksRead: 0 };
+    k = { memory: new Map(), asks: new Map(), runningAsks: new Map(), running: { index: null, events: 0, totals: new Map() }, runsRead: 0, cachesRead: 0, asksRead: 0 };
     kept.set(store, k);
   }
   return k;
@@ -243,7 +243,8 @@ function knownTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>):
   const k = keptFor(store);
   const out = new Map<string, CallTotals>();
   const unknown: IndexedRun[] = [];
-  if (k.running.index !== index) k.running = { index, totals: new Map() };
+  // The index counts added calls in place: a look at the store is the index as it stood then.
+  if (k.running.index !== index || k.running.events !== index.events) k.running = { index, events: index.events, totals: new Map() };
   const seen = new Set<string>();
   for (const r of runs) {
     if (seen.has(r.runId)) continue;

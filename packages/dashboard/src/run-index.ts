@@ -99,6 +99,11 @@ export interface RunIndex {
   attempts: Map<string, IndexedRun[]>;
   /** Runs that are not bundled attempts, and attempts that are. */
   counts: { runs: number; attempts: number };
+  /**
+   * The newest call event counted into it. It moves as calls are added, which the index counts in
+   * place, so what is worked out per look at the store (a recording's totals) is per this as well.
+   */
+  events: number;
 }
 
 const INDEX_SQL = `
@@ -123,13 +128,33 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        ) ELSE 0 END AS offline,
        (SELECT f.check_text FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id
          WHERE l.ref = r.run_id AND l.kind = 'failing'
-         ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check
+         ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check,
+       -- Where the store stood as these rows were read: one statement reads one state of the store.
+       (SELECT n FROM change_counts WHERE name = 'runs') AS v_runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS v_fixes,
+       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS v_calls
 FROM runs r
 ORDER BY r.started_at DESC, r.run_id DESC`;
 
 /** The store's change counters for what the index reads (`Store.changeCounts`), in one statement. */
 const VERSION_SQL = `SELECT (SELECT n FROM change_counts WHERE name = 'runs') AS runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS fixes,
        (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS calls`;
+
+/**
+ * The call events written after the one numbered `?` up to the one numbered `?`, each with what it
+ * adds to INDEX_SQL's counts of its run, under INDEX_SQL's conditions word for word: a call started,
+ * a judge check's, an injected failure, a call refused offline. Events are numbered as they are
+ * written, and those up to the newest one seen were all written then, so each is counted once.
+ * NOT INDEXED keeps SQLite on the events' numbers, so the cost is what was written since: left to
+ * choose, it reads every event of every run through the primary key's index (0.4 s at 10,000 runs).
+ */
+const GROWN_SQL = `
+SELECT e.run_id AS id, e.phase = 'start' AS start,
+       e.phase = 'start' AND json_extract(e.meta, '$.scope') = 'shadowlap:judge' AS judge,
+       r.status = 'failed' AND e.phase = 'end' AND e.outcome = 'error' AND e.meta ->> '$.injected' = 1 AS injected,
+       r.divergence IS NOT NULL AND r.meta -> '$.test' IS NOT NULL AND e.phase = 'end' AND e.outcome = 'error'
+         AND (e.meta ->> '$.offline' = 1 OR e.meta ->> '$.error.name' = 'ShadowlapOffline') AS offline
+FROM call_events e NOT INDEXED JOIN runs r ON r.run_id = e.run_id
+WHERE e.rowid > ? AND e.rowid <= ?`;
 
 /** What each finished recording's user asked first, kept since the row given (`run_asks`, in the order kept). */
 const ASKS_SQL = `SELECT rowid AS at, run_id AS id, key, ask FROM run_asks WHERE rowid > ? ORDER BY rowid`;
@@ -225,7 +250,10 @@ export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode
 }
 
 interface KeptIndex {
+  /** The runs and fixes counters when the index was read whole. */
   version: string;
+  /** The newest call event the index has counted. */
+  callsAt: number;
   index: RunIndex;
   /** The newest `run_asks` row read into the index. */
   asksAt: number;
@@ -237,10 +265,12 @@ const kept = new WeakMap<Store, KeptIndex>();
  * Where what the index reads stands: the runs (any run added, changed or deleted), the fixes and
  * their links, and the newest call event. Each moves with every write to what it counts, by this
  * connection or any other; a write the index doesn't read (run totals, the search index) moves none.
+ * A run, a fix or a link changing reads the index whole; call events added, as while a run records,
+ * count again only the runs they belong to (`grow`).
  */
-function versionOf(store: Store): string {
+function versionOf(store: Store): { version: string; calls: number } {
   const v = store.query(VERSION_SQL)[0];
-  return `${String(v?.runs)}|${String(v?.fixes)}|${String(v?.calls)}`;
+  return { version: `${String(v?.runs)}|${String(v?.fixes)}`, calls: Number(v?.calls ?? 0) };
 }
 
 /** Reads into the index what recordings' users asked that was kept since it last looked. */
@@ -267,16 +297,74 @@ export function parseAsk(v: unknown): RunAsk | null {
   return isObject(a) && typeof a.text === 'string' ? { text: a.text, agent: a.agent === true, batch: a.batch === true } : null;
 }
 
-/** Reads and classifies every run in the store, or returns the index read before when no run, call or fix changed since. */
+/**
+ * Reads and classifies every run in the store, or returns the index read before when no run, call or
+ * fix changed since. When only calls were added (a run recording, a replay making its calls), what
+ * they add is counted into the runs they belong to, which are classified again with their children,
+ * whose kind reads their parent's count, and the rest of the index stands: a status bar polling while
+ * a run records costs a read of what was written since, where every run was read and classified again
+ * (82 ms a poll at 10,000 runs, and more for every call a long recording had).
+ */
 export function loadRunIndex(store: Store): RunIndex {
-  const version = versionOf(store);
+  const { version, calls } = versionOf(store);
   let entry = kept.get(store);
-  if (!entry || entry.version !== version) {
-    entry = { version, index: readRunIndex(store), asksAt: 0 };
+  // Fewer events than were counted: some were taken out, which only a run's deletion does. Read whole.
+  if (!entry || entry.version !== version || calls < entry.callsAt || (calls > entry.callsAt && !grow(store, entry, calls))) {
+    entry = { ...readRunIndex(store), asksAt: 0 };
     kept.set(store, entry);
   }
   readAsks(store, entry);
   return entry.index;
+}
+
+/**
+ * Counts into the index the call events written since it last counted, up to the one numbered
+ * `calls`, and classifies the runs they belong to and their children again, in place: their kind and
+ * outcome read the counts, their filing as an attempt never does. False when an event belongs to a run
+ * not in the index (a run added since, whose counter the next look sees too): the index is read whole.
+ */
+function grow(store: Store, entry: KeptIndex, calls: number): boolean {
+  const index = entry.index;
+  const rows = store.query(GROWN_SQL, entry.callsAt, calls);
+  if (rows.some((row) => !index.byId.has(String(row.id)))) return false;
+  const grown = new Set<string>();
+  for (const row of rows) {
+    const r = index.byId.get(String(row.id))!;
+    grown.add(r.runId);
+    if (Number(row.start) === 1) {
+      r.calls++;
+      if (Number(row.judge) !== 1) r.agentCalls++;
+    }
+    if (Number(row.injected) === 1) r.injected = true;
+    if (Number(row.offline) === 1) r.offline = true;
+  }
+  if (grown.size) {
+    for (const r of index.runs) {
+      if (!grown.has(r.runId) && !(r.parentRunId !== null && grown.has(r.parentRunId))) continue;
+      const { kind, outcome, failed, label } = classified(r, r.parentRunId ? index.byId.get(r.parentRunId) : undefined, r.rescues);
+      Object.assign(r, { kind, outcome, failed, label });
+    }
+  }
+  entry.callsAt = calls;
+  index.events = calls;
+  return true;
+}
+
+/** A run's call counts as INDEX_SQL reads them. */
+function countsOf(row: Record<string, unknown>): Pick<IndexedRun, 'calls' | 'agentCalls' | 'injected' | 'offline'> {
+  return { calls: Number(row.calls), agentCalls: Number(row.calls) - Number(row.judge_calls), injected: Number(row.injected) === 1, offline: Number(row.offline) === 1 };
+}
+
+type BaseRun = Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode' | 'status' | 'divergence' | 'meta' | 'agentCalls' | 'injected' | 'offline' | 'fixCheck'>;
+
+/** A run's kind, outcome and filing as an attempt, from its own fields and its parent's. */
+function classified(r: BaseRun, p: Pick<IndexedRun, 'agentCalls' | 'status'> | undefined, rescues: string | null) {
+  const c = classifiable(r);
+  // Classified by the agent's calls: a judge check's are none of what a replay reproduced or made.
+  const parent = p ? { calls: p.agentCalls, status: p.status } : null;
+  const cls = classifyRun(c, { calls: r.agentCalls, parent, rescued: rescues !== null });
+  const outcome = fixedOutcome(runOutcome(c, { kind: cls.kind, calls: r.agentCalls, parent, injected: r.injected, offline: r.offline }), r.fixCheck);
+  return { kind: cls.kind, attemptOf: cls.attemptOf, attemptKind: cls.attemptKind, outcome, failed: isFailedOutcome(outcome), label: kindLabel(cls.kind, r.divergence) };
 }
 
 /**
@@ -288,8 +376,11 @@ export function keepingIndex<T>(_store: Store, write: () => T): T {
   return write();
 }
 
-function readRunIndex(store: Store): RunIndex {
+/** Every run read and classified, and where the store stood as they were read: its runs and fixes counters, and its newest call event. */
+function readRunIndex(store: Store): { index: RunIndex; version: string; callsAt: number } {
   const rows = store.query(INDEX_SQL);
+  // No runs, no version read with them: the counters as they are now (no run, so no call event to count).
+  const at = rows[0] ? { version: `${String(rows[0].v_runs)}|${String(rows[0].v_fixes)}`, calls: Number(rows[0].v_calls) } : versionOf(store);
   const base = rows.map((row) => {
     const command = json(row.command);
     const argv = isObject(command) && Array.isArray(command.argv) ? command.argv.filter((a): a is string => typeof a === 'string') : [];
@@ -304,11 +395,8 @@ function readRunIndex(store: Store): RunIndex {
       codeVersion: str(row.code),
       startedAt: Number(row.started),
       endedAt: num(row.ended),
-      calls: Number(row.calls),
-      agentCalls: Number(row.calls) - Number(row.judge_calls),
+      ...countsOf(row),
       meta: readMeta(row),
-      injected: Number(row.injected) === 1,
-      offline: Number(row.offline) === 1,
       fixCheck: str(row.fix_check),
     };
   });
@@ -318,23 +406,12 @@ function readRunIndex(store: Store): RunIndex {
   for (const r of base) if (r.meta.blame?.rescuedRunId) rescued.set(r.meta.blame.rescuedRunId, r.runId);
 
   const runs: IndexedRun[] = base.map((r) => {
-    const c = classifiable(r);
-    const p = r.parentRunId ? baseById.get(r.parentRunId) : undefined;
-    // Classified by the agent's calls: a judge check's are none of what a replay reproduced or made.
-    const parent = p ? { calls: p.agentCalls, status: p.status } : null;
     const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
-    const cls = classifyRun(c, { calls: r.agentCalls, parent, rescued: rescues !== null });
-    const outcome = fixedOutcome(runOutcome(c, { kind: cls.kind, calls: r.agentCalls, parent, injected: r.injected, offline: r.offline }), r.fixCheck);
     return {
       ...r,
-      kind: cls.kind,
-      attemptOf: cls.attemptOf,
-      attemptKind: cls.attemptKind,
+      ...classified(r, r.parentRunId ? baseById.get(r.parentRunId) : undefined, rescues),
       bundled: false,
       rescues,
-      outcome,
-      failed: isFailedOutcome(outcome),
-      label: kindLabel(cls.kind, r.divergence),
       source: captureSource({ command: { argv: r.argv }, meta: { imported: r.meta.imported } }),
       ask: undefined,
     };
@@ -361,7 +438,7 @@ function readRunIndex(store: Store): RunIndex {
     if (list) list.push(r);
     else attempts.set(r.attemptOf, [r]);
   }
-  return { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled } };
+  return { index: { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled }, events: at.calls }, version: at.version, callsAt: at.calls };
 }
 
 /** How many ancestors a run has in the store (0 for a recording, 1 for its fork, …). */
