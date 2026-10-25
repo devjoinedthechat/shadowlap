@@ -1100,7 +1100,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (rule.pattern !== undefined) compilePattern(rule.pattern);
       if (rule.path !== undefined) parsePath(rule.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
   });
   const per = rules.map(() => ({

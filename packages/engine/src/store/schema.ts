@@ -621,7 +621,7 @@ export function openDatabase(path: string): SqliteDatabase {
       db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS search_docs USING fts5(text, run_id UNINDEXED, call_no UNINDEXED, field UNINDEXED, tokenize = 'unicode61')`);
     } catch (err) {
       // SQLite's own words, "no such module: fts5", would read as a damaged store.
-      if (/no such module: fts5/i.test(err instanceof Error ? err.message : String(err))) throw new Error(noFullTextSearch());
+      if (/no such module: fts5/i.test(err instanceof Error ? err.message : String(err))) throw new Error(noFullTextSearch(), { cause: err });
       throw err;
     }
     db.exec(`CREATE TABLE IF NOT EXISTS search_state (run_id TEXT PRIMARY KEY, calls INTEGER NOT NULL, status TEXT NOT NULL)`);

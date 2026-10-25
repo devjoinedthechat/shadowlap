@@ -17,7 +17,7 @@ function parseOutput(stdout, stderr, step) {
   try {
     return JSON.parse(line);
   } catch (err) {
-    throw new Error(`step "${step}": the client's last JSON line did not parse (${err.message}): ${line}`);
+    throw new Error(`step "${step}": the client's last JSON line did not parse (${err.message}): ${line}`, { cause: err });
   }
 }
 
@@ -36,7 +36,7 @@ async function invoke(client, step, env) {
     stdout = err.stdout ?? '';
     stderr = err.stderr ?? '';
     // A non-zero exit is allowed as long as the client still reported what it observed.
-    if (!stdout.includes('{')) throw new Error(`step "${step}" failed to run: ${err.message}\nstderr:\n${stderr}`);
+    if (!stdout.includes('{')) throw new Error(`step "${step}" failed to run: ${err.message}\nstderr:\n${stderr}`, { cause: err });
   }
   return parseOutput(stdout, stderr, step);
 }

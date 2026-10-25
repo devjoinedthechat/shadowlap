@@ -125,7 +125,7 @@ export class BaseCheckout {
       git(root, ['worktree', 'add', '--detach', '--force', worktree, spec.revision]);
     } catch (err) {
       remove();
-      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`);
+      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, { cause: err });
     }
     const worktreeCwd = join(worktree, inRepo);
     if (spec.build) {
