@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer as createHttp2Server } from 'node:http2';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { tmpdir } from 'node:os';
@@ -340,6 +341,55 @@ describe('a WebSocket for the sidecar', () => {
       expect(sidecar.upgrades).toHaveLength(before);
     } finally {
       await service.close();
+    }
+  });
+});
+
+describe('HTTP/2, captured', () => {
+  it("keeps a request's method, path and headers when the client gives them as raw headers", async () => {
+    // Node's http2 takes a request's headers as an object or as raw headers, [name, value, ...]. The
+    // capture redirects either to the sidecar; spread into an object, raw headers became numbered
+    // keys and the request lost its method and path.
+    const seen: Array<Record<string, unknown>> = [];
+    const upstream = createHttp2Server();
+    upstream.on('stream', (stream, headers) => {
+      seen.push({ method: headers[':method'], path: headers[':path'], test: headers['x-test'], keys: Object.keys(headers).filter((k) => /^\d+$/.test(k)) });
+      stream.resume();
+      stream.on('end', () => {
+        stream.respond({ ':status': 200, 'content-type': 'application/json' });
+        stream.end(JSON.stringify(message([{ type: 'text', text: 'raw and sound' }])));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const sidecar = await Sidecar.start({ store, upstreams: { bedrock: `http://127.0.0.1:${(upstream.address() as AddressInfo).port}` } });
+    try {
+      const r = sidecar.startRun({ mode: 'record', command: { argv: ['node'], cwd: dir } });
+      const { stdout } = await agent(
+        'http2-raw',
+        `
+import http2 from 'node:http2';
+const session = http2.connect('https://bedrock-runtime.us-east-1.amazonaws.com');
+const req = session.request([':method', 'POST', ':path', '/model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke', 'content-type', 'application/json', 'x-test', 'raw']);
+let out = '';
+req.setEncoding('utf8');
+req.on('response', (h) => console.log('status', h[':status']));
+req.on('data', (c) => (out += c));
+req.on('end', () => {
+  console.log('answer', JSON.parse(out).content[0].text);
+  session.close();
+});
+req.end(JSON.stringify({ anthropic_version: 'bedrock-2023-05-31', max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] }));
+`,
+        agentEnv(sidecar, r.runId, 'warn', {}),
+      );
+      expect(seen).toEqual([{ method: 'POST', path: '/model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke', test: 'raw', keys: [] }]);
+      expect(stdout).toContain('status 200');
+      expect(stdout).toContain('answer raw and sound');
+      sidecar.endRun(r.runId, 'completed');
+      expect(store.getCalls(r.runId).map((c) => c.name)).toEqual(['POST /model/anthropic.claude-3-5-haiku-20241022-v1%3A0/invoke']);
+    } finally {
+      await sidecar.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   });
 });

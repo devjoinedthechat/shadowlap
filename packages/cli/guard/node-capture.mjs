@@ -457,6 +457,18 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   // ---- http2.connect: the AWS SDK's Bedrock runtime client speaks only HTTP/2 ----
   const http2Url = process.env.SHADOWLAP_HTTP2_URL ? new URL(process.env.SHADOWLAP_HTTP2_URL) : null;
   const originalConnect = http2.connect;
+  // Raw headers, as http2 also takes a request's: [name, value, name, value, ...].
+  /** @type {(headers: unknown) => headers is readonly string[]} */
+  const isRawHeaders = (headers) => Array.isArray(headers);
+  const rawHeader = (raw, name) => {
+    for (let i = 0; i + 1 < raw.length; i += 2) if (String(raw[i]).toLowerCase() === name) return raw[i + 1];
+    return undefined;
+  };
+  const rawHeadersWithout = (raw, names) => {
+    const kept = [];
+    for (let i = 0; i + 1 < raw.length; i += 2) if (!names.includes(String(raw[i]).toLowerCase())) kept.push(raw[i], raw[i + 1]);
+    return kept;
+  };
   http2.connect = function capturedConnect(authority, options, listener) {
     let url;
     try {
@@ -475,8 +487,12 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     const session = originalConnect.call(this, http2Url.origin, rest, listener);
     const request = session.request;
     session.request = function capturedStream(headers = {}, streamOptions) {
-      const target = new URL(headers[':path'] ?? '/', url);
-      const redirected = { ...headers, ...(currentScope() ? { 'x-shadowlap-scope': currentScope() } : {}), ':scheme': 'http', ':path': `${http2Url.pathname.replace(/\/$/, '')}${runSegment}/${provider}${target.pathname}${target.search}`, 'x-shadowlap-upstream': url.origin };
+      // A raw list keeps its order and repeats, with the sidecar's headers in place of its own of the
+      // same names; spread into an object, it would become numbered keys and lose its method and path.
+      const raw = isRawHeaders(headers);
+      const target = new URL((raw ? rawHeader(headers, ':path') : headers[':path']) ?? '/', url);
+      const sidecarHeaders = { ...(currentScope() ? { 'x-shadowlap-scope': currentScope() } : {}), ':scheme': 'http', ':path': `${http2Url.pathname.replace(/\/$/, '')}${runSegment}/${provider}${target.pathname}${target.search}`, 'x-shadowlap-upstream': url.origin };
+      const redirected = raw ? [...rawHeadersWithout(headers, Object.keys(sidecarHeaders)), ...Object.entries(sidecarHeaders).flat()] : { ...headers, ...sidecarHeaders };
       return request.call(this, redirected, streamOptions);
     };
     return session;
