@@ -24,6 +24,8 @@ cd sdks/python && uv run --no-project --with pytest --with-editable . python -m 
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
 
+The dashboard's checks in a real browser run with `npm run test:browser`, in the Chromium Playwright installs (`npx playwright install chromium`, in `packages/dashboard`); what follows `--` goes to Playwright, so `npm run test:browser -- -g axe` runs the tests whose titles match.
+
 `npm run lint` reads the packages through their built declarations, so it runs after the build, and it fails on any finding. A finding is fixed; where the code is right as it is, the rule is turned off on that line with the reason (`// eslint-disable-next-line <rule> -- <why>`, `# noqa: <code> -- <why>`). `eslint.config.mjs` and `sdks/python/pyproject.toml` say why each rule that is off is off.
 
 `npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:

@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * `npm run typecheck` checks every TypeScript program the repository has: the build's projects (tsc -b,
- * which checks what changed and writes it, as a composite build does; --dry checked nothing), the
- * CommonJS copies, the dashboard's UI and its browser tests, and the tests themselves.
+ * The root's scripts. `npm run typecheck` checks every TypeScript program the repository has: the
+ * build's projects (tsc -b, which checks what changed and writes it, as a composite build does; --dry
+ * checked nothing), the CommonJS copies, the dashboard's UI and its browser tests, and the tests
+ * themselves. `npm run test:browser` passes what follows `--` on to Playwright.
  */
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const scripts = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts;
@@ -43,5 +44,14 @@ describe('npm run typecheck', () => {
     // The base every config extends, and ESLint's program, which type-checks nothing (checkJs is off).
     const notPrograms = new Set(['tsconfig.base.json', 'tsconfig.lint.json']);
     expect(configs.filter((c) => !notPrograms.has(c) && !checked.has(c))).toEqual([]);
+  });
+});
+
+describe('npm run test:browser', () => {
+  it("passes what follows -- on to Playwright, where the workspace's npm would read -g as --global", () => {
+    // `npm run test:browser -- -g axe` runs `npm run test:browser --workspace packages/dashboard -- -g axe`.
+    expect(scripts['test:browser']).toBe('npm run test:browser --workspace packages/dashboard --');
+    const dashboard = (JSON.parse(readFileSync(join(ROOT, 'packages', 'dashboard', 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts;
+    expect(dashboard['test:browser']).toMatch(/playwright test [^&]*$/);
   });
 });
