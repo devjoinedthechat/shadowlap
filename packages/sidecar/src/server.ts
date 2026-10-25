@@ -308,8 +308,18 @@ class RunContext {
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 // No content-encoding: requestUpstream drops it once it has decoded the body, and an encoding it
-// can't decode goes on to the agent with its body as it came.
-const RESPONSE_DROP = new Set([...HOP_BY_HOP, 'content-length']);
+// can't decode goes on to the agent with its body as it came. No `location` either: a model API
+// never redirects, and a client that follows one sends every header again, its key among them, to
+// wherever it points (Node's fetch does), so a provider's answer is passed on and recorded without
+// it, and a recording that kept one is served without it.
+const RESPONSE_DROP = new Set([...HOP_BY_HOP, 'content-length', 'location']);
+
+/** A recorded model answer's headers as a replay serves them: without what RESPONSE_DROP leaves out of a live one. */
+function servedHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) if (!RESPONSE_DROP.has(k.toLowerCase())) out[k] = v;
+  return out;
+}
 
 /** A call's attempt that ended without an answer because the agent's connection closed first. */
 const clientLeft = (when: string): SerializedError => ({ name: 'ClientDisconnected', message: `the client closed the connection ${when}` });
@@ -1523,7 +1533,7 @@ export class Sidecar {
     const end = record.end!;
     const earlier = earlierOwnAnswer(record);
     const bytes = end.responseRef ? (this.store.getBlob(end.responseRef) ?? Buffer.alloc(0)) : (earlier?.bytes ?? Buffer.alloc(0));
-    const headers = end.meta.headers ?? earlier?.headers ?? {};
+    const headers = servedHeaders(end.meta.headers ?? earlier?.headers ?? {});
     const status = end.meta.status ?? 200;
     const attempt = this.beginAttempt(tracked);
     if (!cutShort(end)) {

@@ -18,7 +18,8 @@ import { Sidecar } from '../src/server.js';
  * write) is recorded with its bytes and headers, so a replay sends the agent the very same answer;
  * a provider or host that can't be reached, or that breaks off its answer, breaks the agent's
  * connection as it would have without Shadowlap, and a replay breaks it again. A path it reads a
- * model from that does not decode costs a call nothing. Telemetry goes where the agent sent it.
+ * model from that does not decode costs a call nothing. Model routes never pass a redirect on.
+ * Telemetry goes where the agent sent it.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -380,6 +381,53 @@ describe('a Bedrock path that does not decode', () => {
       const [call] = store.getCalls(rec.runId);
       expect(call.end).toMatchObject({ outcome: 'error', meta: { status: 400, model: 'anthropic.claude%ZZ' } });
       expect(logs.filter((l) => /^error:/.test(l))).toEqual([]);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('a redirect on a model route', () => {
+  it('is never passed on or replayed: no client follows it, with its key, to wherever it points', async () => {
+    let collected = 0;
+    const collector = await serve((req, res) => {
+      collected++;
+      req.resume();
+      res.writeHead(200).end('{}');
+    });
+    const up = await serve((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(307, { location: `${collector}/steal`, 'content-type': 'application/json' });
+        res.end('{"type":"error","error":{"type":"moved","message":"moved"}}');
+      });
+    });
+    const path = join(dir, 'redirect.db');
+    const store = Store.open(path);
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: up } });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      // Node's fetch follows a redirect, sending every header again: here it has none to follow.
+      const live = await fetch(`${sidecar.envFor(rec.runId).ANTHROPIC_BASE_URL}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', ...anthropicHeaders }, body: JSON.stringify(params) });
+      expect(live.status).toBe(307);
+      expect(live.headers.get('location')).toBeNull();
+      await live.arrayBuffer();
+      sidecar.endRun(rec.runId, 'completed');
+      const [call] = store.getCalls(rec.runId);
+      expect(call.end!.meta.headers).not.toHaveProperty('location');
+
+      // A recording that kept one, as an earlier version did, is served without it.
+      const db = new DatabaseSync(path);
+      db.prepare(`UPDATE call_events SET meta = json_set(meta, '$.headers.location', ?) WHERE run_id = ? AND phase = 'end'`).run(`${collector}/steal`, rec.runId);
+      db.close();
+      const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, offline: true });
+      const replayed = await fetch(`${sidecar.envFor(rep.runId).ANTHROPIC_BASE_URL}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', ...anthropicHeaders }, body: JSON.stringify(params) });
+      expect(replayed.status).toBe(307);
+      expect(replayed.headers.get('location')).toBeNull();
+      await replayed.arrayBuffer();
+      sidecar.endRun(rep.runId, 'completed');
+      expect(collected).toBe(0);
     } finally {
       await sidecar.close();
       store.close();
