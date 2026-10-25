@@ -5,7 +5,7 @@
  * WAL and brings an older store up to this version under one write lock, or the read-only one
  * Store.openReadOnly makes. A store a newer Shadowlap wrote is refused either way.
  */
-import { chmodSync, existsSync, lstatSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
@@ -554,6 +554,42 @@ export function noFullTextSearch(version: string = process.version): string {
   return `${node} has no full-text search (FTS5) in its built-in SQLite, which the store needs: use Node 22.16 or later (not 23)`;
 }
 
+/**
+ * Creates an empty store file readable only by its owner: exclusively, and never through a
+ * symbolic link (O_CREAT | O_EXCL | O_NOFOLLOW, mode 0600), so a link planted where the store goes is
+ * never followed to a file elsewhere. Something already at the path is left for checkStoreFiles.
+ */
+function createStoreFile(path: string): void {
+  // O_NOFOLLOW is not defined on Windows, where O_EXCL alone refuses an existing path.
+  const flags = fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY | (fsConstants.O_NOFOLLOW ?? 0);
+  let fd: number;
+  try {
+    fd = openSync(path, flags, 0o600);
+  } catch (err) {
+    // There already (checked next), or a directory it can't be made in (opening the database reports it).
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST' || (err as NodeJS.ErrnoException).code === 'EACCES' || (err as NodeJS.ErrnoException).code === 'EROFS') return;
+    throw err;
+  }
+  closeSync(fd);
+}
+
+/** Why a store, or its WAL or shared-memory file, can't be opened as it stands; null when each that exists is a regular file of this user's. */
+export function storeFileProblem(path: string): string | null {
+  for (const file of [path, `${path}-wal`, `${path}-shm`]) {
+    let st;
+    try {
+      st = lstatSync(file);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw err;
+    }
+    if (st.isSymbolicLink()) return `${file} is a symbolic link: a store is opened only as a file of its own, never through a link to another file. Point --db at the file itself, or remove the link`;
+    if (!st.isFile()) return `${file} is not a file: point --db at a store's file`;
+    if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return `${file} belongs to another user (uid ${st.uid}): a store is opened only when it is yours, since it holds what your agents sent and got. Point --db at a store of your own`;
+  }
+  return null;
+}
+
 /** Takes group and other permissions off a store created by an earlier version. */
 function restrictToOwner(path: string): void {
   if (process.platform === 'win32' || typeof process.getuid !== 'function') return;
@@ -577,8 +613,11 @@ export function openDatabase(path: string): SqliteDatabase {
     // a symbolic link a checkout could have planted there.
     createOnce(join(dir, '.gitignore'), '*\n');
     // An empty file is a valid new SQLite database; SQLite gives its WAL and shared-memory files
-    // the database file's permissions.
-    createOnce(path, '');
+    // the database file's permissions. Made exclusively and never through a link; one already there
+    // (and its WAL and shared-memory files) is opened only when it is a regular file of this user's.
+    createStoreFile(path);
+    const problem = storeFileProblem(path);
+    if (problem) throw new Error(problem);
     restrictToOwner(path);
   }
   const db = new DatabaseSync(path);
@@ -652,8 +691,10 @@ export function openDatabase(path: string): SqliteDatabase {
   return db;
 }
 
-/** The connection Store.openReadOnly makes. */
+/** The connection Store.openReadOnly makes: to a store that is a regular file of this user's, as Store.open opens one. */
 export function openDatabaseReadOnly(path: string): SqliteDatabase {
+  const problem = path === ':memory:' ? null : storeFileProblem(path);
+  if (problem) throw new Error(problem);
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     db.exec('PRAGMA busy_timeout = 10000');

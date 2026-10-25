@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +84,59 @@ describe('Store', () => {
     symlinkSync(join(root, 'elsewhere.txt'), join(planted, '.gitignore'));
     Store.open(join(planted, 'shadowlap.db')).close();
     expect(existsSync(join(root, 'elsewhere.txt'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('opens a store only as a regular file of its own user, never through a link, and makes a new one so', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fp-store-file-'));
+    try {
+      const victim = join(root, 'victim.txt');
+      writeFileSync(victim, 'not a store\n');
+      // A link planted where the store goes, to a file elsewhere: refused, and the file left as it was.
+      const linked = join(root, 'linked');
+      mkdirSync(linked);
+      symlinkSync(victim, join(linked, 'shadowlap.db'));
+      expect(() => Store.open(join(linked, 'shadowlap.db'))).toThrow(/is a symbolic link: a store is opened only as a file of its own/);
+      expect(() => Store.openReadOnly(join(linked, 'shadowlap.db'))).toThrow(/symbolic link/);
+      expect(readFileSync(victim, 'utf8')).toBe('not a store\n');
+      // A link to a file not there yet is not followed to make one.
+      const dangling = join(root, 'dangling');
+      mkdirSync(dangling);
+      symlinkSync(join(root, 'made-elsewhere.db'), join(dangling, 'shadowlap.db'));
+      expect(() => Store.open(join(dangling, 'shadowlap.db'))).toThrow(/symbolic link/);
+      expect(existsSync(join(root, 'made-elsewhere.db'))).toBe(false);
+      // Its write-ahead log or shared-memory file, planted as a link: refused the same.
+      for (const suffix of ['-wal', '-shm']) {
+        const dir = join(root, `planted${suffix}`);
+        mkdirSync(dir);
+        Store.open(join(dir, 'shadowlap.db')).close();
+        symlinkSync(victim, join(dir, `shadowlap.db${suffix}`));
+        expect(() => Store.open(join(dir, 'shadowlap.db')), suffix).toThrow(new RegExp(`shadowlap\\.db${suffix} is a symbolic link`));
+      }
+      expect(readFileSync(victim, 'utf8')).toBe('not a store\n');
+      // A folder where the store goes.
+      const folder = join(root, 'folder');
+      mkdirSync(join(folder, 'shadowlap.db'), { recursive: true });
+      expect(() => Store.open(join(folder, 'shadowlap.db'))).toThrow(/is not a file/);
+      // One that belongs to another user, as lstat would say it.
+      const theirs = join(root, 'theirs.db');
+      Store.open(theirs).close();
+      const uid = process.getuid!();
+      const asked = vi.spyOn(process, 'getuid').mockReturnValue(uid + 1);
+      try {
+        expect(() => Store.open(theirs)).toThrow(/belongs to another user/);
+        expect(() => Store.openReadOnly(theirs)).toThrow(/belongs to another user/);
+      } finally {
+        asked.mockRestore();
+      }
+      // A new store is made readable only by its owner, and opens again.
+      const fresh = join(root, 'fresh.db');
+      Store.open(fresh).close();
+      expect(statSync(fresh).mode & 0o777).toBe(0o600);
+      Store.open(fresh).close();
+      Store.openReadOnly(fresh).close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('round-trips blobs above and below the gzip threshold, content-addressed', () => {
