@@ -159,9 +159,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // A long run's calls come a page at a time (paging.ts): `run` holds those read so far.
   const { run, paging } = usePagedRun(app.client, answered);
   // The tab's title reads the run's about line from the run as this page read it: the run list has no attempts.
+  // Told again when a page of calls brings the run anew: unchanged, it changes nothing.
   useEffect(() => {
     setOpenRunAbout(run.run.runId, run.about ?? null);
-  }, [run.run.runId, run.about?.text, run.about?.from]);
+  }, [run.run.runId, run.about]);
   useEffect(() => () => setOpenRunAbout(null), []);
   const { client, exported, actionsOff, setRunCommands, runKeys, runsTick } = app;
   const runId = run.run.runId;
@@ -403,6 +404,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
     items.push({ group: 'This run', label: 'Provenance', hint: 'the run’s record, call by call', run: () => setView('provenance') });
     if (run.parent) items.push({ group: 'This run', label: 'Compare with parent', hint: shortId(run.parent.runId), run: () => navigate(href.compare(run.parent!.runId, runId)) });
     setRunCommands(items);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the commands change with what they show; the functions they call are new each render, and taking them in would register the commands again on every one
   }, [runId, selected, live, exported, actionsOff, canFork, run.parent?.runId, offers?.bisect?.failed, canMark, labels.join('\n')]);
   useEffect(() => () => setRunCommands([]), [setRunCommands]);
 

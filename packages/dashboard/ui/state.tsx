@@ -211,7 +211,7 @@ export function useApp(): AppState {
           return d ? { ...d, configurable: true } : undefined;
         },
       }),
-    // A new object when a field read changed: what depends on it runs again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new object when a field read changed (`version`): what depends on it runs again
     [store, t, version],
   );
 }

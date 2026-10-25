@@ -68,7 +68,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
         const shape = shapeOf(r);
         return measured.current.get(keyOf(r)) ?? byShape.current.get(shape) ?? estimate(shape);
       }),
-    // `version` moves when a row drawn turned out another height.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `version` moves when a row drawn turned out another height, which `measured` holds
     [rows, version, opts],
   );
   const offsetsNow = useLatest(offsets);
@@ -121,6 +121,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
   );
 
   // After each draw: the rows drawn are measured, and a height that differs from the one assumed moves the rows after it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- after each draw, as the rows drawn change with every scroll; only a height that differs moves `version`
   useLayoutEffect(() => {
     const l = list.current;
     if (!l) return;

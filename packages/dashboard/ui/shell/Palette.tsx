@@ -91,8 +91,7 @@ function PaletteDialog({ route, close }: { route: Route; close: () => void }) {
     const runs = [...(app.runs ?? [])].filter((r) => !isAttempt(r)).sort((a, b) => b.startedAt - a.startedAt);
     for (const r of runs) out.push(runCommand(r, go));
     return out;
-    // Built when the palette opens, and again only when a source says more arrived: the run list
-    // moving under it would move the selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- built when the palette opens, and again only when a source says more arrived: the run list moving under it would move the selection
   }, [sourcesChanged]);
 
   // What runs recorded, from three characters, through the server's search. It answers from what its

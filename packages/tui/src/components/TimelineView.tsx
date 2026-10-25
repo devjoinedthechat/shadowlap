@@ -88,7 +88,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const visibleCalls = useMemo(() => {
     const q = query.trim().toLowerCase();
     return calls.filter((c) => matches(c, filter) && (!q || searchText(store, c, modelOf).includes(q)));
-  }, [store, calls, filter, query]);
+  }, [store, calls, filter, query, modelOf]);
   const [selected, setSelected] = useState(() => {
     const i = initialCall !== undefined ? calls.findIndex((c) => c.callNo === initialCall) : -1;
     return i >= 0 ? i : 0;

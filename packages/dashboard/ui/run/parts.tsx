@@ -84,6 +84,7 @@ function Why({ children, code }: { children: string; code?: string | readonly st
   // How many parts the line shows: all of them, until it is measured too long for its room.
   const [fit, setFit] = useState({ text: children, count: parts.length });
   const count = fit.text === children ? fit.count : parts.length;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- measured after every render, as its room can change without its text; it only ever gives up a part, so it stops
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;

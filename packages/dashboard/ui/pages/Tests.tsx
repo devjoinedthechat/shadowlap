@@ -77,7 +77,7 @@ export function TestsPage() {
     if (why) toast(why);
     else if (!view.diverged.length || !hasKind(JOB_KINDS.testUpdate)) toast('No golden diverged: there is nothing to update');
     else setOpen({ kind: 'update', paths: view.diverged });
-    // Asked once: `wait` reads the jobs as they are when it is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- asked once: `wait`, new each render, is read as it is when the ask is taken
   }, [asked, view, actionsOff, hasKind, toast]);
 
   const start = (kind: string, fields: Record<string, unknown>) => {

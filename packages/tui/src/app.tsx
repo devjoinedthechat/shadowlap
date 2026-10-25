@@ -43,6 +43,7 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
 
   const [tick, setTick] = useState(0);
   const options = useMemo(() => summaryOptions(store, prices), [store, prices]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `tick` moves when the store has new runs, which loadRunTree reads from it
   const nodes = useMemo(() => loadRunTree(store, { modelOf: options.modelOf!, ...(options.prices ? { prices: options.prices } : {}) }), [store, options, tick]);
   const [help, setHelp] = useState(false);
 

@@ -175,6 +175,7 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         <button className="btn" type="button" onClick={close}>
           Close
         </button>
+        {/* eslint-disable-next-line react-hooks/static-components -- the footer registered for the job's kind: one component a kind, the same on every render */}
         {Footer && !lost ? <Footer job={job} /> : null}
         {calibrate ? <CalibrateButton runId={calibrate} /> : null}
         {primary.map((l) => (
