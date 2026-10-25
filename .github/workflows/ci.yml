@@ -12,6 +12,26 @@ jobs:
   scope:
     uses: ./.github/workflows/scope.yml
 
+  # ESLint over every package, its tests and the repository's JavaScript, with typescript-eslint's
+  # typed rules, and ruff over the Python: `npm run lint`, which fails on any finding. ESLint reads
+  # the packages through their built declarations, so the job builds first; ruff runs through uvx.
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - run: python -m pip install --quiet uv==0.12.16
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+
   test:
     needs: scope
     name: node ${{ matrix.node }} on ${{ matrix.os }}
