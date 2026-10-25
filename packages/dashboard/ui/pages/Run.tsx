@@ -472,8 +472,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. */}
-          <div className="vbody" tabIndex={-1} key={v}>
+          {/* Each view starts at its top; Calls centres the selected call. The Timeline holds nothing
+              that takes the focus, so it takes it itself, to be scrolled by keyboard. */}
+          <div className="vbody" key={v} {...(v === 'timeline' ? { tabIndex: 0, role: 'region', 'aria-label': 'Timeline of the calls' } : { tabIndex: -1 })}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}

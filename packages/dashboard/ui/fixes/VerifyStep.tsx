@@ -35,7 +35,8 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
       {fix.verify.length > 1 ? (
         <div className="vpick seg" role="group" aria-label="Changes verified">
           {fix.verify.map((x) => (
-            <a key={x.verifyId} href={x.href} aria-pressed={x.verifyId === v.verifyId}>
+            // Links to each verdict's own page: the one shown is the current one, never a pressed button.
+            <a key={x.verifyId} href={x.href} aria-current={x.verifyId === v.verifyId ? 'page' : undefined}>
               {glued(keepAt(x.label))}
             </a>
           ))}

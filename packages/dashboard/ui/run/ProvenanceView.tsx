@@ -288,8 +288,9 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       </div>
       {ledger ? (
         <section>
-          <h3>Calls</h3>
-          <div className="tscroll">
+          <h3 id="provCalls">Calls</h3>
+          {/* It scrolls sideways on a narrow window and holds no control: it takes the focus itself. */}
+          <div className="tscroll" tabIndex={0} role="region" aria-labelledby="provCalls">
             <table className="t ledger">
               <thead>
                 <tr>

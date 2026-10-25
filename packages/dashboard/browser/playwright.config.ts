@@ -4,15 +4,16 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * The dashboard in a real browser: accessibility (axe-core, contrast, focus order, the skip link,
- * focus rings in scrolling panes, every overlay's focus trap and return), over a demo store built by
- * real commands (scripts/demo-store.mjs --fast) and served by `shadowlap dashboard`, as a user opens
- * it. `npm run test:browser`; set SHADOWLAP_DEMO_DIR to a demo store built before to skip building one.
+ * focus rings in scrolling panes, every overlay's focus trap and return, and an axe sweep over every
+ * page, run, view, tab, menu and dialog), over the whole demo store built by real commands
+ * (scripts/demo-store.mjs) and served by `shadowlap dashboard`, as a user opens it. `npm run
+ * test:browser`; set SHADOWLAP_DEMO_DIR to a demo store built before to skip building one.
  */
 export default defineConfig({
   testDir: '.',
   testMatch: /.*\.spec\.ts$/,
   globalSetup: './global-setup.ts',
-  // The demo store takes most of a minute to build; each test then takes a few seconds.
+  // The demo store takes a minute or two to build; each test then takes a few seconds, the sweep's a minute or more.
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,

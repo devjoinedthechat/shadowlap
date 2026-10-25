@@ -303,9 +303,7 @@ function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; lab
       {keyed ? <RunKey runId={run.run.runId} labels={shown} onMark={onMark} off={exported ? 'An exported copy changes nothing' : (actionsOff ?? null)} /> : null}
       {(keyed ? shown.filter((l) => !(MARKS as readonly string[]).includes(l)) : shown).map((l) => (
         <span className="chip" key={l}>
-          <a href={href.runs({ q: `label:${l}` })} title={`List the runs labelled ${l}`}>
-            {l}
-          </a>
+          {l}
           {enabled ? (
             <button type="button" aria-label={`Remove label ${l}`} onClick={() => change([], [l])}>
               ×

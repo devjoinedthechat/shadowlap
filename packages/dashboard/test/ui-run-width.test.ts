@@ -155,5 +155,7 @@ describe('what wraps rather than runs past its box', () => {
     expect(css).toMatch(/@media \(max-width: 760px\) \{ \.rnote \{ flex-direction: column; align-items: stretch;/);
     // The hint wraps as text does, never as boxes, one of which would start a line with ". Or declare".
     expect(topRule('.rnhint')).not.toMatch(/display:\s*flex/);
+    // Its code too, the config line to copy among it: a code in a sentence otherwise keeps to one line.
+    expect(topRule('.rnhint code')).toMatch(/white-space:\s*normal/);
   });
 });
