@@ -755,7 +755,8 @@ table.probes tr.hot td { background: var(--sel); }
 .drawer .st2.err { color: var(--err); }
 .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line2); border-top-color: var(--lime); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.drawer pre { margin: 0; padding: 12px 14px; max-height: 260px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--dim); background: var(--code); }
+/* A job's output wraps rather than run past the drawer's edge, every line read whole; it scrolls down, by keyboard too. */
+.drawer pre { margin: 0; padding: 12px 14px; max-height: 260px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--dim); background: var(--code); white-space: pre-wrap; overflow-wrap: anywhere; }
 .drawer pre .p { color: var(--accent); } .drawer pre .ok { color: var(--ok); } .drawer pre .y { color: var(--warn); } .drawer pre .no { color: var(--err); }
 .drawer footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); }
 .toast { position: fixed; z-index: 50; left: 50%; bottom: 44px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--ink); color: var(--bg); font-size: 13px; box-shadow: 0 18px 40px -16px rgba(0,0,0,.5); }
@@ -1782,6 +1783,7 @@ table.calls tbody tr.wspace:hover td, table.t tbody tr.wspace:hover td { backgro
 .grow .gline { min-width: 0; font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grow .gline em { font-style: normal; color: var(--err); }
 .ihead.isumrow { padding-top: 2px; }
+.ihead .iedit { margin-left: auto; flex: none; padding-left: 10px; font-size: 12px; }
 .ibar.stopline { margin-top: 10px; font-family: var(--mono); }
 .num.left, table.t td.num.left { text-align: left; }
 .cells.empty-strip { display: block; font-size: 12.5px; color: var(--faint); }
@@ -1844,9 +1846,11 @@ table.ledger tbody tr[aria-selected="true"] td { background: var(--sel); }
 .rntools .eff { font: 10.5px var(--mono); margin: 0; }
 .rntools .eff.write { color: var(--k-write); } .rntools .eff.read { color: var(--dim); } .rntools .eff.unknown { color: var(--warn); }
 .rntools .rnwhy { color: var(--faint); }
-.rnhint { margin: 6px 0 0; color: var(--faint); font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
-.rnhint code.rncopy { color: var(--ink); background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; }
-@media (max-width: 760px) { .rnote { flex-direction: column; gap: 4px; padding: 8px 16px; } }
+/* The hint is a sentence: it wraps as text does, never starting a line with its own punctuation, its config line to copy after it. */
+.rnhint { margin: 6px 0 0; color: var(--faint); font-size: 12.5px; line-height: 1.6; text-wrap: pretty; overflow-wrap: anywhere; }
+.rnhint code.rncopy { display: inline-block; max-width: 100%; margin: 2px 6px 0 0; color: var(--ink); background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; overflow-wrap: anywhere; vertical-align: baseline; }
+/* At a phone's width the label goes over the note, which takes the whole width: no baseline alignment to hold it at its text's width. */
+@media (max-width: 760px) { .rnote { flex-direction: column; align-items: stretch; gap: 4px; padding: 8px 16px; } }
 .banner.n .bk { color: var(--dim); }
 /* a run's page at a phone's width: the origin filters wrap under each other, why a run failed
    wraps like the sentence it is, and so do a banner's buttons (a diverged test's Add normalizer and
@@ -1884,7 +1888,7 @@ table.t td.wrapcell { white-space: normal; }
 /* the job drawer names the folders a job wrote (a pack); files download from its footer */
 .drawer .jfiles { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 0; font-size: 12.5px; color: var(--dim); max-height: 136px; overflow-y: auto; }
 .drawer .jfiles span { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.drawer .jfiles code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer .jfiles code { min-width: 0; overflow-wrap: anywhere; }
 .drawer .jfiles svg { width: 14px; height: 14px; flex: none; color: var(--faint); }
 
 /* the gate: a link with no session token */
