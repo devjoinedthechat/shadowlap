@@ -123,7 +123,8 @@ describe("blame's confidence, by simulation", () => {
       expect(held, c.name).toBeGreaterThanOrEqual(0.95);
     }
     console.log(`blame, gate ${JSON.stringify({ good: GATE.good, bad: GATE.bad, risk: GATE.risk, max: GATE.max })}, scan ${SCAN}, ${REPS} runs each\n${rows.join('\n')}`);
-  });
+    // About 12 s of work alone, four times that beside the suite's other workers.
+  }, 180_000);
 
   it('rarely calls a run rescued 45% of the time "not rescued from any model call" with high confidence, where 5% a probe did so 18% of the time', async () => {
     // The review's case: the first calls rescue the run 45% of the time, between the gate's two
