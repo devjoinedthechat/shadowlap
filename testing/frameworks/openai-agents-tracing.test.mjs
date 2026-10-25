@@ -1,8 +1,13 @@
-// The OpenAI Agents SDK for Python with its tracing on, as it ships: a real Agent run by Runner
-// against a scripted Responses API, through the real CLI, so in-process capture sends the SDK's
-// trace export (api.openai.com/v1/traces/ingest) to the sidecar as it would in a project. While
-// recording, the export goes on to the provider and nothing of it is recorded or counted; a replay
-// answers it with 204 itself, and stays clean although every export names new random ids.
+// The OpenAI Agents SDK for Python with its tracing on: a real Agent run by Runner against a
+// scripted Responses API, through the real CLI, its trace export (the SDK's own exporter, batched
+// and sent as the process exits) reaching the sidecar as telemetry. While recording, the export goes
+// on and nothing of it is recorded or counted; a replay answers it with 204 itself, and stays clean
+// although every export names new random ids. The exporter is pointed at the API root the agent's
+// model calls use, as a project behind a gateway points it, so the export goes where they go: this
+// test's provider. As the SDK ships, it posts to api.openai.com, which in-process capture names to
+// the sidecar, and the sidecar sends it there, where the agent addressed it, rather than to the
+// upstream set for the model calls; the sidecar's own tests cover that, since no test can stand in
+// for api.openai.com.
 import assert from 'node:assert/strict';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -40,10 +45,14 @@ function agentsPython() {
 
 const PYTHON = agentsPython();
 
-// Tracing is left as the SDK sets it: on, exported to api.openai.com when the process exits.
+// Tracing is on, as the SDK sets it, exported when the process exits: to the API root the model
+// calls use (OPENAI_BASE_URL, which shadowlap run points at the sidecar) rather than api.openai.com.
 const AGENT = `
 import json, os
-from agents import Agent, Runner
+from agents import Agent, Runner, set_trace_processors
+from agents.tracing.processors import BackendSpanExporter, BatchTraceProcessor
+
+set_trace_processors([BatchTraceProcessor(BackendSpanExporter(endpoint=os.environ["OPENAI_BASE_URL"].rstrip("/") + "/traces/ingest"))])
 
 agent = Agent(name="Support", instructions="Answer in one short sentence.", model="gpt-4.1")
 result = Runner.run_sync(agent, os.environ["QUERY"])

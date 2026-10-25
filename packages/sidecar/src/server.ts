@@ -1127,6 +1127,14 @@ export class Sidecar {
   private requestedUpstream(req: IncomingMessage, provider: Provider, ctx: RunContext, websocket = false): string | undefined {
     // A configured upstream (a mock, a local server, or "offline" in shadowlap test) takes precedence.
     if (this.upstreamOf(provider) || ctx.offline) return undefined;
+    return this.vouchedUpstream(req, provider, websocket);
+  }
+
+  /**
+   * The host a captured request names (`x-shadowlap-upstream`) when its provider vouches for it, as
+   * an origin; undefined when it names none, and refused when it names one the provider doesn't own.
+   */
+  private vouchedUpstream(req: IncomingMessage, provider: Provider, websocket = false): string | undefined {
     const raw = req.headers['x-shadowlap-upstream'];
     const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     if (!value) return undefined;
@@ -1785,8 +1793,11 @@ export class Sidecar {
   /**
    * An SDK's own telemetry under a provider (the OpenAI Agents SDK's trace export): no model call,
    * and nothing a replay could match, since every export names new random ids and times. While
-   * recording it goes on to the provider as the agent sent it, and nothing of it is recorded or
-   * counted; a replay answers it with 204 itself, so a replay's traces never reach the provider.
+   * recording it goes on as the agent sent it, and nothing of it is recorded or counted: to the host
+   * the agent addressed it to, when in-process capture names one its provider vouches for, before an
+   * upstream set for the provider's model calls (a local model server holds no traces), else as the
+   * provider's calls go. A replay answers it with 204 itself, so a replay's traces never reach the
+   * provider, and so does a store that may not reach the network ("offline").
    */
   private async serveTelemetry(ctx: RunContext, req: IncomingMessage, res: ServerResponse, provider: Provider, path: string, search: string, client: ClientWatch): Promise<void> {
     let rawBody: Buffer;
@@ -1796,10 +1807,11 @@ export class Sidecar {
       return;
     }
     const headers = lowerHeaders(req.headers);
-    const live = ctx.run.mode === 'record' && !ctx.offline && !ctx.judgeOnly;
-    const upstream = live ? (this.upstreams[provider.id] || this.requestedUpstream(req, provider, ctx) || provider.upstream).replace(/\/$/, '') : '';
+    const configured = this.upstreamOf(provider);
+    const live = ctx.run.mode === 'record' && !ctx.offline && !ctx.judgeOnly && configured !== 'offline';
+    const upstream = live ? (this.vouchedUpstream(req, provider) || configured || provider.upstream).replace(/\/$/, '') : '';
     if (client.gone) return;
-    if (!upstream || upstream === 'offline' || carriesPlaceholder(headers, search)) {
+    if (!upstream || carriesPlaceholder(headers, search)) {
       res.writeHead(204, { 'x-shadowlap-origin': 'telemetry' });
       res.end();
       return;

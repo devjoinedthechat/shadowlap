@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { providerUnavailable, Store } from '@shadowlap/engine';
 import { message, text } from '@shadowlap-testing/mock-anthropic';
+import { openai } from '../src/providers.js';
 import { Sidecar } from '../src/server.js';
 
 /**
@@ -17,7 +18,7 @@ import { Sidecar } from '../src/server.js';
  * write) is recorded with its bytes and headers, so a replay sends the agent the very same answer;
  * a provider or host that can't be reached, or that breaks off its answer, breaks the agent's
  * connection as it would have without Shadowlap, and a replay breaks it again. A path it reads a
- * model from that does not decode costs a call nothing.
+ * model from that does not decode costs a call nothing. Telemetry goes where the agent sent it.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -383,5 +384,44 @@ describe('a Bedrock path that does not decode', () => {
       await sidecar.close();
       store.close();
     }
+  });
+});
+
+describe("an SDK's own telemetry, captured on its way to the provider", () => {
+  it('goes where the agent sent it, not to an upstream set for the model calls', async () => {
+    const reached: string[] = [];
+    const listen = (name: string) =>
+      serve((req, res) => {
+        req.resume();
+        req.on('end', () => {
+          reached.push(`${name} ${req.url}`);
+          if (req.url === '/v1/traces/ingest') return void res.writeHead(204).end();
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end('{"id":"chatcmpl-1","object":"chat.completion","created":1,"model":"m","choices":[]}');
+        });
+      });
+    const modelServer = await listen('model server');
+    const tracing = await listen('tracing');
+    // OpenAI as the sidecar knows it, with this test's tracing host among the hosts it vouches for.
+    const vouching = { ...openai, accepts: (url: URL) => url.hostname === '127.0.0.1' };
+    const store = Store.open(':memory:');
+    const export_ = (sidecar: Sidecar, runId: string, upstream?: string) =>
+      ask(`${sidecar.envFor(runId).OPENAI_BASE_URL}/traces/ingest`, { headers: { authorization: 'Bearer sk-test', ...(upstream ? { 'x-shadowlap-upstream': upstream } : {}) }, body: '{"data":[]}' });
+    for (const upstreams of [{ openai: modelServer }, { openai: 'offline' }]) {
+      const sidecar = await Sidecar.start({ store, providers: [vouching], upstreams });
+      try {
+        reached.length = 0;
+        const run = sidecar.startRun({ mode: 'record', command });
+        expect((await export_(sidecar, run.runId, tracing)).status).toBe(204);
+        expect((await export_(sidecar, run.runId)).status).toBe(204);
+        sidecar.endRun(run.runId, 'completed');
+        expect(store.getCalls(run.runId)).toEqual([]);
+        // Where the agent addressed it first; one sent through the base URL goes as the model calls go.
+        expect(reached, upstreams.openai).toEqual(upstreams.openai === 'offline' ? [] : ['tracing /v1/traces/ingest', 'model server /v1/traces/ingest']);
+      } finally {
+        await sidecar.close();
+      }
+    }
+    store.close();
   });
 });
