@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import shadowlap
-from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, fence_hooks, with_effects, with_fence
+from shadowlap.adapters._claude_hooks import matcher_picks
+from shadowlap.adapters.claude_agent_sdk import BUILT_IN_EFFECTS, _Matcher, fence_hooks, with_effects, with_fence
 
 from fake_claude_code import FakeClaudeCode, matches
 
@@ -81,15 +82,30 @@ SCRIPT = [
 ]
 
 
-def session(hooks: dict[str, list[Any]]) -> FakeClaudeCode:
-    cc = FakeClaudeCode(hooks, ROOT)
+def session(hooks: dict[str, list[Any]], beside: Optional[dict[str, list[Any]]] = None) -> FakeClaudeCode:
+    """A Claude Code session on the project as it is before the agent runs; ``beside``, the hooks of the settings files it loads."""
+    cc = FakeClaudeCode(hooks, ROOT, beside)
     cc.files[f"{ROOT}/notes.md"] = "old line\nmore\n"
     cc.web["https://example.com/docs"] = "the docs page"
     return cc
 
 
 def fenced(**options: Any) -> dict[str, list[Any]]:
-    return fence_hooks(scratch=tempfile.mkdtemp(prefix="shadowlap-fence-test-"), log=lambda line: None, **options)
+    """The fence's hooks. No settings file of this machine is read: only those a test names."""
+    options.setdefault("settings", {"sources": [], "managed_file": None})
+    options.setdefault("log", lambda line: None)
+    return fence_hooks(scratch=tempfile.mkdtemp(prefix="shadowlap-fence-test-"), **options)
+
+
+def marking(delay: float) -> Any:
+    """A PreToolUse hook of the agent's own that marks every Bash command it is given, answering ``delay`` seconds late."""
+
+    async def hook(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+        await asyncio.sleep(delay)
+        given = input_data["tool_input"]
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {**given, "command": given["command"] + " # checked"}}}
+
+    return _Matcher(matcher="Bash", hooks=[hook])
 
 
 async def agent(cc: FakeClaudeCode, script: list[Any] = SCRIPT) -> dict[str, Any]:
@@ -217,18 +233,131 @@ class Fence(unittest.TestCase):
         self.assertTrue(all(matches(matcher, t) for t in BUILT_IN_EFFECTS))
         self.assertFalse(any(matches(matcher, t) for t in ("BashOutput", "TodoWrite", "Agent", "mcp__orders__lookup_order")))
 
-    def test_with_fence_keeps_the_options_and_their_hooks(self) -> None:
+    def test_with_fence_runs_the_query_s_pre_and_post_tool_use_hooks_inside_and_keeps_the_rest(self) -> None:
         @dataclasses.dataclass
         class Options:
             cwd: str = ROOT
             hooks: Optional[dict[str, list[Any]]] = None
 
-        mine = object()
-        out = with_fence(Options(hooks={"PreToolUse": [mine]}))
+        mine, stop = _Matcher(matcher="Bash", hooks=[]), object()
+        out = with_fence(Options(hooks={"PreToolUse": [mine], "PostToolUse": [_Matcher(matcher="Bash", hooks=[], timeout=900)], "Stop": [stop]}))
         self.assertEqual(out.cwd, ROOT)
-        self.assertIs(out.hooks["PreToolUse"][0], mine)
-        self.assertEqual(len(out.hooks["PreToolUse"]), 2)
+        # One PreToolUse hook, the fence's, which picks every tool: the query's may pick any.
+        self.assertEqual(len(out.hooks["PreToolUse"]), 1)
+        self.assertIsNot(out.hooks["PreToolUse"][0], mine)
+        self.assertIsNone(out.hooks["PreToolUse"][0].matcher)
+        # It waits as long as the longest of theirs.
+        self.assertEqual(out.hooks["PostToolUse"][0].timeout, 900)
+        self.assertIs(out.hooks["Stop"][0], stop)
         self.assertEqual(sorted(out.hooks), ["PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "SubagentStop"])
+
+    def test_picks_the_tools_claude_code_picks(self) -> None:
+        cases = [(None, "Bash"), ("", "Bash"), ("*", "Write"), ("Bash", "Bash"), ("Bash", "BashOutput"), ("Edit|Write", "Write"), ("Edit, Write", "Edit"), ("Edit.*", "NotebookEdit"), ("^Edit$", "NotebookEdit"), ("mcp__kb__.*", "mcp__kb__search")]
+        for matcher, tool in cases:
+            self.assertEqual(matcher_picks(matcher, tool), matches(matcher, tool), (matcher, tool))
+        self.assertFalse(matcher_picks("(", "Bash"))
+        self.assertTrue(matcher_picks("(", "Bash", "all"))
+
+
+class BesideOtherHooks(unittest.TestCase):
+    """Claude Code takes the rewrite of whichever hook answers last: a hook beside the fence could put
+    the recorded command back. The query's own run inside the fence; a settings file's is refused."""
+
+    BASH = [("Bash", {"command": "echo hi > out.txt"})]
+
+    def setUp(self) -> None:
+        self._post = shadowlap._post
+        os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
+
+    def tearDown(self) -> None:
+        shadowlap._post = self._post
+        os.environ.pop("SHADOWLAP_URL", None)
+
+    def recorded(self, hooks: dict[str, list[Any]], script: Optional[list[Any]] = None) -> tuple:
+        sidecar = Sidecar()
+        shadowlap._post = sidecar
+        cc = session(hooks)
+        asyncio.run(agent(cc, script or self.BASH))
+        return sidecar, cc
+
+    def test_runs_a_pre_tool_use_hook_of_the_query_first_so_a_replay_never_runs_the_write(self) -> None:
+        for delay in (0, 0.15):
+            with self.subTest(delay=delay):
+                recorded, cc = self.recorded(fenced(hooks={"PreToolUse": [marking(delay)]}))
+                # While recording the call runs as the hook rewrote it, and is recorded so.
+                self.assertEqual(cc.ran, ["echo hi > out.txt # checked"])
+                self.assertEqual(recorded.calls[0]["args"], {"command": "echo hi > out.txt # checked"})
+                sidecar = Sidecar(recording=recorded.calls)
+                shadowlap._post = sidecar
+                again = session(fenced(hooks={"PreToolUse": [marking(delay)]}))
+                out = asyncio.run(agent(again, self.BASH))
+                self.assertEqual(again.ran, ["true"])
+                self.assertFalse(sidecar.diverged)
+                self.assertEqual(out["results"][0], {"content": "ran: echo hi > out.txt # checked", "is_error": False})
+
+    def test_keeps_a_refusal_of_the_query_s_own(self) -> None:
+        async def refusing(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "no shell here"}}
+
+        recorded, cc = self.recorded(fenced(hooks={"PreToolUse": [_Matcher(matcher="Bash", hooks=[refusing])]}))
+        self.assertEqual(cc.ran, [])
+        self.assertEqual(recorded.calls, [])
+
+    def test_a_hook_that_does_not_answer_in_time_blocks_the_call(self) -> None:
+        async def slow(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+            await asyncio.sleep(5)
+            return {}
+
+        shadowlap._post = Sidecar()
+        cc = session(fenced(hooks={"PreToolUse": [_Matcher(matcher="Bash", hooks=[slow], timeout=0.05)]}))
+        out = asyncio.run(agent(cc, self.BASH))
+        self.assertEqual(cc.ran, [])
+        self.assertEqual(out["results"][0]["content"], "PreToolUse:Bash hook error: a PreToolUse hook did not answer within its timeout of 0.05 seconds")
+
+    def test_runs_a_post_tool_use_hook_of_the_query_on_the_recorded_output(self) -> None:
+        async def noting(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+            await asyncio.sleep(0.15)
+            response = input_data["tool_response"]
+            return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": {**response, "stdout": response["stdout"] + " (noted)"}}}
+
+        listing = [("Bash", {"command": "ls"})]
+        recorded, _ = self.recorded(fenced(hooks={"PostToolUse": [_Matcher(matcher="Bash", hooks=[noting])]}), listing)
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        cc = session(fenced(hooks={"PostToolUse": [_Matcher(matcher="Bash", hooks=[noting])]}))
+        out = asyncio.run(agent(cc, listing))
+        self.assertEqual(cc.ran, ["true"])
+        self.assertEqual(out["results"][0], {"content": "ran: ls (noted)", "is_error": False})
+
+    def test_refuses_a_recorded_write_a_settings_file_s_hook_could_rewrite_and_names_the_file(self) -> None:
+        recorded, _ = self.recorded(fenced())
+        project = tempfile.mkdtemp(prefix="shadowlap-settings-")
+        os.makedirs(os.path.join(project, ".claude"))
+        settings_file = os.path.join(project, ".claude", "settings.json")
+        with open(settings_file, "w", encoding="utf-8") as f:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "./mark.sh"}]}]}}, f)
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        said: list[str] = []
+        # Claude Code runs the file's hook beside the fence, and its rewrite answers last.
+        cc = session(fenced(settings={"sources": ["project"], "cwd": project, "managed_file": None}, log=said.append), beside={"PreToolUse": [marking(0.15)]})
+        out = asyncio.run(agent(cc, self.BASH))
+        self.assertEqual(cc.ran, [])
+        self.assertTrue(out["results"][0]["is_error"])
+        self.assertIn(f'shadowlap: Bash was not run again: a PreToolUse hook in {settings_file} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+        self.assertIn(settings_file, "\n".join(said))
+
+    def test_stops_the_session_when_a_hook_it_never_saw_replaced_its_stand_in(self) -> None:
+        recorded, _ = self.recorded(fenced())
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        said: list[str] = []
+        # A plugin's or a managed hook: in no file the fence reads, and answering last.
+        cc = session(fenced(log=said.append), beside={"PreToolUse": [marking(0.15)]})
+        out = asyncio.run(agent(cc, [*self.BASH, ("Bash", {"command": "echo bye > out.txt"})]))
+        # The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.
+        self.assertEqual(cc.ran, ["echo hi > out.txt # checked"])
+        self.assertEqual(out["results"][0], {"content": "ran: echo hi > out.txt # checked", "is_error": False})
+        self.assertRegex(cc.stop_reason or "", r'^shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)')
+        self.assertEqual(out["results"][1], {"content": "the session was stopped: " + str(cc.stop_reason), "is_error": True})
+        self.assertIn("another PreToolUse hook replaced the stand-in", "\n".join(said))
 
 
 @dataclasses.dataclass
@@ -314,6 +443,25 @@ class UnderTrio(unittest.TestCase):
 
         out = trio.run(replay)
         self.assertEqual(out["hookSpecificOutput"]["updatedInput"]["command"], "true")
+
+    def test_the_query_s_own_hooks_run_inside_the_fence_under_trio(self) -> None:
+        async def late(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+            await trio.sleep(0.05)
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": "echo hi > out.txt # checked"}}}
+
+        async def slow(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+            await trio.sleep(5)
+            return {}
+
+        base = {"session_id": "s", "cwd": ROOT, "tool_name": "Bash", "tool_input": {"command": "echo hi > out.txt"}, "hook_event_name": "PreToolUse"}
+        recorded = Sidecar()
+        shadowlap._post = recorded
+        pre = fenced(hooks={"PreToolUse": [_Matcher(matcher="Bash", hooks=[late])]})["PreToolUse"][0].hooks[0]
+        self.assertEqual(trio.run(pre, base, "t1", {}), {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": {"command": "echo hi > out.txt # checked"}}})
+        self.assertEqual(recorded.calls[0]["args"], {"command": "echo hi > out.txt # checked"})
+        timed = fenced(hooks={"PreToolUse": [_Matcher(matcher="Bash", hooks=[slow], timeout=0.05)]})["PreToolUse"][0].hooks[0]
+        out = trio.run(timed, base, "t2", {})
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
 
 
 if __name__ == "__main__":

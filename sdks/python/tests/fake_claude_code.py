@@ -1,17 +1,19 @@
 """A stand-in for Claude Code's tool pipeline, to test hooks against without the CLI: the Python twin
 of packages/adapters/test/fake-claude-code.ts, which says what it follows. In short: the SDK's
-documented hook contract (matchers, callbacks run at once, deny > ask > allow, ``updatedInput``
-replacing the whole input, ``updatedToolOutput`` used when it has the tool's output shape,
-PostToolUseFailure only for a call that raised), and what Claude Code 2.1.309 was seen to do where
-the documentation is silent (input checked against the files before any hook and again after a
-rewrite, a deny read as "PreToolUse:<tool> hook error: <reason>", a hook that raises counting as
-``{}``, a Bash failure as "Exit code N" then its output, a note when Bash moves the shell)."""
+documented hook contract (matchers, callbacks run at once, the query's own and those of the
+settings files Claude Code loads alike, deny > defer > ask > allow, ``updatedInput`` replacing the
+whole input, ``updatedToolOutput`` used when it has the tool's output shape, PostToolUseFailure only
+for a call that raised, a hook's ``continue: false`` stopping the session), and what Claude Code
+2.1.309 was seen to do where the documentation is silent (the rewrite of the hook that answered last
+wins, input checked against the files before any hook and again after a rewrite, a deny read as
+"PreToolUse:<tool> hook error: <reason>", a hook that raises counting as ``{}``, a Bash failure as
+"Exit code N" then its output, a note when Bash moves the shell)."""
 
 import asyncio
 import re
 from typing import Any, Callable, Optional
 
-RANK = {"deny": 3, "ask": 2, "allow": 1}
+RANK = {"deny": 4, "defer": 3, "ask": 2, "allow": 1}
 
 SHAPES = {
     "Bash": {"stdout": str, "stderr": str, "interrupted": bool},
@@ -48,8 +50,12 @@ def unquote(s: str) -> str:
 
 
 class FakeClaudeCode:
-    def __init__(self, hooks: dict[str, list[Any]], root: str):
+    def __init__(self, hooks: dict[str, list[Any]], root: str, beside: Optional[dict[str, list[Any]]] = None):
         self.hooks = hooks
+        # Hooks of the settings files Claude Code loads, which run beside the query's.
+        self.beside = beside or {}
+        # Why a hook stopped the session (continue: false), once one has: no tool call runs after it.
+        self.stop_reason: Optional[str] = None
         self.root = root
         self.cwd = root
         self.files: dict[str, str] = {}
@@ -61,6 +67,8 @@ class FakeClaudeCode:
         self.can_use_tool: Callable[[str, dict[str, Any]], dict[str, Any]] = lambda tool, inp: {"behavior": "deny", "message": f"Claude requested permissions to use {tool}, but you haven't granted it yet."}
 
     async def call(self, tool: str, given: dict[str, Any], tool_use_id: str) -> dict[str, Any]:
+        if self.stop_reason is not None:
+            return {"content": "the session was stopped: " + self.stop_reason, "is_error": True}
         checked = self._parse(tool, given)
         if isinstance(checked, str):
             return {"content": f"<tool_use_error>InputValidationError: {checked}</tool_use_error>", "is_error": True}
@@ -69,7 +77,9 @@ class FakeClaudeCode:
             return {"content": f"<tool_use_error>{invalid}</tool_use_error>", "is_error": True}
         base = {"session_id": "s", "transcript_path": "/t", "cwd": self.cwd, "permission_mode": "default", "tool_name": tool, "tool_use_id": tool_use_id}
         decision, reason, updated = None, "", None
-        for out in await self._run("PreToolUse", tool, {**base, "hook_event_name": "PreToolUse", "tool_input": checked}, tool_use_id):
+        pre = await self._run("PreToolUse", tool, {**base, "hook_event_name": "PreToolUse", "tool_input": checked}, tool_use_id)
+        self._stopped(pre)
+        for out in pre:
             h = out.get("hookSpecificOutput") or {}
             d = h.get("permissionDecision")
             if d and RANK.get(d, 0) > RANK.get(decision or "", 0):
@@ -78,6 +88,8 @@ class FakeClaudeCode:
                 updated = h["updatedInput"]
         if decision == "deny":
             return {"content": f"PreToolUse:{tool} hook error: {reason}", "is_error": True}
+        if decision == "defer":
+            return {"content": "deferred: " + reason, "is_error": True}
         used = checked
         if updated is not None:
             again = self._parse(tool, updated)
@@ -94,27 +106,38 @@ class FakeClaudeCode:
         try:
             output = self._execute(tool, used)
         except ToolError as err:
-            await self._run("PostToolUseFailure", tool, {**base, "cwd": self.cwd, "hook_event_name": "PostToolUseFailure", "tool_input": used, "error": str(err), "is_interrupt": False}, tool_use_id)
+            self._stopped(await self._run("PostToolUseFailure", tool, {**base, "cwd": self.cwd, "hook_event_name": "PostToolUseFailure", "tool_input": used, "error": str(err), "is_interrupt": False}, tool_use_id))
             return {"content": str(err), "is_error": True}
-        for out in await self._run("PostToolUse", tool, {**base, "cwd": self.cwd, "hook_event_name": "PostToolUse", "tool_input": used, "tool_response": output}, tool_use_id):
+        post = await self._run("PostToolUse", tool, {**base, "cwd": self.cwd, "hook_event_name": "PostToolUse", "tool_input": used, "tool_response": output}, tool_use_id)
+        for out in post:
             h = out.get("hookSpecificOutput") or {}
             if "updatedToolOutput" in h and fits(tool, h["updatedToolOutput"]):
                 output = h["updatedToolOutput"]
+        self._stopped(post)
         return {"content": render(tool, output), "is_error": False}
+
+    def _stopped(self, outs: list[dict[str, Any]]) -> None:
+        """A hook that answered continue: false (continue_ in the Python SDK) stops the session."""
+        stop = next((o for o in outs if o.get("continue_") is False or o.get("continue") is False), None)
+        if stop is not None and self.stop_reason is None:
+            self.stop_reason = stop.get("stopReason") or "stopped by a hook"
 
     async def stop(self) -> None:
         await self._run("Stop", "", {"session_id": "s", "cwd": self.cwd, "hook_event_name": "Stop", "stop_hook_active": False}, None)
 
     async def _run(self, event: str, tool: str, data: dict[str, Any], tool_use_id: Optional[str]) -> list[dict[str, Any]]:
-        callbacks = [cb for m in self.hooks.get(event, []) if event == "Stop" or matches(m.matcher, tool) for cb in m.hooks]
+        callbacks = [cb for m in [*self.hooks.get(event, []), *self.beside.get(event, [])] if event == "Stop" or matches(m.matcher, tool) for cb in m.hooks]
+        # In the order they answered: a rewrite of the input or the output is the last one's.
+        answered: list[dict[str, Any]] = []
 
-        async def one(cb: Any) -> dict[str, Any]:
+        async def one(cb: Any) -> None:
             try:
-                return await cb(data, tool_use_id, {"signal": None})
+                answered.append(await cb(data, tool_use_id, {"signal": None}))
             except Exception:
-                return {}  # a callback that raises counts as {}: the call goes on
+                answered.append({})  # a callback that raises counts as {}: the call goes on
 
-        return list(await asyncio.gather(*(one(cb) for cb in callbacks)))
+        await asyncio.gather(*(one(cb) for cb in callbacks))
+        return answered
 
     def _parse(self, tool: str, given: dict[str, Any]) -> Any:
         known = INPUTS.get(tool)

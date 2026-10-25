@@ -27,7 +27,8 @@ async def main() -> dict:
         cwd: str = ROOT
         hooks: object = None
 
-    options = with_fence(AgentOptions(), scratch=tempfile.mkdtemp(prefix="shadowlap-fence-"), log=lambda line: None)
+    # No settings file of this machine is read: a hook in one would change what the fence does.
+    options = with_fence(AgentOptions(), scratch=tempfile.mkdtemp(prefix="shadowlap-fence-"), log=lambda line: None, settings={"sources": [], "managed_file": None})
     cc = FakeClaudeCode(options.hooks, ROOT)
     cc.files[f"{ROOT}/notes.md"] = "old line\nmore\n"
     first = "echo bye > out.txt" if os.environ.get("VARIANT") == "changed" else "echo hi > out.txt"
