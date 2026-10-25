@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ForkChange, ForkDifferences as Differences, ForkEnd } from '../../src/fork-differences.js';
+import type { ForkChange, ForkDifferences as Differences, ForkEnd, ForkWrite } from '../../src/fork-differences.js';
 import { shortId } from '../format.js';
 import { useLoad } from '../hooks.js';
 import { href } from '../route.js';
@@ -10,11 +10,29 @@ import { useApp } from '../state.js';
  * at on, the tool calls it made and didn't, the tools it called with other arguments, how each run
  * ended and its last words, most consequential first as `shadowlap decisions` ranks them (a write
  * changed, how the run ends, a read added or removed, a read asked differently, other words); then
- * its writes and what became of each. The first few show; the rest open with a click.
+ * its writes and what became of each: a few one by one, more grouped by tool and what became of
+ * them, so a batch fork's dozens of writes take a line and leave Calls in view. The first few
+ * changes show, and each write, with a click.
  */
 
 /** The changes shown before Show all. */
 export const SHOWN = 4;
+/** Writes listed one by one; more are grouped by tool and what became of them, each with a click. */
+export const WRITES_LISTED = 3;
+/** The most writes Show each lists: Compare has the rest. */
+export const WRITES_EACH = 100;
+
+/** A fork's writes grouped by tool and what became of them, in the order each group's first came. */
+export function writeGroups(writes: readonly ForkWrite[]): Array<{ tool: string; fate: ForkWrite['fate']; count: number; first: ForkWrite }> {
+  const groups = new Map<string, { tool: string; fate: ForkWrite['fate']; count: number; first: ForkWrite }>();
+  for (const w of writes) {
+    const key = `${w.tool}\u0000${w.fate}`;
+    const g = groups.get(key);
+    if (g) g.count++;
+    else groups.set(key, { tool: w.tool, fate: w.fate, count: 1, first: w });
+  }
+  return [...groups.values()];
+}
 
 /** A rank in a few words, for the column the changes line up on. */
 const RANK_WORDS: Record<number, string> = { 1: 'a write', 2: 'how it ends', 3: 'a read', 4: 'a read asked', 5: 'its words' };
@@ -65,22 +83,60 @@ export function DifferencesPanel({ d }: { d: Differences }) {
           {all ? 'Show the first few' : `Show all ${d.changes.length}`}
         </button>
       ) : null}
-      <p className="fdw">
-        {d.writes.length ? (
-          <>
-            <span className="k">its writes</span>
-            {d.writes.map((w, i) => (
-              <span key={w.callNo} className="fw">
-                {i ? ' · ' : null}
-                <a href={w.href}>#{w.callNo}</a> <b className="w">{w.tool}</b> <code>{w.args}</code> <em className={`fate ${w.fate}`}>{FATE_WORDS[w.fate] ?? w.fate}</em>
-              </span>
-            ))}
-          </>
-        ) : (
-          <span className="k">no writes from #{d.from} on</span>
-        )}
-      </p>
+      <Writes d={d} />
     </section>
+  );
+}
+
+const Fate = ({ fate }: { fate: ForkWrite['fate'] }) => <em className={`fate ${fate}`}>{FATE_WORDS[fate] ?? fate}</em>;
+
+function Write({ w, first }: { w: ForkWrite; first: boolean }) {
+  return (
+    <span className="fw">
+      {first ? null : ' · '}
+      <a href={w.href}>#{w.callNo}</a> <b className="w">{w.tool}</b> <code>{w.args}</code> <Fate fate={w.fate} />
+    </span>
+  );
+}
+
+/** The fork's writes: a few one by one; more grouped by tool and what became of them, with each a click away. */
+function Writes({ d }: { d: Differences }) {
+  const [each, setEach] = useState(false);
+  if (!d.writes.length)
+    return (
+      <p className="fdw">
+        <span className="k">no writes from #{d.from} on</span>
+      </p>
+    );
+  const grouped = d.writes.length > WRITES_LISTED;
+  const listed = !grouped || each ? d.writes.slice(0, WRITES_EACH) : null;
+  return (
+    <p className="fdw">
+      <span className="k">its writes</span>
+      {listed
+        ? listed.map((w, i) => <Write key={w.callNo} w={w} first={i === 0} />)
+        : writeGroups(d.writes).map((g, i) =>
+            g.count === 1 ? (
+              <Write key={g.first.callNo} w={g.first} first={i === 0} />
+            ) : (
+              <span key={`${g.tool}:${g.fate}`} className="fw">
+                {i ? ' · ' : null}
+                <b className="w">{g.tool}</b> ×{g.count} <Fate fate={g.fate} />, from <a href={g.first.href}>#{g.first.callNo}</a>
+              </span>
+            ),
+          )}
+      {listed && d.writes.length > listed.length ? (
+        <span className="fw">
+          {' · '}
+          {(d.writes.length - listed.length).toLocaleString('en-US')} more in <a href={href.compare(d.parentRunId, d.runId)}>Compare</a>
+        </span>
+      ) : null}
+      {grouped ? (
+        <button className="linkbtn fdeach" type="button" aria-expanded={each} onClick={() => setEach(!each)}>
+          {each ? 'Group them' : `Show each of ${d.writes.length.toLocaleString('en-US')}`}
+        </button>
+      ) : null}
+    </p>
   );
 }
 

@@ -63,6 +63,25 @@ describe('what a fork did differently, on its page', () => {
     expect(html).toContain(`href="#/compare/${REC}/${FORK}"`);
   });
 
+  it('groups many writes by tool and what became of them, each a click away, so Calls stays in view', async () => {
+    const tools = ['send_email', 'issue_refund', 'add_note'];
+    const writes = Array.from({ length: 29 }, (_, i) => ({ callNo: 920 + i * 10, tool: i === 0 ? 'escalate' : tools[i % 3]!, args: `{"n":${i}}`, fate: i === 28 ? ('live' as const) : ('blocked' as const), href: `#/run/${FORK}/${920 + i * 10}` }));
+    r = await render(createElement(DifferencesPanel, { d: differences({ writes }) }));
+    // One line: a group per tool and fate, from its first call; a write alone in its group as itself.
+    expect(r.all('.fdw .fw').map((x) => x.textContent.replace(/^ · /, ''))).toEqual(['#920 escalate {"n":0} blocked', 'issue_refund ×9 blocked, from #930', 'add_note ×9 blocked, from #940', 'send_email ×9 blocked, from #950', '#1200 issue_refund {"n":28} ran live']);
+    expect(r.all('.fdw .fw')).toHaveLength(5);
+    const each = r.byText('button', 'Show each of 29');
+    expect(each.getAttribute('aria-expanded')).toBe('false');
+    await r.click(each);
+    expect(r.all('.fdw .fw')).toHaveLength(29);
+    expect(r.byText('button', 'Group them').getAttribute('aria-expanded')).toBe('true');
+    // A few writes are listed one by one, with nothing to open.
+    await r.unmount();
+    r = await render(createElement(DifferencesPanel, { d: differences({ writes: writes.slice(0, 3) }) }));
+    expect(r.all('.fdw .fw')).toHaveLength(3);
+    expect(r.all('.fdw button')).toHaveLength(0);
+  });
+
   it('opens every change with a click', async () => {
     r = await render(createElement(DifferencesPanel, { d: differences() }));
     expect(r.all('.fdl li').length).toBe(SHOWN);
