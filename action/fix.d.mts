@@ -142,7 +142,7 @@ export function branchName(result: ReportResult): string;
 export const KEEPS_AT_MOST: number;
 export function goldenGate(result: ReportResult & { gate?: unknown; attempts?: unknown }): GoldenGate | null;
 export function repairPlan(members: FixPlan[], results?: ReportResult[]): RepairPlan;
-export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null }): string[];
+export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null; guard?: string }): string[];
 export function evidenceNote(plan: Pick<RepairPlan, 'goldens' | 'gate'>): string;
 export function checksNote(o: { auth: GitHubAuth; dispatch?: Dispatch | null }): string;
 export function cannotFix(workdir: string, env: NodeJS.ProcessEnv, read?: (path: string) => string): string | null;

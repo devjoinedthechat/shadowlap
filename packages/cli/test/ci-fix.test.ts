@@ -647,7 +647,7 @@ describe('planning fixes from a test report', () => {
     // The branch is pushed and the pull request opened once the golden is re-recorded on it, not by repair.
     // One failing replay of the golden: verify replays it as often as its gate asks. Its other
     // replays are the same case, so neither held out nor kept.
-    expect(repairArgs(repairPlan([plans[0]]), { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
+    expect(repairArgs(repairPlan([plans[0]]), { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--guard', 'block', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
   });
 
   it('leaves alone a golden with a check that can\'t be decided, whatever else it failed', () => {
@@ -731,7 +731,7 @@ describe('planning fixes from a test report', () => {
     expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'c'], ['b']]);
     expect(groups[0]).toMatchObject({ result: { name: 'a' }, skip: null, fixes: ['A1', 'C1'], keeps: ['A2', 'C2'] });
     // The first golden shown to the repairer, the other held out from it.
-    expect(repairArgs(repairPlan(groups[0].members), { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', '--holdout', 'C1', '--expect', '@/tmp/expect.json', '--budget', '4', '--branch', branchName(plans[0].result), '--yes', '--json']);
+    expect(repairArgs(repairPlan(groups[0].members), { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', '--holdout', 'C1', '--expect', '@/tmp/expect.json', '--budget', '4', '--guard', 'block', '--branch', branchName(plans[0].result), '--yes', '--json']);
     // The plans themselves are left as they were.
     expect(plans[0]).toMatchObject({ fixes: ['A1'], keeps: ['A2'] });
   });

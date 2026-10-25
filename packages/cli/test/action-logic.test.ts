@@ -361,7 +361,10 @@ describe('what a fix is verified on', () => {
     const plan = repairPlan(groups[0].members, results);
     expect(plan).toMatchObject({ fixes: ['a-1', 'c-1'], holdout: ['b-1'], keeps: ['ok-1-1', 'ok-2-1'], goldens: { shown: ['goldens/a', 'goldens/c'], heldOut: ['goldens/b'], kept: ['goldens/ok-1', 'goldens/ok-2'] }, gate: null });
     expect(KEEPS_AT_MOST).toBe(2);
-    expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
+    expect(repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'a-1', 'c-1', '--holdout', 'b-1', '--keeps', 'ok-1-1', 'ok-2-1', '--expect', '@/tmp/expect.json', '--budget', '6', '--guard', 'block', '--branch', expect.stringMatching(/^shadowlap\/fix-a-/), '--yes', '--json']);
+    // The step's network guard, as its test ran under it.
+    const args = repairArgs(plan, { db: null, budget: 6, repairer: '', expectFile: '/tmp/expect.json', guard: 'warn' });
+    expect(args.slice(args.indexOf('--guard'), args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
     // A golden alone under its check has nothing to hold out; one that passed the check is still kept.
     expect(repairPlan(groups[1].members, results)).toMatchObject({ fixes: ['d-1'], holdout: [], keeps: ['other-1'], goldens: { shown: ['goldens/d'], heldOut: [], kept: ['goldens/other'] } });
     const lonely = [failing('e', { tools: { delete_thread: 0 } }), ...results];

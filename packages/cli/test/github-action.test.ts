@@ -492,7 +492,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     return dir;
   }
 
-  it("hands neither repair nor the test any of GitHub's tokens", () => {
+  it("runs repair under the step's guard, and hands neither it nor the test any of GitHub's tokens", () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
     dirs.push(dir);
     const fake = fakeCli(dir);
@@ -512,6 +512,10 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
       for (const secret of [job, pat, oidc, header]) expect(text, `${args[0]}: ${secret}`).not.toContain(secret);
       for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'MY_COPY_OF_THE_TOKEN', 'GIT_CONFIG_COUNT']) expect(env, name).not.toHaveProperty(name);
     }
+    // The test ran under the step's guard, and so did repair.
+    const repair = seen[1].args;
+    expect(seen[0].args.slice(seen[0].args.indexOf('--guard'), seen[0].args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
+    expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
   });
 

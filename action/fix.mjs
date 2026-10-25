@@ -187,11 +187,12 @@ export function repairPlan(members, results = []) {
 
 /**
  * The arguments for `shadowlap repair` on a plan: its failing runs, those held out, those kept, the
- * check, and the golden's gate (`gateFile` holds an SPRT gate's figures). It commits the fix it keeps
+ * check, and the golden's gate (`gateFile` holds an SPRT gate's figures). Blame and verify run the
+ * agent live under the step's network guard (`guard`), as its test did. It commits the fix it keeps
  * to a new branch; the branch is pushed and the pull request opened here, once the golden is
  * re-recorded on it.
  */
-export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null }) {
+export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null, guard = 'block' }) {
   const gate = plan.gate ?? null;
   return [
     ...(db ? ['--db', db] : []),
@@ -206,6 +207,8 @@ export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = 
     '--budget',
     String(budget),
     ...(repairer ? ['--repairer', repairer] : []),
+    '--guard',
+    guard,
     '--branch',
     branchName(plan.result),
     '--yes',
@@ -690,9 +693,9 @@ const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' |
  * within their budgets added up), and says how each went. When no patch fixes all the goldens of a
  * group, each is repaired on its own, in the report's order, within what the group has left, until
  * one fix is accepted: that fix gets the group's one pull request, which names the goldens it was
- * not verified for, and no other. `auth` is the token the branch is pushed and the pull request
- * opened with (githubToken); with the job's own GITHUB_TOKEN, the workflow is started on the branch
- * between the two, through `fetch`.
+ * not verified for, and no other. Repair runs the agent under the step's `guard`. `auth` is the
+ * token the branch is pushed and the pull request opened with (githubToken); with the job's own
+ * GITHUB_TOKEN, the workflow is started on the branch between the two, through `fetch`.
  */
 export async function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', push = false, env, auth = githubToken(env), fetch: fetchFn = globalThis.fetch, log = () => {} }) {
   const plans = planFixes(report);
@@ -727,7 +730,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const gateFile = plan.gate?.kind === 'sprt' ? join(scratch, `${n}-gate.json`) : null;
         if (gateFile) writeFileSync(gateFile, JSON.stringify({ good: plan.gate.good, bad: plan.gate.bad, risk: plan.gate.risk, max: plan.gate.max }));
         log(line);
-        const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile })], workdir, fixEnv);
+        const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile, guard })], workdir, fixEnv);
         if (res.stderr) process.stderr.write(res.stderr);
         let repair = null;
         try {
