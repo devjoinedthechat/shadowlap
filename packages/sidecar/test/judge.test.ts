@@ -116,6 +116,31 @@ describe('the judge scope', () => {
     }
   });
 
+  it('tells two judge requests apart by their query, from the cache as when it is worked out', async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    const judged = (runId: string, query: string, headers: Record<string, string> = {}) =>
+      fetch(`${sidecar.url}/r/${runId}/anthropic/v1/messages?${query}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-shadowlap-scope': JUDGE_SCOPE, 'x-shadowlap-judge': sidecar.judgeToken, 'x-shadowlap-judge-check': 'done', 'x-shadowlap-judge-ask': 'abc123', ...headers },
+        body: JSON.stringify(judgeBody('Refunded.')),
+      });
+    try {
+      // The same request twice but for its query: two requests, each with its own recorded verdict.
+      const rec = sidecar.startRun({ mode: 'record', command });
+      for (const query of ['variant=a', 'variant=b']) await (await judged(rec.runId, query)).json();
+      sidecar.endRun(rec.runId, 'completed');
+      const sent = mock.requests.length;
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command });
+      for (const query of ['variant=a', 'variant=b']) expect((await judged(replay.runId, query, { 'x-shadowlap-judge-offline': '1' })).headers.get('x-shadowlap-origin'), query).toBe('replayed');
+      expect(mock.requests.length).toBe(sent);
+      sidecar.endRun(replay.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
   it('matches a judge request by its bytes, whatever the normalizers mask, and only under the recording\'s own pathless redaction rules', async () => {
     const store = Store.open(':memory:');
     // A normalizer that masks dates for the agent's calls: two judge requests that differ only in a date are two requests.

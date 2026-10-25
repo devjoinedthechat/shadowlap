@@ -105,6 +105,15 @@ function modelInBody(body: unknown): string | null {
   return typeof m === 'string' ? m : null;
 }
 
+/** A path segment decoded, or as it was sent when it doesn't decode (`anthropic.claude%ZZ`): a malformed path names its model as it stands. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
 /** `models/gemini-2.5-flash:streamGenerateContent` → `gemini-2.5-flash`. */
 export function modelInPath(path: string): string | null {
   const m = /models\/([^:/?]+):/.exec(path);
@@ -363,7 +372,7 @@ export const gemini: Provider = {
 /** `…/openai/deployments/gpt-4o/chat/completions` → `gpt-4o`. Azure names the deployment, not the model. */
 function deploymentInPath(path: string): string | null {
   const m = /deployments\/([^/?]+)/.exec(path);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m ? decodedSegment(m[1]!) : null;
 }
 
 export const azure: Provider = {
@@ -470,7 +479,7 @@ export const bedrock: Provider = {
   },
   extractModel: (subpath) => {
     const m = /\/model\/([^/]+)\//.exec(subpath);
-    return m ? decodeURIComponent(m[1]!) : null;
+    return m ? decodedSegment(m[1]!) : null;
   },
   // bedrock-runtime.<region>.amazonaws.com, and bedrock-mantle.<region>.api.aws, where OpenAI's SDK
   // reaches Bedrock in OpenAI's format (bedrockMantle, by its /openai paths).

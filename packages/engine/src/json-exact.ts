@@ -17,13 +17,16 @@ export const isRawNumber = (value: unknown): value is RawJson => json.isRawJSON?
 /**
  * `JSON.parse` that keeps a number whose text a double would change as written: `JSON.stringify` writes
  * it back verbatim. Every other value is what `JSON.parse` gives. Such a value can't be cloned or
- * walked as an ordinary number: store and serve it, and fingerprint `matchable(value)`.
+ * walked as an ordinary number: store and serve it, and fingerprint `matchable(value)`. `kept.raw` is
+ * set when it kept one, so a caller that also needs the plain reading parses again only then.
  */
-export function parseJsonExact(text: string): unknown {
+export function parseJsonExact(text: string, kept?: { raw: boolean }): unknown {
   const raw = json.rawJSON;
   if (!raw) return JSON.parse(text);
   return JSON.parse(text, function (this: unknown, _key: string, value: unknown, context?: { source?: string }) {
-    return typeof value === 'number' && typeof context?.source === 'string' && String(value) !== context.source ? raw(context.source) : value;
+    if (typeof value !== 'number' || typeof context?.source !== 'string' || String(value) === context.source) return value;
+    if (kept) kept.raw = true;
+    return raw(context.source);
   } as (key: string, value: unknown) => unknown);
 }
 
@@ -38,6 +41,22 @@ export function matchable(value: unknown): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, matchable(v));
+    return out;
+  }
+  return value;
+}
+
+/**
+ * A value from `parseJsonExact` as `JSON.parse` would have read it: every number the double it reads
+ * as, an integer past 2^53 rounded. How a model request was matched before requests kept their
+ * numbers, which a replay of a recording made then matches it by.
+ */
+export function asParsed(value: unknown): unknown {
+  if (isRawNumber(value)) return Number(value.rawJSON);
+  if (Array.isArray(value)) return value.map(asParsed);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, asParsed(v));
     return out;
   }
   return value;

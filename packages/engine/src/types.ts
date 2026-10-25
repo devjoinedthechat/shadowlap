@@ -232,6 +232,12 @@ export interface RunMeta {
   /** Hash of the fingerprint version and the normalizers this run's stored fingerprints were computed under; a replay under the same list reuses them. */
   normalizersHash?: string;
   /**
+   * The run's model requests are stored with each number as the agent sent it (an id past 2^53 by its
+   * digits, a `20.0` as written). A run without it stored them as JSON.parse reads them, rounded, so a
+   * replay of it reads a live request's numbers the same way to match it.
+   */
+  exactNumbers?: true;
+  /**
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
    * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
    * `r2://…`), which marks a run pulled from it (`pulledRun`). `pr`: it came from a pull request's

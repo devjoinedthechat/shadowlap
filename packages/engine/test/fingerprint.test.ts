@@ -52,9 +52,12 @@ describe('fingerprintTool / fingerprintMisc', () => {
     expect(fingerprintTool('search', { q: 'a', n: 1 }, []).fingerprint).toBe(fingerprintTool('search', { n: 1, q: 'a' }, []).fingerprint);
     expect(fingerprintTool('search', { q: 'a' }, []).fingerprint).not.toBe(fingerprintTool('fetch', { q: 'a' }, []).fingerprint);
   });
-  it('separates clock and random by kind and label', () => {
-    expect(fingerprintMisc('clock', '').fingerprint).not.toBe(fingerprintMisc('random', '').fingerprint);
-    expect(fingerprintMisc('clock', 'deadline').fingerprint).not.toBe(fingerprintMisc('clock', '').fingerprint);
+  it('separates clock and random reads by kind, name and label', () => {
+    expect(fingerprintMisc('clock', 'now', '').fingerprint).not.toBe(fingerprintMisc('random', 'now', '').fingerprint);
+    expect(fingerprintMisc('clock', 'now', 'deadline').fingerprint).not.toBe(fingerprintMisc('clock', 'now', '').fingerprint);
+    // The SDKs label none by default: random() and uuid() differ by their names alone.
+    expect(fingerprintMisc('random', 'random', '').fingerprint).not.toBe(fingerprintMisc('random', 'uuid', '').fingerprint);
+    expect(fingerprintMisc('random', 'uuid', '').fingerprint).toBe(fingerprintMisc('random', 'uuid', '').fingerprint);
   });
 });
 

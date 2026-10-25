@@ -25,6 +25,9 @@ import {
   storedModelResolver,
   summarizeRun,
   toolFailureError,
+  apiNumbers,
+  queryPairs,
+  ulidNow,
   unmaskedHints,
   type CallKind,
   type JudgeSummary,
@@ -40,6 +43,7 @@ import {
   type Origin,
   type ReplayOptions,
   type RunCommand,
+  type RunMeta,
   type RunMode,
   type RunRecord,
   type RunStatus,
@@ -55,9 +59,10 @@ import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 // Judge checks: calls in the reserved scope, which only this process can make (judge.ts in the engine).
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
-import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule } from './http.js';
+import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { identityQuery } from './query.js';
+import { ProviderState } from './provider-state.js';
 import { isResponsesCreate, ResponsesState } from './responses-state.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
 import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
@@ -153,6 +158,12 @@ export interface StartRunInput {
   slot?: string;
   /** Never call a provider: a call that isn't served from the recording fails, as in `shadowlap test`. */
   offline?: boolean;
+  /**
+   * What to keep on the run from its start (who made it, the keys its environment held): written
+   * with its record, so a caller stamps a run without writing to the store itself, and so without
+   * waiting for another process's lock.
+   */
+  meta?: Partial<RunMeta>;
 }
 
 export interface EndRunResult {
@@ -241,6 +252,10 @@ class RunContext {
   judgeOnly: { from: number } | null = null;
   /** What the recording kept on OpenAI's side, for a live Responses call that continues it (responses-state.ts); null without one. */
   responses: ResponsesState | null = null;
+  /** The Gemini caches the recording made and the files it uploaded, for a live call that names one (provider-state.ts); null without any. */
+  providerState: ProviderState | null = null;
+  /** Why the run itself could not be written to the store, when it couldn't: none of its calls can be then. */
+  lost: string | null = null;
 
   constructor(
     readonly run: RunRecord,
@@ -274,6 +289,11 @@ class RunContext {
      * and kept, without its query.
      */
     readonly unqueried: ReadonlySet<string> = new Set(),
+    /**
+     * Whether a model request's numbers are read rounded, as JSON.parse reads them: so the parent,
+     * recorded before requests kept their numbers (RunMeta.exactNumbers), is matched as it was stored.
+     */
+    readonly roundedNumbers = false,
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -308,8 +328,18 @@ class RunContext {
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 // No content-encoding: requestUpstream drops it once it has decoded the body, and an encoding it
-// can't decode goes on to the agent with its body as it came.
-const RESPONSE_DROP = new Set([...HOP_BY_HOP, 'content-length']);
+// can't decode goes on to the agent with its body as it came. No `location` either: a model API
+// never redirects, and a client that follows one sends every header again, its key among them, to
+// wherever it points (Node's fetch does), so a provider's answer is passed on and recorded without
+// it, and a recording that kept one is served without it.
+const RESPONSE_DROP = new Set([...HOP_BY_HOP, 'content-length', 'location']);
+
+/** A recorded model answer's headers as a replay serves them: without what RESPONSE_DROP leaves out of a live one. */
+function servedHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) if (!RESPONSE_DROP.has(k.toLowerCase())) out[k] = v;
+  return out;
+}
 
 /** A call's attempt that ended without an answer because the agent's connection closed first. */
 const clientLeft = (when: string): SerializedError => ({ name: 'ClientDisconnected', message: `the client closed the connection ${when}` });
@@ -349,6 +379,19 @@ class ClientWatch {
   }
 }
 
+/**
+ * The rules a run's model calls are fingerprinted under, live and from their records: its
+ * normalizers, the times dates are masked against, whether prompts are left out (`--prompt-from`),
+ * and whether a request's numbers are read rounded, as a recording made before requests kept their
+ * numbers stored them (RunMeta.exactNumbers).
+ */
+interface MatchingRules {
+  normalizers: Normalizer[];
+  clockRef: readonly number[] | undefined;
+  withoutPrompt: boolean;
+  roundedNumbers: boolean;
+}
+
 /** A model call as the agent sent it: its run and provider, and its request as interventions leave it. */
 interface ModelCall {
   ctx: RunContext;
@@ -367,10 +410,77 @@ interface ModelCall {
   search: string;
   headers: Record<string, string>;
   rawBody: Buffer;
+  /** The body as JSON.parse reads it: for what reads its members (interventions, the provider's state, its model). */
   body: unknown;
+  /**
+   * The body as it is stored and fingerprinted, each number as the agent wrote it (parseJsonExact), so
+   * an id past 2^53 is kept and matched by its digits; once an intervention rewrote the request, the
+   * rewritten body, which is what was sent.
+   */
+  exact: unknown;
   retryCount: number;
   /** Whether a request identical to one that failed retryably is its retry: its client counts retries and this is one, or it counts none. */
   retrying: boolean;
+}
+
+/** A tool, clock or random call as the SDK asked for it (routeToolCall). */
+interface ToolCall {
+  ctx: RunContext;
+  body: ResolveBody;
+  scope: string | undefined;
+  kind: Exclude<CallKind, 'api'>;
+  name: string;
+  effect: Effect | null;
+  /** What it is stored and matched by: a tool's arguments, or a clock or random read's label. */
+  request: { args: unknown } | { label: string };
+  /** A person's answer (`user_input`): after a fork it is served from the recording, in order. */
+  input: boolean;
+}
+
+/** A tool, clock or random call once resolved (resolveToolCall). */
+interface PlacedToolCall {
+  callNo: number;
+  tracked: TrackedCall;
+}
+
+/**
+ * A call to a declared HTTP host as the agent sent it (routeHttpCall): its run, the host it was for,
+ * and its request as it is stored and matched.
+ */
+interface HttpCall {
+  ctx: RunContext;
+  req: IncomingMessage;
+  res: ServerResponse;
+  client: ClientWatch;
+  scope: string | undefined;
+  /** The host it was for, as in-process capture names it (`x-shadowlap-upstream`). */
+  host: string;
+  effect: Effect;
+  method: string;
+  rawBody: Buffer;
+  /** `POST host/path`, as the call is named. */
+  name: string;
+  /** Where it goes live: the host, and its path and query as the agent sent them. */
+  url: string;
+  search: string;
+  /** What it is stored and matched by: its method, and its URL and body without their credentials. */
+  args: { method: string; url: string } & StoredBody;
+}
+
+/** A captured HTTP call once resolved (resolveHttpCall). */
+interface PlacedHttpCall {
+  callNo: number;
+  tracked: TrackedCall;
+}
+
+/**
+ * What a captured HTTP call's end stores: the host's answer (`result`), or the error it got instead,
+ * with the answer the sidecar gave it itself (`answer`) when it gave one.
+ */
+interface StoredHttpEnd {
+  result?: HttpResult;
+  error?: SerializedError;
+  answer?: HttpResult;
 }
 
 /** What interventions made of a model request (rewriteForInterventions): its place, the call it retries if it is a retry, and how it changed. */
@@ -463,8 +573,10 @@ export class Sidecar {
   private readonly upstreamHttp2 = new Map<string, ClientHttp2Session>();
   /** Requests upstream over HTTP/1.1 that have not ended yet: a model call still waiting for its answer, a body still streaming. */
   private readonly upstreamRequests = new Set<ClientRequest>();
-  /** Every write of the calls to the store, in order, never holding up an answer (writer.ts). */
+  /** Every write of the runs and their calls to the store, in order, never holding up an answer (writer.ts). */
   private readonly writer: StoreWriter;
+  /** Takes the writer off the store's queues (Store.queueWrites), once it has made what it holds. */
+  private readonly unqueue: () => void;
   /** WebSockets tunnelled and still open: an agent's connections, ended when the sidecar closes. */
   private readonly tunnels = new Set<Duplex>();
   /**
@@ -473,9 +585,12 @@ export class Sidecar {
    * it and the store may close as soon as close() returns.
    */
   private closed = false;
+  /** The address the server listens on, lower case and without brackets, which a request may name in its Host as a loopback name would be. */
+  private readonly listening: string;
 
   private constructor(opts: SidecarOptions, server: Server, url: string, token: string, http2Server: Http2Server, http2Url: string) {
     this.store = opts.store;
+    this.listening = bareHost(opts.host ?? '127.0.0.1');
     this.server = server;
     this.http2Server = http2Server;
     this.http2Url = http2Url;
@@ -494,6 +609,8 @@ export class Sidecar {
     this.api = opts.api;
     this.awsCredentials = opts.awsCredentials ?? credentialsFromEnvironment();
     this.writer = new StoreWriter(opts.store, opts.storeWrites ?? {}, (line) => this.log(line));
+    // A read or change of a run in this process makes what the writer holds of it first.
+    this.unqueue = opts.store.queueWrites(this.writer);
   }
 
   static async start(opts: SidecarOptions): Promise<Sidecar> {
@@ -528,7 +645,7 @@ export class Sidecar {
             res.writeHead(status, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
           } else {
-            res.destroy();
+            breakConnection(res, message);
           }
           sidecar.log(`error: ${message}`);
         })
@@ -587,6 +704,7 @@ export class Sidecar {
     this.server.closeAllConnections?.();
     // What the calls answered so far is written before the store may close.
     this.writer.stop();
+    this.unqueue();
     // The servers close once every agent still connected has had its answer, so a request still
     // upstream now is one whose agent left before its answer came (stopped by Ctrl-C mid-call):
     // nobody is left to read it, and a slow model would keep this process running after it is done.
@@ -621,10 +739,16 @@ export class Sidecar {
     return env;
   }
 
+  /**
+   * Starts a run. Its record is written through the store writer, as its calls are, so a start never
+   * holds the thread the agents' answers stream on for another process's lock: at once when the
+   * store is free, else once it is, with every write of the run after it. Reading the run in this
+   * process waits for that (QueuedWrites), so a caller that stamps it as it starts finds it, and one
+   * that passes what to stamp as `meta` never waits at all. A replay reads its parent whole, the
+   * writes this process queued for the parent included.
+   */
   startRun(input: StartRunInput): RunRecord {
     if (input.slot !== undefined) this.envForSlot(input.slot);
-    // A parent this sidecar recorded is read whole.
-    this.writer.flush();
     // Known before the parent is fingerprinted, which masks dates against it.
     const startedAt = Date.now();
     let parentCalls: CallRecord[] | undefined;
@@ -635,6 +759,8 @@ export class Sidecar {
     let redactions: Normalizer[] = [];
     // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
     let ownCommand: string[] | undefined;
+    // A parent made before requests kept their numbers stored them rounded: matched so.
+    let roundedNumbers = false;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
       const parent = this.store.getRun(input.parentRunId);
@@ -647,6 +773,7 @@ export class Sidecar {
         normalizers = [...normalizers, ...redactions];
       }
       const stored = this.store.getCalls(input.parentRunId);
+      roundedNumbers = parent.meta?.exactNumbers !== true;
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
       parentRecordsInput = parent.meta?.inputs === true;
@@ -656,17 +783,18 @@ export class Sidecar {
       }
       // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
       // is new, so the parent's stored fingerprints (made against its own start) never apply.
-      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
+      const withoutPrompt = input.replay?.promptFrom !== undefined;
+      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, withoutPrompt, roundedNumbers)) {
         // A captured HTTP call is matched with the credentials in its query or form body masked, which
         // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
         // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
         const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
         const some = stored.some(again);
-        parentCalls = some ? this.refingerprint(stored, normalizers, undefined, input.replay?.promptFrom !== undefined, redactions, again).calls : stored;
+        parentCalls = some ? this.refingerprint(stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, redactions }, again).calls : stored;
         this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
       } else {
         // Most come from the cache (fingerprint-cache.ts), which the recording filled.
-        const { calls, cached } = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined, redactions);
+        const { calls, cached } = this.refingerprint(stored, { normalizers, clockRef: this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, redactions });
         parentCalls = calls;
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers (${cached} from the cache)`);
       }
@@ -681,18 +809,15 @@ export class Sidecar {
     // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
     // their flags (no list) is never taken for one that had none.
     const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand, input.overrideSources) : null;
-    const run = this.store.createRun({
-      mode: input.mode,
-      parentRunId: input.parentRunId ?? null,
-      command: input.command,
-      codeVersion: input.codeVersion ?? null,
-      startedAt,
-      meta: {
-        normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
-        ...(input.commandFromImport ? { commandFromImport: true } : {}),
-        ...(described ? { interventions: described } : {}),
-      },
-    });
+    const meta: RunMeta = {
+      ...(input.meta ?? {}),
+      normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined, roundedNumbers),
+      // Its model requests are stored with each number as the agent sent it.
+      exactNumbers: true,
+      ...(input.commandFromImport ? { commandFromImport: true } : {}),
+      ...(described ? { interventions: described } : {}),
+    };
+    const run: RunRecord = { runId: ulidNow(), parentRunId: input.parentRunId ?? null, mode: input.mode, status: 'running', divergence: null, command: input.command, codeVersion: input.codeVersion ?? null, startedAt, endedAt: null, meta };
     const clockRef = this.clock !== 'auto' ? undefined : parentStartedAt !== undefined ? [parentStartedAt, run.startedAt] : [run.startedAt];
     const session = new Session({
       mode: input.mode,
@@ -708,13 +833,29 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined);
+    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined, roundedNumbers);
+    this.writer.write({
+      what: `run ${run.runId}'s start`,
+      of: { runId: run.runId, part: 'run' },
+      run: () => void this.store.createRun({ runId: run.runId, mode: run.mode, parentRunId: run.parentRunId, command: run.command, codeVersion: run.codeVersion, startedAt, meta }),
+      failed: (reason) => {
+        ctx.lost = reason;
+        ctx.warnings.push(`Run ${run.runId} could not be written to the store (${reason}): nothing of it is in the recording.`);
+      },
+    });
     // A fork's live Responses call may continue a response or a conversation the recording made: read when one does.
     if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
       const recorded = parentCalls;
       ctx.responses = new ResponsesState(recorded, {
-        request: (rec) => this.loadRequest(rec),
+        request: (rec) => this.sentRequest(rec),
         response: (rec) => ({ bytes: rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
+      });
+    }
+    // A fork's live call may name a Gemini cache the recording made, or a file it uploaded: read when one does.
+    if (parentCalls && ProviderState.applies(parentCalls)) {
+      ctx.providerState = new ProviderState(parentCalls, {
+        request: (rec) => this.sentRequest(rec),
+        response: (rec) => (rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null),
       });
     }
     this.runs.set(run.runId, ctx);
@@ -733,7 +874,6 @@ export class Sidecar {
    */
   openForJudge(runId: string): void {
     if (this.runs.has(runId)) return;
-    this.writer.flush();
     const run = this.store.getRun(runId);
     if (!run) throw new HttpError(404, `unknown run ${runId}`);
     const parent = run.parentRunId ? this.store.getRun(run.parentRunId) : null;
@@ -742,9 +882,10 @@ export class Sidecar {
     const redactions = parent?.meta?.redactions ?? [];
     const normalizers = redactions.length ? [...this.normalizers, ...redactions] : this.normalizers;
     const clockRef = this.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
-    const recorded = parent ? this.refingerprint(this.store.getCalls(parent.runId).filter(isJudgeCall), normalizers, clockRef, false, redactions).calls : [];
+    const roundedNumbers = parent !== null && parent.meta?.exactNumbers !== true;
+    const recorded = parent ? this.refingerprint(this.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, redactions }).calls : [];
     const session = new Session({ mode: parent ? 'replay' : 'record', parentRunId: parent?.runId ?? null, parentCalls: recorded });
-    const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions);
+    const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions, undefined, undefined, roundedNumbers);
     ctx.nextCallNo = this.store.getCalls(runId).reduce((n, c) => Math.max(n, c.callNo), 0) + 1;
     ctx.judgeOnly = { from: ctx.nextCallNo };
     this.runs.set(runId, ctx);
@@ -756,7 +897,6 @@ export class Sidecar {
     const ctx = this.runs.get(runId);
     if (!ctx?.judgeOnly) return null;
     this.runs.delete(runId);
-    this.writer.flush();
     const made = this.store.getCalls(runId).filter((c) => isJudgeCall(c) && c.callNo >= ctx.judgeOnly!.from);
     // Made by this process, whatever made the run: a recording that came from a pack had its own
     // calls made somewhere else, but these went upstream, and were paid for, here.
@@ -773,6 +913,41 @@ export class Sidecar {
     if (ctx) ctx.preloadGuard = guard;
   }
 
+  /**
+   * Keeps `patch` on a run's metadata. For a run this sidecar has open it goes through the store
+   * writer, after the run's start, so it never waits on the thread for another process's lock (a
+   * caller that stamps a run as it starts can pass the stamp as StartRunInput.meta instead); any
+   * other run's is written at once.
+   */
+  updateRunMeta(runId: string, patch: Partial<RunMeta>): void {
+    const ctx = this.runs.get(runId);
+    if (!ctx) return this.store.updateRunMeta(runId, patch);
+    ctx.run.meta = { ...(ctx.run.meta ?? {}), ...patch };
+    this.writer.write({
+      what: `run ${runId}'s metadata`,
+      of: { runId, part: 'run' },
+      run: () => this.store.updateRunMeta(runId, patch),
+      failed: (reason) => this.storeTrouble(ctx, 'store:meta', `What was kept on run ${runId} could not be written to the store (${reason}).`),
+    });
+  }
+
+  /**
+   * Resolves once every write this sidecar queued for the run (or, without one, for any run) has been
+   * made or given up, waiting on the store writer's timer, never on the thread the agents' answers
+   * stream on. A caller that waits for it before endRun, or before reading the run, never waits on
+   * the thread for another process's lock.
+   */
+  settled(runId?: string): Promise<void> {
+    return this.writer.settled(runId);
+  }
+
+  /**
+   * Ends a run. Its calls are read back as the store holds them, every one this process wrote among
+   * them: while another process holds the store the read waits for the run's own calls
+   * (QueuedWrites), and a caller that waits for `settled(runId)` first never waits on the thread at
+   * all. What the end keeps (its status, what its preloads said, the hosts it reached unrecorded, its
+   * WebSockets) is one write through the store writer, as its calls are.
+   */
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
     const ctx = this.runs.get(runId);
     if (!ctx) throw new HttpError(404, `unknown run ${runId}`);
@@ -782,21 +957,17 @@ export class Sidecar {
     // A replay that never diverged but stopped before its recording did leaves it there: kept on
     // the run, so everything that reads the store tells it from a clean replay.
     if (ctx.session.end()) this.noteDivergence(ctx);
-    // Every call written before the run is read back (and any that couldn't be, in its warnings).
-    this.writer.flush();
+    // Every call of the run, the ones still queued made first (and any that couldn't be, in its warnings).
     const calls = this.store.getCalls(runId);
     // A run that made model or tool calls with no preload loaded was never watched by the guard:
     // under --guard block it fails, whatever its agent did.
     const preloads = this.preloadReport(ctx, calls);
     if (preloads?.failed && status === 'completed') status = 'failed';
-    this.store.endRun(runId, status);
     this.runs.delete(runId);
     if (this.activeRunId === runId) this.activeRunId = null;
     if (ctx.slot !== null && this.slots.get(ctx.slot) === runId) this.slots.delete(ctx.slot);
-    const run = this.store.getRun(runId)!;
+    const run: RunRecord = ctx.run;
     const unguarded = [...ctx.unguarded.entries()].map(([target, v]) => ({ target, ...v })).sort((a, b) => b.count - a.count);
-    // Kept on the run as well as printed: its page says what a replay runs for real.
-    if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
     const warnings = [...ctx.warnings];
     if (preloads?.missing) warnings.push(preloads.missing);
     if (unguarded.length) {
@@ -817,8 +988,6 @@ export class Sidecar {
     // WebSockets (OpenAI Realtime): what went over them is in no recording.
     const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
     warnings.push(...webSocketWarnings(websockets, run.mode));
-    // Kept on the run for its page, as the preloads are: the summary goes, the run stays.
-    if (websockets.length) this.store.updateRunMeta(runId, { websockets });
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api') && !websockets.some((u) => u.action === 'tunnelled')) {
       warnings.push(
         calls.length === 0
@@ -826,15 +995,32 @@ export class Sidecar {
           : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through Shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
       );
     }
-    const summary = summarizeRun(run, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
+    // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
+    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
+    const endedAt = Date.now();
+    if (ctx.lost === null) {
+      this.writer.write({
+        what: `run ${runId}'s end`,
+        of: { runId, part: 'run' },
+        run: () => {
+          this.store.endRun(runId, status, endedAt);
+          if (Object.keys(patch).length) this.store.updateRunMeta(runId, patch);
+          // Kept on the run as well as printed: its page says what a replay runs for real.
+          if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
+        },
+        failed: (reason) => warnings.push(`That run ${runId} ended could not be written to the store (${reason}): it reads as running until a later command finds no process recording it.`),
+      });
+    }
+    const ended: RunRecord = { ...run, status, endedAt, meta: { ...(run.meta ?? {}), ...patch } };
+    const summary = summarizeRun(ended, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
     this.log(`run ${runId} ended (${status})`);
-    return { run, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
+    return { run: ended, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
   }
 
   /**
-   * What the run's preloads said, kept on the run for its page (`RunMeta.preloads`), or null when the
-   * CLI started its agent with none (expectPreloads). A run that made model or tool calls (a judge's
-   * are the CLI's own) with no hello is `missing` one, unless the guard was turned off.
+   * What the run's preloads said, which endRun keeps on the run for its page (`RunMeta.preloads`), or
+   * null when the CLI started its agent with none (expectPreloads). A run that made model or tool
+   * calls (a judge's are the CLI's own) with no hello is `missing` one, unless the guard was turned off.
    */
   private preloadReport(ctx: RunContext, calls: readonly CallRecord[]): PreloadReport | null {
     const guard = ctx.preloadGuard;
@@ -844,7 +1030,6 @@ export class Sidecar {
     const agent = calls.filter((c) => !isJudgeCall(c));
     const made = { api: agent.filter((c) => c.kind === 'api').length, tool: agent.filter((c) => c.kind === 'tool').length };
     const missing = guard !== 'off' && Object.keys(hellos).length === 0 && made.api + made.tool > 0 ? missingPreload(ctx.run.command.argv, made, guard) : null;
-    this.store.updateRunMeta(ctx.run.runId, { preloads: { guard, hellos, ...(missing ? { missing } : {}) } });
     return { guard, hellos, missing, failed: missing !== null && guard === 'block' };
   }
 
@@ -887,7 +1072,39 @@ export class Sidecar {
     return { url, rest, pinned };
   }
 
+  /**
+   * DNS rebinding: a page in a browser on some other name that resolves to 127.0.0.1 must get
+   * nothing here, token or no token, as the dashboard refuses it. A browser names the host it thinks
+   * it reaches in `Host` and can't change it, so a request must name this server by a loopback name
+   * or address, or be one in-process capture redirected here: that keeps the Host of the host it was
+   * for (Python's httpx does) and names the same host in `x-shadowlap-upstream`, which must be a host
+   * this sidecar captures (a provider's, a declared format host or HTTP host). A request without a
+   * Host is no browser's, and HTTP/2 here is cleartext, which no browser speaks (AWS clients'
+   * capture uses it).
+   */
+  private refuseForeignHost(req: IncomingMessage): void {
+    if (req.httpVersionMajor >= 2) return;
+    const raw = req.headers.host;
+    if (raw === undefined) return;
+    let named: string;
+    try {
+      named = bareHost(new URL(`http://${raw}`).hostname);
+    } catch {
+      throw new HttpError(403, 'shadowlap answers requests to its loopback address only');
+    }
+    if (named === 'localhost' || named === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(named) || named === this.listening) return;
+    let upstream: URL | null = null;
+    try {
+      upstream = new URL(headerValue(req, 'x-shadowlap-upstream') ?? '');
+    } catch {
+      // names no host it was redirected from
+    }
+    const captured = upstream !== null && bareHost(upstream.hostname) === named && (matchHttpRule(this.httpRules, upstream) !== undefined || [...this.byId.values()].some((p) => p.accepts?.(upstream) ?? p.hosts.test(upstream.hostname)));
+    if (!captured) throw new HttpError(403, `shadowlap answers requests to its loopback address only, not to ${named}`);
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    this.refuseForeignHost(req);
     const { url, rest, pinned } = this.routeOf(req.url);
     const head = rest.split('/', 1)[0] ?? '';
 
@@ -912,6 +1129,7 @@ export class Sidecar {
   private upgrade(req: IncomingMessage, socket: Duplex, early: Buffer): void {
     socket.on('error', () => {});
     try {
+      this.refuseForeignHost(req);
       const { url, rest, pinned } = this.routeOf(req.url);
       const head = rest.split('/', 1)[0] ?? '';
       const provider = head ? this.providers.get(head) : undefined;
@@ -1087,6 +1305,14 @@ export class Sidecar {
   private requestedUpstream(req: IncomingMessage, provider: Provider, ctx: RunContext, websocket = false): string | undefined {
     // A configured upstream (a mock, a local server, or "offline" in shadowlap test) takes precedence.
     if (this.upstreamOf(provider) || ctx.offline) return undefined;
+    return this.vouchedUpstream(req, provider, websocket);
+  }
+
+  /**
+   * The host a captured request names (`x-shadowlap-upstream`) when its provider vouches for it, as
+   * an origin; undefined when it names none, and refused when it names one the provider doesn't own.
+   */
+  private vouchedUpstream(req: IncomingMessage, provider: Provider, websocket = false): string | undefined {
     const raw = req.headers['x-shadowlap-upstream'];
     const value = (Array.isArray(raw) ? raw[0] : raw)?.trim();
     if (!value) return undefined;
@@ -1152,18 +1378,22 @@ export class Sidecar {
     if (!judge) ctx.providersUsed.add(provider.format && !hostedProviders.includes(provider) ? provider.format : provider.id);
     const headers = lowerHeaders(req.headers);
     let body: unknown;
-    if (rawBody.length === 0) body = null;
+    let exact: unknown;
+    if (rawBody.length === 0) body = exact = null;
     else {
+      const text = rawBody.toString('utf8');
       try {
-        body = JSON.parse(rawBody.toString('utf8'));
+        const kept = { raw: false };
+        exact = parseJsonExact(text, kept);
+        body = kept.raw ? JSON.parse(text) : exact;
       } catch {
-        body = rawBody.toString('base64');
+        body = exact = rawBody.toString('base64');
       }
     }
     const retryHeader = provider.retryCountHeader ? headers[provider.retryCountHeader] : undefined;
     const retryCount = retryHeader === undefined ? 0 : Number.parseInt(retryHeader, 10) || 0;
     const method = (req.method ?? 'GET').toUpperCase();
-    return { ctx, req, res, client, provider, scope, judge, requested, method, sent, path: sent, search, headers, rawBody, body, retryCount, retrying: retryCount > 0 || retryHeader === undefined };
+    return { ctx, req, res, client, provider, scope, judge, requested, method, sent, path: sent, search, headers, rawBody, body, exact, retryCount, retrying: retryCount > 0 || retryHeader === undefined };
   }
 
   /**
@@ -1189,8 +1419,7 @@ export class Sidecar {
     // a run, or a pack of it, would only carry it.
     if (judge && (judge.offline || ctx.offline) && !ctx.session.judgedFor(fingerprint)) {
       const message = `shadowlap is offline: this judge check's request is not in the recording, and the judge may not be asked live`;
-      call.res.writeHead(503, { 'content-type': 'application/json' });
-      call.res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_offline', message } }));
+      sendOwn(call.res, { status: 503, body: { type: 'error', error: { type: 'shadowlap_offline', message } }, origin: 'offline' });
       return null;
     }
 
@@ -1204,7 +1433,7 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
     const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: call.body, headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
     const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
@@ -1224,7 +1453,7 @@ export class Sidecar {
   private rewriteForInterventions(call: ModelCall): Rewritten {
     const { ctx, provider, scope } = call;
     if (!ctx.interventions?.active || call.judge) return {};
-    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
+    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.exact, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
@@ -1239,6 +1468,7 @@ export class Sidecar {
     if (rewrite.changed) {
       call.path = rewrite.path;
       call.body = rewrite.body;
+      call.exact = rewrite.body;
       call.rawBody = Buffer.from(JSON.stringify(call.body), 'utf8');
       // AWS signs a request's exact path and body: the changed one is signed again, or refused. One
       // signed with placeholder credentials is never sent, so forwardLive refuses it as it is.
@@ -1274,8 +1504,8 @@ export class Sidecar {
     const unqueried = !judge && ctx.unqueried.has(provider.id);
     // Read as the recording's copy keeps its query: a parameter a redaction rule masked there is masked here too.
     const query = unqueried ? '' : identityQuery(call.search, ctx.redactions, name);
-    const request = { method: call.method, path: call.path, headers: asked, body: call.body, query };
-    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
+    const request = { method: call.method, path: call.path, headers: asked, body: call.exact, query };
+    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath, ctx.roundedNumbers).fingerprint : this.apiFingerprint(ctx, provider, request);
     return { name, matchName, kept, asked, fingerprint, query, unqueried };
   }
 
@@ -1283,14 +1513,14 @@ export class Sidecar {
    * A model request's fingerprint under a run's matching rules: the one place an agent's model call
    * is fingerprinted, as it arrives and from its record (refingerprint).
    */
-  private apiFingerprint(rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }): string {
-    return fingerprintApi(req, rules.normalizers, provider.fingerprintHeaders, rules.clockRef, { withoutPrompt: rules.withoutPrompt, matchPath: provider.matchPath?.(req.path) }).fingerprint;
+  private apiFingerprint(rules: MatchingRules, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }): string {
+    return fingerprintApi(req, rules.normalizers, provider.fingerprintHeaders, rules.clockRef, { withoutPrompt: rules.withoutPrompt, matchPath: provider.matchPath?.(req.path), roundNumbers: rules.roundedNumbers }).fingerprint;
   }
 
   /** How a model call is fingerprinted, besides its request, as its fingerprint cache key names it. */
-  private modelRules(rules: { ids: { normalizers: string; judge: string }; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, method: string, path: string, headers: Readonly<Record<string, string>>, query: string | undefined, judge: boolean): FingerprintRules {
-    const shared = { method, path, matchPath: provider.matchPath?.(path) ?? null, headers: allowedHeaders(headers, provider.fingerprintHeaders), allow: provider.fingerprintHeaders };
-    return judge ? { kind: 'judge', ...shared, rules: rules.ids.judge } : { kind: 'api', ...shared, normalizers: rules.ids.normalizers, clock: rules.clockRef !== undefined, withoutPrompt: rules.withoutPrompt, query: query ?? null };
+  private modelRules(rules: Pick<MatchingRules, 'clockRef' | 'withoutPrompt' | 'roundedNumbers'> & { ids: { normalizers: string; judge: string } }, provider: Provider, method: string, path: string, headers: Readonly<Record<string, string>>, query: string | undefined, judge: boolean): FingerprintRules {
+    const shared = { method, path, matchPath: provider.matchPath?.(path) ?? null, headers: allowedHeaders(headers, provider.fingerprintHeaders), allow: provider.fingerprintHeaders, numbers: rules.roundedNumbers ? ('rounded' as const) : ('exact' as const) };
+    return judge ? { kind: 'judge', ...shared, rules: rules.ids.judge, query: query ?? null } : { kind: 'api', ...shared, normalizers: rules.ids.normalizers, clock: rules.clockRef !== undefined, withoutPrompt: rules.withoutPrompt, query: query ?? null };
   }
 
   /**
@@ -1298,7 +1528,7 @@ export class Sidecar {
    * replay to start from, with the dates the request holds (fingerprint-cache.ts).
    */
   private recordModelStart(call: ModelCall, callNo: number, tracked: TrackedCall, kept: Record<string, string>, asked: Record<string, string>, unqueried: boolean): void {
-    const { ctx, provider, scope, judge, body } = call;
+    const { ctx, provider, scope, judge, exact: body } = call;
     // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the
     // agent did, and it is part of the call's identity. Kept empty when there is none, so a replay
     // tells a call that had none from one recorded before calls kept it; not kept when it was matched
@@ -1311,21 +1541,22 @@ export class Sidecar {
     let requestRef: string | null = null;
     this.writer.write({
       what: `call ${callNo}'s start`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
         requestRef = storeApiRequest(this.store, body);
         start(requestRef);
       },
       // Still matched on replay, by the fingerprint its row keeps; only its diff has no request to show.
       instead: () => start(null),
-      failed: (reason, replaced) => ctx.warnOnce(`store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
+      failed: (reason, replaced) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
     });
-    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt }, provider, call.method, call.path, asked, query, judge !== null);
+    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt, roundedNumbers: ctx.roundedNumbers }, provider, call.method, call.path, asked, query, judge !== null);
     this.writer.write({
       what: `call ${callNo}'s fingerprint`,
       optional: true,
       run: () => {
         if (requestRef === null) return;
-        const marks = judge ? [] : clockMarks([multipartView(body), query ?? '', ...Object.values(asked)], ctx.clockRef);
+        const marks = judge ? [] : clockMarks([multipartView(apiNumbers(body, ctx.roundedNumbers)), ...queryValues(query), ...Object.values(asked)], ctx.clockRef);
         this.store.cacheFingerprints([{ key: fingerprintKey(rules, requestRef), requestRef, fingerprint: tracked.identity.fingerprint, clock: encodeMarks(marks) }]);
       },
     });
@@ -1360,36 +1591,56 @@ export class Sidecar {
   }
 
   /**
-   * Serve recorded, for a live Responses API call: one that continues a response the recording made
-   * (responses-state.ts), which OpenAI keeps only for the key that made it and only while it keeps
-   * it, is sent with the whole conversation it continues instead, signed again where AWS signs it;
-   * one that names a conversation the recording used is refused, since the conversation holds the
-   * recorded run's later turns too. True when it was answered here.
+   * Serve recorded, for a live call that names state the recording left on the provider's side,
+   * which the provider keeps only for the account that made it and only for a while. A Responses
+   * call that continues a recorded response (responses-state.ts) is sent with the whole conversation
+   * it continues instead; one that names a conversation the recording used is refused, since the
+   * conversation holds the recorded run's later turns too. A call that names a Gemini cache the
+   * recording made, or a file it uploaded (provider-state.ts), is sent with the cache's contents or
+   * the file's bytes in its place, and one that reads a file Gemini has deleted is refused. What is
+   * sent in place of the agent's request is signed again where AWS signs it; the call's recording
+   * keeps the request as the agent sent it. True when it was answered here.
    */
   private continueRecordedState(call: ModelCall, placed: PlacedCall): boolean {
     const { ctx, res, provider, judge } = call;
     const { callNo, tracked } = placed;
-    const continued = !judge && !ctx.offline && ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(call.body) : null;
-    if (!continued) return false;
-    if ('refuse' in continued) {
+    if (judge || ctx.offline) return false;
+    // From the request as the agent wrote it, so what is sent in its place keeps each of its numbers.
+    let body = call.exact;
+    const instead: string[] = [];
+    const continued = ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(body) : null;
+    if (continued && 'refuse' in continued) {
       this.serveStateRefusal(ctx, res, provider, callNo, tracked, continued.refuse, continued.param);
       return true;
     }
-    if (continued.send === 'as-is') return false;
-    // The call's recording keeps the request as the agent sent it; only what goes upstream changes.
-    call.rawBody = Buffer.from(JSON.stringify(continued.body), 'utf8');
+    if (continued?.send === 'whole') {
+      body = continued.body;
+      instead.push(`the whole conversation in place of previous_response_id ${continued.previous}`);
+      const from = continued.from.map((n) => `#${n}`).join(', ');
+      ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
+    }
+    const rebuilt = ctx.providerState?.rebuild(recordedId(provider), callNo, body);
+    if (rebuilt?.refuse) {
+      this.serveStateRefusal(ctx, res, provider, callNo, tracked, rebuilt.refuse.why, rebuilt.refuse.param);
+      return true;
+    }
+    for (const note of rebuilt?.notes ?? []) ctx.warnOnce(note.key, note.text);
+    if (rebuilt?.body) {
+      body = rebuilt.body;
+      instead.push('the cache or file the recording made in the request');
+    }
+    if (!instead.length) return false;
+    call.rawBody = Buffer.from(JSON.stringify(body), 'utf8');
     const keyId = signingKeyId(call.headers.authorization);
     if (keyId && keyId !== PLACEHOLDER_AWS_ACCESS_KEY_ID) {
       const signed = this.resign(call.req, call.headers, call.method, call.path, call.search, call.rawBody);
       if ('error' in signed) {
-        this.serveRefusal(ctx, res, provider, callNo, tracked, `the whole conversation in place of previous_response_id ${continued.previous}: ${signed.error}`);
+        this.serveRefusal(ctx, res, provider, callNo, tracked, `${instead.join(' and ')}: ${signed.error}`);
         return true;
       }
       call.headers = signed.headers;
     }
-    const from = continued.from.map((n) => `#${n}`).join(', ');
-    ctx.warnOnce(`responses:${continued.previous}`, `call ${callNo} continued ${continued.previous}, a response the recording made, which OpenAI keeps only for the key that made it and only while it keeps it: it was sent with the whole conversation it continues instead, rebuilt from the recorded call${continued.from.length === 1 ? '' : 's'} ${from}.`);
-    this.log(`run ${ctx.run.runId} call ${callNo}: sent whole in place of previous_response_id ${continued.previous}`);
+    this.log(`run ${ctx.run.runId} call ${callNo}: sent with ${instead.join(' and ')}`);
     return false;
   }
 
@@ -1412,6 +1663,17 @@ export class Sidecar {
   }
 
   /**
+   * Answers a model call with an answer of the sidecar's own instead of the provider's (sendOwn), and
+   * records the attempt with it as the agent got it: its bytes, its status and its headers, so a
+   * replay of the run serves the very same answer.
+   */
+  private answerOwn(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall, own: OwnAnswer, meta: Omit<CallMeta, 'status' | 'headers' | 'retryable' | 'bytes'>, retryable = false): void {
+    const attempt = this.beginAttempt(tracked);
+    const sent = sendOwn(res, own);
+    this.endAttempt(ctx, callNo, tracked, { attempt, response: sent.bytes, outcome: 'error', meta: { status: own.status, headers: sent.headers, retryable, bytes: sent.bytes.length, latencyMs: 0, ...meta } }, retryable);
+  }
+
+  /**
    * Answers a model call an intervention could not be applied to, with the reason, instead of
    * sending it as the agent wrote it: a fork that silently isn't one is worse than an error.
    */
@@ -1419,30 +1681,24 @@ export class Sidecar {
     const message = `shadowlap could not apply ${reason}`;
     // In the provider's own error shape, so its client shows the reason: AWS clients read a top-level
     // message and the error type from a header; the others read error.message.
-    const aws = provider.id === 'bedrock';
-    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_intervention_refused', message } }), 'utf8');
-    const attempt = this.beginAttempt(tracked);
-    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused', ...(aws ? { 'x-amzn-errortype': 'ValidationException' } : {}) });
-    res.end(bytes);
     const error: SerializedError = { name: 'ShadowlapInterventionRefused', message };
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
+    this.answerOwn(ctx, res, callNo, tracked, providerError(provider, 400, 'shadowlap_intervention_refused', message, 'refused'), { refused: true, error });
     ctx.warnOnce(`refused:${reason}`, `Not applied: ${reason}. Call ${callNo} was answered with that reason instead of being sent.`);
     this.log(`run ${ctx.run.runId} call ${callNo}: refused ${reason}`);
   }
 
   /**
    * Answers a live call that would read state the recording left on the provider's side (a recorded
-   * Responses conversation) instead of sending it: in OpenAI's error shape, naming the request's
-   * field, so its client raises a BadRequestError with the reason; the run's summary says so too.
+   * Responses conversation, a file Gemini has deleted) instead of sending it: in the provider's error
+   * shape, OpenAI's naming the request's field, so its client raises its bad-request error with the
+   * reason; the run's summary says so too.
    */
   private serveStateRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall, why: string, param: string): void {
     const message = `shadowlap did not send this call: ${why}`;
-    const bytes = Buffer.from(JSON.stringify({ error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } }), 'utf8');
-    const attempt = this.beginAttempt(tracked);
-    res.writeHead(400, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
-    res.end(bytes);
     const error: SerializedError = { name: 'ShadowlapRecordedState', message };
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 400, retryable: false, refused: true, error, latencyMs: 0 } }, false);
+    const format = recordedId(provider);
+    const body = format === 'gemini' ? { error: { code: 400, message, status: 'FAILED_PRECONDITION' } } : format === 'anthropic' ? { type: 'error', error: { type: 'invalid_request_error', message } } : { error: { message, type: 'invalid_request_error', param, code: 'shadowlap_recorded_state' } };
+    this.answerOwn(ctx, res, callNo, tracked, { status: 400, body, origin: 'refused' }, { refused: true, error });
     ctx.warnOnce(`state:${why}`, `Call ${callNo} was not sent: ${why}`);
     this.log(`run ${ctx.run.runId} call ${callNo}: refused, it would read state the recording left on ${provider.id}'s side`);
   }
@@ -1455,13 +1711,8 @@ export class Sidecar {
    */
   private servePlaceholderRefusal(ctx: RunContext, res: ServerResponse, provider: Provider, callNo: number, tracked: TrackedCall): void {
     const message = placeholderRefusal(provider.keys?.set ?? `a key for ${provider.id}`);
-    const aws = provider.id === 'bedrock';
-    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_placeholder_key', message } }), 'utf8');
-    const attempt = this.beginAttempt(tracked);
-    res.writeHead(401, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused', ...(aws ? { 'x-amzn-errortype': 'UnrecognizedClientException' } : {}) });
-    res.end(bytes);
     const error: SerializedError = { name: 'ShadowlapPlaceholderKey', message };
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status: 401, retryable: false, refused: true, error, latencyMs: 0 } }, false);
+    this.answerOwn(ctx, res, callNo, tracked, providerError(provider, 401, 'shadowlap_placeholder_key', message, 'refused'), { refused: true, error });
     ctx.warnOnce(`placeholder:${provider.id}`, message);
     this.log(`run ${ctx.run.runId} call ${callNo}: not sent, it carries a placeholder key`);
   }
@@ -1469,25 +1720,30 @@ export class Sidecar {
   /**
    * Serves a call as it was recorded. An answer that was cut part way (the provider's connection
    * broke, or the agent left) is cut where it was, so the agent sees what it saw then: what arrived,
-   * then a connection that breaks; with no answer at all, a connection that closes before one.
+   * then a connection that breaks; with no answer at all (a provider that couldn't be reached), a
+   * connection that closes before one. An answer of the sidecar's own that an earlier version
+   * recorded without its bytes or headers is served as that version sent it (earlierOwnAnswer).
    */
   private serveReplayed(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall): void {
     if (tracked.decision.origin !== 'replayed' && tracked.decision.origin !== 'overridden') return;
     const record = tracked.decision.record;
     const end = record.end!;
-    const bytes = end.responseRef ? (this.store.getBlob(end.responseRef) ?? Buffer.alloc(0)) : Buffer.alloc(0);
+    const earlier = earlierOwnAnswer(record);
+    const bytes = end.responseRef ? (this.store.getBlob(end.responseRef) ?? Buffer.alloc(0)) : (earlier?.bytes ?? Buffer.alloc(0));
+    const headers = servedHeaders(end.meta.headers ?? earlier?.headers ?? {});
     const status = end.meta.status ?? 200;
     const attempt = this.beginAttempt(tracked);
     if (!cutShort(end)) {
-      res.writeHead(status, { ...(end.meta.headers ?? {}), 'content-length': String(bytes.length), 'x-shadowlap-origin': 'replayed' });
+      res.writeHead(status, { ...headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'replayed' });
       res.end(bytes);
     } else if (end.meta.status === undefined) {
-      res.destroy();
+      breakConnection(res, end.meta.error?.message ?? 'no answer came');
     } else {
-      res.writeHead(status, { ...(end.meta.headers ?? {}), 'x-shadowlap-origin': 'replayed' });
+      res.writeHead(status, { ...headers, 'x-shadowlap-origin': 'replayed' });
       res.flushHeaders();
-      if (bytes.length) res.write(bytes, () => res.destroy());
-      else setImmediate(() => res.destroy());
+      const broken = () => breakConnection(res, end.meta.error?.message ?? 'the answer was cut short');
+      if (bytes.length) res.write(bytes, broken);
+      else setImmediate(broken);
     }
     // A recorded retryable failure is served as-is; the client's retry gets the same answer.
     this.endAttempt(ctx, callNo, tracked, { attempt, responseRef: end.responseRef, outcome: end.outcome, meta: { ...end.meta, replayedFrom: record.callNo, latencyMs: 0 } }, end.outcome === 'error' && end.meta.retryable === true);
@@ -1502,15 +1758,10 @@ export class Sidecar {
     const message = `injected failure: HTTP ${status} (shadowlap --fail-at ${target}=${status})`;
     // In the provider's own error shape, as a real failure arrives: AWS clients read a top-level
     // message and the error's type from a header, and branch on that type (ThrottlingException).
-    const aws = provider.id === 'bedrock';
-    const bytes = Buffer.from(JSON.stringify(aws ? { message } : { type: 'error', error: { type: 'shadowlap_injected', message } }), 'utf8');
-    const retryable = provider.isRetryableStatus(status);
-    const attempt = this.beginAttempt(tracked);
-    res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'injected', ...(aws ? { 'x-amzn-errortype': awsErrorType(status) } : {}) });
-    res.end(bytes);
+    const own = providerError(provider, status, 'shadowlap_injected', message, 'injected');
     const error = { name: 'ShadowlapInjectedFailure', message };
     // Retryable by the provider's own rule, so the client's retry logic runs — and fails again.
-    this.endAttempt(ctx, callNo, tracked, { attempt, response: bytes, outcome: 'error', meta: { status, injected: true, retryable, error, provider: recordedId(provider), bytes: bytes.length, latencyMs: 0 } }, retryable);
+    this.answerOwn(ctx, res, callNo, tracked, own, { injected: true, error, provider: recordedId(provider) }, provider.isRetryableStatus(status));
     this.log(`run ${ctx.run.runId} call ${callNo}: injected HTTP ${status}`);
   }
 
@@ -1555,12 +1806,17 @@ export class Sidecar {
         attempt.end({ responseRef: null, outcome: 'error', meta: { latencyMs: Date.now() - attempt.started, retryable: true, provider: provider.id, error: clientLeft('before the response headers') } });
         return;
       }
+      // The provider couldn't be reached, or broke the connection before it answered: the agent's
+      // connection breaks too, as the provider's would have without Shadowlap, so its client reports
+      // a connection error and retries as it would. Recorded as cut short with no answer, which a
+      // replay serves the same way; the run's summary says why.
       const message = err instanceof Error ? err.message : String(err);
-      const error: SerializedError = { name: 'UpstreamConnectionError', message };
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_upstream_error', message } }));
+      breakConnection(res, message);
       attempt.settle(true);
-      attempt.end({ responseRef: null, outcome: 'error', meta: { status: 502, latencyMs: Date.now() - attempt.started, retryable: true, error } });
+      attempt.end({ responseRef: null, outcome: 'error', meta: { latencyMs: Date.now() - attempt.started, retryable: true, provider: recordedId(provider), error: { name: 'UpstreamConnectionError', message } } });
+      const where = originOf(upstream);
+      ctx.warnOnce(`unreachable:${where}`, `Call ${callNo} could not reach ${where} (${message}): its connection was closed with no answer, as the provider's would have been.`);
+      this.log(`run ${ctx.run.runId} call ${callNo}: ${where} could not be reached: ${message}`);
       return;
     }
     await this.relayAnswer(call, answer, attempt);
@@ -1581,20 +1837,13 @@ export class Sidecar {
     const upstream = ctx.offline || call.judge?.offline === true ? 'offline' : ((judging ? requested : undefined) || this.upstreamOf(provider) || requested || provider.upstream).replace(/\/$/, '');
     if (!upstream) {
       const message = `no upstream for ${provider.id}: set ${upstreamVariable(provider)}, or let Shadowlap capture the call in the agent's process`;
-      const attempt = this.beginAttempt(tracked);
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_no_upstream', message } }));
-      this.endAttempt(ctx, callNo, tracked, { attempt, responseRef: null, outcome: 'error', meta: { status: 400, latencyMs: 0, retryable: false, error: { name: 'ShadowlapNoUpstream', message } } }, false);
+      this.answerOwn(ctx, res, callNo, tracked, { status: 400, body: { type: 'error', error: { type: 'shadowlap_no_upstream', message } }, origin: 'refused' }, { error: { name: 'ShadowlapNoUpstream', message } });
       return null;
     }
     if (upstream === 'offline') {
       // `shadowlap test` runs offline: a live call here means the replay diverged, and the run must fail loudly, not spend tokens.
       const message = `shadowlap is offline: call #${callNo} (${tracked.identity.name}) was not served from the recording and would need the network`;
-      const error: SerializedError = { name: 'ShadowlapOffline', message };
-      const attempt = this.beginAttempt(tracked);
-      res.writeHead(503, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_offline', message } }));
-      this.endAttempt(ctx, callNo, tracked, { attempt, responseRef: null, outcome: 'error', meta: { status: 503, latencyMs: 0, retryable: false, offline: true, error } }, false);
+      this.answerOwn(ctx, res, callNo, tracked, { status: 503, body: { type: 'error', error: { type: 'shadowlap_offline', message } }, origin: 'offline' }, { offline: true, error: { name: 'ShadowlapOffline', message } });
       return null;
     }
     if (carriesPlaceholder(call.headers, call.search)) {
@@ -1672,7 +1921,7 @@ export class Sidecar {
     } else if (streamError) {
       await reader?.cancel().catch(() => {});
       await settledWithin(written, 2_000);
-      res.destroy(new Error(streamError.message));
+      breakConnection(res, streamError.message);
     } else res.end();
     // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
     if (this.closed) return;
@@ -1685,7 +1934,8 @@ export class Sidecar {
     attempt.settle(outcome === 'error' && retryable);
     const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
-    const requestedModel = responseHeaders['x-shadowlap-model'] || provider.extractModel(call.path, call.body);
+    // Read after the answer is sent, as usage is: a path or body it can't read never costs the call its end.
+    const requestedModel = responseHeaders['x-shadowlap-model'] || readQuietly(() => provider.extractModel(call.path, call.body));
     if (requestedModel) meta.model = requestedModel;
     const usage = readQuietly(() => provider.extractUsage(bytes, contentType));
     if (usage) meta.usage = usage;
@@ -1737,21 +1987,25 @@ export class Sidecar {
     const row = (responseRef: string | null, outcome: 'ok' | 'error', meta: CallMeta): CallEndRow => ({ runId: ctx.run.runId, callNo, attempt: end.attempt, responseRef, outcome, meta, at });
     this.writer.write({
       what: `call ${callNo}'s ${noun}`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => this.store.appendCallEnd(identity, row(end.response !== undefined ? this.store.putBlob(end.response) : (end.responseRef ?? null), end.outcome, end.meta)),
       instead: (reason) => {
         const { chunks: _timing, ...meta } = end.meta;
         this.store.appendCallEnd(identity, row(null, 'error', { ...meta, error: { name: 'ShadowlapStoreError', message: `the ${noun} could not be written to the store: ${reason}` } }));
       },
       failed: (reason, replaced) =>
-        ctx.warnOnce(`store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`),
+        this.storeTrouble(ctx, `store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`),
     });
   }
 
   /**
    * An SDK's own telemetry under a provider (the OpenAI Agents SDK's trace export): no model call,
    * and nothing a replay could match, since every export names new random ids and times. While
-   * recording it goes on to the provider as the agent sent it, and nothing of it is recorded or
-   * counted; a replay answers it with 204 itself, so a replay's traces never reach the provider.
+   * recording it goes on as the agent sent it, and nothing of it is recorded or counted: to the host
+   * the agent addressed it to, when in-process capture names one its provider vouches for, before an
+   * upstream set for the provider's model calls (a local model server holds no traces), else as the
+   * provider's calls go. A replay answers it with 204 itself, so a replay's traces never reach the
+   * provider, and so does a store that may not reach the network ("offline").
    */
   private async serveTelemetry(ctx: RunContext, req: IncomingMessage, res: ServerResponse, provider: Provider, path: string, search: string, client: ClientWatch): Promise<void> {
     let rawBody: Buffer;
@@ -1761,10 +2015,11 @@ export class Sidecar {
       return;
     }
     const headers = lowerHeaders(req.headers);
-    const live = ctx.run.mode === 'record' && !ctx.offline && !ctx.judgeOnly;
-    const upstream = live ? (this.upstreams[provider.id] || this.requestedUpstream(req, provider, ctx) || provider.upstream).replace(/\/$/, '') : '';
+    const configured = this.upstreamOf(provider);
+    const live = ctx.run.mode === 'record' && !ctx.offline && !ctx.judgeOnly && configured !== 'offline';
+    const upstream = live ? (this.vouchedUpstream(req, provider) || configured || provider.upstream).replace(/\/$/, '') : '';
     if (client.gone) return;
-    if (!upstream || upstream === 'offline' || carriesPlaceholder(headers, search)) {
+    if (!upstream || carriesPlaceholder(headers, search)) {
       res.writeHead(204, { 'x-shadowlap-origin': 'telemetry' });
       res.end();
       return;
@@ -1777,7 +2032,11 @@ export class Sidecar {
       bytes = Buffer.from(await answer.arrayBuffer());
     } catch (err) {
       if (client.gone || this.closed) return;
-      return json(res, 502, { type: 'error', error: { type: 'shadowlap_upstream_error', message: err instanceof Error ? err.message : String(err) } });
+      // Its connection breaks as the host's did, as for a model call.
+      const message = err instanceof Error ? err.message : String(err);
+      this.log(`run ${ctx.run.runId}: telemetry to ${originOf(upstream)} failed: ${message}`);
+      breakConnection(res, message);
+      return;
     }
     const out: Record<string, string> = {};
     answer.headers.forEach((v, k) => {
@@ -1788,7 +2047,7 @@ export class Sidecar {
     res.end(empty ? undefined : bytes);
   }
 
-  // ---- HTTP hosts recorded as tools ----
+  // ---- HTTP hosts recorded as tools: route, resolve, then serve recorded or forward live ----
 
   /**
    * A captured call to a host under `http` in the config, resolved like a tool call the SDK would
@@ -1796,10 +2055,26 @@ export class Sidecar {
    * itself when it runs live, and only to a declared host. Request headers are never stored, nor
    * the credentials in its query string or form body (an API key, a token, a signature): the
    * request is stored and matched with them masked (withoutCredentials), so a rotated key still
-   * replays, and only the live forward carries them.
+   * replays, and only the live forward carries them. In stages, as a model call is: route
+   * (`routeHttpCall`), resolve (`resolveHttpCall`), then serve it without the network where it must
+   * be (`serveRecordedHttp`) or forward it live (`forwardHttp`). Each answer is recorded as the agent
+   * got it (`endHttpCall`).
    */
   private async proxyHttp(req: IncomingMessage, res: ServerResponse, subpath: string, search: string, pinned?: string): Promise<void> {
-    // Watched from the start, as a model call's agent is: one that leaves ends the request to the host too.
+    const call = await this.routeHttpCall(req, res, subpath, search, pinned);
+    if (!call) return;
+    const placed = this.resolveHttpCall(call);
+    if (this.serveRecordedHttp(call, placed)) return;
+    await this.forwardHttp(call, placed);
+  }
+
+  /**
+   * Route: the run a captured HTTP call belongs to, its scope, the declared host it was for, and the
+   * request as the agent sent it, as it is stored and matched. Its agent is watched from the start,
+   * as a model call's is: one that leaves ends the request to the host too. Null when its agent left
+   * before the request was all here: nothing was asked.
+   */
+  private async routeHttpCall(req: IncomingMessage, res: ServerResponse, subpath: string, search: string, pinned?: string): Promise<HttpCall | null> {
     const client = new ClientWatch(res);
     res.on('error', () => {});
     const ctx = this.contextFor(req, pinned);
@@ -1818,173 +2093,227 @@ export class Sidecar {
     try {
       rawBody = await readBody(req);
     } catch (err) {
-      if (client.gone) return;
+      if (client.gone) return null;
       throw err;
     }
-    // Gone before its request was all here: nothing was asked.
-    if (client.gone) return;
-    const contentType = req.headers['content-type'];
-    const requestBody = storedRequestBody(rawBody, contentType);
-    const name = `${method} ${origin.host}${subpath}`;
-    const url = `${origin.origin}${subpath}${search}`;
-    const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...requestBody };
-    // A redacted parent holds this call under its name masked (an address in the path): matched so.
-    const matched = matchedAs({ kind: 'tool', name, meta: { http: origin.host } }, ctx.normalizers, ctx.redactions);
+    if (client.gone) return null;
+    const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...storedRequestBody(rawBody, req.headers['content-type']) };
+    return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${subpath}`, url: `${origin.origin}${subpath}${search}`, search, args };
+  }
+
+  /**
+   * Resolve: which call a captured HTTP request is, as the session decides it, and its start
+   * recorded. A redacted parent holds such a call under its name masked (an address in the path),
+   * and it is matched so (matchedAs).
+   */
+  private resolveHttpCall(call: HttpCall): PlacedHttpCall {
+    const { ctx, scope, name, args, effect } = call;
+    const matched = matchedAs({ kind: 'tool', name, meta: { http: call.host } }, ctx.normalizers, ctx.redactions);
     const { fingerprint } = fingerprintTool(matched.name, args, matched.normalizers, ctx.clockRef);
     const callNo = ctx.nextCallNo++;
-    const effect = rule.effect;
     const decision = ctx.session.resolve({ callNo, kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}), ...(matched.name !== name ? { recordedName: matched.name } : {}) });
-    const identity: CallIdentity = { kind: 'tool', name, fingerprint, occurrence: decision.occurrence };
-    const stored = storedOrigin('tool', decision);
-    const tracked: TrackedCall = { identity, effect, origin: stored, decision, attempts: 0, inFlight: 0, retryable: false, done: false };
+    const tracked: TrackedCall = { identity: { kind: 'tool', name, fingerprint, occurrence: decision.occurrence }, effect, origin: storedOrigin('tool', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
     // A plain read the recording held no counterpart for, answered live while the replay goes on.
-    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: origin.host, ...(scope ? { scope } : {}), ...(decision.origin === 'live' && decision.extra ? { extraRead: true } : {}), ...this.trustMeta(name, origin.host, null) });
+    const requestRef = this.recordToolStart(ctx, callNo, tracked, { args }, { http: call.host, ...(scope ? { scope } : {}), ...(decision.origin === 'live' && decision.extra ? { extraRead: true } : {}), ...this.trustMeta(name, call.host, null) });
     this.cacheToolFingerprint(ctx, callNo, matched, true, fingerprint, args, requestRef);
+    return { callNo, tracked };
+  }
 
-    /** The call's end: `response` the bytes to store, or the ref of what is stored already. */
-    const end = (response: Buffer | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => {
-      this.recordEnd(ctx, callNo, identity, { attempt: 0, outcome, meta, ...(Buffer.isBuffer(response) ? { response } : { responseRef: response }) }, 'result');
-      tracked.done = true;
-    };
-    const send = (result: HttpResult, from: string, bytes = encodeBody(result)) => {
-      res.writeHead(result.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': from });
-      res.end(bytes);
-    };
-    const fail = (status: number, error: SerializedError, type: string) => {
-      end(jsonBytes({ error }), 'error', { status, error });
-      json(res, status, { type: 'error', error: { type, message: error.message } });
-    };
+  /** Record: a captured HTTP call's end, `response` the bytes to store or the ref of what is stored already. */
+  private endHttpCall(call: HttpCall, placed: PlacedHttpCall, response: Buffer | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']): void {
+    this.recordEnd(call.ctx, placed.callNo, placed.tracked.identity, { attempt: 0, outcome, meta, ...(Buffer.isBuffer(response) ? { response } : { responseRef: response }) }, 'result');
+    placed.tracked.done = true;
+  }
 
-    if (decision.origin === 'replayed') {
-      const recorded = decision.record.end!;
-      const payload = (recorded.responseRef ? this.store.getJson<{ result?: HttpResult; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-      // The bytes the service sent, not the body written again: an agent that reads the text, or a
-      // number JSON.parse would round, gets what it got then.
-      if (payload.result) return send(payload.result, 'replayed', storedResponseBytes(payload.result, recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null));
-      // The agent left before the host answered, when it was recorded: its connection closes again, with no answer.
-      if (recorded.meta.error?.name === 'ClientDisconnected') return void res.destroy();
-      return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
-    }
-    if (decision.origin === 'injected') {
-      // A captured HTTP call fails the way HTTP does: with that status; or, for a timeout or an error,
-      // the way the agent's HTTP library reports one. The capture hooks raise the library's own error
-      // (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer that names
-      // the failure, and ask for one with x-shadowlap-failures: raise. Any other client gets the
-      // connection closed before a response, which it reports as a network error.
-      const f = decision.failure;
-      const error = toolFailureError(name, f);
-      end(jsonBytes({ error }), 'error', { injected: true, failure: f, error, latencyMs: 0, ...(f.kind === 'status' ? { status: f.status } : {}) });
-      this.log(`run ${ctx.run.runId} call ${callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
-      if (f.kind === 'status') return json(res, f.status, { error: { message: error.message } });
-      if (req.headers['x-shadowlap-failures'] !== 'raise') {
-        res.destroy();
-        return;
-      }
-      const bytes = Buffer.from(JSON.stringify({ error: { message: error.message } }), 'utf8');
-      res.writeHead(f.kind === 'timeout' ? 504 : 502, {
-        'content-type': 'application/json',
-        'content-length': String(bytes.length),
-        'x-shadowlap-origin': 'injected',
-        'x-shadowlap-injected': f.kind,
-        // Only a message the flag gave: without one, each library's own wording stands.
-        ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}),
-      });
-      res.end(bytes);
-      return;
-    }
-    if (decision.origin === 'planted') {
-      const recorded = decision.record.end!;
-      const payload = (recorded.responseRef ? this.store.getJson<{ result?: HttpResult; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
-      if (refused(planted)) {
-        ctx.session.declined(decision.record.callNo);
-        ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
+  /**
+   * Answers a captured HTTP call with an answer of the sidecar's own (sendOwn), and records it with
+   * the error it stands for: the answer is kept beside the error (`answer`, never `result`, which is
+   * the host's), so a replay sends the agent the same status, headers and bytes.
+   */
+  private answerOwnHttp(call: HttpCall, placed: PlacedHttpCall, own: OwnAnswer, error: SerializedError, meta: CallStartRow['meta'] = {}): void {
+    const sent = sendOwn(call.res, own);
+    const answer: HttpResult = { status: own.status, headers: sent.headers, body: own.body, encoding: 'json' };
+    this.endHttpCall(call, placed, jsonBytes({ error, answer }), 'error', { status: own.status, error, latencyMs: 0, ...meta });
+  }
+
+  /**
+   * Serves a recorded captured HTTP call as its agent got it: the host's answer, the bytes as they
+   * came (an agent that reads the text, or a number JSON.parse would round, gets what it got then);
+   * the sidecar's own; or, where no answer reached the agent (it left, its host couldn't be reached or
+   * broke off, a flag closed its connection), its connection closed again. An answer of the sidecar's
+   * own that an earlier version kept only as its error is written again from it (earlierHttpAnswer).
+   */
+  private replayHttp(call: HttpCall, recorded: CallEndRow, from: string): void {
+    const blob = recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null;
+    const payload = blob ? (JSON.parse(blob.toString('utf8')) as StoredHttpEnd) : {};
+    if (payload.result) return sendHttp(call.res, payload.result, from, storedResponseBytes(payload.result, blob));
+    const answer = payload.answer ?? earlierHttpAnswer(recorded, payload.error);
+    if (answer) return sendHttp(call.res, answer, from);
+    if (recorded.meta.status === undefined) return breakConnection(call.res, recorded.meta.error?.message ?? 'no answer came');
+    json(call.res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
+  }
+
+  /**
+   * Serve recorded: a captured HTTP call answered without the network where it has to be, as the
+   * session decided: replayed, failed as `--fail-at` asks, with text planted in its result, with an
+   * override's result, blocked, stubbed; or one that may not go out (offline, or carrying a
+   * placeholder key). False when it goes live.
+   */
+  private serveRecordedHttp(call: HttpCall, placed: PlacedHttpCall): boolean {
+    const { ctx, req, res, name, effect } = call;
+    const { callNo } = placed;
+    const decision = placed.tracked.decision;
+    const end = (response: Buffer | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => this.endHttpCall(call, placed, response, outcome, meta);
+    switch (decision.origin) {
+      case 'replayed': {
+        const recorded = decision.record.end!;
         end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-        if (payload.result) return send(payload.result, 'replayed', storedResponseBytes(payload.result, recorded.responseRef ? this.store.getBlob(recorded.responseRef) : null));
-        return json(res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
+        this.replayHttp(call, recorded, 'replayed');
+        return true;
       }
-      end(jsonBytes({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
-      return send(planted.result as HttpResult, 'overridden');
-    }
-    if (decision.origin === 'overridden') {
-      const value = decision.result as Partial<HttpResult> | null;
-      const result: HttpResult = value && typeof value === 'object' && typeof value.status === 'number' ? { status: value.status, headers: value.headers ?? {}, ...(value.body !== undefined ? { body: value.body, encoding: value.encoding ?? 'json' } : {}) } : { status: 200, headers: { 'content-type': 'application/json' }, body: value, encoding: 'json' };
-      end(jsonBytes({ result }), 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
-      return send(result, 'overridden');
-    }
-    if (decision.origin === 'blocked') {
-      if (effect === 'read') return fail(409, { name: 'ShadowlapReadBlocked', message: fencedRead(name) }, 'shadowlap_read_blocked');
-      return fail(409, { name: 'ShadowlapWriteBlocked', message: `write ${name} blocked after divergence (use --writes stub|allow to change this)` }, 'shadowlap_write_blocked');
-    }
-    if (decision.origin === 'stubbed') {
-      const result: HttpResult = { status: 200, headers: { 'content-type': 'application/json' }, body: { shadowlap: 'stubbed' }, encoding: 'json' };
-      end(jsonBytes({ result }), 'ok', { stubbed: true, latencyMs: 0 });
-      return send(result, 'stubbed');
+      case 'injected': {
+        // A captured HTTP call fails the way HTTP does: with that status; or, for a timeout or an
+        // error, the way the agent's HTTP library reports one. The capture hooks raise the library's
+        // own error (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer
+        // that names the failure, and ask for one with x-shadowlap-failures: raise. Any other client
+        // gets the connection closed before a response, which it reports as a network error.
+        const f = decision.failure;
+        const error = toolFailureError(name, f);
+        const meta = { injected: true, failure: f };
+        this.log(`run ${ctx.run.runId} call ${callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
+        if (f.kind === 'status') this.answerOwnHttp(call, placed, { status: f.status, body: { error: { message: error.message } }, origin: 'injected' }, error, meta);
+        else if (req.headers['x-shadowlap-failures'] !== 'raise') {
+          end(jsonBytes({ error }), 'error', { ...meta, error, latencyMs: 0 });
+          breakConnection(res, error.message);
+        } else {
+          // Only a message the flag gave: without one, each library's own wording stands.
+          const headers = { 'x-shadowlap-injected': f.kind, ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}) };
+          this.answerOwnHttp(call, placed, { status: f.kind === 'timeout' ? 504 : 502, body: { error: { message: error.message } }, origin: 'injected', headers }, error, meta);
+        }
+        return true;
+      }
+      case 'planted': {
+        const recorded = decision.record.end!;
+        const payload = (recorded.responseRef ? this.store.getJson<StoredHttpEnd>(recorded.responseRef) : null) ?? {};
+        const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
+        if (refused(planted)) {
+          ctx.session.declined(decision.record.callNo);
+          ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
+          end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
+          this.replayHttp(call, recorded, 'replayed');
+          return true;
+        }
+        end(jsonBytes({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
+        sendHttp(res, planted.result as HttpResult, 'overridden');
+        return true;
+      }
+      case 'overridden': {
+        const value = decision.result as Partial<HttpResult> | null;
+        const result: HttpResult = value && typeof value === 'object' && typeof value.status === 'number' ? { status: value.status, headers: value.headers ?? {}, ...(value.body !== undefined ? { body: value.body, encoding: value.encoding ?? 'json' } : {}) } : { status: 200, headers: { 'content-type': 'application/json' }, body: value, encoding: 'json' };
+        end(jsonBytes({ result }), 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
+        sendHttp(res, result, 'overridden');
+        return true;
+      }
+      case 'blocked': {
+        const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(name) } : { name: 'ShadowlapWriteBlocked', message: `write ${name} blocked after divergence (use --writes stub|allow to change this)` };
+        this.answerOwnHttp(call, placed, { status: 409, body: { type: 'error', error: { type: effect === 'read' ? 'shadowlap_read_blocked' : 'shadowlap_write_blocked', message: error.message } }, origin: 'blocked' }, error);
+        return true;
+      }
+      case 'stubbed': {
+        const result: HttpResult = { status: 200, headers: { 'content-type': 'application/json' }, body: { shadowlap: 'stubbed' }, encoding: 'json' };
+        end(jsonBytes({ result }), 'ok', { stubbed: true, latencyMs: 0 });
+        sendHttp(res, result, 'stubbed');
+        return true;
+      }
+      case 'live':
+        break;
     }
     if (ctx.offline || this.upstreams.http === 'offline') {
-      return fail(503, { name: 'ShadowlapOffline', message: `shadowlap is offline: call #${callNo} (${name}) was not served from the recording and would need the network` }, 'shadowlap_offline');
+      const message = `shadowlap is offline: call #${callNo} (${name}) was not served from the recording and would need the network`;
+      this.answerOwnHttp(call, placed, { status: 503, body: { type: 'error', error: { type: 'shadowlap_offline', message } }, origin: 'offline' }, { name: 'ShadowlapOffline', message });
+      return true;
     }
     // A placeholder key the agent passes on to a declared host (a vector store that embeds with the
     // caller's OpenAI key) is never sent either.
-    if (carriesPlaceholder(req.headers, search)) {
+    if (carriesPlaceholder(req.headers, call.search)) {
       const message = placeholderRefusal('the key it sends', name);
-      const error: SerializedError = { name: 'ShadowlapPlaceholderKey', message };
-      end(jsonBytes({ error }), 'error', { status: 401, refused: true, retryable: false, error, latencyMs: 0 });
+      this.answerOwnHttp(call, placed, { status: 401, body: { type: 'error', error: { type: 'shadowlap_placeholder_key', message } }, origin: 'refused' }, { name: 'ShadowlapPlaceholderKey', message }, { refused: true, retryable: false });
       ctx.warnOnce(`placeholder:${name}`, message);
       this.log(`run ${ctx.run.runId} call ${callNo}: not sent, it carries a placeholder key`);
-      const bytes = Buffer.from(JSON.stringify({ type: 'error', error: { type: 'shadowlap_placeholder_key', message } }), 'utf8');
-      res.writeHead(401, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'x-shadowlap-origin': 'refused' });
-      res.end(bytes);
-      return;
+      return true;
     }
+    return false;
+  }
 
-    const headers = forwardedHeaders(lowerHeaders(req.headers));
+  /**
+   * Forward live: the captured call sent to its host as the agent sent it, and the host's answer,
+   * read whole, passed on and recorded as it came. An agent that leaves before the answer is recorded
+   * as gone, and the request to the host ends with it. A host that can't be reached, or that breaks
+   * off its answer, breaks the agent's connection as it would have without Shadowlap: the agent's
+   * HTTP library reports a network error, and the call is recorded with none, so a replay closes the
+   * connection again.
+   */
+  private async forwardHttp(call: HttpCall, placed: PlacedHttpCall): Promise<void> {
+    const { ctx, res, client, method, rawBody, name } = call;
     const started = Date.now();
-    let upstream: Response;
+    let upstream: Response | undefined;
     let bytes: Buffer;
     // The agent left before the host answered (its own timeout, say): it saw no answer at all.
     const left = () => {
       const error = clientLeft('before the response');
-      end(jsonBytes({ error }), 'error', { error, latencyMs: Date.now() - started });
+      this.endHttpCall(call, placed, jsonBytes({ error }), 'error', { error, latencyMs: Date.now() - started });
     };
     try {
-      upstream = await requestUpstream(url, method, headers, rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests, client.signal);
+      upstream = await requestUpstream(call.url, method, forwardedHeaders(lowerHeaders(call.req.headers)), rawBody.length && method !== 'GET' && method !== 'HEAD' ? rawBody : null, this.upstreamRequests, client.signal);
       bytes = Buffer.from(await upstream.arrayBuffer());
     } catch (err) {
       // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
       if (this.closed) return;
       if (client.gone) return left();
-      return fail(502, { name: 'ShadowlapUpstreamError', message: `${name}: ${err instanceof Error ? err.message : String(err)}` }, 'shadowlap_upstream_error');
+      const message = `${name}: ${err instanceof Error ? err.message : String(err)}`;
+      const error: SerializedError = { name: upstream ? 'UpstreamStreamError' : 'UpstreamConnectionError', message };
+      breakConnection(res, message);
+      this.endHttpCall(call, placed, jsonBytes({ error }), 'error', { error, latencyMs: Date.now() - started });
+      ctx.warnOnce(`unreachable:${call.host}`, `Call ${placed.callNo} ${upstream ? `lost its connection to ${call.host} part way through the answer` : `could not reach ${call.host}`} (${message}): the agent's connection was closed with no answer, as the host's would have been.`);
+      this.log(`run ${ctx.run.runId} call ${placed.callNo}: ${error.message}`);
+      return;
     }
     if (client.gone) return left();
     const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };
-    end(storedResult(result, bytes), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
+    this.endHttpCall(call, placed, storedResult(result, bytes), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
     res.writeHead(upstream.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'live' });
     res.end(bytes);
   }
 
   // ---- tool / clock / random resolution ----
 
+  /**
+   * A tool, clock or random call the SDK resolves, in stages as a model call is: route
+   * (`routeToolCall`) checks what it asks for, resolve (`resolveToolCall`) works out which call it is
+   * and records its start, and serve (`serveToolCall`) answers it from the recording, with a failure
+   * or a result a flag gives, blocked or stubbed, or tells the SDK to run it live. Each answer given
+   * here is recorded as the SDK got it (`endToolCall`); a call the SDK runs ends with completeCall.
+   */
   private resolveCall(ctx: RunContext, body: ResolveBody, scope?: string): ResolveResponse {
-    const kind = body.kind;
-    if (kind !== 'tool' && kind !== 'clock' && kind !== 'random') throw new HttpError(400, `bad kind ${String(kind)}`);
-    if (typeof body.name !== 'string' || !body.name) throw new HttpError(400, 'name is required');
-    const effect: Effect | null = kind === 'tool' ? (body.effect ?? null) : null;
-    if (kind === 'tool' && effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new HttpError(400, `tool ${body.name} must declare effect pure|read|write`);
+    const call = routeToolCall(ctx, body, scope);
+    const placed = this.resolveToolCall(call);
+    return this.serveToolCall(call, placed);
+  }
 
-    const request = kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' };
-    const { fingerprint } = kind === 'tool' ? fingerprintTool(body.name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind, body.label ?? '');
+  /**
+   * Resolve: which call a tool, clock or random call is, as the session decides it, and its start
+   * recorded with what it keeps beside its request: its code's hash, its scope, a person's input, an
+   * MCP server's, a read the recording held no counterpart for, and how far its result is trusted.
+   */
+  private resolveToolCall(call: ToolCall): PlacedToolCall {
+    const { ctx, body, scope, kind, name, effect, request, input } = call;
+    const { fingerprint } = 'args' in request ? fingerprintTool(name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind as 'clock' | 'random', name, request.label);
     const callNo = ctx.nextCallNo++;
-    // A person's answer (`user_input`): after a fork it is served from the recording in order.
-    const input = kind === 'tool' && body.input === true;
     // The session diffs requests as plain JSON, with an integer past 2^53 as its digits, as loadRequest reads the recorded side.
-    const decision = ctx.session.resolve({ callNo, kind, name: body.name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
-    const identity: CallIdentity = { kind, name: body.name, fingerprint, occurrence: decision.occurrence };
-    const stored = storedOrigin(kind, decision);
-    const tracked: TrackedCall = { identity, effect, origin: stored, decision, attempts: 0, inFlight: 0, retryable: false, done: false };
+    const decision = ctx.session.resolve({ callNo, kind, name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+    const tracked: TrackedCall = { identity: { kind, name, fingerprint, occurrence: decision.occurrence }, effect, origin: storedOrigin(kind, decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
 
@@ -1998,70 +2327,83 @@ export class Sidecar {
     if (mcp) meta.mcp = mcp;
     // A tool that brings outside text in, as the config's `tools`, the SDK's `trust` or an MCP
     // server's openWorldHint says. Kept on the call, never in its fingerprint: marking a tool changes no replay.
-    if (kind === 'tool') Object.assign(meta, this.trustMeta(body.name, null, body.trust === 'untrusted' ? (mcp ? 'mcp' : 'sdk') : null));
+    if (kind === 'tool') Object.assign(meta, this.trustMeta(name, null, body.trust === 'untrusted' ? (mcp ? 'mcp' : 'sdk') : null));
     const requestRef = this.recordToolStart(ctx, callNo, tracked, request, meta);
-    if (kind === 'tool') this.cacheToolFingerprint(ctx, callNo, { name: body.name, normalizers: ctx.normalizers }, false, fingerprint, request.args, requestRef);
-    /** The call's end: `response` the value to store, or the ref of what is stored already. */
-    const end = (response: { value: unknown } | string | null, outcome: 'ok' | 'error', endMeta: CallStartRow['meta']) => {
-      this.recordEnd(ctx, callNo, identity, { attempt: 0, outcome, meta: endMeta, ...(response !== null && typeof response === 'object' ? { response: jsonBytes(response.value) } : { responseRef: response }) }, 'result');
-      tracked.done = true;
-    };
+    if ('args' in request) this.cacheToolFingerprint(ctx, callNo, { name, normalizers: ctx.normalizers }, false, fingerprint, request.args, requestRef);
+    return { callNo, tracked };
+  }
 
-    if (decision.origin === 'injected') {
-      // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
-      // of failure asked for; a client that predates this raises it as a replayed error.
-      const error = toolFailureError(body.name, decision.failure);
-      end({ value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
-      this.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${body.name}`);
-      return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
-    }
+  /** Record: a tool, clock or random call's end, `response` the value to store, or the ref of what is stored already. */
+  private endToolCall(call: ToolCall, placed: PlacedToolCall, response: { value: unknown } | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']): void {
+    this.recordEnd(call.ctx, placed.callNo, placed.tracked.identity, { attempt: 0, outcome, meta, ...(response !== null && typeof response === 'object' ? { response: jsonBytes(response.value) } : { responseRef: response }) }, 'result');
+    placed.tracked.done = true;
+  }
 
-    if (decision.origin === 'planted') {
-      const record = decision.record;
-      const recorded = record.end!;
-      const payload = (recorded.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
-      if (!refused(planted)) {
-        end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
-        return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
+  /**
+   * Serve: the SDK's answer, as the session decided the call. A failure `--fail-at` asks for, a result
+   * with text planted in it (`--inject-result`) or given in its place (`--override`), and a recorded
+   * result are answered here, as are a clock or random value, generated here so the SDK needs no
+   * second round trip, and a blocked tool. A stubbed or live tool is the SDK's to run.
+   */
+  private serveToolCall(call: ToolCall, placed: PlacedToolCall): ResolveResponse {
+    const { ctx, body, kind, name, effect } = call;
+    const { callNo } = placed;
+    const decision = placed.tracked.decision;
+    const end = (response: { value: unknown } | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => this.endToolCall(call, placed, response, outcome, meta);
+    switch (decision.origin) {
+      case 'injected': {
+        // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
+        // of failure asked for; a client that predates this raises it as a replayed error.
+        const error = toolFailureError(name, decision.failure);
+        end({ value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
+        this.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${name}`);
+        return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
       }
-      // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
-      ctx.session.declined(record.callNo);
-      ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? this.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
-    }
-
-    if (decision.origin === 'overridden') {
-      // The user's substitute result stands in for the recording; the agent builds its next request from it.
-      const record = decision.record;
-      end({ value: { result: decision.result } }, 'ok', { overriddenFrom: record.callNo, latencyMs: 0 });
-      return { origin: 'replayed', callNo, outcome: 'ok', result: decision.result };
-    }
-
-    if (decision.origin === 'replayed') {
-      const record = decision.record;
-      const recorded = record.end!;
-      // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
-      const payload = (recorded.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(body.name)) {
-        ctx.warnOnce(body.name, `${body.name} changed since the recording; pass --live-tool ${body.name} to run it live`);
+      case 'planted': {
+        const record = decision.record;
+        const recorded = record.end!;
+        const payload = (recorded.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+        const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
+        if (!refused(planted)) {
+          end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
+          return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
+        }
+        // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
+        ctx.session.declined(record.callNo);
+        ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
+        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+        if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? this.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
+        return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
       }
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+      case 'overridden':
+        // The user's substitute result stands in for the recording; the agent builds its next request from it.
+        end({ value: { result: decision.result } }, 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
+        return { origin: 'replayed', callNo, outcome: 'ok', result: decision.result };
+      case 'replayed': {
+        const record = decision.record;
+        const recorded = record.end!;
+        // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
+        const payload = (recorded.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+        if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(name)) {
+          ctx.warnOnce(name, `${name} changed since the recording; pass --live-tool ${name} to run it live`);
+        }
+        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+        if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+        return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+      }
+      case 'blocked':
+      case 'stubbed':
+      case 'live':
+        break;
     }
-
     if (kind !== 'tool') {
       // Clock and random values are generated here so the SDK needs no second round-trip.
-      const result = kind === 'clock' ? Date.now() : body.name === 'uuid' ? randomUUID() : Math.random();
+      const result = kind === 'clock' ? Date.now() : name === 'uuid' ? randomUUID() : Math.random();
       end({ value: { result } }, 'ok', {});
       return { origin: 'live', callNo, outcome: 'ok', result };
     }
-
     if (decision.origin === 'blocked') {
-      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${body.name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${body.name} blocked after divergence (use --writes stub|allow to change this)` };
+      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${name} blocked after divergence (use --writes stub|allow to change this)` };
       end({ value: { error } }, 'error', { error });
       return { origin: 'blocked', callNo, outcome: 'error', error };
     }
@@ -2089,11 +2431,12 @@ export class Sidecar {
     let requestRef: string | null = null;
     this.writer.write({
       what: `call ${callNo}'s start`,
+      of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
         requestRef = this.store.putJson(request);
         this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: tracked.effect, requestRef, meta, at });
       },
-      failed: (reason) => ctx.warnOnce(`store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`),
+      failed: (reason) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`),
     });
     return () => requestRef;
   }
@@ -2140,6 +2483,11 @@ export class Sidecar {
     }
   }
 
+  /** A write of the run's that could not be made, said once in its warnings; nothing more once the run itself could not be (RunContext.lost). */
+  private storeTrouble(ctx: RunContext, key: string, message: string): void {
+    if (ctx.lost === null) ctx.warnOnce(key, message);
+  }
+
   /** Keeps a run's divergence on it, in memory and in the store, through the store writer. */
   private keepDivergence(ctx: RunContext, found: DivergenceReport): DivergenceReport {
     // A hint for a change the run's rules mask would ask for a rule the config has: the report
@@ -2149,8 +2497,9 @@ export class Sidecar {
     ctx.run.divergence = d;
     this.writer.write({
       what: `run ${ctx.run.runId}'s divergence`,
+      of: { runId: ctx.run.runId, part: 'run' },
       run: () => this.store.setDivergence(ctx.run.runId, d),
-      failed: (reason) => ctx.warnOnce('store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
+      failed: (reason) => this.storeTrouble(ctx, 'store:divergence', `Where the run diverged (call ${d.callNo}) could not be written to the store (${reason}).`),
     });
     return d;
   }
@@ -2205,9 +2554,14 @@ export class Sidecar {
     return apiCallName(method, provider.matchPath(pathParts.join(' ')));
   }
 
+  /** A recorded model call's request as it was sent, each number as written: what a rebuild sends again. */
+  private sentRequest(rec: CallRecord): unknown {
+    return rec.requestRef ? loadApiRequest(this.store, rec.requestRef, { exact: true }) : undefined;
+  }
+
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
-    if (rec.kind === 'api') return loadApiRequest(this.store, rec.requestRef);
+    if (rec.kind === 'api') return reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
     const req = reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;
     // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
@@ -2267,10 +2621,13 @@ export class Sidecar {
    * can't answer under these rules and dates is fingerprinted here, and kept in the cache for the
    * next replay. `cached` counts those the cache answered.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): { calls: CallRecord[]; cached: number } {
-    const rules = { normalizers, clockRef, withoutPrompt: withoutPromptMask, redactions, ids: { normalizers: rulesId(normalizers), judge: rulesId(judgeRules(redactions)) } };
-    const plans = calls.map((rec) => (only && !only(rec) ? null : this.fingerprintPlan(rec, rules)));
-    const found = this.store.cachedFingerprints(plans.flatMap((p) => (p ? [p.key] : [])));
+  private refingerprint(calls: CallRecord[], matching: MatchingRules & { redactions: Normalizer[] }, only?: (rec: CallRecord) => boolean): { calls: CallRecord[]; cached: number } {
+    const { clockRef } = matching;
+    const rules = { ...matching, ids: { normalizers: rulesId(matching.normalizers), judge: rulesId(judgeRules(matching.redactions)) } };
+    // A clock or random read's request, its label, by its ref: the SDKs' unlabelled reads all share one.
+    const labels = new Map<string, unknown>();
+    const plans = calls.map((rec) => (only && !only(rec) ? null : this.fingerprintPlan(rec, rules, labels)));
+    const found = this.store.cachedFingerprints(plans.flatMap((p) => (p?.key ? [p.key] : [])));
     const fresh: Array<{ key: string; requestRef: string; fingerprint: string; clock: string | null }> = [];
     let cached = 0;
     const counts = new Map<string, number>();
@@ -2278,7 +2635,7 @@ export class Sidecar {
       let fingerprint = rec.fingerprint;
       const plan = plans[i];
       if (plan) {
-        const hit = found.get(plan.key);
+        const hit = plan.key === null ? undefined : found.get(plan.key);
         const marks = hit ? decodeMarks(hit.clock) : null;
         if (hit && marks && servesClock(marks, clockRef)) {
           fingerprint = hit.fingerprint;
@@ -2287,7 +2644,7 @@ export class Sidecar {
           try {
             const made = plan.compute();
             fingerprint = made.fingerprint;
-            fresh.push({ key: plan.key, requestRef: plan.requestRef, fingerprint, clock: encodeMarks(made.marks) });
+            if (plan.key !== null) fresh.push({ key: plan.key, requestRef: plan.requestRef, fingerprint, clock: encodeMarks(made.marks) });
           } catch (err) {
             this.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);
           }
@@ -2304,12 +2661,29 @@ export class Sidecar {
 
   /**
    * How a recorded call is fingerprinted again under `rules`: its cache key, and the work to do when
-   * the cache can't answer. Null to keep its stored fingerprint (a clock or random call, a call whose
-   * request or provider is unknown).
+   * the cache can't answer. A clock or random read has no key: its request is a label, read once per
+   * label (`labels`), and no rule changes its fingerprint, which names the read (a recording from
+   * before reads were named holds fingerprints without the name). Null to keep its stored
+   * fingerprint (a call whose request or provider is unknown).
    */
-  private fingerprintPlan(rec: CallRecord, rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean; redactions: Normalizer[]; ids: { normalizers: string; judge: string } }): { key: string; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
+  private fingerprintPlan(rec: CallRecord, rules: MatchingRules & { redactions: Normalizer[]; ids: { normalizers: string; judge: string } }, labels: Map<string, unknown>): { key: string | null; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
     const ref = rec.requestRef;
     if (!ref) return null;
+    if (rec.kind === 'clock' || rec.kind === 'random') {
+      const kind = rec.kind;
+      return {
+        key: null,
+        requestRef: ref,
+        compute: () => {
+          if (!labels.has(ref)) {
+            const req = this.getJsonExact<{ label?: unknown }>(ref);
+            if (!req) throw new Error(`missing request ${ref}`);
+            labels.set(ref, req.label ?? '');
+          }
+          return { fingerprint: fingerprintMisc(kind, rec.name, labels.get(ref) as string).fingerprint, marks: [] };
+        },
+      };
+    }
     if (rec.kind === 'api') {
       // The host of another's format it went through (`via`), whose root it is matched under.
       const provider = this.providerOf(rec);
@@ -2325,9 +2699,10 @@ export class Sidecar {
         requestRef: ref,
         compute: () => {
           // From the query it kept: none for a call recorded before calls kept one.
-          const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec, rules.redactions) };
-          if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path)).fingerprint, marks: [] };
-          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), query ?? '', ...Object.values(headers)], rules.clockRef) };
+          // Its numbers as they were stored, read as the live call's are (MatchingRules.roundedNumbers).
+          const request = { method, path, headers, body: loadApiRequest(this.store, ref, { exact: true }), query: storedQuery(rec, rules.redactions) };
+          if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path), rules.roundedNumbers).fingerprint, marks: [] };
+          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(apiNumbers(request.body, rules.roundedNumbers)), ...queryValues(query), ...Object.values(headers)], rules.clockRef) };
         },
       };
     }
@@ -2363,6 +2738,19 @@ export interface ResolveBody {
   mcp?: unknown;
   /** `untrusted`: the tool brings outside text in, where `shadowlap injection` plants (see docs/protocol.md). */
   trust?: 'trusted' | 'untrusted';
+}
+
+/**
+ * Route: what a tool, clock or random call asks for, checked: its kind, a name, and a tool's declared
+ * effect. Refused with 400 when it doesn't say.
+ */
+function routeToolCall(ctx: RunContext, body: ResolveBody, scope: string | undefined): ToolCall {
+  const kind = body.kind;
+  if (kind !== 'tool' && kind !== 'clock' && kind !== 'random') throw new HttpError(400, `bad kind ${String(kind)}`);
+  if (typeof body.name !== 'string' || !body.name) throw new HttpError(400, 'name is required');
+  const effect: Effect | null = kind === 'tool' ? (body.effect ?? null) : null;
+  if (kind === 'tool' && effect !== 'pure' && effect !== 'read' && effect !== 'write') throw new HttpError(400, `tool ${body.name} must declare effect pure|read|write`);
+  return { ctx, body, scope, kind, name: body.name, effect, request: kind === 'tool' ? { args: body.args ?? null } : { label: body.label ?? '' }, input: kind === 'tool' && body.input === true };
 }
 
 /** `mcp` from a resolve body, checked and bounded, as call meta; undefined when it isn't one. */
@@ -2453,6 +2841,11 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   return decision.origin;
 }
 
+/** A host name as a Host header or a URL names it, lower case and without an IPv6 address's brackets. */
+function bareHost(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+}
+
 /** A path segment decoded, or as it is when it doesn't decode. */
 function decodedSegment(segment: string): string {
   try {
@@ -2467,6 +2860,15 @@ const upstreamVariable = (provider: Provider): string => `SHADOWLAP_UPSTREAM_${p
 
 /** The id a provider's calls are recorded under: the format's, for a host of another's (Provider.format). */
 const recordedId = (provider: Provider): string => provider.format ?? provider.id;
+
+/**
+ * A query's names and values decoded, as a fingerprint reads them (queryPairs): what the fingerprint
+ * cache's clock marks are read from, so a date sent encoded (`2026-11-24T09%3A00%3A00Z`) is marked as
+ * the date the fingerprint masks.
+ */
+function queryValues(query: string | undefined): string[] {
+  return queryPairs(query).flat();
+}
 
 /** A model call's query as its identity reads it, from what its recording kept (none when it kept none), under the rules that redacted the recording. */
 function storedQuery(rec: Pick<CallRecord, 'meta' | 'name'>, redactions: readonly Normalizer[] = []): string {
@@ -2527,8 +2929,8 @@ function withoutHeader(headers: Readonly<Record<string, string>>, name: string):
  * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
  * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
  */
-function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
-  return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
+function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined, roundNumbers = false): { fingerprint: string } {
+  return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath, roundNumbers });
 }
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {
@@ -2578,10 +2980,120 @@ function jsonBytes(value: unknown): Buffer {
   return Buffer.from(JSON.stringify(value), 'utf8');
 }
 
-/** Whether a recorded answer stopped part way: its provider's connection broke, or its agent left before it was whole. */
+/**
+ * Whether a recorded answer stopped part way, or never came: its provider's connection broke, its
+ * agent left before it was whole, or its provider couldn't be reached at all (an earlier version
+ * answered that last with a 502 of its own, which it recorded with the status).
+ */
 function cutShort(end: CallEndRow): boolean {
   const name = end.meta.error?.name;
-  return end.outcome === 'error' && (name === 'UpstreamStreamError' || name === 'ClientDisconnected');
+  return end.outcome === 'error' && (name === 'UpstreamStreamError' || name === 'ClientDisconnected' || (name === 'UpstreamConnectionError' && end.meta.status === undefined));
+}
+
+/**
+ * Breaks the agent's connection with no more of an answer, as a provider's or a host's that failed
+ * breaks it: over HTTP/1.1 its socket closes, and over HTTP/2 its stream is reset with an error,
+ * which its client reads as one (a stream that is merely closed reads as a whole answer).
+ */
+function breakConnection(res: ServerResponse, why: string): void {
+  res.destroy(new Error(why));
+}
+
+/** An upstream as a run's summary names it: its origin, never a path or a password it may carry. */
+function originOf(upstream: string): string {
+  try {
+    return new URL(upstream).origin;
+  } catch {
+    return 'its upstream';
+  }
+}
+
+/**
+ * An answer the sidecar gives an agent itself, in place of the provider's or the host's: a refused
+ * intervention or key, a failure a flag asked for, a call that may not go out. `body` is sent as
+ * JSON; `headers` go with it besides its content type (the error type AWS clients read), and
+ * `origin` is what `x-shadowlap-origin` says.
+ */
+interface OwnAnswer {
+  status: number;
+  body: unknown;
+  origin: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Sends an answer of the sidecar's own: one helper for every one, so each goes out as JSON with its
+ * length, and comes back with the bytes and the headers as the agent got them, for the recording to
+ * keep (without `x-shadowlap-origin`, which a replay sets to its own).
+ */
+function sendOwn(res: ServerResponse, own: OwnAnswer): { bytes: Buffer; headers: Record<string, string> } {
+  const bytes = jsonBytes(own.body);
+  const headers = { 'content-type': 'application/json', ...(own.headers ?? {}) };
+  res.writeHead(own.status, { ...headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': own.origin });
+  res.end(bytes);
+  return { bytes, headers };
+}
+
+/**
+ * An error in the provider's own shape, so its client shows the message: AWS clients read a
+ * top-level message and the error's type from a header (and branch on it, ThrottlingException);
+ * the others read `error.message`, with `type` the kind of answer it is.
+ */
+function providerError(provider: Provider, status: number, type: string, message: string, origin: string): OwnAnswer {
+  return provider.id === 'bedrock' ? { status, body: { message }, origin, headers: { 'x-amzn-errortype': awsErrorType(status) } } : { status, body: { type: 'error', error: { type, message } }, origin };
+}
+
+/** Sends a captured HTTP call's answer as it is stored (the host's, or the sidecar's own), with its length and `x-shadowlap-origin`. */
+function sendHttp(res: ServerResponse, result: HttpResult, from: string, bytes = encodeBody(result)): void {
+  res.writeHead(result.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': from });
+  res.end(bytes);
+}
+
+/** The error types an earlier sidecar's answers of its own to a captured HTTP call carried, by the error it kept. */
+const EARLIER_HTTP = new Map([
+  ['ShadowlapReadBlocked', 'shadowlap_read_blocked'],
+  ['ShadowlapWriteBlocked', 'shadowlap_write_blocked'],
+  ['ShadowlapOffline', 'shadowlap_offline'],
+  ['ShadowlapUpstreamError', 'shadowlap_upstream_error'],
+  ['ShadowlapPlaceholderKey', 'shadowlap_placeholder_key'],
+]);
+
+/**
+ * An answer of its own to a captured HTTP call that an earlier sidecar kept only as its error and
+ * status, written again as that version sent it: a blocked call, an offline one, a host it couldn't
+ * reach, a placeholder key, a status a flag injected. Null for anything else.
+ */
+function earlierHttpAnswer(end: CallEndRow, error: SerializedError | undefined): HttpResult | null {
+  const status = end.meta.status;
+  if (end.outcome !== 'error' || status === undefined || !error) return null;
+  const type = EARLIER_HTTP.get(error.name);
+  const body = end.meta.injected ? { error: { message: error.message } } : type ? { type: 'error', error: { type, message: error.message } } : null;
+  return body ? { status, headers: { 'content-type': 'application/json' }, body, encoding: 'json' } : null;
+}
+
+/** The error types an earlier sidecar's answers of its own carried, by the error it recorded with them. */
+const EARLIER_OWN = new Map([
+  ['UpstreamConnectionError', 'shadowlap_upstream_error'],
+  ['ShadowlapNoUpstream', 'shadowlap_no_upstream'],
+  ['ShadowlapOffline', 'shadowlap_offline'],
+]);
+
+/**
+ * An answer of its own that an earlier sidecar recorded without what a replay needs to send it
+ * again: a 502 for a provider it couldn't reach, a 400 for no upstream and a 503 offline, kept
+ * without their bytes, which are written again from the error each kept, as that version sent them;
+ * and its refusals and injected failures, kept without their headers: JSON, and for Bedrock the
+ * error type AWS clients read. Null for any other answer.
+ */
+function earlierOwnAnswer(record: CallRecord): { bytes: Buffer | null; headers: Record<string, string> } | null {
+  const end = record.end;
+  if (!end || end.outcome !== 'error' || end.meta.headers || end.meta.status === undefined) return null;
+  const error = end.meta.error;
+  const type = error ? EARLIER_OWN.get(error.name) : undefined;
+  if (!end.responseRef && type) return { bytes: jsonBytes({ type: 'error', error: { type, message: error!.message } }), headers: { 'content-type': 'application/json' } };
+  if (!end.responseRef || !(end.meta.refused || end.meta.injected)) return null;
+  const aws = record.meta.provider === 'bedrock' || end.meta.provider === 'bedrock';
+  return { bytes: null, headers: { 'content-type': 'application/json', ...(aws ? { 'x-amzn-errortype': awsErrorType(end.meta.status) } : {}) } };
 }
 
 /** Waits for `p`, or `ms` at most, without keeping the process alive for it. */

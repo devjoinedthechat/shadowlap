@@ -130,6 +130,21 @@ export function parseJsonColumn<T>(raw: unknown, fallback: T): T {
   }
 }
 
+/**
+ * Writes this process has queued for the store and not made yet: the sidecar's (its StoreWriter),
+ * which never holds an agent's answer up for another process's lock, and so writes a run's start, its
+ * calls and its end later when the store is held. A read or change of a run here first makes what is
+ * queued for it (`settle`), so this process always finds what it said of a run already: that it
+ * started, the calls it made, that it ended.
+ */
+export interface QueuedWrites {
+  /**
+   * Makes every queued write of the run, of its record (`run`: its start, metadata and end) or its
+   * calls, or of either, and every write queued before it, waiting for the lock as a write may.
+   */
+  settle(runId: string, part?: 'run' | 'calls'): void;
+}
+
 let lastUlidTime = 0;
 /**
  * Monotonic within a process so runs and events created in the same millisecond still sort by
@@ -156,6 +171,8 @@ export abstract class StorePart {
   protected declare readonly db: SqliteDatabase;
   /** The statements the store prepared on it when it opened. */
   protected declare readonly stmts: Statements;
+  /** The writes this process has queued for the store and not made yet, by whoever queued them (Recording.queueWrites). */
+  protected declare readonly queues: Set<QueuedWrites>;
   /** `Store.transaction`. */
   protected abstract transaction<T>(fn: () => T, mode?: 'deferred' | 'immediate'): T;
 }

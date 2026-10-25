@@ -327,7 +327,7 @@ export class Session {
     const place = input.kind === 'api' && input.occurrence === undefined ? this.nextPlace(input.scope, this.apiCounts) : undefined;
     const forced = this.isForced(input, place);
     if (this.state === 'replaying') {
-      const record = forced ? undefined : this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
+      const record = forced ? undefined : this.recorded(input, occurrence, scope);
       if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
       // A plain read the recording has no counterpart for changes nothing the replay is checking:
       // answered live, and the replay goes on. One a flag forces or changed still forks.
@@ -406,6 +406,19 @@ export class Session {
     if (!texts?.length || request === undefined) return false;
     const text = (typeof request === 'string' ? request : (JSON.stringify(request) ?? '')).toLowerCase();
     return texts.some((t) => text.includes(t));
+  }
+
+  /**
+   * The recorded call this one is, by kind, fingerprint, occurrence and scope. A clock or random read
+   * is that read only under its name as well (`now`, `random`, `uuid`): the SDKs label none by
+   * default, so an agent's new `random()` must never take the `uuid()` the recording holds. Its
+   * fingerprint names it (fingerprintMisc); the session holds to the name whatever fingerprints its
+   * caller gives it.
+   */
+  private recorded(input: ResolveInput, occurrence: number, scope: string): CallRecord | undefined {
+    const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
+    if (record && (input.kind === 'clock' || input.kind === 'random') && record.name !== input.name) return undefined;
+    return record;
   }
 
   /** Whether a partial recording holds calls like this one: their kind, or for a tool, its name. */

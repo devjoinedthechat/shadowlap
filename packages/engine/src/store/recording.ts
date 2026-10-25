@@ -8,7 +8,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import { sha256 } from '../ids.js';
 import { currentOwner, recorderGone, type RunOwner } from '../liveness.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, CallStartRow, DivergenceReport, Effect, Origin, Outcome, RunCommand, RunMeta, RunMode, RunRecord, RunStatus } from '../types.js';
-import { rollBack, StorePart, ulidNow } from './core.js';
+import { rollBack, StorePart, ulidNow, type QueuedWrites } from './core.js';
 import type { Search } from './search.js';
 
 const GZIP_THRESHOLD = 512;
@@ -120,6 +120,7 @@ export abstract class Recording extends StorePart {
   }
 
   getRun(runId: string): RunRecord | null {
+    this.settleQueued(runId, 'run');
     const row = this.stmts.getRun.get(runId);
     return row ? rowToRun(row) : null;
   }
@@ -149,6 +150,7 @@ export abstract class Recording extends StorePart {
    * is not written over.
    */
   updateRunMeta(runId: string, patch: Partial<RunMeta>): void {
+    this.settleQueued(runId, 'run');
     const merge = () => {
       const run = this.getRun(runId);
       if (!run) throw new Error(`unknown run ${runId}`);
@@ -159,6 +161,8 @@ export abstract class Recording extends StorePart {
   }
 
   deleteRun(runId: string): void {
+    // What this process still has queued for the run is made first, so none of it lands after the run has gone.
+    this.settleQueued(runId);
     // All of it or none: a run whose rows went while its search index could not be written (a Node
     // whose SQLite has no full-text search) would leave the text it recorded behind. A savepoint, as
     // a caller may have a transaction open already (replaceRun in a pull's).
@@ -248,11 +252,13 @@ export abstract class Recording extends StorePart {
   }
 
   countCalls(runId: string): number {
+    this.settleQueued(runId, 'calls');
     return Number(this.stmts.countCalls.get(runId)?.n ?? 0);
   }
 
   /** The agent's calls in a run: every call but a judge check's, which are none of the agent's. */
   countAgentCalls(runId: string): number {
+    this.settleQueued(runId, 'calls');
     return Number(this.stmts.countAgentCalls.get(runId, runId)?.n ?? 0);
   }
 
@@ -296,6 +302,29 @@ export abstract class Recording extends StorePart {
     );
   }
 
+  // ---- writes this process queued and has not made yet (the sidecar's) ----
+
+  /**
+   * Registers writes this process queues for the store (the sidecar's StoreWriter): until the function
+   * it returns is called, a read or change of a run here first makes what is queued for that run, so a
+   * command that starts a run and stamps it, or ends one and reads its calls, finds them whatever
+   * another process holds.
+   */
+  queueWrites(queue: QueuedWrites): () => void {
+    this.queues.add(queue);
+    return () => void this.queues.delete(queue);
+  }
+
+  /**
+   * Makes what this process queued for a run (of its record, its calls, or both) before the run is
+   * read or changed here. Never inside a transaction: a write made then would join it, and be undone
+   * with it.
+   */
+  private settleQueued(runId: string, part?: 'run' | 'calls'): void {
+    if (!this.queues.size || this.db.isTransaction) return;
+    for (const queue of this.queues) queue.settle(runId, part);
+  }
+
   /**
    * Runs `fn` as one write, waiting at most `waitMs` for another connection's write lock instead of
    * the busy timeout every other write waits: the sidecar writes its calls on the thread that streams
@@ -337,6 +366,7 @@ export abstract class Recording extends StorePart {
    * named in `only`.
    */
   getCalls(runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }): CallRecord[] {
+    this.settleQueued(runId, 'calls');
     const rows = !range
       ? this.stmts.eventsForRun.all(runId)
       : range.only

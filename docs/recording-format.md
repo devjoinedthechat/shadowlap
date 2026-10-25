@@ -65,6 +65,7 @@ A run made where nothing knows what started the agent, such as a capture of prod
 | `inputs` | `true`: what a person typed during the run is recorded, as `user_input` tool calls ([the wire protocol](./protocol.md#user-input)) |
 | `keyEnv` | The providers whose credentials the environment the agent started in held, each with the variables among those its SDKs read that held its key, such as `{ "anthropic": ["ANTHROPIC_API_KEY"], "bedrock": [] }` (empty for a credential of another kind: a profile, a shared file, an identity): names, never values. `shadowlap replay` gives the agent a [placeholder key](./how-it-works.md#keys) for those providers when its environment has none. A reader takes only the providers and variables it knows; a producer may leave it out |
 | `normalizersHash` | Under what the stored fingerprints were computed ([identity](#identity)). A producer leaves it out |
+| `exactNumbers` | `true`: the run's model requests are stored with each number as it was sent, an integer past 2^53 by its digits and `20.0` as written ([identity](#identity)) |
 | `imported` | Written by a reader that brings the run into a store: where it came from. A pack's own is replaced |
 
 Shadowlap keeps more under `meta` (what a blame found, how a test judged the run, what a replay changed); a producer leaves those out.
@@ -126,12 +127,12 @@ Every request and every answer is a blob: a file in `blobs/` whose name is the S
 
 | Kind | The request, at `requestRef` | The answer, at `end.responseRef` |
 |---|---|---|
-| `api` | A [request manifest](#request-manifests) | The response body as it was received, byte for byte: JSON, or a stream's events |
+| `api` | A [request manifest](#request-manifests) | The response body as the agent got it, byte for byte: JSON, or a stream's events, as the provider sent it or as Shadowlap answered in its place (an offline replay's refusal, a failure `--fail-at` plays in), with its headers in `end.meta.headers`. None when no answer came: the connection broke first |
 | `tool` | `{"args": …}`, the arguments | `{"result": …}`, what the tool returned, or `{"error": …}`, what it raised |
 | `clock` | `{"label": "…"}` | `{"result": …}`, milliseconds since the epoch |
 | `random` | `{"label": "…"}` | `{"result": …}`: a number from 0 up to 1 for `random`, a UUID for `uuid` |
 
-A call to a host [declared under `http`](./sdk.md#http-services-without-wrapping) is a `tool` call with `meta.http` naming the host. Its arguments are `{"method", "url", "body", "encoding"}` and its result `{"status", "headers", "body", "encoding"}`, `encoding` being `json`, `text` or `base64` and the body left out when there is none.
+A call to a host [declared under `http`](./sdk.md#http-services-without-wrapping) is a `tool` call with `meta.http` naming the host. Its arguments are `{"method", "url", "body", "encoding"}` and its result `{"status", "headers", "body", "encoding"}`, `encoding` being `json`, `text` or `base64` and the body left out when there is none. A call Shadowlap answered in the host's place (a write blocked after a fork, an offline replay's refusal) keeps that answer beside its error, `{"error": …, "answer": {"status", "headers", "body", "encoding"}}`, and one whose connection closed with no answer keeps its error alone.
 
 ### Request manifests
 
@@ -183,9 +184,9 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 |---|---|---|
 | `api` | `kind`, `method`, `path`, `headers`, `body` and, when it has one, `query` | `{"body":{…},"headers":{"anthropic-version":"2023-06-01"},"kind":"api","method":"POST","path":"/v1/messages"}` |
 | `tool` | `kind`, `name` and `args` | `{"args":{"id":"A-17"},"kind":"tool","name":"lookup_order"}` |
-| `clock`, `random` | `kind` and `label` | `{"kind":"clock","label":"start"}` |
+| `clock`, `random` | `kind`, `name` and `label` | `{"kind":"clock","label":"start","name":"now"}` |
 
-- `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
+- `body` is the request body with every `cache_control` member removed, wherever it is: providers document it as changing nothing. Its numbers count as they were sent: an integer past 2^53 by its exact digits, so two ids a double rounds alike are two requests, and any other number as the double it reads as (`20.0` is `20`). A reader matches a run without `exactNumbers`, whose requests may hold numbers JSON.parse rounded, with every number read as a double. A multipart body (a file upload) counts by its parts: each part's name, file name and content type, a field's text, and a file's SHA-256.
 - A body's `metadata.user_id` that is Claude Code's session identifier counts as `"<claude-code-session>"`: Claude Code makes a new one for every session. It is a string, either the JSON of an object with a `device_id` of hexadecimal digits, an `account_uuid` and a `session_id` that is a UUID, as Claude Code sends it, or `user_<device>_account_<account>_session_<session>`, as earlier versions sent it. Any other `user_id` counts as sent.
 - `path` is the path the request was sent to under its provider's root, without the query. A Vertex AI path leaves out its `/projects/<project>/locations/<location>`, which differ from one machine to the next.
 - `query` is the request's query parameters as `[name, value]` pairs, decoded, sorted by name (a name sent more than once keeps its values in the order sent), and left out when there are none. A parameter that carries a credential (an API key such as Gemini's `key`, a token, a signature, a password) is never part of it, nor is a value a copy masked as `<CREDENTIAL>`. Its values are masked as the body's strings are: dates near the run's start, and the normalizers that have no path. A recording a copy redacted holds its query with the copy's rules applied, each `name=value` as a whole, so a live call's query is read with those rules applied the same way before it is matched. A reader computes it from the call's `meta.query`.
@@ -205,7 +206,7 @@ A call that went through a host of another's format (`via`) is fingerprinted wit
 
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 
-A reader computes the fingerprint of every `api` and `tool` call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. Clock and random fingerprints are never computed again: a producer MUST compute those exactly. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 7), and fingerprints made under another are computed again, so older packs keep replaying.
+A reader computes the fingerprint of every call and every occurrence again, from the stored request, unless the run's `normalizersHash` says they were computed under the normalizers in force and the clock is `exact`: a clock or random read's from its `name` and its request's `label`, which no normalizer or clock changes. A producer therefore SHOULD compute them as above, and MUST leave `normalizersHash` out unless it computed that with the engine's `normalizersHash`. When Shadowlap changes how a fingerprint is computed, it says so with a version of its own (`FINGERPRINT_VERSION`, now 8), and fingerprints made under another are computed again, so older packs keep replaying.
 
 ## Partial recordings
 

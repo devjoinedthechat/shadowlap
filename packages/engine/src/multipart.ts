@@ -52,13 +52,26 @@ export function multipartView(body: unknown): unknown {
  * aren't one (no boundary line, a part without its headers' end, no closing delimiter).
  */
 export function parseMultipart(bytes: Buffer): MultipartPart[] | null {
+  return multipartContents(bytes)?.map(asPart) ?? null;
+}
+
+/** One part of a form with what it holds, as its client sent it (an uploaded file's bytes). */
+export interface MultipartContent {
+  name: string | null;
+  filename?: string;
+  contentType?: string;
+  content: Buffer;
+}
+
+/** The parts of a multipart/form-data body with their contents, as parseMultipart reads them; null when the bytes aren't one. */
+export function multipartContents(bytes: Buffer): MultipartContent[] | null {
   if (bytes[0] !== 0x2d || bytes[1] !== 0x2d) return null;
   const firstEnd = bytes.indexOf(CRLF);
   if (firstEnd < 3) return null;
   const boundary = bytes.subarray(2, firstEnd).toString('latin1').replace(/[ \t]+$/, '');
   if (!BOUNDARY.test(boundary)) return null;
   const delimiter = Buffer.from(`\r\n--${boundary}`, 'latin1');
-  const parts: MultipartPart[] = [];
+  const parts: MultipartContent[] = [];
   let at = firstEnd + CRLF.length;
   for (;;) {
     const next = bytes.indexOf(delimiter, at);
@@ -75,7 +88,7 @@ export function parseMultipart(bytes: Buffer): MultipartPart[] | null {
   }
 }
 
-function readPart(raw: Buffer): MultipartPart | null {
+function readPart(raw: Buffer): MultipartContent | null {
   // A part with no headers starts with the blank line that ends them.
   const end = raw.subarray(0, 2).equals(CRLF) ? 0 : raw.indexOf(HEADERS_END);
   if (end < 0) return null;
@@ -89,14 +102,19 @@ function readPart(raw: Buffer): MultipartPart | null {
   const name = param(disposition, 'name');
   const filename = param(disposition, 'filename');
   const contentType = headers.get('content-type');
-  const out: MultipartPart = { name: name ?? null };
-  if (filename !== undefined) out.filename = filename;
-  if (contentType !== undefined) out.contentType = contentType;
-  const text = content.toString('utf8');
-  if (filename === undefined && Buffer.from(text, 'utf8').equals(content)) out.value = text;
+  return { name: name ?? null, ...(filename !== undefined ? { filename } : {}), ...(contentType !== undefined ? { contentType } : {}), content };
+}
+
+/** A part as matching reads it: a field's text, or a file's SHA-256 and size. */
+function asPart(part: MultipartContent): MultipartPart {
+  const out: MultipartPart = { name: part.name };
+  if (part.filename !== undefined) out.filename = part.filename;
+  if (part.contentType !== undefined) out.contentType = part.contentType;
+  const text = part.content.toString('utf8');
+  if (part.filename === undefined && Buffer.from(text, 'utf8').equals(part.content)) out.value = text;
   else {
-    out.sha256 = createHash('sha256').update(content).digest('hex');
-    out.bytes = content.length;
+    out.sha256 = createHash('sha256').update(part.content).digest('hex');
+    out.bytes = part.content.length;
   }
   return out;
 }

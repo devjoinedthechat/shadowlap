@@ -3,7 +3,8 @@ import { canonicalize } from './canonical.js';
 import { describeChanges, type RunChanges } from './changes.js';
 import { normalizeConversation } from './conversation.js';
 import type { Block } from './deltas.js';
-import { hintsFor, structuralDiff } from './diff.js';
+import { headerDiff, hintsFor, isHeaderEntry, queryDiff, structuralDiff } from './diff.js';
+import { queryPairs } from './fingerprint.js';
 import { pathOf } from './repeat.js';
 import { finalAnswer, normalizeResponse } from './responses.js';
 import { sha256 } from './ids.js';
@@ -383,13 +384,9 @@ export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: R
   for (let i = 0; i < n; i++) {
     const x = aCalls[i]!;
     const y = bCalls[i]!;
-    const sameRequest = x.kind === y.kind && x.name === y.name && x.fingerprint === y.fingerprint;
-    if (!sameRequest) {
-      const same = x.kind === y.kind && x.name === y.name;
-      const qx = same ? request(store, x) : null;
-      const qy = same ? request(store, y) : null;
-      const diff = same ? labelled(structuralDiff(qx, qy), y, qx, qy) : [{ path: '$', op: 'changed' as const, before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
-      const hints = diff.flatMap((e) => hintsFor(e, y.kind, y.name)).slice(0, 3);
+    const diff = requestDifference(store, a, x, b, y);
+    if (diff) {
+      const hints = diff.flatMap((e) => (isHeaderEntry(e) ? [] : hintsFor(e, y.kind, y.name))).slice(0, 3);
       firstRequestDifference = { callNo: y.callNo, kind: y.kind, name: y.name, diff, ...(hints.length ? { hints } : {}) };
       after = { a: courseOf(store, aCalls, i), b: courseOf(store, bCalls, i) };
       break;
@@ -427,6 +424,55 @@ export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: R
     changes: runChanges(store, a, aCalls, b, bCalls),
     intervention,
   };
+}
+
+/**
+ * How `y`, run `b`'s call, asks other than `x`, run `a`'s call at the same place; null when it makes
+ * the same request. A replay keeps the recorded call it served each call from (`replayedFrom`, or
+ * `overriddenFrom` for a result a flag changed): that call's request is the same. Two calls whose
+ * stored fingerprints are equal make it too. Fingerprints alone can't tell the rest, since two runs'
+ * are alike only when both made them the same way (one fingerprint version, the same normalizers,
+ * dates masked against each run's own start): calls whose fingerprints differ are compared by what
+ * each sent, its kind and name, its fingerprint headers, query and body, and are the same request
+ * when nothing of that differs.
+ */
+function requestDifference(store: Store, a: RunRecord, x: CallRecord, b: RunRecord, y: CallRecord): Array<DiffEntry & { what?: string }> | null {
+  if (x.kind !== y.kind || x.name !== y.name) return [{ path: '$', op: 'changed', before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
+  if (x.fingerprint === y.fingerprint || servedFrom(b, y, a, x) || servedFrom(a, x, b, y)) return null;
+  const qx = request(store, x);
+  const qy = request(store, y);
+  const diff = [
+    ...(x.kind === 'api' ? headerDiff(identityHeaders(x), identityHeaders(y)) : []),
+    ...(x.kind === 'api' ? queryDiff(queryPairs(storedQuery(x)), queryPairs(storedQuery(y))) : []),
+    ...labelled(structuralDiff(qx, qy), y, qx, qy),
+  ];
+  return diff.length ? diff : null;
+}
+
+/** Whether `c`, a call of `child`, was served from `p`, the call of `parent` it replays. */
+function servedFrom(child: RunRecord, c: CallRecord, parent: RunRecord, p: CallRecord): boolean {
+  if (child.parentRunId !== parent.runId) return false;
+  const meta = c.end?.meta;
+  return meta?.replayedFrom === p.callNo || meta?.overriddenFrom === p.callNo;
+}
+
+/** A model call's query as it kept it; none when it kept none. */
+function storedQuery(c: CallRecord): string | undefined {
+  return typeof c.meta.query === 'string' ? c.meta.query : undefined;
+}
+
+/**
+ * A model call's fingerprint headers as they make it the call it is: `anthropic-beta` without the
+ * betas that only say how it signed in (`oauth-…`), as the recording format's identity reads them.
+ */
+function identityHeaders(c: CallRecord): Record<string, string> {
+  const headers = { ...((c.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {}) };
+  const beta = headers['anthropic-beta'];
+  if (beta === undefined) return headers;
+  const kept = beta.split(',').map((b) => b.trim()).filter((b) => b && !/^oauth-/i.test(b));
+  if (kept.length) headers['anthropic-beta'] = kept.join(',');
+  else delete headers['anthropic-beta'];
+  return headers;
 }
 
 /** Whether two runs differ at all: a request, a response, or length. */

@@ -146,6 +146,64 @@ describe('the store writer', () => {
     store.close();
   });
 
+  it("tells a run's writes from another's, and says on its timer when a run's have all been made", async () => {
+    const { store, other, written } = opened('settled');
+    const writer = new StoreWriter(store, { waitMs: 5, deadlineMs: 5_000 }, () => {});
+    other.exec('BEGIN IMMEDIATE');
+    const put = (w: string, runId: string, part: 'run' | 'calls') => writer.write({ what: w, of: { runId, part }, run: () => store.putBlob(Buffer.from(w)) });
+    put('R start', 'R', 'run');
+    put('R call', 'R', 'calls');
+    put('S call', 'S', 'calls');
+    expect([writer.holds('R'), writer.holds('R', 'calls'), writer.holds('S', 'run'), writer.holds('T')]).toEqual([true, true, false, false]);
+    const done: string[] = [];
+    void writer.settled('R').then(() => done.push('R'));
+    void writer.settled().then(() => done.push('all'));
+    void writer.settled('T').then(() => done.push('T'));
+    await sleep(60);
+    // Nothing of R can be made while the store is held, and nothing of T was ever waiting.
+    expect(done).toEqual(['T']);
+    other.exec('COMMIT');
+    await until(() => done.length === 3);
+    expect(done).toEqual(['T', 'R', 'all']);
+    expect(written()).toEqual(['R start', 'R call', 'S call']);
+    other.close();
+    store.close();
+  });
+
+  it("settles a run's writes on demand, with every write queued before them, and never from inside a write", async () => {
+    const { path, store, other, written } = opened('settle');
+    const writer = new StoreWriter(store, { waitMs: 5, deadlineMs: 5_000 }, () => {});
+    const holder = new Worker(
+      `const { DatabaseSync } = require('node:sqlite'); const { parentPort, workerData } = require('node:worker_threads');
+       const db = new DatabaseSync(workerData); db.exec('BEGIN IMMEDIATE'); parentPort.postMessage('held');
+       setTimeout(() => { db.exec('COMMIT'); db.close(); parentPort.postMessage('let go'); }, 200);`,
+      { eval: true, workerData: path },
+    );
+    await new Promise<void>((resolve) => holder.once('message', () => resolve()));
+    const put = (w: string, runId: string, part: 'run' | 'calls', also?: () => void) =>
+      writer.write({
+        what: w,
+        of: { runId, part },
+        run: () => {
+          store.putBlob(Buffer.from(w));
+          also?.();
+        },
+      });
+    put('S call', 'S', 'calls');
+    put('R start', 'R', 'run');
+    // A write that reads its own run, as a write of a run's metadata does: no settling from within it.
+    put('R end', 'R', 'run', () => writer.settle('R'));
+    put('R call', 'R', 'calls');
+    writer.settle('R', 'run');
+    // R's record waited for the lock, after S's call; R's call, queued after, went on as the timer has it.
+    expect(written().slice(0, 3)).toEqual(['S call', 'R start', 'R end']);
+    await until(() => writer.pending === 0);
+    expect(written()).toEqual(['S call', 'R start', 'R end', 'R call']);
+    await holder.terminate();
+    other.close();
+    store.close();
+  });
+
   it('reads SQLITE_BUSY and SQLITE_LOCKED as busy, extended codes included', () => {
     expect(isBusy({ errcode: 5 })).toBe(true);
     expect(isBusy({ errcode: 517 })).toBe(true);
