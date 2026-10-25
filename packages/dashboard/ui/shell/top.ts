@@ -9,13 +9,14 @@ import { clock } from '../format.js';
  * The pill: what kind of dashboard this is, with why on hover. An exported copy says so; a dashboard
  * that changes nothing (started with --read-only, or without the CLI to run actions) says read-only,
  * its title the reason its actions give, naming the team store when one is set; one with a team store
- * says team, as the design labels it; any other says dashboard.
+ * says so, team store, naming it on hover: a store the project shares, never a plan (there are none);
+ * any other says dashboard.
  */
 export function topPill(o: { exported: boolean; readOnly: boolean; actionsOff: string | null; store: string | null }): { word: string; title: string | null } {
   const team = o.store ? `team store ${o.store}` : null;
   if (o.exported) return { word: 'exported', title: o.actionsOff ?? 'This is an exported copy: nothing runs from here.' };
   if (o.readOnly) return { word: 'read-only', title: [o.actionsOff ?? 'This dashboard is read-only.', team].filter(Boolean).join(' · ') };
-  if (team) return { word: 'team', title: team };
+  if (team) return { word: 'team store', title: `Runs push to and pull from the ${team}` };
   return { word: 'dashboard', title: null };
 }
 

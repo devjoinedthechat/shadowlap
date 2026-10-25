@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CallDetail, JobView } from '../ui/api.js';
+import type { CallDetail, CallRow, JobView } from '../ui/api.js';
 import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
+import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -136,5 +137,20 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
     await page.click(page.byText('button', 'Edit and fork…'));
     expect(page.one('.warnline').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. ');
+  });
+});
+
+describe('Edit and fork in the inspector', () => {
+  it('is under the call’s name on every tab, not only beside the result on Response', async () => {
+    const d = detail();
+    const call = { ...d.call, effect: 'read', scope: null, model: null, usage: null, latencyMs: 2, fingerprint: 'f16', occurrence: 1, startedAt: 1, endedAt: 2, implHash: null, headers: {}, provider: null } as unknown as CallRow;
+    for (const tab of ['conversation', 'response', 'request', 'details'] as const) {
+      r = await render(createElement(AppContext.Provider, { value: app({ uploads: [], jobs: [] }) }, createElement(Inspector, { runId: RUN, call, calls: [call], detail: { ...d, call: { ...d.call, ...call }, conversation: null, request: { args: { region: 'EU' } }, response: null, notes: [], forkTitle: 'At #16' } as unknown as CallDetail, error: null, tab, onTab: () => undefined, onStep: () => undefined, change: null, live: false })));
+      const buttons = r.all('.insp button').filter((b) => b.textContent === 'Edit and fork…');
+      expect(buttons, tab).toHaveLength(1);
+      expect(buttons[0]!.closest('.isumrow'), tab).not.toBeNull();
+      await r.unmount();
+      r = null;
+    }
   });
 });
