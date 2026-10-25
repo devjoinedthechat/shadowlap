@@ -106,13 +106,51 @@ function jobsOf(yml: string): Map<string, { keys: Map<string, string>; text: str
   return jobs;
 }
 
+/** A permissions block that grants no write: `{}`, or each scope read or none. */
+const readOnly = (block: string[]) => block.length > 0 && block.every((l) => l === '{}' || /^[\w-]+: (read|none)$/.test(l));
 
 /** Every action a workflow uses, as written after `uses:`, but those of this repository (`./…`). */
 const actionsIn = (yml: string) => [...yml.matchAll(/^\s*(?:- )?uses: (\S+)(.*)$/gm)].map((m) => ({ ref: m[1], comment: m[2].trim() })).filter((u) => !u.ref.startsWith('./'));
 const pinned = (ref: string) => /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/.test(ref);
 const firstParty = (ref: string) => /^(actions|github)\//.test(ref);
 
-describe('the actions the workflows use', () => {
+describe('the workflows', () => {
+  it.each(workflows)('%s gives its token no write by default, and every job a time limit', (file) => {
+    const yml = workflow(file);
+    const permissions = topBlock(yml, 'permissions');
+    expect(permissions, 'a top-level permissions block').not.toBeNull();
+    expect(readOnly(permissions!), permissions!.join(' ')).toBe(true);
+    for (const [id, job] of jobsOf(yml)) {
+      // A job that calls a reusable workflow can't set one: the called workflow's jobs have theirs.
+      if (job.keys.has('uses')) continue;
+      expect(job.keys.has('timeout-minutes'), `${file}: ${id} has a timeout-minutes`).toBe(true);
+    }
+  });
+
+  it.each(workflows.filter((f) => /^\s+pull_request:/m.test(workflow(f))))('%s cancels a pull request run when the request is pushed again, and no other run', (file) => {
+    const concurrency = topBlock(workflow(file), 'concurrency') ?? [];
+    const group = concurrency.find((l) => l.startsWith('group:')) ?? '';
+    // Its own name, not github.workflow: a called workflow has its caller's, and the two would cancel each other.
+    expect(group).toMatch(/^group: [\w-]+-\$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.number \|\| github\.run_id \}\}$/);
+    expect(concurrency).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
+  });
+
+  it('cover what CONTRIBUTING.md says, as scope.yml decides it: Linux on every run, macOS and Windows by hand while the repository is private', () => {
+    const scope = workflow('scope.yml');
+    expect(scope).toContain('if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ]; then');
+    expect(scope).toContain(`echo 'os=["ubuntu-latest","macos-latest","windows-latest"]'`);
+    expect(scope).toContain(`echo 'os=["ubuntu-latest"]'`);
+    const contributing = read('CONTRIBUTING.md');
+    expect(contributing).toContain('Every push to main and every pull request runs it on Linux. macOS and Windows join a run started by hand (Actions, then CI, then Run workflow) while the repository is private, and every run once it is public');
+    expect(contributing).toContain('CI covers Linux, macOS and Windows (macOS and Windows on a run started by hand while the repository is private)');
+    expect(contributing).not.toMatch(/CI runs all of it on Linux, macOS and Windows|CI runs Linux, macOS and Windows\./);
+  });
+
+  it('name their concurrency groups each its own way', () => {
+    const prefixes = workflows.map((f) => /group: ([\w-]+?)-\$\{\{/.exec(workflow(f))?.[1]).filter(Boolean);
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
   it('pin every action from outside GitHub to a commit, and the release every action it uses', () => {
     for (const file of workflows) {
       for (const { ref } of actionsIn(workflow(file))) if (!firstParty(ref)) expect(pinned(ref), `${file}: ${ref}`).toBe(true);
@@ -173,5 +211,28 @@ describe('the release workflow', () => {
     const names = [...requirements.matchAll(/^([\w.-]+)==([\w.]+) \\$/gm)].map((m) => m[1]);
     expect(names).toEqual(expect.arrayContaining(['build', 'setuptools', 'packaging', 'pyproject-hooks']));
     for (const block of requirements.split(/\n(?=[\w.-]+==)/).filter((b) => /^[\w.-]+==/.test(b))) expect(block, block.split('\n')[0]).toMatch(/--hash=sha256:[0-9a-f]{64}/);
+  });
+});
+
+describe('the Python packages CI installs', () => {
+  const ci = workflow('ci.yml');
+  const constraints = read('testing/python-constraints.txt');
+  const wanted = read('testing/python-constraints.in');
+  const pinnedNames = new Set([...constraints.matchAll(/^([\w.-]+)==/gm)].map((m) => m[1].toLowerCase()));
+
+  it('take their versions from one file, which pins everything its list names', () => {
+    expect(topBlock(ci, 'env')).toEqual(expect.arrayContaining(['PIP_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt', 'PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt']));
+    const listed = [...wanted.matchAll(/^([\w.-]+)/gm)].map((m) => m[1].toLowerCase());
+    expect(listed.length).toBeGreaterThan(10);
+    for (const name of listed) expect(pinnedNames.has(name), name).toBe(true);
+    // Compiled by the command its header names, from the list.
+    expect(constraints).toMatch(/^# {4}uv pip compile --universal --python-version 3\.9 --no-annotate testing\/python-constraints\.in -o testing\/python-constraints\.txt$/m);
+  });
+
+  it('are each in that list, or pinned where they are installed', () => {
+    const installs = [...ci.matchAll(/pip install --quiet ([^\n]+)/g)].flatMap((m) => m[1].replace(/\$\{\{[^}]*\}\}/g, '').split(/\s+/)).filter((w) => w && !w.startsWith('-') && w !== '.' && !w.startsWith('sdks/'));
+    expect(installs.length).toBeGreaterThan(10);
+    const loose = installs.filter((spec) => !/==/.test(spec) && !pinnedNames.has(spec.toLowerCase()));
+    expect(loose).toEqual([]);
   });
 });

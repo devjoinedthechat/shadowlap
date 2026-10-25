@@ -3,7 +3,8 @@ name: Frameworks
 # The adapters against the real frameworks. Pinned versions (testing/frameworks/package-lock.json)
 # on changes to the adapters, the SDKs or these tests, on Linux; the latest releases on Linux, macOS
 # and Windows every Monday, so an upstream change, or one that only shows on another platform, turns
-# up here before it reaches a user.
+# up here before it reaches a user. While the repository is private, the job runs only when started
+# by hand (scope.yml).
 on:
   push:
     branches: [main]
@@ -23,6 +24,15 @@ on:
         type: boolean
         default: false
 
+# The jobs read the repository and nothing else.
+permissions:
+  contents: read
+
+# A pull request's newest push cancels the run of the one before; every other run goes to the end.
+concurrency:
+  group: frameworks-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   scope:
     uses: ./.github/workflows/scope.yml
@@ -32,6 +42,7 @@ jobs:
     if: needs.scope.outputs.full == 'true'
     name: frameworks (${{ matrix.os }}, ${{ (github.event_name == 'schedule' || inputs.latest) && 'latest' || 'pinned' }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

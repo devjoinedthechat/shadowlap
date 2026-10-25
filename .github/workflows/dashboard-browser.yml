@@ -13,6 +13,15 @@ on:
     paths: ['packages/**', 'scripts/demo-store.mjs', 'scripts/demo-store/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', 'package-lock.json', '.github/workflows/dashboard-browser.yml']
   workflow_dispatch:
 
+# The job reads the repository and nothing else.
+permissions:
+  contents: read
+
+# A pull request's newest push cancels the run of the one before; every other run goes to the end.
+concurrency:
+  group: dashboard-browser-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   chromium:
     name: dashboard in Chromium

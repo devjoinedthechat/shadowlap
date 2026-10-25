@@ -37,6 +37,16 @@ export default defineConfig({
     // that CI swallows is one nobody fixes.
     reporters: process.env.CI ? ['default', 'junit'] : ['default'],
     outputFile: { junit: 'vitest-junit.xml' },
+    // With --coverage (CI's coverage job): V8's, of the packages' source, into coverage/. A report to
+    // read, with no thresholds to fail on, written when tests fail too. What the end-to-end tests run
+    // in a process of its own (the CLI as they start it) isn't counted: V8 sees the test workers only.
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**', 'packages/dashboard/ui/**'],
+      reporter: ['text-summary', 'html', 'json-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+      reportOnFailure: true,
+    },
     esbuild: { jsx: 'automatic' },
     // Windows starts a process several times slower than macOS or Linux, and the end-to-end tests
     // start dozens (the CLI, agents, git): on a Windows runner the longest took 26 of the 30 seconds.
