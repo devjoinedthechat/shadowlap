@@ -1,0 +1,6 @@
+# What builds the Python SDK's sdist and wheel for a release (release.yml): build, and the setuptools
+# that sdks/python/pyproject.toml builds with, installed by hash, the build run without isolation so
+# nothing else is fetched. Change a version here, then compile it again from the root with the
+# command at the top of build-requirements.txt.
+build==1.6.1
+setuptools==84.2.1

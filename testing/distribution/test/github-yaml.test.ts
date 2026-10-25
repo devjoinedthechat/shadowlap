@@ -59,3 +59,119 @@ describe('the YAML files GitHub loads', () => {
     expect(repeatedKeys(yml)).toEqual(['outputs.steps[].name', 'outputs.passed']);
   });
 });
+
+const workflows = readdirSync(join(ROOT, '.github', 'workflows')).filter((f) => f.endsWith('.yml'));
+const read = (file: string) => readFileSync(join(ROOT, file), 'utf8');
+const workflow = (name: string) => read(`.github/workflows/${name}`);
+
+/** The lines of a YAML file that hold something: no blank lines, no comment lines. */
+const meaningful = (yml: string) => yml.split(/\r?\n/).filter((l) => l.trim() && !l.trimStart().startsWith('#'));
+
+/** A top-level key's block: its value on the key's line, then the lines indented under it. */
+function topBlock(yml: string, key: string): string[] | null {
+  const lines = meaningful(yml);
+  const at = lines.findIndex((l) => l.startsWith(`${key}:`));
+  if (at < 0) return null;
+  const block = [lines[at].slice(key.length + 1).trim()];
+  for (const l of lines.slice(at + 1)) {
+    if (!l.startsWith(' ')) break;
+    block.push(l.trim());
+  }
+  return block.filter(Boolean);
+}
+
+/** Each job of a workflow: its own keys (four spaces in) with what follows each on its line, and its whole text. */
+function jobsOf(yml: string): Map<string, { keys: Map<string, string>; text: string }> {
+  const jobs = new Map<string, { keys: Map<string, string>; text: string }>();
+  const lines = meaningful(yml);
+  let inJobs = false;
+  let job: { keys: Map<string, string>; text: string } | null = null;
+  for (const l of lines) {
+    if (!l.startsWith(' ')) {
+      inJobs = l.startsWith('jobs:');
+      continue;
+    }
+    if (!inJobs) continue;
+    const id = /^ {2}([\w-]+):\s*$/.exec(l);
+    if (id) {
+      job = { keys: new Map(), text: '' };
+      jobs.set(id[1], job);
+      continue;
+    }
+    if (!job) continue;
+    job.text += `${l}\n`;
+    const key = /^ {4}([\w-]+):\s*(.*)$/.exec(l);
+    if (key) job.keys.set(key[1], key[2]);
+  }
+  return jobs;
+}
+
+
+/** Every action a workflow uses, as written after `uses:`, but those of this repository (`./…`). */
+const actionsIn = (yml: string) => [...yml.matchAll(/^\s*(?:- )?uses: (\S+)(.*)$/gm)].map((m) => ({ ref: m[1], comment: m[2].trim() })).filter((u) => !u.ref.startsWith('./'));
+const pinned = (ref: string) => /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/.test(ref);
+const firstParty = (ref: string) => /^(actions|github)\//.test(ref);
+
+describe('the actions the workflows use', () => {
+  it('pin every action from outside GitHub to a commit, and the release every action it uses', () => {
+    for (const file of workflows) {
+      for (const { ref } of actionsIn(workflow(file))) if (!firstParty(ref)) expect(pinned(ref), `${file}: ${ref}`).toBe(true);
+    }
+    const release = actionsIn(workflow('release.yml'));
+    expect(release.length).toBeGreaterThan(5);
+    for (const { ref, comment } of release) {
+      expect(pinned(ref), ref).toBe(true);
+      // The release the commit is, for whoever updates it.
+      expect(comment, ref).toMatch(/^# v\d+\.\d+\.\d+$/);
+    }
+  });
+});
+
+describe('the release workflow', () => {
+  const yml = workflow('release.yml');
+  const jobs = jobsOf(yml);
+  const permissionsOf = (id: string) => {
+    const text = jobs.get(id)!.text;
+    const block = /^ {4}permissions:\n((?: {6}.+\n)+)/m.exec(text);
+    return block ? block[1].trim().split('\n').map((l) => l.trim()) : [];
+  };
+
+  it('runs CI on the tagged commit, and publishes nothing before it and the release checks pass', () => {
+    expect(topBlock(yml, 'permissions')).toEqual(['{}']);
+    expect(jobs.get('ci')!.keys.get('uses')).toBe('./.github/workflows/ci.yml');
+    expect(/^\s+workflow_call:/m.test(workflow('ci.yml'))).toBe(true);
+    // CI is the whole of it: lint, the tests (conformance included), the Python SDK on every Python, mypy.
+    const ci = jobsOf(workflow('ci.yml'));
+    expect([...ci.keys()]).toEqual(expect.arrayContaining(['lint', 'test', 'python-sdk', 'python-sdk-types']));
+    expect(ci.get('test')!.text).toContain('testing/conformance/conformance.test.mjs');
+    expect(jobs.get('build')!.keys.get('needs')).toBe('[ci, verify]');
+    expect(jobs.get('npm')!.keys.get('needs')).toBe('build');
+    expect(jobs.get('pypi')!.keys.get('needs')).toBe('build');
+  });
+
+  it('asks for each permission in the job that needs it, the tests and the build reading the repository and nothing more', () => {
+    for (const id of jobs.keys()) expect(permissionsOf(id).length, `${id} names its permissions`).toBeGreaterThan(0);
+    for (const id of ['ci', 'verify', 'build']) expect(permissionsOf(id), id).toEqual(['contents: read']);
+    expect(permissionsOf('npm')).toEqual(['id-token: write']);
+    expect(permissionsOf('pypi')).toEqual(['id-token: write']);
+    expect(permissionsOf('github-release')).toEqual(['contents: write']);
+  });
+
+  it('publishes what the tokenless build job made, installing and building nothing where the tokens are', () => {
+    for (const id of ['npm', 'pypi']) {
+      const text = jobs.get(id)!.text;
+      expect(text, id).not.toMatch(/npm ci|npm install|npm run|pip install|python -m build|actions\/checkout/);
+      expect(text, id).toContain('actions/download-artifact@');
+    }
+    const build = jobs.get('build')!.text;
+    expect(build).toContain('python -m pip install --require-hashes --no-deps -r .github/release/build-requirements.txt');
+    expect(build).toContain('python -m build --no-isolation');
+  });
+
+  it('installs the Python build tools by hash, each pinned to one version', () => {
+    const requirements = read('.github/release/build-requirements.txt');
+    const names = [...requirements.matchAll(/^([\w.-]+)==([\w.]+) \\$/gm)].map((m) => m[1]);
+    expect(names).toEqual(expect.arrayContaining(['build', 'setuptools', 'packaging', 'pyproject-hooks']));
+    for (const block of requirements.split(/\n(?=[\w.-]+==)/).filter((b) => /^[\w.-]+==/.test(b))) expect(block, block.split('\n')[0]).toMatch(/--hash=sha256:[0-9a-f]{64}/);
+  });
+});

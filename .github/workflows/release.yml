@@ -1,85 +1,160 @@
 name: Release
 
-# Publishes on a version tag: `node scripts/set-version.mjs 0.1.0 && npm install && git commit -am "v0.1.0" && git tag v0.1.0 && git push --tags`.
+# Publishes on a version tag: `node scripts/set-version.mjs 0.1.0 && npm install`, a section for 0.1.0
+# in CHANGELOG.md, then `git commit -am "v0.1.0" && git tag v0.1.0 && git push --tags`.
 # npm: provenance-attested, needs the NPM_TOKEN secret (an automation token for the @shadowlap scope and the shadowlap name).
 # PyPI: trusted publishing, needs the shadowlap project on PyPI to trust this repository and the "release" environment.
+#
+# Nothing publishes unless CI passes on the tagged commit, run here in full (lint, the tests on every
+# Node, the Python SDK on every Python and under mypy, the conformance suite), and the release's own
+# checks pass: the tag names the version of every package, CHANGELOG.md has its section, and the
+# packages install from a local registry and work. The packages are built once, by a job that holds
+# no token; the jobs that publish them install and build nothing, and only they get the tokens. Every
+# action is pinned to a commit, and the Python build tools by hash.
 on:
   push:
     tags: ['v*']
 
-permissions:
-  contents: write
-  id-token: write
+# Nothing by default: each job asks for what it needs.
+permissions: {}
+
+# One release of a tag at a time, never cancelled once it starts publishing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The packages, in the order they publish: each after the ones it depends on.
+  PACKAGES: packages/engine packages/sdk packages/sidecar packages/adapters packages/tui packages/remote packages/dashboard packages/cli packages/test packages/collector
 
 jobs:
+  ci:
+    name: CI on the tagged commit
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   verify:
-    runs-on: ubuntu-latest
+    name: the tag, the changelog and a rehearsal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: The tag names every package's version, and CHANGELOG.md has its section
+        run: node scripts/release-check.mjs "$GITHUB_REF_NAME"
       - run: npm ci
       - run: npm run build
-      - run: npm test
       - name: Rehearse the release against a local registry
         run: node scripts/release-rehearsal.mjs
-      - name: Tag matches package versions
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          for p in packages/engine packages/sidecar packages/sdk packages/adapters packages/tui packages/remote packages/dashboard packages/cli packages/test packages/collector; do
-            V="$(node -p "require('./$p/package.json').version")"
-            [ "$V" = "$TAG" ] || { echo "$p is $V, tag is $TAG"; exit 1; }
-          done
-          grep -q "^version = \"$TAG\"" sdks/python/pyproject.toml || { echo "python version differs from tag"; exit 1; }
 
-  npm:
-    needs: verify
-    runs-on: ubuntu-latest
-    environment: release
+  build:
+    name: the packages, built once
+    needs: [ci, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
       - run: npm ci
       - run: npm run build
+      - name: Pack the npm packages, each named for its folder
+        run: |
+          mkdir -p release/npm
+          for p in $PACKAGES; do
+            file="$(npm pack --workspace "$p" --pack-destination release/npm --json | node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8"))[0].filename)')"
+            mv "release/npm/$file" "release/npm/$(basename "$p").tgz"
+          done
+          ls -l release/npm
+      - name: Build the Python SDK, its build tools installed by hash
+        run: |
+          python -m pip install --require-hashes --no-deps -r .github/release/build-requirements.txt
+          python -m build --no-isolation --sdist --wheel --outdir release/python sdks/python
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-packages
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  npm:
+    name: publish to npm
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-packages
+          path: release
       - name: Publish (dependencies first)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for p in packages/engine packages/sdk packages/sidecar packages/adapters packages/tui packages/remote packages/dashboard packages/cli packages/test packages/collector; do
-            npm publish --workspace "$p" --provenance --access public
+          for p in $PACKAGES; do
+            npm publish "release/npm/$(basename "$p").tgz" --provenance --access public
           done
 
   pypi:
-    needs: verify
-    runs-on: ubuntu-latest
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     environment: release
+    permissions:
+      id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          python-version: '3.12'
-      - run: python -m pip install --upgrade build && python -m build sdks/python --outdir dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          name: release-packages
+          path: release
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
-          packages-dir: dist
+          packages-dir: release/python
 
   github-release:
+    name: the GitHub release, its notes from CHANGELOG.md
     needs: [npm, pypi]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
       - name: Release notes from CHANGELOG.md
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          # The version's section, "## [0.1.0] - <date>" up to the next "## ", without the link references.
-          awk -v tag="$TAG" '/^## /{v = $2; gsub(/[][]/, "", v); p = (v == tag)} p && !/^\[[^]]+\]: /' CHANGELOG.md > notes.md
-          [ -s notes.md ] || echo "Release $TAG" > notes.md
+        run: node scripts/release-check.mjs "$GITHUB_REF_NAME" --notes notes.md
       - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}

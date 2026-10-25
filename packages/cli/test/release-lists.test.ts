@@ -32,8 +32,8 @@ function dirs(text: string): string[] {
 }
 
 const workflow = read('.github/workflows/release.yml');
-const publishLoop = dirs(/for p in ([^;]+); do\s+npm publish/.exec(workflow)![1]);
-const tagLoop = dirs(/for p in ([^;]+); do\s+V=/.exec(workflow)![1]);
+// The workflow names the packages once, in their order (PACKAGES), and packs and publishes that list.
+const publishLoop = dirs(/^ {2}PACKAGES: (.+)$/m.exec(workflow)![1]);
 const setVersion = read('scripts/set-version.mjs');
 const versioned = dirs(/const PACKAGES = \[([^\]]+)\]/.exec(setVersion)![1]);
 const internal = [...(/const INTERNAL = new Set\(\[([^\]]+)\]\)/.exec(setVersion)![1]).matchAll(/'([^']+)'/g)].map((m) => m[1]);
@@ -44,7 +44,10 @@ describe('the release', () => {
 
   it('publishes every published package, and checks its version against the tag', () => {
     expect([...publishLoop].sort()).toEqual(all);
-    expect([...tagLoop].sort()).toEqual(all);
+    expect(workflow).toMatch(/for p in \$PACKAGES; do\s+file="\$\(npm pack --workspace "\$p"/);
+    expect(workflow).toMatch(/for p in \$PACKAGES; do\s+npm publish "release\/npm\/\$\(basename "\$p"\)\.tgz"/);
+    // The tag is checked against every package in packages/ (scripts/release-check.mjs), before npm ci.
+    expect(workflow).toMatch(/run: node scripts\/release-check\.mjs "\$GITHUB_REF_NAME"\n\s+- run: npm ci/);
   });
 
   it('publishes each package after the ones it depends on', () => {
