@@ -246,8 +246,10 @@ def fence_hooks(
         """The harmless call that runs in place of a recorded write, as Claude Code accepts it; None where there is none."""
         if name == "Bash":
             cwd = _text(recorded.get(_CWD)) if isinstance(recorded, dict) else ""
-            # Only what Claude Code tracks of a command: where it left the shell.
-            return {**args, "command": "cd -- %s 2>/dev/null || true" % _quote(cwd) if cwd else "true", "run_in_background": False}
+            # Only what Claude Code tracks of a command: where it left the shell. The builtin, so a cd
+            # function or alias the user's shell defines (one that lists the folder, or loads a project's
+            # environment) runs nothing.
+            return {**args, "command": "builtin cd -- %s 2>/dev/null || true" % _quote(cwd) if cwd else "true", "run_in_background": False}
         if name == "Write":
             return {"file_path": files.fresh("write"), "content": ""}
         if name == "Edit":

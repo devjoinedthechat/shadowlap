@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,8 +123,11 @@ describe('the Claude Agent SDK fence', () => {
     expect(summary.divergence).toBeNull();
     expect(summary.byOrigin.replayed).toBe(7);
     // No write reached the project: Bash ran only stand-ins, and Write and Edit wrote elsewhere.
-    expect(cc.ran.every((c) => c === 'true' || c.startsWith('cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
+    expect(cc.ran.every((c) => c === 'true' || c.startsWith('builtin cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
     expect(cc.ran).toHaveLength(3);
+    // The shell's own cd: a cd function the user's shell defines, which could run anything, never runs.
+    const back = cc.ran.find((c) => c.includes('cd -- '))!;
+    if (process.platform !== 'win32') expect(spawnSync('bash', ['-c', `cd() { echo "the cd function ran"; }; ${back}`], { encoding: 'utf8' }).stdout).toBe('');
     expect(cc.files.has(`${ROOT}/out.txt`)).toBe(false);
     expect(cc.files.has(`${ROOT}/report.md`)).toBe(false);
     expect(cc.files.get(`${ROOT}/notes.md`)).toBe('old line\nmore\nand a line added since\n');

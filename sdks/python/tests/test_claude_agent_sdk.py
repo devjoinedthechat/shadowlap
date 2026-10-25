@@ -153,7 +153,14 @@ class Fence(unittest.TestCase):
         self.assertEqual(again, first)
         self.assertFalse(sidecar.diverged)
         self.assertEqual(len(cc.ran), 3)
-        self.assertTrue(all(c == "true" or c.startswith("cd -- ") or c.startswith("printf '%s'") for c in cc.ran), cc.ran)
+        self.assertTrue(all(c == "true" or c.startswith("builtin cd -- ") or c.startswith("printf '%s'") for c in cc.ran), cc.ran)
+        # The shell's own cd: a cd function the user's shell defines, which could run anything, never runs.
+        back = next(c for c in cc.ran if "cd -- " in c)
+        if os.name != "nt":
+            import subprocess
+
+            out = subprocess.run(["bash", "-c", 'cd() { echo "the cd function ran"; }; ' + back], capture_output=True, text=True, timeout=30)
+            self.assertEqual(out.stdout, "")
         self.assertNotIn(f"{ROOT}/out.txt", cc.files)
         self.assertNotIn(f"{ROOT}/report.md", cc.files)
         self.assertEqual(cc.files[f"{ROOT}/notes.md"], "old line\nmore\nand a line added since\n")

@@ -78,7 +78,7 @@ describe.skipIf(!PYTHON)('the Python Claude Agent SDK fence, against a real side
     expect(out.notes).toEqual(recorded.notes);
     expect(out.project).toEqual(['/proj/notes.md']);
     expect(out.ran).toHaveLength(3);
-    expect(out.ran.every((c) => c === 'true' || c.startsWith('cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
+    expect(out.ran.every((c) => c === 'true' || c.startsWith('builtin cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
   });
 
   it('forks at a changed command and refuses every write after it', async () => {

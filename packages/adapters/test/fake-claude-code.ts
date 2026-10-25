@@ -278,7 +278,7 @@ export class FakeClaudeCode {
     this.ran.push(command);
     let m: RegExpExecArray | null;
     if (command === 'true') return { stdout: '', stderr: '', interrupted: false, isImage: false };
-    if ((m = /^cd -- '((?:[^']|'\\'')*)' 2>\/dev\/null \|\| true$/.exec(command)) || (m = /^cd (\S+)$/.exec(command))) {
+    if ((m = /^builtin cd -- '((?:[^']|'\\'')*)' 2>\/dev\/null \|\| true$/.exec(command)) || (m = /^cd (\S+)$/.exec(command))) {
       const to = m[1].replace(/'\\''/g, "'");
       const next = to.startsWith('/') ? to : `${this.cwd}/${to}`;
       if (next !== this.cwd) this.notes.push(`# Environment update\n - Primary working directory: ${next} (was ${this.cwd})`);

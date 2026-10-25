@@ -102,7 +102,7 @@ async for message in query(prompt=prompt, options=with_fence(ClaudeAgentOptions(
 | Read, Glob, Grep | read | runs, and its output is recorded | runs as it is, and the model gets the recorded output | runs live, recorded |
 | WebFetch, WebSearch | read | runs; the model call it makes to read the page or search is recorded too | runs as it is: its model call is answered from the recording while the page reads as it did; the model gets the recorded output | runs live |
 | Write, Edit, MultiEdit | write | runs, recorded | a stand-in writes a file of its own in a temporary folder instead; the model gets the recorded output | refused (`--writes block`), or the stand-in runs and the model reads it as done (`--writes stub`) |
-| Bash | write | runs, recorded with the folder it left the shell in | `true` runs instead, or `cd` to that folder; a recorded failure is reproduced by a command that prints its output and exits with its code | refused, or stubbed |
+| Bash | write | runs, recorded with the folder it left the shell in | `true` runs instead, or `builtin cd` to that folder, past any `cd` function or alias the shell defines; a recorded failure is reproduced by a command that prints its output and exits with its code | refused, or stubbed |
 | NotebookEdit | write | runs, recorded | refused, since Claude Code takes no stand-in for it: the replay forks there | refused |
 
 A refusal reaches the model as Claude Code words a hook's: `PreToolUse:Bash hook error: write tool Bash blocked after divergence (use --writes stub|allow to change this)`. A write is never run unrecorded: when the sidecar can't be asked, the fence refuses it, since this could be a replay, and a read runs unrecorded.

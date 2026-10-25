@@ -219,8 +219,10 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
     switch (name) {
       case 'Bash': {
         const cwd = isRecord(recorded) ? text(recorded[CWD]) : '';
-        // Only what Claude Code tracks of a command: where it left the shell.
-        return { ...input, command: cwd ? `cd -- ${shellQuote(cwd)} 2>/dev/null || true` : 'true', run_in_background: false };
+        // Only what Claude Code tracks of a command: where it left the shell. The builtin, so a cd
+        // function or alias the user's shell defines (one that lists the folder, or loads a project's
+        // environment) runs nothing.
+        return { ...input, command: cwd ? `builtin cd -- ${shellQuote(cwd)} 2>/dev/null || true` : 'true', run_in_background: false };
       }
       case 'Write':
         return { file_path: (await scratchDir()).fresh('write'), content: '' };

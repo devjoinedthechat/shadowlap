@@ -213,7 +213,7 @@ class FakeClaudeCode:
         ok = {"stdout": "", "stderr": "", "interrupted": False, "isImage": False}
         if command == "true":
             return ok
-        m = re.match(r"^cd -- '((?:[^']|'\\'')*)' 2>/dev/null \|\| true$", command) or re.match(r"^cd (\S+)$", command)
+        m = re.match(r"^builtin cd -- '((?:[^']|'\\'')*)' 2>/dev/null \|\| true$", command) or re.match(r"^cd (\S+)$", command)
         if m:
             to = unquote(m.group(1))
             nxt = to if to.startswith("/") else f"{self.cwd}/{to}"
