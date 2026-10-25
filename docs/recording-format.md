@@ -127,12 +127,12 @@ Every request and every answer is a blob: a file in `blobs/` whose name is the S
 
 | Kind | The request, at `requestRef` | The answer, at `end.responseRef` |
 |---|---|---|
-| `api` | A [request manifest](#request-manifests) | The response body as it was received, byte for byte: JSON, or a stream's events |
+| `api` | A [request manifest](#request-manifests) | The response body as the agent got it, byte for byte: JSON, or a stream's events, as the provider sent it or as Shadowlap answered in its place (an offline replay's refusal, a failure `--fail-at` plays in), with its headers in `end.meta.headers`. None when no answer came: the connection broke first |
 | `tool` | `{"args": …}`, the arguments | `{"result": …}`, what the tool returned, or `{"error": …}`, what it raised |
 | `clock` | `{"label": "…"}` | `{"result": …}`, milliseconds since the epoch |
 | `random` | `{"label": "…"}` | `{"result": …}`: a number from 0 up to 1 for `random`, a UUID for `uuid` |
 
-A call to a host [declared under `http`](./sdk.md#http-services-without-wrapping) is a `tool` call with `meta.http` naming the host. Its arguments are `{"method", "url", "body", "encoding"}` and its result `{"status", "headers", "body", "encoding"}`, `encoding` being `json`, `text` or `base64` and the body left out when there is none.
+A call to a host [declared under `http`](./sdk.md#http-services-without-wrapping) is a `tool` call with `meta.http` naming the host. Its arguments are `{"method", "url", "body", "encoding"}` and its result `{"status", "headers", "body", "encoding"}`, `encoding` being `json`, `text` or `base64` and the body left out when there is none. A call Shadowlap answered in the host's place (a write blocked after a fork, an offline replay's refusal) keeps that answer beside its error, `{"error": …, "answer": {"status", "headers", "body", "encoding"}}`, and one whose connection closed with no answer keeps its error alone.
 
 ### Request manifests
 
