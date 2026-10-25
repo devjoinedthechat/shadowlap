@@ -288,7 +288,7 @@ export async function testAttempt(
   } else if (ended.preloads?.failed) {
     // Nothing watched the agent's connections under --guard block: whatever else came out, it proves nothing.
     kind = 'guard';
-    failure = { message: ended.preloads.missing ?? ended.preloads.unguarded!, details: divergence + formatSummary(summary) };
+    failure = { message: ended.preloads.missing ?? ended.preloads.unguarded!, details: divergence + formatSummary(summary, undefined, { unwatched: true }) };
   } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };

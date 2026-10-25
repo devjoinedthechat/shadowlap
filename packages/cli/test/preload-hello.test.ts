@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -274,9 +274,13 @@ echo answered
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/bun'], cwd)).code).toBe(0);
 
-    const blocked = await shadowlap(['test', 'goldens/bun'], cwd);
+    const blocked = await shadowlap(['test', 'goldens/bun', '--junit', 'junit.xml'], cwd);
     expect(blocked.code, blocked.out).toBe(1);
     expect(blocked.out).toContain('under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails');
+    // The failure's details never call the replay clean.
+    const junit = readFileSync(join(cwd, 'junit.xml'), 'utf8');
+    expect(junit).toContain('Replay not watched: 1/1 calls replayed');
+    expect(junit).not.toContain('Replay clean');
     const warned = await shadowlap(['test', 'goldens/bun', '--guard', 'warn'], cwd);
     expect(warned.code, warned.out).toBe(0);
 
@@ -295,19 +299,28 @@ echo answered
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const failsBecause = 'under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails';
 
-    const blocked = await shadowlap(['replay', runId, '--guard', 'block'], cwd);
+    const json = join(cwd, 'summary.json');
+    const summary = () => JSON.parse(readFileSync(json, 'utf8')) as { exitCode?: number; attempts?: Array<{ exitCode: number }> };
+    const blocked = await shadowlap(['replay', runId, '--guard', 'block', '--summary-json', json], cwd);
     expect(blocked.code, blocked.out).toBe(1);
     expect(blocked.out).toContain('answered');
     expect(blocked.out).toContain(failsBecause);
-    const warned = await shadowlap(['replay', runId, '--guard', 'warn'], cwd);
+    // Never called clean, and its summary's status is the one it ends with.
+    expect(blocked.out).not.toContain('Replay clean');
+    expect(blocked.out).toContain('✗ Replay not watched: 1/1 calls replayed');
+    expect(summary().exitCode).toBe(1);
+    const warned = await shadowlap(['replay', runId, '--guard', 'warn', '--summary-json', json], cwd);
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).not.toContain(failsBecause);
+    expect(warned.out).toContain('✓ Replay clean: 1/1 calls replayed');
+    expect(summary().exitCode).toBe(0);
 
     // Every attempt fails for it, and the line that says why is printed once.
-    const repeated = await shadowlap(['replay', runId, '--guard', 'block', '--repeat', '2'], cwd);
+    const repeated = await shadowlap(['replay', runId, '--guard', 'block', '--repeat', '2', '--summary-json', json], cwd);
     expect(repeated.code, repeated.out).toBe(1);
     expect(repeated.out.split(failsBecause).length - 1, repeated.out).toBe(1);
     expect(repeated.out).toContain('2 of 2 exited 0');
+    expect(summary().attempts?.map((a) => a.exitCode)).toEqual([1, 1]);
     const repeatedWarned = await shadowlap(['replay', runId, '--repeat', '2'], cwd);
     expect(repeatedWarned.code, repeatedWarned.out).toBe(0);
   }, 60_000);

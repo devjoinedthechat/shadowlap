@@ -285,8 +285,9 @@ export function register(program: Command): void {
         if (unrecorded[0]?.length) process.stderr.write('\n' + formatUnrecorded(unrecorded[0], 'replay'));
         if (checks) process.stderr.write('\n' + formatCheckTally(judged, checks.source) + '\n');
         if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
-        emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
+        // Each attempt's status as the replay counts it: one the guard never watched under --guard block failed.
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
+        emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: links.run(parent.runId, first?.callNo ?? 1, 'forks') });
         // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
@@ -311,19 +312,20 @@ export function register(program: Command): void {
           process.exitCode = code;
           return;
         }
-        printOutcome(summary);
+        // Under --guard block, a replay the guard never watched fails, however clean: never called clean.
+        const agent = agentStatus(code, preloads);
+        printOutcome(summary, { unwatched: preloads?.failed === true });
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         // What this replay ran for real without recording it: tools the model called that no wrapper saw.
         const unrecorded = unrecordedAfter(opts, [run.runId])[0]!;
         if (unrecorded.length) process.stderr.write(formatUnrecorded(unrecorded, 'replay'));
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: agent, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
         // A replay that stopped before its recording did is no clean one either: its divergence says so.
         // A check that failed ends it with 1; then an agent that failed, with its own status, or that
         // no preload watched under --guard block, with 1; then a check that could not be decided, with 3.
         const outcome = judged ? judgedOutcome(judged) : 'passed';
-        const agent = agentStatus(code, preloads);
         process.exitCode = flags.strict && summary.divergence ? EXIT.failed : outcome === 'failed' ? EXIT.failed : agent === 0 && outcome === 'inconclusive' ? EXIT.inconclusive : agent;
       };
 
