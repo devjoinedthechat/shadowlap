@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ancestorsOf, callTree, foldLabel, heads, itemWords, unfolded, type GroupCall } from '../ui/run/groups.js';
+import { times, timesOf } from '../../engine/test/timing.js';
 
 /**
  * Light grouping in Calls: each call under the call it belongs to, the list itself as it was. A tool
@@ -103,10 +104,13 @@ describe('folding', () => {
   it('works through a run of fifty thousand calls in one pass', () => {
     const big: GroupCall[] = [];
     for (let i = 1; i <= 50_000; i += 2) big.push(api(i), tool(i + 1, i));
-    const started = performance.now();
     const tree = callTree(big);
-    expect(performance.now() - started).toBeLessThan(500);
     expect(tree.depth[1]).toBe(1);
     expect(unfolded(big, tree, new Set(heads(big, tree)))).toHaveLength(25_000);
+    // Held against this machine, not a number of milliseconds: the pass takes about three times as
+    // long as indexing the calls by number, where one that looks back over every earlier call for each
+    // takes over a hundred times as long. Under 30 times leaves room for both and fails it.
+    const t = timesOf({ tree: () => callTree(big), index: () => new Map(big.map((c, i) => [c.callNo, i])) });
+    expect(t.tree, `the pass took ${times(t.tree, t.index)} indexing the calls`).toBeLessThan(30 * t.index);
   });
 });

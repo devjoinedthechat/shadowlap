@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEvent, regexProblem, removeRule, storeApiRequest, type CallMeta, type Effect, type RunMeta } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, tookTooLong } from '../src/redaction-preview.js';
+import { times, timesOf } from '../../engine/test/timing.js';
 import { mcpServerUrl, parseHeaderFlags } from '../../cli/src/mcp.js';
 import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
 
@@ -249,10 +250,14 @@ describe('codingAgentsSettings', () => {
     // Deeper than any rules folder goes: not looked at. A folder of hundreds of folders is looked through only in part.
     put('.cursor/rules/a/b/c/d/e/f/mention.mdc', 'shadowlap');
     expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'folder', mentions: false });
-    for (let i = 0; i < 300; i++) put(`.cursor/rules/many/d${String(i).padStart(3, '0')}/x.mdc`, 'nothing here');
-    const started = Date.now();
+    for (let i = 0; i < 600; i++) put(`.cursor/rules/many/d${String(i).padStart(3, '0')}/x.mdc`, 'nothing here');
     expect(fileRow(codingAgentsSettings({ cwd }))).toMatchObject({ found: true, type: 'folder', mentions: false });
-    expect(Date.now() - started).toBeLessThan(2000);
+    // Held against reading the whole folder once, not a number of milliseconds: the tab, every other
+    // row included, takes a seventh of that, as the walk stops after 50 folders, where one through
+    // all 600 takes more than the whole read.
+    const whole = (dir: string): number => readdirSync(dir, { withFileTypes: true }).reduce((n, e) => n + (e.isDirectory() ? whole(join(dir, e.name)) : readFileSync(join(dir, e.name)).length), 0);
+    const t = timesOf({ tab: () => codingAgentsSettings({ cwd }), whole: () => whole(join(cwd, '.cursor', 'rules')) });
+    expect(t.tab, `the tab took ${times(t.tab, t.whole)} reading the whole folder`).toBeLessThan(t.whole / 2);
     // A link inside the project is followed.
     rmSync(join(cwd, '.cursor', 'rules'), { recursive: true });
     put('shared-rules/a.mdc', 'Use shadowlap replay.');
