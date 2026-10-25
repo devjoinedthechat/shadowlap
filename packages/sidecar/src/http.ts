@@ -1,4 +1,4 @@
-import { credentialFreeHeaders, formShaped, rawJsonMember, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
+import { credentialFreeBody, credentialFreeHeaders, formShaped, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
 
 /**
  * HTTP hosts recorded as tools. Retrieval, vector databases and internal APIs are usually called
@@ -45,17 +45,17 @@ export function matchHttpRule(rules: readonly HttpRule[], url: URL): HttpRule | 
 export { CREDENTIAL_PLACEHOLDER, credentialParam, credentialValue, rawJsonMember, withoutCredentials, withoutStoredCredentials } from '@shadowlap/engine';
 
 /**
- * A request body as stored: decodeBody's, with the credentials of a form body
- * (`application/x-www-form-urlencoded`, an OAuth token request's `client_secret`, or a text body
- * written as one) masked as a query string's are (withoutCredentials). The call is forwarded with
+ * A request body as stored, and as a live call is matched: decodeBody's, with its credentials masked
+ * by the rule a recorded call's arguments are read by (credentialFreeBody): a JSON body's credential
+ * members (`api_key`, `client_secret`), a form body's parameters (an OAuth token request's, or a
+ * text body written as one) and a multipart body's credential fields. A body whose content type says
+ * it is a form is masked as one even when its text doesn't read like one. The call is forwarded with
  * the body as it was sent.
  */
 export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
   const body = decodeBody(bytes, contentType);
-  if (body.encoding !== 'text') return body;
-  const text = body.body as string;
-  if (!/^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(text)) return body;
-  return { ...body, body: withoutCredentials(text) };
+  if (body.encoding === 'text' && /^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(body.body as string)) return { ...body, body: withoutCredentials(body.body as string) };
+  return credentialFreeBody(body);
 }
 
 /** A body as stored: parsed JSON, text, or base64 for anything else. */
@@ -99,14 +99,17 @@ export interface HttpResult extends StoredBody {
  * reads the blob as JSON gets the parsed body as before. A copy's rules mask it as they mask any
  * JSON document there, its strings only. The headers are stored as a recording keeps them
  * (credentialFreeHeaders): a token the service hands back in one (`authorization`,
- * `x-subject-token`) is stored as `<CREDENTIAL>`, and a cookie it sets not at all. The agent gets
- * the response as it came, `result.headers`, live.
+ * `x-subject-token`) is stored as `<CREDENTIAL>`, and a cookie it sets not at all. A token it hands
+ * back in its body is stored as `<CREDENTIAL>` too, in place (responseBodyWithoutCredentials): an
+ * OAuth token response's `access_token` and `refresh_token`, a form-encoded answer's token. The agent
+ * gets the response as it came, live.
  */
 export function storedResult(result: HttpResult, received: Buffer): Buffer {
   const kept: HttpResult = { ...result, headers: credentialFreeHeaders(result.headers) };
-  const { body: _body, ...rest } = kept;
-  if (kept.encoding !== 'json' || kept.body === undefined) return Buffer.from(JSON.stringify({ result: kept }), 'utf8');
-  return resultBlob(rest, received);
+  const { body, ...rest } = kept;
+  if (kept.encoding === 'text' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(Buffer.from(body, 'utf8'), 'text').toString('utf8') } }), 'utf8');
+  if (kept.encoding !== 'json' || body === undefined) return Buffer.from(JSON.stringify({ result: kept }), 'utf8');
+  return resultBlob(rest, responseBodyWithoutCredentials(received, 'json'));
 }
 
 /**

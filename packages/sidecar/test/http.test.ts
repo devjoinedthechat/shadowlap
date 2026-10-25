@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fingerprintTool, normalizersHash, redactRun, Store, type Normalizer } from '@shadowlap/engine';
-import { credentialParam, credentialValue, matchHttpRule, rawJsonMember, storedRequestBody, validHttpHost, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
+import { credentialParam, credentialValue, decodeBody, matchHttpRule, rawJsonMember, storedRequestBody, storedResult, validHttpHost, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
 let server: Server;
@@ -255,10 +255,12 @@ describe('credentials in a captured call', () => {
     const url = 'http://h/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund';
     expect(withoutStoredCredentials({ method: 'GET', url })).toEqual({ method: 'GET', url: 'http://h/customsearch/v1?key=<CREDENTIAL>&q=refund' });
     expect(withoutStoredCredentials({ method: 'POST', url: 'http://h/t', body: 'client_id=app&client_secret=s', encoding: 'text' })).toEqual({ method: 'POST', url: 'http://h/t', body: 'client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' });
+    // A JSON body's credential members, by key, as a form's parameters.
+    expect(withoutStoredCredentials({ method: 'POST', url: 'http://h/q', body: { client_secret: 's', q: 'refund' }, encoding: 'json' })).toEqual({ method: 'POST', url: 'http://h/q', body: { client_secret: '<CREDENTIAL>', q: 'refund' }, encoding: 'json' });
     for (const args of [
       { method: 'GET', url: 'http://h/customsearch/v1?key=<CREDENTIAL>&q=refund' },
       { method: 'GET', url: 'http://h/flags?key=checkout_v2' },
-      { method: 'POST', url: 'http://h/q', body: { client_secret: 's' }, encoding: 'json' },
+      { method: 'POST', url: 'http://h/q', body: { client_secret: '<CREDENTIAL>', q: 'refund' }, encoding: 'json' },
       { method: 'POST', url: 'http://h/q', body: 'note: client_secret=s is a secret', encoding: 'text' },
       null,
       'x',
@@ -268,6 +270,82 @@ describe('credentials in a captured call', () => {
     // A text body written as a form is stored as one, whatever its content type says.
     expect(storedRequestBody(Buffer.from('client_id=app&client_secret=s'), 'text/plain')).toEqual({ body: 'client_id=app&client_secret=<CREDENTIAL>', encoding: 'text' });
     expect(storedRequestBody(Buffer.from('client_secret=s is a secret'), 'text/plain')).toEqual({ body: 'client_secret=s is a secret', encoding: 'text' });
+  });
+
+  it('in a body are stored masked as a recorded call’s arguments are read, so both sides of matching agree', () => {
+    const b = '----shadowlap0123456789';
+    const multipart = Buffer.from(`--${b}\r\nContent-Disposition: form-data; name="api_key"\r\n\r\nSLSEC_TM_APIKEY_0123456789\r\n--${b}\r\nContent-Disposition: form-data; name="file"; filename="a.txt"\r\n\r\nhello\r\n--${b}--\r\n`);
+    const bodies: Array<[Buffer, string]> = [
+      [Buffer.from(JSON.stringify({ api_key: 'tvly-SLSEC_TJ_APIKEY_0123456789', query: 'refund', password: 'SLSEC_TJ_PASSWORD_0123', client_secret: 'SLSEC_TJ_CLIENTSECRET_0123', nested: { refresh_token: 'SLSEC_TJ_REFRESH_0123456789', page_token: 'p2' } })), 'application/json'],
+      [Buffer.from('grant_type=client_credentials&client_id=agent-app&client_secret=SLSEC_TF_CLIENTSECRET_0123456789&refresh_token=SLSEC_TF_REFRESH_0123456789'), 'application/x-www-form-urlencoded'],
+      [multipart, `multipart/form-data; boundary=${b}`],
+      [Buffer.concat([multipart.subarray(0, multipart.indexOf('hello')), Buffer.from([0, 159, 146, 150]), multipart.subarray(multipart.indexOf('hello') + 5)]), `multipart/form-data; boundary=${b}`],
+    ];
+    for (const [raw, contentType] of bodies) {
+      // A live call as the sidecar stores and matches it, and the same call as an earlier version stored it, as sent.
+      const live = { method: 'POST', url: 'http://h/x', ...storedRequestBody(raw, contentType) };
+      const earlier = { method: 'POST', url: 'http://h/x', ...decodeBody(raw, contentType) };
+      expect(withoutStoredCredentials(earlier), contentType).toEqual(live);
+      expect(Buffer.from(JSON.stringify(live).replace(/"body":"([A-Za-z0-9+/=]+)"/, (_m, b64: string) => Buffer.from(b64, 'base64').toString('latin1'))).toString('latin1'), contentType).not.toMatch(/SLSEC_/);
+      // Read again, it is what it was: the same object.
+      expect(withoutStoredCredentials(live), contentType).toBe(live);
+    }
+  });
+
+  it('a service hands back in a response body are stored masked in place, and the agent gets them as sent', () => {
+    const oauth = Buffer.from('{"access_token": "SLSEC_RB_ACCESSTOKEN_eyJhbGciOiJIUzI1NiJ9", "refresh_token": "SLSEC_RB_REFRESH_0123456789", "token_type": "Bearer", "expires_in": 3600, "id": 1234567890123456789}');
+    const blob = storedResult({ status: 200, headers: { 'content-type': 'application/json' }, ...decodeBody(oauth, 'application/json') }, oauth).toString('utf8');
+    expect(blob).not.toMatch(/SLSEC_RB_/);
+    expect(rawJsonMember(blob, ['result', 'body'])).toBe('{"access_token": "<CREDENTIAL>", "refresh_token": "<CREDENTIAL>", "token_type": "Bearer", "expires_in": 3600, "id": 1234567890123456789}');
+    const form = Buffer.from('session_token=SLSEC_RB_TEXTBODY_0123456789abcdef&expires=3600');
+    expect(JSON.parse(storedResult({ status: 200, headers: { 'content-type': 'text/plain' }, ...decodeBody(form, 'text/plain') }, form).toString('utf8')).result.body).toBe('session_token=<CREDENTIAL>&expires=3600');
+  });
+
+  it('in a JSON body recorded as sent by an earlier version still match, with the same secret and a rotated one', async () => {
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ results: [{ title: 'Refund policy' }] }));
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const search = (base: string, runId: string, secret: string) =>
+      fetch(`${base}/r/${runId}/http/search`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/json' }, body: JSON.stringify({ api_key: `tvly-${secret}`, query: 'refund' }) }).then(async (r) => (await r.text(), r.status));
+    const sidecars: Sidecar[] = [];
+    try {
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await search(recording.url, run.runId, 'live-secret-0123456789')).toBe(200);
+      recording.endRun(run.runId, 'completed');
+      // Stored masked, as the review's sweep would read it.
+      expect(JSON.stringify(store.getJson(store.getCalls(run.runId)[0].requestRef!))).not.toContain('live-secret');
+      // The same call as an earlier version stored and fingerprinted it: its body as sent.
+      const sent = { method: 'POST', url: `http://${host}/search`, body: { api_key: 'tvly-live-secret-0123456789', query: 'refund' }, encoding: 'json' };
+      const old = store.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' }, meta: { normalizersHash: normalizersHash([], 'exact', false) } });
+      const call = store.getCalls(run.runId)[0];
+      const fingerprint = fingerprintTool(call.name, sent, []).fingerprint;
+      store.appendCallStart({ ...call, runId: old.runId, fingerprint, requestRef: store.putJson({ args: sent }) });
+      store.appendCallEnd({ kind: call.kind, name: call.name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
+      store.endRun(old.runId, 'completed');
+      for (const parent of [run.runId, old.runId]) {
+        for (const secret of ['live-secret-0123456789', 'rotated-secret-9876543210']) {
+          const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+          sidecars.push(sidecar);
+          const replay = sidecar.startRun({ mode: 'replay', parentRunId: parent, command: { argv: ['x'], cwd: '.' } });
+          expect(await search(sidecar.url, replay.runId, secret)).toBe(200);
+          expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, `${parent === old.runId ? 'earlier' : 'this'} recording, ${secret}`).toBeNull();
+          expect(store.getCalls(replay.runId).map((c) => c.origin)).toEqual(['replayed']);
+        }
+      }
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
   });
 
   it('leave a lookup by a bare key as recorded, so lookups replayed in another order get their own answers', async () => {
