@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareRuns, formatComparison } from '../src/compare.js';
+import { storeApiRequest } from '../src/manifest.js';
 import { Store } from '../src/store.js';
 import type { CallKind, CallMeta, Origin, RunMeta, RunRecord } from '../src/types.js';
 import { RunBuilder, text, toolUse, user } from './run-fixtures.js';
@@ -100,6 +101,53 @@ describe('compareRuns', () => {
     expect(printed).toContain('= 1 call with the same request got the same answer in a new response (only ids or token counts differ)');
     expect(printed).toContain('≠ 3 calls with the same request but a different response:');
     expect(printed).not.toContain('#2 api');
+    store.close();
+  });
+});
+
+describe('calls paired across two runs', () => {
+  const cmd = { argv: ['agent'], cwd: '/' };
+  /** A call with its stored fingerprint as given, its request stored as a model's or a tool's is, and how its end says it was served. */
+  function put(store: Store, run: RunRecord, callNo: number, c: { kind: CallKind; name: string; fingerprint: string; request: unknown; meta?: CallMeta; answer: string; end?: CallMeta; origin?: Origin }) {
+    const identity = { kind: c.kind, name: c.name, fingerprint: c.fingerprint, occurrence: 1 };
+    const requestRef = c.kind === 'api' ? storeApiRequest(store, c.request) : store.putJson(c.request);
+    store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: c.origin ?? 'live', effect: c.kind === 'tool' ? 'read' : null, requestRef, meta: c.meta ?? {}, at: callNo });
+    store.appendCallEnd(identity, { runId: run.runId, callNo, attempt: 0, responseRef: store.putBlob(Buffer.from(c.answer)), outcome: 'ok', meta: c.end ?? {}, at: callNo });
+  }
+  const ask = { model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: 'Where is order A-1042?' }] };
+
+  it("pairs a replay's calls with the recorded calls it served, whatever fingerprint each run keeps", () => {
+    const store = Store.open(':memory:');
+    // Recorded by an earlier version, whose fingerprints the replay's own are not.
+    const a = store.createRun({ mode: 'record', command: cmd });
+    put(store, a, 1, { kind: 'random', name: 'uuid', fingerprint: 'a'.repeat(64), request: { label: '' }, answer: '{"result":"8d1c7e8e"}' });
+    put(store, a, 2, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'b'.repeat(64), request: ask, meta: { provider: 'anthropic' }, answer: '{"content":[]}' });
+    const b = store.createRun({ mode: 'replay', parentRunId: a.runId, command: cmd });
+    put(store, b, 1, { kind: 'random', name: 'uuid', fingerprint: 'c'.repeat(64), request: { label: '' }, answer: '{"result":"8d1c7e8e"}', origin: 'replayed', end: { replayedFrom: 1 } });
+    put(store, b, 2, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'd'.repeat(64), request: ask, meta: { provider: 'anthropic' }, answer: '{"content":[]}', origin: 'replayed', end: { replayedFrom: 2 } });
+    for (const [x, y] of [[a, b], [b, a]] as const) {
+      const c = compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
+      expect(c).toMatchObject({ identicalPrefix: 2, firstRequestDifference: null, responseDifferences: [] });
+    }
+    store.close();
+  });
+
+  it('pairs calls whose fingerprints differ when what each sent is the same, and finds the one that changed', () => {
+    const store = Store.open(':memory:');
+    const a = store.createRun({ mode: 'record', command: cmd });
+    const b = store.createRun({ mode: 'record', command: cmd });
+    // The same request, its fingerprint made under another version, and a sign-in beta that says only how the call signed in.
+    put(store, a, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'e'.repeat(64), request: ask, meta: { provider: 'anthropic', query: '', fingerprintHeaders: { 'anthropic-version': '2023-06-01' } }, answer: '{"content":[]}' });
+    put(store, b, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'f'.repeat(64), request: ask, meta: { provider: 'anthropic', query: '', fingerprintHeaders: { 'anthropic-version': '2023-06-01', 'anthropic-beta': 'oauth-2025-04-20' } }, answer: '{"content":[]}' });
+    put(store, a, 2, { kind: 'tool', name: 'lookup_order', fingerprint: '1'.repeat(64), request: { args: { id: 'A-1042' } }, answer: '{"result":"shipped"}' });
+    put(store, b, 2, { kind: 'tool', name: 'lookup_order', fingerprint: '2'.repeat(64), request: { args: { id: 'A-1042' } }, answer: '{"result":"shipped"}' });
+    // Then a request that did change: another API version, and another order.
+    put(store, a, 3, { kind: 'api', name: 'POST /v1/messages', fingerprint: '3'.repeat(64), request: ask, meta: { provider: 'anthropic', query: '', fingerprintHeaders: { 'anthropic-version': '2023-06-01' } }, answer: '{"content":[]}' });
+    put(store, b, 3, { kind: 'api', name: 'POST /v1/messages', fingerprint: '4'.repeat(64), request: { ...ask, messages: [{ role: 'user', content: 'Where is order A-2001?' }] }, meta: { provider: 'anthropic', query: '', fingerprintHeaders: { 'anthropic-version': '2025-01-01' } }, answer: '{"content":[]}' });
+    const c = compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
+    expect(c.identicalPrefix).toBe(2);
+    expect(c.firstRequestDifference).toMatchObject({ callNo: 3 });
+    expect(c.firstRequestDifference!.diff!.map((e) => e.path)).toEqual(['headers.anthropic-version', '$.messages[0].content']);
     store.close();
   });
 });
