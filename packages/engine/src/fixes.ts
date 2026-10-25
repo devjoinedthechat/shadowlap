@@ -2,7 +2,7 @@ import type { BlameReport } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
-import type { FixData, FixStatus, Store, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+import type { FixData, FixStatus, StepRerun, Store, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 import type { RunRecord } from './types.js';
 import type { VerifyReport } from './verify.js';
 
@@ -208,6 +208,8 @@ export interface BlameToRecord {
   scope: string | null;
   /** A command that blames the run the same way again. */
   command: string;
+  /** The flags it ran with beyond its report, which Blame again runs it with (`StepRerun`). */
+  rerun?: StepRerun | null;
   /** For a fix this blame opens: its title and its check in words, derived from the check. */
   title: string;
   checkText: string;
@@ -235,7 +237,7 @@ export interface RecordedBlame {
 export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
   const at = input.at ?? Date.now();
   const expect = input.expect ?? null;
-  const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command };
+  const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) };
   // Immediate: two blames finishing at once must not both open a fix for the same failure.
   return store.transaction(() => {
     store.putBlame(blame);
@@ -270,6 +272,8 @@ export interface VerdictToRecord {
   report: VerifyReport;
   expect: unknown;
   command: string;
+  /** The flags it ran with beyond its report, which Run more attempts and Verify again run it with (`StepRerun`). */
+  rerun?: StepRerun | null;
   /** The repair whose candidate this verified, and which candidate. */
   repairId?: string | null;
   candidate?: number | null;
@@ -299,7 +303,7 @@ function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
   const at = input.at ?? Date.now();
   const r = input.report;
   const expect = input.expect ?? null;
-  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect, command: input.command };
+  const verdict: StoredVerdict = { verifyId: newVerdictId(at), at, verdict: r.verdict, repairId: input.repairId ?? null, candidate: input.candidate ?? null, report: r, expect, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) };
   store.putVerdict(verdict);
   const failing = r.runs.filter((x) => x.role !== 'good');
   const fixes = input.fixIds ? input.fixIds.map((id) => store.getFix(id)).filter((f): f is StoredFix => f !== null) : fixesOfRuns(store, failing.map((x) => x.runId), expect);

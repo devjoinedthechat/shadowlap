@@ -1,10 +1,11 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv, type PatchCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
+import { leftWords } from '../rerun.js';
 import { storePrStates } from '../pr-state.js';
 import { repairerProblem } from '../repairer-check.js';
 import { recordingNow } from '../run-exports.js';
@@ -94,11 +95,29 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   return { expect: value };
 }
 
-/** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it. */
-function importedCommand(runs: RunRecord[], yes: unknown): JobBuildResult | null {
-  const imported = runs.find((r) => commandIsImported(r));
-  if (!imported || yes === true) return null;
-  return { error: `${imported.runId.slice(0, 10)} came from ${importedCommandSource(imported)}: this runs the command it was recorded with (${imported.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
+/**
+ * What runs only once the user said yes to it, with the exact command line the job runs (`args`,
+ * after `shadowlap`): a run whose command came from someone else's pack or from the team store, and
+ * a blame or a verdict a pull brought (`pulled`), whose command is made here from its checked
+ * fields, without what it ran with on a teammate's machine (`left`).
+ */
+function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonly string[]; pulled?: { what: string; left: readonly string[] } | null }): JobBuildResult | null {
+  if (o.yes === true) return null;
+  const imported = o.runs.find((r) => commandIsImported(r));
+  if (!imported && !o.pulled) return null;
+  const line = quoteArgv(['shadowlap', ...o.args]);
+  if (o.pulled) {
+    const p = o.pulled;
+    const without = p.left.length ? `, without the ${leftWords(p.left)} it ran with there` : '';
+    const and = imported ? `, and the command ${imported.runId.slice(0, 10)} was recorded with (${quoteArgv(imported.command.argv)}), which came from ${importedCommandSource(imported)}` : '';
+    return { error: `${p.what} came from the team store: this runs the command ${line}, made here from its own fields${without}${and}. Confirm it to run it`, status: 409 };
+  }
+  return { error: `${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`, status: 409 };
+}
+
+/** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
+function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobBuildResult | null {
+  return needsConsent({ runs, yes, args });
 }
 
 /**
@@ -148,7 +167,9 @@ function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
   }
   const run = lookupRun(store, args[1]!);
   if (!run) return { error: `the run ${id} blamed is gone from the store`, status: 409 };
-  const consent = importedCommand([run], req.yes);
+  // A blame a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
+  const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
+  const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
   if (consent) return consent;
   return { args: [...args, ...(req.yes === true ? ['--yes'] : [])], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model as string}` };
 }
@@ -164,7 +185,9 @@ function verifyJob(req: JobRequest, store: Store): JobBuildResult {
   const v = d.verify.find((x) => x.verifyId === req.verifyId);
   if (!v) return { error: `no verdict ${req.verifyId.slice(0, 40)} on ${short(fix.fixId)}`, status: 404 };
   if (!v.more) return { error: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)} is ${v.verdict}, or doesn't count for it: there is nothing to settle`, status: 409 };
-  const consent = importedCommand(v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null), req.yes);
+  // A verdict a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
+  const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
+  const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
   if (consent) return consent;
   return { args: [...v.more.argv, ...(req.yes === true ? ['--yes'] : [])], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
 }
@@ -192,9 +215,10 @@ function blameJob(req: JobRequest, store: Store, configDir: string | null): JobB
     }
     expect = found.expect;
   }
-  const consent = importedCommand([run], req.yes);
+  const args = ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
+  const consent = importedCommand([run], req.yes, args);
   if (consent) return consent;
-  return { args: ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...(req.yes === true ? ['--yes'] : [])], runId: run.runId };
+  return { args: [...args, ...(req.yes === true ? ['--yes'] : [])], runId: run.runId };
 }
 
 /**
@@ -223,9 +247,10 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   // It would blame every failing run, then find no one to propose a fix: nothing runs.
   if (d.repairer.problem) return { error: `${d.repairer.problem.replace(/\.$/, '')}. Nothing ran`, status: 409 };
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
-  const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes);
+  const args = repairJobArgv(d.actions.repair.argv, configured);
+  const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
   if (consent) return consent;
-  return { args: [...repairJobArgv(d.actions.repair.argv, configured), ...(req.yes === true ? ['--yes'] : [])] };
+  return { args: [...args, ...(req.yes === true ? ['--yes'] : [])] };
 }
 
 function applyJob(req: JobRequest, store: Store): JobBuildResult {

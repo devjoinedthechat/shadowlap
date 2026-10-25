@@ -123,6 +123,8 @@ export function VerifyStepView({ fix, sub }: { fix: FixDetail; sub: string | nul
         {num(v.attempts)} attempt{v.attempts === 1 ? '' : 's'} · {num(v.upstreamRequests)} upstream request{v.upstreamRequests === 1 ? '' : 's'} · {approx(v.spent)} spent{v.verdict === 'incomplete' ? '' : ' to find out before it shipped'}. A run whose replay doesn’t fork settles in one free attempt.
         {v.unknownModels.length ? ` No price for ${v.unknownModels.join(', ')}.` : ''}
       </p>
+      {/* A teammate's verdict: its command line stays theirs; the one here is made from its report. */}
+      {v.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
       <CmdLine>{v.command}</CmdLine>
       {v.warnings.length ? (
         <ul className="fxwarn">

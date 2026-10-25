@@ -53,6 +53,36 @@ describe('a fix in the team store', () => {
     expect(fixDocHash(fixDocOf(maya.store, fixId)!)).toBe(fixDocHash(fixDocOf(dana.store, fixId)!));
   });
 
+  it("marks every blame and verdict a pull brings as pulled, a mark that stays on that machine: never sent, never taken from a document", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const { run, fixId } = blamed(dana.store);
+    const kept = recordVerdict(dana.store, { report: verifyReport([{ runId: run, role: 'target', pass: true }]), expect: EXPECT, command: `shadowlap verify --fixes ${run}`, rerun: { flags: ['--writes', 'block'], command: ['python', 'agent.py'] } });
+    inStore(dana.store, run);
+    await push(dana, { runIds: [] });
+    // What dana made here is hers: nothing says it came from anywhere, and her flags went with it.
+    expect(dana.store.getVerdict(kept.verdict.verifyId)!.pulled).toBeUndefined();
+    const sent = JSON.parse(remote.objects.get(fixKey(fixId))!.body.toString('utf8')) as FixDoc;
+    expect(sent.verdicts[0]).toMatchObject({ rerun: { flags: ['--writes', 'block'], command: ['python', 'agent.py'] } });
+    expect(sent.verdicts[0]).not.toHaveProperty('pulled');
+
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    const at = maya.store.getVerdict(kept.verdict.verifyId)!.pulled!;
+    expect(at.from).toBe(KEY);
+    expect(maya.store.getBlame(fixRecords(maya.store, maya.store.getFix(fixId)!).blames[0].blameId)!.pulled!.from).toBe(KEY);
+    // Her copy goes back as it came: the mark is not in it, so the hash both sides agree on holds, and nothing is sent again.
+    expect(fixDocOf(maya.store, fixId)!.verdicts[0]).not.toHaveProperty('pulled');
+    expect(fixDocHash(fixDocOf(maya.store, fixId)!)).toBe(fixDocHash(fixDocOf(dana.store, fixId)!));
+    expect((await push(maya, { runIds: [] })).fixes.sent).toEqual([]);
+
+    // A document that says a record of its own was made here says nothing: the pull marks it all the same.
+    const planted = { ...sent, verdicts: sent.verdicts.map((v) => ({ ...v, pulled: null })), blames: sent.blames.map((b) => ({ ...b, pulled: { from: 'here', at: 0 } })) };
+    const parsed = parseFixDoc(Buffer.from(JSON.stringify(planted)), fixId);
+    expect(parsed.verdicts[0]).not.toHaveProperty('pulled');
+    expect(parsed.blames[0]).not.toHaveProperty('pulled');
+  });
+
   it('sends nothing again that the store has, and reads only the fixes that changed there', async () => {
     const remote = new MemoryStore(loc);
     const dana = machine(remote, 'dana@northwind.example');

@@ -42,9 +42,11 @@ import {
   verdictCounts,
   rateBound,
   type Block,
+  type BlameReport,
   type FixData,
   type FixRecords,
   type FixStatus,
+  type PulledFrom,
   type RepairCandidate,
   type RepairOutcome,
   type RunRecord,
@@ -63,6 +65,7 @@ import {
 } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, verifyEvidence, type BlameEvidence, type GateEvidence, type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
+import { expectArgs, fieldArgs, isCount, rerunFlags, runIds, scopeArg, type RerunFlags } from './rerun.js';
 import { loadRunIndex, type RunIndex } from './run-index.js';
 import { splitCommandLine } from './settings.js';
 import { probeLine, runsRule, verifiedLine, type VerdictTone } from './verdict.js';
@@ -224,7 +227,14 @@ export interface BlameStep {
    */
   look: string | null;
   warnings: string[];
+  /**
+   * The command that blames the run the same way again: as it ran, for a blame made here; for one
+   * a pull brought (`pulled`), made here from its checked fields, so a teammate's command line is
+   * never offered to copy.
+   */
   command: string;
+  /** The store a pull brought it from, and when; null for a blame made here. */
+  pulled: PulledFrom | null;
   hrefs: { run: string; lostAt: string | null; rescued: string | null };
   /** What the report says beyond its probes, when it says it: the calls it lost the run between, and its error bound. */
   evidence: BlameEvidence;
@@ -344,7 +354,14 @@ export interface VerifyStep {
   /** Those of `reasons` that say a run is inconclusive or not settled, not that the change failed it: shown in amber, the rest in red. */
   unsettled: string[];
   warnings: string[];
+  /**
+   * The command it ran: as it ran, for a verdict given here; for one a pull brought (`pulled`), the
+   * same verify made here from its checked fields, so a teammate's command line is never offered to
+   * copy.
+   */
   command: string;
+  /** The store a pull brought it from, and when; null for a verdict given here. */
+  pulled: PulledFrom | null;
   repairId: string | null;
   candidate: number | null;
   /** What settles an incomplete verdict that counts for the fix (`verifyMore`); null for any other. */
@@ -371,8 +388,13 @@ export interface VerifyMore {
   cost: number | null;
   /** The budget the verdict ran with, which Run more attempts leaves out; null when it had none. */
   budget: string | null;
+  /** Built from the verdict's checked fields and flags (rerun.ts), never from its command line. */
   argv: string[];
   command: string;
+  /** The store a pull brought the verdict from: it runs only once the user says yes to `command`. Null for one given here. */
+  pulled: PulledFrom | null;
+  /** What a pulled verdict ran with that runs on no other machine, left out: `--build`, `--base`, and `--` for the command after it. */
+  left: string[];
 }
 
 export interface FixActions {
@@ -407,14 +429,16 @@ export interface FixActions {
    * blame under the fix's check, without the budget that stopped it, and for one not settled with
    * more attempts and a lower bar, as blame's report says (`gate`). Null otherwise.
    */
-  blameAgain: { kind: 'unsettled' | 'stopped'; argv: string[]; command: string; gate: SprtGate | null } | null;
+  blameAgain: { kind: 'unsettled' | 'stopped'; argv: string[]; command: string; gate: SprtGate | null; pulled: PulledFrom | null; left: string[] } | null;
   /**
    * An open fix whose blame rescued its run from no call, asking the recorded model again, and
    * found nothing that says the model's answer isn't what lost it: Blame with a stronger model, the
    * same blame with `--model <model>` after `argv`, the model asked for. `attempts` and `spent` are
-   * what the last blame took. Null otherwise.
+   * what the last blame took. Null otherwise. Both are built from the blame's checked fields and
+   * flags (rerun.ts), never from its command line; one a pull brought (`pulled`) runs only once the
+   * user says yes to its command, without what runs on no other machine (`left`).
    */
-  blameStronger: { argv: string[]; command: string; attempts: number; spent: number } | null;
+  blameStronger: { argv: string[]; command: string; attempts: number; spent: number; pulled: PulledFrom | null; left: string[] } | null;
 }
 
 export interface FixDetail extends FixRow {
@@ -709,7 +733,11 @@ function blamePairs(store: Store, runId: string): number | null {
   return findPairs(store, { runs: [run, ...store.childRuns(runId)] }).sources.find((x) => x.key === `blame:${runId}`)?.made ?? 0;
 }
 
-function blameStep(store: Store, b: StoredBlame): BlameStep {
+/**
+ * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
+ * blame shows when its fields can't be made into one.
+ */
+function blameStep(store: Store, b: StoredBlame, fallback: string): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
@@ -793,7 +821,9 @@ function blameStep(store: Store, b: StoredBlame): BlameStep {
     stopReason: r.stopReason,
     look: noAnswerLost(b) || unsettledFirst(r) ? unrescuedWhy(r).look : null,
     warnings: r.warnings,
-    command: b.command,
+    // A teammate's command line is never offered to copy: the same blame, made here from its checked fields.
+    command: b.pulled ? sameBlame(b, fallback) : b.command,
+    pulled: b.pulled ?? null,
     hrefs: { run: runHref(b.runId), lostAt: blamedCall ? runHref(b.runId, blamedCall) : null, rescued: contrast ? runHref(contrast.rescuedRunId) : null },
     evidence: blameEvidence(b.report),
   };
@@ -853,7 +883,12 @@ function repairAttempts(store: Store, r: StoredRepair): number {
   return verify + blame;
 }
 
-function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: string, pulled = false): RepairStep {
+/**
+ * A repair as the Repair step shows it. A teammate's (`pulled`) shows `fallback`, the fix's own
+ * repair command, in place of the command line it ran on their machine, which is never offered to
+ * copy.
+ */
+function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: string, pulled: boolean, fallback: string): RepairStep {
   const rep = r.report;
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
@@ -902,7 +937,7 @@ function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: strin
       ...(goldens ? [{ name: 'goldens/', note: pulled ? `${goldens} recording${s(goldens)} made by the fixed code, kept where it ran` : `${goldens} recording${s(goldens)} made by the fixed code` }] : []),
     ],
     prBody: repairMarkdown(rep),
-    command: r.command,
+    command: pulled ? fallback : r.command,
     cost: rep.cost,
     attempts: repairAttempts(store, r),
     output: { patch: rep.output.patch, applied: rep.output.applied, branch: rep.output.branch, pr: rep.output.pr, goldens: rep.output.goldens },
@@ -945,13 +980,20 @@ function headline(rec: FixRecords, v: StoredVerdict, standing: VerdictStanding):
   return 'Not every run settled';
 }
 
-/** The models `--from` named in a verify's command line: the fields it set changed only their calls. */
-function fromModels(command: string): string[] {
+/**
+ * The models `--from` named, for the words of a verdict's change: the fields it set changed only
+ * their calls. From its kept flags; for a verdict kept before them, from the command line it
+ * printed, read only for these words, never to run.
+ */
+function fromModels(v: Pick<StoredVerdict, 'command' | 'rerun'>): string[] {
   let words: string[];
-  try {
-    words = splitCommandLine(command);
-  } catch {
-    return [];
+  if (v.rerun) words = v.rerun.flags;
+  else {
+    try {
+      words = splitCommandLine(v.command);
+    } catch {
+      return [];
+    }
   }
   return words.flatMap((w, i) => (w === '--from' && words[i + 1] ? [words[i + 1]!] : []));
 }
@@ -963,7 +1005,7 @@ function fromModels(command: string): string[] {
  * first call of those models); else the code itself, by its version (`working tree` outside git).
  * Two changes verified at one commit never read alike.
  */
-function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'report'>): string {
+function changeName(v: Pick<StoredVerdict, 'candidate' | 'command' | 'rerun' | 'report'>): string {
   if (v.candidate !== null) return `repair candidate ${v.candidate}`;
   const fields = fieldsSet(v);
   if (!fields) return v.report.codeVersion ?? 'working tree';
@@ -977,10 +1019,10 @@ function fieldsOf(v: Pick<StoredVerdict, 'report'>): string | null {
 }
 
 /** The request fields a verdict's change set, and from where: `temperature=1 from each run's first model call`; null for a change all in the code. */
-function fieldsSet(v: Pick<StoredVerdict, 'command' | 'report'>): string | null {
+function fieldsSet(v: Pick<StoredVerdict, 'command' | 'rerun' | 'report'>): string | null {
   const set = fieldsOf(v);
   if (!set) return null;
-  const from = fromModels(v.command);
+  const from = fromModels(v);
   return `${set} from each run's first ${from.length ? `${from.join(' or ')} call` : 'model call'}`;
 }
 
@@ -1000,7 +1042,11 @@ export function fieldChange(rec: FixRecords): string | null {
   return v ? fieldsSet(v) : null;
 }
 
-function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
+/**
+ * A verdict as the Verify step shows it. `fallback` is the fix's own verify command, which a pulled
+ * verdict shows when its fields can't be made into one.
+ */
+function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string): VerifyStep {
   const r = v.report;
   const fixId = rec.fix.fixId;
   const standing = rec.standing.get(v.verifyId) ?? { counts: true, why: null };
@@ -1065,7 +1111,9 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
     reasons: r.reasons,
     unsettled: r.reasons.filter(unsettledReason),
     warnings: [...r.warnings, ...(r.replayWarnings ?? [])],
-    command: v.command,
+    // A teammate's command line is never offered to copy: the same verify, made here from its checked fields.
+    command: v.pulled ? sameVerify(v, fallback) : v.command,
+    pulled: v.pulled ?? null,
     repairId: v.repairId,
     candidate: v.candidate,
     more: standing.counts ? verifyMore(v) : null,
@@ -1073,10 +1121,31 @@ function verifyStep(rec: FixRecords, v: StoredVerdict): VerifyStep {
 }
 
 /**
+ * A kept blame as `shadowlap blame` arguments that blame its run the same way again, from its
+ * checked fields: the run, `expect` (the fix's check now, or the blame's own), its scope and
+ * rescue, the gate or count after it (`decide`), and its flags (rerun.ts) but `--budget`. Null when
+ * any of them isn't of its shape, or it kept no flags: then it is not run again from here.
+ */
+function blameArgs(b: StoredBlame, expect: unknown, decide: string[] | null): { argv: string[]; rerun: RerunFlags } | null {
+  const rerun = rerunFlags('blame', b.rerun, { pulled: !!b.pulled, drop: new Set(['--budget']) });
+  const check = expectArgs(expect);
+  const scope = scopeArg(b.scope);
+  const fields = fieldArgs(b.report.rescue?.fields);
+  if (!rerun || !check || !scope || !fields || !decide || !runIds([b.runId])) return null;
+  return { argv: ['blame', b.runId, ...check, ...scope, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
+}
+
+/** A blame's fixed count as the CLI takes it, or null when it isn't one. */
+function blameCount(r: BlameReport): string[] | null {
+  return isCount(r.attemptsPerProbe, 100) && r.attemptsPerProbe > 0 && isCount(r.needed, r.attemptsPerProbe) ? ['--attempts', String(r.attemptsPerProbe), '--passes', String(r.needed)] : null;
+}
+
+/**
  * Blame again, or Blame with a stronger model, for an open fix whose shown blame placed its failure
- * on no call (`FixActions`): built from the command that blame ran, under the fix's check now, with
- * the run named in full and without its budget. Neither for a fix whose run is gone, or one whose
- * command came from a capture, which has none to run again.
+ * on no call (`FixActions`): built from that blame's checked fields (`blameArgs`), under the fix's
+ * check now, with the run named in full and without its budget. Neither for a fix whose run is gone,
+ * one whose command came from a capture, which has none to run again, or a blame kept before its
+ * flags were.
  */
 function blameNext(store: Store, rec: FixRecords, b: StoredBlame | null): Pick<FixActions, 'blameAgain' | 'blameStronger'> {
   const none = { blameAgain: null, blameStronger: null };
@@ -1085,65 +1154,24 @@ function blameNext(store: Store, rec: FixRecords, b: StoredBlame | null): Pick<F
   if (!run || !hasRecordedCommand(run)) return none;
   const unsettled = unsettledFirst(b.report);
   const stopped = b.outcome === 'stopped';
-  const parsed = commandWithout(b.command, 'blame', new Set([...SET_AGAIN, '--expect', ...(stopped || unsettled ? [] : ['--model'])]));
-  if (!parsed) return none;
-  // The run, named in full, in place of the short id the command was written with.
-  const rest = parsed.args[0] && !parsed.args[0].startsWith('-') ? parsed.args.slice(1) : parsed.args;
-  const expect = rec.fix.check.expect;
-  const head = ['blame', b.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : []), ...rest];
   const g = sprtGate(b.report.gate);
-  const count = ['--attempts', String(b.report.attemptsPerProbe), '--passes', String(b.report.needed)];
+  const pulled = b.pulled ?? null;
   if (stopped || unsettled) {
     // Not settled: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
     const lower = g ? Math.max(0.05, +(g.good - 0.2).toFixed(2)) : null;
     const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(GATE_MAX_ATTEMPTS, g.max * 2) } : g;
-    const argv = [...head, ...(gate ? gateArg(gate, BLAME_DEFAULTS) : count), ...parsed.tail];
-    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv, command: commandLine(argv), gate: unsettled ? gate : null }, blameStronger: null };
+    const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report));
+    if (!made) return none;
+    return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, pulled, left: made.rerun.left }, blameStronger: null };
   }
   // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
   if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;
-  const argv = [...head, ...(g ? gateArg(g, BLAME_DEFAULTS) : count), ...parsed.tail];
-  return { blameAgain: null, blameStronger: { argv, command: `${commandLine(argv)} --model <model>`, attempts: b.report.attempts, spent: b.report.spent } };
+  const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report));
+  if (!made) return none;
+  return { blameAgain: null, blameStronger: { argv: made.argv, command: `${commandLine(made.argv)} --model <model>`, attempts: b.report.attempts, spent: b.report.spent, pulled, left: made.rerun.left } };
 }
 
-/** The flags that select a verify's runs, each followed by the runs it names. */
-const RUN_FLAGS = new Set(['--fixes', '--holdout', '--keeps']);
-/** Flags a command takes a value after, which Run more attempts and Blame again set themselves. */
-const SET_AGAIN = new Set(['--gate', '--attempts', '--passes', '--budget']);
 const VERIFY_ROLE_FLAG: Readonly<Record<VerifiedRun['role'], string>> = { target: '--fixes', holdout: '--holdout', good: '--keeps' };
-
-/**
- * A stored command's arguments after `shadowlap`, without the flags `drop` names and the values they
- * take (a run-selecting flag takes every run after it), the rest as the CLI wrote them, the agent's
- * command after `--` last. Null when it isn't `shadowlap <command>`, or can't be split.
- */
-function commandWithout(command: string, sub: string, drop: ReadonlySet<string>): { args: string[]; budget: string | null; tail: string[] } | null {
-  let words: string[];
-  try {
-    words = splitCommandLine(command);
-  } catch {
-    return null;
-  }
-  if (words[0] !== 'shadowlap' || words[1] !== sub) return null;
-  const args: string[] = [];
-  let budget: string | null = null;
-  let i = 2;
-  for (; i < words.length; i++) {
-    const w = words[i]!;
-    if (w === '--') break;
-    if (RUN_FLAGS.has(w) && drop.has(w)) {
-      while (i + 1 < words.length && !words[i + 1]!.startsWith('-')) i++;
-      continue;
-    }
-    if (drop.has(w)) {
-      if (w === '--budget') budget = words[i + 1] ?? null;
-      i++;
-      continue;
-    }
-    args.push(w);
-  }
-  return { args, budget, tail: words.slice(i) };
-}
 
 /** `--gate` with the figures that differ from `defaults`, as the CLI writes it; nothing when none do. */
 function gateArg(gate: SprtGate, defaults: Omit<SprtGate, 'kind'>): string[] {
@@ -1152,10 +1180,46 @@ function gateArg(gate: SprtGate, defaults: Omit<SprtGate, 'kind'>): string[] {
 }
 
 /**
- * Run more attempts, or Verify again, for an incomplete verdict (`VerifyMore`), from the command it
- * ran: its runs named in their roles, its change and check as they were, and the gate's limit
- * doubled when a run's gate ran out of attempts. Null for a verdict that isn't incomplete, a
- * repair's candidate, a fixed count with nothing stopped, or a command that can't be read again.
+ * A kept verdict as `shadowlap verify` arguments, from its checked fields: its runs named by id in
+ * their roles, its check, the request fields it set, its gate (`gate` in its place, when given) or
+ * fixed count, and its flags (rerun.ts) but `drop`. Null when any of them isn't of its shape, or it
+ * kept no flags.
+ */
+function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: ReadonlySet<string> } = {}): { argv: string[]; rerun: RerunFlags } | null {
+  const r = v.report;
+  const rerun = rerunFlags('verify', v.rerun, { pulled: !!v.pulled, ...(o.drop ? { drop: o.drop } : {}) });
+  const check = expectArgs(v.expect);
+  const fields = fieldArgs(r.fields);
+  if (!rerun || !check || !fields || !runIds(r.runs.map((x) => x.runId))) return null;
+  const roles = (['target', 'holdout', 'good'] as const).flatMap((role) => {
+    const ids = r.runs.filter((x) => x.role === role).map((x) => x.runId);
+    return ids.length ? [VERIFY_ROLE_FLAG[role], ...ids] : [];
+  });
+  const gate = o.gate !== undefined ? o.gate : sprtGate(r.gate);
+  const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : isCount(r.attemptsPerRun, 100) && r.attemptsPerRun > 0 && isCount(r.needed, r.attemptsPerRun) ? ['--attempts', String(r.attemptsPerRun), '--passes', String(r.needed)] : null;
+  if (!decide) return null;
+  return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
+}
+
+/** A pulled verdict's verify as this machine would run it again, from its checked fields; `fallback` when they make none. */
+function sameVerify(v: StoredVerdict, fallback: string): string {
+  const made = verdictArgs(v);
+  return made ? commandLine(made.argv) : fallback;
+}
+
+/** A pulled blame as this machine would run it again under its own check, from its checked fields; `fallback` when they make none. */
+function sameBlame(b: StoredBlame, fallback: string): string {
+  const g = sprtGate(b.report.gate);
+  const made = blameArgs(b, b.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report));
+  return made ? commandLine(made.argv) : fallback;
+}
+
+/**
+ * Run more attempts, or Verify again, for an incomplete verdict (`VerifyMore`), from its checked
+ * fields (`verdictArgs`): its runs named in their roles, its change and check as they were, and the
+ * gate's limit doubled when a run's gate ran out of attempts. Null for a verdict that isn't
+ * incomplete, a repair's candidate, a fixed count with nothing stopped, or one whose fields can't
+ * be checked (kept before its flags were, or with one of another shape).
  */
 function verifyMore(v: StoredVerdict): VerifyMore | null {
   const r = v.report;
@@ -1169,19 +1233,12 @@ function verifyMore(v: StoredVerdict): VerifyMore | null {
   const kind: VerifyMore['kind'] = ranOut.length || stopped.length ? 'more' : 'again';
   // A fixed count that ran out decides nothing more with more of the same.
   if (kind === 'more' && !gate && !stopped.length) return null;
-  const parsed = commandWithout(v.command, 'verify', kind === 'more' ? new Set([...RUN_FLAGS, ...SET_AGAIN]) : new Set());
-  if (!parsed) return null;
   const max = gate ? (ranOut.length ? Math.min(GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max) : r.attemptsPerRun;
   if (kind === 'more' && gate && ranOut.length && max <= gate.max) return null;
   const raised: SprtGate | null = gate ? { ...gate, max } : null;
-  const roles = (['target', 'holdout', 'good'] as const).flatMap((role) => {
-    const ids = r.runs.filter((x) => x.role === role).map((x) => x.runId);
-    return ids.length ? [VERIFY_ROLE_FLAG[role], ...ids] : [];
-  });
-  const argv =
-    kind === 'again'
-      ? ['verify', ...parsed.args, ...parsed.tail]
-      : ['verify', ...roles, ...parsed.args, ...(raised ? gateArg(raised, SPRT_DEFAULTS) : ['--attempts', String(r.attemptsPerRun), '--passes', String(r.needed)]), ...parsed.tail];
+  // Run more attempts leaves out the budget that stopped it; Verify again runs as it ran.
+  const made = verdictArgs(v, { gate: raised, ...(kind === 'more' ? { drop: new Set(['--budget']) } : {}) });
+  if (!made) return null;
   // What it would take, each run from the start at the rate it passed at so far: a clean replay settles in one.
   let expected = 0;
   for (const x of r.runs) {
@@ -1200,9 +1257,11 @@ function verifyMore(v: StoredVerdict): VerifyMore | null {
     max,
     expected,
     cost: perAttempt === null ? null : perAttempt * expected,
-    budget: kind === 'more' ? parsed.budget : null,
-    argv,
-    command: commandLine(argv),
+    budget: kind === 'more' ? (made.rerun.dropped['--budget'] ?? null) : null,
+    argv: made.argv,
+    command: commandLine(made.argv),
+    pulled: v.pulled ?? null,
+    left: made.rerun.left,
   };
 }
 
@@ -1272,11 +1331,13 @@ function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: st
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
   if (!left.length) return null;
   const { label } = fixLabelInfo(store, rec.fix);
-  const expect = rec.fix.check.expect;
+  // A check that is no object (one a pull brought, say) is no `--expect`: nothing runs under it.
+  const expect = expectArgs(rec.fix.check.expect);
+  if (!expect) return null;
   return {
     fixes: label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left,
     keeps: keepArgs(store, rec, left),
-    expect: expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [],
+    expect,
   };
 }
 
@@ -1288,9 +1349,10 @@ function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: st
  */
 export function repairArgv(store: Store, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
-  if (!runs) return [];
-  const scope = shownBlame(rec)?.scope;
-  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...(scope ? ['--scope', scope] : []), ...runs.expect];
+  // A blame's scope (a pulled one's too) goes as `--scope` only when it is a name, never a flag.
+  const scope = scopeArg(shownBlame(rec)?.scope);
+  if (!runs || !scope) return [];
+  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...scope, ...runs.expect];
 }
 
 /**
@@ -1405,7 +1467,6 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const cost = fixCost([rec]);
   const b = shownBlame(rec);
   const p = shownRepair(rec);
-  const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v));
   const done = row.steps.filter((x) => x.state === 'done');
   const repairArgs = repairArgv(store, rec);
   const verifyArgs = verifyArgv(store, rec);
@@ -1419,6 +1480,12 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
   const pulled = (r: StoredRepair | null) => !!r && store.repairPulled(r.repairId) !== null;
   const shortIds = (argv: string[]) => argv.map((a) => (/^[0-9A-Z]{26}$/.test(a) ? short(a) : a));
   const configured = options.repairer?.trim() || null;
+  const commands = {
+    blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expectArgs(expect) ?? [])]),
+    repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
+    verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
+  };
+  const verify = [...rec.verdicts].reverse().map((v) => verifyStep(rec, v, commands.verify));
   return {
     ...row,
     expect,
@@ -1451,9 +1518,9 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
       applied: fix.status === 'applied',
       ...blameNext(store, rec, b),
     },
-    blame: b ? blameStep(store, b) : null,
+    blame: b ? blameStep(store, b, commands.blame) : null,
     blames: [...rec.blames].reverse().map((x) => ({ blameId: x.blameId, runId: x.runId, at: x.at, outcome: x.outcome, ...(unsettledFirst(x.report) ? { unsettled: true as const } : {}), lostAt: x.report.blamed?.callNo ?? null, confidence: x.report.confidence })),
-    repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p)) : null,
+    repair: p ? repairStep(store, rec, p, fix.fixId, pulled(p), commands.repair) : null,
     repairs: [...rec.repairs].reverse().map((x) => {
       const c = acceptedCandidate(x);
       return { repairId: x.repairId, at: x.at, outcome: x.outcome, accepted: x.accepted, title: c ? commitTitle(c) : 'No fix yet' };
@@ -1461,11 +1528,7 @@ export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?
     verify,
     // The newest that counts: one that doesn't count for the fix never opens the step.
     defaultVerify: counting(rec).at(-1)?.verifyId ?? verify[0]?.verifyId ?? null,
-    commands: {
-      blame: commandLine(['blame', blameRun ? short(blameRun) : '<run>', ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])]),
-      repair: commandLine(repairJobArgv(repairArgs.length ? shortIds(repairArgs) : ['repair', '--fixes', '<runs>'], configured)),
-      verify: commandLine(verifyArgs.length ? shortIds(verifyArgs) : ['verify', '--fixes', '<runs>']),
-    },
+    commands,
     repairer: { name: configured ?? DEFAULT_REPAIRER, configured: configured !== null, problem: fix.status === 'open' && options.checkRepairer ? options.checkRepairer(configured ?? DEFAULT_REPAIRER, configured !== null) : null },
     applied: fix.data.applied ?? null,
   };

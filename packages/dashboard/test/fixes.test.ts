@@ -704,7 +704,8 @@ describe('what settles a fix left unsettled', () => {
     report.fields = { temperature: 1 };
     const stopReason = o.stopReason === undefined ? 'the budget of $0.01 is spent' : o.stopReason;
     Object.assign(report, decideVerify(report.runs, stopReason), { stopReason, attempts: outcomes.length + 1, spent: outcomes.length * 0.004 });
-    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: o.command ?? `shadowlap verify --fixes label:double-email --keeps label:good --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, at: NOW });
+    // The flags as the CLI keeps them beside the command line it printed (verifyRerun).
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: o.command ?? `shadowlap verify --fixes label:double-email --keeps label:good --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null }, at: NOW });
     return { failing, good, fixId: fix.fixId, verifyId: verdict.verifyId };
   }
 
@@ -729,12 +730,12 @@ describe('what settles a fix left unsettled', () => {
     expect(v.more!.expected).toBeGreaterThan(13);
   });
 
-  it('verifies again, as it ran, a verdict an attempt that could not be judged stopped', () => {
+  it('verifies again, as it ran, a verdict an attempt that could not be judged stopped: the same runs, by id', () => {
     const why = 'judge "sent-once" could not answer: no key for anthropic';
-    const { failing, fixId } = incomplete({ stopReason: null, undecided: why });
+    const { failing, good, fixId } = incomplete({ stopReason: null, undecided: why });
     const v = fixDetail(store, fixId)!.verify[0];
     expect(v.more).toMatchObject({ kind: 'again', run: { runId: failing, state: 'unjudged', why, attempt: 4 }, budget: null });
-    expect(v.more!.argv).toEqual(['verify', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1', '--budget', '0.012']);
+    expect(v.more!.argv).toEqual(['verify', '--fixes', failing, '--keeps', good, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1', '--budget', '0.012']);
   });
 
   it('settles nothing from here for a verdict that was accepted, doesn’t count, or verified a repair’s candidate', () => {
@@ -747,7 +748,7 @@ describe('what settles a fix left unsettled', () => {
     const report = blameReport(run, 'unrescuable');
     report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
     report.probes = [{ ...report.probes[0], decision: 'inconclusive' }];
-    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: 'agent', command: `shadowlap blame ${run.slice(0, 10)} --expect '{"old":1}' --scope agent --budget 0.05`, title: 'email twice', checkText: 'send_email called once', at: NOW - DAY });
+    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: 'agent', command: `shadowlap blame ${run.slice(0, 10)} --expect '{"old":1}' --scope agent --budget 0.05`, rerun: { flags: ['--budget', '0.05'], command: null }, title: 'email twice', checkText: 'send_email called once', at: NOW - DAY });
     expect(unsettledFirst(report)).toBe(true);
     const again = fixDetail(store, fix.fixId)!.actions.blameAgain!;
     expect(again).toMatchObject({ kind: 'unsettled', gate: { good: 0.4, max: 40 } });
@@ -755,7 +756,7 @@ describe('what settles a fix left unsettled', () => {
     expect(fixDetail(store, fix.fixId)!.actions.blameStronger).toBeNull();
     // Nothing rescued it, and nothing says the model's answer isn't what lost it: a stronger model may.
     const plain = makeRun(store, { labels: ['digest'] });
-    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)} --expect '{"x":1}'`, title: 'digest', checkText: 'exits 0', at: NOW - DAY });
+    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)} --expect '{"x":1}'`, rerun: { flags: [], command: null }, title: 'digest', checkText: 'exits 0', at: NOW - DAY });
     const d = fixDetail(store, other.fixId)!;
     expect(d.actions.blameAgain).toBeNull();
     expect(d.actions.blameStronger).toMatchObject({ argv: ['blame', plain, '--expect', JSON.stringify(EXPECT), '--attempts', '5', '--passes', '2'], attempts: 4 });

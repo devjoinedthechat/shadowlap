@@ -721,8 +721,9 @@ describe('what settles an unsettled fix', () => {
     const gate: SprtGate = { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80 };
     const report = verifyReport([{ runId: failing, role: 'target', pass: true }]);
     report.runs[0] = { ...report.runs[0], verdict: 'open', decision: 'continue', gate: gateResult(gate, [true, true, true, true]) };
-    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80 });
-    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012` });
+    // The fields its --set gave, as verify's report holds them: Run more attempts sets them again from there.
+    Object.assign(report, decideVerify(report.runs, 'the budget of $0.01 is spent'), { gate, stopReason: 'the budget of $0.01 is spent', attemptsPerRun: 80, fields: { temperature: 1 } });
+    const { verdict } = recordVerdict(store, { report, expect: { tools: { send_email: 1 } }, command: `shadowlap verify --fixes label:double-email --expect '{"tools":{"send_email":1}}' --set temperature=1 --budget 0.012`, rerun: { flags: ['--budget', '0.012'], command: null } });
     await start();
     await started({ kind: 'verify', fixId: fix.fixId, verifyId: verdict.verifyId });
     expect(spawned.at(-1)).toEqual(['verify', '--fixes', failing, '--expect', '{"tools":{"send_email":1}}', '--set', 'temperature=1']);
@@ -736,9 +737,9 @@ describe('what settles an unsettled fix', () => {
     const report = blameReport(run, 'unrescuable');
     report.gate = { ...BLAME_DEFAULTS, kind: 'sprt' };
     report.probes = [{ ...report.probes[0], decision: 'inconclusive' }];
-    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: null, command: `shadowlap blame ${run.slice(0, 10)}`, title: 'email twice', checkText: 'send_email called once' });
+    const { fix } = recordBlame(store, { runId: run, report, expect: EXPECT, scope: null, command: `shadowlap blame ${run.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'email twice', checkText: 'send_email called once' });
     const plain = makeRun(store, { labels: ['digest'] });
-    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, title: 'digest', checkText: 'exits 0' });
+    const { fix: other } = recordBlame(store, { runId: plain, report: blameReport(plain, 'unrescuable'), expect: EXPECT, scope: null, command: `shadowlap blame ${plain.slice(0, 10)}`, rerun: { flags: [], command: null }, title: 'digest', checkText: 'exits 0' });
     await start();
     await started({ kind: 'blame', fixId: fix.fixId, again: true });
     expect(spawned.at(-1)).toEqual(['blame', run, '--expect', JSON.stringify(EXPECT), '--gate', '{"good":0.4,"max":40}']);
