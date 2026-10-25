@@ -250,6 +250,58 @@ describe('a long run’s page', () => {
     expect(out.current!.run.origins).toBeUndefined();
   });
 
+  it('reads a jump into a long run and a scroll after it in a page each, none asked for twice', async () => {
+    // A server that takes its time, as one does while it works a long run out: 300 ms a page.
+    const asked: Array<{ from: number; limit: number; at: number }> = [];
+    let flying = 0;
+    let most = 0;
+    const t0 = performance.now();
+    const slow = {
+      calls: (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
+        asked.push({ from, limit, at: performance.now() - t0 });
+        most = Math.max(most, ++flying);
+        const to = Math.min(20_000, from + Math.min(limit, PAGE) - 1);
+        return new Promise((resolve) =>
+          setTimeout(() => {
+            flying--;
+            resolve({ runId: RUN, calls: range(from, to).map(call), callsTotal: 20_000, callsNext: to < 20_000 ? to + 1 : null });
+          }, 300),
+        );
+      },
+    };
+    const out: { current: ReturnType<typeof usePagedRun> | null } = { current: null };
+    function Host() {
+      out.current = usePagedRun(slow, answer(20_000, 200));
+      return null;
+    }
+    r = await render(createElement(Host));
+    // The jump: call 15,001, as a link opens it. Then a wheel scroll down from it, as the window asks
+    // for the first call not read in view at every step: 40 steps of 12 rows, 50 ms apart.
+    out.current!.paging!.need(15_001);
+    for (let i = 0; i < 40; i++) {
+      await r.wait(50);
+      const top = 15_001 + i * 12;
+      const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
+      const pendingInView = range(top, top + 30).find((n) => !shown.has(n));
+      if (pendingInView !== undefined) out.current!.paging!.need(pendingInView);
+    }
+    await r.until('the rows in view', () => {
+      const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
+      return range(15_469, 15_499).every((n) => shown.has(n));
+    });
+    // The jump's page and the one the scroll reached; no page asked for twice, none overlapping another.
+    const around = asked.filter((a) => a.from + a.limit - 1 >= 15_001 && a.from <= 15_499);
+    expect(around.map((a) => [a.from, a.limit])).toEqual([
+      [14_901, PAGE],
+      [15_401, PAGE],
+    ]);
+    const ranges = asked.map((a) => [a.from, a.from + a.limit - 1] as const).sort((x, y) => x[0] - y[0]);
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i]![0], `page ${ranges[i]![0]} after ${ranges[i - 1]![1]}`).toBeGreaterThan(ranges[i - 1]![1]);
+    expect(most).toBeLessThanOrEqual(2);
+    // The pages read in order went one at a time beside them: at most a page each 300 ms.
+    expect(asked.length).toBeLessThanOrEqual(2 + Math.ceil((performance.now() - t0) / 300));
+  });
+
   it('asks for the page of a call not read yet when its row is drawn', async () => {
     const needed: number[] = [];
     const listed = listedCalls([], 1200, null);
