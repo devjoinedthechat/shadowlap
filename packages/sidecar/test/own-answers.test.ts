@@ -19,7 +19,8 @@ import { Sidecar } from '../src/server.js';
  * a provider or host that can't be reached, or that breaks off its answer, breaks the agent's
  * connection as it would have without Shadowlap, and a replay breaks it again. A path it reads a
  * model from that does not decode costs a call nothing. Model routes never pass a redirect on.
- * Telemetry goes where the agent sent it.
+ * Telemetry goes where the agent sent it. The sidecar answers only requests that name it by a
+ * loopback address.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -428,6 +429,39 @@ describe('a redirect on a model route', () => {
       await replayed.arrayBuffer();
       sidecar.endRun(rep.runId, 'completed');
       expect(collected).toBe(0);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('the Host a request names', () => {
+  it('must be a loopback name, or the host in-process capture redirected it from: a page rebound to 127.0.0.1 gets nothing', async () => {
+    const up = await provider();
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: up.url } });
+    const port = new URL(sidecar.url).port;
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      const health = (host?: string) => ask(`${sidecar.url}/v1/health`, { method: 'GET', headers: host ? { host } : {} });
+      expect((await health()).status).toBe(200);
+      expect((await health(`localhost:${port}`)).status).toBe(200);
+      expect((await health(`[::1]:${port}`)).status).toBe(200);
+      const rebound = await health(`attacker.example:${port}`);
+      expect(rebound.status).toBe(403);
+      expect(JSON.parse(rebound.body!).error.message).toMatch(/loopback address only, not to attacker\.example/);
+
+      // Python's httpx keeps the Host of the host it was going to when capture redirects it here.
+      const viaCapture = (host: string, upstream: string) => messages(sidecar, run.runId, params, { ...anthropicHeaders, host, 'x-shadowlap-upstream': upstream });
+      expect((await viaCapture('api.anthropic.com', 'https://api.anthropic.com')).status).toBe(200);
+      expect((await viaCapture('attacker.example', 'https://attacker.example')).status).toBe(403);
+      expect((await viaCapture('attacker.example', 'https://api.anthropic.com')).status).toBe(403);
+      // A WebSocket handshake too.
+      const ws = await ask(`${sidecar.envFor(run.runId).OPENAI_BASE_URL}/realtime`, { method: 'GET', headers: { host: `attacker.example:${port}`, connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==' } });
+      expect(ws.status).toBe(403);
+      sidecar.endRun(run.runId, 'completed');
+      expect(up.seen).toEqual(['POST /v1/messages']);
     } finally {
       await sidecar.close();
       store.close();

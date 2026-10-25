@@ -523,9 +523,12 @@ export class Sidecar {
    * it and the store may close as soon as close() returns.
    */
   private closed = false;
+  /** The address the server listens on, lower case and without brackets, which a request may name in its Host as a loopback name would be. */
+  private readonly listening: string;
 
   private constructor(opts: SidecarOptions, server: Server, url: string, token: string, http2Server: Http2Server, http2Url: string) {
     this.store = opts.store;
+    this.listening = bareHost(opts.host ?? '127.0.0.1');
     this.server = server;
     this.http2Server = http2Server;
     this.http2Url = http2Url;
@@ -937,7 +940,39 @@ export class Sidecar {
     return { url, rest, pinned };
   }
 
+  /**
+   * DNS rebinding: a page in a browser on some other name that resolves to 127.0.0.1 must get
+   * nothing here, token or no token, as the dashboard refuses it. A browser names the host it thinks
+   * it reaches in `Host` and can't change it, so a request must name this server by a loopback name
+   * or address, or be one in-process capture redirected here: that keeps the Host of the host it was
+   * for (Python's httpx does) and names the same host in `x-shadowlap-upstream`, which must be a host
+   * this sidecar captures (a provider's, a declared format host or HTTP host). A request without a
+   * Host is no browser's, and HTTP/2 here is cleartext, which no browser speaks (AWS clients'
+   * capture uses it).
+   */
+  private refuseForeignHost(req: IncomingMessage): void {
+    if (req.httpVersionMajor >= 2) return;
+    const raw = req.headers.host;
+    if (raw === undefined) return;
+    let named: string;
+    try {
+      named = bareHost(new URL(`http://${raw}`).hostname);
+    } catch {
+      throw new HttpError(403, 'shadowlap answers requests to its loopback address only');
+    }
+    if (named === 'localhost' || named === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(named) || named === this.listening) return;
+    let upstream: URL | null = null;
+    try {
+      upstream = new URL(headerValue(req, 'x-shadowlap-upstream') ?? '');
+    } catch {
+      // names no host it was redirected from
+    }
+    const captured = upstream !== null && bareHost(upstream.hostname) === named && (matchHttpRule(this.httpRules, upstream) !== undefined || [...this.byId.values()].some((p) => p.accepts?.(upstream) ?? p.hosts.test(upstream.hostname)));
+    if (!captured) throw new HttpError(403, `shadowlap answers requests to its loopback address only, not to ${named}`);
+  }
+
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    this.refuseForeignHost(req);
     const { url, rest, pinned } = this.routeOf(req.url);
     const head = rest.split('/', 1)[0] ?? '';
 
@@ -962,6 +997,7 @@ export class Sidecar {
   private upgrade(req: IncomingMessage, socket: Duplex, early: Buffer): void {
     socket.on('error', () => {});
     try {
+      this.refuseForeignHost(req);
       const { url, rest, pinned } = this.routeOf(req.url);
       const head = rest.split('/', 1)[0] ?? '';
       const provider = head ? this.providers.get(head) : undefined;
@@ -2593,6 +2629,11 @@ function storedOrigin(kind: CallKind, decision: Decision): Origin {
   // Overrides apply to tool results; a model call matched under one is a plain replay.
   if (decision.origin === 'overridden' && kind === 'api') return 'replayed';
   return decision.origin;
+}
+
+/** A host name as a Host header or a URL names it, lower case and without an IPv6 address's brackets. */
+function bareHost(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
 }
 
 /** A path segment decoded, or as it is when it doesn't decode. */
