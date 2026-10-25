@@ -653,7 +653,8 @@ table.ctab tr.miss td { color: var(--warn); }
 .paths h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font: 500 10.5px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .pcall { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); font: 12.5px var(--mono); }
 .pcall .pn { color: var(--faint); text-align: right; }
-.pcall.same { opacity: .45; }
+/* A call the other run also made at the same place, dimmed in the faint ink, which keeps AA's contrast: never by fading it. */
+.pcall.same, .pcall.same * { color: var(--faint); }
 
 /* ============ fix loop ============ */
 .proposed { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 18px; border-radius: 12px; border: 1px dashed var(--line2); color: var(--faint); font-size: 12.5px; }

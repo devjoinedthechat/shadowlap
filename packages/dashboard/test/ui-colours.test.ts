@@ -65,6 +65,11 @@ describe('what each colour may mean', () => {
     expect(value('.fdiff b.w', 'color')).toBe('var(--k-write)');
   });
 
+  it('dims what Compare shows the same in the faint ink, which keeps AA’s contrast, never by fading it', () => {
+    expect(value('.pcall.same', 'color')).toBe('var(--faint)');
+    expect(value('.pcall.same', 'opacity')).toBeNull();
+  });
+
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
