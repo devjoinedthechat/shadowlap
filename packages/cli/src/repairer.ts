@@ -29,12 +29,21 @@ export const DEFAULT_ANTHROPIC_REPAIRER = 'claude-opus-5-5';
  * `anthropic`, `anthropic:claude-fable-5-1`, `openai:gpt-6-astra`, `claude-code` or
  * `claude-code:claude-opus-5-5`. Plain `claude-code` leaves the model to Claude Code's own setting.
  */
+/**
+ * A model name as a provider writes one: `claude-opus-5-5`, `gpt-6-astra`,
+ * `us.anthropic.claude-opus-4-5:0`, `models/gemini-2.5-pro`, `openai/gpt-4o`. It never starts like a
+ * flag and holds no space, quote, backslash or shell metacharacter, so it can't turn into a flag or
+ * a command when it reaches `claude --model`, a batch file's arguments on Windows, or an HTTP body.
+ */
+const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,199}$/;
+
 export function parseRepairer(spec: string): Repairer {
   const m = /^(anthropic|openai|claude-code)(?::(.+))?$/.exec(spec.trim());
   if (!m) throw new Error(`a repairer is provider:model, such as anthropic:${DEFAULT_ANTHROPIC_REPAIRER}, openai:<model> or claude-code, got "${spec}"`);
   const provider = m[1] as Repairer['provider'];
   const model = m[2]?.trim();
   if (!model && provider === 'openai') throw new Error('an openai repairer needs a model: openai:<model>');
+  if (model && !MODEL.test(model)) throw new Error(`a repairer's model is a model name, such as ${DEFAULT_ANTHROPIC_REPAIRER}, got "${model}"`);
   return { provider, model: model || (provider === 'anthropic' ? DEFAULT_ANTHROPIC_REPAIRER : '') };
 }
 
@@ -248,13 +257,45 @@ export async function askRepairer(r: Repairer, prompt: { system: string; user: s
 const CLAUDE_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_MESSAGING_SOCKET', 'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_CODE_BRIDGE_SESSION_ID', 'CLAUDE_CODE_REMOTE_SESSION_ID', 'CLAUDE_PID', 'CLAUDE_AGENT_SDK_VERSION'];
 
 /**
- * How Claude Code is started for a repair: print mode, no tools, the answer held to the schema, and
- * the system prompt read from `systemFile`. The prompt itself goes on stdin. Neither holds a line
- * break on the command line, which on Windows an npm-installed `claude` (a batch file, run through
- * cmd.exe) could not carry.
+ * How Claude Code is started for a repair, where the only input is injectable content (a recorded
+ * agent's prompts and tool output): print mode, no tools of any kind, no MCP server, no hook, no
+ * project or user settings, and the answer held to the schema. The system prompt is read from
+ * `systemFile`, replacing the default, so no CLAUDE.md reaches it. The prompt itself goes on stdin.
+ *
+ * - `--tools ''` removes every built-in tool, and `--disallowed-tools mcp__*` every MCP tool, so a
+ *   candidate the model proposes is text and nothing it says runs a command or reads a file.
+ * - `--strict-mcp-config` with no `--mcp-config` loads no MCP server, so none a project's `.mcp.json`
+ *   or the user's config names connects.
+ * - `--setting-sources ''` loads no user, project or local settings, so a hook, a permission rule or
+ *   a plugin one of them carries never runs on this content (checked against https://code.claude.com/docs:
+ *   settings and CLAUDE.md arrive through those sources, and an empty list is how to load none).
+ *   Managed policy settings, set by an administrator rather than by this content, still apply, and
+ *   the user's own sign-in (an API key or an OAuth login, read from the environment or the keychain,
+ *   not from settings) is untouched, so the repair is still billed to the account they chose.
+ *
+ * Neither flag holds a line break on the command line, which on Windows an npm-installed `claude` (a
+ * batch file, run through cmd.exe) could not carry.
  */
 export function claudeCodeArgs(systemFile: string, model: string | null): string[] {
-  return ['-p', '--output-format', 'json', '--tools', '', '--max-turns', '2', '--system-prompt-file', systemFile, '--json-schema', JSON.stringify(SCHEMA), ...(model ? ['--model', model] : [])];
+  return [
+    '-p',
+    '--output-format',
+    'json',
+    '--tools',
+    '',
+    '--disallowed-tools',
+    'mcp__*',
+    '--strict-mcp-config',
+    '--setting-sources',
+    '',
+    '--max-turns',
+    '2',
+    '--system-prompt-file',
+    systemFile,
+    '--json-schema',
+    JSON.stringify(SCHEMA),
+    ...(model ? ['--model', model] : []),
+  ];
 }
 
 /**
