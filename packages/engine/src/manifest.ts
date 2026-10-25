@@ -1,4 +1,5 @@
 import { setOwn } from './canonical.js';
+import { parseJsonExact } from './json-exact.js';
 import type { Store } from './store.js';
 
 /**
@@ -141,35 +142,57 @@ function checkedList(m: Record<string, unknown>, ref: string): ListManifest {
   return m as unknown as ListManifest;
 }
 
-/** Reconstructs the request body stored under a manifest hash. */
-export function loadApiRequest(store: Store, manifestRef: string): unknown {
+/**
+ * Reconstructs the request body stored under a manifest hash. `exact` reads each number as it was
+ * stored (parseJsonExact), an id past 2^53 by its digits: for fingerprinting it, and for sending it
+ * again; without it, every number is the double JSON.parse reads.
+ */
+export function loadApiRequest(store: Store, manifestRef: string, opts: { exact?: boolean } = {}): unknown {
   const manifest = store.getJson<RequestManifest>(manifestRef);
   if (!manifest) throw new Error(`missing request manifest ${manifestRef}`);
+  const json = (hash: string): unknown => {
+    if (!opts.exact) return store.getJson(hash);
+    const bytes = store.getBlob(hash);
+    return bytes === null ? null : parseJsonExact(bytes.toString('utf8'));
+  };
   if (manifest.v === 2) {
     const m = checkedList(manifest as unknown as Record<string, unknown>, manifestRef);
     const body: Record<string, unknown> = { ...m.fields };
-    for (const [name, hash] of Object.entries(m.parts)) setOwn(body, name, required(store, hash));
-    setOwn(body, m.list, m.runs.flatMap((run) => runItems(store, run)).map((h) => required(store, h)));
-    return body;
+    for (const [name, hash] of Object.entries(m.parts)) setOwn(body, name, required(store, hash, json));
+    setOwn(body, m.list, m.runs.flatMap((run) => runItems(store, run)).map((h) => required(store, h, json)));
+    return opts.exact ? exactFields(store, manifestRef, body, m.list, Object.keys(m.parts)) : body;
   }
   if (manifest.v !== 1) throw new Error(`request manifest ${manifestRef} is version ${JSON.stringify((manifest as { v?: unknown }).v)}, which this Shadowlap doesn't read`);
   if (manifest.kind === 'whole') {
     const bytes = store.getBlob(manifest.blob);
     if (!bytes) throw new Error(`missing blob ${manifest.blob}`);
-    if (manifest.encoding === 'json') return JSON.parse(bytes.toString('utf8'));
+    if (manifest.encoding === 'json') return opts.exact ? parseJsonExact(bytes.toString('utf8')) : JSON.parse(bytes.toString('utf8'));
     if (manifest.encoding === 'utf8') return bytes.toString('utf8');
     return bytes;
   }
   const body: Record<string, unknown> = { ...manifest.fields };
-  if (manifest.system !== null) body.system = store.getJson(manifest.system);
-  if (manifest.tools !== null) body.tools = store.getJson(manifest.tools);
-  body.messages = manifest.messages.map((h) => store.getJson(h));
-  return body;
+  if (manifest.system !== null) body.system = json(manifest.system);
+  if (manifest.tools !== null) body.tools = json(manifest.tools);
+  body.messages = manifest.messages.map((h) => json(h));
+  return opts.exact ? exactFields(store, manifestRef, body, 'messages', ['system', 'tools']) : body;
+}
+
+/**
+ * A request read exactly, its other fields (`model`, `max_tokens`, a seed) read from the manifest's
+ * own text as written too: the manifest holds them inline, and getJson read them as doubles.
+ */
+function exactFields(store: Store, manifestRef: string, body: Record<string, unknown>, list: string, parts: readonly string[]): Record<string, unknown> {
+  const text = store.getBlob(manifestRef)?.toString('utf8');
+  const manifest = text ? (parseJsonExact(text) as { fields?: unknown }) : null;
+  if (!manifest || typeof manifest.fields !== 'object' || manifest.fields === null) return body;
+  const out: Record<string, unknown> = { ...(manifest.fields as Record<string, unknown>) };
+  for (const name of [...parts, list]) if (Object.hasOwn(body, name)) setOwn(out, name, body[name]);
+  return out;
 }
 
 /** A part of a version 2 request: its blob must be there, as a pack's reader checks every blob a manifest names. */
-function required(store: Store, hash: string): unknown {
-  const value = store.getJson(hash);
+function required(store: Store, hash: string, json: (hash: string) => unknown = (h) => store.getJson(h)): unknown {
+  const value = json(hash);
   if (value === null && !store.getBlob(hash)) throw new Error(`missing blob ${hash}`);
   return value;
 }

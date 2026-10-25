@@ -33,8 +33,10 @@ export type FingerprintRules =
       withoutPrompt: boolean;
       /** The call's query string as it keeps it: part of the key, so a version that matches on it never reuses an entry made without. */
       query: string | null;
+      /** How the request's numbers are read: as stored, or rounded for a recording made before requests kept them. */
+      numbers: 'exact' | 'rounded';
     }
-  | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string; query: string | null }
+  | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string; query: string | null; numbers: 'exact' | 'rounded' }
   | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean };
 
 /** A list of rules as a key names it. */

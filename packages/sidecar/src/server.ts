@@ -25,6 +25,7 @@ import {
   storedModelResolver,
   summarizeRun,
   toolFailureError,
+  apiNumbers,
   queryPairs,
   ulidNow,
   unmaskedHints,
@@ -288,6 +289,11 @@ class RunContext {
      * and kept, without its query.
      */
     readonly unqueried: ReadonlySet<string> = new Set(),
+    /**
+     * Whether a model request's numbers are read rounded, as JSON.parse reads them: so the parent,
+     * recorded before requests kept their numbers (RunMeta.exactNumbers), is matched as it was stored.
+     */
+    readonly roundedNumbers = false,
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -373,6 +379,19 @@ class ClientWatch {
   }
 }
 
+/**
+ * The rules a run's model calls are fingerprinted under, live and from their records: its
+ * normalizers, the times dates are masked against, whether prompts are left out (`--prompt-from`),
+ * and whether a request's numbers are read rounded, as a recording made before requests kept their
+ * numbers stored them (RunMeta.exactNumbers).
+ */
+interface MatchingRules {
+  normalizers: Normalizer[];
+  clockRef: readonly number[] | undefined;
+  withoutPrompt: boolean;
+  roundedNumbers: boolean;
+}
+
 /** A model call as the agent sent it: its run and provider, and its request as interventions leave it. */
 interface ModelCall {
   ctx: RunContext;
@@ -391,7 +410,14 @@ interface ModelCall {
   search: string;
   headers: Record<string, string>;
   rawBody: Buffer;
+  /** The body as JSON.parse reads it: for what reads its members (interventions, the provider's state, its model). */
   body: unknown;
+  /**
+   * The body as it is stored and fingerprinted, each number as the agent wrote it (parseJsonExact), so
+   * an id past 2^53 is kept and matched by its digits; once an intervention rewrote the request, the
+   * rewritten body, which is what was sent.
+   */
+  exact: unknown;
   retryCount: number;
   /** Whether a request identical to one that failed retryably is its retry: its client counts retries and this is one, or it counts none. */
   retrying: boolean;
@@ -713,6 +739,8 @@ export class Sidecar {
     let redactions: Normalizer[] = [];
     // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
     let ownCommand: string[] | undefined;
+    // A parent made before requests kept their numbers stored them rounded: matched so.
+    let roundedNumbers = false;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
       const parent = this.store.getRun(input.parentRunId);
@@ -725,6 +753,7 @@ export class Sidecar {
         normalizers = [...normalizers, ...redactions];
       }
       const stored = this.store.getCalls(input.parentRunId);
+      roundedNumbers = parent.meta?.exactNumbers !== true;
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
       parentRecordsInput = parent.meta?.inputs === true;
@@ -734,17 +763,18 @@ export class Sidecar {
       }
       // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
       // is new, so the parent's stored fingerprints (made against its own start) never apply.
-      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined)) {
+      const withoutPrompt = input.replay?.promptFrom !== undefined;
+      if (this.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, this.clock, withoutPrompt, roundedNumbers)) {
         // A captured HTTP call is matched with the credentials in its query or form body masked, which
         // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
         // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
         const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
         const some = stored.some(again);
-        parentCalls = some ? this.refingerprint(stored, normalizers, undefined, input.replay?.promptFrom !== undefined, redactions, again).calls : stored;
+        parentCalls = some ? this.refingerprint(stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, redactions }, again).calls : stored;
         this.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
       } else {
         // Most come from the cache (fingerprint-cache.ts), which the recording filled.
-        const { calls, cached } = this.refingerprint(stored, normalizers, this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, input.replay?.promptFrom !== undefined, redactions);
+        const { calls, cached } = this.refingerprint(stored, { normalizers, clockRef: this.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, redactions });
         parentCalls = calls;
         this.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers (${cached} from the cache)`);
       }
@@ -761,7 +791,9 @@ export class Sidecar {
     const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand, input.overrideSources) : null;
     const meta: RunMeta = {
       ...(input.meta ?? {}),
-      normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined),
+      normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined, roundedNumbers),
+      // Its model requests are stored with each number as the agent sent it.
+      exactNumbers: true,
       ...(input.commandFromImport ? { commandFromImport: true } : {}),
       ...(described ? { interventions: described } : {}),
     };
@@ -781,7 +813,7 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined);
+    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined, roundedNumbers);
     this.writer.write({
       what: `run ${run.runId}'s start`,
       of: { runId: run.runId, part: 'run' },
@@ -795,14 +827,14 @@ export class Sidecar {
     if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
       const recorded = parentCalls;
       ctx.responses = new ResponsesState(recorded, {
-        request: (rec) => this.loadRequest(rec),
+        request: (rec) => this.sentRequest(rec),
         response: (rec) => ({ bytes: rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
       });
     }
     // A fork's live call may name a Gemini cache the recording made, or a file it uploaded: read when one does.
     if (parentCalls && ProviderState.applies(parentCalls)) {
       ctx.providerState = new ProviderState(parentCalls, {
-        request: (rec) => this.loadRequest(rec),
+        request: (rec) => this.sentRequest(rec),
         response: (rec) => (rec.end?.responseRef ? this.store.getBlob(rec.end.responseRef) : null),
       });
     }
@@ -830,9 +862,10 @@ export class Sidecar {
     const redactions = parent?.meta?.redactions ?? [];
     const normalizers = redactions.length ? [...this.normalizers, ...redactions] : this.normalizers;
     const clockRef = this.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
-    const recorded = parent ? this.refingerprint(this.store.getCalls(parent.runId).filter(isJudgeCall), normalizers, clockRef, false, redactions).calls : [];
+    const roundedNumbers = parent !== null && parent.meta?.exactNumbers !== true;
+    const recorded = parent ? this.refingerprint(this.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, redactions }).calls : [];
     const session = new Session({ mode: parent ? 'replay' : 'record', parentRunId: parent?.runId ?? null, parentCalls: recorded });
-    const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions);
+    const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions, undefined, undefined, roundedNumbers);
     ctx.nextCallNo = this.store.getCalls(runId).reduce((n, c) => Math.max(n, c.callNo), 0) + 1;
     ctx.judgeOnly = { from: ctx.nextCallNo };
     this.runs.set(runId, ctx);
@@ -1325,18 +1358,22 @@ export class Sidecar {
     if (!judge) ctx.providersUsed.add(provider.format && !hostedProviders.includes(provider) ? provider.format : provider.id);
     const headers = lowerHeaders(req.headers);
     let body: unknown;
-    if (rawBody.length === 0) body = null;
+    let exact: unknown;
+    if (rawBody.length === 0) body = exact = null;
     else {
+      const text = rawBody.toString('utf8');
       try {
-        body = JSON.parse(rawBody.toString('utf8'));
+        const kept = { raw: false };
+        exact = parseJsonExact(text, kept);
+        body = kept.raw ? JSON.parse(text) : exact;
       } catch {
-        body = rawBody.toString('base64');
+        body = exact = rawBody.toString('base64');
       }
     }
     const retryHeader = provider.retryCountHeader ? headers[provider.retryCountHeader] : undefined;
     const retryCount = retryHeader === undefined ? 0 : Number.parseInt(retryHeader, 10) || 0;
     const method = (req.method ?? 'GET').toUpperCase();
-    return { ctx, req, res, client, provider, scope, judge, requested, method, sent, path: sent, search, headers, rawBody, body, retryCount, retrying: retryCount > 0 || retryHeader === undefined };
+    return { ctx, req, res, client, provider, scope, judge, requested, method, sent, path: sent, search, headers, rawBody, body, exact, retryCount, retrying: retryCount > 0 || retryHeader === undefined };
   }
 
   /**
@@ -1376,7 +1413,7 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
     const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: call.body, headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
     const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
@@ -1396,7 +1433,7 @@ export class Sidecar {
   private rewriteForInterventions(call: ModelCall): Rewritten {
     const { ctx, provider, scope } = call;
     if (!ctx.interventions?.active || call.judge) return {};
-    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.body, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
+    const retryKey = `sent\n${scope ?? ''}\n${this.apiFingerprint(ctx, provider, { method: call.method, path: call.sent, headers: matchedHeaders(provider, call.headers), body: call.exact, query: identityQuery(call.search, ctx.redactions, apiCallName(call.method, call.sent)) })}`;
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
@@ -1411,6 +1448,7 @@ export class Sidecar {
     if (rewrite.changed) {
       call.path = rewrite.path;
       call.body = rewrite.body;
+      call.exact = rewrite.body;
       call.rawBody = Buffer.from(JSON.stringify(call.body), 'utf8');
       // AWS signs a request's exact path and body: the changed one is signed again, or refused. One
       // signed with placeholder credentials is never sent, so forwardLive refuses it as it is.
@@ -1446,8 +1484,8 @@ export class Sidecar {
     const unqueried = !judge && ctx.unqueried.has(provider.id);
     // Read as the recording's copy keeps its query: a parameter a redaction rule masked there is masked here too.
     const query = unqueried ? '' : identityQuery(call.search, ctx.redactions, name);
-    const request = { method: call.method, path: call.path, headers: asked, body: call.body, query };
-    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath).fingerprint : this.apiFingerprint(ctx, provider, request);
+    const request = { method: call.method, path: call.path, headers: asked, body: call.exact, query };
+    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath, ctx.roundedNumbers).fingerprint : this.apiFingerprint(ctx, provider, request);
     return { name, matchName, kept, asked, fingerprint, query, unqueried };
   }
 
@@ -1455,13 +1493,13 @@ export class Sidecar {
    * A model request's fingerprint under a run's matching rules: the one place an agent's model call
    * is fingerprinted, as it arrives and from its record (refingerprint).
    */
-  private apiFingerprint(rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }): string {
-    return fingerprintApi(req, rules.normalizers, provider.fingerprintHeaders, rules.clockRef, { withoutPrompt: rules.withoutPrompt, matchPath: provider.matchPath?.(req.path) }).fingerprint;
+  private apiFingerprint(rules: MatchingRules, provider: Provider, req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }): string {
+    return fingerprintApi(req, rules.normalizers, provider.fingerprintHeaders, rules.clockRef, { withoutPrompt: rules.withoutPrompt, matchPath: provider.matchPath?.(req.path), roundNumbers: rules.roundedNumbers }).fingerprint;
   }
 
   /** How a model call is fingerprinted, besides its request, as its fingerprint cache key names it. */
-  private modelRules(rules: { ids: { normalizers: string; judge: string }; clockRef: readonly number[] | undefined; withoutPrompt: boolean }, provider: Provider, method: string, path: string, headers: Readonly<Record<string, string>>, query: string | undefined, judge: boolean): FingerprintRules {
-    const shared = { method, path, matchPath: provider.matchPath?.(path) ?? null, headers: allowedHeaders(headers, provider.fingerprintHeaders), allow: provider.fingerprintHeaders };
+  private modelRules(rules: Pick<MatchingRules, 'clockRef' | 'withoutPrompt' | 'roundedNumbers'> & { ids: { normalizers: string; judge: string } }, provider: Provider, method: string, path: string, headers: Readonly<Record<string, string>>, query: string | undefined, judge: boolean): FingerprintRules {
+    const shared = { method, path, matchPath: provider.matchPath?.(path) ?? null, headers: allowedHeaders(headers, provider.fingerprintHeaders), allow: provider.fingerprintHeaders, numbers: rules.roundedNumbers ? ('rounded' as const) : ('exact' as const) };
     return judge ? { kind: 'judge', ...shared, rules: rules.ids.judge, query: query ?? null } : { kind: 'api', ...shared, normalizers: rules.ids.normalizers, clock: rules.clockRef !== undefined, withoutPrompt: rules.withoutPrompt, query: query ?? null };
   }
 
@@ -1470,7 +1508,7 @@ export class Sidecar {
    * replay to start from, with the dates the request holds (fingerprint-cache.ts).
    */
   private recordModelStart(call: ModelCall, callNo: number, tracked: TrackedCall, kept: Record<string, string>, asked: Record<string, string>, unqueried: boolean): void {
-    const { ctx, provider, scope, judge, body } = call;
+    const { ctx, provider, scope, judge, exact: body } = call;
     // The query too, credentials left out: asking the call again (shadowlap decisions) sends it as the
     // agent did, and it is part of the call's identity. Kept empty when there is none, so a replay
     // tells a call that had none from one recorded before calls kept it; not kept when it was matched
@@ -1492,13 +1530,13 @@ export class Sidecar {
       instead: () => start(null),
       failed: (reason, replaced) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
     });
-    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt }, provider, call.method, call.path, asked, query, judge !== null);
+    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt, roundedNumbers: ctx.roundedNumbers }, provider, call.method, call.path, asked, query, judge !== null);
     this.writer.write({
       what: `call ${callNo}'s fingerprint`,
       optional: true,
       run: () => {
         if (requestRef === null) return;
-        const marks = judge ? [] : clockMarks([multipartView(body), ...queryValues(query), ...Object.values(asked)], ctx.clockRef);
+        const marks = judge ? [] : clockMarks([multipartView(apiNumbers(body, ctx.roundedNumbers)), ...queryValues(query), ...Object.values(asked)], ctx.clockRef);
         this.store.cacheFingerprints([{ key: fingerprintKey(rules, requestRef), requestRef, fingerprint: tracked.identity.fingerprint, clock: encodeMarks(marks) }]);
       },
     });
@@ -1547,7 +1585,8 @@ export class Sidecar {
     const { ctx, res, provider, judge } = call;
     const { callNo, tracked } = placed;
     if (judge || ctx.offline) return false;
-    let body = call.body;
+    // From the request as the agent wrote it, so what is sent in its place keeps each of its numbers.
+    let body = call.exact;
     const instead: string[] = [];
     const continued = ctx.responses && isResponsesCreate(call.method, call.path, recordedId(provider)) ? ctx.responses.continuation(body) : null;
     if (continued && 'refuse' in continued) {
@@ -2474,9 +2513,14 @@ export class Sidecar {
     return apiCallName(method, provider.matchPath(pathParts.join(' ')));
   }
 
+  /** A recorded model call's request as it was sent, each number as written: what a rebuild sends again. */
+  private sentRequest(rec: CallRecord): unknown {
+    return rec.requestRef ? loadApiRequest(this.store, rec.requestRef, { exact: true }) : undefined;
+  }
+
   private loadRequest(rec: CallRecord): unknown {
     if (!rec.requestRef) return undefined;
-    if (rec.kind === 'api') return loadApiRequest(this.store, rec.requestRef);
+    if (rec.kind === 'api') return reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
     const req = reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;
     // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
@@ -2536,8 +2580,9 @@ export class Sidecar {
    * can't answer under these rules and dates is fingerprinted here, and kept in the cache for the
    * next replay. `cached` counts those the cache answered.
    */
-  private refingerprint(calls: CallRecord[], normalizers: Normalizer[], clockRef: readonly number[] | undefined, withoutPromptMask = false, redactions: Normalizer[] = [], only?: (rec: CallRecord) => boolean): { calls: CallRecord[]; cached: number } {
-    const rules = { normalizers, clockRef, withoutPrompt: withoutPromptMask, redactions, ids: { normalizers: rulesId(normalizers), judge: rulesId(judgeRules(redactions)) } };
+  private refingerprint(calls: CallRecord[], matching: MatchingRules & { redactions: Normalizer[] }, only?: (rec: CallRecord) => boolean): { calls: CallRecord[]; cached: number } {
+    const { clockRef } = matching;
+    const rules = { ...matching, ids: { normalizers: rulesId(matching.normalizers), judge: rulesId(judgeRules(matching.redactions)) } };
     // A clock or random read's request, its label, by its ref: the SDKs' unlabelled reads all share one.
     const labels = new Map<string, unknown>();
     const plans = calls.map((rec) => (only && !only(rec) ? null : this.fingerprintPlan(rec, rules, labels)));
@@ -2580,7 +2625,7 @@ export class Sidecar {
    * before reads were named holds fingerprints without the name). Null to keep its stored
    * fingerprint (a call whose request or provider is unknown).
    */
-  private fingerprintPlan(rec: CallRecord, rules: { normalizers: Normalizer[]; clockRef: readonly number[] | undefined; withoutPrompt: boolean; redactions: Normalizer[]; ids: { normalizers: string; judge: string } }, labels: Map<string, unknown>): { key: string | null; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
+  private fingerprintPlan(rec: CallRecord, rules: MatchingRules & { redactions: Normalizer[]; ids: { normalizers: string; judge: string } }, labels: Map<string, unknown>): { key: string | null; requestRef: string; compute: () => { fingerprint: string; marks: ClockMark[] } } | null {
     const ref = rec.requestRef;
     if (!ref) return null;
     if (rec.kind === 'clock' || rec.kind === 'random') {
@@ -2613,9 +2658,10 @@ export class Sidecar {
         requestRef: ref,
         compute: () => {
           // From the query it kept: none for a call recorded before calls kept one.
-          const request = { method, path, headers, body: loadApiRequest(this.store, ref), query: storedQuery(rec, rules.redactions) };
-          if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path)).fingerprint, marks: [] };
-          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(request.body), ...queryValues(query), ...Object.values(headers)], rules.clockRef) };
+          // Its numbers as they were stored, read as the live call's are (MatchingRules.roundedNumbers).
+          const request = { method, path, headers, body: loadApiRequest(this.store, ref, { exact: true }), query: storedQuery(rec, rules.redactions) };
+          if (judge) return { fingerprint: judgeFingerprint(request, rules.redactions, provider, provider.matchPath?.(path), rules.roundedNumbers).fingerprint, marks: [] };
+          return { fingerprint: this.apiFingerprint(rules, provider, request), marks: clockMarks([multipartView(apiNumbers(request.body, rules.roundedNumbers)), ...queryValues(query), ...Object.values(headers)], rules.clockRef) };
         },
       };
     }
@@ -2829,8 +2875,8 @@ function withoutHeader(headers: Readonly<Record<string, string>>, name: string):
  * judge's request (judgeRules), apply as a copy applied them, so a pack's masked request still
  * matches the one a replay sends. Nothing is matched fuzzily because of a judge.
  */
-function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined): { fingerprint: string } {
-  return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath });
+function judgeFingerprint(req: { method: string; path: string; headers: Record<string, string>; body: unknown; query?: string }, redactions: readonly Normalizer[], provider: Provider, matchPath: string | undefined, roundNumbers = false): { fingerprint: string } {
+  return fingerprintApi(req, judgeRules(redactions), provider.fingerprintHeaders, undefined, { matchPath, roundNumbers });
 }
 
 function headerValue(req: IncomingMessage, name: string): string | undefined {

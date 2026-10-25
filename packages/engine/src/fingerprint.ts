@@ -1,6 +1,6 @@
 import { canonicalize } from './canonical.js';
 import { maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
-import { matchable } from './json-exact.js';
+import { asParsed, matchable } from './json-exact.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
@@ -134,8 +134,11 @@ export interface Fingerprinted {
  * its start and its recording's, which both sides of a match must use; undefined matches them exactly.
  * `opts.matchPath`: the path as it identifies the call, when the provider leaves something out of it
  * (a Vertex AI path without its project and location); normalizers still find the call by its name.
+ * The body's numbers count as they were sent, read with parseJsonExact (an integer past 2^53 by its
+ * exact digits, so two ids that round alike are two requests), or with `opts.roundNumbers` as the
+ * doubles JSON.parse reads: how a recording made before requests kept their numbers stored them.
  */
-export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean; matchPath?: string | undefined } = {}): Fingerprinted {
+export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], allowHeaders: readonly string[], clock?: ClockReference, opts: { withoutPrompt?: boolean; matchPath?: string | undefined; roundNumbers?: boolean } = {}): Fingerprinted {
   const name = apiCallName(req.method, req.path);
   const headers: Record<string, string> = {};
   for (const h of allowHeaders) {
@@ -143,13 +146,22 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
     if (v !== undefined) headers[h.toLowerCase()] = v;
   }
   // A form's parts, not its bytes: its client picks a new boundary for every request.
-  const view = multipartView(req.body);
+  const view = multipartView(apiNumbers(req.body, opts.roundNumbers === true));
   const stripped = maskClaudeCodeSession(stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS));
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
   // Left out when there is none, so a call without a query keeps the fingerprint it always had.
   const query = queryIdentity(req.query, normalizers, name, clock);
   const canonical = canonicalize({ kind: 'api', method: req.method.toUpperCase(), path: opts.matchPath ?? req.path, headers, body, ...(query.length ? { query } : {}) });
   return { fingerprint: sha256(canonical), canonical };
+}
+
+/**
+ * A model request's body as its fingerprint reads its numbers: an integer past 2^53 by its digits,
+ * any other number as the double it reads as (`20.0` is `20`); or, `rounded`, every one as the double
+ * JSON.parse reads. What the sidecar reads a request's dates from, as its fingerprint masks them.
+ */
+export function apiNumbers(body: unknown, rounded = false): unknown {
+  return rounded ? asParsed(body) : matchable(body);
 }
 
 /** `args` may hold numbers kept as written (json-exact.ts): an integer past 2^53 matches by its exact digits. */
@@ -171,10 +183,15 @@ export function fingerprintMisc(kind: Exclude<CallKind, 'api' | 'tool'>, name: s
   return { fingerprint: sha256(canonical), canonical };
 }
 
-/** Identifies the fingerprinting a run's stored fingerprints are valid under: the algorithm version, the exact normalizer list and the clock mode. */
-export function normalizersHash(normalizers: Normalizer[], clock: ClockMode = 'exact', withoutPromptMask = false): string {
+/**
+ * Identifies the fingerprinting a run's stored fingerprints are valid under: the algorithm version,
+ * the exact normalizer list, the clock mode, and whether model requests' numbers were read rounded
+ * (as a replay of a recording made before requests kept them reads them).
+ */
+export function normalizersHash(normalizers: Normalizer[], clock: ClockMode = 'exact', withoutPromptMask = false, roundedNumbers = false): string {
   const basis: Record<string, unknown> = { v: FINGERPRINT_VERSION, normalizers };
   if (clock !== 'exact') basis.clock = clock;
   if (withoutPromptMask) basis.prompt = 'masked';
+  if (roundedNumbers) basis.numbers = 'rounded';
   return sha256(Buffer.from(canonicalize(basis), 'utf8'));
 }

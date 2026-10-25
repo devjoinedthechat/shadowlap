@@ -1,4 +1,4 @@
-import { multipartContents, type CallRecord } from '@shadowlap/engine';
+import { isRawNumber, multipartContents, type CallRecord } from '@shadowlap/engine';
 
 /**
  * What a recording left on a provider's side, besides a Responses conversation (responses-state.ts),
@@ -261,7 +261,8 @@ function fileRef(format: string, node: Json): FileRef | null {
 function mapObjects(value: unknown, f: (node: Json) => Json): Json {
   const walk = (v: unknown): unknown => {
     if (Array.isArray(v)) return v.map(walk);
-    if (!isObject(v)) return v;
+    // A number kept as written (parseJsonExact) goes as it is.
+    if (!isObject(v) || isRawNumber(v)) return v;
     const node = f(v);
     if (node !== v) return node;
     const out: Json = {};
