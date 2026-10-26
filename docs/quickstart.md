@@ -39,6 +39,7 @@ the demo says so. It takes about half a minute, and needs git.
             from one of 10+ points at <= 5% risk
 …
 ✓ Done in 31 s, 929 requests to the scripted model, none to a real one.
+  20 recorded the four runs, 120 were blame's attempts, each asking again from its fork on, 789 were repair's: blaming the other failing run, asking the repairer, and verify's attempts; the replay and the goldens' test sent none. A real model is paid for these, and not for what the forks replayed.
 ```
 
 ## 1. Record and replay the reference agent

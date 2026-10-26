@@ -73,7 +73,7 @@ import { asResponse, requestUpstream } from './upstream.js';
 import { refuseUpgrade, tunnelWebSocket } from './websocket.js';
 import { StoreWriter, type StoreWrites } from './writer.js';
 // The preloads' hellos and the SDKs' versions: rv-guard's part of the sidecar.
-import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
+import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, unguardedLine, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
 
 export type { Interventions } from './interventions.js';
 export { requestUpstream } from './upstream.js';
@@ -239,8 +239,12 @@ class RunContext {
   // ---- the preloads' hellos and the SDKs' versions (preloads.ts) ----
   /** The guard the CLI started the run's agent with, preloads and all (expectPreloads); null when it started none. */
   preloadGuard: GuardMode | null = null;
-  /** Each process whose preload said it loaded, by process id (at most MAX_HELLOS kept), and how many in all. */
-  readonly hellos = new Map<number, Hello>();
+  /**
+   * Each process whose preload said it loaded, by runtime and process id (at most MAX_HELLOS kept),
+   * and how many in all: the Claude Agent SDK's fence says hello for the Claude Code CLI from its own
+   * process, beside that process's own.
+   */
+  readonly hellos = new Map<string, Hello>();
   readonly hellosBeyond = new Map<string, number>();
   /** SDK versions already warned about, `node/0.2`. */
   readonly sdkWarned = new Set<string>();
@@ -970,6 +974,7 @@ export class Sidecar {
     const unguarded = [...ctx.unguarded.entries()].map(([target, v]) => ({ target, ...v })).sort((a, b) => b.count - a.count);
     const warnings = [...ctx.warnings];
     if (preloads?.missing) warnings.push(preloads.missing);
+    if (preloads?.unguarded) warnings.push(preloads.unguarded);
     if (unguarded.length) {
       const list = unguarded.map((u) => `${u.target} (${u.count})`).join(', ');
       const blocked = unguarded.some((u) => u.action === 'blocked');
@@ -996,7 +1001,7 @@ export class Sidecar {
       );
     }
     // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
-    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
+    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}), ...(preloads.unguarded ? { unguarded: preloads.unguarded } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
     const endedAt = Date.now();
     if (ctx.lost === null) {
       this.writer.write({
@@ -1030,7 +1035,9 @@ export class Sidecar {
     const agent = calls.filter((c) => !isJudgeCall(c));
     const made = { api: agent.filter((c) => c.kind === 'api').length, tool: agent.filter((c) => c.kind === 'tool').length };
     const missing = guard !== 'off' && Object.keys(hellos).length === 0 && made.api + made.tool > 0 ? missingPreload(ctx.run.command.argv, made, guard) : null;
-    return { guard, hellos, missing, failed: missing !== null && guard === 'block' };
+    // A process that said its guard is off was never watched either: the Claude Code CLI the Claude Agent SDK runs, among them.
+    const unguarded = unguardedLine(ctx.hellos.values(), guard);
+    return { guard, hellos, missing, unguarded, failed: (missing !== null || unguarded !== null) && guard === 'block' };
   }
 
   /** An SDK whose major.minor differs from this CLI's, named once per run and SDK (`x-shadowlap-sdk`). */
@@ -1220,7 +1227,8 @@ export class Sidecar {
       const ctx = this.contextFor(req, pinned);
       this.noteSdk(ctx, req);
       if (hello) {
-        if (ctx.hellos.has(hello.pid) || ctx.hellos.size < MAX_HELLOS) ctx.hellos.set(hello.pid, hello);
+        const key = `${hello.runtime}:${hello.pid}`;
+        if (ctx.hellos.has(key) || ctx.hellos.size < MAX_HELLOS) ctx.hellos.set(key, hello);
         else ctx.hellosBeyond.set(hello.runtime, (ctx.hellosBeyond.get(hello.runtime) ?? 0) + 1);
       }
       return json(res, 202, { ok: true });

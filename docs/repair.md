@@ -176,7 +176,7 @@ Repair blames each failing run first, and each blame opens or joins a [fix](./bl
 |---|---|
 | `--fixes <run...>` | The failing runs to repair: ids, prefixes or `label:<name>` |
 | `--holdout <run...>` | Failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more) |
-| `--keeps <run...>` | Runs that pass and must keep passing, such as `label:good` |
+| `--keeps <run...>` | Runs that pass and must keep passing, such as `label:good`. One that forks is kept unless it drops 10+ points below its baseline, the same run on the code without the candidate, attempt for attempt, at the gate's risk, up to 200 pairs, as [verify keeps one](./verify.md#good-runs-against-their-own-baseline), and its verdict bounds the drop as verify's does: `drop <= 0.10 (95%)`. `verify.margin` and `verify.max` in the config change the points and the pairs |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 ([outcome checks](./ci.md#outcome-checks)). A [judge check](./judges.md) is asked live on each attempt, and one whose judge can't be is refused before anything runs, as [verify](./verify.md) refuses it |
 | `--repairer <provider:model>` | The model that proposes fixes (default: `repair.repairer` in the config) |
 | `--repairer-timeout <seconds>` | How long the repairer may take to answer (default: `repair.timeout` in the config, else 600) |

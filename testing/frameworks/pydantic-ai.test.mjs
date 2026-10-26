@@ -2,27 +2,17 @@
 // Python @tool decorator (exclude=("ctx",)), as a subprocess against an in-process sidecar.
 // Needs a Python with pydantic-ai-slim; SHADOWLAP_PYTHON picks the interpreter.
 import assert from 'node:assert/strict';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { after, before, describe, it } from 'node:test';
 import { startHarness, toolTrace } from './harness.mjs';
+import { findPython } from './python.mjs';
 
 const SCRIPT = fileURLToPath(new URL('./pydantic_ai_agent.py', import.meta.url));
 const TYPED = fileURLToPath(new URL('./pydantic_ai_typed_agent.py', import.meta.url));
 
-function findPython() {
-  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter(Boolean)) {
-    try {
-      execFileSync(cmd, ['-c', 'import pydantic_ai'], { stdio: 'ignore' });
-      return cmd;
-    } catch {
-      // next
-    }
-  }
-  return null;
-}
-const PYTHON = findPython();
+const PYTHON = findPython('pydantic_ai');
 
 describe('Pydantic AI with the Shadowlap Python SDK', { skip: PYTHON ? false : 'no Python with pydantic_ai (set SHADOWLAP_PYTHON)' }, () => {
   let h;

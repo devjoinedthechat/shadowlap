@@ -82,6 +82,19 @@ describe('an unrecorded tool’s effect', () => {
     expect(unrecordedEffect('calculate_total')).toEqual({ effect: 'read', why: '"calculate" depends only on its input' });
     expect(unrecordedEffect('frobnicate').effect).toBe('unknown');
     expect(toolNameEffect('lookupOrder')).toEqual({ effect: 'read', word: 'lookup' });
+  });
+
+  it('lets a verb that changes something win wherever it stands, and a word that is often a noun only first', () => {
+    const effect = (names: string[]) => names.map((n) => [n, toolNameEffect(n)?.effect ?? null]);
+    // Each of these writes, though some lead with a word that only looks.
+    const writes = ['get_or_create_user', 'search_and_replace', 'edit_file', 'replace', 'checkout', 'purchase', 'python_repl', 'open_pull_request', 'browser_click', 'browser_navigate', 'fill_form', 'issue_refund', 'run_query', 'post_message'];
+    expect(effect(writes)).toEqual(writes.map((n) => [n, 'write']));
+    expect(toolNameEffect('get_or_create_user')).toEqual({ effect: 'write', word: 'create' });
+    expect(toolNameEffect('python_repl')).toEqual({ effect: 'write', word: 'repl' });
+    // A noun after the verb is no write: the order, the run, the post a read looks at.
+    const reads = ['lookup_order', 'get_order_status', 'get_run_status', 'list_posts', 'read_email', 'browser_snapshot', 'get_weather'];
+    expect(effect(reads)).toEqual(reads.map((n) => [n, 'read']));
+    expect(unrecordedEffect('frobnicate')).toEqual({ effect: 'unknown', why: 'its name says nothing of what it does' });
     expect(mcpToolName('mcp__my_server__send_email')).toBe('send_email');
     expect(mcpToolName('send_email')).toBeNull();
   });

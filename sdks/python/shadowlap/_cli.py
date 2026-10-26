@@ -5,7 +5,8 @@ this package's own version, so ``pip install shadowlap`` gives a ``shadowlap`` c
 recordings and SDK speak the same protocol: a ``shadowlap`` of that version installed with npm when
 there is one on ``PATH``, otherwise ``npx --yes shadowlap@<version>``, which fetches it once. Without
 a Node.js it can run on, it says how to get one. ``SHADOWLAP_CLI`` names another CLI to run instead
-(a JavaScript file, run with ``node``, or a program), as it does for the pytest plugin.
+(a JavaScript file, run with ``node``, or a program), as it does for the pytest plugin. It never runs
+itself: what it runs that runs it again is refused, where it would go on without end.
 """
 
 from __future__ import annotations
@@ -27,6 +28,10 @@ NODE_RANGE = "22.16 or later (not 23)"
 
 #: Exit status when there is no Node.js to run the CLI on: a matter of setup, as a bad flag is.
 EXIT_SETUP = 2
+
+#: Set for what this console script runs, to the command it ran: the CLI unsets it, so the agents it
+#: starts never see it, and a console script that finds it set was run by what it ran itself.
+RUNNING = "SHADOWLAP_CONSOLE_SCRIPT"
 
 Which = Callable[[str], Optional[str]]
 
@@ -123,14 +128,37 @@ def command(args: Sequence[str], env: Optional[Mapping[str, str]] = None, which:
     return [*_npx(node, which), "--yes", f"shadowlap@{__version__}", *args]
 
 
+def ran_again(env: Mapping[str, str]) -> Optional[str]:
+    """Why this console script won't run, when what it ran ran it again (``SHADOWLAP_CLI=shadowlap``,
+    which names this command, or an npx that found it on ``PATH``): it would run itself without end.
+    None when nothing did."""
+    ran = env.get(RUNNING)
+    if not ran:
+        return None
+    override = env.get("SHADOWLAP_CLI")
+    what = f"SHADOWLAP_CLI={override}" if override else f"{ran}, which this command ran to run the CLI,"
+    fix = (
+        "Point SHADOWLAP_CLI at the CLI itself, its bin/shadowlap.js or a shadowlap that npm installed, or unset it, and this command runs the CLI from npm"
+        if override
+        else f"Install the CLI with npm install -g shadowlap@{__version__}, or point SHADOWLAP_CLI at its bin/shadowlap.js"
+    )
+    return f"shadowlap: {what} ran this command again (the shadowlap that pip install shadowlap gives, not the CLI), and it would go on without end. {fix}."
+
+
 def main(argv: Optional[Sequence[str]] = None) -> NoReturn:
     """Runs the CLI with this process's arguments, as this process: its exit status is the CLI's."""
     args = list(sys.argv[1:] if argv is None else argv)
+    again = ran_again(os.environ)
+    if again:
+        print(again, file=sys.stderr)
+        sys.exit(EXIT_SETUP)
     try:
         cmd = command(args)
     except NoRuntime as err:
         print(str(err), file=sys.stderr)
         sys.exit(EXIT_SETUP)
+    # What runs now finds the mark: the CLI unsets it, and only this script, run again, ever reads it.
+    os.environ[RUNNING] = cmd[0]
     sys.stdout.flush()
     sys.stderr.flush()
     if os.name != "nt":

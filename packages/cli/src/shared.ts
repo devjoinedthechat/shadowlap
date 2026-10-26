@@ -232,8 +232,8 @@ export function parseChoice<T extends string>(choices: readonly T[]) {
 
 /** Spawns the agent under a sidecar-managed run and returns the child's exit status. */
 
-export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary']): void {
-  process.stderr.write('\n' + formatSummary(summary, p) + '\n');
+export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary'], options: { unwatched?: boolean } = {}): void {
+  process.stderr.write('\n' + formatSummary(summary, p, options) + '\n');
   // One that stopped before its recording did changed no request: the summary line says it all.
   if (summary.divergence && summary.divergence.type !== 'ended_early') process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));

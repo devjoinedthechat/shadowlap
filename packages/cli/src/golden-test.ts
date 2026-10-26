@@ -62,6 +62,8 @@ export interface RecordingTestContext {
   /** How unavailable attempts are retried (UNAVAILABLE_RETRY), and the pause itself: tests pass their own. */
   unavailable?: { inARow: number; firstDelayMs: number; maxDelayMs: number };
   sleep?: (ms: number) => Promise<void>;
+  /** The tools `--allow-unrecorded` lets a replay run again though the recording never recorded them and they write. */
+  allowUnrecorded?: ReadonlySet<string>;
 }
 
 /** An inconclusive gate's attempts, carried over to a session that continues it. */
@@ -206,6 +208,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, before + i + 1, before + repeat + unavailable) } : {}),
       ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
       ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
+      ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
     });
     attempts.push(attempt);
     if (attempt.interrupted) break;

@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncReturns } from 'node:child_process';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, type Stats } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { withLockFile } from '@shadowlap/engine';
@@ -320,6 +320,115 @@ export function processAncestors(note?: (why: string) => void): ProcessInfo[] | 
   return chain;
 }
 
+/**
+ * A process and its ancestors, nearest first, up to (not including) the system's first process: the
+ * chain a registration is looked up along. Null when the system won't say (`note` is told why), or
+ * when the process is gone.
+ */
+export function ancestorsOf(pid: number, note?: (why: string) => void): ProcessInfo[] | null {
+  const linux = process.platform === 'linux' && existsSync('/proc/self/stat');
+  const table = linux ? null : processTable(note && ((why) => note(`the process tree could not be read (${why})`)));
+  if (!linux && !table) return null;
+  const lookup = (p: number) => (linux ? procInfo(p) : (table!.get(p) ?? null));
+  const first = lookup(pid);
+  if (!first) return null;
+  const chain: ProcessInfo[] = [first];
+  const seen = new Set([pid]);
+  for (let at = first.ppid; at > 1 && !seen.has(at) && chain.length < 64; ) {
+    seen.add(at);
+    const info = lookup(at);
+    if (!info) break;
+    chain.push(info);
+    at = info.ppid;
+  }
+  return chain;
+}
+
+/** A TCP address's port, as `lsof` and `netstat` write one: `127.0.0.1:54321`, `[::1]:54321`. */
+const portOf = (address: string): number => Number(address.slice(address.lastIndexOf(':') + 1));
+
+/** Linux: the socket's inode in /proc/net/tcp and tcp6, then the process holding it, from the links in /proc/<pid>/fd. */
+function procPeer(port: number, serverPort: number): number | null {
+  let inode: string | null = null;
+  for (const table of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    let text: string;
+    try {
+      text = readFileSync(table, 'utf8');
+    } catch {
+      continue;
+    }
+    for (const line of text.split('\n').slice(1)) {
+      const f = line.trim().split(/\s+/);
+      // local address, remote address, state (01: established), …, inode
+      if (f.length > 9 && f[3] === '01' && Number.parseInt(f[1]!.split(':')[1]!, 16) === port && Number.parseInt(f[2]!.split(':')[1]!, 16) === serverPort) inode = f[9]!;
+    }
+    if (inode) break;
+  }
+  if (!inode || inode === '0') return null;
+  const target = `socket:[${inode}]`;
+  for (const name of readdirSync('/proc')) {
+    if (!/^\d+$/.test(name) || Number(name) === process.pid) continue;
+    let fds: string[];
+    try {
+      fds = readdirSync(`/proc/${name}/fd`);
+    } catch {
+      continue; // another user's, or gone
+    }
+    for (const fd of fds) {
+      try {
+        if (readlinkSync(`/proc/${name}/fd/${fd}`) === target) return Number(name);
+      } catch {
+        // closed meanwhile
+      }
+    }
+  }
+  return null;
+}
+
+/** macOS and the BSDs: `lsof`, for the process whose end of the connection has port `port` and leads to `serverPort`. */
+function lsofPeer(port: number, serverPort: number, note?: (why: string) => void): number | null {
+  const r = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:ESTABLISHED', '-Fpn'], { encoding: 'utf8', timeout: 10_000 });
+  if (r.error || !r.stdout) {
+    if (r.error) note?.(`lsof didn't start (${r.error.message})`);
+    return null;
+  }
+  let pid: number | null = null;
+  for (const line of r.stdout.split('\n')) {
+    if (line.startsWith('p')) pid = Number(line.slice(1));
+    else if (line.startsWith('n') && pid !== null && pid !== process.pid) {
+      const [local, remote] = line.slice(1).split('->');
+      if (local && remote && portOf(local) === port && portOf(remote) === serverPort) return pid;
+    }
+  }
+  return null;
+}
+
+/** Windows: `netstat -ano`, whose last column is the process id. */
+function netstatPeer(port: number, serverPort: number): number | null {
+  const r = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8', timeout: 10_000, windowsHide: true });
+  for (const line of (r.stdout ?? '').split(/\r?\n/)) {
+    const f = line.trim().split(/\s+/);
+    if (f.length >= 5 && f[0] === 'TCP' && f[3] === 'ESTABLISHED' && portOf(f[1]!) === port && portOf(f[2]!) === serverPort) return Number(f[4]);
+  }
+  return null;
+}
+
+/**
+ * The process at the other end of a TCP connection this process accepted on its loopback: the one
+ * whose socket has port `port` and is connected to `serverPort`, this process's. From /proc on
+ * Linux, `lsof` on macOS, `netstat` on Windows. Null when the system won't say (`note` is told why).
+ */
+export function peerProcess(port: number, serverPort: number, note?: (why: string) => void): number | null {
+  try {
+    if (process.platform === 'linux' && existsSync('/proc/net/tcp')) return procPeer(port, serverPort);
+    if (process.platform === 'win32') return netstatPeer(port, serverPort);
+    return lsofPeer(port, serverPort, note);
+  } catch (err) {
+    note?.(`which process connected could not be read (${err instanceof Error ? err.message : String(err)})`);
+    return null;
+  }
+}
+
 /** The Shadowlap commands that start agents. */
 const STARTS_AGENTS = new Set(['run', 'replay', 'test', 'blame', 'verify', 'calibrate', 'repair', 'fix', 'bisect', 'tasks']);
 
@@ -429,7 +538,7 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
 }
 
 /** The folders a proxy reads registrations from: the home folder's (strict), then the project's and every folder above it. */
-function lookupDirs(cwd: string | undefined, home: string | null | undefined): RegistryDir[] {
+export function lookupDirs(cwd: string | undefined, home: string | null | undefined): RegistryDir[] {
   const h = home === undefined ? safeHome() : home;
   const own = h ? join(h, FOLDER) : null;
   return [...(own ? [{ dir: own, strict: true }] : []), ...projectDirs(cwd ?? process.cwd()).filter((d) => d !== own).map((dir) => ({ dir, strict: false }))];
@@ -478,4 +587,38 @@ export async function lookupRegistration(o: { cwd?: string; home?: string | null
     if (later) return later;
   }
   return { kind: 'unusable', reason: `this process was started under Shadowlap (process ${shadowlap.pid}), but no run is registered for it in ${dirs[0]!.dir}` };
+}
+
+/**
+ * The runs whose agents are running now, as their registrations name them: each agent alive, with
+ * the Shadowlap command that started it, in the folders a proxy in `cwd` reads (lookupDirs). A file
+ * that can't be trusted is skipped, as `findRegistration` skips one in a project's folder.
+ */
+export function registeredRuns(o: { cwd?: string; home?: string | null; skip?: (reason: string) => void } = {}): Array<{ target: SidecarTarget; pid: number; from: string }> {
+  const out: Array<{ target: SidecarTarget; pid: number; from: string }> = [];
+  for (const { dir } of lookupDirs(o.cwd, o.home)) {
+    let names: string[];
+    try {
+      const dirSt = lstatSync(dir);
+      if (untrusted(dirSt, dir, 'dir')) continue;
+      names = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const m = /^(\d+)\.json$/.exec(name);
+      if (!m) continue;
+      const file = join(dir, name);
+      try {
+        if (untrusted(lstatSync(file), file, 'file')) continue;
+        const j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Registration>;
+        if (j.v !== 1 || j.pid !== Number(m[1]) || typeof j.parent !== 'number' || typeof j.url !== 'string' || typeof j.runId !== 'string' || !isLoopbackUrl(j.url)) continue;
+        if (!alive(j.pid) || !alive(j.parent)) continue;
+        out.push({ target: { url: j.url.replace(/\/$/, ''), runId: j.runId }, pid: j.pid, from: file });
+      } catch {
+        o.skip?.(`${file} is unreadable; ignoring it`);
+      }
+    }
+  }
+  return out;
 }

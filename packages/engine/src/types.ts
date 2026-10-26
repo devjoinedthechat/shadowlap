@@ -321,9 +321,10 @@ export interface RunMeta {
    * For a run whose agent the CLI started with Shadowlap's preloads: the guard it ran under, the
    * processes whose preload said it loaded (`POST /v1/hello`), by runtime (`{ node: 2, python: 1 }`),
    * and, when the run made model or tool calls with none loaded, why (`missing`, the line its
-   * summary carries): the network guard never watched it.
+   * summary carries): the network guard never watched it. `unguarded`: the processes that said
+   * they run with no guard while the run has one (the Claude Code CLI the Claude Agent SDK runs).
    */
-  preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing?: string };
+  preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing?: string; unguarded?: string };
   /** The WebSockets the run opened through the sidecar (OpenAI Realtime and the like), each target with how many went to the provider live or were refused offline; nothing that went over them is recorded. */
   websockets?: Array<{ target: string; count: number; action: 'tunnelled' | 'refused' }>;
   /**

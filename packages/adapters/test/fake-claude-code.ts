@@ -4,14 +4,17 @@
  *
  * - matchers: none, "" or "*" match every tool; letters, digits, _, -, spaces, "," and "|" are an
  *   exact list; anything else is an unanchored regular expression;
- * - every matching callback gets (input, toolUseID, { signal }) and they run at once;
- * - PreToolUse decisions combine deny > ask > allow, and `updatedInput` replaces the whole input;
+ * - every matching callback gets (input, toolUseID, { signal }) and they run at once, the query's
+ *   own and those of the settings files Claude Code loads (`beside`) alike;
+ * - PreToolUse decisions combine deny > defer > ask > allow, and `updatedInput` replaces the whole input;
+ * - a hook's `continue: false` stops the session: no tool call runs after it;
  * - PostToolUse fires after a call that succeeded, with `tool_input` and `tool_response`, and
  *   `updatedToolOutput` replaces the output when it has the tool's output shape (ignored otherwise);
  * - PostToolUseFailure fires when the call throws, with `error`, and never for a call refused before
  *   it ran (its input invalid, or a permission refused it).
  *
- * and does what Claude Code 2.1.309 was seen to do where the documentation is silent: it validates a
+ * and does what Claude Code 2.1.309 was seen to do where the documentation is silent: when several
+hooks rewrite the input or the output, the one that answered last wins; it validates a
  * call's input against the files before any hook (an Edit of a file never read, or whose text isn't
  * there, is refused, and no hook hears of it); it validates a hook's rewritten input again; a deny
  * reaches the model as "PreToolUse:<tool> hook error: <reason>"; a hook that throws counts as `{}`,
@@ -73,7 +76,7 @@ const REQUIRED: Record<string, string[]> = {
   NotebookEdit: ['notebook_path', 'new_source'],
 };
 
-const RANK: Record<string, number> = { deny: 3, ask: 2, allow: 1 };
+const RANK: Record<string, number> = { deny: 4, defer: 3, ask: 2, allow: 1 };
 
 /** Whether a hook's matcher picks a tool, by the documented rules. */
 export function matches(matcher: string | undefined, tool: string): boolean {
@@ -101,16 +104,21 @@ export class FakeClaudeCode {
   cwd: string;
   /** The agent's canUseTool: asked for a call that needs a permission no hook gave. Default: refused. */
   canUseTool: (tool: string, input: Record<string, unknown>) => { behavior: 'allow' } | { behavior: 'deny'; message: string } = (tool) => ({ behavior: 'deny', message: `Claude requested permissions to use ${tool}, but you haven't granted it yet.` });
+  /** Why a hook stopped the session (`continue: false`), once one has: no tool call runs after it. */
+  stopReason: string | null = null;
 
   constructor(
     private readonly hooks: Hooks,
     readonly root: string,
+    /** Hooks of the settings files Claude Code loads, which run beside the query's. */
+    private readonly beside: Hooks = {},
   ) {
     this.cwd = root;
   }
 
   /** One tool call, as the model asked for it: what the model reads back. */
   async call(tool: string, input: Record<string, unknown>, id: string): Promise<ToolResult> {
+    if (this.stopReason !== null) return { content: `the session was stopped: ${this.stopReason}`, is_error: true };
     const checked = this.parse(tool, input);
     if (typeof checked === 'string') return { content: `<tool_use_error>InputValidationError: ${checked}</tool_use_error>`, is_error: true };
     // The model's own input is checked against the files before any hook hears of the call.
@@ -131,7 +139,9 @@ export class FakeClaudeCode {
       }
       if (h.updatedInput) updated = h.updatedInput;
     }
+    this.stopped(pre);
     if (decision === 'deny') return { content: `PreToolUse:${tool} hook error: ${reason}`, is_error: true };
+    if (decision === 'defer') return { content: `deferred: ${reason}`, is_error: true };
     let used = checked;
     if (updated) {
       const again = this.parse(tool, updated);
@@ -150,7 +160,7 @@ export class FakeClaudeCode {
       output = this.execute(tool, used);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      await this.run('PostToolUseFailure', tool, { ...base, cwd: this.cwd, hook_event_name: 'PostToolUseFailure', tool_input: used, error, is_interrupt: false }, id);
+      this.stopped(await this.run('PostToolUseFailure', tool, { ...base, cwd: this.cwd, hook_event_name: 'PostToolUseFailure', tool_input: used, error, is_interrupt: false }, id));
       return { content: error, is_error: true };
     }
     const post = await this.run('PostToolUse', tool, { ...base, cwd: this.cwd, hook_event_name: 'PostToolUse', tool_input: used, tool_response: output }, id);
@@ -158,7 +168,14 @@ export class FakeClaudeCode {
       const h = out.hookSpecificOutput as { updatedToolOutput?: unknown } | undefined;
       if (h && 'updatedToolOutput' in h && fits(tool, h.updatedToolOutput)) output = h.updatedToolOutput;
     }
+    this.stopped(post);
     return { content: render(tool, output), is_error: false };
+  }
+
+  /** A hook that answered `continue: false` stops the session. */
+  private stopped(outs: ReadonlyArray<Record<string, unknown>>): void {
+    const stop = outs.find((o) => o.continue === false);
+    if (stop && this.stopReason === null) this.stopReason = typeof stop.stopReason === 'string' ? stop.stopReason : 'stopped by a hook';
   }
 
   /** The end of a batch of tool calls, and of the turn: the hooks that fire there. */
@@ -171,10 +188,13 @@ export class FakeClaudeCode {
 
   private async run(event: string, tool: string, input: Record<string, unknown>, id: string | undefined): Promise<Array<Record<string, unknown>>> {
     this.events.push(`${event}${tool ? `:${tool}` : ''}`);
-    const callbacks = (this.hooks[event] ?? []).filter((m) => event === 'Stop' || event === 'PostToolBatch' || matches(m.matcher, tool)).flatMap((m) => m.hooks);
+    const callbacks = [...(this.hooks[event] ?? []), ...(this.beside[event] ?? [])].filter((m) => event === 'Stop' || event === 'PostToolBatch' || matches(m.matcher, tool)).flatMap((m) => m.hooks);
     const signal = new AbortController().signal;
-    // A callback that throws counts as {}: the call goes on as if it had said nothing.
-    return Promise.all(callbacks.map((cb) => cb(input, id, { signal }).catch(() => ({}))));
+    // In the order they answered: a rewrite of the input or the output is the last one's. A callback
+    // that throws counts as {}: the call goes on as if it had said nothing.
+    const answered: Array<Record<string, unknown>> = [];
+    await Promise.all(callbacks.map((cb) => cb(input, id, { signal }).catch(() => ({})).then((out) => void answered.push(out))));
+    return answered;
   }
 
   private parse(tool: string, input: Record<string, unknown>): Record<string, unknown> | string {
@@ -258,7 +278,7 @@ export class FakeClaudeCode {
     this.ran.push(command);
     let m: RegExpExecArray | null;
     if (command === 'true') return { stdout: '', stderr: '', interrupted: false, isImage: false };
-    if ((m = /^cd -- '((?:[^']|'\\'')*)' 2>\/dev\/null \|\| true$/.exec(command)) || (m = /^cd (\S+)$/.exec(command))) {
+    if ((m = /^builtin cd -- '((?:[^']|'\\'')*)' 2>\/dev\/null \|\| true$/.exec(command)) || (m = /^cd (\S+)$/.exec(command))) {
       const to = m[1].replace(/'\\''/g, "'");
       const next = to.startsWith('/') ? to : `${this.cwd}/${to}`;
       if (next !== this.cwd) this.notes.push(`# Environment update\n - Primary working directory: ${next} (was ${this.cwd})`);

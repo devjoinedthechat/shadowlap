@@ -172,8 +172,11 @@ function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 10)}…` : id;
 }
 
-/** The end-of-run summary line(s). */
-export function formatSummary(s: RunSummary, p: Palette = plain): string {
+/**
+ * The end-of-run summary line(s). `unwatched`: the run fails because the network guard never
+ * watched the agent under `--guard block` (a warning says why), so a replay is never called clean.
+ */
+export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwatched?: boolean } = {}): string {
   const lines: string[] = [];
   const kinds = `${s.byKind.api} api, ${s.byKind.tool} tool` + (s.byKind.clock + s.byKind.random ? `, ${s.byKind.clock + s.byKind.random} clock/random` : '');
   if (s.total === 0) {
@@ -186,8 +189,9 @@ export function formatSummary(s: RunSummary, p: Palette = plain): string {
     lines.push(`${p.red('✗')} Ended early at call ${d.callNo}: ${endedEarlyCount(d)} replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent`);
   } else if (!s.divergence) {
     const saved = wholeInput(s.tokensNotRespent);
+    const head = options.unwatched ? `${p.red('✗')} Replay not watched` : `${p.green('✓')} Replay clean`;
     lines.push(
-      `${p.green('✓')} Replay clean: ${s.byOrigin.replayed}/${s.total} calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent${s.cost.saved ? ` (≈${formatUsd(s.cost.saved)})` : ''}`,
+      `${head}: ${s.byOrigin.replayed}/${s.total} calls replayed (${kinds}), ${s.upstreamRequests} upstream requests, ${formatTokens(saved)} input tokens not re-spent${s.cost.saved ? ` (≈${formatUsd(s.cost.saved)})` : ''}`,
     );
   } else {
     const d = s.divergence;

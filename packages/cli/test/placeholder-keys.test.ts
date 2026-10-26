@@ -93,13 +93,25 @@ describe('placeholder keys on an offline replay', () => {
     expect(placeholderKeys({ ANTHROPIC_API_KEY: '', OPENAI_API_KEY: '  ' }, { calls: calls('anthropic', 'openai') }, 'offline', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, OPENAI_API_KEY: PLACEHOLDER_KEY });
   });
 
-  it('never replace credentials the SDKs read from files: AWS shared files, an Anthropic profile, an Azure CLI sign-in', () => {
+  it('never replace credentials the SDKs read from files: an AWS profile that holds them, an Anthropic profile', () => {
     const aws = emptyHome();
     mkdirSync(join(aws, '.aws'));
-    writeFileSync(join(aws, '.aws', 'config'), '[default]\n');
-    expect(placeholderKeys({}, { calls: calls('bedrock') }, 'offline', aws)).toEqual({});
+    writeFileSync(join(aws, '.aws', 'config'), '[default]\nregion = eu-west-1\n\n[profile work]\nsso_session = corp\n');
+    // A config file that names a region, and a profile the SDKs don't use, hold no credential: the client would have none.
+    expect(placeholderKeys({}, { calls: calls('bedrock') }, 'offline', aws)).toEqual({ AWS_ACCESS_KEY_ID: PLACEHOLDER_AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: PLACEHOLDER_KEY });
+    // The profile they use does: an SSO session, keys, a process, a role, web identity, aws login.
+    for (const setting of ['sso_session = corp', 'sso_start_url = https://corp.awsapps.com/start', 'aws_access_key_id = AKIAEXAMPLE', 'credential_process = /usr/local/bin/creds', 'role_arn = arn:aws:iam::1:role/r', 'web_identity_token_file = /var/run/token', 'login_session = arn:aws:iam::1:user/u']) {
+      writeFileSync(join(aws, '.aws', 'config'), `# mine\n[default]\nregion = eu-west-1\n${setting}\n`);
+      expect(placeholderKeys({}, { calls: calls('bedrock') }, 'offline', aws), setting).toEqual({});
+    }
+    writeFileSync(join(aws, '.aws', 'config'), '[profile ci]\ncredential_process = /usr/local/bin/creds\n');
+    expect(placeholderKeys({}, { calls: calls('bedrock') }, 'offline', aws)).toHaveProperty('AWS_ACCESS_KEY_ID');
+    expect(placeholderKeys({ AWS_DEFAULT_PROFILE: 'ci' }, { calls: calls('bedrock') }, 'offline', aws)).toEqual({});
+    // The credentials file's [default], where AWS_SHARED_CREDENTIALS_FILE says.
     const file = join(emptyHome(), 'creds');
     writeFileSync(file, '[default]\n');
+    expect(placeholderKeys({ AWS_SHARED_CREDENTIALS_FILE: file }, { calls: calls('bedrock') }, 'offline', emptyHome())).toHaveProperty('AWS_ACCESS_KEY_ID');
+    writeFileSync(file, '[default]\r\naws_access_key_id = AKIAEXAMPLE\r\naws_secret_access_key = secret\r\n');
     expect(placeholderKeys({ AWS_SHARED_CREDENTIALS_FILE: file }, { calls: calls('bedrock') }, 'offline', emptyHome())).toEqual({});
 
     const profile = emptyHome();
@@ -109,12 +121,32 @@ describe('placeholder keys on an offline replay', () => {
     expect(placeholderKeys({ ANTHROPIC_CONFIG_DIR: profile }, { calls: calls('anthropic') }, 'offline', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY });
     writeFileSync(join(profile, 'active_config'), 'work\n');
     expect(placeholderKeys({ ANTHROPIC_CONFIG_DIR: profile }, { calls: calls('anthropic') }, 'offline', emptyHome())).toEqual({});
+  });
 
+  it("give OpenAI's SDK on Bedrock its Bedrock API key where a config file holds no credential, and none where a profile does", () => {
+    const mantle = [{ meta: { provider: 'openai', via: 'bedrock-mantle' } }] as never[];
+    const held = { 'bedrock-mantle': ['AWS_BEARER_TOKEN_BEDROCK'] };
+    const home = emptyHome();
+    mkdirSync(join(home, '.aws'));
+    writeFileSync(join(home, '.aws', 'config'), '[default]\nregion = us-east-1\n');
+    expect(placeholderKeys({}, { calls: mantle, keyEnv: held }, 'offline', home)).toEqual({ AWS_BEARER_TOKEN_BEDROCK: PLACEHOLDER_KEY });
+    expect(placeholderKeys({}, { calls: mantle, keyEnv: held }, 'replay', home)).toEqual({ AWS_BEARER_TOKEN_BEDROCK: PLACEHOLDER_KEY });
+    // Only where the recording's environment held the key, as a client that signs with SigV4 reads none.
+    expect(placeholderKeys({}, { calls: mantle }, 'offline', home)).toEqual({});
+    expect(placeholderKeys({ AWS_BEARER_TOKEN_BEDROCK: 'real' }, { calls: mantle, keyEnv: held }, 'offline', home)).toEqual({});
+    writeFileSync(join(home, '.aws', 'credentials'), '[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = secret\n');
+    expect(placeholderKeys({}, { calls: mantle, keyEnv: held }, 'offline', home)).toEqual({});
+  });
+
+  it('give Azure OpenAI and Claude on Foundry their key whatever the Azure CLI has signed in to, which neither client reads', () => {
     const azure = emptyHome();
     mkdirSync(join(azure, '.azure'));
-    expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: AZURE_HELD }, 'offline', azure)).toEqual({ AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY });
     writeFileSync(join(azure, '.azure', 'msal_token_cache.json'), '{}');
-    expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: AZURE_HELD }, 'offline', azure)).toEqual({});
+    writeFileSync(join(azure, '.azure', 'service_principal_entries.json'), '[]');
+    const foundry = [{ meta: { provider: 'anthropic', via: 'foundry' } }] as never[];
+    expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: AZURE_HELD }, 'offline', azure)).toEqual({ AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY });
+    expect(placeholderKeys({ AZURE_CONFIG_DIR: join(azure, '.azure') }, { calls: foundry, keyEnv: { foundry: ['ANTHROPIC_FOUNDRY_API_KEY'] } }, 'offline', emptyHome())).toEqual({ ANTHROPIC_FOUNDRY_API_KEY: PLACEHOLDER_KEY });
+    expect(keyEnvOf({}, azure)).toEqual({});
   });
 
   it.skipIf(process.platform === 'win32')("find the Anthropic profile where either SDK looks: XDG_CONFIG_HOME's, then the home folder's", () => {

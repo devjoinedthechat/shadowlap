@@ -253,6 +253,10 @@ export function runDoctor(options: DoctorOptions): Check[] {
 export const PRELOAD_FIX =
   "Shadowlap loads its network guard into Node agents through NODE_OPTIONS (--import, Node 18.18 or later) and into Python agents through a sitecustomize on PYTHONPATH. Start the agent with the environment shadowlap gives it: not through env -i, sudo or docker exec, without a script that sets NODE_OPTIONS or PYTHONPATH anew, and without python -I, -E or -S. opentelemetry-instrument's own sitecustomize comes first and loads no other: instrument in code instead. An agent on another runtime (Go, Rust, Java, Bun, Deno) gets no guard: wrap what it does to the world as tools, and test it with --guard warn.";
 
+/** What to do about processes the guard can't watch: the Claude Code CLI loads no preload, whatever the environment. */
+export const UNGUARDED_FIX =
+  "The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP server it connects to). Reach a remote MCP server through shadowlap mcp, which records and fences its calls, and test with --guard warn to accept the rest. A Node or Python process whose guard could not start says so on its standard error.";
+
 /**
  * Whether the preloads loaded in the newest run that says (`RunMeta.preloads`): the processes they
  * loaded in, or, for a run that made calls with none, why, and how to get them in. Null when no run
@@ -264,7 +268,9 @@ export function preloadCheck(runs: readonly RunRecord[]): Check | null {
   if (!last || !preloads) return null;
   const id = last.runId.slice(0, 10);
   if (preloads.missing) return { name: 'preload', verdict: 'warn', detail: `run ${id} (${quoteArgv(last.command.argv)}): ${preloads.missing}`, fix: PRELOAD_FIX };
-  const runtime = (r: string) => (r === 'node' ? 'Node' : r === 'python' ? 'Python' : r);
+  // A process that runs with no guard, the Claude Code CLI the Claude Agent SDK runs among them: nothing watched its connections.
+  if (preloads.unguarded) return { name: 'preload', verdict: 'warn', detail: `run ${id} (${quoteArgv(last.command.argv)}): ${preloads.unguarded}`, fix: UNGUARDED_FIX };
+  const runtime = (r: string) => (r === 'node' ? 'Node' : r === 'python' ? 'Python' : r === 'claude-code' ? 'Claude Code' : r);
   const loaded = Object.entries(preloads.hellos).map(([r, n]) => `${n} ${runtime(r)} process${n === 1 ? '' : 'es'}`);
   return loaded.length ? { name: 'preload', verdict: 'ok', detail: `loaded in run ${id}'s ${loaded.join(' and ')}` } : null;
 }

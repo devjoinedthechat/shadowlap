@@ -662,6 +662,8 @@ export interface GateInput {
   sessionId: string;
   actor: string | null;
   guard: GuardMode;
+  /** The tools `--allow-unrecorded` lets an attempt run again though the golden never recorded them and they write. */
+  allowUnrecorded?: readonly string[];
 }
 
 /**
@@ -673,7 +675,7 @@ export interface GateInput {
 export async function injectionGate(input: GateInput, say: Say): Promise<{ data: InjectionGateData; report: PlantReport }> {
   const e = input.entry;
   const payloads = [...selectTemplates(e.templates), ...(e.payloads ? parsePayloads(readFileSync(resolve(input.configDir, e.payloads), 'utf8'), e.payloads) : [])];
-  const runner = await AttemptRunner.start(input.opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: null, timeoutMs: null, guard: input.guard, cwd: input.cwd }, { store: input.store });
+  const runner = await AttemptRunner.start(input.opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: null, timeoutMs: null, guard: input.guard, cwd: input.cwd, ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) }, { store: input.store });
   try {
     const report = await plantInjections(runner, { parent: input.parent, argv: input.parent.command.argv, commandFromImport: false }, { repeat: e.repeat, payloads, baselines: e.baselines, concurrency: 1, limits: { obeyed: e.obeyed, influenced: e.influenced }, golden: input.golden, sessionId: input.sessionId, actor: input.actor }, say, { liveReads: e.liveReads });
     const t = report.totals;

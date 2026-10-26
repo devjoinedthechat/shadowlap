@@ -5,7 +5,7 @@ import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDiv
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
 import { EXIT, interruptedStatus, stoppedBy, usageError } from '../exit-codes.js';
-import { allowedUnrecorded, declaredUnrecorded, formatUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, declaredUnrecorded, formatUnrecorded, refuseUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
 import type { UnrecordedTool } from '@shadowlap/engine';
 import type { PreloadReport } from '@shadowlap/sidecar';
 import { codeVersion, configPath, loadConfig, upstreamOverrides } from '../config.js';
@@ -134,7 +134,7 @@ export function register(program: Command): void {
     .option('--set <call:key=value>', 'set a request field from model call <call> on, where the provider keeps it: 15:max_tokens=2048, 15:temperature=0 (repeatable; value is JSON or a string; a dotted key is a path)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--model <call:model>', 'switch the model from model call <call> on, in the body or, on Gemini, Vertex, Bedrock and Azure, the path: 15:claude-opus-5')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('--allow-unrecorded <names>', 'run these tools again for real though the recording never recorded them and they write: names separated by commas (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
@@ -144,7 +144,7 @@ export function register(program: Command): void {
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all)')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--inconclusive <policy>', 'with --chaos: what an inconclusive preset does to the exit status, one whose gate ran out between its bounds, whose replay never reached the call, or that only a check no attempt can decide kept from passing: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')
-    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
+    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
       const opts = program.opts<GlobalOpts>();
       if (flags.chaos) {
         // The presets play their own failures in, one at a time: anything else that changes the replay would be judged with them.
@@ -209,7 +209,7 @@ export function register(program: Command): void {
         return;
       }
       if (flags.chaos) {
-        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.summaryJson ? { json: flags.summaryJson } : {}) };
+        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.summaryJson ? { json: flags.summaryJson } : {}), allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded) };
         await replayChaos(opts, parent, checks, chaosFlags, givenCommand(process.argv, 'replay'), command.length ? command : undefined);
         return;
       }
@@ -259,7 +259,7 @@ export function register(program: Command): void {
           flags.concurrency,
           (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command: { argv, cwd: process.cwd() }, codeVersion: codeVersion(process.cwd()), replay, ...(interventions ? { interventions } : {}), ...(commandFromImport ? { commandFromImport: true } : {}), overrideSources: sources }),
           flags.guard,
-          { capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
+          { recording: parent, allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded), capture, env, ...(beforeEnd ? { beforeEnd } : {}) },
         );
         const judged = checks ? attempts.map((a) => judge(a.run.runId, a.output)) : [];
         const reader = openStore(opts);
@@ -285,8 +285,9 @@ export function register(program: Command): void {
         if (unrecorded[0]?.length) process.stderr.write('\n' + formatUnrecorded(unrecorded[0], 'replay'));
         if (checks) process.stderr.write('\n' + formatCheckTally(judged, checks.source) + '\n');
         if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
-        emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: a.code, summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
+        // Each attempt's status as the replay counts it: one the guard never watched under --guard block failed.
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ attempts: attempts.map((a, i) => ({ exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}), unrecordedTools: unrecorded[i] ?? [] })), report }, null, 2) + '\n');
+        emitJobEvent({ type: 'result', data: { attempts: attempts.map((a, i) => ({ runId: a.run.runId, exitCode: agentStatus(a.code, a.preloads), summary: a.summary, ...(checks ? { checks: judged[i] } : {}) })), report } });
         emitJobEvent({ type: 'link', label: 'Open the attempts', href: links.run(parent.runId, first?.callNo ?? 1, 'forks') });
         // One that stopped before its recording did is among them: its divergence says so.
         const anyDiverged = attempts.some((a) => a.summary.divergence);
@@ -311,19 +312,20 @@ export function register(program: Command): void {
           process.exitCode = code;
           return;
         }
-        printOutcome(summary);
+        // Under --guard block, a replay the guard never watched fails, however clean: never called clean.
+        const agent = agentStatus(code, preloads);
+        printOutcome(summary, { unwatched: preloads?.failed === true });
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         // What this replay ran for real without recording it: tools the model called that no wrapper saw.
         const unrecorded = unrecordedAfter(opts, [run.runId])[0]!;
         if (unrecorded.length) process.stderr.write(formatUnrecorded(unrecorded, 'replay'));
-        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: code, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
+        if (flags.summaryJson) writeFileSync(flags.summaryJson, JSON.stringify({ exitCode: agent, summary, ...(judged ? { checks: judged } : {}), unrecordedTools: unrecorded }, null, 2) + '\n');
         // A replay that stopped before its recording did is no clean one either: its divergence says so.
         // A check that failed ends it with 1; then an agent that failed, with its own status, or that
         // no preload watched under --guard block, with 1; then a check that could not be decided, with 3.
         const outcome = judged ? judgedOutcome(judged) : 'passed';
-        const agent = agentStatus(code, preloads);
         process.exitCode = flags.strict && summary.divergence ? EXIT.failed : outcome === 'failed' ? EXIT.failed : agent === 0 && outcome === 'inconclusive' ? EXIT.inconclusive : agent;
       };
 
@@ -350,8 +352,9 @@ export function register(program: Command): void {
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--guard <mode>', 'network guard: warn, block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('--json', 'machine-readable output, printed when calibration ends')
-    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; json?: boolean }) => {
+    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; allowUnrecorded?: string[]; json?: boolean }) => {
       const say = (text: string) => {
         if (!flags.json) process.stdout.write(text);
       };
@@ -369,6 +372,9 @@ export function register(program: Command): void {
         if (!target) throw new Error(recordFirst);
         const parent = target.run;
         requireEnded(store, parent, 'calibrate');
+        // Each round replays the run: a tool its model called that it never recorded, which writes, would run again for real.
+        const allowed = allowedUnrecorded(flags.allowUnrecorded);
+        refuseUnrecorded(store, parent, allowed);
         if (commandIsImported(parent) && !flags.yes && !(await confirmImportedCommand(parent, parent.command.argv))) {
           process.exitCode = EXIT.usage;
           return;
@@ -383,7 +389,7 @@ export function register(program: Command): void {
         let outcome: { clean: true; total: number } | { clean: false; why: string; details: string } | null = null;
         for (let round = 1; round <= flags.maxRounds && !outcome; round++) {
           const normalizers = [...config.normalize, ...proposals.map((x) => x.normalizer)];
-          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: placeholders, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null });
+          const attempt = await testAttempt(store, parent, { cwd, upstreams: offline, extraEnv: placeholders, writes: 'block', guard: flags.guard, normalizers, prices: config.prices, clock: config.clock, http: config.http, spec: null, allowUnrecorded: allowed });
           const s = attempt.ended.summary;
           for (const hash of store.runBlobRefs(attempt.ended.run.runId)) written.add(hash);
           store.deleteRun(attempt.ended.run.runId);
@@ -470,13 +476,9 @@ export function register(program: Command): void {
     .option('--listen <address>', 'serve the --url server over Streamable HTTP at http://<address>/mcp, for an agent whose MCP client speaks HTTP: 127.0.0.1:8931, or a port alone (this machine only)')
     .passThroughOptions()
     .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }) => {
-      let code: number;
-      try {
-        code = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
-      } catch (err) {
-        throw new InvalidArgumentError((err as Error).message);
-      }
-      process.exitCode = code;
+      // What it throws ends it with the contract's status: 2 for a flag or config to fix, 1 for a
+      // host that didn't answer, 70 for a bug.
+      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
     });
 
 }

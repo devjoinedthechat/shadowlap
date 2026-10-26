@@ -119,6 +119,55 @@ class RecordingRules(unittest.TestCase):
         self.assertEqual(search(Wrapper(), "x"), "hit x")
         self.assertEqual(sidecar.sent[0][1]["args"], {"query": "x"})
 
+    def test_a_method_records_its_arguments_without_the_instance_or_class_it_is_called_on(self):
+        sidecar = Sidecar({"origin": "live", "callNo": 1})
+        shadowlap._post = sidecar
+
+        @dataclasses.dataclass
+        class Mailer:
+            sent: int = 0
+
+            @tool(effect="write")
+            def send(self, to: str) -> str:
+                self.sent += 1
+                return "sent to " + to
+
+            @classmethod
+            @tool(effect="read")
+            def lookup(cls, user: str) -> str:
+                return cls.__name__ + ":" + user
+
+            @staticmethod
+            @tool(effect="pure")
+            def total(first: int, other: int) -> int:
+                return first + other
+
+            @tool(effect="read")
+            async def fetch(self, page: int) -> int:
+                return page
+
+        mailer = Mailer()
+        self.assertEqual(mailer.send("ana"), "sent to ana")
+        self.assertEqual(Mailer.lookup("bo"), "Mailer:bo")
+        self.assertEqual(Mailer.total(2, 3), 5)
+        import asyncio
+
+        self.assertEqual(asyncio.run(mailer.fetch(4)), 4)
+        # The instance's state (a dataclass's fields would be recorded as its JSON form) is no part of the call.
+        self.assertEqual([body["args"] for path, body in sidecar.sent if path.endswith("/resolve")], [{"to": "ana"}, {"user": "bo"}, {"first": 2, "other": 3}, {"page": 4}])
+
+        # A function that takes self but is no method keeps it: it is what the tool was asked.
+        def outer():
+            @tool(effect="pure")
+            def double(self: int) -> int:
+                return self * 2
+
+            return double
+
+        sidecar.sent.clear()
+        self.assertEqual(outer()(self=3), 6)
+        self.assertEqual(sidecar.sent[0][1]["args"], {"self": 3})
+
     def test_an_argument_that_is_not_json_fails_before_the_tool_runs_and_names_itself(self):
         shadowlap._post = Sidecar({"origin": "live", "callNo": 1})
         ran = []

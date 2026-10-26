@@ -68,23 +68,70 @@ function anthropicProfile(env: Env, home: string): boolean {
   });
 }
 
-/** The Azure CLI signed in (a token cache, or a service principal), which Microsoft Entra ID credentials can come from. */
-function azureCliSignIn(env: Env, home: string): boolean {
-  const dir = env.AZURE_CONFIG_DIR?.trim() || join(home, '.azure');
-  return ['msal_token_cache.json', 'msal_token_cache.bin', 'service_principal_entries.json', 'service_principal_entries.bin'].some((f) => existsSync(join(dir, f)));
+/**
+ * The settings in an AWS shared file that give a profile credentials, one of them each way the AWS
+ * SDKs sign in from one: keys, a process, IAM Identity Center (SSO), a role to assume, web identity,
+ * `aws login`. A profile with none of them, a region alone, gives none.
+ */
+const AWS_CREDENTIAL_SETTINGS = new Set(['aws_access_key_id', 'credential_process', 'sso_session', 'sso_start_url', 'role_arn', 'credential_source', 'web_identity_token_file', 'login_session']);
+
+/** The settings of each section of an INI file, as AWS's shared files are: `[name]`, then `key = value` lines. */
+function iniSections(text: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  let section: Set<string> | null = null;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    const header = /^\[\s*([^\]]*?)\s*\]/.exec(line);
+    if (header) {
+      const name = header[1]!.replace(/\s+/g, ' ');
+      section = out.get(name) ?? new Set();
+      out.set(name, section);
+      continue;
+    }
+    const setting = /^([^=\s]+)\s*=/.exec(line);
+    if (setting && section) section.add(setting[1]!.toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * Credentials the AWS SDKs would read from the shared files for the profile they use: the
+ * credentials file's `[name]` or the config file's `[profile name]` (`[default]` for the default),
+ * where the profile is AWS_DEFAULT_PROFILE's (boto3 reads it) or `default`. A file that is there
+ * with no credentials in that profile, as a config file that names only a region, gives none.
+ * AWS_PROFILE names a profile the SDKs fail without, so it counts itself.
+ */
+function awsProfileCredentials(env: Env, home: string): boolean {
+  const named = env.AWS_DEFAULT_PROFILE?.trim();
+  const profiles = [...new Set([...(named ? [named] : []), 'default'])];
+  const read = (file: string): Map<string, Set<string>> => {
+    try {
+      return iniSections(readFileSync(file, 'utf8'));
+    } catch {
+      return new Map();
+    }
+  };
+  const credentials = read(env.AWS_SHARED_CREDENTIALS_FILE?.trim() || join(home, '.aws', 'credentials'));
+  const config = read(env.AWS_CONFIG_FILE?.trim() || join(home, '.aws', 'config'));
+  const holds = (settings: Set<string> | undefined) => [...(settings ?? [])].some((s) => AWS_CREDENTIAL_SETTINGS.has(s));
+  return profiles.some((p) => holds(credentials.get(p)) || holds(config.get(`profile ${p}`)) || (p === 'default' && holds(config.get('default'))));
 }
 
 /**
  * Whether the environment holds a credential the provider's SDKs would use, of any kind: a variable
  * they read, set and not empty (a CI secret a pull request from a fork doesn't get is empty), or the
- * files they read when there is none.
+ * files they read when there is none. For AWS (Bedrock, and OpenAI's SDK on Bedrock) that is a
+ * profile in the shared files that holds credentials, never a file being there: a config file that
+ * names a region is no credential, and a client that reads its key from the environment fails
+ * without one. Claude on Foundry and Azure OpenAI read their key, or the token provider the code
+ * gives them, never an Azure CLI sign-in.
  */
 export function hasCredentials(provider: Provider, env: Env, home = homedir()): boolean {
   if (!provider.keys) return false;
   if (provider.keys.credentials.some((name) => held(env, name))) return true;
-  if (provider.id === 'bedrock' || provider.id === 'bedrock-mantle') return [env.AWS_SHARED_CREDENTIALS_FILE || join(home, '.aws', 'credentials'), env.AWS_CONFIG_FILE || join(home, '.aws', 'config')].some((f) => existsSync(f));
+  if (provider.id === 'bedrock' || provider.id === 'bedrock-mantle') return awsProfileCredentials(env, home);
   if (provider.id === 'anthropic') return anthropicProfile(env, home);
-  if (provider.id === 'azure' || provider.id === 'foundry') return azureCliSignIn(env, home);
   return false;
 }
 

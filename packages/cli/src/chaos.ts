@@ -115,6 +115,8 @@ export interface ChaosContext {
   onRun?: (runId: string, preset: ChaosPreset, attempt: number) => void;
   /** True once a signal arrived: the attempt it cut short returns, and nothing after it starts. */
   stopped?: () => boolean;
+  /** The tools `--allow-unrecorded` lets an attempt run again though the recording never recorded them and they write. */
+  allowUnrecorded?: ReadonlySet<string>;
 }
 
 type FixedGate = { repeat: number; passes: number };
@@ -297,6 +299,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
           ctx.onRun?.(runId, preset, runs.length + 1);
         },
         ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
+        ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
       });
       const s = attempt.ended.summary;
       telemetry().record({ type: 'test', ...usageOf(attempt.ended, attempt.ms, attempt.code) });

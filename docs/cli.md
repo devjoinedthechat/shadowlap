@@ -1,6 +1,6 @@
 # CLI
 
-Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
+Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr, and every attempt's own line where a terminal folds them, as [blame](#blame), verify and repair do), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
 The CLI runs on Node 22.16 or later, but not on Node 23: every store keeps a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it names the Node it needs and exits 2. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
 
@@ -34,7 +34,8 @@ repository, which it removes at the end, it writes the agent, the check its runs
 the agent in Anthropic's Messages API and the repairer in OpenAI's Chat Completions, and the demo
 says it is scripted. Then it runs `run`, `label`, `replay`, `blame`, `repair` and `fix apply` there,
 each printing as it does in a terminal, and ends with how long that took and how many requests the
-scripted model answered. Your own model keys and endpoints are left out of its environment, and
+scripted model answered, and where they went: the recordings, blame's attempts and repair's. After
+blame it says, in a line, how to read a probe's verdict from the probes it made. Your own model keys and endpoints are left out of its environment, and
 [telemetry](./telemetry.md) is off for it. `--keep <dir>` runs it in that folder, a new or an empty
 one, and keeps it, to look around with `shadowlap dashboard`. It needs git. It ends with 0 when
 every step did what the demo expects; otherwise with the status of the step that didn't, which it
@@ -110,11 +111,11 @@ A run imported with `unpack`, or a replay of one, carries a command someone else
 | `--concurrency <n>` | With `--repeat`: attempts running at once. Default 1 |
 | `--model <call>:<model>` | Switch the model from model call *n* on: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure |
 | `--guard warn\|block\|off` | [Network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. Default `warn` (`run` accepts `warn\|off`; `test` defaults to `block`) |
-| `--allow-unrecorded <names>` | Run these tools again for real though the recording never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record): names separated by commas (repeatable). Without it, a replay whose model called such a tool is refused before anything runs, exit status 2 |
+| `--allow-unrecorded <names>` | Run these tools again for real though the recording never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record), or nothing says what they do: names separated by commas (repeatable). Without it, a replay whose model called such a tool is refused before anything runs, exit status 2 |
 | `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay: a fork for each, judged by `--expect` (or, for a golden's run, by its `chaos.expect` or the write limits of its `expect`), writes stubbed unless `--writes` is given. `--summary-json` writes their report. It doesn't combine with the flags that change a replay |
 | `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`, as for [`test --chaos`](#test) |
 
-Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, 1 when a [check](#checks-on-a-replay) failed, 1 under `--guard block` when the agent made model or tool calls and no Shadowlap preload loaded in its processes, so the [network guard](./how-it-works.md#the-network-guard) never watched it, and 3 when the agent exited 0 and a check could not be decided. With `--repeat`, 0 only when every attempt asked for ran, exited 0, was watched by the guard under `--guard block` and passed its checks; else 1 (with `--strict`, also when any attempt diverged or ended early), or 3 when all that kept an attempt from passing is a check that could not be decided; a `--repeat` Ctrl-C cut short exits 130. A run still recording is refused, exit status 2, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, with `checks` (each check as it [came out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`) when the replay has checks, and as `unrecordedTools` the tools this replay ran for real without recording them; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, `summary`, `checks` and `unrecordedTools`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
+Exit status: the agent's, except 1 with `--strict` when the replay diverged or ended early, 1 when a [check](#checks-on-a-replay) failed, 1 under `--guard block` when the agent made model or tool calls and no Shadowlap preload loaded in its processes, or one of them runs with no guard (the Claude Code CLI the Claude Agent SDK runs), so the [network guard](./how-it-works.md#the-network-guard) never watched it (its summary then reads `✗ Replay not watched`, never clean), and 3 when the agent exited 0 and a check could not be decided. With `--repeat`, 0 only when every attempt asked for ran, exited 0, was watched by the guard under `--guard block` and passed its checks; else 1 (with `--strict`, also when any attempt diverged or ended early), or 3 when all that kept an attempt from passing is a check that could not be decided; a `--repeat` Ctrl-C cut short exits 130. A run still recording is refused, exit status 2, until it has ended: it has no end to replay to yet, as the dashboard's Replay and Fork wait for it; one whose recording process was killed (see [`gc`](#rm-gc)) replays as it is. `--summary-json` writes what `run` writes, its `exitCode` the agent's, or 1 where the guard never watched it under `--guard block`, with `checks` (each check as it [came out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`) when the replay has checks, and as `unrecordedTools` the tools this replay ran for real without recording them; with `--repeat`, `{ "attempts", "report" }`: each attempt's `exitCode`, so counted, `summary`, `checks` and `unrecordedTools`, and the report the terminal prints (`parentRunId`, `attempts`, `forkedAt`, `paths`, `tools`, `distinctFinalResponses`, `succeeded`, `spent`, `saved`, `tokensNotRespent`).
 
 See [Interventions](./interventions.md) for what each one does to the conversation prefix, and what each provider takes. A change the recorded request can't take (a system message on Gemini, a field Converse has no place for, a write tool to plant in) is refused before anything runs, with the reason; an intervention the replay never reached is named in its summary.
 
@@ -162,7 +163,7 @@ With `--concurrency`, attempts run at the same time through one sidecar; each at
 shadowlap blame <run> [options] [-- <command> [args...]]
 ```
 
-Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits.
+Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of; with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
 
 | Option | Effect |
 |---|---|
@@ -179,9 +180,9 @@ Finds the model call where a failed run was lost: the last one whose answer, ask
 | `--budget <usd>` | Start no attempt once this much is spent on live model calls |
 | `--timeout <seconds>` | Stop an attempt after this long and count it as failed |
 | `--json` | The report as JSON on stdout ([fields](./blame.md#json)) |
-| `--guard`, `-y` | As for `replay` |
+| `--guard`, `--allow-unrecorded`, `-y` | As for `replay` |
 
-Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, or `--budget` with a model that has no price; 3 when it stops before a verdict, the budget spent or the provider unavailable, or what the replay as recorded showed could not be decided; 128 + n for a stop signal, 130 for Ctrl-C.
+Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, `--budget` with a model that has no price, or a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict, the budget spent or the provider unavailable, when what the replay as recorded showed could not be decided, or when its first probe could not tell a rescue from a loss (*Not settled from the first model call*); 128 + n for a stop signal, 130 for Ctrl-C.
 
 Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
 
@@ -213,9 +214,9 @@ Checks a change before it ships. Replays failing runs, which the change must now
 | `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts. Default HEAD, when the working tree has a change |
 | `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` |
 | `--json` | The report as JSON on stdout ([fields](./verify.md#json)) |
-| `--guard`, `-y` | As for `replay` |
+| `--guard`, `--allow-unrecorded`, `-y` | As for `replay` |
 
-Exit status 0 when the change is accepted, 1 when it is rejected, 3 when the verification did not finish (a run's gate or baseline inconclusive, the budget spent, the provider unavailable), 128 + n for a stop signal. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
+Exit status 0 when the change is accepted, 1 when it is rejected, 2 when a run's model called a tool the run never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record), before anything runs, 3 when the verification did not finish (a run's gate or baseline inconclusive, the budget spent, the provider unavailable), 128 + n for a stop signal. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
 
 ## repair
 
@@ -227,7 +228,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 
 | Option | Effect |
 |---|---|
-| `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must keep passing |
+| `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must keep passing: one that forks is kept unless it drops 10+ points below its baseline, the same run on the code without the candidate, attempt for attempt, as [verify](#verify) keeps one, its verdict bounding the drop as verify's does (`drop <= 0.10 (95%)`) |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 |
 | `--repairer <provider:model>` | `anthropic` (Claude Opus 5.5), `anthropic:<model>`, `openai:<model>`, or `claude-code[:<model>]` to run your own Claude Code in print mode |
 | `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long. Default `repair.timeout` in the config, else 600 |
@@ -243,10 +244,10 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 | `--pr` | With `--branch`: push it and open a pull request with `gh` |
 | `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
 | `--budget <usd>` | Stop once this much is spent on blame, the repairer and verification |
-| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `-y` | As for `verify` |
+| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `--allow-unrecorded`, `-y` | As for `verify` |
 | `--json` | The report as JSON on stdout ([fields](./repair.md#json)) |
 
-Exit status 0 when a candidate is accepted and handed over as asked; 1 when none is accepted, or the hand-over fails; 2 when it can't start: outside a git repository, another repair running in the folder, a branch it can't make; 3 when it stops before a verdict, the budget spent or the provider unavailable; 128 + n for a stop signal. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
+Exit status 0 when a candidate is accepted and handed over as asked; 1 when none is accepted, or the hand-over fails; 2 when it can't start: outside a git repository, another repair running in the folder, a branch it can't make, a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict, the budget spent or the provider unavailable; 128 + n for a stop signal. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
 
 ## fix
 
@@ -487,7 +488,7 @@ Each session is kept in the project's store as [test history](./ci.md#test-histo
 | `--writes block\|stub\|allow` | What `write` tools do after a divergence. Default `block` |
 | `--cwd <dir>` | Where the recorded commands run. Default: the current directory |
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard). Default `block` |
-| `--allow-unrecorded <names>` | Run these tools again for real though a golden never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record): names separated by commas (repeatable). Without it, a session with a golden whose model called such a tool is refused before any golden runs, every such golden named, exit status 2; a read is named, one line per golden |
+| `--allow-unrecorded <names>` | Run these tools again for real though a golden never recorded them and they [write](./how-it-works.md#tools-shadowlap-did-not-record), or nothing says what they do: names separated by commas (repeatable). Without it, a session with a golden whose model called such a tool is refused before any golden runs, every such golden named, exit status 2; a read is named, one line per golden |
 | `--push` | Push every test run, with the golden it replayed, and the session's report to the [team store](./team.md#push-from-ci); a pull request's CI job pushes to [its own folder](./team.md#pull-requests). A missing store or missing credentials is a warning; the tests still decide the exit status |
 | `--inconclusive fail\|warn` | What an inconclusive verdict does, a gate's, a check's, an [injection gate](./injection.md#gate-ci-on-it)'s (one whose test showed too little to say) or, with `--chaos`, a preset's (one whose gate ran out of attempts between its bounds, whose replay never reached the call, or that only a check no attempt can decide kept from passing): `fail` the run (the default), or `warn`: the pack counts as passed for the exit status, a JUnit report marks it skipped, `--annotations` gives it a warning, and every report still says it is inconclusive |
 | `--max-attempts <n>` | Raise every [gate](./gating.md)'s limit, its `max`, for this session only, to settle an inconclusive golden without changing the config |
@@ -572,10 +573,10 @@ each case it decided.
 ## bisect
 
 ```sh
-shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [-y] [--json] [-- <command>]
+shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--allow-unrecorded <names>] [-y] [--json] [-- <command>]
 ```
 
-[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one, 1 when there is none between the two (it passes at `--bad`, or already fails at `--good`), 3 when a commit at either end can't be tested, 2 when it can't search what it was given (a commit that isn't one, a run with no command), and 130 for Ctrl-C. The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), with the golden's newest test result as the search started, the failure it answers. The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then: not once it passed, and never over a later failure (an answer given while the golden passed answers none). A search stopped with Ctrl-C keeps nothing.
+[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one, 1 when there is none between the two (it passes at `--bad`, or already fails at `--good`), 3 when a commit at either end can't be tested, 2 when it can't search what it was given (a commit that isn't one, a run with no command, a recording whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record)), and 130 for Ctrl-C. The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), with the golden's newest test result as the search started, the failure it answers. The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then: not once it passed, and never over a later failure (an answer given while the golden passed answers none). A search stopped with Ctrl-C keeps nothing.
 
 Each replay runs the recorded command, or the one after `--`, in the commit's worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command someone else chose, which would run at every commit: bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 2) unless given `--yes`. A golden is the project's own and runs as `test` runs it.
 
@@ -587,6 +588,7 @@ Each replay runs the recorded command, or the one after `--`, in the commit's wo
 | `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
+| `--allow-unrecorded <names>` | As for `replay` |
 | `-y, --yes` | Run the recorded command of a run from a pack or the team store at each commit without asking |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
@@ -614,7 +616,7 @@ Judges recordings by [checks](./checks.md) from what they recorded: nothing is r
 shadowlap injection <run|golden...> [--repeat <n>] [--templates <ids>] [--payloads <file>]
   [--baselines <n>] [--obeyed <n>] [--influenced <n>] [--live-reads] [--inconclusive <mode>]
   [--html <file>] [--no-redact] [--concurrency <n>] [--budget <usd>] [--timeout <seconds>]
-  [--guard <mode>] [-y] [--json]
+  [--guard <mode>] [--allow-unrecorded <names>] [-y] [--json]
 shadowlap injection <run> --clean <call[=result]> [--write <call>] [--gate <json>] [--json]
 shadowlap injection --list-templates [--json]
 ```
@@ -645,6 +647,7 @@ Each run tested comes to a verdict against its limits: *failed* when more attemp
 | `--budget <usd>` | Start no attempt once this much is spent on live model calls; a test cut short is inconclusive |
 | `--timeout <seconds>` | Stop an attempt after this long; it is inconclusive |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
+| `--allow-unrecorded <names>` | As for `replay` |
 | `-y, --yes` | Run the recorded command of an imported run without asking (a golden is the project's own) |
 | `--json` | Print the report as JSON; progress goes to stderr |
 
@@ -974,10 +977,10 @@ and `why` it wasn't packed), else `null`.
 ## calibrate
 
 ```sh
-shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [-y]
+shadowlap calibrate [run] [--write] [--max-rounds <n>] [--json] [--guard <mode>] [--allow-unrecorded <names>] [-y]
 ```
 
-Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. Exit status 0 when the replay ends clean, with or without proposals, 1 when calibration stops before it is clean, and 2 when the run named is still recording, or there is no recording to calibrate. See [Calibrate](./normalizers-and-redaction.md#calibrate).
+Replays a recording offline, repeatedly, and proposes a normalizer for every value that differs between two runs of the same code, until the replay is clean. Without a run named it takes the recording the dashboard's [setup](./dashboard.md#setting-it-up) made for this project, else the newest finished recording made here (one that completed or failed, not one imported from a pack or a capture), and asks you to record a run first when there is none. Each round is printed as it ends; a recording that is already clean ends with "Nothing to add". `--write` adds the proposals to `shadowlap.config.json` and says their numbers; `--max-rounds` is how many replays to try first (default 8); `--guard`, `--allow-unrecorded` and `-y` are as for `replay`. `--json` prints the result when calibration ends: `runId`, `source` (`given` when you named the run, `setup` for the setup's recording, `newest` when it picked the newest), `clean`, `rounds`, the proposed `normalizers` (each with `why` it was proposed), `written` and the numbers of the rules it `added` (a proposal already in the file isn't counted), and `stopped` with why when it isn't clean. No model calls; writes are blocked. Afterwards it removes the blobs its own replays left that nothing else uses, unless a run is recording. Exit status 0 when the replay ends clean, with or without proposals, 1 when calibration stops before it is clean, and 2 when the run named is still recording, there is no recording to calibrate, or its model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record). See [Calibrate](./normalizers-and-redaction.md#calibrate).
 
 ## The configuration file
 
@@ -1057,7 +1060,7 @@ shadowlap mcp --url <server> [--header "Name: value"]... [--allow-http] [--effec
 shadowlap mcp --url <server> --listen <address> [--header "Name: value"]... [--allow-http] [--effect <tool=effect>]...
 ```
 
-A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`$VAR` or `${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. On Windows a server command that is a batch file (`npx -y …`) runs through cmd.exe. With `--listen` the proxy serves the `--url` server over Streamable HTTP at `http://<address>/mcp` instead, for a client that speaks HTTP: a loopback address (`127.0.0.1:8931`, or a port alone), each session in the server's own session id, recording into the run its command started, or, started on its own, into the run active in its folder when the session starts. It runs until stopped. See [MCP servers](./mcp.md#served-over-http---listen).
+A proxy for an MCP server: put it in the client's server configuration in place of the server itself; the client talks stdio to it. It starts a local server from its command, or speaks Streamable HTTP to a remote one at `--url`, sending each `--header` (`$VAR` or `${VAR}` read from the environment) with every request; headers go over plain http only to this machine, or anywhere with `--allow-http`. `tools/call` is recorded, replayed, blocked or stubbed like an SDK tool call, so a remote write never runs again on replay; every other message passes through. Effects come from the server's tool annotations (`readOnlyHint` → `read`, otherwise `write`), overridden by `--effect` or `mcp.effects` in the config. The proxy finds its run even when the client starts it with a minimal environment, and when it was started under Shadowlap but can't record, it refuses write tools rather than run them unrecorded. On Windows a server command that is a batch file (`npx -y …`) runs through cmd.exe. With `--listen` the proxy serves the `--url` server over Streamable HTTP at `http://<address>/mcp` instead, for a client that speaks HTTP: a loopback address (`127.0.0.1:8931`, or a port alone), each session in the server's own session id, recording into the run its command started, or, started on its own, into the run of the Shadowlap command that started the session's client, and refusing writes in a session it finds no run for. It runs until stopped. See [MCP servers](./mcp.md#served-over-http---listen).
 
 ## diff
 

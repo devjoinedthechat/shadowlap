@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -59,7 +59,7 @@ describe('the preloads, as the sidecar counts them', () => {
     await hello(r.runId, 'python', 102);
     await tool(r.runId);
     const ended = sidecar.endRun(r.runId, 'completed');
-    expect(ended.preloads).toEqual({ guard: 'warn', hellos: { node: 1, python: 1 }, missing: null, failed: false });
+    expect(ended.preloads).toEqual({ guard: 'warn', hellos: { node: 1, python: 1 }, missing: null, unguarded: null, failed: false });
     expect(ended.summary.warnings.join('\n')).not.toContain('No Shadowlap preload');
     expect(store.getRun(r.runId)!.meta?.preloads).toEqual({ guard: 'warn', hellos: { node: 1, python: 1 } });
   });
@@ -84,6 +84,42 @@ describe('the preloads, as the sidecar counts them', () => {
     expect(b.preloads!.missing).toContain('under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails');
     expect(b.run.status).toBe('failed');
     expect(store.getRun(blocked.runId)!.status).toBe('failed');
+  });
+
+  // The Claude Agent SDK runs the Claude Code CLI, a native program no preload loads into: its fence
+  // says hello for it, from the agent's own process, with the guard off.
+  const cli = (runId: string, pid: number) => post(runId, 'v1/hello', { runtime: 'claude-code', runtimeVersion: '', pid, ppid: 1, guard: 'off', capture: false });
+
+  it('names a process that runs with no guard, the Claude Code CLI among them, and fails the run under --guard block', async () => {
+    const blocked = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(blocked.runId, 'block');
+    await post(blocked.runId, 'v1/hello', { runtime: 'node', runtimeVersion: '22.16.0', pid: 300, ppid: 1, guard: 'block', capture: true });
+    // From the same process as the node hello: each counts, neither replaces the other.
+    await cli(blocked.runId, 300);
+    await tool(blocked.runId);
+    const b = sidecar.endRun(blocked.runId, 'completed');
+    expect(b.preloads).toMatchObject({ guard: 'block', hellos: { node: 1, 'claude-code': 1 }, missing: null, failed: true });
+    expect(b.preloads!.unguarded).toBe(
+      'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.',
+    );
+    expect(b.summary.warnings).toContain(b.preloads!.unguarded);
+    expect(b.run.status).toBe('failed');
+    expect(store.getRun(blocked.runId)!.meta?.preloads).toEqual({ guard: 'block', hellos: { node: 1, 'claude-code': 1 }, unguarded: b.preloads!.unguarded });
+
+    // Under warn it is named, and the run stands; with the guard off nothing is expected of it.
+    const warned = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(warned.runId, 'warn');
+    await cli(warned.runId, 301);
+    await post(warned.runId, 'v1/hello', { runtime: 'python', pid: 302, guard: 'off' });
+    await tool(warned.runId);
+    const w = sidecar.endRun(warned.runId, 'completed');
+    expect(w.preloads).toMatchObject({ failed: false });
+    expect(w.preloads!.unguarded).toBe('The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched; and 1 Python process whose preload loaded with the guard off. A connection one of them made that bypassed Shadowlap went unseen.');
+    expect(w.run.status).toBe('completed');
+    const off = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(off.runId, 'off');
+    await cli(off.runId, 303);
+    expect(sidecar.endRun(off.runId, 'completed').preloads).toMatchObject({ unguarded: null, failed: false });
   });
 
   it('expects no hello with the guard off, from a run that made no call, or from a run the CLI started no agent for', async () => {
@@ -238,9 +274,13 @@ echo answered
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/bun'], cwd)).code).toBe(0);
 
-    const blocked = await shadowlap(['test', 'goldens/bun'], cwd);
+    const blocked = await shadowlap(['test', 'goldens/bun', '--junit', 'junit.xml'], cwd);
     expect(blocked.code, blocked.out).toBe(1);
     expect(blocked.out).toContain('under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails');
+    // The failure's details never call the replay clean.
+    const junit = readFileSync(join(cwd, 'junit.xml'), 'utf8');
+    expect(junit).toContain('Replay not watched: 1/1 calls replayed');
+    expect(junit).not.toContain('Replay clean');
     const warned = await shadowlap(['test', 'goldens/bun', '--guard', 'warn'], cwd);
     expect(warned.code, warned.out).toBe(0);
 
@@ -259,19 +299,28 @@ echo answered
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     const failsBecause = 'under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails';
 
-    const blocked = await shadowlap(['replay', runId, '--guard', 'block'], cwd);
+    const json = join(cwd, 'summary.json');
+    const summary = () => JSON.parse(readFileSync(json, 'utf8')) as { exitCode?: number; attempts?: Array<{ exitCode: number }> };
+    const blocked = await shadowlap(['replay', runId, '--guard', 'block', '--summary-json', json], cwd);
     expect(blocked.code, blocked.out).toBe(1);
     expect(blocked.out).toContain('answered');
     expect(blocked.out).toContain(failsBecause);
-    const warned = await shadowlap(['replay', runId, '--guard', 'warn'], cwd);
+    // Never called clean, and its summary's status is the one it ends with.
+    expect(blocked.out).not.toContain('Replay clean');
+    expect(blocked.out).toContain('✗ Replay not watched: 1/1 calls replayed');
+    expect(summary().exitCode).toBe(1);
+    const warned = await shadowlap(['replay', runId, '--guard', 'warn', '--summary-json', json], cwd);
     expect(warned.code, warned.out).toBe(0);
     expect(warned.out).not.toContain(failsBecause);
+    expect(warned.out).toContain('✓ Replay clean: 1/1 calls replayed');
+    expect(summary().exitCode).toBe(0);
 
     // Every attempt fails for it, and the line that says why is printed once.
-    const repeated = await shadowlap(['replay', runId, '--guard', 'block', '--repeat', '2'], cwd);
+    const repeated = await shadowlap(['replay', runId, '--guard', 'block', '--repeat', '2', '--summary-json', json], cwd);
     expect(repeated.code, repeated.out).toBe(1);
     expect(repeated.out.split(failsBecause).length - 1, repeated.out).toBe(1);
     expect(repeated.out).toContain('2 of 2 exited 0');
+    expect(summary().attempts?.map((a) => a.exitCode)).toEqual([1, 1]);
     const repeatedWarned = await shadowlap(['replay', runId, '--repeat', '2'], cwd);
     expect(repeatedWarned.code, repeatedWarned.out).toBe(0);
   }, 60_000);

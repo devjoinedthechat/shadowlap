@@ -7,5 +7,5 @@ export type { FormatHost, Provider } from './providers.js';
 export { SseTimer } from './sse.js';
 export { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY, placeholderRefusal } from './placeholders.js';
 export { httpRuleMatcher, matchHttpRule, validHttpHost, type HttpRule } from './http.js';
-export { missingPreload, sdkMismatch, shownCause, SIDECAR_VERSION, type Hello, type PreloadReport } from './preloads.js';
+export { CLAUDE_CODE_RUNTIME, missingPreload, sdkMismatch, shownCause, SIDECAR_VERSION, unguardedLine, type Hello, type PreloadReport } from './preloads.js';
 export { identityQuery } from './query.js';

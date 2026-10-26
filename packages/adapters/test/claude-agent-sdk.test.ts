@@ -1,10 +1,12 @@
-import { mkdtempSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { BUILT_IN_EFFECTS, fenceHooks, withEffects, withFence } from '../src/claude-agent-sdk.js';
+import { BUILT_IN_EFFECTS, fenceHooks, withEffects, withFence, type HookMatcherLike } from '../src/claude-agent-sdk.js';
+import { matcherPicks } from '../src/claude-hooks.js';
 import { FakeClaudeCode, matches, type Hooks, type ToolResult } from './fake-claude-code.js';
 
 /**
@@ -31,15 +33,29 @@ afterAll(async () => {
   store.close();
 });
 
-/** A Claude Code session on the project as it is before the agent runs. */
-function session(hooks: Hooks): FakeClaudeCode {
-  const cc = new FakeClaudeCode(hooks, ROOT);
+/** A Claude Code session on the project as it is before the agent runs; `beside`, the hooks of the settings files it loads. */
+function session(hooks: Hooks, beside: Hooks = {}): FakeClaudeCode {
+  const cc = new FakeClaudeCode(hooks, ROOT, beside);
   cc.files.set(`${ROOT}/notes.md`, 'old line\nmore\n');
   cc.web.set('https://example.com/docs', 'the docs page');
   return cc;
 }
 
-const fenced = (): Hooks => withFence({}, { scratch: mkdtempSync(join(tmpdir(), 'shadowlap-fence-test-')), log: () => {} }).hooks as unknown as Hooks;
+/** The query's hooks with the fence's in them. No settings file of this machine is read: only those the query names. */
+const fenced = (query: { hooks?: Record<string, HookMatcherLike[]>; cwd?: string; settingSources?: string[] } = {}, log: (line: string) => void = () => {}): Hooks =>
+  withFence({ settingSources: [], ...query }, { scratch: mkdtempSync(join(tmpdir(), 'shadowlap-fence-test-')), log, settings: { managedFile: null } }).hooks as unknown as Hooks;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A PreToolUse hook of the agent's own that marks every Bash command it is given, answering `delay` ms late. */
+const marking = (delay: number): HookMatcherLike => ({
+  matcher: 'Bash',
+  hooks: [
+    async (input: { tool_input: Record<string, unknown> }) => {
+      await sleep(delay);
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...input.tool_input, command: `${String(input.tool_input.command)} # checked` } } };
+    },
+  ],
+});
 
 /** The calls the model makes, as its recorded answers ask for them: the same on every replay. */
 const SCRIPT: Array<[string, Record<string, unknown>]> = [
@@ -107,8 +123,11 @@ describe('the Claude Agent SDK fence', () => {
     expect(summary.divergence).toBeNull();
     expect(summary.byOrigin.replayed).toBe(7);
     // No write reached the project: Bash ran only stand-ins, and Write and Edit wrote elsewhere.
-    expect(cc.ran.every((c) => c === 'true' || c.startsWith('cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
+    expect(cc.ran.every((c) => c === 'true' || c.startsWith('builtin cd -- ') || c.startsWith("printf '%s'"))).toBe(true);
     expect(cc.ran).toHaveLength(3);
+    // The shell's own cd: a cd function the user's shell defines, which could run anything, never runs.
+    const back = cc.ran.find((c) => c.includes('cd -- '))!;
+    if (process.platform !== 'win32') expect(spawnSync('bash', ['-c', `cd() { echo "the cd function ran"; }; ${back}`], { encoding: 'utf8' }).stdout).toBe('');
     expect(cc.files.has(`${ROOT}/out.txt`)).toBe(false);
     expect(cc.files.has(`${ROOT}/report.md`)).toBe(false);
     expect(cc.files.get(`${ROOT}/notes.md`)).toBe('old line\nmore\nand a line added since\n');
@@ -219,13 +238,158 @@ describe('the Claude Agent SDK fence', () => {
     expect(matches(fenceHooks({ effects: { mcp__issues__search: 'read' } }).PreToolUse[0].matcher, 'mcp__issues__search')).toBe(true);
   });
 
-  it('keeps the query\'s own hooks, and adds its own after them', () => {
+  it('runs the query\'s own PreToolUse and PostToolUse hooks inside its own, and keeps the rest beside them', () => {
     const mine = { matcher: 'Bash', hooks: [async () => ({})] };
-    const options = withFence({ cwd: ROOT, hooks: { PreToolUse: [mine] } });
+    const stop = { hooks: [async () => ({})] };
+    const options = withFence({ cwd: ROOT, hooks: { PreToolUse: [mine], PostToolUse: [{ ...mine, timeout: 900 }], Stop: [stop] } });
     expect(options.cwd).toBe(ROOT);
-    expect(options.hooks.PreToolUse[0]).toBe(mine);
-    expect(options.hooks.PreToolUse).toHaveLength(2);
-    expect(Object.keys(options.hooks).sort()).toEqual(['PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop']);
+    // One PreToolUse hook, the fence's, which picks every tool: the query's may pick any.
+    expect(options.hooks.PreToolUse).toHaveLength(1);
+    expect(options.hooks.PreToolUse[0]).not.toBe(mine);
+    expect((options.hooks.PreToolUse[0] as { matcher?: string }).matcher).toBeUndefined();
+    // It waits as long as the longest of theirs.
+    expect((options.hooks.PostToolUse[0] as { timeout?: number }).timeout).toBe(900);
+    expect(options.hooks.Stop[0]).toBe(stop);
+    expect(options.hooks.Stop).toHaveLength(2);
+    expect(Object.keys(options.hooks).sort()).toEqual(['PostToolBatch', 'PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'Stop', 'SubagentStop', 'UserPromptSubmit']);
+  });
+
+  it('says the Claude Code CLI runs with no guard, once, so the run names it and --guard block fails it', async () => {
+    const run = sidecar.startRun({ mode: 'record', command });
+    sidecar.expectPreloads(run.runId, 'block');
+    within(run);
+    const hooks = fenced() as unknown as Record<string, Array<{ hooks: Array<(input: Record<string, unknown>, id: string | undefined, o: { signal: AbortSignal }) => Promise<unknown>> }>>;
+    const signal = new AbortController().signal;
+    // The first prompt comes before any model call: the CLI says hello then, and only then.
+    await hooks.UserPromptSubmit[0].hooks[0]({ hook_event_name: 'UserPromptSubmit', prompt: 'go', cwd: ROOT }, undefined, { signal });
+    const cc = new FakeClaudeCode(hooks as unknown as Hooks, ROOT);
+    await cc.call('Bash', { command: 'true' }, 'toolu_h');
+    const ended = sidecar.endRun(run.runId, 'completed');
+    expect(ended.preloads).toMatchObject({ guard: 'block', hellos: { 'claude-code': 1 }, failed: true });
+    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload');
+    expect(ended.run.status).toBe('failed');
+  });
+
+  it('picks the tools Claude Code picks, by its matcher rules', () => {
+    for (const [matcher, tool] of [[undefined, 'Bash'], ['', 'Bash'], ['*', 'Write'], ['Bash', 'Bash'], ['Bash', 'BashOutput'], ['Edit|Write', 'Write'], ['Edit, Write', 'Edit'], ['Edit.*', 'NotebookEdit'], ['^Edit$', 'NotebookEdit'], ['mcp__kb__.*', 'mcp__kb__search'], ['Notebook', 'NotebookEdit']] as const) {
+      expect(matcherPicks(matcher, tool), `${String(matcher)} on ${tool}`).toBe(matches(matcher, tool));
+    }
+    // One that doesn't compile picks nothing, or every tool for a caller that must not miss one.
+    expect(matcherPicks('(', 'Bash')).toBe(false);
+    expect(matcherPicks('(', 'Bash', 'all')).toBe(true);
+  });
+});
+
+describe('the fence beside other hooks', () => {
+  const SCRIPT_BASH: Array<[string, Record<string, unknown>]> = [['Bash', { command: 'echo hi > out.txt' }]];
+
+  /** A recording of one Bash call, made with these hooks. */
+  async function recorded(hooks: Hooks, script = SCRIPT_BASH): Promise<{ run: RunRecord; cc: FakeClaudeCode }> {
+    const run = sidecar.startRun({ mode: 'record', command });
+    within(run);
+    const cc = session(hooks);
+    await agent(cc, script);
+    sidecar.endRun(run.runId, 'completed');
+    return { run, cc };
+  }
+
+  // Claude Code takes the rewrite of whichever hook answers last: a hook of the agent's own that
+  // answered after the fence put the recorded command back, and the replay ran it for real.
+  it.each([0, 150])('runs a PreToolUse hook of the query first, answering %ims late, so a replay never runs the write', async (delay) => {
+    const { run, cc } = await recorded(fenced({ hooks: { PreToolUse: [marking(delay)] } }));
+    // While recording the call runs as the hook rewrote it, and is recorded so.
+    expect(cc.ran).toEqual(['echo hi > out.txt # checked']);
+    const [call] = store.getCalls(run.runId).filter((c) => c.kind === 'tool');
+    expect(store.getJson(call.requestRef!)).toEqual({ args: { command: 'echo hi > out.txt # checked' } });
+
+    const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+    within(replay);
+    const again = session(fenced({ hooks: { PreToolUse: [marking(delay)] } }));
+    const { results } = await agent(again, SCRIPT_BASH);
+    const { summary } = sidecar.endRun(replay.runId, 'completed');
+    expect(again.ran).toEqual(['true']);
+    expect(summary.divergence).toBeNull();
+    expect(results[0]).toEqual({ content: 'ran: echo hi > out.txt # checked', is_error: false });
+  });
+
+  it('blocks a call whose PreToolUse hook does not answer within its timeout, as Claude Code does', async () => {
+    const run = sidecar.startRun({ mode: 'record', command });
+    within(run);
+    const slow: HookMatcherLike = { matcher: 'Bash', timeout: 0.05, hooks: [async () => (await sleep(5_000), {})] };
+    const cc = session(fenced({ hooks: { PreToolUse: [slow] } }));
+    const { results } = await agent(cc, SCRIPT_BASH);
+    sidecar.endRun(run.runId, 'completed');
+    expect(cc.ran).toEqual([]);
+    expect(results[0]).toEqual({ content: 'PreToolUse:Bash hook error: a PreToolUse hook did not answer within its timeout of 0.05 seconds', is_error: true });
+  });
+
+  it("keeps a refusal of the query's own: the call never runs, and nothing is recorded", async () => {
+    const refusing: HookMatcherLike = { matcher: 'Bash', hooks: [async () => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'no shell here' } })] };
+    const { run, cc } = await recorded(fenced({ hooks: { PreToolUse: [refusing] } }));
+    expect(cc.ran).toEqual([]);
+    expect(store.getCalls(run.runId).filter((c) => c.kind === 'tool')).toEqual([]);
+  });
+
+  it('runs a PostToolUse hook of the query on the recorded output, as it ran on the live one', async () => {
+    // It marks what the model reads; answering late, beside the fence it replaced the recorded output with its mark of the stand-in's.
+    const noting: HookMatcherLike = {
+      matcher: 'Bash',
+      hooks: [
+        async (input: { tool_response: { stdout: string } }) => {
+          await sleep(150);
+          return { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: { ...input.tool_response, stdout: `${input.tool_response.stdout} (noted)` } } };
+        },
+      ],
+    };
+    const listing: Array<[string, Record<string, unknown>]> = [['Bash', { command: 'ls' }]];
+    const { run } = await recorded(fenced({ hooks: { PostToolUse: [noting] } }), listing);
+    const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+    within(replay);
+    const cc = session(fenced({ hooks: { PostToolUse: [noting] } }));
+    const { results } = await agent(cc, listing);
+    sidecar.endRun(replay.runId, 'completed');
+    expect(cc.ran).toEqual(['true']);
+    expect(results[0]).toEqual({ content: 'ran: ls (noted)', is_error: false });
+  });
+
+  it("refuses a recorded write that a settings file's PreToolUse hook could rewrite, and names the file", async () => {
+    const { run } = await recorded(fenced());
+    const project = mkdtempSync(join(tmpdir(), 'shadowlap-settings-'));
+    try {
+      mkdirSync(join(project, '.claude'));
+      const file = join(project, '.claude', 'settings.json');
+      writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: './mark.sh' }] }] } }));
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      within(replay);
+      const said: string[] = [];
+      // Claude Code runs the file's hook beside the fence, and its rewrite answers last.
+      const cc = session(fenced({ cwd: project, settingSources: ['project'] }, (l) => said.push(l)), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+      const { results } = await agent(cc, SCRIPT_BASH);
+      sidecar.endRun(replay.runId, 'completed');
+      expect(cc.ran).toEqual([]);
+      expect(results[0].is_error).toBe(true);
+      expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${file} (matcher "Bash") runs beside Shadowlap's`);
+      expect(said.join('\n')).toContain(file);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  it('stops the session when a hook it never saw replaced its stand-in, and hands the model no recording', async () => {
+    const { run } = await recorded(fenced());
+    const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+    within(replay);
+    const said: string[] = [];
+    // A plugin's or a managed hook: in no file the fence reads, and answering last.
+    const cc = session(fenced({}, (l) => said.push(l)), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+    const { results } = await agent(cc, [...SCRIPT_BASH, ['Bash', { command: 'echo bye > out.txt' }]]);
+    sidecar.endRun(replay.runId, 'completed');
+    // The write ran, which the fence could not stop; the model reads what it did, not the recording, and nothing runs after it.
+    expect(cc.ran).toEqual(['echo hi > out.txt # checked']);
+    expect(results[0]).toEqual({ content: 'ran: echo hi > out.txt # checked', is_error: false });
+    expect(cc.stopReason).toMatch(/^shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave Bash, so Claude Code ran the call itself \(command: "echo hi > out.txt # checked"\)/);
+    expect(results[1]).toEqual({ content: `the session was stopped: ${cc.stopReason}`, is_error: true });
+    expect(said.join('\n')).toContain('another PreToolUse hook replaced the stand-in');
   });
 });
 

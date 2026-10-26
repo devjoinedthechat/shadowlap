@@ -337,16 +337,57 @@ async def _to_thread(fn: Callable[..., _T], *args: Any) -> _T:
     return context.run(fn, *args)
 
 
-async def _finish(fn: Callable[..., _T], *args: Any) -> _T:
-    """``_to_thread`` for what must reach the sidecar even while the caller is being cancelled: the
-    end of a call. Under trio a cancelled task can't wait on anything outside a shielded scope;
-    under asyncio the thread goes on even if the caller is cancelled again meanwhile."""
-    if _async_library() == "trio":
+async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[BaseException]]:
+    """``fn(*args)`` on a worker thread, run to its end whatever the caller does meanwhile, with the
+    cancel that came while it ran, if one did, for the caller to go on with once it has the answer.
+    Under trio it runs in a shielded scope (a cancelled task can wait on nothing outside one), and a
+    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out."""
+    library = _async_library()
+    if library == "trio":
         import trio
 
         with trio.CancelScope(shield=True):
-            return await _to_thread(fn, *args)
-    return await _to_thread(fn, *args)
+            return await _to_thread(fn, *args), None
+    if library != "asyncio":
+        return await _to_thread(fn, *args), None
+    done = asyncio.ensure_future(_to_thread(fn, *args))
+    cancel: Optional[BaseException] = None
+    while True:
+        try:
+            return await asyncio.shield(done), cancel
+        except asyncio.CancelledError as err:
+            if done.cancelled():
+                raise
+            cancel = cancel or err
+
+
+async def _finish(fn: Callable[..., _T], *args: Any) -> _T:
+    """``_to_thread`` for what must reach the sidecar even while the caller is being cancelled: the
+    end of a call. It runs to its end, and a cancel that came meanwhile goes on after it."""
+    result, cancel = await _shielded(fn, *args)
+    if cancel is not None:
+        raise cancel
+    return result
+
+
+async def _resolve_shielded(resolve: Callable[[], Optional[Resolution]], complete: Callable[[int, dict[str, Any]], Any]) -> Optional[Resolution]:
+    """What the sidecar says about a call, asked off the loop, with the start of the call it makes
+    never lost to a cancel: the question runs to its end (``_shielded``), and a call cancelled while
+    it was asked never runs. A live or stubbed one is ended as the caller's cancel, so no call is
+    left pending, and the cancel goes on; its replay waits for the caller to cancel it again."""
+    r, cancel = await _shielded(resolve)
+    if cancel is None and _async_library() == "trio":
+        import trio
+
+        try:
+            await trio.lowlevel.checkpoint_if_cancelled()
+        except trio.Cancelled as err:
+            cancel = err
+    if cancel is not None:
+        if r is not None and r.get("origin") in ("live", "stubbed"):
+            await _finish(complete, r["callNo"], {"outcome": "error", "error": _cancelled_error(cancel), "latencyMs": 0})
+        raise cancel
+    return r
 
 
 def _is_cancellation(err: BaseException) -> bool:
@@ -602,6 +643,23 @@ def context_params(fn: Callable[..., Any]) -> tuple[str, ...]:
     return tuple(out)
 
 
+def _receiver(fn: Callable[..., Any]) -> tuple[str, ...]:
+    """The parameter a method defined in a class body takes its instance or class by, ``self`` or a
+    classmethod's ``cls``: no part of what the tool was asked to do, nor JSON. Empty for a function
+    defined anywhere else, whatever its parameters are called."""
+    if not inspect.isfunction(fn):
+        return ()
+    scope = getattr(fn, "__qualname__", "").split(".")[:-1]
+    if not scope or scope[-1] == "<locals>":
+        return ()
+    try:
+        first = next(iter(inspect.signature(fn).parameters.values()), None)
+    except (TypeError, ValueError):
+        return ()
+    positional = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    return (first.name,) if first is not None and first.name in ("self", "cls") and first.kind in positional else ()
+
+
 def _bind_args(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any], exclude: tuple[str, ...] = ()) -> dict[str, Any]:
     """Tool arguments are recorded by name, however the tool was called. `exclude` drops
     framework context parameters that are neither JSON nor part of the call's identity."""
@@ -752,11 +810,24 @@ def _since(started: float) -> int:
     return int((time.time() - started) * 1000)
 
 
-class _Nothing:
-    """No value yet: a stream that yielded nothing records None."""
+#: How a streaming tool's call is recorded: every value it handed the caller, in order, under a key
+#: no tool's own result has, with a generator's return value as ``returned``.
+_STREAM = "shadowlap_stream"
 
 
-_NOTHING = _Nothing()
+def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any]]:
+    """A streaming call's recorded values and return value; None for a result recorded as one value
+    (a stream recorded before streams were recorded whole, or what ``--override`` put in its place),
+    which a replay yields alone."""
+    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned"}:
+        return result[_STREAM], result.get("returned")
+    return None
+
+
+def _streamed(error: Any) -> list[Any]:
+    """The values a streaming call handed its caller before it failed, as its error keeps them."""
+    values = error.get("streamed") if isinstance(error, dict) else None
+    return values if isinstance(values, list) else []
 
 
 class _Tool:
@@ -779,6 +850,12 @@ class _Tool:
 
     def complete(self, cfg: Config, call_no: int, body: dict[str, Any]) -> None:
         _post(cfg, f"/v1/calls/{call_no}/complete", body)
+
+    async def resolve_async(self, cfg: Config, args: dict[str, Any]) -> Resolution:
+        """``resolve``, asked off the loop, shielded from a cancel: see ``_resolve_shielded``."""
+        r = await _resolve_shielded(functools.partial(self.resolve, cfg, args), functools.partial(self.complete, cfg))
+        assert r is not None  # a tool's resolve always answers
+        return r
 
     def replayed(self, r: Resolution, bound: dict[str, Any]) -> Any:
         """A recorded call's answer: its result, or its error raised again."""
@@ -848,13 +925,13 @@ class _Tool:
             if cfg is None:
                 return await fn(*args, **kwargs)
             bound = _bind_args(fn, args, kwargs, self.exclude)
-            r = await _to_thread(self.resolve, cfg, _check_args(self.name, bound))
+            r = await self.resolve_async(cfg, _check_args(self.name, bound))
             if r["origin"] == "replayed":
                 return await self.replayed_async(r, bound)
             self.refuse(r, bound)
             if r["origin"] == "stubbed":
                 stub = await self.stub_async(bound)
-                await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, stub, 0)
+                await _finish(_complete_ok, self.complete, cfg, r["callNo"], self.name, stub, 0)
                 return stub
             started = time.time()
             try:
@@ -866,7 +943,7 @@ class _Tool:
                 # the end of the call reaches the sidecar, even if the caller cancels again meanwhile.
                 await _finish(self.complete, cfg, r["callNo"], self.failed(err, started))
                 raise
-            await _to_thread(_complete_ok, self.complete, cfg, r["callNo"], self.name, result, _since(started))
+            await _finish(_complete_ok, self.complete, cfg, r["callNo"], self.name, result, _since(started))
             return result
 
         return wrapper
@@ -887,15 +964,24 @@ class _Tool:
             live: Optional[_LiveStream] = None
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = await _to_thread(tool_.resolve, cfg, _check_args(tool_.name, bound))
+                r = await tool_.resolve_async(cfg, _check_args(tool_.name, bound))
                 if r["origin"] == "replayed":
-                    # The implementation doesn't run: the recorded value is the stream.
-                    yield await tool_.replayed_async(r, bound)
+                    # The implementation doesn't run: the recorded values are the stream, in order,
+                    # and a failure comes after the values it followed.
+                    if r["outcome"] == "ok":
+                        recorded = _recorded_stream(r.get("result"))
+                        for item in recorded[0] if recorded is not None else [r.get("result")]:
+                            yield item
+                        return
+                    if not r.get("injected"):
+                        for item in _streamed(r.get("error")):
+                            yield item
+                    await tool_.replayed_async(r, bound)
                     return
                 tool_.refuse(r, bound)
                 if r["origin"] == "stubbed":
                     stub = await tool_.stub_async(bound)
-                    await _to_thread(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    await _finish(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
                     yield stub
                     return
                 live = _LiveStream(tool_, cfg, r["callNo"])
@@ -906,7 +992,7 @@ class _Tool:
                 value = await stream.__anext__()
             except StopAsyncIteration:
                 if live:
-                    await _to_thread(live.ended)
+                    await _finish(live.ended)
                 return
             except BaseException as err:
                 if live:
@@ -914,7 +1000,7 @@ class _Tool:
                 raise
             while True:
                 if live:
-                    live.last = value
+                    live.items.append(value)
                 try:
                     sent = yield value
                 except GeneratorExit:
@@ -933,7 +1019,7 @@ class _Tool:
                     value = await step
                 except StopAsyncIteration:
                     if live:
-                        await _to_thread(live.ended)
+                        await _finish(live.ended)
                     return
                 except BaseException as err:
                     if live:
@@ -956,12 +1042,25 @@ class _Tool:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
                 r = tool_.resolve(cfg, _check_args(tool_.name, bound))
                 if r["origin"] == "replayed":
-                    yield tool_.replayed(r, bound)
+                    # The recorded values are the stream, in order, then what the generator returned;
+                    # a failure comes after the values it followed. A value sent in changes nothing.
+                    if r["outcome"] == "ok":
+                        recorded = _recorded_stream(r.get("result"))
+                        if recorded is None:
+                            yield r.get("result")
+                            return None
+                        for item in recorded[0]:
+                            yield item
+                        return recorded[1]
+                    if not r.get("injected"):
+                        for item in _streamed(r.get("error")):
+                            yield item
+                    tool_.replayed(r, bound)
                     return None
                 tool_.refuse(r, bound)
                 if r["origin"] == "stubbed":
                     stub = tool_.on_fork(**bound) if tool_.on_fork else None
-                    _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, stub, 0)
+                    _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
                     yield stub
                     return None
                 live = _LiveStream(tool_, cfg, r["callNo"])
@@ -970,7 +1069,7 @@ class _Tool:
                 value = next(stream)
             except StopIteration as stop:
                 if live:
-                    live.ended()
+                    live.ended(stop.value)
                 return stop.value
             except BaseException as err:
                 if live:
@@ -978,7 +1077,7 @@ class _Tool:
                 raise
             while True:
                 if live:
-                    live.last = value
+                    live.items.append(value)
                 try:
                     sent = yield value
                 except GeneratorExit:
@@ -996,7 +1095,7 @@ class _Tool:
                     value = advance()
                 except StopIteration as stop:
                     if live:
-                        live.ended()
+                        live.ended(stop.value)
                     return stop.value
                 except BaseException as err:
                     if live:
@@ -1007,29 +1106,35 @@ class _Tool:
 
 
 class _LiveStream:
-    """A streaming tool's live call: the last value it handed the caller is recorded as its result
-    once the stream ends, or once the caller stops reading. A failure of the tool is its error."""
+    """A streaming tool's live call: every value it handed the caller is recorded, in order, once the
+    stream ends (with a generator's return value), or once the caller stops reading; none for a
+    stream that yielded nothing. A failure of the tool is its error, with the values that came first."""
 
     def __init__(self, tool_: _Tool, cfg: Config, call_no: int):
         self.tool = tool_
         self.cfg = cfg
         self.call_no = call_no
         self.started = time.time()
-        self.last: Any = _NOTHING
+        self.items: list[Any] = []
         self.done = False
 
-    def ended(self) -> None:
+    def ended(self, returned: Any = None) -> None:
         if self.done:
             return
         self.done = True
-        result = None if self.last is _NOTHING else self.last
-        _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, result, _since(self.started))
+        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {})}
+        _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, record, _since(self.started))
 
     def failed(self, err: BaseException) -> None:
         if self.done or isinstance(err, _STOPPING):
             return
         self.done = True
-        self.tool.complete(self.cfg, self.call_no, self.tool.failed(err, self.started))
+        body = self.tool.failed(err, self.started)
+        try:
+            body["error"]["streamed"] = _recordable(self.tool.name, self.items)
+        except TypeError:
+            pass  # values that can't be recorded: the error alone
+        self.tool.complete(self.cfg, self.call_no, body)
 
     async def failed_async(self, err: BaseException) -> None:
         await _finish(self.failed, err)
@@ -1055,12 +1160,13 @@ def tool(
 
     A function, a coroutine function, a generator or async generator function, and an object whose
     ``__call__`` is one of those all keep their kind: an async one stays awaitable, and a streaming
-    one keeps streaming, its last value recorded as the result and yielded alone on replay. Async
-    tools run under asyncio, trio, and anyio on either.
+    one keeps streaming, every value it yields recorded (a generator's return value too) and yielded
+    again, in order, on replay. Async tools run under asyncio, trio, and anyio on either.
 
     Parameters a framework injects are left out of the recording automatically: Pydantic AI's
     `RunContext`, the OpenAI Agents SDK's `RunContextWrapper` and `ToolContext`, LangChain's
-    `RunnableConfig`, callback managers and `Injected…` arguments. `exclude` names any others:
+    `RunnableConfig`, callback managers and `Injected…` arguments, and on a method defined in a
+    class, its `self` (a classmethod's `cls`). `exclude` names any others:
 
         @agent.tool
         @tool(effect="read")
@@ -1075,7 +1181,9 @@ def tool(
     def decorate(fn: F) -> F:
         if not callable(fn):
             raise TypeError(f"tool: {fn!r} is not callable")
-        excluded = explicit + tuple(p for p in context_params(fn) if p not in explicit)
+        # A method's self or cls, then a framework's context, beside what `exclude` names.
+        implied = _receiver(fn) + context_params(fn)
+        excluded = explicit + tuple(p for p in implied if p not in explicit)
         wrapped = _Tool(fn, name or _callable_name(fn), effect, on_fork, excluded, trust)
         if _is_async_stream(fn):
             return cast(F, wrapped.async_stream())
@@ -1101,6 +1209,15 @@ def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None
     if trust == "untrusted":
         body["trust"] = "untrusted"
     return _post(cfg, "/v1/calls/resolve", body)
+
+
+def _say_hello(body: dict[str, Any]) -> None:
+    """Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
+    they tell it about their own (``POST /v1/hello``): the Claude Code CLI the Claude Agent SDK runs,
+    whose fence says it runs with no guard. Does nothing outside Shadowlap."""
+    cfg = _config()
+    if cfg is not None:
+        _post(cfg, "/v1/hello", {"runtimeVersion": "", "ppid": 0, **body})
 
 
 def _complete_call(call_no: int, body: dict[str, Any]) -> None:
@@ -1207,7 +1324,9 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
     if cfg is None:
         answer = read(prompt)
         return cast(str, await answer if inspect.isawaitable(answer) else answer)
-    r = await _to_thread(_resolve_input, cfg, prompt)
+    asked = await _resolve_shielded(functools.partial(_resolve_input, cfg, prompt), lambda call_no, body: _post(cfg, f"/v1/calls/{call_no}/complete", body))
+    assert asked is not None  # the sidecar always answers an input
+    r = asked
     if r["origin"] == "replayed":
         if r["outcome"] != "ok":
             await _replay_cancellation(r.get("error") or {})
@@ -1228,5 +1347,5 @@ async def user_input_async(prompt: str, read: Callable[[str], Any]) -> str:
         error = _cancelled_error(err) if _is_cancellation(err) else serialize_error(err)
         await _finish(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "error", "error": error, "latencyMs": _since(started)})
         raise
-    await _to_thread(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
+    await _finish(_post, cfg, f"/v1/calls/{r['callNo']}/complete", {"outcome": "ok", "result": {"text": text}, "latencyMs": _since(started)})
     return cast(str, text)

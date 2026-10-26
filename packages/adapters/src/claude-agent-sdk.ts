@@ -1,4 +1,5 @@
-import { completeToolCall, resolveToolCall, ShadowlapInjectedFailure, ShadowlapWriteBlocked, type Effect, type Resolution } from '@shadowlap/sdk';
+import { completeToolCall, resolveToolCall, sayHello, ShadowlapInjectedFailure, ShadowlapWriteBlocked, type Effect, type Resolution } from '@shadowlap/sdk';
+import { asOutput, combine, matcherPicks, runHooks, settingsPreToolUse, type HookMatcherLike, type SettingsHook, type SettingsPlaces } from './claude-hooks.js';
 import { toOptions, wrapFirstArg, type EffectSpec } from './core.js';
 
 /**
@@ -60,20 +61,18 @@ export interface HookInputLike {
   agent_id?: unknown;
 }
 
-export type FenceOutput =
-  | Record<string, never>
-  | {
-      hookSpecificOutput:
-        | { hookEventName: 'PreToolUse'; permissionDecision: 'allow' | 'deny'; permissionDecisionReason: string; updatedInput?: Record<string, unknown> }
-        | { hookEventName: 'PostToolUse'; updatedToolOutput: unknown };
-    };
+/** What a fence hook answers Claude Code: `{}`, or the fields of a hook's JSON output. */
+export type FenceOutput = Record<string, unknown>;
 
 export type FenceHook = (input: HookInputLike, toolUseID: string | undefined, options: { signal?: AbortSignal }) => Promise<FenceOutput>;
 
 export interface FenceMatcher {
   matcher?: string;
   hooks: FenceHook[];
+  timeout?: number;
 }
+
+export type { HookMatcherLike, SettingsPlaces } from './claude-hooks.js';
 
 export interface FenceOptions {
   /**
@@ -92,16 +91,34 @@ export interface FenceOptions {
   scratch?: string;
   /** Where the fence says what it couldn't do. Default: standard error. */
   log?: (line: string) => void;
+  /**
+   * The query's own PreToolUse and PostToolUse hooks, run inside the fence's (withFence passes the
+   * query's). Claude Code takes a rewritten input or output from whichever hook answers last, so a
+   * hook beside the fence could put back the input of a recorded write, and the write would run
+   * again for real. Inside, they answer first, in the order given, and the fence has the last word.
+   */
+  hooks?: { PreToolUse?: readonly HookMatcherLike[]; PostToolUse?: readonly HookMatcherLike[] };
+  /**
+   * Where Claude Code finds the settings it loads for the query (withFence passes its
+   * `settingSources`, `cwd`, `settings`, `managedSettings` and `env`). A PreToolUse hook in them runs
+   * beside the fence, where nothing can run it inside: a recorded write it could rewrite is refused
+   * on replay rather than handed a stand-in. Default: all three sources, in the session's folder.
+   */
+  settings?: SettingsPlaces;
 }
 
 /** A recorded Bash call that moved the shell's working folder keeps where it left it here, beside its output. */
 const CWD = 'shadowlapCwd';
 
+/**
+ * A call between its PreToolUse and its end. `input` is what the call was asked to run with, the
+ * query's own hooks' rewrite included; `standIn` what the fence ran in its place, when it did.
+ */
 type Pending =
-  | { kind: 'live'; callNo: number; name: string; effect: Effect; started: number; agent: string; cwd: unknown }
-  | { kind: 'stubbed'; callNo: number; name: string; started: number; agent: string; input: Record<string, unknown>; scratch: string }
-  | { kind: 'replayed'; name: string; agent: string; output: unknown }
-  | { kind: 'failure'; name: string; agent: string };
+  | { kind: 'live'; callNo: number; name: string; effect: Effect; started: number; agent: string; cwd: unknown; input: Record<string, unknown> }
+  | { kind: 'stubbed'; callNo: number; name: string; started: number; agent: string; input: Record<string, unknown>; standIn: Record<string, unknown> }
+  | { kind: 'replayed'; name: string; agent: string; output: unknown; input: Record<string, unknown>; standIn: Record<string, unknown> | null }
+  | { kind: 'failure'; name: string; agent: string; input: Record<string, unknown>; standIn: Record<string, unknown> };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -115,6 +132,19 @@ function bashFailure(error: string): { code: number; rest: string } | null {
   const m = /^Exit code (\d{1,3})(?:\n([\s\S]*))?$/.exec(error);
   const code = m ? Number(m[1]) : NaN;
   return m && code > 0 && code < 256 ? { code, rest: m[2] ?? '' } : null;
+}
+
+/** The field of a tool's input that says what it acts on: Bash's command, the file a write writes. */
+const ACTS_ON: Readonly<Record<string, string>> = { Bash: 'command', Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
+
+/**
+ * Whether the call Claude Code ran is another than the stand-in the fence gave it: what it acts on
+ * differs (another hook's rewrite came last). An input Claude Code doesn't show says nothing.
+ */
+function ranOther(name: string, ran: unknown, standIn: Record<string, unknown>): boolean {
+  if (!isRecord(ran)) return false;
+  const field = ACTS_ON[name];
+  return field ? ran[field] !== standIn[field] : JSON.stringify(ran) !== JSON.stringify(standIn);
 }
 
 interface Scratch {
@@ -145,29 +175,54 @@ async function makeScratch(dir: string | undefined): Promise<Scratch> {
   };
 }
 
+/** The longest timeout of the query's matchers, when it is longer than the SDK's default: the fence's hook waits for theirs. */
+function longest(matchers: readonly HookMatcherLike[] | undefined): number | undefined {
+  const most = Math.max(0, ...(matchers ?? []).map((m) => (typeof m.timeout === 'number' ? m.timeout : 0)));
+  return most > 600 ? most : undefined;
+}
+
 /**
  * The hooks that record and fence Claude Code's built-in tools: PreToolUse, PostToolUse,
  * PostToolUseFailure, and PostToolBatch and Stop, which end a call Claude Code never ran (a
- * permission refused it after PreToolUse). Merge them into the query's `hooks`, or use `withFence`.
+ * permission refused it after PreToolUse). Use `withFence`, which runs the query's own PreToolUse and
+ * PostToolUse hooks inside these; merged into the query's `hooks` by hand, pass those as `hooks`.
  */
-export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'PostToolBatch' | 'Stop' | 'SubagentStop', FenceMatcher[]> {
+export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'PreToolUse' | 'PostToolUse' | 'PostToolUseFailure' | 'PostToolBatch' | 'Stop' | 'SubagentStop', FenceMatcher[]> {
   const effects: Record<string, Effect> = { ...BUILT_IN_EFFECTS, ...o.effects };
   const log = o.log ?? ((line: string) => process.stderr.write(`[shadowlap] ${line}\n`));
+  /**
+   * The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
+   * into, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP
+   * server). The fence says so for it, once, as a preload says it loaded: the run's summary names
+   * it, and `--guard block` fails the run. From this process, the one the CLI's hooks answer in.
+   */
+  let greeted: Promise<void> | null = null;
+  const greet = (): Promise<void> =>
+    (greeted ??= sayHello({ runtime: 'claude-code', pid: process.pid, ppid: process.ppid, guard: 'off', capture: false }).catch((err: unknown) => log(`could not tell Shadowlap that the Claude Code CLI runs unguarded: ${message(err)}`)));
   const pending = new Map<string, Pending>();
   let scratch: Promise<Scratch> | undefined;
   const scratchDir = () => (scratch ??= makeScratch(o.scratch));
+  /** The folder the session started in, where Claude Code reads the project's settings: the first hook's, unless withFence said. */
+  let projectDir: string | null = o.settings?.cwd ?? null;
+  const said = new Set<string>();
+  const once = (key: string, line: string) => {
+    if (said.has(key)) return;
+    said.add(key);
+    log(line);
+  };
 
   const allow = (updatedInput: Record<string, unknown>, why: string): FenceOutput => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', permissionDecisionReason: why, updatedInput } });
   const deny = (reason: string): FenceOutput => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
-  const replaced = (output: unknown): FenceOutput => ({ hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: output } });
 
   /** The harmless call that runs in place of a recorded write, as Claude Code accepts it; null where there is none. */
   async function standIn(name: string, input: Record<string, unknown>, recorded: unknown): Promise<Record<string, unknown> | null> {
     switch (name) {
       case 'Bash': {
         const cwd = isRecord(recorded) ? text(recorded[CWD]) : '';
-        // Only what Claude Code tracks of a command: where it left the shell.
-        return { ...input, command: cwd ? `cd -- ${shellQuote(cwd)} 2>/dev/null || true` : 'true', run_in_background: false };
+        // Only what Claude Code tracks of a command: where it left the shell. The builtin, so a cd
+        // function or alias the user's shell defines (one that lists the folder, or loads a project's
+        // environment) runs nothing.
+        return { ...input, command: cwd ? `builtin cd -- ${shellQuote(cwd)} 2>/dev/null || true` : 'true', run_in_background: false };
       }
       case 'Write':
         return { file_path: (await scratchDir()).fresh('write'), content: '' };
@@ -194,19 +249,41 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
     return output;
   }
 
-  const pre: FenceHook = async (input, toolUseID) => {
+  /** A PreToolUse hook of the settings Claude Code loads that picks `name`, or null: it runs beside the fence. */
+  async function besides(name: string): Promise<SettingsHook | null> {
+    const hooks = await settingsPreToolUse(o.settings ?? {}, projectDir ?? process.cwd());
+    return hooks.find((h) => matcherPicks(h.matcher, name, 'all')) ?? null;
+  }
+  const where = (h: SettingsHook) => `a PreToolUse hook in ${h.source}${h.matcher !== undefined ? ` (matcher "${h.matcher}")` : ''}`;
+
+  /**
+   * A write the fence would hand a stand-in, refused instead when a settings file's hook could
+   * rewrite its input after the fence: the recorded write would run again for real.
+   */
+  async function standInOrRefuse(name: string, stand: Record<string, unknown>, why: string): Promise<FenceOutput> {
+    const beside = await besides(name);
+    if (!beside) return allow(stand, why);
+    const reason = `shadowlap: ${name} was not run again: ${where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, so it could run the recorded ${name} again for real. The replay forks here. Give that hook to the query in its hooks option, where withFence runs it inside the fence, or leave that settings file out of settingSources for this agent.`;
+    once(`beside:${name}`, reason);
+    return deny(reason);
+  }
+
+  /** The fence's own answer to a call, from the input the call would run with (the query's hooks' rewrite included). */
+  async function fence(input: HookInputLike, id: string, args: Record<string, unknown>): Promise<FenceOutput> {
     const name = text(input.tool_name);
-    const effect = effects[name];
-    if (!effect) return {};
-    const id = toolUseID ?? text(input.tool_use_id);
-    const args = isRecord(input.tool_input) ? input.tool_input : {};
+    const effect = effects[name]!;
     const agent = text(input.agent_id);
     try {
       const r: Resolution | null = await resolveToolCall({ name, effect, args });
       if (r === null) return {};
       switch (r.origin) {
         case 'live':
-          pending.set(id, { kind: 'live', callNo: r.callNo, name, effect, started: Date.now(), agent, cwd: input.cwd });
+          pending.set(id, { kind: 'live', callNo: r.callNo, name, effect, started: Date.now(), agent, cwd: input.cwd, input: args });
+          // Recorded as it runs; a replay of it will meet the same settings hook, and refuse it.
+          if (effect === 'write') {
+            const beside = await besides(name);
+            if (beside) once(`record:${name}`, `${where(beside)} runs beside Shadowlap's for ${name}: a replay of this run refuses ${name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where withFence runs it inside the fence.`);
+          }
           return {};
         case 'blocked':
           return deny(r.error.message);
@@ -216,28 +293,36 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
             await completeToolCall(r.callNo, { outcome: 'error', error: { name: 'ShadowlapWriteBlocked', message: `${name} has no stand-in Claude Code takes, so it was refused instead of stubbed` } });
             return deny(`${name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and ${name} can't be.`);
           }
-          pending.set(id, { kind: 'stubbed', callNo: r.callNo, name, started: Date.now(), agent, input: args, scratch: (await scratchDir()).dir });
-          return allow(stand, 'shadowlap: a write stubbed after the fork');
+          const out = await standInOrRefuse(name, stand, 'shadowlap: a write stubbed after the fork');
+          if (isRecord(out.hookSpecificOutput) && out.hookSpecificOutput.permissionDecision === 'deny') {
+            await completeToolCall(r.callNo, { outcome: 'error', error: { name: 'ShadowlapWriteBlocked', message: String(out.hookSpecificOutput.permissionDecisionReason) } });
+            return out;
+          }
+          pending.set(id, { kind: 'stubbed', callNo: r.callNo, name, started: Date.now(), agent, input: args, standIn: stand });
+          return out;
         }
         case 'replayed': {
           if (r.outcome === 'ok') {
             const output = isRecord(r.result) && CWD in r.result ? Object.fromEntries(Object.entries(r.result).filter(([k]) => k !== CWD)) : r.result;
             if (effect !== 'write') {
               // A read runs as it is; the model gets the recorded output.
-              pending.set(id, { kind: 'replayed', name, agent, output });
+              pending.set(id, { kind: 'replayed', name, agent, output, input: args, standIn: null });
               return {};
             }
             const stand = await standIn(name, args, r.result);
             if (!stand) return deny(`shadowlap: ${name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.`);
-            pending.set(id, { kind: 'replayed', name, agent, output });
-            return allow(stand, 'shadowlap: a recorded call, replayed');
+            const out = await standInOrRefuse(name, stand, 'shadowlap: a recorded call, replayed');
+            if (!isRecord(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'replayed', name, agent, output, input: args, standIn: stand });
+            return out;
           }
           if (r.injected) return deny(r.error.message);
           if (effect !== 'write') return {}; // a read that failed: it runs, and fails as it did
           const failure = name === 'Bash' ? bashFailure(r.error.message) : null;
           if (failure) {
-            pending.set(id, { kind: 'failure', name, agent });
-            return allow(await failingBash(args, failure), 'shadowlap: a recorded failure, replayed');
+            const stand = await failingBash(args, failure);
+            const out = await standInOrRefuse(name, stand, 'shadowlap: a recorded failure, replayed');
+            if (!isRecord(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'failure', name, agent, input: args, standIn: stand });
+            return out;
           }
           return deny(r.error.message);
         }
@@ -250,31 +335,72 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
       log(`could not record ${name}: ${message(err)}`);
       return effect === 'write' ? deny(`shadowlap: ${name} was not run: it is a write, and it could not be recorded (${message(err)}). A write never runs unrecorded under Shadowlap, since this may be a replay.`) : {};
     }
+  }
+
+  const pre: FenceHook = async (input, toolUseID, options) => {
+    projectDir ??= text(input.cwd) || null;
+    await greet();
+    const name = text(input.tool_name);
+    // The query's own hooks first, as Claude Code would run them: a refusal of theirs stands, and
+    // nothing runs, so nothing is recorded or fenced; a rewrite of theirs is what the call runs with.
+    const own = combine(await runHooks(o.hooks?.PreToolUse, name, input, toolUseID, options?.signal), 'PreToolUse');
+    if (own.decision === 'deny' || own.decision === 'defer' || !effects[name]) return asOutput(own, 'PreToolUse');
+    const args = own.updatedInput ?? (isRecord(input.tool_input) ? input.tool_input : {});
+    const out = await fence({ ...input, tool_input: args }, toolUseID ?? text(input.tool_use_id), args);
+    const mine = isRecord(out.hookSpecificOutput) ? out.hookSpecificOutput : null;
+    if (!mine) return asOutput(own, 'PreToolUse');
+    // The fence has the last word on the input; the more restrictive decision stands, a person's ask over its allow.
+    const decision = mine.permissionDecision === 'deny' ? 'deny' : own.decision === 'ask' ? 'ask' : 'allow';
+    const reason = decision === own.decision && own.reason !== undefined ? own.reason : String(mine.permissionDecisionReason);
+    const { updatedInput: _theirs, ...rest } = own;
+    return asOutput({ ...rest, decision, reason, ...(isRecord(mine.updatedInput) ? { updatedInput: mine.updatedInput } : {}) }, 'PreToolUse');
   };
 
-  const post: FenceHook = async (input, toolUseID) => {
+  /**
+   * Another hook's rewrite came after the fence's stand-in, so Claude Code ran the call itself: a
+   * recorded write ran again for real. The model is not handed the recording as if nothing happened,
+   * a stubbed call is not kept as stubbed, and the session stops there.
+   */
+  async function lost(p: Exclude<Pending, { kind: 'live' }>, ran: unknown): Promise<FenceOutput> {
+    const field = ACTS_ON[p.name];
+    const what = field && isRecord(ran) ? ` (${field}: ${JSON.stringify(ran[field])})` : '';
+    const line = `shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave ${p.name}, so Claude Code ran the call itself${what}: on a replay, that is the recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: see Claude Agent SDK in docs/frameworks.md.`;
+    log(line);
+    if (p.kind === 'stubbed') await completeToolCall(p.callNo, { outcome: 'error', error: { name: 'ShadowlapFenceLost', message: line } }).catch((err: unknown) => log(`could not record that ${p.name} ran: ${message(err)}`));
+    return { continue: false, stopReason: line, systemMessage: line };
+  }
+
+  const post: FenceHook = async (input, toolUseID, options) => {
     const id = toolUseID ?? text(input.tool_use_id);
+    const name = text(input.tool_name);
     const p = pending.get(id);
-    if (!p) return {};
     pending.delete(id);
+    /** The query's own PostToolUse hooks, on what the model is to read, as they ran on it when it was recorded. */
+    const theirs = async (seen: { input: Record<string, unknown>; response: unknown } | null, mine: { value: unknown } | null): Promise<FenceOutput> => {
+      const given = seen ? { ...input, tool_input: seen.input, tool_response: seen.response } : input;
+      const own = combine(await runHooks(o.hooks?.PostToolUse, name, given, toolUseID, options?.signal), 'PostToolUse');
+      return asOutput(own.output || !mine ? own : { ...own, output: mine }, 'PostToolUse');
+    };
+    if (!p) return theirs(null, null);
     try {
+      if (p.kind !== 'live' && p.standIn && ranOther(p.name, input.tool_input, p.standIn)) return await lost(p, input.tool_input);
       switch (p.kind) {
         case 'replayed':
-          return replaced(p.output);
+          return await theirs({ input: p.input, response: p.output }, { value: p.output });
         case 'failure':
           log(`the replayed failure of ${p.name} ran without failing; the replay forks here`);
-          return {};
+          return await theirs(null, null);
         case 'live': {
           const output = input.tool_response;
           // Where a command left the shell is part of what the model sees next: kept for the replay's stand-in.
           const moved = p.name === 'Bash' && typeof input.cwd === 'string' && typeof p.cwd === 'string' && input.cwd !== p.cwd;
           await completeToolCall(p.callNo, { outcome: 'ok', result: moved && isRecord(output) ? { ...output, [CWD]: input.cwd } : (output ?? null), latencyMs: Date.now() - p.started });
-          return {};
+          return await theirs(null, null);
         }
         case 'stubbed': {
           const output = stubOutput(p.name, p.input, input.tool_response);
           await completeToolCall(p.callNo, { outcome: 'ok', result: output ?? null, latencyMs: 0 });
-          return replaced(output);
+          return await theirs({ input: p.input, response: output }, { value: output });
         }
       }
     } catch (err) {
@@ -289,6 +415,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
     if (!p) return {};
     pending.delete(id);
     try {
+      if (p.kind !== 'live' && p.standIn && ranOther(p.name, input.tool_input, p.standIn)) return await lost(p, input.tool_input);
       if (p.kind === 'live' || p.kind === 'stubbed') {
         const error = text(input.error) || 'the tool failed';
         const code = /^Exit code (\d+)/.exec(error)?.[1];
@@ -317,21 +444,43 @@ export function fenceHooks(o: FenceOptions = {}): Record<'PreToolUse' | 'PostToo
   };
 
   const names = Object.keys(effects);
-  // An exact list (letters, digits, _ and -), which Claude Code compares name by name; the hooks check the name again.
-  const matcher = names.every((n) => /^[A-Za-z0-9_-]+$/.test(n)) ? names.join('|') : undefined;
-  const on = (hook: FenceHook): FenceMatcher[] => [{ ...(matcher ? { matcher } : {}), hooks: [hook] }];
-  return { PreToolUse: on(pre), PostToolUse: on(post), PostToolUseFailure: on(failed), PostToolBatch: [{ hooks: [settle] }], Stop: [{ hooks: [settle] }], SubagentStop: [{ hooks: [settle] }] };
+  // An exact list (letters, digits, _ and -), which Claude Code compares name by name; the hooks
+  // check the name again. With the query's own hooks inside, every tool: theirs may pick any.
+  const listed = names.every((n) => /^[A-Za-z0-9_-]+$/.test(n)) ? names.join('|') : undefined;
+  const on = (hook: FenceHook, inner?: readonly HookMatcherLike[]): FenceMatcher[] => {
+    const matcher = inner?.length ? undefined : listed;
+    const timeout = longest(inner);
+    return [{ ...(matcher ? { matcher } : {}), hooks: [hook], ...(timeout ? { timeout } : {}) }];
+  };
+  // The first prompt comes before any model call or tool: the CLI is running, and says hello then.
+  const prompted: FenceHook = async () => (await greet(), {});
+  return { UserPromptSubmit: [{ hooks: [prompted] }], PreToolUse: on(pre, o.hooks?.PreToolUse), PostToolUse: on(post, o.hooks?.PostToolUse), PostToolUseFailure: on(failed), PostToolBatch: [{ hooks: [settle] }], Stop: [{ hooks: [settle] }], SubagentStop: [{ hooks: [settle] }] };
+}
+
+/** The options of a query that say where Claude Code finds its settings and hooks. */
+interface QueryOptionsLike {
+  hooks?: Record<string, unknown[] | undefined>;
+  settingSources?: readonly string[];
+  cwd?: string;
+  settings?: unknown;
+  managedSettings?: unknown;
+  env?: Record<string, string | undefined>;
 }
 
 /**
- * The query's options with the fence's hooks added to its own: `query({ prompt, options: withFence(options) })`.
- * Without Shadowlap the hooks answer `{}` at once, so the same options serve production.
+ * The query's options with the fence's hooks in them: `query({ prompt, options: withFence(options) })`.
+ * The query's own PreToolUse and PostToolUse hooks run inside the fence's, first; its other hooks
+ * stay where they are, beside the fence's. Without Shadowlap the hooks answer as the query's own
+ * would, so the same options serve production.
  */
 export function withFence<T extends object>(options: T, fence: FenceOptions = {}): T & { hooks: Record<string, unknown[]> } {
-  const own = (options as { hooks?: Record<string, unknown[] | undefined> }).hooks ?? {};
+  const q = options as QueryOptionsLike;
+  const own = q.hooks ?? {};
+  const inner = { PreToolUse: [...((own.PreToolUse ?? []) as HookMatcherLike[]), ...(fence.hooks?.PreToolUse ?? [])], PostToolUse: [...((own.PostToolUse ?? []) as HookMatcherLike[]), ...(fence.hooks?.PostToolUse ?? [])] };
+  const settings: SettingsPlaces = { ...(q.settingSources ? { sources: q.settingSources } : {}), cwd: q.cwd ?? process.cwd(), settings: q.settings, managedSettings: q.managedSettings, ...(q.env ? { env: q.env } : {}), ...fence.settings };
   const hooks: Record<string, unknown[]> = {};
-  for (const [event, matchers] of Object.entries(own)) if (matchers) hooks[event] = [...matchers];
-  for (const [event, matchers] of Object.entries(fenceHooks(fence))) hooks[event] = [...(hooks[event] ?? []), ...matchers];
+  for (const [event, matchers] of Object.entries(own)) if (matchers && event !== 'PreToolUse' && event !== 'PostToolUse') hooks[event] = [...matchers];
+  for (const [event, matchers] of Object.entries(fenceHooks({ ...fence, hooks: inner, settings }))) hooks[event] = [...(hooks[event] ?? []), ...matchers];
   return { ...options, hooks };
 }
 

@@ -6,12 +6,18 @@ import asyncio
 import json
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import shadowlap
 from shadowlap import tool
+
+try:
+    import trio
+except ImportError:  # the SDK needs neither; CI installs both for these tests
+    trio = None
 
 
 class Sidecar:
@@ -138,6 +144,96 @@ class Cancelled(unittest.TestCase):
         self.assertEqual(body["error"]["data"], {"cancelled": True})
         shadowlap._post = Sidecar({"origin": "replayed", "callNo": 4, "outcome": "error", "error": body["error"]})
         self.assertEqual(asyncio.run(main()), "no answer")
+
+
+class SlowSidecar(Sidecar):
+    """Takes its time to answer a resolve, so the caller's cancel comes while the call is asked."""
+
+    def __call__(self, cfg, path, body):
+        if path.endswith("/resolve"):
+            time.sleep(0.3)
+        return super().__call__(cfg, path, body)
+
+
+class CancelledWhileAsked(unittest.TestCase):
+    """A cancel that comes while the sidecar is asked about a call: the call never runs, and is
+    never left pending, under asyncio and trio alike."""
+
+    def setUp(self):
+        self._post = shadowlap._post
+        os.environ["SHADOWLAP_URL"] = "http://sidecar.test"
+
+    def tearDown(self):
+        shadowlap._post = self._post
+        os.environ.pop("SHADOWLAP_URL", None)
+
+    def write_tool(self, ran):
+        @tool(effect="write")
+        async def send(to: str) -> str:
+            ran.append(to)  # the write, before the tool's first await
+            if _library() == "trio":
+                await trio.sleep(0)
+            else:
+                await asyncio.sleep(0)
+            return "sent"
+
+        return send
+
+    def test_under_asyncio_the_write_never_runs_and_the_call_ends_as_cancelled(self):
+        sidecar = SlowSidecar({"origin": "live", "callNo": 5})
+        shadowlap._post = sidecar
+        ran = []
+        send = self.write_tool(ran)
+
+        async def main():
+            try:
+                return await asyncio.wait_for(send("ops"), timeout=0.05)
+            except asyncio.TimeoutError:
+                return "timed out"
+
+        self.assertEqual(asyncio.run(main()), "timed out")
+        self.assertEqual(ran, [])
+        (body,) = completes(sidecar)
+        self.assertEqual((body["outcome"], body["error"]["data"]), ("error", {"cancelled": True}))
+
+    @unittest.skipUnless(trio, "trio is not installed")
+    def test_under_trio_the_write_never_runs_and_the_call_ends_as_cancelled(self):
+        sidecar = SlowSidecar({"origin": "live", "callNo": 5})
+        shadowlap._post = sidecar
+        ran = []
+        send = self.write_tool(ran)
+
+        async def main():
+            with trio.move_on_after(0.05) as deadline:
+                await send("ops")
+            return deadline.cancelled_caught
+
+        self.assertTrue(trio.run(main))
+        self.assertEqual(ran, [])
+        (body,) = completes(sidecar)
+        self.assertEqual((body["outcome"], body["error"]["data"]), ("error", {"cancelled": True}))
+
+    @unittest.skipUnless(trio, "trio is not installed")
+    def test_under_trio_a_stream_that_ends_in_a_cancelled_scope_is_still_ended(self):
+        sidecar = Sidecar({"origin": "live", "callNo": 6})
+        shadowlap._post = sidecar
+
+        @tool(effect="read")
+        async def pages():
+            yield 1
+
+        async def main():
+            with trio.CancelScope() as scope:
+                async for _ in pages():
+                    scope.cancel()  # the stream ends with the scope already cancelled
+
+        trio.run(main)
+        (body,) = completes(sidecar)
+        self.assertEqual((body["outcome"], body["result"]), ("ok", {"shadowlap_stream": [1]}))
+
+
+def _library():
+    return shadowlap._async_library()
 
 
 if __name__ == "__main__":

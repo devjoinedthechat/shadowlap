@@ -233,7 +233,8 @@ export function register(program: Command): void {
       const unrecorded = unrecordedTools(store, run.runId, { declared: config.unrecorded ?? {} });
       if (unrecorded.length) {
         const writes = unrecorded.filter((t) => t.effect === 'write').length;
-        head.push(`  ${p.yellow('!')} not recorded: ${unrecorded.map((t) => `${safe(t.name)} (${t.count} call${t.count === 1 ? '' : 's'} from #${t.firstCallNo}${t.effect === 'write' ? ', writes' : ''})`).join(', ')}${p.dim(` · a replay runs ${unrecorded.length === 1 ? 'it' : 'them'} for real${writes ? ', and refuses to while one writes' : ''}`)}`);
+        const unknown = unrecorded.filter((t) => t.effect === 'unknown').length;
+        head.push(`  ${p.yellow('!')} not recorded: ${unrecorded.map((t) => `${safe(t.name)} (${t.count} call${t.count === 1 ? '' : 's'} from #${t.firstCallNo}${t.effect === 'write' ? ', writes' : t.effect === 'unknown' ? ', may write' : ''})`).join(', ')}${p.dim(` · a replay runs ${unrecorded.length === 1 ? 'it' : 'them'} for real${writes || unknown ? `, and refuses to while one ${writes && unknown ? 'writes, or may' : writes ? 'writes' : 'may write'}` : ''}`)}`);
       }
       process.stdout.write(head.join('\n') + '\n\n');
       // A column of its own, only when there is a read to tag, so the rest line up as they always have.

@@ -46,6 +46,37 @@ const NUMBERS = ['no', 'one', 'two', 'three', 'four', 'five'];
 /** Variables of this machine's own setup that would reach the demo's commands and their agent: model keys and endpoints, Shadowlap's own. */
 const LEAKS = /^(ANTHROPIC_|OPENAI_|AZURE_OPENAI_|GEMINI_|GOOGLE_API_KEY$|GOOGLE_GEMINI_BASE_URL$|SHADOWLAP_UPSTREAM_|SHADOWLAP_URL$|SHADOWLAP_RUN_ID$|SHADOWLAP_SCOPE$|SHADOWLAP_EVENTS_FD$)/;
 
+/**
+ * What blame's probes on `runId` say, in one line, from the blame it keeps on the run: the call it
+ * blamed, rescued, and the next one probed, lost, each with its tally, and how to read their rates.
+ * Null when the run holds no such blame.
+ */
+export function probeReading(db: string, runId: string): string | null {
+  const store = Store.open(db);
+  try {
+    const blame = store.getRun(runId)?.meta?.blame;
+    const at = blame?.probes.find((x) => x.callNo === blame.callNo && x.rescued);
+    const next = blame?.probes.filter((x) => at && x.callNo > at.callNo && !x.rescued).sort((a, b) => a.callNo - b.callNo)[0];
+    if (!at || !next) return null;
+    return `Read a probe as: model call #${at.callNo}, asked again from forks, passed ${at.passes} of ${at.attempts} attempts, and passes at least the rate shown, at the confidence in brackets: often enough that a better answer there saves the run, rescued. #${next.callNo} passed ${next.passes} of ${next.attempts}, and passes at most its rate: too rarely to save it there, lost.`;
+  } finally {
+    store.close();
+  }
+}
+
+/** Where the scripted model's requests went, in one line: the recordings', and each step's after them. */
+export function requestsLine(asked: { recorded: number; replayed: number; blame: number; repair: number; applied: number }, runs: number): string {
+  const none = [...(asked.replayed ? [] : ['the replay']), ...(asked.applied ? [] : ["the goldens' test"])];
+  const parts = [
+    `${asked.recorded} recorded the ${NUMBERS[runs] ?? runs} runs`,
+    ...(asked.replayed ? [`${asked.replayed} came from the replay`] : []),
+    `${asked.blame} were blame's attempts, each asking again from its fork on`,
+    `${asked.repair} were repair's: blaming the other failing run, asking the repairer, and verify's attempts`,
+    ...(asked.applied ? [`${asked.applied} came from the goldens' test`] : []),
+  ];
+  return `${parts.join(', ')}${none.length ? `; ${none.join(' and ')} sent none` : ''}. A real model is paid for these, and not for what the forks replayed.`;
+}
+
 export async function runDemo(o: DemoOptions): Promise<number> {
   const write = o.write ?? ((text: string) => void process.stdout.write(text));
   const started = Date.now();
@@ -111,14 +142,30 @@ export async function runDemo(o: DemoOptions): Promise<number> {
     for (const id of bugs) await step(['label', shortId(id), 'refund-bug']);
     await step(['label', shortId(good), 'good']);
 
+    // What each step asked of the scripted model, to say where the requests went.
+    const asked = { recorded: model.requests, replayed: 0, blame: 0, repair: 0, applied: 0 };
+    const since = (() => {
+      let last = model.requests;
+      return () => {
+        const n = model.requests - last;
+        last = model.requests;
+        return n;
+      };
+    })();
+
     write(`\n${p.bold('2. Replay')} the first: every call is answered from the recording, the refund included, and nothing is sent.\n`);
     await step(['replay', shortId(bugs[0]!)]);
+    asked.replayed = since();
 
     write(`\n${p.bold('3. Blame')} it: ask model calls again, each from a fork that replays everything before it, to find the one that lost the run.\n`);
     await step(['blame', shortId(bugs[0]!), '--expect', '@refund-check.json', '--concurrency', '4']);
+    asked.blame = since();
+    const reading = probeReading(join(dir, '.shadowlap', 'shadowlap.db'), bugs[0]!);
+    if (reading) write(p.dim(`  ${reading}\n`));
 
     write(`\n${p.bold('4. Repair')} it: the scripted model proposes rewrites of the prompt and the tools, and repair keeps the one verify proves.\n`);
     await step(['repair', '--fixes', 'label:refund-bug', '--keeps', 'label:good', '--expect', '@refund-check.json', '--concurrency', '4']);
+    asked.repair = since();
 
     const store = Store.open(join(dir, '.shadowlap', 'shadowlap.db'));
     const fix = store.listFixes().find((f) => f.status === 'verified');
@@ -126,9 +173,11 @@ export async function runDemo(o: DemoOptions): Promise<number> {
     if (!fix) throw new StepFailed(EXIT.failed, 'the demo stopped: repair left no verified fix to apply');
     write(`\n${p.bold('5. Apply')} the verified fix: the patch goes into agent.mjs, the runs it fixed become goldens, and their test runs offline.\n`);
     await step(['fix', 'apply', shortFixId(fix.fixId)]);
+    asked.applied = since();
 
     const seconds = Math.round((Date.now() - started) / 1000);
     write(`\n${p.green('✓')} Done in ${seconds} s, ${model.requests} requests to the scripted model, none to a real one.\n`);
+    write(p.dim(`  ${requestsLine(asked, BUG_ORDERS.length + 1)}\n`));
     write(o.keep ? `  Kept in ${dir}: run shadowlap dashboard there to look around.\n` : p.dim('  The folder is removed. Run shadowlap demo --keep <dir> to keep it, and open it with shadowlap dashboard.\n'));
     write(p.dim('  Your own agent: npm install -g shadowlap, then shadowlap init in its folder.\n'));
     return EXIT.ok;
