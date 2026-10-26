@@ -809,7 +809,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       // Streamed to the terminal, the Node's words can't be read here: that Node is asked again. One a
       // launcher or a script picked can't be: the attempt counts, and a line says what Node's words mean.
       let unasked = false;
-      if (!stopped && !stoppedBySignal && code === 9 && store.countCalls(run.runId) === 0) {
+      // Counted once its rows are made, waited for on the writer's timer: another attempt's stream goes on.
+      if (!stopped && !stoppedBySignal && code === 9 && (await sidecar.settled(run.runId), store.countCalls(run.runId) === 0)) {
         if (streaming && !tee ? nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()) : refusedPreload(output)) {
           sidecar.endRun(run.runId, 'failed');
           refused.push(run.runId);

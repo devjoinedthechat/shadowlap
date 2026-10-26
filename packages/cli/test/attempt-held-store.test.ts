@@ -9,7 +9,7 @@ import { Sidecar } from '@shadowlap/sidecar';
 import { judgeRequests, message, startMockAnthropic, text, withJudge } from '@shadowlap-testing/mock-anthropic';
 import { AttemptRunner } from '../src/attempts.js';
 import { parseExpect } from '../src/checks.js';
-import { judgeAttempt } from '../src/run-agent.js';
+import { judgeAttempt, repeatUnderSidecar } from '../src/run-agent.js';
 
 /**
  * An attempt of blame or verify whose agent makes its last call while another process holds the
@@ -56,6 +56,17 @@ const agent = (ready: string, locked: string, done: string) => `
     fs.writeFileSync(${JSON.stringify(done)}, '');
   })();`;
 
+/** A clock read once `locked` exists, then an exit with 9, as an agent whose Node refused the preload exits. */
+const exitsNine = (ready: string, locked: string, done: string) => `
+  const fs = require('fs');
+  fs.writeFileSync(${JSON.stringify(ready)}, '');
+  (async () => {
+    while (!fs.existsSync(${JSON.stringify(locked)})) await new Promise((r) => setTimeout(r, 10));
+    await fetch(process.env.SHADOWLAP_URL + '/r/' + process.env.SHADOWLAP_RUN_ID + '/v1/calls/resolve', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'clock', name: 'now', label: '' }) });
+    fs.writeFileSync(${JSON.stringify(done)}, '');
+    process.exit(9);
+  })();`;
+
 describe('an attempt that ends while another process holds the store', () => {
   it('reads every call its agent made once their rows are written, without holding the thread', async () => {
     const db = join(dir, 'store.db');
@@ -87,6 +98,37 @@ describe('an attempt that ends while another process holds the store', () => {
       expect(a.summary.warnings.filter((w) => /store/.test(w))).toEqual([]);
     } finally {
       await r.close();
+    }
+  }, 60_000);
+
+  it('of replay --repeat that exits 9 is told from a Node that refused the preload by its calls, read once their rows are written', async () => {
+    const db = join(dir, 'repeat.db');
+    const setup = Store.open(db);
+    const recorder = await Sidecar.start({ store: setup });
+    const parent = recorder.startRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: dir } });
+    await fetch(`${recorder.url}/r/${parent.runId}/v1/calls/resolve`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'clock', name: 'now', label: '' }) });
+    recorder.endRun(parent.runId, 'completed');
+    await recorder.close();
+    const recorded = setup.getRun(parent.runId)!;
+    setup.close();
+
+    const [ready, locked, done] = ['nine-ready', 'nine-locked', 'nine-done'].map((f) => join(dir, f));
+    const argv = [process.execPath, '-e', exitsNine(ready, locked, done)];
+    const attempts = repeatUnderSidecar({ db }, argv, 1, 1, (sidecar) => sidecar.startRun({ mode: 'replay', parentRunId: recorded.runId, command: { argv, cwd: dir } }), 'off', { recording: recorded });
+    // Held once the agent is up, so its read's rows wait behind the lock when it exits 9.
+    await until(() => existsSync(ready));
+    const lock = await holdStore(db);
+    writeFileSync(locked, '');
+    await until(() => existsSync(done));
+    // Let go by this process's timer, which a count of its calls made on the thread would hold up past the writer's deadline.
+    setTimeout(() => void lock.release(), 500);
+    const [attempt] = await attempts;
+    expect(attempt.code).toBe(9);
+    const store = Store.open(db);
+    try {
+      expect(store.getCalls(attempt.run.runId)).toHaveLength(1);
+    } finally {
+      store.close();
     }
   }, 60_000);
 
