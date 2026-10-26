@@ -5,7 +5,7 @@ export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, par
 // The check every rule's pattern passes before it is compiled.
 export { PATTERN_BUDGET_MS, PATTERN_MAX, PatternBudgetError, patternProblem, regexProblem, setPatternBudget, withinPatternBudget } from './safe-regex.js';
 export { contextFree, isJsonText, pathReachesResults, reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
-export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credentialFreeCall, credentialFreeCalls, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactQuery, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
+export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credentialFreeCall, credentialFreeCalls, jsonPath, matchedAs, previewRedaction, redactApiPath, redactArgv, redactBytes, redactHeaderValues, redactQuery, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
 // Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
 // headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
 export { nestsDeeper } from './credential-shapes.js';

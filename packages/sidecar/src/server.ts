@@ -65,6 +65,8 @@ import { awsErrorType } from '@shadowlap/engine';
 import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shadowlap/engine';
 // A model call's answer is kept with the credentials its headers carry masked, as a captured host's are.
 import { credentialFreeHeaders } from '@shadowlap/engine';
+// A redacted copy's model calls: their path and header parameters as the copy's rules masked them.
+import { redactApiPath, redactHeaderValues } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
@@ -899,7 +901,7 @@ export class Sidecar {
       deferExplain: true,
       ...(input.replay ? { replay: input.replay } : {}),
       loadRequest: (rec) => this.loadRequest(rec, roundedNumbers),
-      matchName: (rec) => this.matchName(rec),
+      matchName: (rec) => this.matchName(rec, redactions),
       // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
       matchQuery: (rec) => storedQuery(rec, redactions),
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
@@ -1602,9 +1604,12 @@ export class Sidecar {
   private identifyModelCall(call: ModelCall): { name: string; matchName: string | undefined; kept: Record<string, string>; asked: Record<string, string>; fingerprint: string; query: string; unqueried: boolean } {
     const { ctx, provider, judge } = call;
     const name = apiCallName(call.method, call.path);
+    // Read as the recording's copy keeps its path: what a redaction rule masked there (a Bedrock model
+    // ARN's account id) is masked here too.
+    const path = redactApiPath(call.path, ctx.redactions, { kind: 'api', name });
     // What identifies the call, where the provider leaves part of its path out (Vertex AI's project and region).
-    const matchPath = provider.matchPath?.(call.path);
-    const matchName = matchPath !== undefined && matchPath !== call.path ? apiCallName(call.method, matchPath) : undefined;
+    const matchPath = provider.matchPath?.(path) ?? path;
+    const matchName = matchPath !== call.path ? apiCallName(call.method, matchPath) : undefined;
     // A parent that names no API version (a trace never keeps one) is matched, and this run kept,
     // without the version this request names: the run names none either, as the one it replays, so
     // the two stay the same calls (Compare, coverage) and its own replays match whatever version.
@@ -1613,12 +1618,12 @@ export class Sidecar {
     // So too a parent that holds no header parameters (made before calls kept them, or imported).
     const kept = ctx.headerParameters ? sent : withoutHeaderParameters(provider, sent);
     // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
-    const asked = matchedHeaders(provider, kept);
+    const asked = redactHeaderValues(matchedHeaders(provider, kept), ctx.redactions, { kind: 'api', name });
     const unqueried = !judge && ctx.unqueried.has(provider.id);
     // Read as the recording's copy keeps its query: a parameter a redaction rule masked there is masked here too.
     const query = unqueried ? '' : identityQuery(call.search, ctx.redactions, name);
-    const request = { method: call.method, path: call.path, headers: asked, body: call.exact, query };
-    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, matchPath, ctx.roundedNumbers).fingerprint : this.apiFingerprint(ctx, provider, request);
+    const request = { method: call.method, path, headers: asked, body: call.exact, query };
+    const fingerprint = judge ? judgeFingerprint(request, ctx.redactions, provider, provider.matchPath?.(path), ctx.roundedNumbers).fingerprint : this.apiFingerprint(ctx, provider, request);
     return { name, matchName, kept, asked, fingerprint, query, unqueried };
   }
 
@@ -1668,7 +1673,9 @@ export class Sidecar {
         this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`);
       },
     });
-    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt, roundedNumbers: ctx.roundedNumbers }, provider, call.method, call.path, asked, query, judge !== null);
+    // Keyed by what identified it, as the query and headers are: its path as the parent's rules read it.
+    const path = redactApiPath(call.path, ctx.redactions, tracked.identity);
+    const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt, roundedNumbers: ctx.roundedNumbers }, provider, call.method, path, asked, query, judge !== null);
     this.writer.write({
       what: `call ${callNo}'s fingerprint`,
       optional: true,
@@ -2689,12 +2696,18 @@ export class Sidecar {
     return via ?? this.byId.get(String(rec.meta.provider ?? ''));
   }
 
-  /** A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without its project and region. */
-  private matchName(rec: CallRecord): string {
+  /**
+   * A recorded model call's name as matching reads it (`Provider.matchPath`): a Vertex AI call without
+   * its project and region, and its path through the rules that redacted the copy (`redactions`).
+   */
+  private matchName(rec: CallRecord, redactions: readonly Normalizer[] = []): string {
     const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
-    if (!provider?.matchPath) return rec.name;
+    if (!provider) return rec.name;
     const [method = 'POST', ...pathParts] = rec.name.split(' ');
-    return apiCallName(method, provider.matchPath(pathParts.join(' ')));
+    const recorded = pathParts.join(' ');
+    const path = redactApiPath(recorded, redactions, rec);
+    if (provider.matchPath) return apiCallName(method, provider.matchPath(path));
+    return path === recorded ? rec.name : apiCallName(method, path);
   }
 
   /** A recorded model call's request as it was sent, each number as written: what a rebuild sends again. */
@@ -2848,8 +2861,9 @@ export class Sidecar {
       const provider = this.providerOf(rec);
       if (!provider) return null;
       const [method = 'POST', ...pathParts] = rec.name.split(' ');
-      const path = pathParts.join(' ');
-      const headers = matchedHeaders(provider, (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {});
+      // Read through the rules that redacted the copy, as the live call's are: masking twice changes nothing.
+      const path = redactApiPath(pathParts.join(' '), rules.redactions, rec);
+      const headers = redactHeaderValues(matchedHeaders(provider, (rec.meta.fingerprintHeaders as Record<string, string> | undefined) ?? {}), rules.redactions, rec);
       const query = typeof rec.meta.query === 'string' ? rec.meta.query : undefined;
       // A judge's call is matched by its request as sent, not as the agent's calls are.
       const judge = isJudgeCall(rec);

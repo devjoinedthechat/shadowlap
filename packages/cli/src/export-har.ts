@@ -1,4 +1,4 @@
-import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactApiPath, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { VERSION } from './shared.js';
 
@@ -52,7 +52,8 @@ export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], opti
     }
     const host = HOSTS[String(c.meta.provider ?? '')] ?? providers.find((p) => p.id === c.meta.provider)?.upstream ?? 'api.anthropic.com';
     const [method = 'POST', rawPath = '/'] = c.name.split(' ');
-    const path = text(rawPath);
+    // Each segment read decoded, as a copy's call name is: a Bedrock model's ARN, with the account id, is one.
+    const path = redactApiPath(rawPath, rules, c);
     const stored = c.requestRef ? loadApiRequest(store, c.requestRef) : null;
     const body = rules.length ? (typeof stored === 'string' ? text(stored) : applyNormalizers(stored, rules, 'api', c.name)) : stored;
     const postText = typeof body === 'string' ? body : JSON.stringify(body);
