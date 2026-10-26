@@ -56,9 +56,12 @@ export function clauses(head: string, parts: readonly string[], width = 80): str
   return lines.join('\n');
 }
 
-/** A recorded string for one terminal line. */
+/**
+ * A recorded string for one terminal line: its control characters escaped (safeLine), and each `##[`,
+ * which a CI runner reads as a workflow command anywhere in a line it logs, written `#\x23[`.
+ */
 export function safe(s: string): string {
-  return safeLine(s);
+  return safeLine(s).replace(/##\[/g, '#\\x23[');
 }
 
 /** A command line as a shell would need it typed: the engine's, so the CLI and the dashboard quote alike. */

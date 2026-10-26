@@ -16,8 +16,8 @@ import { formatChecks } from '../src/golden-test.js';
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./support-agent.mjs', import.meta.url));
-const REASON = 'It refunded without asking.\n::stop-commands::tok\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\n';
-const SAID = 'Done.\r::stop-commands::tok\r\n::warning::from the agent';
+const REASON = 'It refunded without asking.\n::stop-commands::tok\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\n and ##[error]forged too';
+const SAID = 'Done.\r::stop-commands::tok\r\n::warning::from the agent, ##[error]and mid-line';
 
 function script(ctx: ScriptContext) {
   const q = judgeQuestion(ctx.request);
@@ -65,7 +65,7 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(printed.split('\n')).toHaveLength(2);
     expect(commandsIn(printed)).toEqual([]);
     expect(printed).toBe(
-      `✗ ${label}: the judge answered no · It refunded without asking.\\n::stop-commands::tok\\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\\n (judged from the recording, free)\n` +
+      `✗ ${label}: the judge answered no · It refunded without asking.\\n::stop-commands::tok\\n::error file=src/agent.ts,line=1,title=Shadowlap::forged\\n and #\\x23[error]forged too (judged from the recording, free)\n` +
         '✗ judge "tone" answers yes: the judge answered no · Polite.\\x0d::add-mask::tok (judged from the recording, free)',
     );
   });
@@ -85,6 +85,6 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(r.out).toContain('judge "policy" answers yes: the judge answered no · It refunded without asking.');
     // Nothing in all it printed is a command; what the agent printed is each line after the bar.
     expect(commandsIn(r.out)).toEqual([]);
-    expect(r.out).toContain('    │ Done.\n    │ ::stop-commands::tok\n    │ ::warning::from the agent\n');
+    expect(r.out).toContain('    │ Done.\n    │ ::stop-commands::tok\n    │ ::warning::from the agent, #\\x23[error]and mid-line\n');
   }, 60_000);
 });

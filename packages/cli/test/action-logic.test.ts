@@ -565,7 +565,9 @@ describe("what the Action writes to the job's log", () => {
     expect(logLine('  ::add-mask::y')).toBe('  %3A:add-mask::y');
     expect(logLine(`${nel}::warning::y`)).toBe(`${nel}%3A:warning::y`);
     expect(logLine('##[error]w')).toBe('%23#[error]w');
-    expect(logLine('a :: b ##[ c')).toBe('a :: b ##[ c');
+    // The older form is read anywhere in a line: each `##[` is escaped wherever it is; a `::` past the start makes nothing.
+    expect(logLine('a :: b ##[ c')).toBe('a :: b %23#[ c');
+    expect(logLine('mid ##[error]legacy ##[warning]twice')).toBe('mid %23#[error]legacy %23#[warning]twice');
     // The action's own annotations: its title, what they say as their data.
     expect(annotation('warning', `refund-flow: ${planted}`)).toBe('::warning title=Shadowlap::refund-flow: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
     expect(pushLine('refund-flow', { state: 'off', why: planted, pr: null })).toBe('the fix was not sent to the team store: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
@@ -574,6 +576,7 @@ describe("what the Action writes to the job's log", () => {
   it("passes another program's lines on as they are, but none of them as a command", () => {
     expect(logLines('repairing\n::error::x\r\n  ::stop-commands::t\n##[group]g\nlast')).toBe('repairing\n%3A:error::x\r\n  %3A:stop-commands::t\n%23#[group]g\nlast');
     expect(logLines('one\rtwo ::x::')).toBe('one\rtwo ::x::');
+    expect(logLines('repair log line\nmid ##[error]legacy mid-line')).toBe('repair log line\nmid %23#[error]legacy mid-line');
   });
 });
 
