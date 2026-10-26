@@ -528,7 +528,12 @@ and `passes`. Its verdict is `passed`, `failed`, `inconclusive` (the gate ran ou
 its bounds, the replay never reached the call, which a golden that no longer replays does, or all
 that kept an attempt from passing is a check no attempt can decide, such as a judge with no way to
 be asked) or `not-applicable` (the recording has no call the preset can hit, or no result it can
-change, such as a binary one or one that is empty already). An attempt stops after `chaos.timeout`
+change, such as a binary one or one that is empty already). The provider failing for real, beyond
+the failure a preset plays in, is the provider's, as under `test`
+([gating](./gating.md#when-the-provider-is-unavailable)): an attempt it failed before the model
+answered is run again and never counted, one it cut short after is counted against either verdict
+by a `chaos.gate` and run again under `repeat`, and three in a row leave the preset inconclusive
+with the provider named, never failed. An attempt stops after `chaos.timeout`
 seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of
 `test --chaos`. Each attempt is a run bundled under the golden's recording, and the session and
 every result are kept in the store for the dashboard. Exit status: 1 when a preset failed or a golden
@@ -561,9 +566,11 @@ each preset (`preset`, its `label`, the `verdict`, the `callNo` it hit and its `
 `name`), the `passes` and `attempts`, a `detail` sentence naming what came of it (and its
 `summary`, without the call, as the table shows it), the `reason` it failed (its first failing
 attempt's) or is inconclusive (null when its gate ran out of attempts), the `gate` it was decided
-by, `upstreamRequests`, `spent`, and its `runs`), each attempt (`runId`, its `verdict`: `passed`,
-`failed`, or `inconclusive` when its replay never reached the call or all that kept it from passing
-is a check no attempt can decide; `passed`, true for a passed attempt only; the agent's `exitCode`,
+by, `upstreamRequests`, `spent`, `unavailable` and `cutShort` when its provider failed for real
+(attempts never counted, and attempts cut short and counted), and its `runs`), each attempt (`runId`,
+its `verdict`: `passed`, `failed`, or `inconclusive` when its replay never reached the call, all that
+kept it from passing is a check no attempt can decide, or its provider failed for real, with
+`unavailable` then `retried` or `counted`; `passed`, true for a passed attempt only; the agent's `exitCode`,
 its `checks`, the `reason` it failed or is inconclusive and, for an agent that exited with an error,
 `lastLine`: the error it died of, as it printed it). `--junit` writes a case per preset, whose
 failure lists each attempt by its verdict, and `--markdown` a table of them, listing under it any
