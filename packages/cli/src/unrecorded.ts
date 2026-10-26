@@ -13,14 +13,15 @@ import { palette as p, quoteArgv, safe, shortId } from './ui.js';
  */
 
 /** `--allow-unrecorded Bash,Write` (repeatable): the unrecorded tools a replay may run again for real. */
-export function allowedUnrecorded(values: readonly string[]): Set<string> {
-  return new Set(values.flatMap((v) => v.split(',')).map((name) => name.trim()).filter(Boolean));
+export function allowedUnrecorded(values: readonly string[] | undefined): Set<string> {
+  return new Set((values ?? []).flatMap((v) => v.split(',')).map((name) => name.trim()).filter(Boolean));
 }
 
 /** `--allow-unrecorded`, as every command that replays a recording takes it: the flag, its help, and how its values add up. */
 export const ALLOW_UNRECORDED = '--allow-unrecorded <names>';
 export const ALLOW_UNRECORDED_HELP = 'run these tools again for real though the recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)';
-export const collectNames = (v: string, acc: string[]): string[] => [...acc, v];
+// No default, so help never shows an empty list as one: given none, the flag is undefined, which allowedUnrecorded reads as none.
+export const collectNames = (v: string, acc: string[] | undefined): string[] => [...(acc ?? []), v];
 
 /**
  * A command line with a flag added: before its `--`, when it has one, so the flag is Shadowlap's

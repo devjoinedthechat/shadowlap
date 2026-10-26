@@ -263,8 +263,8 @@ export function register(program: Command): void {
     .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
-    .option(ALLOW_UNRECORDED, 'run these tools again for real though a golden never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)', collectNames, [] as string[])
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded: string[] }) {
+    .option(ALLOW_UNRECORDED, 'run these tools again for real though a golden never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)', collectNames)
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded?: string[] }) {
       const opts = program.opts<GlobalOpts>();
       // A golden whose model called a tool its recording never recorded, which writes, would run it
       // again for real: refused before anything runs, every such golden named. Reads only warn.
@@ -612,10 +612,10 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('-y, --yes', 'run the recorded command of a run from a pack or the team store at each commit without asking')
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
-    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
+    .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       try {
         const report = await runBisect({

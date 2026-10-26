@@ -156,10 +156,10 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
-    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; json?: boolean }) => {
+    .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
       if (flags.listTemplates) {
         const set = injectionTemplates();
         if (flags.json) process.stdout.write(JSON.stringify(set, null, 2) + '\n');

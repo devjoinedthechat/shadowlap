@@ -134,7 +134,7 @@ export function register(program: Command): void {
     .option('--set <call:key=value>', 'set a request field from model call <call> on, where the provider keeps it: 15:max_tokens=2048, 15:temperature=0 (repeatable; value is JSON or a string; a dotted key is a path)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--model <call:model>', 'switch the model from model call <call> on, in the body or, on Gemini, Vertex, Bedrock and Azure, the path: 15:claude-opus-5')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--repeat <n>', 'run the replay n times and report how the attempts differ after the fork', parseIntArg)
     .option('--concurrency <n>', 'with --repeat: attempts running at once', parseIntArg, 1)
@@ -144,7 +144,7 @@ export function register(program: Command): void {
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all)')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option('--inconclusive <policy>', 'with --chaos: what an inconclusive preset does to the exit status, one whose gate ran out between its bounds, whose replay never reached the call, or that only a check no attempt can decide kept from passing: fail or warn', parseChoice<'fail' | 'warn'>(['fail', 'warn']), 'fail')
-    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; allowUnrecorded: string[]; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
+    .action(async function (this: Command, runArg: string, command: string[], flags: { strict?: boolean; writes: WritePolicy; reads: ReadPolicy; liveTool: string[]; divergeAt?: number; promptFrom?: number; override: string[]; failAt: string[]; injectResult: string[]; expect?: string; watch?: boolean; inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; repeat?: number; concurrency: number; summaryJson?: string; liveInput?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; inconclusive: 'fail' | 'warn' }) {
       const opts = program.opts<GlobalOpts>();
       if (flags.chaos) {
         // The presets play their own failures in, one at a time: anything else that changes the replay would be judged with them.
@@ -352,9 +352,9 @@ export function register(program: Command): void {
     .option('--max-rounds <n>', 'replays to try before giving up', parseIntArg, 8)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--guard <mode>', 'network guard: warn, block or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, [] as string[])
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
     .option('--json', 'machine-readable output, printed when calibration ends')
-    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; allowUnrecorded: string[]; json?: boolean }) => {
+    .action(async (runArg: string | undefined, flags: { write?: boolean; maxRounds: number; yes?: boolean; guard: GuardMode; allowUnrecorded?: string[]; json?: boolean }) => {
       const say = (text: string) => {
         if (!flags.json) process.stdout.write(text);
       };
