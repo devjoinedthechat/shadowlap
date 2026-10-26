@@ -1294,6 +1294,8 @@ export class Sidecar {
         mode: body.mode,
         ...(body.parentRunId ? { parentRunId: body.parentRunId } : {}),
         command: body.command ?? { argv: [], cwd: '' },
+        // A command a program sends is the token holder's choice: replaying the run asks first.
+        ...(body.command?.argv?.length ? { meta: { commandFromClient: true } } : {}),
         codeVersion: body.codeVersion ?? null,
         ...(replay ? { replay: replay } : {}),
         ...(body.interventions ? { interventions: body.interventions } : {}),

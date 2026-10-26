@@ -545,7 +545,7 @@ export function unpackRun(store: Store, dir: string, o: { madeHere?: boolean } =
         continue;
       }
       // Whatever the pack claims, the run is marked as imported here.
-      const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
+      const { imported: _claimed, commandFromImport: _also, commandFromClient: _sent, ...rest } = run.meta ?? {};
       const own = calls.filter((c) => c.runId === run.runId);
       store.importRun({ ...asImportedRun(run, own), meta: o.madeHere ? rest : { ...rest, imported: { at, from } } });
       appendCalls(store, own);
@@ -572,17 +572,22 @@ export function unpackRun(store: Store, dir: string, o: { madeHere?: boolean } =
   return { imported, skipped, commands, mismatched };
 }
 
-/** Whether replaying this run would execute a command that came from an imported pack, or from the team store. */
+/**
+ * Whether replaying this run would execute a command that came from an imported pack, from the team
+ * store, or from a program that sent it to the sidecar (`commandFromClient`).
+ */
 export function commandIsImported(run: RunRecord): boolean {
-  return Boolean(run.meta?.imported || run.meta?.commandFromImport);
+  return Boolean(run.meta?.imported || run.meta?.commandFromImport || run.meta?.commandFromClient);
 }
 
 /**
  * Where an imported run's command came from, as the question before replaying it says:
- * "the team store" for a run pulled from it (a teammate's or CI's recording), else "an imported pack".
+ * "the team store" for a run pulled from it (a teammate's or CI's recording), "a program that sent
+ * the sidecar its command" for one started through the sidecar's API, else "an imported pack".
  */
-export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'an imported pack' {
-  return pulledRun(run) ? 'the team store' : 'an imported pack';
+export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'a program that sent the sidecar its command' | 'an imported pack' {
+  if (pulledRun(run)) return 'the team store';
+  return !run.meta?.imported && run.meta?.commandFromClient ? 'a program that sent the sidecar its command' : 'an imported pack';
 }
 
 /**

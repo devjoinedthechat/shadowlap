@@ -20,7 +20,7 @@ import { canonicalize, sha256, type RunMeta, type RunNote } from '@shadowlap/eng
  */
 
 /** Meta that describes this machine's copy, never shared: an import marker is set by whoever imports. */
-export const LOCAL_ONLY_META: readonly string[] = ['imported', 'commandFromImport'];
+export const LOCAL_ONLY_META: readonly string[] = ['imported', 'commandFromImport', 'commandFromClient'];
 /** Merged three ways on every push and pull. */
 export const MERGED_META = ['labels', 'notes'] as const;
 /** Given by the machine that made the run. */

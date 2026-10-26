@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { commandIsImported, hasRecordedCommand, NO_COMMAND, unpackRun } from '../src/pack.js';
+import { commandIsImported, hasRecordedCommand, importedCommandSource, NO_COMMAND, unpackRun } from '../src/pack.js';
 import { PackError } from '../src/pack-schema.js';
 import { Store } from '../src/store.js';
 import { safeLine, safeText } from '../src/text.js';
@@ -53,6 +53,23 @@ describe('unpack: a pack is untrusted input', () => {
     const run = store.getRun(r.imported[0])!;
     expect(run.meta?.imported?.from).toBe(dir.split(/[\\/]/).pop());
     expect(commandIsImported(run)).toBe(true);
+    store.close();
+  });
+
+  it('takes no claim of where its command came from: it is an imported pack’s', () => {
+    const store = Store.open(':memory:');
+    const dir = copyGolden();
+    const m = manifest(dir);
+    // As a run a program started through the sidecar is marked on the machine that holds it.
+    (m.runs[0] as { meta?: Record<string, unknown> }).meta = { ...(m.runs[0].meta as Record<string, unknown> | undefined), commandFromClient: true, commandFromImport: true };
+    writeManifest(dir, m);
+    const run = store.getRun(unpackRun(store, dir).imported[0])!;
+    expect(run.meta?.commandFromClient).toBeUndefined();
+    expect(run.meta?.commandFromImport).toBeUndefined();
+    expect(commandIsImported(run)).toBe(true);
+    expect(importedCommandSource(run)).toBe('an imported pack');
+    // On the machine that holds one, it is named for what it is.
+    expect(importedCommandSource({ meta: { commandFromClient: true } })).toBe('a program that sent the sidecar its command');
     store.close();
   });
 

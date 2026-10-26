@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, importedCommandSource, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { usageError } from './exit-codes.js';
@@ -145,7 +145,7 @@ export async function confirmImportedCommand(run: RunRecord, argv: string[], own
   const runId = run.runId;
   const cmd = quoteArgv(argv);
   const author = typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
-  const from = pulledRun(run) ? `came from the team store${author ? `, recorded by ${safe(author)}` : ''}` : 'was imported from a pack';
+  const from = pulledRun(run) ? `came from the team store${author ? `, recorded by ${safe(author)}` : ''}` : importedCommandSource(run) === 'an imported pack' ? 'was imported from a pack' : 'was started by a program that sent the sidecar its command';
   const explain = `Run ${shortId(runId)} ${from}. Replaying it runs the command it was recorded with:\n\n    ${safe(cmd)}\n\n`;
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
     process.stderr.write(p.red(explain) + `${refusal}\n`);

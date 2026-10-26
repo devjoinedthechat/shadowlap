@@ -121,11 +121,14 @@ export class RecordingHost {
     }
     const exists = existsSync(join(dir, 'run.json'));
     const rel = relative(this.root, dir).split('\\').join('/');
-    // A test that gives no command starts its agent itself: the run names the test, and has no command to run again.
-    const command = { argv: Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? (body.command) : [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
+    // A test that gives no command starts its agent itself: the run names the test, and has no command
+    // to run again. One it gives is a program's choice, so replaying the run asks first.
+    const sent: string[] | null = Array.isArray(body.command) && body.command.length > 0 && body.command.every((a) => typeof a === 'string') ? body.command : null;
+    const command = { argv: sent ?? [TEST_COMMAND, String(body.name ?? rel)], cwd: this.root };
+    const fromClient = sent ? { commandFromClient: true } : {};
     if (mode === 'all' || (!exists && mode === 'missing')) {
       // Who made it and the keys its environment held, kept as it starts: a test that starts while another streams holds nothing up.
-      const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, null) } });
+      const run = sidecar.startRun({ mode: 'record', command, codeVersion: this.opts.codeVersion, slot, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, null), ...fromClient } });
       this.active.set(run.runId, { runId: run.runId, mode: 'record', dir, slot });
       return { runId: run.runId, mode: 'record', recording: rel };
     }
@@ -151,7 +154,7 @@ export class RecordingHost {
       throw new HttpError(409, `${rel}: ${refusal}\n  Or let the tests run ${names.length === 1 ? 'it' : 'them'} again for real: SHADOWLAP_ALLOW_UNRECORDED=${names.join(',')} for the test run.`);
     }
     const covers = parent.meta?.covers;
-    const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) }, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, parentRunId) } });
+    const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) }, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, parentRunId), ...fromClient } });
     this.active.set(run.runId, { runId: run.runId, mode: 'replay', dir, slot });
     const placeholders = placeholdersFor(this.store, this.store.getRun(parentRunId)!, 'offline');
     return { runId: run.runId, mode: 'replay', recording: rel, ...(Object.keys(placeholders).length ? { placeholders } : {}) };
