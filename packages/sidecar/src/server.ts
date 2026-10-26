@@ -59,6 +59,8 @@ import {
 import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 // Judge checks: calls in the reserved scope, which only this process can make (judge.ts in the engine).
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
+// The error type an AWS client reads for a status: one table, the engine's (translate.ts).
+import { awsErrorType } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
@@ -2948,23 +2950,6 @@ function sdkFamily(sdkHeader: string | undefined, userAgent: string | undefined)
   if (ua.includes('python')) return 'python';
   if (ua.includes('node') || ua.includes('undici') || ua.includes('bun') || ua.includes('deno')) return 'typescript';
   return 'other';
-}
-
-/** The error type Bedrock answers a status with, as its clients name the exception they raise. */
-function awsErrorType(status: number): string {
-  const named: Record<number, string> = {
-    400: 'ValidationException',
-    401: 'UnrecognizedClientException',
-    403: 'AccessDeniedException',
-    404: 'ResourceNotFoundException',
-    408: 'ModelTimeoutException',
-    409: 'ConflictException',
-    424: 'ModelErrorException',
-    429: 'ThrottlingException',
-    500: 'InternalServerException',
-    503: 'ServiceUnavailableException',
-  };
-  return named[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
 }
 
 /**

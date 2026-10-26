@@ -503,9 +503,28 @@ const ANTHROPIC_ERROR_TYPES: Record<number, string> = { 400: 'invalid_request_er
 
 /** An error as the API a client speaks reports one, so its SDK raises its usual error type. */
 const GOOGLE_STATUS: Record<number, string> = { 400: 'INVALID_ARGUMENT', 401: 'UNAUTHENTICATED', 403: 'PERMISSION_DENIED', 404: 'NOT_FOUND', 429: 'RESOURCE_EXHAUSTED', 501: 'UNIMPLEMENTED', 503: 'UNAVAILABLE', 504: 'DEADLINE_EXCEEDED' };
-const AWS_ERRORS: Record<number, string> = { 400: 'ValidationException', 401: 'AccessDeniedException', 403: 'AccessDeniedException', 404: 'ResourceNotFoundException', 408: 'ModelTimeoutException', 424: 'ModelErrorException', 429: 'ThrottlingException', 503: 'ServiceUnavailableException' };
+/**
+ * The error type Bedrock answers a status with, as its clients name the exception they raise. A 401
+ * of Shadowlap's is a key that isn't a real one (a placeholder, or one a takeover's server refused):
+ * AWS names that UnrecognizedClientException ("The X.509 certificate or AWS access key ID you
+ * provided doesn't exist in our records", among Bedrock's common errors). A 403 is a caller it knows
+ * but won't let through, AccessDeniedException. The others are InvokeModel's documented errors by
+ * their status, and a 409 a conflict, by Bedrock's name for one.
+ */
+const AWS_ERRORS: Record<number, string> = {
+  400: 'ValidationException',
+  401: 'UnrecognizedClientException',
+  403: 'AccessDeniedException',
+  404: 'ResourceNotFoundException',
+  408: 'ModelTimeoutException',
+  409: 'ConflictException',
+  424: 'ModelErrorException',
+  429: 'ThrottlingException',
+  500: 'InternalServerException',
+  503: 'ServiceUnavailableException',
+};
 
-/** The error type an AWS client reads from `x-amzn-errortype`, for a status. */
+/** The error type an AWS client reads from `x-amzn-errortype`, for a status: the sidecar's answers and a takeover's alike. */
 export function awsErrorType(status: number): string {
   return AWS_ERRORS[status] ?? (status >= 500 ? 'InternalServerException' : 'ValidationException');
 }
