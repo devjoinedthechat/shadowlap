@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
-import { fixSummary, runFixes } from './fix.mjs';
+import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 
 /**
@@ -101,7 +101,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // A pattern that matches no pack fails the step, each one named, as shadowlap test refuses one.
   const unmatched = expanded.filter((x) => !x.packs.length).map((x) => x.pattern);
   if (unmatched.length) fail(`no recordings match ${unmatched.join(' ')} in ${workdir}. A recording is a directory written by shadowlap pack, with a run.json inside.`);
-  const packs = [...new Set(expanded.flatMap((x) => x.packs))];
+  // A folder named like a flag (`-x`, which `*` finds at the root as `-x`) goes as `./-x`.
+  const packs = [...new Set(expanded.flatMap((x) => x.packs).map(testPath))];
 
   const out = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-'));
   const json = join(out, 'shadowlap-report.json');

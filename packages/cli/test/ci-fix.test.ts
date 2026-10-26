@@ -989,6 +989,34 @@ describe("the fix's branch, with fix-build", () => {
   });
 });
 
+describe("the fix's test on its branch", () => {
+  it.skipIf(process.platform === 'win32')('replays a golden whose folder is named like a flag as a path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-branch-flag-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'prompt.txt'), 'Refund within policy.\n');
+      mkdirSync(join(dir, '-x'));
+      writeFileSync(join(dir, '-x', 'README'), 'golden\n');
+      git('add', '-A');
+      git('commit', '-qm', 'agent');
+      writeFileSync(join(dir, 'prompt.txt'), 'Check the policy, then refund.\n');
+      writeFileSync(join(dir, 'fix.patch'), git('diff'));
+      git('checkout', '--', 'prompt.txt');
+      mkdirSync(join(dir, 'recorded'));
+      // A stand-in for the CLI that keeps the arguments it was given.
+      const cli = join(dir, 'cli.mjs');
+      writeFileSync(cli, ["import { writeFileSync } from 'node:fs';", 'const args = process.argv.slice(2);', "writeFileSync('args.json', JSON.stringify(args));", "writeFileSync(args[args.indexOf('--json') + 1], JSON.stringify({ results: [] }));"].join('\n'));
+      const member = { result: { name: '-x', dir: '-x', mode: 'replay' as const, ok: false }, skip: null };
+      refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-x' } }, env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      const args = JSON.parse(readFileSync(join(dir, 'args.json'), 'utf8')) as string[];
+      expect(args.slice(args.indexOf('test') + 1, args.indexOf('--json'))).toEqual(['./-x']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('a repair that ends before it reports', () => {
   it.skipIf(process.platform === 'win32')('names the signal that ended it, which leaves no exit status', async () => {
     // A repair killed before it printed anything (for memory, say) has no exit status, only the signal.

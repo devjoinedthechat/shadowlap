@@ -333,6 +333,13 @@ function filesUnder(dir, prefix = '') {
 /** A golden's folder as the reports name it: forward slashes, no trailing one. */
 const dirOf = (r) => String(r?.dir ?? r?.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
 
+/**
+ * A recording's folder as an argument of `shadowlap test`: one whose name starts with a dash, as a
+ * folder `-x` at the repository's root does when `*` finds it, goes as `./-x`, so the test reads it
+ * as the folder it is, never as one of its flags.
+ */
+export const testPath = (path) => (String(path).startsWith('-') ? `./${path}` : String(path));
+
 /** Names in a sentence: `a`, `a and b`, `a, b and c`. */
 const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 
@@ -378,7 +385,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build =
     }
     const json = join(scratch, 'branch-test.json');
     rmSync(json, { force: true });
-    const t = run(process.execPath, [cli, '--db', ':memory:', 'test', ...dirs, '--json', json, '--guard', guard], workdir, env);
+    const t = run(process.execPath, [cli, '--db', ':memory:', 'test', ...dirs.map(testPath), '--json', json, '--guard', guard], workdir, env);
     let report = null;
     try {
       report = JSON.parse(readFileSync(json, 'utf8'));

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -170,6 +170,21 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(args.slice(args.indexOf('--inconclusive'), args.indexOf('--inconclusive') + 2)).toEqual(['--inconclusive', 'warn']);
     expect(args.slice(args.indexOf('--max-attempts'), args.indexOf('--max-attempts') + 2)).toEqual(['--max-attempts', '160']);
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', inconclusive: '1' });
+  });
+
+  it('passes a recording folder named like a flag as a path, which shadowlap test reads as a folder', () => {
+    // At the root, `*` finds `-x` and `--online` as they are: on the command line, flags.
+    const project = mkdtempSync(join(tmpdir(), 'fp-flag-folders-'));
+    dirs.push(project);
+    for (const name of ['-x', '--online', 'refund']) {
+      mkdirSync(join(project, name));
+      writeFileSync(join(project, name, 'run.json'), '{}');
+    }
+    run({ RECORDINGS: '*', WORKING_DIRECTORY: project });
+    const args = given();
+    expect(args.slice(args.indexOf('test') + 1, args.indexOf('--json'))).toEqual(['./--online', './-x', 'refund']);
+    expect(args).not.toContain('--online');
+    expect(args).not.toContain('-x');
   });
 
   it('says what is wrong with those inputs', () => {
