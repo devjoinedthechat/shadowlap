@@ -221,6 +221,12 @@ class RunContext {
   nextCallNo = 1;
   readonly calls = new Map<number, TrackedCall>();
   /**
+   * The run's calls as its end reads them, each kept as its rows are queued for the store (keepStart,
+   * keepEnd): its end never reads the store, which another process may hold, so it never waits for
+   * the lock (endRun). An answer's chunk timing and headers stay the store's alone.
+   */
+  private readonly records = new Map<number, CallRecord>();
+  /**
    * Calls whose last attempt failed in a way the agent's client retries and that have nothing in
    * flight, oldest failure first, by what identifies their request (its scope and fingerprint, or with
    * interventions its fingerprint before any rewrite). The next identical request that reads as a
@@ -310,6 +316,38 @@ class RunContext {
     if (this.warnedTools.has(tool)) return;
     this.warnedTools.add(tool);
     this.warnings.push(message);
+  }
+
+  /** Keeps a call's start as the store will hold it (records), and gives it back: its write gives it its request's ref. */
+  keepStart(row: CallStartRow): CallRecord {
+    const record: CallRecord = { ...row, end: null, attempts: [] };
+    this.records.set(row.callNo, record);
+    return record;
+  }
+
+  /** Forgets a call whose start could not be written: the store holds nothing of it. */
+  dropCall(callNo: number): void {
+    this.records.delete(callNo);
+  }
+
+  /**
+   * Keeps an attempt's end beside its call's start (records), as the store reads a call's ends: in
+   * the order of their attempts, the last its end and the others its attempts. In place of `replacing`
+   * (an error end written for one that couldn't be), or, with no end, without it (never written).
+   */
+  keepEnd(callNo: number, end: CallEndRow | null, replacing?: CallEndRow): void {
+    const record = this.records.get(callNo);
+    if (!record) return;
+    const ends = [...record.attempts, ...(record.end ? [record.end] : [])].filter((e) => e !== replacing);
+    if (end) ends.push(end);
+    ends.sort((a, b) => a.attempt - b.attempt);
+    record.end = ends.pop() ?? null;
+    record.attempts = ends;
+  }
+
+  /** The run's calls as its end reads them (records), in order. */
+  recorded(): CallRecord[] {
+    return [...this.records.values()].sort((a, b) => a.callNo - b.callNo);
   }
 
   /** The run's rules as a fingerprint cache key names them (fingerprint-cache.ts). */
@@ -913,7 +951,8 @@ export class Sidecar {
     const ctx = this.runs.get(runId);
     if (!ctx?.judgeOnly) return null;
     this.runs.delete(runId);
-    const made = this.store.getCalls(runId).filter((c) => isJudgeCall(c) && c.callNo >= ctx.judgeOnly!.from);
+    // As the run's end reads its calls (RunContext.records): those the judge made through it.
+    const made = ctx.recorded().filter(isJudgeCall);
     // Made by this process, whatever made the run: a recording that came from a pack had its own
     // calls made somewhere else, but these went upstream, and were paid for, here.
     return summarizeJudge(ctx.run, made, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store), imported: false });
@@ -950,19 +989,20 @@ export class Sidecar {
   /**
    * Resolves once every write this sidecar queued for the run (or, without one, for any run) has been
    * made or given up, waiting on the store writer's timer, never on the thread the agents' answers
-   * stream on. A caller that waits for it before endRun, or before reading the run, never waits on
-   * the thread for another process's lock.
+   * stream on. A caller that waits for it before reading the run never waits on the thread for
+   * another process's lock (endRun reads nothing from the store).
    */
   settled(runId?: string): Promise<void> {
     return this.writer.settled(runId);
   }
 
   /**
-   * Ends a run. Its calls are read back as the store holds them, every one this process wrote among
-   * them: while another process holds the store the read waits for the run's own calls
-   * (QueuedWrites), and a caller that waits for `settled(runId)` first never waits on the thread at
-   * all. What the end keeps (its status, what its preloads said, the hosts it reached unrecorded, its
-   * WebSockets) is one write through the store writer, as its calls are.
+   * Ends a run. Its summary is made from its calls as this process kept them while it queued their
+   * rows (RunContext.records), never read back from the store: while another process holds the
+   * store, the end waits for nothing, and another run's stream goes on. What the end keeps (its
+   * status, what its preloads said, the hosts it reached unrecorded, its WebSockets) is one write
+   * through the store writer, as its calls are; a caller that reads the run next waits for
+   * `settled(runId)` first, on the writer's timer.
    */
   endRun(runId: string, status: Exclude<RunStatus, 'running'>): EndRunResult {
     const ctx = this.runs.get(runId);
@@ -973,8 +1013,8 @@ export class Sidecar {
     // A replay that never diverged but stopped before its recording did leaves it there: kept on
     // the run, so everything that reads the store tells it from a clean replay.
     if (ctx.session.end()) this.noteDivergence(ctx);
-    // Every call of the run, the ones still queued made first (and any that couldn't be, in its warnings).
-    const calls = this.store.getCalls(runId);
+    // Every call of the run as the store holds it once its queued rows are made (any that couldn't be, in its warnings).
+    const calls = ctx.recorded();
     // A run that made model or tool calls with no preload loaded was never watched by the guard:
     // under --guard block it fails, whatever its agent did.
     const preloads = this.preloadReport(ctx, calls);
@@ -1558,25 +1598,31 @@ export class Sidecar {
     const query = unqueried ? undefined : (credentialFreeQuery(call.search.replace(/^\?/, '')) ?? '');
     // Under the format's provider when it went through a host of another's, that host kept as `via`.
     const meta: CallStartRow['meta'] = { retryCount: call.retryCount, provider: recordedId(provider), ...(provider.format ? { via: provider.id } : {}), fingerprintHeaders: allowedHeaders(kept, provider.fingerprintHeaders), ...(query !== undefined ? { query } : {}), ...(scope ? { scope } : {}), ...(judge?.meta ? { judge: judge.meta } : {}) };
-    const at = Date.now();
-    const start = (requestRef: string | null) => this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: null, requestRef, meta, at });
-    let requestRef: string | null = null;
+    // As the store will hold it, kept for the run's end (RunContext.records); its request's ref once written.
+    const record = ctx.keepStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: null, requestRef: null, meta, at: Date.now() });
     this.writer.write({
       what: `call ${callNo}'s start`,
       of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
-        requestRef = storeApiRequest(this.store, body);
-        start(requestRef);
+        record.requestRef = storeApiRequest(this.store, body);
+        this.store.appendCallStart(record);
       },
       // Still matched on replay, by the fingerprint its row keeps; only its diff has no request to show.
-      instead: () => start(null),
-      failed: (reason, replaced) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`),
+      instead: () => {
+        record.requestRef = null;
+        this.store.appendCallStart(record);
+      },
+      failed: (reason, replaced) => {
+        if (!replaced) ctx.dropCall(callNo);
+        this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo}'s request could not be written to the store (${reason}): ${replaced ? 'the call is kept without it' : 'the call is missing from the recording'}.`);
+      },
     });
     const rules = this.modelRules({ ids: ctx.rules, clockRef: ctx.clockRef, withoutPrompt: ctx.withoutPrompt, roundedNumbers: ctx.roundedNumbers }, provider, call.method, call.path, asked, query, judge !== null);
     this.writer.write({
       what: `call ${callNo}'s fingerprint`,
       optional: true,
       run: () => {
+        const requestRef = record.requestRef;
         if (requestRef === null) return;
         const marks = judge ? [] : clockMarks([multipartView(apiNumbers(body, ctx.roundedNumbers)), ...queryValues(query), ...Object.values(asked)], ctx.clockRef);
         this.store.cacheFingerprints([{ key: fingerprintKey(rules, requestRef), requestRef, fingerprint: tracked.identity.fingerprint, clock: encodeMarks(marks) }]);
@@ -2007,16 +2053,23 @@ export class Sidecar {
   private recordEnd(ctx: RunContext, callNo: number, identity: CallIdentity, end: AttemptEnd, noun = 'answer'): void {
     const at = Date.now();
     const row = (responseRef: string | null, outcome: 'ok' | 'error', meta: CallMeta): CallEndRow => ({ runId: ctx.run.runId, callNo, attempt: end.attempt, responseRef, outcome, meta, at });
+    // Kept for the run's end (RunContext.records), as the store will hold it but for what only the store needs.
+    const kept = row(null, end.outcome, withoutChunksOrHeaders(end.meta));
+    ctx.keepEnd(callNo, kept);
     this.writer.write({
       what: `call ${callNo}'s ${noun}`,
       of: { runId: ctx.run.runId, part: 'calls' },
       run: () => this.store.appendCallEnd(identity, row(end.response !== undefined ? this.store.putBlob(end.response) : (end.responseRef ?? null), end.outcome, end.meta)),
       instead: (reason) => {
         const { chunks: _timing, ...meta } = end.meta;
-        this.store.appendCallEnd(identity, row(null, 'error', { ...meta, error: { name: 'ShadowlapStoreError', message: `the ${noun} could not be written to the store: ${reason}` } }));
+        const error = row(null, 'error', { ...meta, error: { name: 'ShadowlapStoreError', message: `the ${noun} could not be written to the store: ${reason}` } });
+        this.store.appendCallEnd(identity, error);
+        ctx.keepEnd(callNo, { ...error, meta: withoutChunksOrHeaders(error.meta) }, kept);
       },
-      failed: (reason, replaced) =>
-        this.storeTrouble(ctx, `store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`),
+      failed: (reason, replaced) => {
+        if (!replaced) ctx.keepEnd(callNo, null, kept);
+        this.storeTrouble(ctx, `store:${callNo}:${end.attempt}`, `Call ${callNo}'s ${noun} could not be written to the store (${reason})${replaced ? ', so the call is kept as an error without it' : ''}. The agent got it; the recording doesn't hold it.`);
+      },
     });
   }
 
@@ -2449,18 +2502,21 @@ export class Sidecar {
 
   /** Record: a tool call's start with its request (`{ args }`, or a clock or random call's label); the ref its request is stored under, once it is. */
   private recordToolStart(ctx: RunContext, callNo: number, tracked: TrackedCall, request: unknown, meta: CallStartRow['meta']): () => string | null {
-    const at = Date.now();
-    let requestRef: string | null = null;
+    // As the store will hold it, kept for the run's end (RunContext.records); its request's ref once written.
+    const record = ctx.keepStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: tracked.effect, requestRef: null, meta, at: Date.now() });
     this.writer.write({
       what: `call ${callNo}'s start`,
       of: { runId: ctx.run.runId, part: 'calls' },
       run: () => {
-        requestRef = this.store.putJson(request);
-        this.store.appendCallStart({ runId: ctx.run.runId, callNo, ...tracked.identity, origin: tracked.origin, effect: tracked.effect, requestRef, meta, at });
+        record.requestRef = this.store.putJson(request);
+        this.store.appendCallStart(record);
       },
-      failed: (reason) => this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`),
+      failed: (reason) => {
+        ctx.dropCall(callNo);
+        this.storeTrouble(ctx, `store:${callNo}:start`, `Call ${callNo} could not be written to the store (${reason}): it is missing from the recording.`);
+      },
     });
-    return () => requestRef;
+    return () => record.requestRef;
   }
 
   /**
@@ -2947,6 +3003,12 @@ interface JudgeAccess {
 /** A request's headers as matching reads them (Provider.matchHeaders): as sent, for most providers. */
 function matchedHeaders(provider: Provider | undefined, headers: Readonly<Record<string, string>>): Record<string, string> {
   return provider?.matchHeaders?.(headers) ?? { ...headers };
+}
+
+/** An end's metadata as the run's end reads it (RunContext.records): without the answer's chunk timing and headers, which only the store keeps. */
+function withoutChunksOrHeaders(meta: CallMeta): CallMeta {
+  const { chunks: _timing, headers: _headers, ...read } = meta;
+  return read;
 }
 
 /** Headers without one of them. */

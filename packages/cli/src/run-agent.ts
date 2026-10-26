@@ -361,6 +361,9 @@ export async function judgeAttempt(
   if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
   if (a.timedOut) return unjudged(judges, 'the agent was stopped before it finished');
   if (a.code !== 0) return unjudged(judges, `the agent exited with code ${a.code}`);
+  // What the judge reads of the run, once its rows are made: waited for on the writer's timer, so
+  // another attempt's stream goes on while another process holds the store.
+  await sidecar.settled(runId);
   if (a.forkFails && store.getRun(runId)?.divergence) return unjudged(judges, 'the replay diverged, which fails the test whatever the judge says');
   return askJudges(judges, materialOf(store, runId, a.stdout, a.clock), { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.normalize ? { normalize: a.normalize } : {}), ...(a.prices ? { prices: a.prices } : {}) });
 }
