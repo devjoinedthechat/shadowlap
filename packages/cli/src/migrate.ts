@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
+import { argsDelta, byRule, controlOpen, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -337,16 +337,18 @@ export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>)
 /**
  * How each run fares: a run verified by verify's outcome, with its tally under the rule that decided
  * it; a run with no write, stop or judged change by how its recording fares under its checks (it is
- * not re-run); a run some step of which got no answer, that was flagged and not verified, or with a
- * step that waits on a judge (judgeOpen: the words of a sample a judge check reads could not be
- * judged, and might read otherwise), is inconclusive.
+ * not re-run); a run some step of which got no answer, as changed or, for a step it changed, as
+ * recorded (controlOpen), that was flagged and not verified, or with a step that waits on a judge
+ * (judgeOpen: the words of a sample a judge check reads could not be judged, and might read
+ * otherwise), is inconclusive.
  */
 export function passesOf(runs: readonly DecisionRun[], flagged: readonly string[], verify: DecisionsVerify | null, recorded: (runId: string) => boolean | null): MigrateRunPass[] {
   const verified = new Map((verify?.runs ?? []).map((r) => [r.runId, r]));
   return runs.map((r): MigrateRunPass => {
     const v = verified.get(r.runId);
     if (v) return { runId: r.runId, golden: r.golden, verdict: v.outcome === 'kept' || v.outcome === 'fixed' ? 'passed' : v.outcome === 'broken' || v.outcome === 'not-fixed' ? 'failed' : 'inconclusive', outcome: v.outcome, verified: true, tally: { passes: v.passes, attempts: v.attempts, bound: v.bound ?? null, rule: v.rule ?? verify?.rule ?? null, undecided: v.undecided ?? null, ...(v.baseline ? { baseline: v.baseline } : {}) } };
-    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked);
+    // A step whose request as recorded got no answer for now waits on it (controlOpen): its change is not told from the model's own.
+    const unanswered = r.decisions.some((x) => x.samples.asked > 0 && !x.samples.answered) || r.decisions.some((x) => x.error && !x.samples.asked) || (!flagged.includes(r.runId) && r.decisions.some((x) => controlOpen(x)));
     if (unanswered) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-asked', verified: false, tally: null };
     if (flagged.includes(r.runId)) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'unsettled', verified: false, tally: null };
     if (r.decisions.some((x) => judgeOpen(x))) return { runId: r.runId, golden: r.golden, verdict: 'inconclusive', outcome: 'not-judged', verified: false, tally: null };

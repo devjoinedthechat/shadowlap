@@ -8,6 +8,7 @@ import {
   rankBeyondNoise,
   commandIsImported,
   compareDecisions,
+  controlOpen,
   decisionOfResponse,
   decisionView,
   effectsOf,
@@ -41,6 +42,7 @@ import {
   setRequestFields,
   shownSample,
   unjudgedSample,
+  unavailableStatus,
   describeBaselineRule,
   describeGate,
   dropBound,
@@ -837,8 +839,13 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
   const controlRanks = controlled.map(({ a, i }) => promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), plan.controlJudged.get(i) ?? []).rank ?? 0);
   const controlError = plan.controlAnswers.find((a) => a.answer.error)?.answer.error ?? null;
   const control = plan.controlAnswers.length ? { asked: plan.controlAnswers.length, answered: controlled.length, changed: controlRanks.filter((r) => r > 0).length, ranks: controlRanks, error: controlled.length || !controlError ? null : m.text(controlError) } : null;
-  // With no control sample answered, the change's own samples rank it, as without a control.
   const beyond = control && controlled.length && answered.length ? rankBeyondNoise(ranks, controlRanks) : null;
+  // No control sample answered. A request the provider will never answer again (a model that retired,
+  // a request it now turns away: a 4xx other than a timeout, a conflict or a rate limit, or one that
+  // can't be built) leaves the change's own samples to rank the step, as the warnings say. One it
+  // failed for now ranks nothing: nothing told the change from the model's own variation (controlOpen).
+  const gone = (x: ModelAnswer) => (x.status === 0 ? x.attempts === 0 : x.status >= 400 && x.status < 500 && !unavailableStatus(x.status));
+  const waits = !!control && !controlled.length && answered.length > 0 && !plan.controlAnswers.every((a) => gone(a.answer));
   const before = tokensOf(plan.recordedUsage);
   // In a run like the recorded one: the first answer's whole input, split as the recorded call's was, and the samples' mean output.
   const measured = answered.map(({ a }) => tokensOf(a.answer.usage)).filter((t): t is TokenCount => t !== null);
@@ -852,8 +859,8 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
     callNo: plan.call.callNo,
     step: plan.step,
     scope: (plan.call.meta.scope ?? null),
-    rank: beyond ? beyond.rank : (worst?.c.rank ?? null),
-    majority: beyond ? beyond.rank : majorityRank(ranks),
+    rank: beyond ? beyond.rank : waits ? null : (worst?.c.rank ?? null),
+    majority: beyond ? beyond.rank : waits ? null : majorityRank(ranks),
     ...(control ? { control, noise: beyond ? { p: beyond.p } : null, sampled: worst?.c.rank ?? null } : {}),
     changes: (worst?.c.changes ?? []).map((c) => maskChange(c, m)),
     recorded: maskView(recordedView, m),
@@ -936,6 +943,8 @@ function runOf(target: DecisionTarget, planned: Planned[], steps: DecisionStep[]
   let costAfter: number | null = 0;
   for (const s of steps) {
     if (s.rank !== null) counts[String(s.rank) as '1']++;
+    // Changed in some sample, with no answer as recorded to tell it from the model's own variation: not settled.
+    else if (controlOpen(s)) counts.notAsked++;
     // Changed in some sample, but no more often than as recorded: the model's own variation.
     else if (s.control && s.sampled) counts.noise = (counts.noise ?? 0) + 1;
     else if (s.samples.answered) counts.same++;
@@ -1211,8 +1220,11 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       // The control arm: what the change decides differently, told from what the model does on its own.
       notes.push(`Each step was asked ${s.samples} times under the change and ${s.samples} times as recorded: a change is ranked only when its decisions run more consequential than the recorded request's own, by an exact permutation test at ${CONTROL_RISK * 100}% a step.`);
       if (counts.noise) notes.push(`${counts.noise} step${counts.noise === 1 ? '' : 's'} decided otherwise no more often than ${counts.noise === 1 ? 'it' : 'they'} did as recorded: listed with both counts, not ranked, as the model's own variation.`);
-      const unasked = allSteps.filter((x) => x.control && !x.control.answered && x.samples.answered);
-      if (unasked.length) warnings.push(`${unasked.length} step${unasked.length === 1 ? '' : 's'} could not be asked as recorded (${[...new Set(unasked.map((x) => x.control!.error).filter(Boolean))].slice(0, 2).join('; ') || 'no answer'}): ranked by the change's samples alone, not told from the model's own variation`);
+      const why = (steps: DecisionStep[]) => [...new Set(steps.map((x) => x.control!.error).filter(Boolean))].slice(0, 2).join('; ') || 'no answer';
+      const open = allSteps.filter((x) => controlOpen(x));
+      if (open.length) warnings.push(`${open.length} step${open.length === 1 ? '' : 's'} got no answer as recorded (${why(open)}): not ranked, since nothing told ${open.length === 1 ? 'its' : 'their'} change from the model's own variation; ask again to settle ${open.length === 1 ? 'it' : 'them'}`);
+      const unasked = allSteps.filter((x) => x.control && !x.control.answered && x.samples.answered && !controlOpen(x) && x.sampled !== null);
+      if (unasked.length) warnings.push(`${unasked.length} step${unasked.length === 1 ? '' : 's'} could not be asked as recorded any more (${why(unasked)}): ranked by the change's samples alone, not told from the model's own variation`);
     } else if (counts[1] || counts[2] || counts[3] || counts[4]) {
       notes.push(s.samples === 1 ? 'Each step was asked once, and a model varies from one answer to the next: --samples 3 asks each step as recorded as often too, and ranks a change only beyond what the model does on its own.' : `Each step was asked ${s.samples} times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.`);
     }

@@ -1,6 +1,6 @@
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { byRule, commandIsImported, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
+import { byRule, commandIsImported, controlOpen, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
@@ -83,7 +83,8 @@ function inconclusiveExit(mode: 'fail' | 'warn', why: string | null): number {
 /**
  * Why a decisions report settles nothing, or null: it stopped early, a run could not be asked, a run
  * it doesn't flag has a step that waits on a judge (judgeOpen: a text-only change a judge check reads
- * could not be judged, in any sample, and might be judged otherwise, which would flag it), verify
+ * could not be judged, in any sample, and might be judged otherwise, which would flag it) or on its
+ * control (controlOpen: a changed step the request as recorded got no answer for, for now), verify
  * didn't settle the runs it took.
  */
 export function decisionsInconclusive(r: DecisionsReport): string | null {
@@ -93,6 +94,9 @@ export function decisionsInconclusive(r: DecisionsReport): string | null {
   if (unasked.length) return `${unasked.length} run${unasked.length === 1 ? '' : 's'} could not be asked`;
   const unjudged = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => judgeOpen(s)));
   if (unjudged.length) return `${unjudged.length} run${unjudged.length === 1 ? ' has' : 's have'} a text-only change a judge check reads that could not be judged`;
+  // A change the request as recorded got no answer to tell from the model's own variation (controlOpen) settles nothing.
+  const unsettled = r.runs.filter((x) => !r.flagged.includes(x.runId) && x.decisions.some((s) => controlOpen(s)));
+  if (unsettled.length) return `${unsettled.length} run${unsettled.length === 1 ? ' has' : 's have'} a changed step the request as recorded got no answer for, so it could not be told from the model's own variation`;
   if (r.verify?.verdict === 'incomplete') return 'verify did not settle every run it took';
   if (r.verify?.verdict === 'not-run' && r.verify.reasons.length) return `verify did not run: ${r.verify.reasons[0]!}`;
   return null;

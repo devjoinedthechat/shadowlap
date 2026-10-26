@@ -577,6 +577,17 @@ export function judgeOpen(step: Pick<DecisionStep, 'majority' | 'samples'>): boo
 }
 
 /**
+ * Whether a step waits on its control: its samples decided otherwise, and the request as recorded,
+ * asked as often, got no answer for now (an overload, a rate limit, a 5xx, a dropped connection), so
+ * nothing told the change from the model's own variation and the step is not ranked. A run nothing
+ * else flags settles nothing while one of its steps waits. One the provider will never answer again (a
+ * model that retired) is ranked by the change's samples alone instead, and the warnings say so.
+ */
+export function controlOpen(step: Pick<DecisionStep, 'rank' | 'control' | 'sampled'>): boolean {
+  return !!step.control && step.control.asked > 0 && step.control.answered === 0 && step.rank === null && step.sampled !== null && step.sampled !== undefined;
+}
+
+/**
  * How a step's judge checks came out, for a cell: it waits on a judge (judgeOpen), else a check came
  * out otherwise for the new words, else every one came out as recorded; null when none read it.
  */
@@ -841,6 +852,11 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     }
     lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.majority !== null && run.majority <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
     for (const s of run.decisions) {
+      // A change the request as recorded got no answer to tell from the model's own variation: not ranked, not settled.
+      if (controlOpen(s)) {
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples; as recorded, no answer${s.control!.error ? ` (${safeLine(s.control!.error)})` : ''}`)}`);
+        continue;
+      }
       // A change no more frequent than the control's: listed with both arms' counts, not ranked.
       if (s.rank === null && s.control && s.sampled) {
         lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.dim('within the model\'s own variation')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples, ${s.control.changed} of ${s.control.answered} as recorded`)}`);
