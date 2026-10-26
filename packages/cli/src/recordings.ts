@@ -4,6 +4,7 @@ import { divergenceLine, finalAnswer, formatDivergence, formatSummary, heldFrom,
 import { HttpError, type ApiRoute, type Sidecar } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { keyEnvPatch, placeholdersFor } from './placeholder-keys.js';
+import { refusedEffect, unrecordedOf, unrecordedRefusal } from './unrecorded.js';
 
 /**
  * Recordings for test suites, behind `shadowlap serve --recordings`. A test-runner plugin (pytest,
@@ -74,7 +75,12 @@ export class RecordingHost {
   constructor(
     private readonly store: Store,
     private readonly root: string,
-    private readonly opts: { codeVersion: string | null; redact: Normalizer[] },
+    /**
+     * `unrecorded`: the project's `tools.unrecorded`, and the tools `SHADOWLAP_ALLOW_UNRECORDED` (or
+     * `serve --recordings --allow-unrecorded`) lets a replay run again though the recording never
+     * recorded them, as `--allow-unrecorded` does for the CLI's commands.
+     */
+    private readonly opts: { codeVersion: string | null; redact: Normalizer[]; unrecorded?: { declared: Readonly<Record<string, 'read' | 'write'>>; allowed: ReadonlySet<string> } },
   ) {}
 
   attach(sidecar: Sidecar): void {
@@ -134,7 +140,17 @@ export class RecordingHost {
       const held = this.store.getRun(parentRunId)!;
       throw new HttpError(409, `${rel}: the store already holds another recording under its run id ${parentRunId.slice(0, 10)} (${heldFrom(held)}), and its calls differ from the recording's. Delete the store's copy (shadowlap rm ${parentRunId.slice(0, 10)}) to replay this one, or record this test again with SHADOWLAP_RECORD=all.`);
     }
-    const covers = this.store.getRun(parentRunId)?.meta?.covers;
+    // A recording whose model called a tool it never recorded that writes, or may, is refused as
+    // every command that replays one refuses it: the test would run the tool again for real.
+    const parent = this.store.getRun(parentRunId)!;
+    const tools = unrecordedOf(this.store, parentRunId, this.opts.unrecorded?.declared ?? {});
+    const refusal = unrecordedRefusal(parent, tools, this.opts.unrecorded?.allowed ?? new Set(), null);
+    if (refusal) {
+      const allowed = this.opts.unrecorded?.allowed ?? new Set();
+      const names = tools.filter((t) => refusedEffect(t) && !allowed.has(t.name)).map((t) => t.name);
+      throw new HttpError(409, `${rel}: ${refusal}\n  Or let the tests run ${names.length === 1 ? 'it' : 'them'} again for real: SHADOWLAP_ALLOW_UNRECORDED=${names.join(',')} for the test run.`);
+    }
+    const covers = parent.meta?.covers;
     const run = sidecar.startRun({ mode: 'replay', parentRunId, command, codeVersion: this.opts.codeVersion, slot, offline: true, replay: { writes: 'block', reads: 'live', liveTools: new Set(), ...(covers?.length ? { kinds: new Set(covers) } : {}) }, meta: { ...newRunMeta(), ...keyEnvPatch(this.store, parentRunId) } });
     this.active.set(run.runId, { runId: run.runId, mode: 'replay', dir, slot });
     const placeholders = placeholdersFor(this.store, this.store.getRun(parentRunId)!, 'offline');
