@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
+import { asksConsent, consentTitle } from '../actions.js';
+import { ApiError, JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { CmdLine, Seg } from '../components/bits.js';
-import { Dialog } from '../components/Dialog.js';
+import { ConfirmDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 
@@ -11,7 +12,9 @@ import { useApp } from '../state.js';
  * (`shadowlap replay --override`), the edited result sent to the server as an upload, which checks
  * it as untrusted data (UTF-8, at most 2 MB, JSON for a tool's result) and builds the command. A
  * model call's answer can't be edited: `--override` changes a tool's result or what a person
- * answered, nothing else.
+ * answered, nothing else. A run from someone else's pack, or a teammate's pulled from the team
+ * store, forks with their command: the server refuses the fork until it is confirmed, a dialog
+ * shows the command it named, and only its Run sends the yes, with the same upload.
  */
 
 /** The largest result the server takes (`OVERRIDE_LIMIT` in src/routes/forks.ts). */
@@ -53,20 +56,43 @@ export function editBody(mode: 'json' | 'text', text: string, answer: boolean): 
 export function EditAndFork({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
   const app = useApp();
   const [open, setOpen] = useState(false);
+  const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string } | null>(null);
   const action = overrideAction(detail);
   if (app.exported || !action || !app.hasKind(JOB_KINDS.override)) return null;
   const off = live ? 'Fork once the recording finishes' : (app.actionsOff ?? action.disabled ?? null);
+  // The fork, once the edited result is uploaded; a 409 that names someone else's command asks first.
+  const start = (fields: Record<string, unknown>) =>
+    app.client.startJob(JOB_KINDS.override, fields).then(
+      (job) => app.watchJob(Promise.resolve(job)),
+      (err: unknown) => {
+        if (fields.yes !== true && err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ fields, why: err.message });
+        else app.watchJob(Promise.reject(err));
+      },
+    );
   return (
     <>
       <button className="linkbtn" type="button" disabled={!!off} title={off ?? 'Fork with this result edited: every call before it replays'} onClick={() => app.guard(() => setOpen(true))}>
         Edit and fork…
       </button>
-      {open ? <EditDialog runId={runId} detail={detail} action={action} onClose={() => setOpen(false)} /> : null}
+      {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
+      {consent ? (
+        <ConfirmDialog
+          title={consentTitle(consent.why)}
+          text={`${consent.why}.`}
+          ok="Run"
+          onClose={() => setConsent(null)}
+          onOk={() => {
+            const c = consent;
+            setConsent(null);
+            app.guard(() => void start({ ...c.fields, yes: true }));
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
-function EditDialog({ runId, detail, action, onClose }: { runId: string; detail: CallDetail; action: ActionItem; onClose: () => void }) {
+function EditDialog({ runId, detail, action, onFork, onClose }: { runId: string; detail: CallDetail; action: ActionItem; onFork: (fields: Record<string, unknown>) => Promise<void>; onClose: () => void }) {
   const app = useApp();
   const c = detail.call;
   const answer = action.key === 'u';
@@ -81,12 +107,12 @@ function EditDialog({ runId, detail, action, onClose }: { runId: string; detail:
   const fork = () => {
     if ('error' in out) return;
     onClose();
-    app.guard(() =>
-      app.watchJob(
-        app.client
-          .upload(new Blob([out.body], { type: answer ? 'text/plain' : 'application/json' }), `${answer ? 'answer' : 'result'}-${n}.${answer ? 'txt' : 'json'}`)
-          .then((up) => app.client.startJob(JOB_KINDS.override, { runId, callNo: n, uploadId: up.uploadId })),
-      ),
+    app.guard(
+      () =>
+        void app.client.upload(new Blob([out.body], { type: answer ? 'text/plain' : 'application/json' }), `${answer ? 'answer' : 'result'}-${n}.${answer ? 'txt' : 'json'}`).then(
+          (up) => onFork({ runId, callNo: n, uploadId: up.uploadId }),
+          (err: unknown) => app.watchJob(Promise.reject(err)),
+        ),
     );
   };
   return (

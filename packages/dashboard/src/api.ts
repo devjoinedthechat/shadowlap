@@ -1,5 +1,5 @@
 import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
-import { actionContext, actionMissing, buildActions, forkMenuTitle, notRun, type ActionContext } from '@shadowlap/engine';
+import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
@@ -651,9 +651,11 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
     key: a.key,
     label: a.label,
     opensRun: a.opensRun,
-    prompt: a.prompt
-      ? { label: a.prompt.label, ...(a.prompt.placeholder !== undefined ? { placeholder: a.prompt.placeholder } : {}), ...(a.prompt.initial !== undefined ? { initial: a.prompt.initial } : {}), ...(a.prompt.choices ? { choices: a.prompt.choices } : {}) }
-      : null,
+    // A replay of someone else's command that asks only for a yes asks nothing here: the page confirms the command (importedConsent).
+    prompt:
+      a.prompt && a.imported !== 'confirm'
+        ? { label: a.prompt.label, ...(a.prompt.placeholder !== undefined ? { placeholder: a.prompt.placeholder } : {}), ...(a.prompt.initial !== undefined ? { initial: a.prompt.initial } : {}), ...(a.prompt.choices ? { choices: a.prompt.choices } : {}) }
+        : null,
     disabled: a.disabled ?? null,
     flag: a.flag ?? null,
     group: a.group ?? null,
@@ -661,8 +663,23 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
   }));
 }
 
+/**
+ * A replay of a run whose command came from someone else's pack, or from the team store, runs that
+ * command: only once the request says yes to it itself (`yes: true`, which the page sends from the
+ * step that shows the command), whatever the action asked before (a number of attempts, an
+ * instruction, an edited result). Refused, it says both commands, as a fix's jobs do.
+ */
+export function importedConsent(run: RunRecord, args: readonly string[], yes: unknown): { error: string; status: number } | null {
+  if (yes === true || !commandIsImported(run)) return null;
+  // The command as the page shows it, without the --yes the action adds for the CLI.
+  const shown = [...args];
+  const at = shown.indexOf('--yes');
+  if (at >= 0) shown.splice(at, 1);
+  return { error: `${run.runId.slice(0, 10)} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${quoteArgv(['shadowlap', ...shown])}. Confirm it to run it`, status: 409 };
+}
+
 /** The CLI arguments for an action, rebuilt on the server from the run and call: the browser never sends a command line. */
-export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined): { args: string[]; opensRun: boolean } | { error: string } {
+export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: boolean } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];
@@ -673,10 +690,13 @@ export function actionArgs(store: Store, idOrPrefix: string, callNo: number | nu
   if (action.disabled) return { error: action.disabled };
   if (action.args) return { args: action.args, opensRun: action.opensRun };
   if (!action.prompt) return { error: `action "${key}" has nothing to run` };
-  const v = (value ?? '').trim();
+  // One that asks only for a yes to someone else's command takes it from the request (importedConsent).
+  const v = action.imported === 'confirm' ? 'yes' : (value ?? '').trim();
   if (!v) return { error: `${action.prompt.label} is required` };
   const args = action.prompt.build(v);
   if (!args.length) return { error: notRun(run) };
+  const refused = action.imported ? importedConsent(run, args, o.yes) : null;
+  if (refused) return refused;
   return { args, opensRun: action.opensRun };
 }
 

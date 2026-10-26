@@ -22,6 +22,7 @@ let dash: Dashboard;
 let ro: Dashboard;
 let runId = '';
 let live = '';
+let imported = '';
 const spawned: string[][] = [];
 
 const api = (d: Dashboard, path: string, init: RequestInit = {}) => fetch(`${d.url}/api/${path}`, { ...init, headers: { 'x-shadowlap-token': d.token, ...(typeof init.body === 'string' && !(init.headers as Record<string, string> | undefined)?.['x-filename'] ? { 'content-type': 'application/json' } : {}), ...(init.headers as Record<string, string>) } });
@@ -50,11 +51,11 @@ async function forked(body: Record<string, unknown>): Promise<string[]> {
   return spawned[spawned.length - 1];
 }
 
-/** A run of a person's ask (a recorded user input), a tool call and a model call. */
-function addRun(status: 'completed' | 'running'): string {
+/** A run of a person's ask (a recorded user input), a tool call and a model call; `from`, a pack it was unpacked from. */
+function addRun(status: 'completed' | 'running', from?: string): string {
   // A recording in progress has just recorded its calls: one its recorder left long ago was interrupted.
   const t = status === 'running' ? Date.now() : 1_000;
-  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: project }, codeVersion: null, startedAt: t });
+  const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: project }, codeVersion: null, startedAt: t, ...(from ? { meta: { imported: { at: 1, from } } } : {}) });
   const tool = (callNo: number, name: string, args: unknown, result: unknown, meta: Record<string, unknown> = {}) => {
     const identity = { kind: 'tool' as const, name, fingerprint: `fp${callNo}`, occurrence: 1 };
     store.appendCallStart({ runId: run.runId, callNo, ...identity, origin: 'live', effect: 'read', requestRef: store.putJson({ args }), meta, at: t + callNo });
@@ -74,6 +75,7 @@ beforeAll(async () => {
   store = Store.open(':memory:');
   runId = addRun('completed');
   live = addRun('running');
+  imported = addRun('completed', 'goldens/refund');
   const spawner = cliSpawner({ command: [process.execPath, FAKE], cwd: tmpdir() });
   const common = { store, dbPath: ':memory:', project: { path: project } };
   dash = await startDashboard({ ...common, spawnCli: (args, o) => (spawned.push(args), spawner(['text-only'], o)) });
@@ -128,6 +130,17 @@ describe('Edit and fork', () => {
     const once = await upload('{"amount": 40}');
     await forked({ runId, callNo: 2, uploadId: once });
     expect(await refused({ runId, callNo: 2, uploadId: once })).toMatch(/^uploadId: /);
+  });
+
+  it('forks a run from someone else’s pack only once the request says yes, keeping the upload for it', async () => {
+    const uploadId = await upload('{"order_id": "A-1042", "amount": 40}');
+    const before = spawned.length;
+    const refused = await post(dash, 'jobs', { kind: 'override', runId: imported, callNo: 2, uploadId });
+    expect(refused.status).toBe(409);
+    expect(await errorOf(refused)).toMatch(/^01\w{8} came from an imported pack: this runs the command it was recorded with \(node agent\.mjs\), under shadowlap replay 01\w{24} --override .+\. Confirm it to run it$/);
+    expect(spawned.length).toBe(before);
+    // Confirmed in the page, the same upload goes with the yes, which the CLI gets too.
+    expect(await forked({ runId: imported, callNo: 2, uploadId, yes: true })).toEqual(['replay', imported, '--override', '2={"order_id":"A-1042","amount":40}', '--yes']);
   });
 
   it('changes nothing on a read-only dashboard', async () => {

@@ -53,6 +53,8 @@
     "packages/dashboard/test/ui-sidebar-runs.test.ts",
     // This renders a fix's page.
     "packages/dashboard/test/ui-fix-page.test.ts",
+    // This drives the fork menu's actions, with their confirmation of someone else's command.
+    "packages/dashboard/test/ui-action-consent.test.ts",
     // These render the Tests and Training pages.
     "packages/dashboard/test/ui-tests-chaos.test.ts",
     "packages/dashboard/test/ui-tests-page.test.ts",

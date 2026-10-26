@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
-import { dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
-import { PromptDialog } from '../components/Dialog.js';
+import { ApiError, JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
+import { asksConsent, consentTitle, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
+import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -27,20 +27,32 @@ const UNKNOWN_BISECT = (runId: string): BisectOffer => ({ target: { kind: 'run',
 /**
  * Starts an action, or opens its dialog when it asks for something first. Find the commit, which the
  * fork menu lists with the whole run's actions, is the tests' `bisect` job: its dialog asks for a
- * commit where the run still worked.
+ * commit where the run still worked. A replay of a run from someone else's pack, or a teammate's
+ * pulled from the team store, runs their command: the server refuses it until it is confirmed, and
+ * says the command, which a dialog shows, and only its Run sends the yes.
  */
 export function useActionRunner(runId: string, capture = false, offers: RunOffers | null = null) {
   const app = useApp();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
+  const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string } | null>(null);
   const findCommit = () => {
     if (app.actionsOff) return app.toast(app.actionsOff);
     const blocked = bisectBlocked(runId, offers?.bisect ?? null, app.hasKind(JOB_KINDS.bisect));
     if (blocked) return app.toast(blocked);
     app.guard(() => setBisecting(true));
   };
-  const start = (p: PendingAction, value?: string) => {
-    app.guard(() => app.watchJob(app.client.action(runId, p.action.key, p.callNo, value)));
+  const start = (p: PendingAction, value?: string, yes = false) => {
+    app.guard(
+      () =>
+        void app.client.action(runId, p.action.key, p.callNo, value, yes).then(
+          (job) => app.watchJob(Promise.resolve(job)),
+          (err: unknown) => {
+            if (!yes && err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ p, ...(value !== undefined ? { value } : {}), why: err.message });
+            else app.watchJob(Promise.reject(err));
+          },
+        ),
+    );
   };
   const run = (p: PendingAction) => {
     if (p.action.disabled) return app.toast(p.action.disabled);
@@ -60,6 +72,18 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
         const p = pending;
         setPending(null);
         start(p, v);
+      }}
+    />
+  ) : consent ? (
+    <ConfirmDialog
+      title={consentTitle(consent.why)}
+      text={`${consent.why}.`}
+      ok="Run"
+      onClose={() => setConsent(null)}
+      onOk={() => {
+        const c = consent;
+        setConsent(null);
+        start(c.p, c.value, true);
       }}
     />
   ) : bisecting ? (

@@ -167,8 +167,12 @@ export interface Client {
   search(q: string): Promise<SearchAnswer>;
   labels(id: string, add: string[], remove?: string[]): Promise<{ labels: string[] }>;
   note(id: string, callNo: number | null, text: string): Promise<{ notes: RunNote[] }>;
-  /** Runs one of the run's actions (`/api/runs/:id/actions`): the server builds the command line. */
-  action(id: string, key: string, callNo: number | null, value?: string): Promise<JobView>;
+  /**
+   * Runs one of the run's actions (`/api/runs/:id/actions`): the server builds the command line.
+   * `yes`: the command of a run from someone else's pack or the team store was confirmed, in the
+   * step that showed it; without it the server refuses such a replay with a 409 that names it.
+   */
+  action(id: string, key: string, callNo: number | null, value?: string, yes?: boolean): Promise<JobView>;
   /** Starts a job of a registered kind (`POST /api/jobs`). */
   startJob(kind: string, fields: Record<string, unknown>): Promise<JobView>;
   job(jobId: string, after: number): Promise<JobView>;
@@ -422,7 +426,7 @@ export function createClient(token: string): Client {
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),
-    action: (runId, key, callNo, value) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}) }) }),
+    action: (runId, key, callNo, value, yes) => request<JobView>(`runs/${id(runId)}/actions`, { method: 'POST', body: JSON.stringify({ key, callNo, ...(value !== undefined ? { value } : {}), ...(yes === true ? { yes: true } : {}) }) }),
     startJob: (kind, fields) => request<JobView>('jobs', { method: 'POST', body: JSON.stringify({ ...fields, kind }) }),
     job: (jobId, after) => request<JobView>(`jobs/${id(jobId)}?after=${after}`),
     stopJob: (jobId) => request<{ stopped: boolean }>(`jobs/${id(jobId)}/stop`, { method: 'POST', body: '{}' }),

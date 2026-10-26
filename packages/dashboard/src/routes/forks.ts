@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
 import { buildActions, actionContext } from '@shadowlap/engine';
 import type { Normalizer } from '@shadowlap/engine';
-import { lookupRun, noSuchRun } from '../api.js';
+import { importedConsent, lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
@@ -84,6 +84,9 @@ export function register(router: Router, ctx: RouteContext): void {
       const action = buildActions(run, call, actionContext(store, call)).find((a) => a.key === 'o' || a.key === 'u');
       if (!action?.prompt) return { error: `#${callNo} is a ${call.kind === 'api' ? 'model call' : `${call.kind} call`}: shadowlap replay --override changes a tool's result or what a person answered, nothing else` };
       if (action.disabled) return { error: action.disabled };
+      // Someone else's command runs only once the request says yes to it: asked before the upload is taken, so the same upload goes with the yes.
+      const refused = action.imported ? importedConsent(run, action.prompt.build('…'), req.yes) : null;
+      if (refused) return refused;
       const file = upload(req.uploadId);
       if (!file) return { error: 'uploadId: upload the edited result first (POST /api/uploads), and use it for one fork' };
       if (file.bytes > OVERRIDE_LIMIT) return { error: `the edited result is ${file.bytes.toLocaleString('en-US')} bytes: at most ${OVERRIDE_LIMIT.toLocaleString('en-US')}`, status: 413 };
