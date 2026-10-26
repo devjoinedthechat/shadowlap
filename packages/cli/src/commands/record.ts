@@ -316,7 +316,7 @@ export function register(program: Command): void {
         }
         // Under --guard block, a replay the guard never watched fails, however clean: never called clean.
         const agent = agentStatus(code, preloads);
-        printOutcome(summary, { unwatched: preloads?.failed === true });
+        printOutcome(summary, preloads);
         const judged = checks ? judge(run.runId, output) : null;
         if (judged) process.stderr.write(formatChecks(judged, checks!.source) + '\n');
         if (unjudged) process.stderr.write(p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');

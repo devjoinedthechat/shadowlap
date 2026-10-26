@@ -7,7 +7,7 @@ import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
-import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { codeVersion, guardAccept, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
@@ -331,7 +331,7 @@ export class AttemptRunner {
     });
     // Each Node and Python process of the agent says its preload loaded: an attempt that made calls
     // with none was never watched by the guard, and fails under --guard block.
-    this.sidecar.expectPreloads(run.runId, s.guard);
+    this.sidecar.expectPreloads(run.runId, s.guard, guardAccept());
     const child = spawnAgent(argv[0]!, argv.slice(1), { cwd, env: agentEnv(this.sidecar, run.runId, s.guard, this.upstreams), stdio: ['ignore', 'pipe', 'pipe'], detached: GROUP }, { url: this.sidecar.url, runId: run.runId });
     this.running.add(child);
     trackAgent(child, GROUP);

@@ -1314,7 +1314,9 @@ def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None
 def _say_hello(body: dict[str, Any]) -> None:
     """Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
     they tell it about their own (``POST /v1/hello``): the Claude Code CLI the Claude Agent SDK runs,
-    whose fence says it runs with no guard. Does nothing outside Shadowlap."""
+    whose fence says it runs with no guard, and with ``reach`` what it can still connect to that
+    bypasses Shadowlap (empty: nothing, and the run passes ``--guard block``). Does nothing outside
+    Shadowlap."""
     cfg = _config()
     if cfg is not None:
         _post(cfg, "/v1/hello", {"runtimeVersion": "", "ppid": 0, **body})

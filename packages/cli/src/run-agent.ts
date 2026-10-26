@@ -11,12 +11,12 @@ import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPre
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
-import { codeVersion, loadConfig, upstreamOverrides } from './config.js';
+import { codeVersion, guardAccept, loadConfig, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
 import { type JunitCase } from './junit.js';
-import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
+import { guardOutcome, openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { noteUnrecordedTools } from './not-recorded.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { pushIfQueued, teamEnv } from './team.js';
@@ -209,7 +209,7 @@ export async function testAttempt(
   const stop = new AgentStop({ group, onSignal: (sig) => void (interrupted ??= sig), abandon: () => endRun('crashed') }).start();
   // Each Node and Python process of the agent says its preload loaded: one that made calls with none
   // was never watched by the guard, which fails it under block.
-  sidecar.expectPreloads(run.runId, o.guard);
+  sidecar.expectPreloads(run.runId, o.guard, guardAccept());
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -290,7 +290,7 @@ export async function testAttempt(
   } else if (ended.preloads?.failed) {
     // Nothing watched the agent's connections under --guard block: whatever else came out, it proves nothing.
     kind = 'guard';
-    failure = { message: ended.preloads.missing ?? ended.preloads.unguarded!, details: divergence + formatSummary(summary, undefined, { unwatched: true }) };
+    failure = { message: ended.preloads.missing ?? ended.preloads.unguarded!, details: divergence + formatSummary(summary, undefined, guardOutcome(ended.preloads)) };
   } else if (changed && !o.spec?.fork) {
     kind = 'diverged';
     failure = { message: divergenceLine(changed), details: divergence + formatSummary(summary) };
@@ -637,7 +637,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const shared = sharedGroup(true);
   const group = GROUPS && !shared;
   const stop = new AgentStop({ group, shared, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
-  sidecar.expectPreloads(run.runId, guard);
+  sidecar.expectPreloads(run.runId, guard, guardAccept());
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -775,7 +775,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
-      sidecar.expectPreloads(run.runId, guard);
+      sidecar.expectPreloads(run.runId, guard, guardAccept());
       const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: agentGroup }, { url: sidecar.url, runId: run.runId });
       trackAgent(child, agentGroup);
       stop.add(child);

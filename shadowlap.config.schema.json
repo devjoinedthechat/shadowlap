@@ -199,6 +199,23 @@
         }
       }
     },
+    "guard": {
+      "description": "The network guard. `accept` names the runtimes whose connections the guard can't watch that --guard block takes as they are: \"claude-code\", the Claude Code CLI the Claude Agent SDK runs, which no preload loads into. Node and Python processes keep --guard block. The GitHub Action's guard-accept input, and SHADOWLAP_GUARD_ACCEPT, add to it.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "description": "The runtimes --guard block accepts unwatched: \"claude-code\" alone.",
+          "type": "array",
+          "items": {
+            "enum": [
+              "claude-code"
+            ]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
     "store": {
       "description": "The team store: the project's runs in a bucket you own, written by `shadowlap store set`. s3://bucket/folder, gs://bucket/folder, az://account/container/folder or r2://account/bucket/folder; a query adds what the name can't say (region, endpoint, path-style, auth=hmac, profile). Credentials never go here: each machine uses its own.",
       "type": "string",

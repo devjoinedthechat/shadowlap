@@ -23,6 +23,13 @@ export interface Hello {
   ppid: number;
   guard: GuardMode;
   capture: boolean;
+  /**
+   * For a process that runs with no guard (`guard: 'off'`), what it can still connect to that no
+   * guard watches, in a few words each: the Claude Agent SDK's fence names what the Claude Code CLI
+   * can reach (`WebFetch`, `the MCP server "docs" (http)`); empty when nothing is left open.
+   * Absent when the process doesn't say, which counts as everything.
+   */
+  reach?: string[];
 }
 
 /** What a run's preloads came to, as `endRun` reports it and the run keeps it (`RunMeta.preloads`). */
@@ -37,31 +44,76 @@ export interface PreloadReport {
   unguarded: string | null;
   /** The run failed for it: under `--guard block`, nothing stopped a connection that bypassed Shadowlap. */
   failed: boolean;
+  /**
+   * With `failed`: the agent itself exited 0, so the run fails for the guard alone, and its summary
+   * says the run was not watched, never that the agent exited with an error (formatSummary).
+   */
+  exitedOk?: boolean;
 }
 
 /** The runtime the Claude Agent SDK's fence says hello for: the Claude Code CLI, which loads no preload. */
 export const CLAUDE_CODE_RUNTIME = 'claude-code';
 
+/** What the guard does about processes it can't watch: the line the run's summary carries, and whether it fails the run. */
+export interface Unguarded {
+  line: string | null;
+  /** Under `--guard block`, a process left a connection open that no guard watches, and the accept rule doesn't take it. */
+  failed: boolean;
+}
+
+/** `a, b and c`; `a; b; and c` when one of them has a comma of its own. */
+function listed(items: readonly string[]): string {
+  if (items.length < 2) return items[0] ?? '';
+  const sep = items.some((i) => i.includes(',')) ? '; ' : ', ';
+  return `${items.slice(0, -1).join(sep)}${sep === '; ' ? '; and ' : ' and '}${items.at(-1)!}`;
+}
+
 /**
- * The summary's line for processes of the agent that said they run with no network guard while the
- * run has one, under `guard`, or null when none did: the Claude Code CLI the Claude Agent SDK runs,
- * which loads no preload (its fence says so for it), and a Node or Python process whose guard could
- * not start. Nothing watched their connections, so under `--guard block` the run fails.
+ * What the run's summary says of the processes of its agent that run with no network guard while
+ * the run has one, under `guard`, and whether that fails the run. The Claude Code CLI the Claude
+ * Agent SDK runs loads no preload: its fence says so for it, with what the CLI can still reach
+ * (`reach`: its WebFetch, an MCP server over the network, its own traffic). When that is nothing,
+ * nothing unguarded is left, and the run passes `--guard block`; otherwise the line names each path,
+ * and a fence that said nothing of them (fenceHooks by hand, an older adapter) leaves them unknown.
+ * `accept` (the config's `guard.accept`, the Action's `guard-accept` input) takes the Claude Code CLI
+ * as it is, so its paths are named but fail nothing, while a Node or Python process whose guard could
+ * not start still fails the run under block.
  */
-export function unguardedLine(hellos: Iterable<Hello>, guard: GuardMode): string | null {
-  if (guard === 'off') return null;
+export function unguardedReport(hellos: Iterable<Hello>, guard: GuardMode, accept: ReadonlySet<string> = new Set()): Unguarded {
+  if (guard === 'off') return { line: null, failed: false };
   const off = [...hellos].filter((h) => h.guard === 'off');
-  if (!off.length) return null;
-  const claude = off.filter((h) => h.runtime === CLAUDE_CODE_RUNTIME).length;
+  const claude = off.filter((h) => h.runtime === CLAUDE_CODE_RUNTIME);
+  // A fence that said what the CLI reaches, and found nothing open, left nothing unguarded.
+  const reached = claude.some((h) => !h.reach) ? null : [...new Set(claude.flatMap((h) => h.reach ?? []))];
+  const claudeOpen = claude.length > 0 && (reached === null || reached.length > 0);
   const others = countHellos(off.filter((h) => h.runtime !== CLAUDE_CODE_RUNTIME));
+  if (!claudeOpen && !Object.keys(others).length) return { line: null, failed: false };
+  const accepted = accept.has(CLAUDE_CODE_RUNTIME);
+  const paths = reached === null ? 'what it connects to itself, which its fence did not say (WebFetch, an MCP server over the network, its own traffic)' : listed(reached);
   const parts = [
-    ...(claude ? [`the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched`] : []),
+    ...(claudeOpen ? [`the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can't watch ${paths}${accepted ? ' (accepted by guard.accept)' : ''}`] : []),
     ...Object.entries(others).map(([runtime, n]) => `${n} ${runtime === 'node' ? 'Node' : runtime === 'python' ? 'Python' : runtime} process${n === 1 ? '' : 'es'} whose preload loaded with the guard off`),
   ];
   const what = parts.join('; and ');
-  return guard === 'block'
-    ? `The network guard could not watch every process of the agent: ${what}. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can't watch.`
-    : `The network guard could not watch every process of the agent: ${what}. A connection one of them made that bypassed Shadowlap went unseen.`;
+  const failed = guard === 'block' && ((claudeOpen && !accepted) || Object.keys(others).length > 0);
+  if (!failed) return { line: `The network guard could not watch every process of the agent: ${what}. A connection one of them made that bypassed Shadowlap could have gone unseen.`, failed: false };
+  // What to do: close what the CLI reaches, or accept the CLI alone; else the whole run under warn.
+  const ways = [
+    ...(claudeOpen && !accepted
+      ? [
+          reached === null ? 'run the query through withFence (with_fence in Python), which works out what the CLI can reach' : 'close those, as the Claude Agent SDK section of docs/frameworks.md says',
+          'accept the Claude Code CLI alone with "guard": { "accept": ["claude-code"] } in shadowlap.config.json (the GitHub Action\'s guard-accept input), keeping --guard block for the rest',
+        ]
+      : []),
+    "run it with --guard warn (the GitHub Action's guard input) to accept every connection the guard can't watch",
+  ];
+  const how = ways.join('; or ');
+  return { line: `The network guard could not watch every process of the agent: ${what}. Under --guard block nothing stops such a connection, so the run fails. ${how.charAt(0).toUpperCase()}${how.slice(1)}.`, failed: true };
+}
+
+/** The line alone, as `endRun` once kept it: see unguardedReport. */
+export function unguardedLine(hellos: Iterable<Hello>, guard: GuardMode, accept: ReadonlySet<string> = new Set()): string | null {
+  return unguardedReport(hellos, guard, accept).line;
 }
 
 /** More hellos than this in one run are counted, not kept: a fork bomb of short processes says nothing more. */
@@ -83,6 +135,8 @@ export function parseHello(body: unknown): Hello | null {
     ppid: typeof b.ppid === 'number' && Number.isSafeInteger(b.ppid) ? b.ppid : 0,
     guard: b.guard === 'block' || b.guard === 'off' ? b.guard : 'warn',
     capture: b.capture === true,
+    // Bounded: a few words each, a few of them, and no control or formatting characters, since the summary prints them.
+    ...(Array.isArray(b.reach) ? { reach: b.reach.filter((r): r is string => typeof r === 'string').slice(0, 20).map((r) => r.replace(/[\p{Cc}\p{Cf}]/gu, ' ').slice(0, 120)) } : {}),
   };
 }
 
@@ -152,8 +206,8 @@ export function missingPreload(argv: readonly string[], calls: { api: number; to
   const cause = shownCause(argv) ?? LIKELY;
   const head = `No Shadowlap preload loaded in the agent's processes, though the run made ${made}`;
   return guard === 'block'
-    ? `${head}: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails. ${cause}. Run the agent on Node or Python with the environment shadowlap gives it, or with --guard warn to accept a run the guard can't watch; shadowlap doctor says more.`
-    : `${head}: the network guard never watched it, so a connection that bypassed Shadowlap went unseen, and in-process capture never ran. ${cause}. shadowlap doctor says more.`;
+    ? `${head}: under --guard block nothing stopped a connection that bypassed Shadowlap, so the run fails. ${cause}. Run the agent on Node or Python with the environment shadowlap gives it, or with --guard warn (the GitHub Action's guard input) to accept a run the guard can't watch; shadowlap doctor says more.`
+    : `${head}: the network guard never watched it, so a connection that bypassed Shadowlap would have gone unseen, and in-process capture never ran. ${cause}. shadowlap doctor says more.`;
 }
 
 // ------------------------------------------------------------------------------- SDK versions

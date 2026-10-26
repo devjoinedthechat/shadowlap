@@ -7,6 +7,7 @@ import dataclasses
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -276,6 +277,48 @@ class Fence(unittest.TestCase):
         asyncio.run(fenced()["UserPromptSubmit"][0].hooks[0]({"hook_event_name": "UserPromptSubmit", "prompt": "go"}, None, {}))
         self.assertEqual(quiet.hellos, [])
 
+    def test_says_what_the_query_leaves_the_cli_to_reach(self) -> None:
+        home = tempfile.mkdtemp(prefix="shadowlap-fence-home-")
+        self.addCleanup(shutil.rmtree, home, True)
+        env = {"HOME": home, "CLAUDE_CONFIG_DIR": os.path.join(home, ".claude"), "ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_BASE_URL": os.environ.get("ANTHROPIC_BASE_URL", "")}
+
+        @dataclasses.dataclass
+        class Options:
+            cwd: str = home
+            hooks: Optional[dict[str, list[Any]]] = None
+            setting_sources: Optional[list[str]] = dataclasses.field(default_factory=list)
+            env: dict[str, str] = dataclasses.field(default_factory=lambda: dict(env))
+            disallowed_tools: list[str] = dataclasses.field(default_factory=list)
+            mcp_servers: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+        def hello(options: Any) -> dict[str, Any]:
+            sidecar = Sidecar()
+            shadowlap._post = sidecar
+            fenced_options = with_fence(options, settings={"managed_file": None})
+            asyncio.run(fenced_options.hooks["UserPromptSubmit"][0].hooks[0]({"hook_event_name": "UserPromptSubmit", "prompt": "go", "cwd": home}, None, {}))
+            return sidecar.hellos[0]
+
+        # WebFetch, and the claude.ai connectors with no API key.
+        self.assertEqual(hello(Options())["reach"], ["WebFetch, which fetches each page itself", "claude.ai connectors, which a claude.ai login brings"])
+        # Nothing left: WebFetch disallowed, an API key, its traffic off (with_fence turned it off).
+        closed = Options(disallowed_tools=["WebFetch"], env={**env, "ANTHROPIC_API_KEY": "sk-test"})
+        self.assertEqual(hello(closed)["reach"], [])
+        self.assertEqual(with_fence(closed).env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+        # An MCP server over the network the query connects.
+        self.assertEqual(hello(Options(disallowed_tools=["WebFetch"], env={**env, "ANTHROPIC_API_KEY": "sk-test"}, mcp_servers={"docs": {"type": "http", "url": "https://docs.example/mcp"}}))["reach"], ['the MCP server "docs" (http)'])
+
+    def test_turns_the_cli_s_nonessential_traffic_off_under_shadowlap_unless_the_env_sets_it(self) -> None:
+        @dataclasses.dataclass
+        class Options:
+            cwd: str = ROOT
+            hooks: Optional[dict[str, list[Any]]] = None
+            env: dict[str, str] = dataclasses.field(default_factory=dict)
+
+        self.assertEqual(with_fence(Options(env={"A": "1"})).env, {"A": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"})
+        self.assertEqual(with_fence(Options(env={"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": ""})).env, {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": ""})
+        os.environ.pop("SHADOWLAP_URL", None)
+        self.assertEqual(with_fence(Options(env={"A": "1"})).env, {"A": "1"})
+
     def test_picks_the_tools_claude_code_picks(self) -> None:
         cases = [(None, "Bash"), ("", "Bash"), ("*", "Write"), ("Bash", "Bash"), ("Bash", "BashOutput"), ("Edit|Write", "Write"), ("Edit, Write", "Edit"), ("Edit.*", "NotebookEdit"), ("^Edit$", "NotebookEdit"), ("mcp__kb__.*", "mcp__kb__search")]
         for matcher, tool in cases:
@@ -369,6 +412,43 @@ class BesideOtherHooks(unittest.TestCase):
         self.assertTrue(out["results"][0]["is_error"])
         self.assertIn(f'shadowlap: Bash was not run again: a PreToolUse hook in {settings_file} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
         self.assertIn(settings_file, "\n".join(said))
+
+    BASH_HOOK = "hooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: ./mark.sh\n"
+
+    def project(self, files: dict[str, str]) -> str:
+        folder = tempfile.mkdtemp(prefix="shadowlap-frontmatter-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        for path, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(folder, path)), exist_ok=True)
+            with open(os.path.join(folder, path), "w", encoding="utf-8") as f:
+                f.write(text)
+        return folder
+
+    def test_refuses_a_recorded_write_a_skill_s_frontmatter_hook_could_rewrite(self) -> None:
+        recorded, _ = self.recorded(fenced())
+        folder = self.project({".claude/skills/guard/SKILL.md": f"---\nname: guard\ndescription: d\n{self.BASH_HOOK}---\n"})
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        cc = session(fenced(settings={"sources": ["project"], "cwd": folder, "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking(0.15)]})
+        out = asyncio.run(agent(cc, self.BASH))
+        self.assertEqual(cc.ran, [])
+        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "skills", "guard", "SKILL.md")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+
+    def test_refuses_a_recorded_write_a_subagent_s_own_hook_could_rewrite_in_its_calls_alone(self) -> None:
+        recorded, _ = self.recorded(fenced())
+        folder = self.project({".claude/agents/review.md": f"---\nname: reviewer\ndescription: d\n{self.BASH_HOOK}---\nReview.\n"})
+        places = {"sources": ["project"], "cwd": folder, "managed_file": None, "env": {"HOME": folder}}
+        # The session's own call: the subagent's hook doesn't run for it, and the stand-in does.
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        main = session(fenced(settings=places))
+        asyncio.run(agent(main, self.BASH))
+        self.assertEqual(main.ran, ["true"])
+        # The same call made in the subagent: its hook runs beside the fence there, and the write is refused.
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        sub = session(fenced(settings=places))
+        sub.agent = ("agent-1", "reviewer")
+        out = asyncio.run(agent(sub, self.BASH))
+        self.assertEqual(sub.ran, [])
+        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "agents", "review.md")}, which runs while the subagent "reviewer" runs (matcher "Bash")', out["results"][0]["content"])
 
     def test_stops_the_session_when_a_hook_it_never_saw_replaced_its_stand_in(self) -> None:
         recorded, _ = self.recorded(fenced())

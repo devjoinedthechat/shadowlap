@@ -27,6 +27,9 @@ inputs:
   guard:
     description: The network guard for connections that bypass Shadowlap (block, warn or off).
     default: block
+  guard-accept:
+    description: What guard block accepts unwatched, as guard.accept in shadowlap.config.json does. claude-code, the only one, takes the Claude Code CLI the Claude Agent SDK runs as it is, which no preload loads into, so the connections it can make that the guard can't watch are named and fail nothing; Node and Python processes keep block. Empty accepts nothing more than the config does.
+    default: ''
   online:
     description: Allow live model calls after a divergence. By default every provider is offline and a live call fails the recording.
     default: 'false'
@@ -195,6 +198,7 @@ runs:
         INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
         INPUT_WRITES: ${{ inputs.writes }}
         INPUT_GUARD: ${{ inputs.guard }}
+        INPUT_GUARD_ACCEPT: ${{ inputs.guard-accept }}
         INPUT_ONLINE: ${{ inputs.online }}
         INPUT_FAIL_ON_DIVERGENCE: ${{ inputs.fail-on-divergence }}
         INPUT_SUMMARY: ${{ inputs.summary }}

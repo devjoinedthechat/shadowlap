@@ -77,6 +77,9 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (!['block', 'stub', 'allow'].includes(writes)) fail(`input writes must be block, stub or allow, not "${writes}"`);
   const guard = input('GUARD', 'block');
   if (!['block', 'warn', 'off'].includes(guard)) fail(`input guard must be block, warn or off, not "${guard}"`);
+  // What guard block accepts unwatched, as guard.accept in the config: the Claude Code CLI alone.
+  const guardAccept = input('GUARD_ACCEPT').split(',').map((v) => v.trim()).filter(Boolean);
+  for (const runtime of guardAccept) if (runtime !== 'claude-code') fail(`input guard-accept must be claude-code, not "${runtime}": a Node or Python process whose guard is off still fails guard block`);
   const fixOnFailure = bool('FIX_ON_FAILURE', false);
   const budget = Number(input('FIX_BUDGET', '2.00').replace(/^\$/, ''));
   if (!Number.isFinite(budget) || budget <= 0) fail(`input fix-budget must be an amount in dollars, such as 2.00, not "${input('FIX_BUDGET')}"`);
@@ -134,7 +137,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // The token the action pushes, opens pull requests and comments with goes to git, gh and GitHub's
   // API only: the CLI, and the agent it runs, never get it, nor any other of GitHub's tokens in the job.
   const auth = githubToken(env);
-  const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
+  const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0', ...(guardAccept.length ? { SHADOWLAP_GUARD_ACCEPT: [...new Set(guardAccept)].join(',') } : {}) };
 
   process.stdout.write(`${logLine(`shadowlap test ${packs.join(' ')}`)}\n`);
   const r = spawnSync(process.execPath, args, { cwd: workdir, stdio: 'inherit', env: cliEnv });

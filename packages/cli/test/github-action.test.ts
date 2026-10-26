@@ -142,6 +142,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
         "import { appendFileSync, writeFileSync } from 'node:fs';",
         'const args = process.argv.slice(2);',
         'writeFileSync(process.env.FAKE_ARGS, JSON.stringify(args));',
+        "writeFileSync(process.env.FAKE_ARGS + '.accept', process.env.SHADOWLAP_GUARD_ACCEPT ?? '(unset)');",
         "const at = (flag) => args[args.indexOf(flag) + 1];",
         "const warn = at('--inconclusive') === 'warn';",
         "const result = { name: 'reference-agent', dir: 'testing/golden/reference-agent', golden: 'testing/golden/reference-agent', mode: 'fork', ok: warn, verdict: 'inconclusive', failure: 'inconclusive', message: 'inconclusive · 64 of 80 · rate 0.70 to 0.87 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts', details: null, output: null, checks: null };",
@@ -187,6 +188,17 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(args).not.toContain('-x');
   });
 
+  it('hands guard-accept to the CLI, which accepts the Claude Code CLI alone under guard block', () => {
+    run({ GUARD_ACCEPT: ' claude-code ' });
+    expect(readFileSync(`${fake.args}.accept`, 'utf8')).toBe('claude-code');
+    expect(given().slice(given().indexOf('--guard'), given().indexOf('--guard') + 2)).toEqual(['--guard', 'block']);
+    run({});
+    expect(readFileSync(`${fake.args}.accept`, 'utf8')).toBe('(unset)');
+    const node = run({ GUARD_ACCEPT: 'claude-code,node' });
+    expect(node.code).toBe(1);
+    expect(node.out).toContain('input guard-accept must be claude-code, not "node": a Node or Python process whose guard is off still fails guard block');
+  });
+
   it('says what is wrong with those inputs', () => {
     expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, not "maybe"');
     expect(run({ MAX_ATTEMPTS: 'lots' }).out).toContain('input max-attempts must be a whole number of attempts');
@@ -195,7 +207,8 @@ describe('the GitHub Action and inconclusive goldens', () => {
 
   it('declares the inputs and the output in action.yml, and keeps the test history in the cache around the test step', () => {
     const yml = readFileSync(join(ROOT, 'action.yml'), 'utf8');
-    for (const input of ['inconclusive:', 'max-attempts:', 'keep-history:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+    for (const input of ['inconclusive:', 'max-attempts:', 'keep-history:', 'guard-accept:']) expect(yml).toContain(`\n  ${input}\n    description:`);
+    expect(yml).toContain('INPUT_GUARD_ACCEPT: ${{ inputs.guard-accept }}');
     expect(yml).toContain('\n  inconclusive:\n    description: Recordings whose verdict is inconclusive');
     expect(yml).toContain('INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}');
     expect(yml).toContain('INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}');

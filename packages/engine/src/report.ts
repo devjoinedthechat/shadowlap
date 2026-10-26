@@ -175,8 +175,10 @@ function shortId(id: string): string {
 /**
  * The end-of-run summary line(s). `unwatched`: the run fails because the network guard never
  * watched the agent under `--guard block` (a warning says why), so a replay is never called clean.
+ * `exitedOk` with it: the agent itself exited 0, so the run fails for that alone, and the summary
+ * says the run was not watched, never that the agent exited with an error.
  */
-export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwatched?: boolean } = {}): string {
+export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwatched?: boolean; exitedOk?: boolean } = {}): string {
   const lines: string[] = [];
   const kinds = `${s.byKind.api} api, ${s.byKind.tool} tool` + (s.byKind.clock + s.byKind.random ? `, ${s.byKind.clock + s.byKind.random} clock/random` : '');
   if (s.total === 0) {
@@ -214,7 +216,8 @@ export function formatSummary(s: RunSummary, p: Palette = plain, options: { unwa
         (s.cost.spent || s.cost.saved ? ` (≈${formatUsd(s.cost.spent)} spent, ${formatUsd(s.cost.saved)} not re-spent)` : ''),
     );
   }
-  if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
+  if (options.unwatched && options.exitedOk) lines.push(p.red('  the agent process exited 0, but was not watched'));
+  else if (s.status === 'failed' || s.status === 'crashed') lines.push(p.red(`  the agent process ${s.status === 'crashed' ? 'was interrupted' : 'exited with an error'}`));
   // The judge's calls are no part of the line above: what they did and cost comes apart.
   if (s.judge) lines.push(p.dim(`  ${judgeLine(s.judge)}`));
   // After a fork the divergence report already covers the recorded call it was compared with. A

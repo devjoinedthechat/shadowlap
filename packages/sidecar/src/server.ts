@@ -74,7 +74,7 @@ import { asResponse, requestUpstream } from './upstream.js';
 import { refuseUpgrade, tunnelWebSocket } from './websocket.js';
 import { StoreWriter, type StoreWrites } from './writer.js';
 // The preloads' hellos and the SDKs' versions: rv-guard's part of the sidecar.
-import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, unguardedLine, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
+import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, unguardedReport, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
 
 export type { Interventions } from './interventions.js';
 export { requestUpstream } from './upstream.js';
@@ -246,6 +246,8 @@ class RunContext {
   // ---- the preloads' hellos and the SDKs' versions (preloads.ts) ----
   /** The guard the CLI started the run's agent with, preloads and all (expectPreloads); null when it started none. */
   preloadGuard: GuardMode | null = null;
+  /** The runtimes the config's guard.accept takes, whose unguarded paths fail no run (preloads.ts unguardedReport). */
+  preloadAccept: ReadonlySet<string> = new Set();
   /**
    * Each process whose preload said it loaded, by runtime and process id (at most MAX_HELLOS kept),
    * and how many in all: the Claude Agent SDK's fence says hello for the Claude Code CLI from its own
@@ -973,9 +975,12 @@ export class Sidecar {
    * and Python processes then says it loaded (`POST /v1/hello`), and a run that made model or tool
    * calls with none loaded is one the guard never watched, which endRun says, and fails under block.
    */
-  expectPreloads(runId: string, guard: GuardMode): void {
+  expectPreloads(runId: string, guard: GuardMode, accept: readonly string[] = []): void {
     const ctx = this.runs.get(runId);
-    if (ctx) ctx.preloadGuard = guard;
+    if (!ctx) return;
+    ctx.preloadGuard = guard;
+    // The runtimes the guard takes as they are under --guard block (guard.accept): the Claude Code CLI.
+    ctx.preloadAccept = new Set(accept);
   }
 
   /**
@@ -1040,7 +1045,11 @@ export class Sidecar {
     // A run that made model or tool calls with no preload loaded was never watched by the guard:
     // under --guard block it fails, whatever its agent did.
     const preloads = this.preloadReport(ctx, calls);
-    if (preloads?.failed && status === 'completed') status = 'failed';
+    // An agent that exited 0 whose run fails for the guard: its summary says not watched, never that it exited with an error.
+    if (preloads?.failed && status === 'completed') {
+      status = 'failed';
+      preloads.exitedOk = true;
+    }
     this.runs.delete(runId);
     if (this.activeRunId === runId) this.activeRunId = null;
     if (ctx.slot !== null && this.slots.get(ctx.slot) === runId) this.slots.delete(ctx.slot);
@@ -1113,9 +1122,10 @@ export class Sidecar {
     const agent = calls.filter((c) => !isJudgeCall(c));
     const made = { api: agent.filter((c) => c.kind === 'api').length, tool: agent.filter((c) => c.kind === 'tool').length };
     const missing = guard !== 'off' && Object.keys(hellos).length === 0 && made.api + made.tool > 0 ? missingPreload(ctx.run.command.argv, made, guard) : null;
-    // A process that said its guard is off was never watched either: the Claude Code CLI the Claude Agent SDK runs, among them.
-    const unguarded = unguardedLine(ctx.hellos.values(), guard);
-    return { guard, hellos, missing, unguarded, failed: (missing !== null || unguarded !== null) && guard === 'block' };
+    // A process that said its guard is off was never watched either: the Claude Code CLI the Claude
+    // Agent SDK runs, among them, unless its fence found nothing it can reach unwatched.
+    const unguarded = unguardedReport(ctx.hellos.values(), guard, ctx.preloadAccept);
+    return { guard, hellos, missing, unguarded: unguarded.line, failed: (missing !== null && guard === 'block') || unguarded.failed };
   }
 
   /** An SDK whose major.minor differs from this CLI's, named once per run and SDK (`x-shadowlap-sdk`). */

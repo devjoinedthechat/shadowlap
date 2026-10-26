@@ -1020,6 +1020,7 @@ Replays a recording offline, repeatedly, and proposes a normalizer for every val
 | `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` (seconds it may take to answer, default 600) for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
 | `ciPush` | `false` keeps `test --push` from pushing to the team store in CI, and the GitHub Action from pushing the fixes it opens (`shadowlap store push-from-ci on\|off`) |
+| `guard` | `accept: ["claude-code"]` takes the Claude Code CLI the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs as it is under `--guard block`: what it can reach that the guard can't watch is named, and fails nothing, while every Node and Python process keeps block. `SHADOWLAP_GUARD_ACCEPT=claude-code` and the GitHub Action's `guard-accept` input add to it |
 
 The schema is [`shadowlap.config.schema.json`](https://github.com/devjoinedthechat/shadowlap/blob/main/shadowlap.config.schema.json) in the repository. It gives completion in any
 editor that reads `$schema`, and it lets CI check a config without running Shadowlap. It is
@@ -1357,6 +1358,7 @@ whether pull requests' jobs push to their `own-folder` or not at all (`no-push`,
 | Variable | Meaning |
 |---|---|
 | `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream (a mock, or an OpenAI-compatible server such as Ollama). Without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` are used when they are set |
+| `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does |
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run. Without it nothing is sent |

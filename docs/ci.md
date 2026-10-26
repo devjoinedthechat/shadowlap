@@ -59,6 +59,10 @@ An agent can stop before its recording did and still exit 0: an exception it cat
 
 Its failure kind is `diverged`, and the JSON report's `divergence` has `type` `ended_early` and `recorded`, the calls the recording holds, so the GitHub Action and `bisect` treat it as one. The run keeps it too: `shadowlap ls` and the dashboard list it as `ended early @11`, not as a clean replay. Clock, random and pure reads left unread don't count. A golden marked `fork` passes on its checks, as it does after a fork. If the agent now stops earlier on purpose, re-record the golden with `shadowlap test <golden> --update`.
 
+### The network guard
+
+`shadowlap test` runs each agent under `--guard block`: a connection that bypasses Shadowlap is refused, and a golden whose agent the [guard](./how-it-works.md#the-network-guard) couldn't watch fails, its summary naming what wasn't watched and saying the run was not watched, however the agent exited. An agent on the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs the Claude Code CLI, which no preload loads into: its fence names what the CLI can still reach (WebFetch, an MCP server over the network, the claude.ai connectors, the model API past Shadowlap, its own traffic), and the golden passes once there is none, with WebFetch disallowed, MCP servers kept to the query's own (`strictMcpConfig`) and no claude.ai login. To accept the CLI as it is while every Node and Python process keeps block, set `"guard": { "accept": ["claude-code"] }` in `shadowlap.config.json`, or `guard-accept: claude-code` on the [GitHub Action](#github-actions); `--guard warn` (the Action's `guard: warn`) accepts every connection the guard can't watch.
+
 ### Keys
 
 A golden that replays offline needs no model key, so a job without secrets, such as a pull request's from a fork, tests it. An agent whose client takes its key from the environment, as `new Anthropic()`, `new OpenAI()` and Google's clients do, would refuse to send anything without one: its replay gets a [placeholder](./how-it-works.md#keys), `shadowlap-offline-replay-placeholder`, for each provider its recording called whose credentials the job lacks (placeholder AWS credentials for Bedrock, and Azure OpenAI's only for a recording whose environment held `AZURE_OPENAI_API_KEY`), never in place of a key or another credential the job has. The replay is offline, so nothing carrying one leaves the machine; the sidecar refuses a live call that would carry one anyway. What isn't a secret still has to be there: an Azure OpenAI client built the default way needs `AZURE_OPENAI_ENDPOINT` and `OPENAI_API_VERSION`, and an AWS client its region.
@@ -281,6 +285,7 @@ The action refuses to run on `pull_request_target`, `workflow_run` and `issue_co
 | `build-from-source` | `false` | Build the CLI from the action's own source instead of installing it from npm, running no package's install script, with none of the job's secrets in the build's environment and a home of its own; `version` is then ignored |
 | `writes` | `block` | What write tools do after a divergence: `block`, `stub` or `allow` |
 | `guard` | `block` | The network guard: `block`, `warn` or `off` |
+| `guard-accept` | empty | What `guard: block` accepts unwatched, as `guard.accept` in the config: `claude-code` takes the Claude Code CLI the [Claude Agent SDK](./frameworks.md#claude-agent-sdk) runs as it is, naming what it can reach and failing nothing for it, while Node and Python processes keep `block` ([below](#the-network-guard)) |
 | `online` | `false` | Allow live model calls after a divergence |
 | `fail-on-divergence` | `true` | With `false`, the step passes and `failed` says what happened |
 | `summary` | `true` | Write the report to the job summary |

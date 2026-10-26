@@ -87,8 +87,10 @@ describe('the preloads, as the sidecar counts them', () => {
   });
 
   // The Claude Agent SDK runs the Claude Code CLI, a native program no preload loads into: its fence
-  // says hello for it, from the agent's own process, with the guard off.
-  const cli = (runId: string, pid: number) => post(runId, 'v1/hello', { runtime: 'claude-code', runtimeVersion: '', pid, ppid: 1, guard: 'off', capture: false });
+  // says hello for it, from the agent's own process, with the guard off, and with what the CLI can
+  // still reach that the guard can't watch (`reach`), when the query it was given says.
+  const cli = (runId: string, pid: number, reach?: string[]) => post(runId, 'v1/hello', { runtime: 'claude-code', runtimeVersion: '', pid, ppid: 1, guard: 'off', capture: false, ...(reach ? { reach } : {}) });
+  const OPEN = ['WebFetch, which fetches each page itself', 'the MCP server "docs" (http)'];
 
   it('names a process that runs with no guard, the Claude Code CLI among them, and fails the run under --guard block', async () => {
     const blocked = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
@@ -98,28 +100,96 @@ describe('the preloads, as the sidecar counts them', () => {
     await cli(blocked.runId, 300);
     await tool(blocked.runId);
     const b = sidecar.endRun(blocked.runId, 'completed');
-    expect(b.preloads).toMatchObject({ guard: 'block', hellos: { node: 1, 'claude-code': 1 }, missing: null, failed: true });
+    expect(b.preloads).toMatchObject({ guard: 'block', hellos: { node: 1, 'claude-code': 1 }, missing: null, failed: true, exitedOk: true });
+    // A fence that said nothing of what the CLI reaches (by hand, or older) leaves it unknown.
     expect(b.preloads!.unguarded).toBe(
-      'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.',
+      'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch what it connects to itself, which its fence did not say (WebFetch, an MCP server over the network, its own traffic). Under --guard block nothing stops such a connection, so the run fails. Run the query through withFence (with_fence in Python), which works out what the CLI can reach; or accept the Claude Code CLI alone with "guard": { "accept": ["claude-code"] } in shadowlap.config.json (the GitHub Action\'s guard-accept input), keeping --guard block for the rest; or run it with --guard warn (the GitHub Action\'s guard input) to accept every connection the guard can\'t watch.',
     );
     expect(b.summary.warnings).toContain(b.preloads!.unguarded);
     expect(b.run.status).toBe('failed');
     expect(store.getRun(blocked.runId)!.meta?.preloads).toEqual({ guard: 'block', hellos: { node: 1, 'claude-code': 1 }, unguarded: b.preloads!.unguarded });
 
-    // Under warn it is named, and the run stands; with the guard off nothing is expected of it.
+    // Under warn it is named, and the run stands, saying what could have gone unseen, not that
+    // something did; with the guard off nothing is expected of it.
     const warned = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
     sidecar.expectPreloads(warned.runId, 'warn');
-    await cli(warned.runId, 301);
+    await cli(warned.runId, 301, OPEN);
     await post(warned.runId, 'v1/hello', { runtime: 'python', pid: 302, guard: 'off' });
     await tool(warned.runId);
     const w = sidecar.endRun(warned.runId, 'completed');
     expect(w.preloads).toMatchObject({ failed: false });
-    expect(w.preloads!.unguarded).toBe('The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched; and 1 Python process whose preload loaded with the guard off. A connection one of them made that bypassed Shadowlap went unseen.');
+    expect(w.preloads!.unguarded).toBe('The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and the MCP server "docs" (http); and 1 Python process whose preload loaded with the guard off. A connection one of them made that bypassed Shadowlap could have gone unseen.');
     expect(w.run.status).toBe('completed');
     const off = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
     sidecar.expectPreloads(off.runId, 'off');
     await cli(off.runId, 303);
     expect(sidecar.endRun(off.runId, 'completed').preloads).toMatchObject({ unguarded: null, failed: false });
+  });
+
+  it('passes a Claude Code CLI whose fence found nothing it can reach unwatched, and fails one that can, naming each path', async () => {
+    // Nothing left: WebFetch disallowed, MCP kept to the query's own, an API key, its traffic off.
+    const closed = sidecar.startRun({ mode: 'replay', parentRunId: sidecar.startRun({ mode: 'record', command: { argv: [], cwd: dir } }).runId, command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(closed.runId, 'block');
+    await post(closed.runId, 'v1/hello', { runtime: 'node', pid: 310, guard: 'block', capture: true });
+    await cli(closed.runId, 310, []);
+    await tool(closed.runId);
+    const c = sidecar.endRun(closed.runId, 'completed');
+    expect(c.preloads).toMatchObject({ hellos: { node: 1, 'claude-code': 1 }, unguarded: null, failed: false });
+    expect(c.run.status).toBe('completed');
+
+    const open = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(open.runId, 'block');
+    await cli(open.runId, 311, OPEN);
+    await tool(open.runId);
+    const o = sidecar.endRun(open.runId, 'completed');
+    expect(o.preloads).toMatchObject({ failed: true, exitedOk: true });
+    expect(o.preloads!.unguarded).toBe(
+      'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and the MCP server "docs" (http). Under --guard block nothing stops such a connection, so the run fails. Close those, as the Claude Agent SDK section of docs/frameworks.md says; or accept the Claude Code CLI alone with "guard": { "accept": ["claude-code"] } in shadowlap.config.json (the GitHub Action\'s guard-accept input), keeping --guard block for the rest; or run it with --guard warn (the GitHub Action\'s guard input) to accept every connection the guard can\'t watch.',
+    );
+    expect(o.run.status).toBe('failed');
+    // An agent that failed on its own is not one the guard alone failed.
+    const crashed = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(crashed.runId, 'block');
+    await cli(crashed.runId, 312, OPEN);
+    await tool(crashed.runId);
+    const f = sidecar.endRun(crashed.runId, 'failed').preloads!;
+    expect(f.failed).toBe(true);
+    expect(f.exitedOk).toBeUndefined();
+  });
+
+  it('accepts the Claude Code CLI alone under guard.accept: its paths named, nothing failed, and a Node process with no guard still fails', async () => {
+    const accepted = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(accepted.runId, 'block', ['claude-code']);
+    await cli(accepted.runId, 320, OPEN);
+    await tool(accepted.runId);
+    const a = sidecar.endRun(accepted.runId, 'completed');
+    expect(a.preloads).toMatchObject({ failed: false });
+    expect(a.preloads!.unguarded).toBe('The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and the MCP server "docs" (http) (accepted by guard.accept). A connection one of them made that bypassed Shadowlap could have gone unseen.');
+    expect(a.run.status).toBe('completed');
+
+    const node = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(node.runId, 'block', ['claude-code']);
+    await cli(node.runId, 321, OPEN);
+    await post(node.runId, 'v1/hello', { runtime: 'node', pid: 322, guard: 'off' });
+    await tool(node.runId);
+    const n = sidecar.endRun(node.runId, 'completed');
+    expect(n.preloads).toMatchObject({ failed: true });
+    expect(n.preloads!.unguarded).toContain('(accepted by guard.accept); and 1 Node process whose preload loaded with the guard off. Under --guard block nothing stops such a connection, so the run fails. Run it with --guard warn');
+    expect(n.run.status).toBe('failed');
+  });
+
+  it('keeps what a hello says it reaches short, and prints none of its control characters', async () => {
+    const r = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(r.runId, 'warn');
+    await cli(r.runId, 330, ['the MCP server "a\u001b[2Jb\u202ec" (http)', 'x'.repeat(500), ...Array.from({ length: 30 }, (_, i) => `path ${i}`)]);
+    await tool(r.runId);
+    const line = sidecar.endRun(r.runId, 'completed').preloads!.unguarded!;
+    expect(line).toContain('the MCP server "a [2Jb c" (http)');
+    expect(line).not.toMatch(/[\u0000-\u001f\u202e]/);
+    expect(line).toContain(`${'x'.repeat(120)},`);
+    expect(line).not.toContain('x'.repeat(121));
+    expect(line).toContain('path 17');
+    expect(line).not.toContain('path 18');
   });
 
   it('expects no hello with the guard off, from a run that made no call, or from a run the CLI started no agent for', async () => {
@@ -280,7 +350,9 @@ echo answered
     // The failure's details never call the replay clean.
     const junit = readFileSync(join(cwd, 'junit.xml'), 'utf8');
     expect(junit).toContain('Replay not watched: 1/1 calls replayed');
+    expect(junit).toContain('the agent process exited 0, but was not watched');
     expect(junit).not.toContain('Replay clean');
+    expect(junit).not.toContain('exited with an error');
     const warned = await shadowlap(['test', 'goldens/bun', '--guard', 'warn'], cwd);
     expect(warned.code, warned.out).toBe(0);
 
@@ -308,6 +380,9 @@ echo answered
     // Never called clean, and its summary's status is the one it ends with.
     expect(blocked.out).not.toContain('Replay clean');
     expect(blocked.out).toContain('✗ Replay not watched: 1/1 calls replayed');
+    // The agent exited 0: the run was not watched, and the agent never exited with an error.
+    expect(blocked.out).toContain('the agent process exited 0, but was not watched');
+    expect(blocked.out).not.toContain('exited with an error');
     expect(summary().exitCode).toBe(1);
     const warned = await shadowlap(['replay', runId, '--guard', 'warn', '--summary-json', json], cwd);
     expect(warned.code, warned.out).toBe(0);

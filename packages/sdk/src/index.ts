@@ -319,13 +319,19 @@ export interface ProcessHello {
   ppid?: number;
   guard: 'warn' | 'block' | 'off';
   capture: boolean;
+  /**
+   * For a process with no guard: what it can still connect to that bypasses Shadowlap, a few words
+   * each (at most 20 are kept). Empty: nothing, and the run passes `--guard block`. Absent: nobody
+   * knows, and it fails.
+   */
+  reach?: readonly string[];
 }
 
 /**
  * Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
  * they tell it about their own (`POST /v1/hello`): the Claude Code CLI the Claude Agent SDK runs,
- * whose fence says it runs with no guard, so the run's summary names it and `--guard block` fails
- * the run. Does nothing outside Shadowlap.
+ * whose fence says it runs with no guard and what it can still reach, so the run's summary names
+ * that and `--guard block` fails the run unless it is nothing. Does nothing outside Shadowlap.
  */
 export async function sayHello(hello: ProcessHello): Promise<void> {
   const cfg = config();
