@@ -118,7 +118,15 @@ export class Store {
   transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
     return inTransaction(this.db, fn, mode);
   }
+
+  /** Has each part delete what it keeps of a run deleted (its onRunDeleted), in the order of PARTS: deleteRun's, in its transaction. */
+  private forgetRun(runId: string): void {
+    for (const forget of runDeletedHooks) forget.call(this, runId);
+  }
 }
+
+/** Each part's onRunDeleted (store/core.ts), which mixIn keeps here for forgetRun. */
+const runDeletedHooks: Array<(this: Store, runId: string) => void> = [];
 
 mixIn(PARTS);
 
@@ -126,15 +134,21 @@ mixIn(PARTS);
  * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call
  * from one to another goes through the store, as a caller's does, so a view of the store made with
  * Object.create that replaces a method (getBlob, to count what is read) is what the others call too.
- * A name two places define stops store.ts loading.
+ * A name two places define stops store.ts loading. A part's onRunDeleted is kept aside instead, for
+ * forgetRun: more than one part has one.
  */
 function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
   for (const part of parts) {
     if (Object.getPrototypeOf(part.prototype) !== StorePart.prototype) throw new Error(`${part.name} must extend StorePart`);
     for (const key of Reflect.ownKeys(part.prototype as object)) {
       if (key === 'constructor') continue;
+      const method = Object.getOwnPropertyDescriptor(part.prototype, key)!;
+      if (key === 'onRunDeleted') {
+        runDeletedHooks.push(method.value as (this: Store, runId: string) => void);
+        continue;
+      }
       if (Object.hasOwn(Store.prototype, key)) throw new Error(`Store.${String(key)} is defined twice`);
-      Object.defineProperty(Store.prototype, key, Object.getOwnPropertyDescriptor(part.prototype, key)!);
+      Object.defineProperty(Store.prototype, key, method);
     }
   }
 }

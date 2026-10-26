@@ -9,7 +9,6 @@ import { sha256 } from '../ids.js';
 import { currentOwner, recorderGone, type RunOwner } from '../liveness.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, CallStartRow, DivergenceReport, Effect, Origin, Outcome, RunCommand, RunMeta, RunMode, RunRecord, RunStatus } from '../types.js';
 import { rollBack, StorePart, ulidNow, type QueuedWrites } from './core.js';
-import type { Search } from './search.js';
 
 const GZIP_THRESHOLD = 512;
 
@@ -24,9 +23,6 @@ export interface CreateRunInput {
 }
 
 export abstract class Recording extends StorePart {
-  /** The search index's (store/search.ts): a run deleted takes its documents with it. */
-  protected abstract readonly deleteSearchDocs: Search['deleteSearchDocs'];
-
   // ---- runs ----
 
   /**
@@ -169,6 +165,11 @@ export abstract class Recording extends StorePart {
     else this.transaction(merge);
   }
 
+  /**
+   * Deletes a run: its record, and with it its calls and what else names it by a foreign key, and what
+   * the other parts keep of it otherwise, each by its own onRunDeleted (its search documents, a push
+   * it was queued for).
+   */
   deleteRun(runId: string): void {
     // What this process still has queued for the run is made first, so none of it lands after the run has gone.
     this.settleQueued(runId);
@@ -178,11 +179,7 @@ export abstract class Recording extends StorePart {
     this.db.exec('SAVEPOINT delete_run');
     try {
       this.stmts.deleteRun.run(runId);
-      this.deleteSearchDocs(runId);
-      this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
-      // A run queued for a push while it recorded goes nowhere now. (A row of a run synced stays: it
-      // is what keeps a run deleted here from coming back with the next pull.)
-      this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
+      this.forgetRun(runId);
       this.db.exec('RELEASE delete_run');
     } catch (err) {
       rollBack(this.db, 'delete_run');

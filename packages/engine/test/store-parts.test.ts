@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
 import { StorePart } from '../src/store/core.js';
@@ -87,12 +87,58 @@ describe('Store, made of parts', () => {
     }
     expect(parts.length).toBeGreaterThan(10);
     // A part left out of the list would have none of its methods here (and none in the interface,
-    // which the list makes too), and its file nothing to call it.
+    // which the list makes too), and its file nothing to call it. A part's onRunDeleted is the
+    // store's to call (forgetRun), not a caller's.
     const fromParts = new Map<PropertyKey, unknown>();
-    for (const part of parts) for (const key of Reflect.ownKeys(part.prototype)) if (key !== 'constructor') fromParts.set(key, Reflect.get(part.prototype, key));
-    const own = ['constructor', 'schemaVersion', 'close', 'transaction'];
+    for (const part of parts) for (const key of Reflect.ownKeys(part.prototype)) if (key !== 'constructor' && key !== 'onRunDeleted') fromParts.set(key, Reflect.get(part.prototype, key));
+    const own = ['constructor', 'schemaVersion', 'close', 'transaction', 'forgetRun'];
     const onStore = Reflect.ownKeys(Store.prototype).filter((k) => !own.includes(String(k)));
     expect(onStore.map(String).sort()).toEqual([...fromParts.keys()].map(String).sort());
     for (const key of onStore) expect(Reflect.get(Store.prototype, key), String(key)).toBe(fromParts.get(key));
+  });
+
+  it('writes each table from the part that keeps it, as its SQL reads', () => {
+    const dir = new URL('../src/store/', import.meta.url);
+    const writers = new Map<string, Set<string>>();
+    // schema.ts makes every table; core.ts prepares the recording core's statements (store/recording.ts).
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts') && f !== 'schema.ts')) {
+      for (const [, table] of readFileSync(new URL(file, dir), 'utf8').matchAll(/\b(?:INSERT (?:OR [A-Z]+ )?INTO|UPDATE|DELETE FROM)\s+([a-z_]+)\b/g)) {
+        const of = writers.get(table) ?? new Set<string>();
+        writers.set(table, of.add(file === 'core.ts' ? 'recording.ts' : file));
+      }
+    }
+    expect(writers.size).toBeGreaterThan(30);
+    // gc (store/cleanup.ts) deletes what no call references any more: blobs, and what was worked out of them.
+    const collected = (table: string, parts: Set<string>) => ['blobs', 'fingerprint_cache'].includes(table) && parts.size === 2 && parts.has('cleanup.ts');
+    // Another part's rows of a run go by its onRunDeleted, which deleteRun has the store call.
+    expect([...writers].filter(([table, parts]) => parts.size > 1 && !collected(table, parts)).map(([table, parts]) => `${table}: ${[...parts].sort().join(', ')}`)).toEqual([]);
+  });
+
+  it('has each part delete what it keeps of a run deleted, in the deletion’s transaction', () => {
+    const store = Store.open(':memory:');
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+    const remote = 's3://bucket/project';
+    const [gone, kept] = [1, 2].map(() => {
+      const run = store.createRun({ mode: 'record', command: cmd });
+      store.endRun(run.runId, 'completed');
+      store.replaceSearchDocs(run.runId, 1, 'completed', [{ callNo: 1, field: 'arguments', text: 'lookup_order wombat' }]);
+      store.setTeamRun(remote, { runId: run.runId, state: 'queued', at: 1, base: null, baseHash: null, remoteHash: null, entry: null });
+      store.setTeamRun(`${remote}/other`, { runId: run.runId, state: 'pushed', at: 1, base: null, baseHash: null, remoteHash: 'h', entry: null });
+      return run.runId;
+    }) as [string, string];
+    const held = (runId: string) => ({ run: store.getRun(runId) !== null, search: store.searchState(runId) !== null, found: store.searchDocs('wombat', 10).some((h) => h.runId === runId), queued: store.teamRun(remote, runId) !== null, pushed: store.teamRun(`${remote}/other`, runId) !== null });
+    const all = { run: true, search: true, found: true, queued: true, pushed: true };
+
+    // One part failing takes the deletion back whole: the run and what every part keeps of it stay.
+    db.exec(`CREATE TEMP TRIGGER refuse_team BEFORE DELETE ON team_runs BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
+    expect(() => store.deleteRun(gone)).toThrow('database or disk is full');
+    expect(held(gone)).toEqual(all);
+    db.exec('DROP TRIGGER refuse_team');
+
+    store.deleteRun(gone);
+    // The search index's and the queued push go, by their parts' own hooks; a push made stays, so a pull doesn't bring the run back.
+    expect(held(gone)).toEqual({ run: false, search: false, found: false, queued: false, pushed: true });
+    expect(held(kept)).toEqual(all);
+    store.close();
   });
 });

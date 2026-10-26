@@ -47,6 +47,14 @@ export interface TeamSyncRow {
 export abstract class Team extends StorePart {
   // ---- Team store (v4): what this machine knows about the project's bucket ----
 
+  /**
+   * A run deleted (store/recording.ts) that was queued for a push goes nowhere now. A row of a run
+   * synced stays: it is what keeps a run deleted here from coming back with the next pull.
+   */
+  protected override onRunDeleted(runId: string): void {
+    this.db.prepare(`DELETE FROM team_runs WHERE run_id = ? AND state = 'queued'`).run(runId);
+  }
+
   teamRun(remote: string, runId: string): TeamRunRow | null {
     const row = this.db.prepare(`SELECT * FROM team_runs WHERE remote = ? AND run_id = ?`).get(remote, runId);
     return row ? rowToTeamRun(row) : null;

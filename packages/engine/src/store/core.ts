@@ -124,8 +124,9 @@ export function ulidNow(): string {
  * Store (store.ts) takes each part's methods as its own, so `this` in them is the store, with the one
  * connection and the statements it prepared, and a method calls another through the store as any
  * caller does. What a part reads of the store is declared here; what it calls of another part, in
- * the part. A part has methods only: what one keeps for as long as the store is open is a field of
- * Store's, which the part declares (as query's statement cache is).
+ * the part. A part writes its own tables only: what it keeps of a run that another part deletes, it
+ * deletes in its onRunDeleted. A part has methods only: what one keeps for as long as the store is
+ * open is a field of Store's, which the part declares (as query's statement cache is).
  */
 export abstract class StorePart {
   /** The store's connection. */
@@ -136,4 +137,14 @@ export abstract class StorePart {
   protected declare readonly queues: Set<QueuedWrites>;
   /** `Store.transaction`. */
   protected abstract transaction<T>(fn: () => T, mode?: 'deferred' | 'immediate'): T;
+  /**
+   * Deletes what the part keeps of a run that is deleted and that no foreign key takes with it. A
+   * part with such rows has one; one whose rows of a run outlive it (a blame, the run's activity
+   * events) has none. deleteRun (store/recording.ts) has each part's run (forgetRun) in the
+   * deletion's transaction, `this` the store as in any of the part's methods; mixIn (store.ts) keeps
+   * them aside rather than on the store, as more than one part has one.
+   */
+  protected onRunDeleted?(runId: string): void;
+  /** `Store.forgetRun`: each part's onRunDeleted, in the order of the store's parts. */
+  protected abstract forgetRun(runId: string): void;
 }
