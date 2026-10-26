@@ -862,16 +862,20 @@ def _since(started: float) -> int:
 
 
 #: How a streaming tool's call is recorded: every value it handed the caller, in order, under a key
-#: no tool's own result has, with a generator's return value as ``returned``.
+#: no tool's own result has, with a generator's return value as ``returned``, and ``closed`` when the
+#: caller stopped reading before the stream ended.
 _STREAM = "shadowlap_stream"
+#: The argument that makes a stream's reading on past a recording a call of its own: the values the
+#: replay already handed the caller, which the recording held.
+_STREAM_AFTER = "shadowlap_stream_after"
 
 
-def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any]]:
-    """A streaming call's recorded values and return value; None for a result recorded as one value
-    (a stream recorded before streams were recorded whole, or what ``--override`` put in its place),
-    which a replay yields alone."""
-    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned"}:
-        return result[_STREAM], result.get("returned")
+def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any, bool]]:
+    """A streaming call's recorded values, return value, and whether the caller closed it early; None
+    for a result recorded as one value (a stream recorded before streams were recorded whole, or what
+    ``--override`` put in its place), which a replay yields alone."""
+    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned", "closed"}:
+        return result[_STREAM], result.get("returned"), result.get("closed") is True
     return None
 
 
@@ -1013,23 +1017,34 @@ class _Tool:
         async def wrapper(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, Any]:
             cfg = _config()
             live: Optional[_LiveStream] = None
+            after = 0
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = await tool_.resolve_async(cfg, _check_args(tool_.name, bound))
-                if r["origin"] == "replayed":
+                asked = bound
+                r = await tool_.resolve_async(cfg, _check_args(tool_.name, asked))
+                while r["origin"] == "replayed":
                     # The implementation doesn't run: the recorded values are the stream, in order,
                     # and a failure comes after the values it followed.
-                    if r["outcome"] == "ok":
-                        recorded = _recorded_stream(r.get("result"))
-                        for item in recorded[0] if recorded is not None else [r.get("result")]:
-                            yield item
+                    if r["outcome"] != "ok":
+                        if not r.get("injected"):
+                            for item in _streamed(r.get("error")):
+                                yield item
+                        await tool_.replayed_async(r, asked)
                         return
-                    if not r.get("injected"):
-                        for item in _streamed(r.get("error")):
-                            yield item
-                    await tool_.replayed_async(r, bound)
-                    return
-                tool_.refuse(r, bound)
+                    recorded = _recorded_stream(r.get("result"))
+                    if recorded is None:
+                        yield r.get("result")
+                        return
+                    for item in recorded[0]:
+                        yield item
+                    if not recorded[2]:
+                        return
+                    # The caller closed it there when it was recorded, and reads on now: past the
+                    # recording, a call of its own that no recording holds, so the replay forks here.
+                    after += len(recorded[0])
+                    asked = {**bound, _STREAM_AFTER: after}
+                    r = await tool_.resolve_async(cfg, _check_args(tool_.name, asked))
+                tool_.refuse(r, asked)
                 if r["origin"] == "stubbed":
                     stub = await tool_.stub_async(bound)
                     await _finish(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
@@ -1037,6 +1052,18 @@ class _Tool:
                     return
                 live = _LiveStream(tool_, cfg, r["callNo"])
             stream = cast(AsyncGenerator[Any, Any], fn(*args, **kwargs))
+            # Run live from the start, past the values the recording already handed the caller.
+            for _ in range(after):
+                try:
+                    await stream.__anext__()
+                except StopAsyncIteration:
+                    if live:
+                        await _finish(live.ended)
+                    return
+                except BaseException as err:
+                    if live:
+                        await live.failed_async(err)
+                    raise
             # What follows is `yield from` for an async generator, which Python doesn't have: values
             # sent and errors thrown in reach the tool, and a caller that stops early stops it.
             try:
@@ -1055,12 +1082,13 @@ class _Tool:
                 try:
                     sent = yield value
                 except GeneratorExit:
-                    # The caller stopped reading: stop the tool as well, and record what the caller saw.
+                    # The caller stopped reading: stop the tool as well, and record what the caller
+                    # saw, closed early, so a replay that reads on knows the recording ends there.
                     try:
                         await stream.aclose()
                     finally:
                         if live:
-                            await _finish(live.ended)
+                            await _finish(live.ended, None, True)
                     raise
                 except BaseException as thrown:
                     step: Awaitable[Any] = stream.athrow(thrown)
@@ -1089,26 +1117,34 @@ class _Tool:
         def wrapper(*args: Any, **kwargs: Any) -> Generator[Any, Any, Any]:
             cfg = _config()
             live: Optional[_LiveStream] = None
+            after = 0
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = tool_.resolve(cfg, _check_args(tool_.name, bound))
-                if r["origin"] == "replayed":
+                asked = bound
+                r = tool_.resolve(cfg, _check_args(tool_.name, asked))
+                while r["origin"] == "replayed":
                     # The recorded values are the stream, in order, then what the generator returned;
                     # a failure comes after the values it followed. A value sent in changes nothing.
-                    if r["outcome"] == "ok":
-                        recorded = _recorded_stream(r.get("result"))
-                        if recorded is None:
-                            yield r.get("result")
-                            return None
-                        for item in recorded[0]:
-                            yield item
+                    if r["outcome"] != "ok":
+                        if not r.get("injected"):
+                            for item in _streamed(r.get("error")):
+                                yield item
+                        tool_.replayed(r, asked)
+                        return None
+                    recorded = _recorded_stream(r.get("result"))
+                    if recorded is None:
+                        yield r.get("result")
+                        return None
+                    for item in recorded[0]:
+                        yield item
+                    if not recorded[2]:
                         return recorded[1]
-                    if not r.get("injected"):
-                        for item in _streamed(r.get("error")):
-                            yield item
-                    tool_.replayed(r, bound)
-                    return None
-                tool_.refuse(r, bound)
+                    # The caller closed it there when it was recorded, and reads on now: past the
+                    # recording, a call of its own that no recording holds, so the replay forks here.
+                    after += len(recorded[0])
+                    asked = {**bound, _STREAM_AFTER: after}
+                    r = tool_.resolve(cfg, _check_args(tool_.name, asked))
+                tool_.refuse(r, asked)
                 if r["origin"] == "stubbed":
                     stub = tool_.on_fork(**bound) if tool_.on_fork else None
                     _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
@@ -1116,6 +1152,18 @@ class _Tool:
                     return None
                 live = _LiveStream(tool_, cfg, r["callNo"])
             stream = cast(Generator[Any, Any, Any], fn(*args, **kwargs))
+            # Run live from the start, past the values the recording already handed the caller.
+            for _ in range(after):
+                try:
+                    next(stream)
+                except StopIteration as stop:
+                    if live:
+                        live.ended(stop.value)
+                    return stop.value
+                except BaseException as err:
+                    if live:
+                        live.failed(err)
+                    raise
             try:
                 value = next(stream)
             except StopIteration as stop:
@@ -1136,7 +1184,7 @@ class _Tool:
                         stream.close()
                     finally:
                         if live:
-                            live.ended()
+                            live.ended(None, True)
                     raise
                 except BaseException as thrown:
                     advance: Callable[[], Any] = functools.partial(stream.throw, thrown)
@@ -1158,8 +1206,9 @@ class _Tool:
 
 class _LiveStream:
     """A streaming tool's live call: every value it handed the caller is recorded, in order, once the
-    stream ends (with a generator's return value), or once the caller stops reading; none for a
-    stream that yielded nothing. A failure of the tool is its error, with the values that came first."""
+    stream ends (with a generator's return value), or once the caller stops reading, marked closed;
+    none for a stream that yielded nothing. A failure of the tool is its error, with the values that
+    came first."""
 
     def __init__(self, tool_: _Tool, cfg: Config, call_no: int):
         self.tool = tool_
@@ -1169,11 +1218,11 @@ class _LiveStream:
         self.items: list[Any] = []
         self.done = False
 
-    def ended(self, returned: Any = None) -> None:
+    def ended(self, returned: Any = None, closed: bool = False) -> None:
         if self.done:
             return
         self.done = True
-        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {})}
+        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {}), **({"closed": True} if closed else {})}
         _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, record, _since(self.started))
 
     def failed(self, err: BaseException) -> None:
