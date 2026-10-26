@@ -73,27 +73,46 @@ class ShadowlapWriteBlocked(RuntimeError):
         return (type(self), (self.tool, self.tool_args, str(self)))
 
 
+def _recorded_args(error: Any) -> list[Any]:
+    """The arguments a recorded error was made with. A recording made before arguments were kept, or
+    of an error whose arguments aren't JSON, has the message alone, which is what an error made from
+    one string holds."""
+    if not isinstance(error, dict):
+        return []
+    args = error.get("args")
+    return args if isinstance(args, list) else [error.get("message", "recorded error")]
+
+
 class ReplayedError(Exception):
     """A recorded error, replayed. The original class is not preserved; name, message and code are.
 
     It reads as the recorded error: ``ReplayedError({"name": "KeyError", ...})`` is an instance of a
     subclass named ``KeyError`` in the recorded module, holding the recorded arguments, so ``str()``,
     ``repr()``, ``type(e).__name__``, ``e.args`` and a traceback's last line are what they were when
-    the call was recorded. An agent that hands a tool's error to the model hands it the same text on
-    replay, and ``except ReplayedError`` still catches it."""
+    the call was recorded. A builtin's (ValueError, KeyError, FileNotFoundError) is an instance of that
+    builtin too, so the agent's ``except KeyError`` catches it as it caught the original. An agent that
+    hands a tool's error to the model hands it the same text on replay, and ``except ReplayedError``
+    still catches it."""
 
     def __new__(cls, error: Optional[dict[str, Any]] = None, *args: Any, **kwargs: Any) -> ReplayedError:
         if cls is ReplayedError and isinstance(error, dict):
             module = error.get("module")
             cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
-        return super().__new__(cls)
+        # With the recorded arguments, which a builtin such as OSError reads as it is made (its errno and file).
+        try:
+            return super().__new__(cls, *_recorded_args(error))
+        except TypeError:
+            return super().__new__(cls)
 
     def __init__(self, error: dict[str, Any]):
         message = error.get("message", "recorded error")
-        args = error.get("args")
-        # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
-        # has the message alone, which is what an error made from one string holds.
-        super().__init__(*(args if isinstance(args, list) else [message]))
+        args = _recorded_args(error)
+        try:
+            super().__init__(*args)
+        except TypeError:
+            # A builtin that takes arguments of its own kind (UnicodeDecodeError's five) the recording
+            # couldn't keep: the arguments it has, as any exception holds them.
+            BaseException.__init__(self, *args)
         self._message = message if isinstance(message, str) else str(message)
         self.name: str = error.get("name", "Error")
         self.code: Optional[str] = error.get("code")
@@ -121,13 +140,23 @@ def _replayed_class(name: str, module: Optional[str] = None) -> type[ReplayedErr
     """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
     the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
     and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
-    builtin's name (ValueError, KeyError) without one, as the builtin is."""
+    builtin's name (ValueError, KeyError) without one, as the builtin is. A builtin exception's class
+    is a subclass of that builtin as well; one that ends the program rather than reports a failure
+    (SystemExit, KeyboardInterrupt) is not taken as one."""
+    builtin = getattr(builtins, name, None)
+    is_builtin = isinstance(builtin, type) and issubclass(builtin, BaseException)
     if module is None:
-        builtin = getattr(builtins, name, None)
-        module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
+        module = "builtins" if is_builtin else __name__
     cls = _REPLAYED_CLASSES.get((name, module))
     if cls is None:
-        cls = cast(type[ReplayedError], type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}))
+        namespace = {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}
+        bases: tuple[type, ...] = (ReplayedError,)
+        if module == "builtins" and isinstance(builtin, type) and issubclass(builtin, Exception) and builtin is not Exception:
+            bases = (ReplayedError, builtin)
+        try:
+            cls = cast(type[ReplayedError], type(name, bases, namespace))
+        except TypeError:  # a builtin whose layout no other class can share
+            cls = cast(type[ReplayedError], type(name, (ReplayedError,), namespace))
         _REPLAYED_CLASSES[(name, module)] = cls
     return cls
 
