@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { UNAVAILABLE_RETRY, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
@@ -15,6 +15,7 @@ import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
 import { refuseUnrecorded } from './unrecorded.js';
+import { ranUnrecorded } from './attempt-unrecorded.js';
 
 /**
  * Replays of recorded runs under one sidecar, each judged by an oracle: the probes of `shadowlap blame`
@@ -106,6 +107,8 @@ export interface Attempt {
    * unrecorded, so it is no evidence, and it must never pass for a clean replay.
    */
   bypassed: boolean;
+  /** The tools the attempt's model called that its run never recorded: they ran for real in it, a write unstubbed (attempt-unrecorded.ts). */
+  unrecorded: UnrecordedTool[];
   ms: number;
 }
 
@@ -418,7 +421,7 @@ export class AttemptRunner {
     const verdict = failures.length === 0 ? 'passed' : down || undecided ? 'inconclusive' : 'failed';
     // The run's own marks say so too, so a list of attempts never shows it as one that failed.
     if (down) markUnavailable(this.store, run.runId, extra.meta);
-    return { run, code, summary: ended.summary, calls, checks, failures: down ? [unavailableReason(1, down), ...failures] : failures, passed: failures.length === 0, verdict, ...(down ? { unavailable: down } : {}), bypassed, ms: Date.now() - started };
+    return { run, code, summary: ended.summary, calls, checks, failures: down ? [unavailableReason(1, down), ...failures] : failures, passed: failures.length === 0, verdict, ...(down ? { unavailable: down } : {}), bypassed, unrecorded: ranUnrecorded(this.store, run.runId), ms: Date.now() - started };
   }
 
   private readonly modelCalls = new Map<string, number>();

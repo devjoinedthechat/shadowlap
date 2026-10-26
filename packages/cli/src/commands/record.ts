@@ -20,6 +20,7 @@ import { readExpect } from './fix.js';
 import { givenCommand } from './testing.js';
 import { confirmImportedCommand, openStore, openStoreIfExists, parseChoice, parseIntArg, printOutcome, readStore, recordEvents, requireEnded, requireRun, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
+import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 
 /** Recording a run, replaying it after a change, and making replays match. */
 
@@ -280,9 +281,10 @@ export function register(program: Command): void {
         reader.close();
         const first = attempts.find((a) => a.summary.divergence)?.summary.divergence;
         process.stderr.write('\n' + (first ? formatDivergence(first, p) + '\n\n' : '') + formatRepeats(report, p) + '\n');
-        // Each attempt ran what the recording left unrecorded: named once, from the first attempt.
+        // What each attempt ran that nothing recorded, the recording's tools allowed to run and a fork's own: named once, every attempt counted.
         const unrecorded = unrecordedAfter(opts, attempts.map((a) => a.run.runId));
-        if (unrecorded[0]?.length) process.stderr.write('\n' + formatUnrecorded(unrecorded[0], 'replay'));
+        const ran = formatAttemptsUnrecorded(unrecorded);
+        if (ran) process.stderr.write('\n' + ran);
         if (checks) process.stderr.write('\n' + formatCheckTally(judged, checks.source) + '\n');
         if (unjudged) process.stderr.write('\n' + p.yellow(`! ${UNJUDGED_PLANT}`) + '\n');
         // Each attempt's status as the replay counts it: one the guard never watched under --guard block failed.

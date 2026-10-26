@@ -22,6 +22,7 @@ import { parseRepairer, type Repairer } from '../repairer.js';
 import { loadConfig } from '../config.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
 import { progressLog } from '../progress.js';
+import { formatAttemptsUnrecorded } from '../attempt-unrecorded.js';
 
 /** Finding where a failed run went wrong (blame), and checking that a change fixes it (verify). */
 
@@ -380,6 +381,9 @@ export function register(program: Command): void {
         }).finally(() => progress.done());
         if (flags.json) process.stdout.write(JSON.stringify(blameJson(report), null, 2) + '\n');
         else process.stdout.write('\n' + formatBlame(report, p) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined') : ''));
+        // What the probes' attempts ran that nothing recorded, a write unstubbed: said once, after the report.
+        const ranBlame = formatAttemptsUnrecorded(report.probes.flatMap((x) => x.attempts.map((a) => a.unrecordedTools)));
+        if (ranBlame) process.stderr.write('\n' + ranBlame);
         if (report.contrast) emitJobEvent({ type: 'run', runId: report.contrast.rescuedRunId, role: 'passing' });
         if (report.fix) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(report.fix.fixId, 'blame') });
         emitJobEvent({ type: 'result', data: blameJson(report) });
@@ -504,6 +508,8 @@ export function register(program: Command): void {
       const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
       else process.stdout.write('\n' + formatVerify(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status))).join(''));
+      const ranVerify = formatAttemptsUnrecorded(verifyAttempts(report).map((a) => a.unrecordedTools));
+      if (ranVerify) process.stderr.write('\n' + ranVerify);
       for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });
       emitJobEvent({ type: 'result', data: json });
       // Accepted, 0; rejected, 1; not finished (a run's gate undecided, the budget spent), 3.
@@ -655,6 +661,9 @@ export function register(program: Command): void {
           process.stdout.write('\n' + formatRepair(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, what(f, standing))).join(''));
           if (handOverFailed) process.stderr.write(`\n${p.red('✗')} ${handOverFailed.message}\n`);
         }
+        // Each candidate's verify: what its attempts ran that nothing recorded (the blame's attempts named theirs as they ran).
+        const ranRepair = formatAttemptsUnrecorded(report.candidates.flatMap((c) => (c.verify ? verifyAttempts(c.verify) : [])).map((a) => a.unrecordedTools));
+        if (ranRepair) process.stderr.write('\n' + ranRepair);
         for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'repair') });
         if (report.output.patch) emitJobEvent({ type: 'file', path: report.output.patch, label: 'fix.patch' });
         emitJobEvent({ type: 'result', data: json });
@@ -670,6 +679,11 @@ export function register(program: Command): void {
     });
 
   registerFixes(program);
+}
+
+/** Every attempt a verify made, each run's and each good run's baseline's. */
+function verifyAttempts(r: VerifyReport): VerifyReport['runs'][number]['attempts'] {
+  return r.runs.flatMap((x) => [...x.attempts, ...(x.baselineRuns ?? [])]);
 }
 
 /**

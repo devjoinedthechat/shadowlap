@@ -101,6 +101,8 @@ Every command that replays a recording refuses one whose unrecorded tools includ
 
 Or let one command run it anyway: `--allow-unrecorded Bash` (names separated by commas, repeatable), which every one of them but `decisions` and `tasks score` takes. A read is only named. A partial recording, such as an [import](./cli.md#import), holds a trace's model calls and the tools it kept, and runs every other tool live by design, so it is never refused.
 
+A fork's model answers live, so it can ask for a tool the recording never called, and an agent that runs that tool itself, unwrapped, runs it for real: nothing refused it up front, since the recording held no call of it, and nothing stubs it, whatever `--writes` does to the writes Shadowlap records. So every attempt says what it ran unrecorded: blame's, verify's and repair's on their lines (`· send_email ran for real, unrecorded`) and in their JSON, as each attempt's `unrecordedTools`, and once after them all, each tool with how often and in how many attempts; `replay --repeat` counts every attempt's, not the first one's alone.
+
 ## The network guard
 
 Only calls that go through Shadowlap can be replayed; a tool that isn't wrapped (a direct database client, a raw `fetch`) would execute during a replay with nothing to say so. The guard closes that hole without code changes: `shadowlap run`, `replay` and `test` preload a small module into the agent process (Node through `NODE_OPTIONS --import`, which needs Node 18.18 or later; Python through a `sitecustomize` on `PYTHONPATH`; other runtimes ignore both) that intercepts every outbound connection and every UDP datagram the process sends. The sidecar is allowed. Anything else is a side effect Shadowlap cannot replay:

@@ -91,6 +91,7 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
     spent: a.summary.cost.spent,
     upstreamRequests: a.summary.upstreamRequests,
     footprint: footprintOf(a.calls, costOf),
+    unrecordedTools: a.unrecorded,
   };
 }
 

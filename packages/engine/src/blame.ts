@@ -7,6 +7,7 @@ import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, co
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
+import type { UnrecordedTool } from './unrecorded-tools.js';
 
 /**
  * Where a failed run was lost. A run can go wrong long before it visibly fails: the model picks the
@@ -64,6 +65,8 @@ export interface BlameAttempt {
   /** Approximate USD spent on the attempt's live model calls. */
   spent: number;
   upstreamRequests: number;
+  /** The tools its model called that its run never recorded, which ran for real in it. Absent from reports made before attempts named them. */
+  unrecordedTools?: UnrecordedTool[];
 }
 
 export interface BlameProbe {
