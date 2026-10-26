@@ -1,4 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
+import { maskEventStream, maskJsonLines, maskMultipart, maskXml, unwrapJson, walkJson, type MultipartPartText } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -158,104 +159,58 @@ export function maskJsonCredentials(value: unknown): unknown {
   return value;
 }
 
-/**
- * JSON text with the string value of each credential member replaced by `"<CREDENTIAL>"`, every
- * other byte kept (whitespace, numbers such as a 64-bit id or `20.0`, non-credential strings), so a
- * response body stored as received can be masked without being re-serialised. Null when it holds no
- * credential to mask, or doesn't read as JSON. Strings only, as a copy masks a JSON document; a
- * credential member whose value is a number or an object is left for the path rules to report.
- */
-export function maskJsonTextCredentials(text: string): string | null {
-  let i = 0;
-  const out: string[] = [];
-  let changed = false;
-  const ws = () => {
-    const s = i;
-    while (i < text.length && WS.has(text[i]!)) i++;
-    out.push(text.slice(s, i));
-  };
-  /** One string from its opening quote; its raw text (quotes and escapes), or null when unterminated. */
-  const scanString = (): string | null => {
-    const start = i;
-    if (text[i] !== '"') return null;
-    for (i++; i < text.length; i++) {
-      if (text[i] === '\\') i++;
-      else if (text[i] === '"') return text.slice(start, ++i);
-    }
-    return null;
-  };
-  /** One value, emitted; a string value replaced when the member it belongs to (`key`) is a credential. */
-  const value = (key: string | null): boolean => {
-    ws();
-    const c = text[i];
-    if (c === '"') {
-      const raw = scanString();
-      if (raw === null) return false;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        return false;
-      }
-      if (key !== null && typeof parsed === 'string' && parsed !== CREDENTIAL_PLACEHOLDER && credentialParam(key, parsed)) {
-        out.push(JSON.stringify(CREDENTIAL_PLACEHOLDER));
-        changed = true;
-      } else out.push(raw);
-      return true;
-    }
-    if (c === '{' || c === '[') {
-      const close = c === '{' ? '}' : ']';
-      out.push(c);
-      i++;
-      ws();
-      if (text[i] === close) {
-        out.push(close);
-        i++;
-        return true;
-      }
-      for (;;) {
-        let memberKey: string | null = null;
-        if (c === '{') {
-          ws();
-          const k = scanString();
-          if (k === null) return false;
-          out.push(k);
-          ws();
-          if (text[i] !== ':') return false;
-          out.push(':');
-          i++;
-          try {
-            const name: unknown = JSON.parse(k);
-            memberKey = typeof name === 'string' ? name : null;
-          } catch {
-            return false;
-          }
-        }
-        if (!value(memberKey)) return false;
-        ws();
-        if (text[i] === ',') {
-          out.push(',');
-          i++;
-        } else if (text[i] === close) {
-          out.push(close);
-          i++;
-          return true;
-        } else return false;
-      }
-    }
-    const m = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/.exec(text.slice(i, i + 400));
-    if (!m) return false;
-    out.push(m[0]);
-    i += m[0].length;
-    return true;
-  };
-  if (!value(null)) return null;
-  ws();
-  return i === text.length && changed ? out.join('') : null;
+/** A string value in a JSON body as a recording keeps it: CREDENTIAL_PLACEHOLDER when its member is a credential (credentialParam, read with it); null to keep it. */
+function maskedString(key: string | null, value: string): string | null {
+  return key !== null && value !== CREDENTIAL_PLACEHOLDER && credentialParam(key, value) ? CREDENTIAL_PLACEHOLDER : null;
 }
 
-// RFC 2046 bchars, 1 to 70 of them, not ending in a space: the boundary rule multipart.ts reads forms by.
-const MULTIPART_BOUNDARY = /^[0-9A-Za-z'()+_,\-./:=? ]{0,69}[0-9A-Za-z'()+_,\-./:=?]$/;
+/** No member's whole object or array is a credential, read by its name alone. */
+const noCredentialMember = () => false;
+
+/**
+ * JSON text with the string value of each credential member replaced by `"<CREDENTIAL>"`, every
+ * other byte kept (whitespace, numbers of any length such as a 64-bit id or `20.0`, non-credential
+ * strings), so a body stored as received can be masked without being re-serialised. Null when it
+ * holds no credential to mask, or doesn't read as JSON. Strings only, as a copy masks a JSON
+ * document; a credential member whose value is a number is left for the path rules to report.
+ */
+export function maskJsonTextCredentials(text: string): string | null {
+  return walkJson(text, maskedString, noCredentialMember) ?? null;
+}
+
+/**
+ * A text body, or text read from bytes, with its credentials masked by its shape, whatever its
+ * content type said: JSON (also behind a byte-order mark, an anti-XSSI prefix or inside a JSONP
+ * call), a form's parameters, a multipart body's fields and parts, an event stream's data, lines of
+ * JSON (NDJSON), and XML elements and attributes, each by its name (credentialParam). Every
+ * character it doesn't replace stays as it was; null when it replaced nothing.
+ */
+export function maskTextCredentials(text: string): string | null {
+  const wrapped = unwrapJson(text);
+  const json = walkJson(wrapped.json, maskedString, noCredentialMember);
+  if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;
+  if (formShaped(text)) {
+    const masked = withoutCredentials(text);
+    return masked === text ? null : masked;
+  }
+  return (
+    maskMultipart(text, maskedPart) ??
+    maskEventStream(text, (payload) => maskTextCredentials(payload)) ??
+    maskJsonLines(text, (line) => walkJson(line, maskedString, noCredentialMember)) ??
+    maskXml(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER)
+  );
+}
+
+/**
+ * Bytes (a body that isn't UTF-8, stored as base64: one in Latin-1, a JSON document holding raw
+ * bytes, a form with a file) with their credentials masked by their shape, as maskTextCredentials
+ * masks text: read one byte to a character, so every byte it doesn't replace stays as it was. Null
+ * when it replaced nothing.
+ */
+export function maskBytesCredentials(bytes: Buffer): Buffer | null {
+  const masked = maskTextCredentials(bytes.toString('latin1'));
+  return masked === null ? null : Buffer.from(masked, 'latin1');
+}
 
 /** A parameter of a Content-Disposition value (`name="api_key"`, `filename=a.txt`), quoted or not; undefined when absent. */
 function dispositionParam(header: string, key: string): string | undefined {
@@ -265,59 +220,36 @@ function dispositionParam(header: string, key: string): string | undefined {
 }
 
 /**
- * A `multipart/form-data` body with the content of each credential field replaced by
- * CREDENTIAL_PLACEHOLDER: a field (no `filename`; an uploaded file is no credential field) whose
- * name credentialParam reads, with its value, as one, such as `api_key`. Its boundary is read from
- * its first line, as multipart.ts reads a form, and every other byte (the delimiters, each part's
- * headers, the other fields and files) stays as it was. Null when it holds no credential field, or
- * doesn't read as multipart.
+ * A part of a multipart body as a recording keeps it: a credential field's content (a field, not a
+ * file, whose name credentialParam reads as one with its content, such as `api_key`) replaced by
+ * CREDENTIAL_PLACEHOLDER, and any other part's content masked by its shape (a JSON metadata part).
+ */
+function maskedPart(part: MultipartPartText): MultipartPartText | null {
+  const disposition = /^content-disposition:(.*)$/im.exec(part.headers)?.[1] ?? '';
+  const name = dispositionParam(disposition, 'name');
+  if (name !== undefined && dispositionParam(disposition, 'filename') === undefined && part.content !== CREDENTIAL_PLACEHOLDER && credentialParam(name, part.content)) return { headers: part.headers, content: CREDENTIAL_PLACEHOLDER };
+  const content = maskTextCredentials(part.content);
+  return content === null ? null : { headers: part.headers, content };
+}
+
+/**
+ * A multipart body (`multipart/form-data`, `multipart/related`) with each credential field's content
+ * replaced by CREDENTIAL_PLACEHOLDER and every other part masked by its shape (maskedPart). Its
+ * boundary is read from the body itself, as a copy that has no content type must, past a preamble,
+ * with CRLF or LF line breaks; every other byte (the delimiters, each part's headers, the other
+ * fields and files) stays as it was. Null when it holds no credential, or doesn't read as multipart.
  */
 export function maskMultipartBytes(bytes: Buffer): Buffer | null {
-  if (bytes[0] !== 0x2d || bytes[1] !== 0x2d) return null;
-  const firstEnd = bytes.indexOf('\r\n');
-  if (firstEnd < 3) return null;
-  const boundary = bytes.subarray(2, firstEnd).toString('latin1').replace(/[ \t]+$/, '');
-  if (!MULTIPART_BOUNDARY.test(boundary)) return null;
-  const delimiter = Buffer.from(`\r\n--${boundary}`, 'latin1');
-  const chunks: Buffer[] = [bytes.subarray(0, firstEnd + 2)];
-  let at = firstEnd + 2;
-  let changed = false;
-  for (;;) {
-    const next = bytes.indexOf(delimiter, at);
-    if (next < 0) return null;
-    const raw = bytes.subarray(at, next);
-    // A part with no headers starts with the blank line that ends them.
-    const headEnd = raw[0] === 0x0d && raw[1] === 0x0a ? 0 : raw.indexOf('\r\n\r\n');
-    if (headEnd < 0) return null;
-    const contentStart = headEnd === 0 ? 2 : headEnd + 4;
-    const head = headEnd === 0 ? '' : raw.subarray(0, headEnd).toString('utf8');
-    const disposition = /^content-disposition:(.*)$/im.exec(head)?.[1] ?? '';
-    const name = dispositionParam(disposition, 'name');
-    const content = raw.subarray(contentStart).toString('utf8');
-    const credential = name !== undefined && dispositionParam(disposition, 'filename') === undefined && content !== CREDENTIAL_PLACEHOLDER && credentialParam(name, content);
-    if (credential) {
-      chunks.push(raw.subarray(0, contentStart), Buffer.from(CREDENTIAL_PLACEHOLDER, 'utf8'));
-      changed = true;
-    } else chunks.push(raw);
-    let after = next + delimiter.length;
-    if (bytes[after] === 0x2d && bytes[after + 1] === 0x2d) {
-      chunks.push(bytes.subarray(next));
-      break;
-    }
-    // Transport padding (spaces, tabs) may follow a delimiter before its line ends.
-    while (bytes[after] === 0x20 || bytes[after] === 0x09) after++;
-    if (bytes[after] !== 0x0d || bytes[after + 1] !== 0x0a) return null;
-    chunks.push(bytes.subarray(next, after + 2));
-    at = after + 2;
-  }
-  return changed ? Buffer.concat(chunks) : null;
+  const masked = maskMultipart(bytes.toString('latin1'), maskedPart);
+  return masked === null ? null : Buffer.from(masked, 'latin1');
 }
 
 /**
  * A captured call's stored body (`{ body, encoding }`, as decodeBody stores one) with its credentials
  * masked, the one rule both sides of matching read a body by: a JSON body's credential members (by
- * key, at any depth), a form body's parameters, and a multipart body's credential fields, whether it
- * is stored as text or as base64. The same object when nothing changes.
+ * key, at any depth); a text body by its shape whatever its content type (maskTextCredentials: JSON
+ * typed as text or behind a prefix, a form, multipart, lines of JSON, an event stream, XML); bytes
+ * stored as base64 the same way, read one byte to a character. The same object when nothing changes.
  */
 export function credentialFreeBody<T extends { body?: unknown; encoding?: unknown }>(stored: T): T {
   const { body, encoding } = stored;
@@ -327,17 +259,12 @@ export function credentialFreeBody<T extends { body?: unknown; encoding?: unknow
   }
   if (typeof body !== 'string') return stored;
   if (encoding === 'text') {
-    if (formShaped(body)) {
-      const masked = withoutCredentials(body);
-      return masked === body ? stored : { ...stored, body: masked };
-    }
-    const masked = maskMultipartBytes(Buffer.from(body, 'utf8'));
-    return masked ? { ...stored, body: masked.toString('utf8') } : stored;
+    const masked = maskTextCredentials(body);
+    return masked === null ? stored : { ...stored, body: masked };
   }
-  if (encoding === 'base64' && body.startsWith('LS')) {
-    // Every multipart body starts with "--", which base64 writes as "LS".
-    const masked = maskMultipartBytes(Buffer.from(body, 'base64'));
-    return masked ? { ...stored, body: masked.toString('base64') } : stored;
+  if (encoding === 'base64') {
+    const masked = maskBytesCredentials(Buffer.from(body, 'base64'));
+    return masked === null ? stored : { ...stored, body: masked.toString('base64') };
   }
   return stored;
 }
@@ -484,6 +411,8 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
 }
 
 const WS = new Set([' ', '\t', '\n', '\r']);
+/** A JSON number or literal, matched where it stands. */
+const SCALAR = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
 
 /**
  * The text of the value at `path` in a JSON document, with the whitespace around it, as written; null
@@ -528,7 +457,9 @@ export function rawJsonMember(text: string, path: readonly string[]): string | n
         else return false;
       }
     }
-    const m = /^(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/.exec(text.slice(i, i + 400));
+    // A number of any length (a 450-digit one reads like any other), read where it stands.
+    SCALAR.lastIndex = i;
+    const m = SCALAR.exec(text);
     if (!m) return false;
     i += m[0].length;
     return true;
@@ -587,7 +518,7 @@ export function capturedHttp(call: { kind: string; meta: Readonly<Record<string,
 
 /**
  * A captured call's stored request (`{ "args": { method, url, body?, encoding? } }`) with the
- * credentials in its URL's query and form body masked (withoutStoredCredentials), its numbers as
+ * credentials in its URL's query and its body masked (withoutStoredCredentials), its numbers as
  * written; null when it holds none to mask (or is no such request).
  */
 export function credentialFreeRequest(bytes: Buffer): Buffer | null {
@@ -605,8 +536,9 @@ export function credentialFreeRequest(bytes: Buffer): Buffer | null {
 /**
  * A captured call's stored result (`{ "result": { status, headers, body?, encoding? } }`) as a
  * recording keeps it: its headers as credentialFreeHeaders keeps them, and its body with its
- * credentials masked in place (responseBodyWithoutCredentials: an OAuth token response's
- * `access_token`, a form-encoded answer's token), every other byte as the service sent it; null when
+ * credentials masked in place by its shape, whatever its content type said (an OAuth token
+ * response's `access_token` in JSON, typed as text or behind a prefix; a form-encoded answer's
+ * token; an event stream's; an STS answer's XML), every other byte as the service sent it; null when
  * it holds nothing to mask (or is no such result).
  */
 export function credentialFreeResult(bytes: Buffer): Buffer | null {
@@ -631,16 +563,24 @@ export function credentialFreeResult(bytes: Buffer): Buffer | null {
       return kept === headers && masked === null ? null : resultBlob(next, masked ?? raw);
     }
   }
-  const maskedBody = result.encoding === 'text' && typeof body === 'string' && formShaped(body) ? withoutCredentials(body) : body;
+  const maskedBody = typeof body === 'string' && (result.encoding === 'text' || result.encoding === 'base64') ? maskedResponseBody(body, result.encoding) : body;
   if (kept === headers && maskedBody === body) return null;
   return Buffer.from(JSON.stringify({ result: maskedBody === undefined ? next : { ...next, body: maskedBody } }), 'utf8');
 }
 
+/** A stored text or base64 response body with its credentials masked by its shape; the same string when there are none. */
+function maskedResponseBody(body: string, encoding: 'text' | 'base64'): string {
+  if (encoding === 'text') return maskTextCredentials(body) ?? body;
+  return maskBytesCredentials(Buffer.from(body, 'base64'))?.toString('base64') ?? body;
+}
+
 /**
- * A captured call's response body, as received, with its credentials masked in place: for a JSON
- * body, the string value of each credential member (maskJsonTextCredentials), every other byte as
- * sent; for a text body written as URL-encoded parameters, its credential parameters. The bytes as
- * they are when nothing is masked.
+ * A captured call's response body, as received, with its credentials masked in place, by its shape
+ * whatever its content type said: for a JSON body, the string value of each credential member
+ * (maskJsonTextCredentials); for text, as maskTextCredentials reads it (JSON typed as text or behind
+ * a prefix, a form-encoded answer, an event stream, lines of JSON, XML); for bytes that aren't
+ * UTF-8, the same, read one byte to a character. Every other byte as sent; the bytes as they are
+ * when nothing is masked.
  */
 export function responseBodyWithoutCredentials(received: Buffer, encoding: unknown): Buffer {
   if (encoding === 'json') {
@@ -648,10 +588,9 @@ export function responseBodyWithoutCredentials(received: Buffer, encoding: unkno
     return masked === null ? received : Buffer.from(masked, 'utf8');
   }
   if (encoding === 'text') {
-    const text = received.toString('utf8');
-    if (!formShaped(text)) return received;
-    const masked = withoutCredentials(text);
-    return masked === text ? received : Buffer.from(masked, 'utf8');
+    const masked = maskTextCredentials(received.toString('utf8'));
+    return masked === null ? received : Buffer.from(masked, 'utf8');
   }
+  if (encoding === 'base64') return maskBytesCredentials(received) ?? received;
   return received;
 }

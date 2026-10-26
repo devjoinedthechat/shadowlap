@@ -606,6 +606,35 @@ export function credentialFreeCall(call: CallRecord): CallRecord {
 }
 
 /**
+ * A run's calls as a push sends them: each as credentialFreeCall leaves it, and a captured HTTP
+ * call's stored request and results as a recording stores them now (credentialFreeRequest,
+ * credentialFreeResult), so a run an earlier version recorded, which kept a credential in a body or
+ * in a header there, goes up without it, as a pack does. Each masked blob is put in `store`
+ * (content-addressed, beside the one it stands for), where a push sends it from like any other; a
+ * call with nothing to mask is the same object.
+ */
+export function credentialFreeCalls(store: Store, calls: readonly CallRecord[]): CallRecord[] {
+  return calls.map((recorded) => {
+    const call = credentialFreeCall(recorded);
+    if (!capturedHttp(call)) return call;
+    const masked = (ref: string | null, mask: (bytes: Buffer) => Buffer | null): string | null => {
+      const bytes = ref ? store.getBlob(ref) : null;
+      const clean = bytes ? mask(bytes) : null;
+      return clean ? store.putBlob(clean) : ref;
+    };
+    const end = (e: CallEndRow): CallEndRow => {
+      const responseRef = masked(e.responseRef, credentialFreeResult);
+      return responseRef === e.responseRef ? e : { ...e, responseRef };
+    };
+    const requestRef = masked(call.requestRef, credentialFreeRequest);
+    const attempts = call.attempts.map(end);
+    const last = call.end ? end(call.end) : null;
+    if (requestRef === call.requestRef && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
+    return { ...call, requestRef, end: last, attempts };
+  });
+}
+
+/**
  * Whether a run holds a credential that a recording made before it was known to be one kept: in a
  * model call's query, a credential response header, or a captured HTTP call's query, form body or
  * response headers. Every copy of such a run goes through redactRun, rules or none, which masks

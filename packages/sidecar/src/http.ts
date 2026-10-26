@@ -46,11 +46,12 @@ export { CREDENTIAL_PLACEHOLDER, credentialParam, credentialValue, rawJsonMember
 
 /**
  * A request body as stored, and as a live call is matched: decodeBody's, with its credentials masked
- * by the rule a recorded call's arguments are read by (credentialFreeBody): a JSON body's credential
- * members (`api_key`, `client_secret`), a form body's parameters (an OAuth token request's, or a
- * text body written as one) and a multipart body's credential fields. A body whose content type says
- * it is a form is masked as one even when its text doesn't read like one. The call is forwarded with
- * the body as it was sent.
+ * by the rule a recorded call's arguments are read by (credentialFreeBody), by the body's shape
+ * whatever its content type said: a JSON body's credential members (`api_key`, `client_secret`),
+ * also in JSON sent as text (a `fetch` string body) or as lines of JSON; a form body's parameters (an
+ * OAuth token request's, or a text body written as one); a multipart body's credential fields; XML.
+ * A body whose content type says it is a form is masked as one even when its text doesn't read like
+ * one. The call is forwarded with the body as it was sent.
  */
 export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
   const body = decodeBody(bytes, contentType);
@@ -100,14 +101,16 @@ export interface HttpResult extends StoredBody {
  * JSON document there, its strings only. The headers are stored as a recording keeps them
  * (credentialFreeHeaders): a token the service hands back in one (`authorization`,
  * `x-subject-token`) is stored as `<CREDENTIAL>`, and a cookie it sets not at all. A token it hands
- * back in its body is stored as `<CREDENTIAL>` too, in place (responseBodyWithoutCredentials): an
- * OAuth token response's `access_token` and `refresh_token`, a form-encoded answer's token. The agent
- * gets the response as it came, live.
+ * back in its body is stored as `<CREDENTIAL>` too, in place, by the body's shape whatever its
+ * content type said (responseBodyWithoutCredentials): an OAuth token response's `access_token` and
+ * `refresh_token` in JSON (typed as text, or behind a prefix), a form-encoded answer's token, an
+ * event stream's or an STS answer's. The agent gets the response as it came, live.
  */
 export function storedResult(result: HttpResult, received: Buffer): Buffer {
   const kept: HttpResult = { ...result, headers: credentialFreeHeaders(result.headers) };
   const { body, ...rest } = kept;
   if (kept.encoding === 'text' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(Buffer.from(body, 'utf8'), 'text').toString('utf8') } }), 'utf8');
+  if (kept.encoding === 'base64' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(received, 'base64').toString('base64') } }), 'utf8');
   if (kept.encoding !== 'json' || body === undefined) return Buffer.from(JSON.stringify({ result: kept }), 'utf8');
   return resultBlob(rest, responseBodyWithoutCredentials(received, 'json'));
 }

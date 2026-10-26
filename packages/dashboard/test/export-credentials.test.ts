@@ -44,4 +44,27 @@ describe('an HTML copy of a recording that kept credentials', () => {
     }
     store.close();
   });
+
+  it('holds none of a captured call’s body credentials, whatever its content type said', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '/tmp' } });
+    // As an earlier version kept them: bodies by their content type, so JSON sent as text, an event
+    // stream and an STS answer were stored as they came.
+    const calls = [
+      [{ method: 'POST', url: 'https://auth.example.com/token', body: '{"client_secret":"SLSEC_HTML_TEXTSECRET_q1w2"}', encoding: 'text' }, { status: 200, headers: { 'content-type': 'text/plain' }, body: '{"access_token":"SLSEC_HTML_TEXTACCESS_q1w2"}', encoding: 'text' }],
+      [{ method: 'GET', url: 'https://auth.example.com/stream' }, { status: 200, headers: { 'content-type': 'text/event-stream' }, body: 'data: {"refresh_token":"SLSEC_HTML_SSEREFRESH_q1w2"}\n\n', encoding: 'text' }],
+      [{ method: 'POST', url: 'https://sts.example.com/' }, { status: 200, headers: { 'content-type': 'text/xml' }, body: '<Credentials><SecretAccessKey>SLSEC_HTML_STSSECRET_q1w2</SecretAccessKey></Credentials>', encoding: 'text' }],
+    ] as const;
+    calls.forEach(([args, result], i) => {
+      const tool = { kind: 'tool' as const, name: `${args.method} auth.example.com/${i}`, fingerprint: String(i).repeat(64), occurrence: 1 };
+      store.appendCallStart({ runId: run.runId, callNo: i + 1, ...tool, origin: 'live', effect: 'read', requestRef: store.putJson({ args }), meta: { http: 'auth.example.com' }, at: i * 2 + 1 });
+      store.appendCallEnd(tool, { runId: run.runId, callNo: i + 1, attempt: 0, responseRef: store.putBlob(Buffer.from(JSON.stringify({ result }))), outcome: 'ok', meta: {}, at: i * 2 + 2 });
+    });
+    store.endRun(run.runId, 'completed');
+    for (const redact of [undefined, [{ pattern: 'email', replace: '<EMAIL>' }]]) {
+      const { html } = exportHtml({ store, runIds: [run.runId], uiDir, version: 'test', ...(redact ? { redact } : {}) });
+      expect(html).not.toMatch(/SLSEC_HTML_/);
+    }
+    store.close();
+  });
 });

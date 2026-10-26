@@ -16,9 +16,10 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * Bump when what a key covers, or what a mark means, changes. 2: a call's query is marked by its
  * values decoded, as its fingerprint reads them, and a judge's key names its query. 3: a captured
  * call's arguments are read with the credentials in a JSON or multipart body masked, so its
- * fingerprint differs.
+ * fingerprint differs. 4: and in a body by its shape whatever its content type (JSON sent as text,
+ * lines of JSON, an event stream, XML, bytes that aren't UTF-8), so it differs again.
  */
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =

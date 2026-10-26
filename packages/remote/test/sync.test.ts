@@ -99,6 +99,33 @@ describe('push', () => {
     expect(pulled.end!.meta.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': '<CREDENTIAL>' });
   });
 
+  it('sends no credential an earlier version kept in a captured call’s body, whatever its content type', async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const run = a.store.createRun({ mode: 'record', command: cmd });
+    const tool = { kind: 'tool' as const, name: 'POST auth.example.com/token', fingerprint: 'e'.repeat(64), occurrence: 1 };
+    // As an earlier version stored them: a text body as sent, a text answer as it came.
+    const request = a.store.putJson({ args: { method: 'POST', url: 'https://auth.example.com/token', body: '{"client_secret":"SLSEC_PUSH_SECRET_q1w2e3","grant_type":"client_credentials"}', encoding: 'text' } });
+    const answer = a.store.putBlob(Buffer.from(JSON.stringify({ result: { status: 200, headers: { 'content-type': 'text/plain' }, body: '{"access_token":"SLSEC_PUSH_ACCESS_q1w2e3","token_type":"bearer"}', encoding: 'text' } })));
+    a.store.appendCallStart({ runId: run.runId, callNo: 1, ...tool, origin: 'live', effect: 'read', requestRef: request, meta: { http: 'auth.example.com' }, at: 1 });
+    a.store.appendCallEnd(tool, { runId: run.runId, callNo: 1, attempt: 0, responseRef: answer, outcome: 'ok', meta: {}, at: 2 });
+    a.store.endRun(run.runId, 'completed');
+    await push(a, { runIds: [run.runId] });
+    const bucket = [...remote.objects.entries()].map(([key, o]) => (key.endsWith('.gz') || key.startsWith('blobs/') ? gunzipSync(o.body) : o.body).toString('utf8')).join('\n');
+    expect(bucket).not.toMatch(/SLSEC_PUSH_/);
+    // A teammate's pull brings the call, its blobs there and masked; the run here keeps its own.
+    const b = machine(remote, 'sam@northwind.example');
+    await pull(b);
+    const [pulled] = b.store.getCalls(run.runId);
+    expect(b.store.getJson(pulled.requestRef!)).toEqual({ args: { method: 'POST', url: 'https://auth.example.com/token', body: '{"client_secret":"<CREDENTIAL>","grant_type":"client_credentials"}', encoding: 'text' } });
+    expect(b.store.getBlob(pulled.end!.responseRef!)!.toString('utf8')).toContain('"body":"{\\"access_token\\":\\"<CREDENTIAL>\\",\\"token_type\\":\\"bearer\\"}"');
+    expect(a.store.getCalls(run.runId)[0].requestRef).toBe(request);
+    // Pushed again, nothing changed: nothing is sent.
+    remote.log.length = 0;
+    await push(a, { runIds: [run.runId] });
+    expect(remote.log.filter((l) => l.op === 'put' && l.key.startsWith('blobs/'))).toEqual([]);
+  });
+
   it('names the CI provider with ci as the author, in the run and the index', async () => {
     const remote = new MemoryStore(loc);
     const ci = { ...machine(remote, 'ci'), ci: 'github' };
