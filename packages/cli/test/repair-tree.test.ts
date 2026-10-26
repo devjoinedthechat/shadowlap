@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -215,6 +215,15 @@ describe.skipIf(process.platform === 'win32')('a prompt file whose folder anothe
     // Read the same way, the file outside is never what repair reads.
     const r = setup();
     expect(() => readInside(r.root, 'prompts/policy.md', { walked: r.swap, opened: r.back })).toThrow(/changed while repair opened it/);
+  });
+
+  it('never writes or reads a file with another name, a hard link to a file outside', () => {
+    const t = setup();
+    rmSync(join(t.root, 'prompts', 'policy.md'));
+    linkSync(join(t.root, '..', 'outside', 'policy.md'), join(t.root, 'prompts', 'policy.md'));
+    expect(() => writeInside(t.root, 'prompts/policy.md', 'rewritten\n')).toThrow(/is a hard link/);
+    expect(() => readInside(t.root, 'prompts/policy.md')).toThrow(/is a hard link/);
+    expect(t.outside()).toBe('a file outside the repository\n');
   });
 
   it('with no race, empties the file it checked and writes it whole, shorter than it was', () => {

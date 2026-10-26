@@ -163,7 +163,8 @@ function walkInside(root: string, parts: readonly string[]): BigIntStats {
  * on the way swapped for a link between the walk and the open would have the open follow it, out
  * of the root: the open changes nothing (no `O_TRUNC`, no `O_CREAT`, and `O_NONBLOCK`, so a pipe
  * put there can't hold it), and the file it opened must be the one the path, walked again once it
- * is open, names now, else it is closed untouched and this throws.
+ * is open, names now, else it is closed untouched and this throws. So does a file with another
+ * name, a hard link, which is the same file outside the root as in it.
  */
 function openInside(root: string, rel: string, flags: number, race: OpenRace = {}): number {
   const parts = rel.split('/');
@@ -176,6 +177,8 @@ function openInside(root: string, rel: string, flags: number, race: OpenRace = {
     const opened = fstatSync(fd, { bigint: true });
     const named = walkInside(root, parts);
     if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino) throw new Error(`${rel} changed while repair opened it, so repair left what it opened as it was`);
+    // A file with another name (a hard link) is the same file wherever that name is, outside the root too.
+    if (opened.nlink > 1n) throw new Error(`${rel} is a hard link, a file with another name, perhaps outside the repository, so repair leaves it as it is`);
     return fd;
   } catch (err) {
     closeSync(fd);
