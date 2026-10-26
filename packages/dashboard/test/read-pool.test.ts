@@ -168,6 +168,58 @@ describe('read models on threads beside the server', () => {
     }
   });
 
+  it('takes a request waiting behind a long one on the free thread, and does what can wait only while another thread stays free', async () => {
+    // Threads that answer at once with which thread they are, but take 2 s over a comparison and 3 s
+    // over a run's whole analysis, which a run's first page asks for.
+    const script = join(dir, 'long-jobs.mjs');
+    writeFileSync(
+      script,
+      [
+        "import { parentPort, threadId } from 'node:worker_threads';",
+        "parentPort.postMessage({ type: 'ready' });",
+        'parentPort.on(\'message\', (m) => {',
+        "  if (m.type === 'close') return parentPort.postMessage({ type: 'closed' });",
+        '  const answer = (extra = {}) => parentPort.postMessage({ type: \'answer\', id: m.id, answer: { status: 200, body: JSON.stringify({ kind: m.job.kind, thread: threadId }), etag: null, ...extra } });',
+        "  if (m.job.kind === 'warm') return answer({ warm: { done: true, walked: 0, total: 0 } });",
+        "  if (m.job.kind === 'compare') return setTimeout(() => answer(), 2000);",
+        "  if (m.job.kind === 'analyse') return setTimeout(() => answer(), 3000);",
+        "  if (m.job.kind === 'run') return answer({ warming: true, then: { kind: 'analyse', runId: m.job.runId } });",
+        '  answer();',
+        '});',
+      ].join('\n'),
+    );
+    const two = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 2, script: pathToFileURL(script) });
+    const said = (a: { body: string }) => JSON.parse(a.body) as { kind: string; thread: number };
+    // The order answers came in: what is measured is which came first, never how long each took.
+    const order: string[] = [];
+    const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+    try {
+      // Once the warm-up is through, both threads are free: a thread reads run S, then takes a long comparison, the first free one both times.
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      const s = said(await two.run({ kind: 'calls', runId: 'S', read: {}, from: 1, limit: 500 }, { affinity: 'S' }));
+      const compare = noted('compare', two.run({ kind: 'compare', a: 'X', b: 'Y', cwd: null }));
+      // S's page again, which goes to the thread that read S last, busy comparing: the free thread
+      // takes it once it has waited a moment, rather than for the comparison.
+      const page = noted('page', two.run({ kind: 'calls', runId: 'S', read: {}, from: 1, limit: 500 }, { affinity: 'S' }));
+      // Meanwhile the free thread answers run R's first page, whose whole analysis waits for the other
+      // thread to be free too: what is asked after it is answered at once.
+      const first = await noted('first', two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R' }));
+      const recent = noted('recent', two.run({ kind: 'recent', read: {} }));
+      const [c, p, r] = await Promise.all([compare, page, recent]);
+      expect(c.thread).toBe(s.thread);
+      expect(p.thread).not.toBe(s.thread);
+      expect(r.thread).toBe(first.thread);
+      // Both before the comparison ended: neither waited for it, nor for the analysis.
+      expect(order.indexOf('page')).toBeLessThan(order.indexOf('compare'));
+      expect(order.indexOf('recent')).toBeLessThan(order.indexOf('compare'));
+      // Once both are free, the analysis R's first page asked for is done: a page that asks for the whole of it is answered from it.
+      const whole = said(await two.run({ kind: 'calls', runId: 'R', read: {}, from: 1, limit: 500, whole: true }, { affinity: 'R' }));
+      expect(whole.thread).toBe(first.thread);
+    } finally {
+      await two.close();
+    }
+  }, 30_000);
+
   it('ends a thread whose job runs past its time, says so, and answers what comes after on a new one', async () => {
     // A thread that never answers a page of calls.
     const script = join(dir, 'stuck-worker.mjs');
