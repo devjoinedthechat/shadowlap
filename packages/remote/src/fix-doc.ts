@@ -41,15 +41,19 @@ const BLAME_ID = /^bl-[0-9A-HJKMNP-TV-Z]{26}$/;
 const VERDICT_ID = /^vf-[0-9A-HJKMNP-TV-Z]{26}$/;
 const REPAIR_ID = /^repair-[0-9a-z]{1,40}$/;
 const LABEL = /^[\p{L}\p{N}][\p{L}\p{N} _.:/-]*$/u;
-/** C0 and C1 control characters: never part of a name, and able to rewrite a terminal. */
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+/**
+ * C0 and C1 control characters, format characters (a right-to-left override, a zero-width space:
+ * Unicode's Cf) and line and paragraph separators: never part of a name, able to rewrite a terminal
+ * or to disguise what a page or a question asking for a yes shows.
+ */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
 /**
  * The same, but for text that may run over lines, such as a model's answer in a report: a tab, a
  * line feed and a carriage return are allowed. A fix keeps its reports whole, so what else a model
  * wrote is sent as U+FFFD rather than refused by the teammate who pulls it.
  */
-const CONTROL_IN_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
-const CONTROL_IN_TEXT_ALL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
+const CONTROL_IN_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+const CONTROL_IN_TEXT_ALL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/gu;
 const LINK_KINDS: readonly FixLinkKind[] = ['failing', 'good', 'blame', 'repair', 'verify'];
 const STATUS_RANK: Record<FixStatus, number> = { open: 0, verified: 1, applied: 2 };
 /** The most of each a fix document carries: far past any real failure, short of a bucket filled to stall a pull. */

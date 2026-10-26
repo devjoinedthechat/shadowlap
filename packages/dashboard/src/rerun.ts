@@ -19,8 +19,14 @@ import type { StepRerun } from '@shadowlap/engine';
 const RUN_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /** A model name: `claude-opus-5-5`, `gpt-4o-2024-08-06`, `us.anthropic.claude-…:0`, `models/gemini-2.5-pro`. */
 const MODEL = /^[A-Za-z0-9][\w.:/@[\]+-]{0,199}$/;
-/** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space. */
-const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f]{0,199}$/u;
+/**
+ * What disguises a command line a person is asked to say yes to: a control character, a format
+ * character (a right-to-left override, a zero-width space) or a line or paragraph separator. A value
+ * holding one is never run again from here.
+ */
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+/** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space, and nothing hidden in it. */
+const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{0,199}$/u;
 /** A request field's dotted path, as `--set` takes it. */
 const FIELD = /^[A-Za-z_][\w.]{0,199}$/;
 const USD = /^\d{1,9}(?:\.\d{1,9})?$/;
@@ -30,7 +36,7 @@ const SHARE = /^(?:0?\.\d{1,12}|0)$/;
 /** A git revision as `--base` takes it: a ref, a hash, `HEAD~1`; never an option. */
 const REVISION = /^[A-Za-z0-9_][\w./@{}^~-]{0,199}$/;
 /** A shell command `--build` runs: one line. */
-const LINE = /^[^\u0000-\u001f\u007f-\u009f]{1,4096}$/u;
+const LINE = /^[^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{1,4096}$/u;
 
 export type RerunKind = 'blame' | 'verify';
 
@@ -120,11 +126,12 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
   return { flags, command, left, dropped };
 }
 
-/** `--expect` with a check's JSON, nothing for the exit code alone; null for a check that is no object, which is not run again. */
+/** `--expect` with a check's JSON, nothing for the exit code alone; null for a check that is no object, or that holds a character that would disguise the command line, which is not run again. */
 export function expectArgs(expect: unknown): string[] | null {
   if (expect === null || expect === undefined) return [];
   if (typeof expect !== 'object' || Array.isArray(expect)) return null;
-  return ['--expect', JSON.stringify(expect)];
+  const json = JSON.stringify(expect);
+  return HIDDEN.test(json) ? null : ['--expect', json];
 }
 
 /** A string `--set` would read back as something else (`1`, `true`, `[1]`), so it goes as JSON. */
@@ -139,7 +146,8 @@ function readsAsJson(v: string): boolean {
 
 /**
  * Request fields as `--model` and `--set` take them, read back as they were: a string that would
- * parse as JSON goes quoted. Null when a field's path or the model isn't of its shape.
+ * parse as JSON goes quoted. Null when a field's path or the model isn't of its shape, or a value
+ * holds a character that would disguise the command line (HIDDEN).
  */
 export function fieldArgs(fields: Record<string, unknown> | null | undefined): string[] | null {
   const out: string[] = [];
@@ -150,7 +158,9 @@ export function fieldArgs(fields: Record<string, unknown> | null | undefined): s
       continue;
     }
     if (!FIELD.test(k) || v === undefined) return null;
-    out.push('--set', `${k}=${typeof v === 'string' && !readsAsJson(v) ? v : JSON.stringify(v)}`);
+    const arg = `${k}=${typeof v === 'string' && !readsAsJson(v) ? v : JSON.stringify(v)}`;
+    if (HIDDEN.test(arg)) return null;
+    out.push('--set', arg);
   }
   return out;
 }

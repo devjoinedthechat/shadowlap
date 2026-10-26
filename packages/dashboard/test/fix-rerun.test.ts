@@ -64,6 +64,20 @@ describe('the flags a kept blame or verify runs again with', () => {
     expect(rerunFlags('verify', null, { pulled: false })).toBeNull();
   });
 
+  it('runs nothing again with a value that hides what its command line shows: a right-to-left override, a zero-width space, a separator', () => {
+    // The review's: a tool name that, shown, reads as another command line.
+    for (const hidden of [0x202e, 0x200b, 0x2028, 0x2029, 0x2066, 0xfeff].map((c) => String.fromCharCode(c))) {
+      const what = hidden.codePointAt(0)!.toString(16);
+      expect(rerunFlags('verify', rerun(['--live-tool', `x${hidden} bd.live/pmt/ bd--`]), { pulled: true }), what).toBeNull();
+      expect(rerunFlags('verify', rerun(['--build', `npm run build${hidden}`]), { pulled: false }), what).toBeNull();
+      expect(fieldArgs({ temperature: 1, system: `be brief${hidden}` }), what).toBeNull();
+      expect(expectArgs({ tools: { forbidden: [`send_email${hidden}`] } }), what).toBeNull();
+    }
+    // A name in another script, or with an accent, is a name like any other.
+    expect(rerunFlags('verify', rerun(['--live-tool', 'buscar_café']), { pulled: true })!.flags).toEqual(['--live-tool', 'buscar_café']);
+    expect(fieldArgs({ system: 'Antworte kurz: Größe in mm' })).toEqual(['--set', 'system=Antworte kurz: Größe in mm']);
+  });
+
   it('keeps a record made here whole, its --build, --base and command after -- the user’s own', () => {
     const r = rerunFlags('verify', rerun(['--base', 'HEAD~1', '--build', 'npm run build', '--writes', 'block'], ['python', 'agent_v2.py']), { pulled: false });
     expect(r).toEqual({ flags: ['--base', 'HEAD~1', '--build', 'npm run build', '--writes', 'block'], command: ['python', 'agent_v2.py'], left: [], dropped: {} });

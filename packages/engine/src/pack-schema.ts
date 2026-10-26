@@ -33,6 +33,12 @@ export const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
  * with a script) and its folder too: every terminal shows them escaped (safeLine).
  */
 const CONTROL_BUT_LINES = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+/**
+ * What a command line may not hold besides: a format character (a right-to-left override, a
+ * zero-width space: Unicode's Cf) or a line or paragraph separator, which would disguise the
+ * command a replay asks to run.
+ */
+const FORMAT = /[\p{Cf}\p{Zl}\p{Zp}]/u;
 
 const KINDS = new Set(['api', 'tool', 'clock', 'random']);
 const ORIGINS = new Set(['live', 'replayed', 'blocked', 'stubbed', 'overridden']);
@@ -53,10 +59,11 @@ function fail(where: string, what: string): never {
   throw new PackError(`${where}: ${what}`);
 }
 
-function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes, control = CONTROL): string {
+function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes, control = CONTROL, format: RegExp | null = null): string {
   if (typeof v !== 'string') fail(where, 'must be a string');
   if (v.length > max) fail(where, `is longer than ${max} characters`);
   if (control.test(v)) fail(where, 'contains control characters');
+  if (format?.test(v)) fail(where, 'contains format characters, which disguise a command line');
   return v;
 }
 
@@ -122,8 +129,8 @@ export function validateRun(v: unknown, where: string): RunRecord {
   if (!isObject(v.command)) fail(`${where}.command`, 'must be an object');
   const argv = v.command.argv;
   if (!Array.isArray(argv) || argv.length === 0 || argv.length > PACK_LIMITS.argv) fail(`${where}.command.argv`, `must be 1 to ${PACK_LIMITS.argv} strings`);
-  argv.forEach((a, i) => text(a, `${where}.command.argv[${i}]`, 8192, CONTROL_BUT_LINES));
-  text(v.command.cwd, `${where}.command.cwd`, 4096, CONTROL_BUT_LINES);
+  argv.forEach((a, i) => text(a, `${where}.command.argv[${i}]`, 8192, CONTROL_BUT_LINES, FORMAT));
+  text(v.command.cwd, `${where}.command.cwd`, 4096, CONTROL_BUT_LINES, FORMAT);
   if (v.codeVersion !== null && v.codeVersion !== undefined) text(v.codeVersion, `${where}.codeVersion`, 128);
   time(v.startedAt, `${where}.startedAt`);
   if (v.endedAt !== null && v.endedAt !== undefined) time(v.endedAt, `${where}.endedAt`);
