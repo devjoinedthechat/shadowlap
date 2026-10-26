@@ -16,5 +16,5 @@
     "inlineSources": false
   },
   "include": ["**/*.js", "**/*.mjs", "**/*.cjs", "vitest.config.ts"],
-  "exclude": ["**/dist", "**/node_modules", "**/.venv", "testing/frameworks/.tmp-*", "scripts/out", "sdks/python/build"]
+  "exclude": ["**/dist", "**/node_modules", "**/.venv", "scripts/out", "sdks/python/build"]
 }

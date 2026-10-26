@@ -1,7 +1,9 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fingerprintApi, normalizersHash, Store } from '@shadowlap/engine';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { fingerprintApi, loadApiRequest, normalizersHash, Store } from '@shadowlap/engine';
+import { EXPLAIN_CANDIDATES } from '../../engine/src/session.js';
+import { cpuOnceAsync, times, timesOf } from '../../engine/test/timing.js';
 import { Sidecar } from '../src/index.js';
 
 /**
@@ -22,30 +24,16 @@ const command = { argv: ['agent'], cwd: '/' };
 const turns = (n: number) => Array.from({ length: n }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `${i}: ${TURN}` }));
 const request = (n: number) => ({ model: 'claude-haiku-4-5', max_tokens: 64, messages: turns(n) });
 
-/** The longest the event loop went without running a 5 ms timer, from now until `stop`, less the 5 ms. */
-function watchStalls(): { stop: () => number } {
-  let last = performance.now();
-  let worst = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    worst = Math.max(worst, now - last - 5);
-    last = now;
-  }, 5);
-  return {
-    stop: () => {
-      clearInterval(timer);
-      return Math.max(worst, performance.now() - last - 5);
-    },
-  };
-}
-
 let upstream: Server;
+/** Called as the upstream gets a request: the model call went live. */
+let reachedUpstream = () => {};
 let upstreamUrl = '';
 let store: Store;
 let parent = '';
 
 beforeAll(async () => {
   upstream = createServer((req, res) => {
+    reachedUpstream();
     req.resume();
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -79,29 +67,42 @@ afterAll(async () => {
 });
 
 describe('a fork of a 1,000-call run', () => {
-  it('answers the changed call at once and stalls the event loop for a few milliseconds, its report still exact', async () => {
+  it('sends the changed call on before it reads a recorded request to explain it, then compares it with a few near it, its report still exact', async () => {
     const sidecar = await Sidecar.start({ store, clock: 'exact', upstreams: { anthropic: upstreamUrl } });
     try {
       const run = sidecar.startRun({ mode: 'replay', parentRunId: parent, command });
       const send = (body: unknown) => fetch(`${sidecar.url}/r/${run.runId}/anthropic/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', ...HEADERS }, body: JSON.stringify(body) });
       expect(((await (await send(request(1))).json()) as { id: string }).id).toBe('msg_rec');
 
+      // Counted, not timed: each recorded request the replay reads is its manifest, read once
+      // (loadApiRequest). Before, it read every one that remained, on the call's path: a 2.6 s answer
+      // and a 3.4 s stall of the event loop.
+      const manifests = store.getCalls(parent).map((c) => c.requestRef!);
+      const recorded = new Set(manifests);
+      const getJson = vi.spyOn(store, 'getJson');
+      const requestsRead = () => getJson.mock.calls.filter(([ref]) => recorded.has(ref)).length;
+      let readBeforeUpstream = -1;
+      reachedUpstream = () => (readBeforeUpstream = requestsRead());
       // The second call carries its conversation with its last turn changed: the fork.
       const changed = request(2);
       changed.messages[1].content = 'changed';
-      const stall = watchStalls();
-      const started = performance.now();
-      const answer = (await (await send(changed)).json()) as { id: string };
-      const answeredIn = performance.now() - started;
-      // Whatever ran after the answer (the explanation) has run by the time a timer fires.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      const worst = stall.stop();
-      expect(answer.id).toBe('msg_live');
-
-      // Measured on a laptop: 3 ms answered, 15 ms the longest stall (it was 2.6 s and 3.4 s); the
-      // budgets leave room for a loaded machine.
-      expect(answeredIn, `answered in ${answeredIn.toFixed(0)} ms`).toBeLessThan(500);
-      expect(worst, `longest stall ${worst.toFixed(0)} ms`).toBeLessThan(400);
+      const fork = await cpuOnceAsync(async () => {
+        const answer = (await (await send(changed)).json()) as { id: string };
+        // Whatever ran after the answer (the explanation) has run by the time a timer fires.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return answer;
+      });
+      reachedUpstream = () => {};
+      const read = requestsRead();
+      getJson.mockRestore();
+      expect(fork.out.id).toBe('msg_live');
+      expect(readBeforeUpstream, 'recorded requests read before the call went on').toBe(0);
+      expect(read, 'recorded requests read to explain the fork').toBeGreaterThan(0);
+      expect(read, 'recorded requests read to explain the fork').toBeLessThanOrEqual(EXPLAIN_CANDIDATES);
+      // And the CPU of it all, held against reading the run's longest request once, not a number of
+      // milliseconds: a few times as much, where reading every one that remained was hundreds.
+      const once = timesOf({ longest: () => loadApiRequest(store, manifests.at(-1)!) }).longest;
+      expect(fork.ms, `the fork took ${times(fork.ms, once)} reading the longest request`).toBeLessThan(50 * once);
 
       const { summary } = sidecar.endRun(run.runId, 'completed');
       expect(summary.divergence).toMatchObject({ type: 'request_changed', callNo: 2, counterpart: { callNo: 2 }, diff: [{ path: '$.messages[1].content', op: 'changed', after: 'changed' }] });

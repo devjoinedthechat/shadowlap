@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext, type ScriptResult } from '@shadowlap-testing/mock-anthropic';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 
 /**
  * `shadowlap verify` through the CLI, on the support agent. Order A-1042 is $240, which policy says to
@@ -199,8 +200,9 @@ describe('shadowlap verify', () => {
   });
 
   it('runs a fixed tool live with --live-tool, and warns when it was left out', async () => {
-    // A copy of the agent to change, next to the original so its imports resolve.
-    const copy = fileURLToPath(new URL(`./.tmp-support-agent-${process.pid}.mjs`, import.meta.url));
+    // A copy of the agent to change, in a folder below a link to this repository's packages so its imports resolve.
+    const folder = tempProject('sl-verify-agent-');
+    const copy = join(folder, 'agent.mjs');
     copyFileSync(AGENT, copy);
     try {
       const r0 = await shadowlap(['run', '--', process.execPath, copy]);
@@ -218,7 +220,7 @@ describe('shadowlap verify', () => {
       const report = JSON.parse(live.stdout) as Json;
       expect(report.runs[0]).toMatchObject({ outcome: 'fixed', passes: 2, deterministic: false });
     } finally {
-      rmSync(copy, { force: true });
+      removeTempProject(folder);
     }
   });
 

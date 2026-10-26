@@ -1,4 +1,7 @@
 import { execFile, execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -129,7 +132,9 @@ describe.skipIf(!PYTHON)('Python SDK', () => {
 
   it('passes the SDK\'s own unit tests: context left out, clear errors, JSON results', async () => {
     const tests = fileURLToPath(new URL('../../../sdks/python/tests', import.meta.url));
-    const { stdout, stderr } = await promisify(execFile)(PYTHON!, ['-m', 'unittest', 'discover', '-s', tests, '-p', 'test_*.py'], { encoding: 'utf8' });
+    // mypy, where it is installed, keeps its cache in the temporary folder, not beside the SDK.
+    const cache = mkdtempSync(join(tmpdir(), 'sl-mypy-'));
+    const { stdout, stderr } = await promisify(execFile)(PYTHON!, ['-m', 'unittest', 'discover', '-s', tests, '-p', 'test_*.py'], { encoding: 'utf8', env: { ...process.env, MYPY_CACHE_DIR: cache } }).finally(() => rmSync(cache, { recursive: true, force: true }));
     // Tests that need pytest are skipped where the interpreter has none: OK (skipped=N) passes too.
     expect(`${stdout}${stderr}`).toMatch(/\nOK( \(skipped=\d+\))?\s*$/);
   });

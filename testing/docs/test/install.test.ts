@@ -110,14 +110,16 @@ describe('installing the packages', () => {
         probe,
         [
           "import { createRequire } from 'node:module';",
-          "import { realpathSync } from 'node:fs';",
+          "import { readFileSync, realpathSync } from 'node:fs';",
+          "import { dirname, join } from 'node:path';",
           "import { fileURLToPath } from 'node:url';",
           "const sdk = await import('@shadowlap/sdk');",
           "const adapters = await import('@shadowlap/adapters/ai-sdk');",
           "const own = realpathSync(fileURLToPath(import.meta.resolve('@shadowlap/sdk')));",
           "const theirs = realpathSync(createRequire(realpathSync(fileURLToPath(import.meta.resolve('@shadowlap/adapters')))).resolve('@shadowlap/sdk'));",
           "const testing = realpathSync(fileURLToPath(import.meta.resolve('@shadowlap/test')));",
-          "const cli = realpathSync(createRequire(testing).resolve('shadowlap/bin/shadowlap.js'));",
+          "const manifest = createRequire(testing).resolve('shadowlap/package.json');",
+          "const cli = realpathSync(join(dirname(manifest), JSON.parse(readFileSync(manifest, 'utf8')).bin.shadowlap));",
           'console.log(JSON.stringify({ tool: typeof sdk.tool, withEffects: typeof adapters.withEffects, own, theirs, cli }));',
         ].join('\n'),
       );

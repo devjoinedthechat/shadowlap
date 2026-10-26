@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { pythonWith } from './python-with.js';
 
 /**
@@ -19,8 +20,6 @@ import { pythonWith } from './python-with.js';
  */
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
-// The Node agent is written next to these tests, so it imports the monorepo's `openai` and `ws`.
-const HERE = fileURLToPath(new URL('.', import.meta.url));
 const PYTHON = pythonWith('openai', 'websockets');
 
 interface Frame {
@@ -144,7 +143,9 @@ function said(out: string): Record<string, unknown> {
 describe.skipIf(process.platform === 'win32')('a Realtime WebSocket from a Node agent, through shadowlap run', () => {
   it("reaches the provider through the sidecar's tunnel, both ways, from the OpenAI SDK's Realtime client and Node's own WebSocket", async () => {
     const cwd = mkdtempSync(join(dir, 'node-'));
-    const agent = join(HERE, `.realtime-agent-${process.pid}.mjs`);
+    // In a folder below a link to this repository's packages, so it imports the monorepo's `openai` and `ws`.
+    const agents = tempProject('sl-realtime-agent-');
+    const agent = join(agents, 'agent.mjs');
     writeFileSync(
       agent,
       `
@@ -190,7 +191,7 @@ console.log(JSON.stringify(said));
     try {
       result = await shadowlapRun([process.execPath, agent], cwd);
     } finally {
-      rmSync(agent, { force: true });
+      removeTempProject(agents);
     }
     const { code, out } = result;
     expect(code, out).toBe(0);

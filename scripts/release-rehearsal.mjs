@@ -210,8 +210,10 @@ const sharedSkill = join(app, '.agents', 'skills', 'shadowlap-debug-agent', 'SKI
 const sharedVersion = existsSync(sharedSkill) ? /^ {2}version: (\S+)$/m.exec(readFileSync(sharedSkill, 'utf8'))?.[1] : null;
 check('installs the skills from the packages, for Claude Code and the other agents', skilled.code === 0 && shared.code === 0 && pluginVersion === VERSION && sharedVersion === VERSION, `${skilled.out}\n${shared.out}`);
 
-// ---- 5. The dashboard: its bundled UI and API from the installed package.
+// ---- 5. The dashboard: its bundled UI and API from the installed package, its runs the ones the
+// CLI lists (the recording, its replay, its fork and the golden's test run).
 // Its list of projects goes in the rehearsal's own folder, not the real ~/.shadowlap.
+const listed = JSON.parse(fp(['ls', '--json']).stdout || '[]').map((r) => r.runId).sort();
 const dash = spawn(bin, ['dashboard', '--no-open', '--port', '4799'], { cwd: app, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_HOME: join(work, 'sl-home') }, stdio: ['ignore', 'ignore', 'pipe'] });
 children.push(dash);
 let dashLog = '';
@@ -224,7 +226,8 @@ if (link) {
   const script = /src="([^"]+\.js)"/.exec(page)?.[1];
   const js = script ? await fetch(new URL(script, origin)) : null;
   const runs = await (await fetch(`${origin}/api/runs`, { headers: { 'x-shadowlap-token': token } })).json();
-  dashOk = page.includes('<title>') && !!js?.ok && runs.runs?.length === 3;
+  const served = (runs.runs ?? []).map((r) => r.runId).sort();
+  dashOk = page.includes('<title>') && !!js?.ok && listed.length === 4 && JSON.stringify(served) === JSON.stringify(listed);
 }
 dash.kill();
 check('serves the dashboard UI and its data', dashOk, dashLog);

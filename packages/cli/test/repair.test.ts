@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { releaseLock, unifiedDiff } from '@shadowlap/engine';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { applyAccepted, noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
 
 /**
@@ -27,7 +28,6 @@ let mock: MockServer;
 let project: string;
 let mode: 'refund' | 'alternate' | 'stubborn' = 'refund';
 let decisions = 0;
-let counter = 0;
 /** What the repairer proposes instead of the three below, given the prompt it was sent (with its line breaks). */
 let proposals: ((prompt: string) => Array<{ anchor: number; replace: string; strategy: string; why: string }>) | null = null;
 /** Once the repairer has answered, the agent's model is overloaded: every call it gets is answered 529. */
@@ -92,9 +92,9 @@ afterAll(async () => {
 const sh = (cwd: string, cmd: string, args: string[]) => execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 
 beforeEach(() => {
-  // Inside this repository, so the agent's imports resolve; a git repository of its own.
-  project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-repair-${process.pid}-${counter++}`);
-  mkdirSync(project);
+  // In the temporary folder, below a link to this repository's packages so the agent's imports
+  // resolve; a git repository of its own.
+  project = tempProject('sl-repair-');
   copyFileSync(AGENT, join(project, 'agent.mjs'));
   writeFileSync(join(project, '.gitignore'), '.shadowlap/\n');
   sh(project, 'git', ['init', '-q', '-b', 'main']);
@@ -109,7 +109,7 @@ beforeEach(() => {
   repairerAnswered = false;
 });
 afterEach(() => {
-  rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  removeTempProject(project);
 });
 
 function shadowlap(args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; out: string; stdout: string }> {

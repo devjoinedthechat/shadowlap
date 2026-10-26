@@ -7,13 +7,13 @@ import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { message, startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { agentEnv, guardEnv } from '../src/run-agent.js';
 
 /**
@@ -25,14 +25,14 @@ import { agentEnv, guardEnv } from '../src/run-agent.js';
  */
 
 const run = promisify(execFile);
-// Agents run from here, so they import the monorepo's `openai` and `ws`.
-const HERE = fileURLToPath(new URL('.', import.meta.url));
-
 let dir: string;
+/** Where agents are written: below a link to this repository's packages, so they import the monorepo's `openai` and `ws`. */
+let agents: string;
 let store: Store;
 let mock: MockServer;
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sl-capture-'));
+  agents = tempProject('sl-capture-agents-');
   store = Store.open(':memory:');
   mock = await startMockAnthropic({ script: () => ({ message: message([{ type: 'text', text: 'hi there' }]) }), eventDelayMs: () => 0 });
 });
@@ -40,11 +40,12 @@ afterAll(async () => {
   await mock.close();
   store.close();
   rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  removeTempProject(agents);
 });
 
-/** Writes an agent next to these tests (so it resolves the monorepo's packages) and runs it with `env`. */
+/** Writes an agent where it resolves the monorepo's packages and runs it with `env`. */
 async function agent(name: string, source: string, env: NodeJS.ProcessEnv) {
-  const file = join(HERE, `.${name}-${process.pid}.mjs`);
+  const file = join(agents, `${name}.mjs`);
   writeFileSync(file, source);
   try {
     return await run(process.execPath, [file], { env, cwd: dir });

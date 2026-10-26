@@ -24,18 +24,20 @@ cd sdks/python && uv run --no-project --with pytest --with-editable . python -m 
 
 Without uv, the Python tests run with `pip install pytest -e sdks/python` and `python -m pytest -q sdks/python`.
 
+The dashboard's checks in a real browser run with `npm run test:browser`, in the Chromium Playwright installs (`npx playwright install chromium`, in `packages/dashboard`); what follows `--` goes to Playwright, so `npm run test:browser -- -g axe` runs the tests whose titles match.
+
 `npm run lint` reads the packages through their built declarations, so it runs after the build, and it fails on any finding. A finding is fixed; where the code is right as it is, the rule is turned off on that line with the reason (`// eslint-disable-next-line <rule> -- <why>`, `# noqa: <code> -- <why>`). `eslint.config.mjs` and `sdks/python/pyproject.toml` say why each rule that is off is off.
 
-`npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green, so point `SHADOWLAP_PYTHON` at one before you rely on it:
+`npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green (the async cases fetch theirs through uv when uv is installed), so point `SHADOWLAP_PYTHON` at one before you rely on it. Under CI a missing one fails the run instead, naming it. CI takes every Python package's version from `testing/python-constraints.txt`, which `testing/python-constraints.in` lists and says how to compile; the same file pins a venv of your own:
 
 ```sh
-uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python anthropic openai google-genai boto3 aiohttp websockets aiobotocore uvloop
+uv venv .venv --python 3.12 && uv pip install --python .venv/bin/python -c testing/python-constraints.txt anthropic openai google-genai boto3 aiohttp websockets aiobotocore uvloop
 SHADOWLAP_PYTHON="$PWD/.venv/bin/python" npx vitest run
 ```
 
-A run fails when a test leaves a `.shadowlap` folder in the repository's root or in `testing/frameworks`, where the suites run: a test runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`).
+A run fails when a test leaves anything in the checkout: a `.shadowlap` folder in the repository's root or in `testing/frameworks`, where the suites run, or anything `git status --ignored` lists that it didn't before the run, build outputs and test reports aside (`testing/no-stray-stores.mjs`). A test runs the CLI in a temporary folder of its own (`cwd`), with its own store (`--db`), and makes a project an agent runs in with `testing/temp-project.mjs`, in the temporary folder below links to the packages it imports. Under CI anything else new, and a tracked file that changed, fail the run too; elsewhere they are said, as you may be editing while it runs.
 
-CI runs all of it on Linux, macOS and Windows with Node 22 and 24, and on Linux the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.16.0 too, the oldest Node the packages support. There the test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes.
+CI runs all of it with Node 22 and 24, and the build, the tests and the CLI end to end (the golden replay, record, replay and fork) on Node 22.16.0 too, the oldest Node the packages support. Every push to main and every pull request runs it on Linux. macOS and Windows join a run started by hand (Actions, then CI, then Run workflow) while the repository is private, and every run once it is public; `.github/workflows/scope.yml` decides, and the framework suites, the coding-agent commands and the local model run on the same terms. The test run also writes `vitest-junit.xml`, uploaded as an artifact whether the job passed or not: test files run in parallel workers, so a failure that won't reproduce locally is only identifiable from the report of the run that saw it. Nothing retries; a flake CI swallows is one nobody fixes. A coverage job runs the suite under V8's coverage and uploads the report (`vitest-coverage`, or `npx vitest run --coverage` into `coverage/` locally); it gates nothing.
 
 `npm run golden` re-records `testing/golden/reference-agent`. Only do that when the reference scenario changes on purpose: the golden is what proves replay fidelity in CI.
 
@@ -71,7 +73,7 @@ The README's "How it works" and "Security" sections state the contract users rel
 - **Provider modules stay declarative.** Adding a provider must not touch the engine; if it does, the abstraction is wrong.
 - **Nothing in the SDKs computes hashes or matches.** They are clients of the sidecar.
 - **Tests before merge.** New behaviour comes with a test; a bug fix comes with the test that would have caught it.
-- **Cross-platform.** CI runs Linux, macOS and Windows. Avoid shell-specific and path-specific assumptions.
+- **Cross-platform.** CI covers Linux, macOS and Windows (macOS and Windows on a run started by hand while the repository is private). Avoid shell-specific and path-specific assumptions.
 - **No new runtime dependencies** in the engine, sidecar, SDKs, adapters or dashboard. `packages/cli/test/packaging.test.ts` lists the few there are, and fails on one added without it.
 
 ## Pull requests

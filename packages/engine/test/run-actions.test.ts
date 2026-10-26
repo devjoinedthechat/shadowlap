@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Store, type CallRecord, type RunRecord } from '@shadowlap/engine';
-import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, recordingNow, splitCommand, terminalActions } from '../src/actions.js';
+import { actionMissing, buildActions, CAPTURE_NOTE, forkArgs, forkMenuTitle, recordingNow, splitCommand, terminalActions } from '../src/run-actions.js';
 
 const ID = '01K5CQ4N7G0000000000000000';
 const run = (meta?: RunRecord['meta'], extra: Partial<RunRecord> = {}): RunRecord => ({

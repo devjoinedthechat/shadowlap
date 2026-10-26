@@ -35,8 +35,9 @@
 // folder, so the paths it shows are the ones a project in your home folder shows (~/support-agent),
 // never this machine's; and as a first-time user sees it, with no team store set up: a `store` in
 // the project's shadowlap.config.json is taken out while it runs, and the file put back as it was.
-// Each picture is taken with headless Chrome at twice the pixels (CHROME=/path/to/chrome chooses
-// the browser): on a desktop, the page beside the sidebar of a 1280 by 800 window; in a medium
+// Each picture is taken at twice the pixels by Chromium's headless shell as Playwright installs it
+// (npx playwright install chromium-headless-shell, in packages/dashboard), or by the Chrome that
+// CHROME=/path/to/chrome names: on a desktop, the page beside the sidebar of a 1280 by 800 window; in a medium
 // window, the page 640 px wide, top bar included; on a phone, the page 390 px wide, as a touch screen
 // shows it. Each ends under a part of the page, never through one, and above the status bar. It is in the README terminal's frame (rounded corners,
 // transparent outside them, and a hairline edge). The dashboard is dark only. Run ids, dates and
@@ -54,9 +55,8 @@ const outDir = join(root, '.github', 'assets', 'readme');
 /** Each picture's largest size: the README's pictures stay light. */
 const MAX_BYTES = 450 * 1024;
 
-const chrome = [process.env.CHROME, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find((p) => p && existsSync(p));
-if (!chrome) {
-  console.error('readme-shots: no Chrome found; set CHROME=/path/to/chrome');
+if (process.env.CHROME && !existsSync(process.env.CHROME)) {
+  console.error(`readme-shots: CHROME names ${process.env.CHROME}, which isn't there`);
   process.exit(1);
 }
 for (const built of ['packages/cli/dist/index.js', 'packages/dashboard/dist/ui/index.html', 'testing/mock-anthropic/dist/index.js']) {
@@ -70,6 +70,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const given = process.argv[2];
 const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-shots-'));
 const children = [];
+/** The browser that takes the pictures, once it has started. */
+let browser = null;
 /** Puts the project's config back as it was, once the dashboard has stopped. */
 let restoreConfig = null;
 
@@ -238,35 +240,21 @@ try {
     dash.on('close', () => fail(new Error(`readme-shots: the dashboard stopped:\n${out}`)));
   });
 
-  // ---- Chrome over the DevTools protocol ----
-  const devtools = 9400 + Math.floor(Math.random() * 400);
-  const browser = spawn(chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--force-color-profile=srgb', `--remote-debugging-port=${devtools}`, `--user-data-dir=${join(scratch, 'chrome')}`, 'about:blank'], { stdio: 'ignore' });
-  children.push(browser);
-  let targets = [];
-  for (let i = 0; i < 150 && !targets.length; i++) {
-    try {
-      targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()).filter((t) => t.type === 'page');
-    } catch {
-      await wait(100);
-    }
+  // ---- Chromium over the DevTools protocol, started by Playwright: by default its headless shell,
+  // never the Chrome for Testing it installs beside it, which hangs here ----
+  const { chromium } = await import('@playwright/test');
+  try {
+    browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--disable-gpu', '--hide-scrollbars', '--force-color-profile=srgb'] });
+  } catch (err) {
+    const why = String(err.message).split('\n')[0] ?? '';
+    throw new Error(`readme-shots: no browser to take the pictures with (${why}): install Playwright's headless shell (npx playwright install chromium-headless-shell, in packages/dashboard), or set CHROME=/path/to/chrome`, { cause: err });
   }
-  if (!targets.length) throw new Error('readme-shots: Chrome did not start');
-  const ws = new WebSocket(targets[0].webSocketDebuggerUrl);
-  await new Promise((r) => ws.addEventListener('open', r));
-  let seq = 0;
-  const pending = new Map();
-  ws.addEventListener('message', (e) => {
-    const m = JSON.parse(e.data);
-    if (m.id && pending.has(m.id)) {
-      pending.get(m.id)(m);
-      pending.delete(m.id);
-    }
-  });
+  // No viewport of Playwright's: the pictures set their own sizes below.
+  const page = await browser.newPage({ viewport: null });
+  const cdp = await page.context().newCDPSession(page);
   const send = (method, params = {}) =>
-    new Promise((ok, fail) => {
-      const id = ++seq;
-      pending.set(id, (m) => (m.error ? fail(new Error(`${method}: ${m.error.message}`)) : ok(m.result)));
-      ws.send(JSON.stringify({ id, method, params }));
+    cdp.send(method, params).catch((err) => {
+      throw new Error(`${method}: ${err.message}`);
     });
   const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result?.value;
   async function until(expression, what, ms = 30_000) {
@@ -390,8 +378,8 @@ try {
     const { data: out } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width, height: tall, scale: 1 } });
     return Buffer.from(out, 'base64');
   }
-  ws.close();
 } finally {
+  await browser?.close().catch(() => {});
   for (const child of children.reverse()) {
     if (child.exitCode !== null || child.signalCode !== null) continue;
     const gone = new Promise((r) => child.once('close', r));

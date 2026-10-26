@@ -3,11 +3,12 @@
 // the divergence when a request changes, and work with Vitest running files in parallel workers.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, before, describe, it } from 'node:test';
+import { REPO_MODULES, removeTempProject, tempProject } from '../temp-project.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const VITEST = fileURLToPath(new URL('../../node_modules/vitest/vitest.mjs', import.meta.url));
@@ -31,13 +32,14 @@ describe('@shadowlap/test', () => {
       });
     });
     await new Promise((r) => mock.listen(0, '127.0.0.1', r));
-    // Inside this directory, so the project resolves the SDKs installed here and the workspace packages above.
-    project = mkdtempSync(join(HERE, '.tmp-vitest-'));
+    // In the temporary folder, below links to the SDKs installed here and then to the repository's
+    // packages: what a project inside this folder would find.
+    project = tempProject('sl-vitest-project-', [join(HERE, 'node_modules'), REPO_MODULES]);
     cpSync(join(HERE, 'vitest-project'), project, { recursive: true });
   });
   after(async () => {
     await new Promise((r) => mock.close(r));
-    rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    removeTempProject(project);
   });
 
   function run(argv, env = {}) {

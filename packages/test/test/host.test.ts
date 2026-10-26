@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { startHost } from '../src/host.js';
+import { cliPath, startHost } from '../src/host.js';
 
 /** startHost when the CLI it starts ends before it says where it listens. */
 describe('startHost', () => {
@@ -21,6 +23,12 @@ describe('startHost', () => {
     process.env.SHADOWLAP_CLI = file;
     return dir;
   };
+
+  it("runs the command the CLI package's manifest names, the one way into it its exports leave", () => {
+    delete process.env.SHADOWLAP_CLI;
+    expect(cliPath()).toBe(fileURLToPath(new URL('../../cli/bin/shadowlap.js', import.meta.url)));
+    expect(() => createRequire(import.meta.url).resolve('shadowlap/bin/shadowlap.js')).toThrow(/not defined by "exports"/);
+  });
 
   it('says the exit code of a CLI that exits before it is ready', async () => {
     const dir = fakeCli('process.exit(3);\n');

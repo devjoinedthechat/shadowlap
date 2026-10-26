@@ -1,10 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
 import { departures, type ShapeName } from './json-shapes.js';
 
@@ -106,9 +107,9 @@ const first = (list: unknown) => (list as unknown[])[0];
 describe('Fixes: blame, verify, repair and fix', () => {
   let project = '';
   beforeAll(() => {
-    // Inside this repository, so the agent's imports resolve; a git repository of its own, for repair.
-    project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-json-contract-${process.pid}`);
-    mkdirSync(project);
+    // In the temporary folder, below a link to this repository's packages so the agent's imports
+    // resolve; a git repository of its own, for repair.
+    project = tempProject('sl-json-contract-');
     copyFileSync(SUPPORT, join(project, 'agent.mjs'));
     writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.home/\n');
     sh(project, 'git', ['init', '-q', '-b', 'main']);
@@ -117,7 +118,7 @@ describe('Fixes: blame, verify, repair and fix', () => {
     sh(project, 'git', ['add', '.']);
     sh(project, 'git', ['commit', '-q', '-m', 'agent']);
   });
-  afterAll(() => rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }));
+  afterAll(() => removeTempProject(project));
 
   it('print what docs/blame.md, verify.md, repair.md and cli.md say, and fix apply leaves goldens whose test report does too', async () => {
     alternate = false;

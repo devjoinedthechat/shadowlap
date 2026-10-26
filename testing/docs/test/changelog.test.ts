@@ -56,8 +56,9 @@ describe('the changelog', () => {
     expect(readFileSync(join(ROOT, 'sdks', 'python', 'pyproject.toml'), 'utf8')).toMatch(/^dependencies = \[\]$/m);
   });
 
-  it('is right about the dashboard: it brings what the terminal UI brings', () => {
-    expect([...external('@shadowlap/dashboard')].sort()).toEqual([...external('@shadowlap/tui')].sort());
+  it('is right about the dashboard and the terminal UI: Ink and React come with the terminal UI, which the CLI brings and the dashboard does not', () => {
+    expect([...external('@shadowlap/dashboard')]).toEqual([]);
+    expect([...external('@shadowlap/tui')].sort()).toEqual(['ink', 'react']);
     expect([...external('shadowlap')].sort()).toEqual(['commander', ...external('@shadowlap/tui')].sort());
   });
 });

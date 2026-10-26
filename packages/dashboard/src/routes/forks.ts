@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
-import { buildActions, actionContext } from '@shadowlap/tui/actions';
+import { buildActions, actionContext } from '@shadowlap/engine';
 import type { Normalizer } from '@shadowlap/engine';
 import { lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';

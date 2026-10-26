@@ -7,6 +7,23 @@ on:
   # Started by hand it covers macOS and Windows too, as every run does once the repository is
   # public (scope.yml).
   workflow_dispatch:
+  # The release runs it on the tagged commit, and publishes only if it passes (release.yml).
+  workflow_call:
+
+# The jobs read the repository and nothing else.
+permissions:
+  contents: read
+
+# A pull request's newest push cancels the run of the one before; every other run goes to the end.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Every pip install below, what builds a package for it included, takes its versions from one file
+  # (testing/python-constraints.in says how it is made).
+  PIP_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt
+  PIP_BUILD_CONSTRAINT: ${{ github.workspace }}/testing/python-constraints.txt
 
 jobs:
   scope:
@@ -18,6 +35,7 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -32,9 +50,43 @@ jobs:
       - run: npm run build
       - run: npm run lint
 
+  # The suite with V8's coverage, as a report in the vitest-coverage artifact (coverage/index.html,
+  # and the summary in the log): a place to look, never a gate. The job may fail without failing the
+  # run, and has no thresholds; a failing test is the test job's to report. What the end-to-end tests
+  # run in a process of its own (the CLI as they start it) isn't counted: V8 sees the test workers.
+  coverage:
+    name: coverage (a report, not a gate)
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --quiet anthropic openai google-genai boto3 aiohttp websockets aiobotocore uvloop
+      - run: npm ci
+      - run: npm run build
+      - run: npx vitest run --coverage
+      - name: Coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vitest-coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
   test:
     needs: scope
     name: node ${{ matrix.node }} on ${{ matrix.os }}
+    # Windows starts a process several times slower than the others; the suite starts thousands.
+    timeout-minutes: 60
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -137,6 +189,7 @@ jobs:
   # becomes from October 19, 2026.
   python-sdk:
     name: python sdk on ${{ matrix.python }}
+    timeout-minutes: 20
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -167,6 +220,7 @@ jobs:
   # real types of trio, anyio and pytest. Pinned, so a new mypy changes this job only when the pin does.
   python-sdk-types:
     name: python sdk types (mypy --strict)
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

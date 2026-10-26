@@ -16,10 +16,15 @@ on:
         description: The operating systems this run covers, as a JSON list for a matrix
         value: ${{ jobs.scope.outputs.os }}
 
+# It reads whether the repository is public, and nothing else.
+permissions:
+  contents: read
+
 jobs:
   scope:
     name: what this run covers
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       full: ${{ steps.scope.outputs.full }}
       os: ${{ steps.scope.outputs.os }}

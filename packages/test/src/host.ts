@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Socket } from 'node:net';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { HOST_ENV, LASTING, pointAtSlot, SLOT_ENV, type HostInfo } from './slot.js';
@@ -12,9 +14,16 @@ export interface RunningHost {
   close(): Promise<void>;
 }
 
-function cliPath(): string {
+/**
+ * The CLI the host runs: SHADOWLAP_CLI, or the `shadowlap` command of the CLI package this one
+ * depends on, as that package's manifest names it (the package exports its module and its manifest,
+ * no file inside it).
+ */
+export function cliPath(): string {
   if (process.env.SHADOWLAP_CLI) return process.env.SHADOWLAP_CLI;
-  return createRequire(import.meta.url).resolve('shadowlap/bin/shadowlap.js');
+  const manifest = createRequire(import.meta.url).resolve('shadowlap/package.json');
+  const { bin } = JSON.parse(readFileSync(manifest, 'utf8')) as { bin: { shadowlap: string } };
+  return join(dirname(manifest), bin.shadowlap);
 }
 
 /** Starts `shadowlap serve --recordings` in `root` and waits for it. It exits when this process does. */

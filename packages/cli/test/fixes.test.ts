@@ -1,10 +1,11 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
+import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 
 /**
  * Fixes through the CLI: blame opens a fix or joins one, verify and repair report to it, and
@@ -25,7 +26,6 @@ let project: string;
 let mode: 'refund' | 'alternate' = 'refund';
 let answers: 'good' | 'bad' = 'good';
 let decisions = 0;
-let counter = 0;
 
 function script(ctx: ScriptContext) {
   const system = JSON.stringify(ctx.request.system ?? '');
@@ -73,9 +73,9 @@ afterAll(async () => {
 const sh = (cwd: string, cmd: string, args: string[]) => execFileSync(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
 
 beforeEach(() => {
-  // Inside this repository, so the agent's imports resolve; a git repository of its own.
-  project = join(fileURLToPath(new URL('.', import.meta.url)), `.tmp-fixes-${process.pid}-${counter++}`);
-  mkdirSync(project);
+  // In the temporary folder, below a link to this repository's packages so the agent's imports
+  // resolve; a git repository of its own.
+  project = tempProject('sl-fixes-');
   copyFileSync(AGENT, join(project, 'agent.mjs'));
   writeFileSync(join(project, '.gitignore'), '.shadowlap/\n');
   sh(project, 'git', ['init', '-q', '-b', 'main']);
@@ -88,7 +88,7 @@ beforeEach(() => {
   decisions = 0;
 });
 afterEach(() => {
-  rmSync(project, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  removeTempProject(project);
 });
 
 interface Result {

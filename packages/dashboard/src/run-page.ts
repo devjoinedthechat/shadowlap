@@ -34,7 +34,7 @@ import {
   type Store,
   type ToolTrust,
 } from '@shadowlap/engine';
-import { modelResolver, runLabel } from '@shadowlap/tui/data';
+import { modelResolver, runLabel } from '@shadowlap/engine';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
 /**

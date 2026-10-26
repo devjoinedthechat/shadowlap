@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 /**
  * What npm installs for a user, checked from the manifests and the packed files: one release's
  * packages only ever install with each other, a project on TypeScript's older module resolution finds
- * every subpath's types, and every source map a package ships points at something it ships.
+ * every subpath's types, and every source map names its file in the package's own src.
  */
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -76,7 +76,8 @@ describe('subpath exports under moduleResolution node', () => {
 
   it('list every subpath export in typesVersions', () => {
     for (const { dir, pkg } of published) {
-      const subs = Object.keys(pkg.exports ?? {}).filter((k) => k !== '.');
+      // A subpath with types: not ./package.json, which a package exports for what reads its manifest.
+      const subs = Object.keys(pkg.exports ?? {}).filter((k) => k !== '.' && typeof pkg.exports![k] === 'object');
       if (!subs.length) continue;
       const mapped = pkg.typesVersions?.['*'] ?? {};
       for (const sub of subs) {
@@ -92,6 +93,39 @@ describe('the CommonJS copies', () => {
   // loads: each `require` condition names a copy that exports what the ES module does.
   const require = createRequire(join(ROOT, 'package.json'));
   const names = (m: object) => Object.keys(m).filter((k) => k !== 'default' && k !== '__esModule').sort();
+
+  it("type-check in a CommonJS project, their declarations included, through each package's require condition", async () => {
+    const project = mkdtempSync(join(tmpdir(), 'shadowlap-cjs-types-'));
+    const modules = join(project, 'node_modules');
+    mkdirSync(join(modules, '@shadowlap'), { recursive: true });
+    mkdirSync(join(modules, '@types'), { recursive: true });
+    for (const name of ['sdk', 'adapters', 'test']) symlinkSync(join(ROOT, 'packages', name), join(modules, '@shadowlap', name), 'dir');
+    symlinkSync(join(ROOT, 'node_modules', '@types', 'node'), join(modules, '@types', 'node'), 'dir');
+    const required: string[] = [];
+    for (const name of ['sdk', 'adapters', 'test']) {
+      for (const [sub, conditions] of Object.entries(manifest(`packages/${name}`).exports ?? {})) {
+        if ((conditions as { require?: unknown }).require) required.push(`@shadowlap/${name}${sub === '.' ? '' : sub.slice(1)}`);
+      }
+    }
+    expect(required.length).toBeGreaterThan(5);
+    writeFileSync(join(project, 'index.cts'), required.map((spec, i) => `import m${i} = require('${spec}');\nexport const k${i}: string[] = Object.keys(m${i});`).join('\n') + '\n');
+    writeFileSync(join(project, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'node16', moduleResolution: 'node16', target: 'es2022', strict: true, noEmit: true, skipLibCheck: false, types: ['node'] }, files: ['index.cts'] }));
+    const tsc = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: Error & { stdout?: string }) => ({ stdout: err.stdout ?? String(err) }));
+    expect(out.stdout).toBe('');
+  });
+
+  it('each have a source map naming their file in src, as the ES build has', () => {
+    for (const name of ['sdk', 'adapters', 'test']) {
+      const dir = join(ROOT, 'packages', name, 'dist', 'cjs');
+      for (const file of readdirSync(dir).filter((f) => f.endsWith('.cjs'))) {
+        expect(readFileSync(join(dir, file), 'utf8'), file).toMatch(new RegExp(`\\n//# sourceMappingURL=${file.replace('.', '\\.')}\\.map$`));
+        const map = JSON.parse(readFileSync(join(dir, `${file}.map`), 'utf8')) as { file: string; sources: string[] };
+        expect(map.file).toBe(file);
+        expect(map.sources).toEqual([`../../src/${file.replace(/\.cjs$/, '.ts')}`]);
+      }
+    }
+  });
 
   for (const name of ['sdk', 'adapters', 'test']) {
     it(`@shadowlap/${name}: every subpath, as the ES module has it`, async () => {
@@ -110,27 +144,44 @@ describe('the CommonJS copies', () => {
   }
 });
 
+/**
+ * The packages whose code an agent imports, and a debugger steps into from it, ship their src: their
+ * source maps resolve to the TypeScript in the package. The others' maps name the file and line in
+ * src, which a stack trace shows (node --enable-source-maps), without the sources inline, which were
+ * 30% of what installing every package unpacked.
+ */
+const SHIPS_SOURCES = ['@shadowlap/sdk', '@shadowlap/adapters', '@shadowlap/test'];
+
 describe('source maps in the packed packages', () => {
-  it('each point at sources the package ships, or carry them inline', async () => {
+  it("each name a file in the package's own src, carry none inline, and resolve where the package ships its src", async () => {
     const built = published.every(({ dir }) => existsSync(join(ROOT, dir, 'dist')));
     expect(built, 'npm run build first').toBe(true);
     const { stdout } = await run('npm', ['pack', '--dry-run', '--json', ...published.flatMap(({ dir }) => ['--workspace', dir])], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     const packs = JSON.parse(stdout) as Array<{ name: string; files: Array<{ path: string }> }>;
     expect(packs.map((p) => p.name).sort()).toEqual(published.map(({ pkg }) => pkg.name).sort());
-    const broken: string[] = [];
+    expect(packs.filter((p) => p.files.some((f) => f.path.startsWith('src/'))).map((p) => p.name).sort()).toEqual([...SHIPS_SOURCES].sort());
+    const outside: string[] = [];
+    const inline: string[] = [];
+    const missing: string[] = [];
+    let maps = 0;
     for (const pack of packs) {
       const dir = published.find(({ pkg }) => pkg.name === pack.name)!.dir;
       const files = new Set(pack.files.map((f) => f.path));
       for (const file of files) {
         if (!file.endsWith('.map')) continue;
+        maps++;
         const map = JSON.parse(readFileSync(join(ROOT, dir, file), 'utf8')) as { sources?: string[]; sourcesContent?: Array<string | null> };
-        (map.sources ?? []).forEach((source, i) => {
-          if (map.sourcesContent?.[i]) return;
+        if (map.sourcesContent?.some(Boolean)) inline.push(`${pack.name}: ${file}`);
+        for (const source of map.sources ?? []) {
           const target = posix.normalize(posix.join(posix.dirname(file), source));
-          if (!files.has(target)) broken.push(`${pack.name}: ${file} -> ${target}`);
-        });
+          if (posix.isAbsolute(source) || !target.startsWith('src/')) outside.push(`${pack.name}: ${file} -> ${source}`);
+          else if (SHIPS_SOURCES.includes(pack.name) && !files.has(target)) missing.push(`${pack.name}: ${file} -> ${target}`);
+        }
       }
     }
-    expect(broken).toEqual([]);
+    expect(maps).toBeGreaterThan(100);
+    expect(outside).toEqual([]);
+    expect(inline).toEqual([]);
+    expect(missing).toEqual([]);
   }, 120_000);
 });
