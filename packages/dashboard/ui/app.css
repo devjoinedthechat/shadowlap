@@ -463,7 +463,8 @@ table.runst .labs a.chip:hover { color: var(--ink); }
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
 .filter-in .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
-.vbody { flex: 1; overflow: auto; min-height: 0; }
+/* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
+.vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; }
 table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.calls th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
 table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
