@@ -9,6 +9,7 @@ import { isReservedScope } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
+import { PatternBudgetError, patternProblem, regexProblem, withinPatternBudget } from './safe-regex.js';
 import type { Store } from './store.js';
 import type { CallRecord, Effect, RunRecord } from './types.js';
 
@@ -359,11 +360,43 @@ export function hasPlaceholder(argv: readonly string[]): boolean {
 
 /**
  * Programs that run another command their arguments name (`env NAME=value node agent.js`, `npx
- * tsx agent.ts`, `sudo …`): a message must never become the command they run.
+ * tsx agent.ts`, `cross-env A=1 node agent.js`, `sudo …`): a message must never become the command
+ * they run.
  */
-const RUNNERS = new Set(['env', 'npx', 'pnpx', 'bunx', 'uvx', 'pipx', 'nohup', 'exec', 'xargs', 'sudo', 'doas', 'timeout', 'nice', 'time', 'command', 'stdbuf', 'caffeinate']);
+const RUNNERS = new Set(['env', 'cross-env', 'dotenv', 'npx', 'pnpx', 'bunx', 'uvx', 'pipx', 'nohup', 'exec', 'xargs', 'sudo', 'doas', 'timeout', 'nice', 'time', 'command', 'stdbuf', 'caffeinate']);
+/**
+ * Programs whose subcommand runs the command, package or script named next (`npm exec`, `pnpm dlx`,
+ * `bun x`, `uv run`, `uv tool run`, `pipx run`, `poetry run`), and whose first word otherwise names a
+ * subcommand or script of theirs (`npm {message}`): a message must never become either.
+ */
+const SUBCOMMAND_RUNNERS: Record<string, ReadonlyArray<readonly string[]>> = {
+  npm: [['exec'], ['x'], ['run'], ['run-script']],
+  pnpm: [['dlx'], ['exec'], ['run']],
+  yarn: [['dlx'], ['exec'], ['run']],
+  bun: [['x'], ['run']],
+  deno: [['run']],
+  pipx: [['run']],
+  uv: [['run'], ['tool', 'run']],
+  poetry: [['run']],
+  pipenv: [['run']],
+  pdm: [['run']],
+  hatch: [['run']],
+  rye: [['run']],
+  conda: [['run']],
+};
 /** Interpreters, whose first argument that isn't a flag is the script they run: a message must never become it, nor one of their own flags. */
 const INTERPRETERS = new Set(['node', 'nodejs', 'deno', 'bun', 'tsx', 'ts-node', 'python', 'python3', 'python2', 'py', 'pypy', 'pypy3', 'ruby', 'perl', 'php', 'lua', 'rscript', 'julia']);
+
+/**
+ * Where the first of `subs` (each a subcommand's words) is in `argv`, from `from` on and before
+ * `before`, and the index after it; null when none is.
+ */
+function subcommandAt(argv: readonly string[], from: number, before: number, subs: ReadonlyArray<readonly string[]>): { after: number } | null {
+  for (let j = from; j < before; j++) {
+    for (const words of subs) if (j + words.length <= before && words.every((w, k) => argv[j + k]!.toLowerCase() === w)) return { after: j + words.length };
+  }
+  return null;
+}
 
 /**
  * Why a command's placeholders can't be used, or null: each regex compiles, and none is where it
@@ -377,11 +410,19 @@ export function checkCommandTemplate(argv: readonly string[]): string | null {
   if (!hasPlaceholder(argv)) return null;
   const name = (i: number) => basename(argv[i] ?? '').toLowerCase();
   if (SHELLS.has(name(0))) return `${argv[0]!} runs its arguments as a script, and {message} is text from production: give the agent's own command, with {message} as one of its arguments`;
-  // The command that runs: the program, or the one a runner runs, past the runner's own flags and env's NAME=value words.
+  // The command that runs: the program, or the one a runner runs, past the runner's own flags and
+  // env's NAME=value words; for `npm exec` and the like, what follows the first subcommand before
+  // the message that runs one, wherever their own flags put it.
+  const first = argv.findIndex((a) => new RegExp(PLACEHOLDER.source).test(a));
   let command = 0;
-  while (command < argv.length && RUNNERS.has(name(command))) {
-    command++;
+  for (;;) {
+    const subs = SUBCOMMAND_RUNNERS[name(command)];
+    const at = subs ? subcommandAt(argv, command + 1, first, subs) : null;
+    if (at) command = at.after;
+    else if (subs || RUNNERS.has(name(command))) command++;
+    else break;
     while (command < argv.length && (argv[command]!.startsWith('-') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[command]!))) command++;
+    if (command >= argv.length) break;
   }
   // The interpreter's own flags: those before its script (the first argument that isn't a flag).
   let leading = command + 1;
@@ -392,12 +433,11 @@ export function checkCommandTemplate(argv: readonly string[]): string | null {
     for (const m of arg.matchAll(PLACEHOLDER)) {
       if (i > 0 && i <= leading && CODE_FLAGS.has(argv[i - 1]!.toLowerCase())) return `{message} after ${argv[i - 1]!} would run as code: give the agent's own command, with {message} as one of its arguments`;
       if (i <= names) return `{message} in ${arg} would name what runs, or one of its interpreter's flags, and is text from production: give the agent's own command, with {message} as one of its arguments`;
+      // The pattern runs on text from production: checked as a redaction rule's is, so one whose
+      // matching could take too long is refused, as one that doesn't compile is.
       if (m[1] !== undefined) {
-        try {
-          new RegExp(m[1], m[2]);
-        } catch (err) {
-          return `${m[0]}: ${(err as Error).message}`;
-        }
+        const why = regexProblem(m[1], m[2] ?? '');
+        if (why) return `${m[0]}: ${why}`;
       }
     }
   }
@@ -414,16 +454,32 @@ export function fillCommand(argv: readonly string[], message: string | null): { 
   if (message === null) return { why: 'its first model call holds no user message for {message} to stand for' };
   const out: string[] = [];
   const missing: string[] = [];
+  let refused: string | null = null;
   for (const arg of argv) {
     out.push(
       arg.replace(PLACEHOLDER, (all: string, pattern: string | undefined, flags: string | undefined) => {
         if (pattern === undefined) return message;
-        const m = new RegExp(pattern, flags).exec(message);
-        if (!m) missing.push(all.slice('{message:'.length, -1));
+        const literal = all.slice('{message:'.length, -1);
+        // As checkCommandTemplate checks it, and run within the time a redaction rule gets.
+        const why = patternProblem(literal, []);
+        if (why) {
+          refused ??= why;
+          return all;
+        }
+        let m: RegExpExecArray | null;
+        try {
+          m = withinPatternBudget(message.length, () => [literal], () => new RegExp(pattern, flags).exec(message));
+        } catch (err) {
+          if (!(err instanceof PatternBudgetError)) throw err;
+          refused ??= `${literal} ran too long on its first message and was stopped`;
+          return all;
+        }
+        if (!m) missing.push(literal);
         return m ? (m[1] ?? m[0]) : all;
       }),
     );
   }
+  if (refused) return { why: refused };
   if (missing.length) return { why: `its first message has no match for ${missing[0]!}` };
   // A message that would put a dash first in an argument would be read as one of the agent's flags.
   if (out.some((a, i) => a.startsWith('-') && !argv[i]!.startsWith('-'))) return { why: 'its first message starts with "-", which the command would read as one of its flags' };
