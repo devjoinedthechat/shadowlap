@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Normalizer, Price, Store, ToolTrust } from '@shadowlap/engine';
+import { readStoreFacts, storeFacts, type Normalizer, type Price, type Store, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
@@ -24,15 +24,18 @@ import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
 import { toolReads } from './tool-reads.js';
+import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
 
 /**
  * The read models that read every call of a run, or of every run: the Overview, a run's page and
  * its calls, a call's details, a run's family, Compare, what a fork did differently, a fix's
- * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent among them),
- * the calendar and the sidebar's runs, a search of what runs recorded, what Settings → Tools reads of
- * every tool call, and the warm-up that works run totals out ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
- * thread of its own (read-worker.ts, for a store with a file) as here (a store in memory). What the
- * server needs to answer it (who asks, the project's config) is read before, on its own thread.
+ * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent
+ * among them), the calendar and the sidebar's runs, a search of what runs recorded, what Settings →
+ * Tools reads of every tool call, what projects' stores say for the switcher and the setup,
+ * Training's pairs, and the warm-up that works run totals out ahead. Each is a job: plain data in,
+ * the answer out as JSON text, so it runs as well on a worker thread of its own (read-worker.ts, for
+ * a store with a file) as here (a store in memory). What the server needs to answer it (who asks,
+ * the project's config) is read before, on its own thread.
  */
 
 /** The Overview: as `GET /api/summary` asks for it, with what the server read of the project. */
@@ -86,6 +89,14 @@ export type ReadJob =
   | { kind: 'tool-trust'; tools?: ToolTrust }
   /** What Settings → Tools reads of the store, every tool call by its name and effect and the MCP servers calls came through (tool-reads.ts). */
   | { kind: 'tool-reads' }
+  /**
+   * What projects' stores say, for the project switcher and a project's setup (engine `storeFacts`,
+   * which reads every run), by project id: the store this job reads for the one with no `dbPath`, the
+   * others read-only from their files. `keep`: the setup's recording, listed however old.
+   */
+  | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
+  /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; filter: PairFilter }
   /**
    * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
    * the config names, and whether each patch the fix could apply is in the working tree, as git said
@@ -269,6 +280,19 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         return answer(toolTrust(store, job.tools), { tagged: true });
       case 'tool-reads':
         return answer(toolReads(store));
+      case 'store-facts': {
+        const facts: Record<string, StoreFacts> = {};
+        for (const s of job.stores) {
+          try {
+            facts[s.id] = s.dbPath === null ? storeFacts(store, Date.now(), { keep: s.keep }) : readStoreFacts(s.dbPath, Date.now(), { keep: s.keep });
+          } catch {
+            // left out: the server's thread reads it again, and says why it can't
+          }
+        }
+        return answer(facts);
+      }
+      case 'training':
+        return answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true });
       case 'fix': {
         const inTree = job.inTree ? new Map(job.inTree) : null;
         const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });

@@ -343,11 +343,13 @@ export class ProjectHost<C = unknown> {
   /**
    * Runs, attempts and goldens for every project, whether its setup shows, and what deleting its
    * recordings would leave, for the switcher and the Remove dialog. A store that can't be read
-   * counts nothing and says why (`unreadable`); the switcher still lists the project.
+   * counts nothing and says why (`unreadable`); the switcher still lists the project. `facts` are
+   * what stores said read elsewhere, by project id (a dashboard reads them beside its server, since
+   * they read every run): a project without them has its store read here.
    */
-  stats(): Record<string, ProjectCounts> {
+  stats(o: { facts?: Readonly<Record<string, StoreFacts>> } = {}): Record<string, ProjectCounts> {
     const out: Record<string, ProjectCounts> = {};
-    for (const p of this.entries()) out[p.id] = this.counts(p);
+    for (const p of this.entries()) out[p.id] = this.counts(p, o.facts?.[p.id]);
     return out;
   }
 
@@ -356,13 +358,13 @@ export class ProjectHost<C = unknown> {
     return this.counts(this.need(id));
   }
 
-  private counts(p: ProjectEntry): ProjectCounts {
+  private counts(p: ProjectEntry, read?: StoreFacts): ProjectCounts {
     const missing = !existsSync(p.path);
     let facts: StoreFacts = emptyStoreFacts();
     let unreadable: string | null = null;
     if (!missing) {
       try {
-        facts = this.context(p.id).facts();
+        facts = read ?? this.context(p.id).facts();
       } catch (err) {
         // a store from a newer version, or one that isn't a database
         unreadable = (err as Error).message;
@@ -373,21 +375,24 @@ export class ProjectHost<C = unknown> {
     return { runs: facts.runs, attempts: facts.attempts, goldens: missing ? 0 : countGoldens(p.path), missing, settingUp, unreadable, madeFiles: missing ? [] : madeFiles(p.path) };
   }
 
-  /** Where a project's setup is, from the list, its store and the goldens in its repository. */
-  setup(id: string): EffectiveSetup {
+  /**
+   * Where a project's setup is, from the list, its store and the goldens in its repository. `facts`:
+   * what its store said read elsewhere, keeping the setup's recording (`keep`), as {@link stats} takes them.
+   */
+  setup(id: string, o: { facts?: StoreFacts } = {}): EffectiveSetup {
     const entry = this.need(id);
     const ctx = this.context(id);
-    return deriveSetup(entry.setup, ctx.facts({ keep: entry.setup.runId }), { packs: existsSync(entry.path) ? ctx.packs() : [] });
+    return deriveSetup(entry.setup, o.facts ?? ctx.facts({ keep: entry.setup.runId }), { packs: existsSync(entry.path) ? ctx.packs() : [] });
   }
 
   /**
    * The golden's path the setup's last step offers: `goldens/<project>`, or the first free one
    * after it when a golden from an earlier setup is there (`freeGoldenPath`). The one the setup
-   * kept, once it kept one.
+   * kept, once it kept one. `facts` as {@link setup} takes them.
    */
-  suggestGolden(id: string): string {
+  suggestGolden(id: string, o: { facts?: StoreFacts } = {}): string {
     const entry = this.need(id);
-    const setup = this.setup(id);
+    const setup = this.setup(id, o);
     return setup.golden ?? freeGoldenPath(entry.path, entry.id, setup.run?.runId ?? null);
   }
 

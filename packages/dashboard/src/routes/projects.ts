@@ -1,10 +1,12 @@
+import { existsSync } from 'node:fs';
 import { sep } from 'node:path';
-import { ProjectError, calibrationOutcome, checkFolder, goldenPath, runTotals, setupJobArgs, suggestFolders, tildePath, type CalibrationOutcome, type ProjectEntry, type ProjectHost } from '@shadowlap/engine';
+import { ProjectError, calibrationOutcome, checkFolder, goldenPath, runTotals, setupJobArgs, suggestFolders, tildePath, type CalibrationOutcome, type ProjectEntry, type ProjectHost, type StoreFacts } from '@shadowlap/engine';
 import { parseStoreUrl, storeKey } from '@shadowlap/remote';
 import type { ProjectConfig, RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { JobNotice } from '../jobs.js';
 import { addedMessage, addProjectPage, projectSwitcher, removeDialog, setupView, type PickedFolder, type SetupView } from '../projects.js';
+import { answerData } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { countsOf, readTeamStoreInput } from '../team-store.js';
 import { sessionBusy, testsBusy } from './tests.js';
@@ -70,6 +72,17 @@ export function register(router: Router, ctx: RouteContext): void {
     if (!entry) throw new HttpError(404, `No project ${id}.`);
     return entry;
   };
+  /**
+   * What these projects' stores say (engine `storeFacts`), read beside the server, since it reads
+   * every run (read-jobs.ts `store-facts`): the current project's through its own threads, another's
+   * from its file. A folder gone from disk has none, and a store that can't be read is left out, for
+   * the host to read on this thread and say why. `keep`: the setup's recording, as the setup lists it.
+   */
+  const factsBeside = async (h: ProjectHost<ProjectConfig>, projects: readonly ProjectEntry[], o: { keep?: boolean } = {}): Promise<Record<string, StoreFacts>> => {
+    const current = h.currentProject();
+    const stores = projects.filter((p) => existsSync(p.path)).map((p) => ({ id: p.id, dbPath: p.id === current ? null : h.context(p.id).dbPath, keep: o.keep ? p.setup.runId : null }));
+    return stores.length ? answerData<Record<string, StoreFacts>>(await ctx.reads.run({ kind: 'store-facts', stores })) : {};
+  };
   /** The last calibrate job's outcome per project, for its setup's third step (until the replay is clean). */
   const calibrations = new Map<string, { runId: string; outcome: CalibrationOutcome }>();
   /** A message with paths under the home folder written as the rest of these screens write them: `~/x`. */
@@ -81,10 +94,11 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // ---- the switcher
 
-  router.get('/projects', (r) => {
+  router.get('/projects', async (r) => {
     const h = need();
     const list = h.list();
-    const view = projectSwitcher({ projects: list, current: h.currentProject(), stats: h.stats(), home: h.registry.realHome });
+    const facts = await factsBeside(h, list);
+    const view = projectSwitcher({ projects: list, current: h.currentProject(), stats: h.stats({ facts }), home: h.registry.realHome });
     r.tagged({ ...view, notice: h.notice, warnings: h.registry.warnings });
   });
 
@@ -174,9 +188,9 @@ export function register(router: Router, ctx: RouteContext): void {
   // ---- the setup
 
   /** The current project's setup, in the mock's words (`setupView`), from the list, its store and its repository. */
-  const setupOf = (h: ProjectHost<ProjectConfig>, id: string): SetupView => {
+  const setupOf = (h: ProjectHost<ProjectConfig>, id: string, facts?: StoreFacts): SetupView => {
     const project = entryOf(h, id);
-    const setup = h.setup(id);
+    const setup = h.setup(id, facts ? { facts } : {});
     let redactRules = 0;
     let prices: ProjectConfig['prices'];
     try {
@@ -189,12 +203,14 @@ export function register(router: Router, ctx: RouteContext): void {
     const run = setup.run ? runTotals(ctx.store, setup.run.runId, prices) : null;
     const last = calibrations.get(id);
     const calibration = last && setup.run && last.runId === setup.run.runId ? last.outcome : null;
-    return setupView({ project, setup, run, redactRules, home: h.registry.realHome, calibration, golden: h.suggestGolden(id) });
+    return setupView({ project, setup, run, redactRules, home: h.registry.realHome, calibration, golden: h.suggestGolden(id, facts ? { facts } : {}) });
   };
 
-  router.get('/setup', (r) => {
+  router.get('/setup', async (r) => {
     const h = need();
-    r.tagged(setupOf(h, h.currentProject()));
+    const id = h.currentProject();
+    const facts = await factsBeside(h, [entryOf(h, id)], { keep: true });
+    r.tagged(setupOf(h, id, facts[id]));
   });
 
   router.post(
