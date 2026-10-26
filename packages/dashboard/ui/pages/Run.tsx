@@ -187,7 +187,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // The page that holds the selected call, read before the others.
   const need = paging?.need ?? null;
   useEffect(() => {
-    if (need && selected !== null) need(selected);
+    if (need && selected !== null) need(selected, { pick: true });
   }, [need, selected]);
 
   // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
@@ -467,8 +467,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
-              {paging.error
-                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the next page could not be read (${paging.error}). Pick a call to try again.`
+              {paging.gone
+                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the run is no longer in ${client.exported ? 'this copy' : 'this store'}.`
+                : paging.error
+                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the next page could not be read (${paging.error}). It is tried again in a moment, or at once when you pick a call.`
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}

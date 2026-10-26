@@ -1,9 +1,9 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CallRow, CallsPage, Client, RunDetail } from '../ui/api.js';
+import { ApiError, type CallRow, type CallsPage, type Client, type RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { CallsTable } from '../ui/run/CallsView.js';
-import { ASKING_PAUSE_MS, PAGES_AFTER_MS, usePagedRun } from '../ui/run/paged-run.js';
+import { ASKING_PAUSE_MS, PAGES_AFTER_MS, RETRY_MS, usePagedRun } from '../ui/run/paged-run.js';
 import { followPages, listedCalls, nextRead, PAGE, rangeOf, withPage, withRange } from '../ui/run/paging.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -227,7 +227,7 @@ describe('a long run’s page', () => {
     ]);
   });
 
-  it('says when a page could not be read, and tries again when a call is asked for', async () => {
+  it('says when a page could not be read, and tries again when a call is picked', async () => {
     const { client, asked } = server(1200, 200);
     let fail = true;
     const flaky = { ...client, calls: (id: string, from: number, limit?: number) => (fail ? ((fail = false), Promise.reject(new Error('the server stopped'))) : client.calls(id, from, limit)) };
@@ -239,15 +239,53 @@ describe('a long run’s page', () => {
     r = await render(createElement(Host));
     await r.until('the error', () => out.current?.paging?.error === 'the server stopped');
     expect(out.current!.run.calls).toHaveLength(200);
-    // Nothing more is asked for until a call is.
+    // Nothing more is asked for until a call is picked, or the next try comes.
     await r.wait(PAGES_AFTER_MS + 50);
     expect(asked).toEqual([]);
-    out.current!.paging!.need(1000);
+    out.current!.paging!.need(1000, { pick: true });
     await r.until('every page', () => out.current!.paging === null);
     expect(asked[0]).toEqual({ from: 900, limit: PAGE });
     expect(out.current!.run.calls.map((c) => c.callNo)).toEqual(range(1, 1200));
     expect(out.current!.run).toMatchObject({ callsNext: null });
     expect(out.current!.run.origins).toBeUndefined();
+  });
+
+  it('backs off while its pages can’t be read, however the list asks, and tries at once only for a call picked', async () => {
+    addressBar(`#/run/${RUN}`);
+    const { client, asked } = server(1200, 200);
+    // The dashboard stopped: every page fails at once.
+    const stopped = { ...client, calls: (_id: string, from: number, limit?: number) => (asked.push({ from, limit: limit ?? PAGE }), Promise.reject(new Error('fetch failed'))) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: app(stopped) }, createElement(RunPage, { id: RUN, call: null, view: null })));
+    await r.until('the first failure', () => r!.all('.toolbar[role="status"]').some((x) => /could not be read \(fetch failed\)/.test(x.textContent)));
+    // A window's worth of rows not read in view asks at every change; the pages wait for the next try,
+    // a second after the first failure and two after the next: a few, where it asked 178 times in 5 s.
+    await r.wait(RETRY_MS + 600);
+    expect(asked.length, 'pages asked for while they fail').toBeLessThanOrEqual(3);
+    expect(r.all('.toolbar[role="status"]').map((x) => x.textContent)).toEqual(['200 of 1,200 calls read; the next page could not be read (fetch failed). It is tried again in a moment, or at once when you pick a call.']);
+    // A call picked tries at once.
+    const before = asked.length;
+    location.hash = `#/run/${RUN}/1000`;
+    await r.unmount();
+    r = await render(createElement(AppContext.Provider, { value: app(stopped) }, createElement(RunPage, { id: RUN, call: 1000, view: null })));
+    await r.until('the pick', () => asked.length > before);
+    expect(asked.at(-1)).toEqual({ from: 900, limit: PAGE });
+  });
+
+  it('reads no further a run the server no longer has, and says so', async () => {
+    const { client, asked } = server(1200, 200);
+    const deleted = { ...client, calls: (_id: string, from: number, limit?: number) => (asked.push({ from, limit: limit ?? PAGE }), Promise.reject(new ApiError(404, `no run ${RUN}`))) } as unknown as Client;
+    const out: { current: ReturnType<typeof usePagedRun> | null } = { current: null };
+    function Host() {
+      out.current = usePagedRun(deleted, answer(1200, 200));
+      return null;
+    }
+    r = await render(createElement(Host));
+    await r.until('the run gone', () => out.current?.paging?.gone === true);
+    // Neither the next try nor a call picked asks again.
+    out.current!.paging!.need(1000, { pick: true });
+    out.current!.paging!.need(900);
+    await r.wait(RETRY_MS + 300);
+    expect(asked).toHaveLength(1);
   });
 
   it('reads a jump into a long run and a scroll after it in a page each, none asked for twice', async () => {
