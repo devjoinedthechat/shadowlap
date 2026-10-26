@@ -1,5 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEventStream, maskJsonLines, maskMultipart, maskXml, unwrapJson, walkJson, type MultipartPartText } from './credential-shapes.js';
+import { maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -19,13 +19,18 @@ export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
 
 /**
  * Last words of a parameter name that make it a credential whatever comes before: `client_secret`,
- * `X-Amz-Signature`, `X-Amz-Credential`, `client_assertion`, `code_verifier`.
+ * `X-Amz-Signature`, `X-Amz-Credential`, `client_assertion`, `code_verifier`, a header such as
+ * `X-Upstream-Authorization`, and the lists `signatures`.
  */
-const SECRET_LAST = new Set(['secret', 'signature', 'password', 'passwd', 'pwd', 'credential', 'credentials', 'assertion', 'verifier']);
-/** Words that make a name a credential wherever they are in it: `password_confirmation`, `secret_id`. */
-const SECRET_WORD = new Set(['password', 'passwd', 'passphrase', 'secret']);
-/** Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `sig`, `appid`, `auth`. */
-const SECRET_NAME = new Set(['apikey', 'appid', 'appkey', 'sig', 'hmac', 'auth', 'authorization', 'proxyauthorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid', 'jwt', 'bearer']);
+const SECRET_LAST = new Set(['secret', 'signature', 'signatures', 'password', 'passwd', 'pwd', 'credential', 'credentials', 'assertion', 'verifier', 'authorization']);
+/** Words that make a name a credential wherever they are in it: `password_confirmation`, `secret_id`, `client_secrets`. */
+const SECRET_WORD = new Set(['password', 'passwd', 'passphrase', 'secret', 'secrets']);
+/**
+ * Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `apikeys`, `sig`,
+ * `appid`, `auth`, a `cookie` or `cookies` (a session's), a one-time password (`otp`, `totp`), and
+ * a SAML response, which is an identity provider's signed assertion.
+ */
+const SECRET_NAME = new Set(['apikey', 'apikeys', 'appid', 'appkey', 'sig', 'hmac', 'auth', 'authorization', 'proxyauthorization', 'pass', 'passphrase', 'sessionid', 'jsessionid', 'phpsessid', 'jwt', 'bearer', 'cookie', 'cookies', 'otp', 'totp', 'samlresponse']);
 /**
  * Whole names that carry a credential as often as a lookup (`?key=AIzaSy…` beside `?key=checkout_v2`
  * for a feature flag, `?code=` for an OAuth code or a country): one is a credential only when its
@@ -39,8 +44,10 @@ const EITHER_NAME = new Set(['key', 'token', 'code']);
 const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing', 'session', 'license', 'encryption', 'user']);
 /** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
 const CURSOR = ['page', 'next', 'prev', 'previous', 'continuation', 'sync', 'cursor', 'resume', 'start', 'pagination'];
-/** Words before `code` that make it a credential (`auth_code`, `device_code`), unlike an `error_code`. */
-const CODE_OWNER = new Set(['auth', 'authorization', 'device', 'user', 'otp', 'verification', 'access']);
+/** Words before `code` or `codes` that make it a credential (`auth_code`, `device_code`, `mfa_code`, `recovery_codes`), unlike an `error_code`. */
+const CODE_OWNER = new Set(['auth', 'authorization', 'device', 'user', 'otp', 'verification', 'access', 'mfa', 'totp', 'sms', 'recovery', 'backup', 'security']);
+/** Words before `tokens` that make a list of credentials (`refresh_tokens`), unlike a count (`input_tokens`, `max_tokens`). */
+const TOKEN_OWNER = new Set(['access', 'refresh', 'id', 'auth', 'api', 'session', 'bearer', 'csrf', 'xsrf', 'oauth', 'device', 'personal', 'service']);
 
 /** A name's words, as a person reads them: `X-Amz-Security-Token`, `APIToken`, `client_secret`. */
 function wordsOf(name: string): string[] {
@@ -82,11 +89,23 @@ export function credentialParam(name: string, value?: string): boolean {
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
   if (words.some((w) => SECRET_WORD.has(w) || w.startsWith('password'))) return true;
-  if (last === 'key') return before.some((w) => KEY_OWNER.has(w));
+  if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
-  if (last === 'code') return before.some((w) => CODE_OWNER.has(w));
+  if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));
+  if (last === 'code' || last === 'codes') return before.some((w) => CODE_OWNER.has(w));
   return runTogether(last, 'key') || runTogether(last, 'token') || runTogether(last, 'code');
 }
+
+/** A JSON Web Token: a header and a payload, each base64url JSON (`eyJ…`), and a signature. */
+const JWT = /^eyJ[A-Za-z0-9_-]{2,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*$/;
+
+/** Whether a value is a JSON Web Token, a bearer credential whatever it is named (`data`, `value`, `result`). */
+export function jwtShaped(value: string): boolean {
+  return JWT.test(value);
+}
+
+/** How deep strings inside strings are read for their shape (JSON in a JSON string, a URL in a form value). */
+const MAX_NESTING = 6;
 
 /** A part of a value that reads as written by a person: a word (`checkout`, `Refund`, `EU`), a number, or a short tag (`v2`). */
 const WORDLIKE = /^(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20}|\d{1,20}|[A-Za-z]{1,2}\d{1,3})$/;
@@ -113,14 +132,85 @@ export function decodedParam(raw: string): string {
 
 /**
  * URL-encoded parameters (a query string with or without its `?`, or a form body) with the value of
- * each credential (credentialParam, read with its value) replaced by CREDENTIAL_PLACEHOLDER;
- * everything else stays byte for byte, in its order. Applied again, it changes nothing.
+ * each credential (credentialParam, read with its value) replaced by CREDENTIAL_PLACEHOLDER, and a
+ * JWT whatever its name; any other value masked by its shape (a URL or JSON inside it, encoded again
+ * as it was). `&` and `;` separate them; everything else stays byte for byte, in its order. Applied
+ * again, it changes nothing.
  */
 export function withoutCredentials(encoded: string): string {
-  return encoded.replace(/(^\??|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => {
-    if (!value) return whole;
-    return credentialParam(decodedParam(raw), decodedParam(value)) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole;
+  return maskParams(encoded, false, 0);
+}
+
+/**
+ * Parameters as withoutCredentials masks them; `byName` reads a name alone (a bare `code` or
+ * `token` is one whatever its value), as a redirect's are read.
+ */
+function maskParams(encoded: string, byName: boolean, depth: number): string {
+  return encoded.replace(/(^\??|[&;])([^&;=]*)=([^&;]*)/g, (whole, lead: string, raw: string, value: string) => {
+    if (!value || value === CREDENTIAL_PLACEHOLDER) return whole;
+    const text = decodedParam(value);
+    if (credentialParam(decodedParam(raw), byName ? undefined : text) || JWT.test(text)) return `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}`;
+    const inner = depth < MAX_NESTING ? maskTextCredentials(text, depth + 1, byName) : null;
+    if (inner === null) return whole;
+    return `${lead}${raw}=${text === value ? inner : encodeURIComponent(inner)}`;
   });
+}
+
+/** A URL in its parts (RFC 3986's own reading): scheme, `//authority`, path, `?query`, `#fragment`. */
+const URL_PARTS = /^([A-Za-z][A-Za-z0-9+.-]*:)?(\/\/[^/?#]*)?([^?#]*)(\?[^#]*)?(#[^]*)?$/;
+/** A string that reads as a URL: absolute (`https://…`, `postgres://…`), or a path with a query, a fragment or parameters (`/next?page=2`). */
+const URL_SHAPED = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s]*|\/[^\s?#;]*[?#;][^\s]*)$/;
+
+/**
+ * A URL with its credentials masked: the password in its user info (`https://svc:…@host`,
+ * `postgres://app:…@db`), each path parameter that is one (`;jsessionid=…`), and its query and
+ * fragment's parameters (maskParams: a URL inside one too, as a redirect's `next` holds one).
+ * `byName` reads each parameter by its name alone, as a redirect's are. The same string when there
+ * is nothing to mask.
+ */
+export function maskUrlCredentials(url: string, byName = false, depth = 0): string {
+  const m = URL_PARTS.exec(url);
+  if (!m) return url;
+  const [, scheme = '', authority = '', path = '', query = '', fragment = ''] = m;
+  const at = authority.lastIndexOf('@');
+  const colon = at > 2 ? authority.indexOf(':', 2) : -1;
+  const password = colon >= 0 && colon < at - 1 ? authority.slice(colon + 1, at) : null;
+  const auth = password !== null && password !== CREDENTIAL_PLACEHOLDER ? `${authority.slice(0, colon + 1)}${CREDENTIAL_PLACEHOLDER}${authority.slice(at)}` : authority;
+  const params = !path.includes(';')
+    ? path
+    : path.replace(/;([^;/=?#]*)=([^;/?#]*)/g, (whole, raw: string, value: string) => (value && value !== CREDENTIAL_PLACEHOLDER && credentialParam(decodedParam(raw), byName ? undefined : decodedParam(value)) ? `;${raw}=${CREDENTIAL_PLACEHOLDER}` : whole));
+  const q = query ? `?${maskParams(query.slice(1), byName, depth)}` : '';
+  const f = fragment.includes('=') ? `#${maskParams(fragment.slice(1), byName, depth)}` : fragment;
+  return `${scheme}${auth}${params}${q}${f}`;
+}
+
+/**
+ * A connection string (`Server=db;User ID=app;Password=…;`, Azure Storage's
+ * `AccountName=acct;AccountKey=…;`) with each credential's value masked: two or more `name=value`
+ * pairs, a name of words. Null when it isn't one, or holds no credential.
+ */
+function maskConnectionString(text: string): string | null {
+  if (!text.includes(';') || !text.includes('=') || /[\r\n]/.test(text)) return null;
+  const parts = text.split(';');
+  let pairs = 0;
+  let changed = false;
+  const out: string[] = [];
+  for (let k = 0; k < parts.length; k++) {
+    const part = parts[k]!;
+    if (part === '' && k === parts.length - 1) {
+      out.push(part);
+      continue;
+    }
+    const eq = part.indexOf('=');
+    if (eq < 1 || !/^\s*[A-Za-z][\w .-]*$/.test(part.slice(0, eq))) return null;
+    pairs++;
+    const value = part.slice(eq + 1);
+    if (value && value !== CREDENTIAL_PLACEHOLDER && credentialParam(part.slice(0, eq).trim(), value)) {
+      out.push(`${part.slice(0, eq + 1)}${CREDENTIAL_PLACEHOLDER}`);
+      changed = true;
+    } else out.push(part);
+  }
+  return pairs >= 2 && changed ? out.join(';') : null;
 }
 
 /** A text body written as URL-encoded parameters, as a form body is (`a=1&b=2`): a `=`, and no space, quote or brace. */
@@ -129,76 +219,113 @@ export function formShaped(text: string): boolean {
 }
 
 /**
- * A parsed JSON value (an object, an array, or a scalar) with the string value of each credential
- * member (credentialParam, read with its value) replaced by CREDENTIAL_PLACEHOLDER, at any depth: an
- * OAuth token response's `access_token`, a request body's `client_secret` or `api_key`. Numbers and
- * the shape stay as they are (copies mask strings only); a value with nothing to mask comes back the
- * same object. For a body stored as text, where the bytes matter, use maskJsonTextCredentials.
+ * A parsed JSON value (an object, an array, or a scalar) with its credentials masked as a recording
+ * keeps them, at any depth (maskedString): a credential member's string (an OAuth token response's
+ * `access_token`, a request body's `client_secret` or `api_key`), every string under a credential
+ * member (`api_keys: […]`, `client_secret: { value: … }`), a JWT whatever its member, and the
+ * credentials inside a string (JSON in it, a URL, a connection string, a GraphQL query's
+ * arguments). Numbers and the shape stay as they are (copies mask strings only); a value with
+ * nothing to mask comes back the same object. For a body stored as text, where the bytes matter,
+ * use maskJsonTextCredentials.
  */
 export function maskJsonCredentials(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    const items = value as unknown[];
-    let out: unknown[] | null = null;
-    items.forEach((x, i) => {
-      const m = maskJsonCredentials(x);
-      if (m !== x) (out ??= [...items])[i] = m;
-    });
-    return out ?? items;
+  // Read as the text a recording stores, by the one walk every body takes, iteratively.
+  let text: string | undefined;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    return value;
   }
-  if (isObject(value)) {
-    let out: Record<string, unknown> | null = null;
-    for (const [k, v] of Object.entries(value)) {
-      if (typeof v === 'string' && v !== CREDENTIAL_PLACEHOLDER && credentialParam(k, v)) (out ??= { ...value })[k] = CREDENTIAL_PLACEHOLDER;
-      else {
-        const m = maskJsonCredentials(v);
-        if (m !== v) (out ??= { ...value })[k] = m;
-      }
-    }
-    return out ?? value;
-  }
-  return value;
+  const masked = text === undefined ? null : walkJson(text, stringsAt(0), credentialMember);
+  return masked == null ? value : (JSON.parse(masked) as unknown);
 }
-
-/** A string value in a JSON body as a recording keeps it: CREDENTIAL_PLACEHOLDER when its member is a credential (credentialParam, read with it); null to keep it. */
-function maskedString(key: string | null, value: string): string | null {
-  return key !== null && value !== CREDENTIAL_PLACEHOLDER && credentialParam(key, value) ? CREDENTIAL_PLACEHOLDER : null;
-}
-
-/** No member's whole object or array is a credential, read by its name alone. */
-const noCredentialMember = () => false;
 
 /**
- * JSON text with the string value of each credential member replaced by `"<CREDENTIAL>"`, every
- * other byte kept (whitespace, numbers of any length such as a 64-bit id or `20.0`, non-credential
- * strings), so a body stored as received can be masked without being re-serialised. Null when it
- * holds no credential to mask, or doesn't read as JSON. Strings only, as a copy masks a JSON
- * document; a credential member whose value is a number is left for the path rules to report.
+ * A string in a body as a recording keeps it: CREDENTIAL_PLACEHOLDER when it is a credential (under
+ * a credential member; its member read as one with it; a JWT, whatever its member is named); else
+ * with the credentials inside it masked by its shape (maskTextCredentials: JSON in the string, a URL,
+ * a query string, a connection string, a GraphQL query). Null to keep it as it is.
+ */
+function maskedString(key: string | null, value: string, under: boolean, depth: number): string | null {
+  if (value === CREDENTIAL_PLACEHOLDER) return null;
+  if (under || (key !== null && credentialParam(key, value)) || JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
+  return depth < MAX_NESTING ? maskTextCredentials(value, depth + 1) : null;
+}
+
+/**
+ * Whether a member's object or array value is a credential through and through, every string in it
+ * masked: its name read as one by itself (`client_secret`, `api_keys`, `recovery_codes`, `cookies`),
+ * which a bare `key`, `token` or `code` never is.
+ */
+const credentialMember = (key: string): boolean => credentialParam(key, '');
+
+/** The string rule for strings `depth` deep, as walkJson takes it. */
+const stringsAt =
+  (depth: number): StringMask =>
+  (key, value, under) =>
+    maskedString(key, value, under, depth);
+
+/**
+ * JSON text with its credentials masked as maskJsonCredentials masks a parsed value, each string
+ * replaced written as `"<CREDENTIAL>"` (or as the string with what is in it masked), every other byte
+ * kept (whitespace, numbers of any length such as a 64-bit id or `20.0`, the other strings), so a
+ * body stored as received can be masked without being re-serialised. Null when it holds no
+ * credential to mask, or doesn't read as JSON.
  */
 export function maskJsonTextCredentials(text: string): string | null {
-  return walkJson(text, maskedString, noCredentialMember) ?? null;
+  return walkJson(text, stringsAt(0), credentialMember) ?? null;
 }
 
 /**
- * A text body, or text read from bytes, with its credentials masked by its shape, whatever its
- * content type said: JSON (also behind a byte-order mark, an anti-XSSI prefix or inside a JSONP
- * call), a form's parameters, a multipart body's fields and parts, an event stream's data, lines of
- * JSON (NDJSON), and XML elements and attributes, each by its name (credentialParam). Every
- * character it doesn't replace stays as it was; null when it replaced nothing.
+ * A text body, a string in one, or text read from bytes, with its credentials masked by its shape,
+ * whatever a content type said: JSON (also behind a byte-order mark, an anti-XSSI prefix or inside a
+ * JSONP call); a URL; a form's or a query string's parameters; a connection string; a multipart
+ * body's fields and parts; an event stream's data; lines of JSON (NDJSON); XML elements and
+ * attributes; a GraphQL query's arguments. Each value by its name (credentialParam), and a JWT
+ * whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
+ * name alone, as a redirect's are. Every character it doesn't replace stays as it was; null when it
+ * replaced nothing.
  */
-export function maskTextCredentials(text: string): string | null {
+export function maskTextCredentials(text: string, depth = 0, byName = false): string | null {
+  const strings = stringsAt(depth);
   const wrapped = unwrapJson(text);
-  const json = walkJson(wrapped.json, maskedString, noCredentialMember);
+  const json = walkJson(wrapped.json, strings, credentialMember);
   if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;
+  if (URL_SHAPED.test(text)) {
+    const masked = maskUrlCredentials(text, byName, depth);
+    return masked === text ? null : masked;
+  }
   if (formShaped(text)) {
-    const masked = withoutCredentials(text);
+    const masked = maskParams(text, byName, depth);
     return masked === text ? null : masked;
   }
   return (
-    maskMultipart(text, maskedPart) ??
-    maskEventStream(text, (payload) => maskTextCredentials(payload)) ??
-    maskJsonLines(text, (line) => walkJson(line, maskedString, noCredentialMember)) ??
-    maskXml(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER)
+    maskConnectionString(text) ??
+    maskMultipart(text, (part) => maskedPart(part, depth)) ??
+    maskEventStream(text, (payload) => maskTextCredentials(payload, depth)) ??
+    maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
+    maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER) ??
+    maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
+    maskLooseForm(text, byName, depth)
   );
+}
+
+/** One parameter of a form written without encoding its values: a name, then `=`. */
+const LOOSE_PARAM = /^[\w.\-[\]%]+=/;
+
+/**
+ * A form written without encoding its values (`data={"api_key":…}&x=1`), masked as maskParams masks
+ * one: on one line, every `&`-separated part a parameter, and two or more of them or a value that
+ * opens JSON, so a sentence that starts `name=` stays a sentence. Null when it isn't one, or nothing
+ * changed.
+ */
+function maskLooseForm(text: string, byName: boolean, depth: number): string | null {
+  if (/[\r\n]/.test(text)) return null;
+  const parts = text.split('&');
+  if (!parts.every((part) => LOOSE_PARAM.test(part))) return null;
+  if (parts.length < 2 && !/^[^=]*=\s*[[{"]/.test(text)) return null;
+  const masked = maskParams(text, byName, depth);
+  return masked === text ? null : masked;
 }
 
 /**
@@ -219,28 +346,41 @@ function dispositionParam(header: string, key: string): string | undefined {
   return m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2]!.trim();
 }
 
-/**
- * A part of a multipart body as a recording keeps it: a credential field's content (a field, not a
- * file, whose name credentialParam reads as one with its content, such as `api_key`) replaced by
- * CREDENTIAL_PLACEHOLDER, and any other part's content masked by its shape (a JSON metadata part).
- */
-function maskedPart(part: MultipartPartText): MultipartPartText | null {
-  const disposition = /^content-disposition:(.*)$/im.exec(part.headers)?.[1] ?? '';
-  const name = dispositionParam(disposition, 'name');
-  if (name !== undefined && dispositionParam(disposition, 'filename') === undefined && part.content !== CREDENTIAL_PLACEHOLDER && credentialParam(name, part.content)) return { headers: part.headers, content: CREDENTIAL_PLACEHOLDER };
-  const content = maskTextCredentials(part.content);
-  return content === null ? null : { headers: part.headers, content };
+/** An RFC 5987 extended parameter of a Content-Disposition value (`name*=UTF-8''api_key`), its value decoded; undefined when absent. */
+function extendedParam(header: string, key: string): string | undefined {
+  const m = new RegExp(`(?:^|;)\\s*${key}\\*\\s*=\\s*([^;]*)`, 'i').exec(header);
+  return m ? decodedParam(m[1]!.trim().replace(/^[^']*'[^']*'/, '')) : undefined;
 }
 
 /**
- * A multipart body (`multipart/form-data`, `multipart/related`) with each credential field's content
- * replaced by CREDENTIAL_PLACEHOLDER and every other part masked by its shape (maskedPart). Its
- * boundary is read from the body itself, as a copy that has no content type must, past a preamble,
- * with CRLF or LF line breaks; every other byte (the delimiters, each part's headers, the other
- * fields and files) stays as it was. Null when it holds no credential, or doesn't read as multipart.
+ * A part of a multipart body as a recording keeps it: the content of a part whose name
+ * credentialParam reads as one with its content (`api_key`, a `credentials` file) replaced by
+ * CREDENTIAL_PLACEHOLDER, a name given as `name*=` read too; a part header that carries one
+ * (`X-Api-Key:`, a JWT) masked; and any other part's content masked by its shape (a JSON metadata
+ * part, a service account's key file).
+ */
+function maskedPart(part: MultipartPartText, depth: number): MultipartPartText | null {
+  const headers = part.headers.replace(/^([A-Za-z][\w-]*)([ \t]*:[ \t]*)([^\r\n]*)$/gm, (whole, name: string, colon: string, value: string) => {
+    const lower = name.toLowerCase();
+    if (lower === 'content-disposition' || lower === 'content-type' || !value || value === CREDENTIAL_PLACEHOLDER) return whole;
+    return credentialHeader(lower) || JWT.test(value.trim()) ? `${name}${colon}${CREDENTIAL_PLACEHOLDER}` : whole;
+  });
+  const disposition = /^content-disposition:([^\r\n]*)$/im.exec(part.headers)?.[1] ?? '';
+  const name = dispositionParam(disposition, 'name') ?? extendedParam(disposition, 'name');
+  if (name !== undefined && part.content !== CREDENTIAL_PLACEHOLDER && credentialParam(name, part.content)) return { headers, content: CREDENTIAL_PLACEHOLDER };
+  const content = depth < MAX_NESTING ? maskTextCredentials(part.content, depth + 1) : null;
+  return content === null && headers === part.headers ? null : { headers, content: content ?? part.content };
+}
+
+/**
+ * A multipart body (`multipart/form-data`, `multipart/related`) with each part masked as maskedPart
+ * masks it. Its boundary is read from the body itself, as a copy that has no content type must, past
+ * a preamble, with CRLF or LF line breaks; every other byte (the delimiters, each part's headers but
+ * a credential one, the other fields and files) stays as it was. Null when it holds no credential,
+ * or doesn't read as multipart.
  */
 export function maskMultipartBytes(bytes: Buffer): Buffer | null {
-  const masked = maskMultipart(bytes.toString('latin1'), maskedPart);
+  const masked = maskMultipart(bytes.toString('latin1'), (part) => maskedPart(part, 0));
   return masked === null ? null : Buffer.from(masked, 'latin1');
 }
 
@@ -335,15 +475,23 @@ export const CREDENTIAL_HEADERS: readonly string[] = [
   'x-goog-api-key',
   'ocp-apim-subscription-key',
   'x-amz-security-token',
+  // An AWS load balancer's signed token naming the user it signed in.
+  'x-amzn-oidc-data',
 ];
 
 /**
- * Response headers whose value holds a credential among other text, masked in place: a `location`
- * that carries an OAuth code or token in its query or fragment, and a `www-authenticate` challenge
- * whose token the server hands back (a Negotiate/NTLM blob, a `token=` parameter).
+ * Response headers whose value holds a credential among other text, masked in place: a URL that
+ * carries an OAuth code or token in its query or fragment, or a password in its user info (a
+ * redirect's `location`, a `content-location`, a proxy's `x-original-url`, each URL of a `link`, the
+ * one a `refresh` sends the client to), and a `www-authenticate` challenge whose token the server
+ * hands back (a Negotiate/NTLM blob, a `token=` parameter).
  */
 export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>> = {
   location: maskLocation,
+  'content-location': maskLocation,
+  'x-original-url': maskLocation,
+  link: maskLinks,
+  refresh: maskRefresh,
   'www-authenticate': maskChallenge,
   'proxy-authenticate': maskChallenge,
 };
@@ -352,47 +500,60 @@ export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>>
 export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 
 /**
- * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, or a name
+ * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
- * `*-key`). The explicit list covers `cookie` and the echoed request headers, which read by their
- * words alone aren't credentials.
+ * `*-key`), or a session's (`x-session`, `*-session`). The explicit list covers the echoed request
+ * headers, which read by their words alone aren't credentials.
  */
 export function credentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower);
+  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)session$/.test(lower);
 }
 
-/** Credential query and fragment parameters in a (possibly relative) URL masked, by name alone, as a redirect's are. */
+/**
+ * A (possibly relative) URL a response names, its credentials masked as a redirect's are: query and
+ * fragment parameters by name alone, a URL inside one (`next=/done?access_token=…`), a path
+ * parameter (`;jsessionid=…`) and the password in its user info (maskUrlCredentials).
+ */
 export function maskLocation(location: string): string {
-  const hash = location.indexOf('#');
-  const head = hash < 0 ? location : location.slice(0, hash);
-  const q = head.indexOf('?');
-  const base = q < 0 ? head : head.slice(0, q + 1) + maskParamsByName(head.slice(q + 1));
-  return hash < 0 ? base : `${base}#${maskParamsByName(location.slice(hash + 1))}`;
+  return maskUrlCredentials(location, true);
 }
 
-/** `a=b&c=d` with the value of each credential parameter (by name, as a redirect carries one) replaced; the rest byte for byte. */
-function maskParamsByName(encoded: string): string {
-  return encoded.replace(/(^|&)([^&=]*)=([^&]*)/g, (whole, lead: string, raw: string, value: string) => (value && credentialParam(decodedParam(raw)) ? `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}` : whole));
+/** A `link` header with each `<URL>` in it masked as a redirect's is. */
+function maskLinks(value: string): string {
+  return value.replace(/<([^<>]*)>/g, (whole, url: string) => {
+    const masked = maskLocation(url);
+    return masked === url ? whole : `<${masked}>`;
+  });
+}
+
+/** A `refresh` header (`0; url=…`) with the URL it sends the client to masked as a redirect's is. */
+function maskRefresh(value: string): string {
+  return value.replace(/^(\s*(?:\d+\s*)?(?:[;,]\s*)?url\s*=\s*)(['"]?)([^'"]*)(['"]?\s*)$/i, (whole, lead: string, quote: string, url: string, tail: string) => {
+    const masked = maskLocation(url);
+    return masked === url ? whole : `${lead}${quote}${masked}${tail}`;
+  });
 }
 
 /**
  * An HTTP authentication challenge (`WWW-Authenticate`, `Proxy-Authenticate`) with its credential
  * masked in place: the value of any `name=value` auth-parameter whose name is a credential
- * (`token=…`), quoted or not, and a single token68 blob after the scheme (a Negotiate or NTLM
- * GSSAPI token). The scheme, the realm and an error stay as the server sent them.
+ * (`token=…`), quoted or not, and the token68 blob after a scheme (a Negotiate or NTLM GSSAPI
+ * token), in each of the challenges a value holds (`Negotiate …==, Basic realm="x"`). The schemes,
+ * the realm and an error stay as the server sent them.
  */
 export function maskChallenge(value: string): string {
   const params = value.replace(/([A-Za-z][\w-]*)\s*=\s*("(?:[^"\\]|\\.)*"|[^\s,]+)/g, (whole, name: string, v: string) => (credentialParam(name) ? `${name}=${v.startsWith('"') ? `"${CREDENTIAL_PLACEHOLDER}"` : CREDENTIAL_PLACEHOLDER}` : whole));
-  // A scheme and one token68 blob, the whole value: Negotiate/NTLM hand back a GSSAPI token this way.
-  return params.replace(/^(\s*[A-Za-z][\w-]*\s+)([A-Za-z0-9._~+/-]+={0,2})(\s*)$/, (_whole, scheme: string, _token: string, tail: string) => `${scheme}${CREDENTIAL_PLACEHOLDER}${tail}`);
+  // A scheme and its token68 blob, a challenge of its own: Negotiate/NTLM hand back a GSSAPI token this way.
+  return params.replace(/(^|,)(\s*[A-Za-z][\w-]*\s+)([A-Za-z0-9._~+/-]+={0,2})(?=\s*(?:,|$))/g, (_whole, lead: string, scheme: string) => `${lead}${scheme}${CREDENTIAL_PLACEHOLDER}`);
 }
 
 /**
- * Headers as a recording keeps them: each credential header (credentialHeader) with
- * CREDENTIAL_PLACEHOLDER for its value, the credential inside a `location` or a challenge masked in
- * place (TOKEN_IN_VALUE), and the headers that set a cookie or name the account a call was made with
- * (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when nothing changes.
+ * Headers as a recording keeps them: each credential header (credentialHeader), and each whose value
+ * is a JWT, with CREDENTIAL_PLACEHOLDER for its value; the credential inside a URL a header names or
+ * a challenge masked in place (TOKEN_IN_VALUE); and the headers that set a cookie or name the account
+ * a call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
+ * nothing changes.
  */
 export function credentialFreeHeaders(headers: Readonly<Record<string, string>>): Record<string, string> {
   let out: Record<string, string> | null = null;
@@ -400,7 +561,7 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
     const lower = name.toLowerCase();
     const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
     const inValue = !state ? TOKEN_IN_VALUE[lower] : undefined;
-    const credential = !state && !inValue && credentialHeader(lower) && value !== CREDENTIAL_PLACEHOLDER;
+    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower) || JWT.test(value.trim()));
     const masked = inValue ? inValue(value) : value;
     if (!state && !credential && masked === value) continue;
     out ??= { ...headers };
