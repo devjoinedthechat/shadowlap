@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -174,6 +174,53 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
     } finally {
       tree.remove();
     }
+  });
+});
+
+describe.skipIf(process.platform === 'win32')('a prompt file whose folder another process swaps for a link while repair opens it', () => {
+  // A process of the same user racing repair: between repair's walk of the path and its open, the
+  // folder on the way becomes a link to a folder outside, which holds a file of the same name. The
+  // swap happens through the race hooks, at the one point the walk can't see, so the test is exact.
+  function setup() {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-race-')));
+    dirs.push(base);
+    const root = join(base, 'repo');
+    write(join(root, 'prompts', 'policy.md'), 'Follow the refund policy, which is long enough to be cut short.\n');
+    write(join(base, 'outside', 'policy.md'), 'a file outside the repository\n');
+    const swap = () => {
+      renameSync(join(root, 'prompts'), join(root, 'prompts-real'));
+      symlinkSync(join(base, 'outside'), join(root, 'prompts'));
+    };
+    const back = () => {
+      rmSync(join(root, 'prompts'));
+      renameSync(join(root, 'prompts-real'), join(root, 'prompts'));
+    };
+    const outside = () => readFileSync(join(base, 'outside', 'policy.md'), 'utf8');
+    const inside = () => readFileSync(join(root, existsSync(join(root, 'prompts-real')) ? 'prompts-real' : 'prompts', 'policy.md'), 'utf8');
+    return { root, swap, back, outside, inside };
+  }
+
+  it('writes nothing, and empties nothing, outside: the link the open went through is found on the walk after it', () => {
+    const t = setup();
+    expect(() => writeInside(t.root, 'prompts/policy.md', 'rewritten\n', { walked: t.swap })).toThrow(/prompts is a link/);
+    expect(t.outside()).toBe('a file outside the repository\n');
+    expect(t.inside()).toBe('Follow the refund policy, which is long enough to be cut short.\n');
+  });
+
+  it('writes nothing outside when the folder is put back before the check: what was opened is not the file the path names', () => {
+    const t = setup();
+    expect(() => writeInside(t.root, 'prompts/policy.md', 'rewritten\n', { walked: t.swap, opened: t.back })).toThrow(/changed while repair opened it/);
+    expect(t.outside()).toBe('a file outside the repository\n');
+    expect(t.inside()).toBe('Follow the refund policy, which is long enough to be cut short.\n');
+    // Read the same way, the file outside is never what repair reads.
+    const r = setup();
+    expect(() => readInside(r.root, 'prompts/policy.md', { walked: r.swap, opened: r.back })).toThrow(/changed while repair opened it/);
+  });
+
+  it('with no race, empties the file it checked and writes it whole, shorter than it was', () => {
+    const t = setup();
+    writeInside(t.root, 'prompts/policy.md', 'Escalate.\n');
+    expect(t.inside()).toBe('Escalate.\n');
   });
 });
 
