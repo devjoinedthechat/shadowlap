@@ -1158,9 +1158,30 @@ function blameArgs(b: StoredBlame, expect: unknown, decide: string[] | null): { 
   return { argv: ['blame', b.runId, ...check, ...scope, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
 }
 
+/**
+ * What one yes may spend running a pulled record again. Its figures came from a teammate's machine,
+ * or from anyone who can write the bucket, so they run at most what Shadowlap runs by itself, at
+ * most twice over: a gate up to twice its default max (blame's 20, verify's 80), a fixed count up to
+ * 10 attempts (5 is the default), and blame probing at most its default 2 calls past the boundary
+ * (rerun.ts). A record made here runs as it was kept.
+ */
+const PULLED_CAP = { blame: 2 * BLAME_DEFAULTS.max, verify: 2 * SPRT_DEFAULTS.max, count: 10 } as const;
+
+/** A gate as a pulled record runs again: its max held to `cap`. */
+function pulledGate(gate: SprtGate | null, pulled: boolean, cap: number): SprtGate | null {
+  return gate && pulled && gate.max > cap ? { ...gate, max: cap } : gate;
+}
+
+/** A fixed count as the CLI takes it (`--attempts n --passes k`), held to PULLED_CAP's for a pulled record; null when it isn't one. */
+function countArgs(attempts: number, needed: number, pulled: boolean): string[] | null {
+  if (!isCount(attempts, 100) || attempts < 1 || !isCount(needed, attempts)) return null;
+  const n = pulled ? Math.min(attempts, PULLED_CAP.count) : attempts;
+  return ['--attempts', String(n), '--passes', String(Math.min(needed, n))];
+}
+
 /** A blame's fixed count as the CLI takes it, or null when it isn't one. */
-function blameCount(r: BlameReport): string[] | null {
-  return isCount(r.attemptsPerProbe, 100) && r.attemptsPerProbe > 0 && isCount(r.needed, r.attemptsPerProbe) ? ['--attempts', String(r.attemptsPerProbe), '--passes', String(r.needed)] : null;
+function blameCount(r: BlameReport, pulled = false): string[] | null {
+  return countArgs(r.attemptsPerProbe, r.needed, pulled);
 }
 
 /**
@@ -1177,19 +1198,19 @@ function blameNext(store: Store, rec: FixRecords, b: StoredBlame | null): Pick<F
   if (!run || !hasRecordedCommand(run)) return none;
   const unsettled = unsettledFirst(b.report);
   const stopped = b.outcome === 'stopped';
-  const g = sprtGate(b.report.gate);
   const pulled = b.pulled ?? null;
+  const g = pulledGate(sprtGate(b.report.gate), !!pulled, PULLED_CAP.blame);
   if (stopped || unsettled) {
     // Not settled: more attempts and a lower bar, as blame's report words it; stopped: the same gate, to the end.
     const lower = g ? Math.max(0.05, +(g.good - 0.2).toFixed(2)) : null;
-    const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(GATE_MAX_ATTEMPTS, g.max * 2) } : g;
-    const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report));
+    const gate: SprtGate | null = g && unsettled ? { ...g, good: lower !== null && lower > g.bad ? lower : g.good, max: Math.min(pulled ? PULLED_CAP.blame : GATE_MAX_ATTEMPTS, g.max * 2) } : g;
+    const made = blameArgs(b, rec.fix.check.expect, gate ? gateArg(gate, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
     if (!made) return none;
     return { blameAgain: { kind: stopped ? 'stopped' : 'unsettled', argv: made.argv, command: commandLine(made.argv), gate: unsettled ? gate : null, pulled, left: made.rerun.left }, blameStronger: null };
   }
   // A stronger model can't help when blame found the model's answer isn't what lost the run, nor one asked already.
   if (noAnswerLost(b) || b.report.rescue.fields.model !== undefined) return none;
-  const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report));
+  const made = blameArgs(b, rec.fix.check.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!pulled));
   if (!made) return none;
   return { blameAgain: null, blameStronger: { argv: made.argv, command: `${commandLine(made.argv)} --model <model>`, attempts: b.report.attempts, spent: b.report.spent, pulled, left: made.rerun.left } };
 }
@@ -1218,8 +1239,8 @@ function verdictArgs(v: StoredVerdict, o: { gate?: SprtGate | null; drop?: Reado
     const ids = r.runs.filter((x) => x.role === role).map((x) => x.runId);
     return ids.length ? [VERIFY_ROLE_FLAG[role], ...ids] : [];
   });
-  const gate = o.gate !== undefined ? o.gate : sprtGate(r.gate);
-  const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : isCount(r.attemptsPerRun, 100) && r.attemptsPerRun > 0 && isCount(r.needed, r.attemptsPerRun) ? ['--attempts', String(r.attemptsPerRun), '--passes', String(r.needed)] : null;
+  const gate = pulledGate(o.gate !== undefined ? o.gate : sprtGate(r.gate), !!v.pulled, PULLED_CAP.verify);
+  const decide = gate ? gateArg(gate, SPRT_DEFAULTS) : countArgs(r.attemptsPerRun, r.needed, !!v.pulled);
   if (!decide) return null;
   return { argv: ['verify', ...roles, ...check, ...fields, ...decide, ...rerun.flags, ...(rerun.command ? ['--', ...rerun.command] : [])], rerun };
 }
@@ -1232,8 +1253,8 @@ function sameVerify(v: StoredVerdict, fallback: string): string {
 
 /** A pulled blame as this machine would run it again under its own check, from its checked fields; `fallback` when they make none. */
 function sameBlame(b: StoredBlame, fallback: string): string {
-  const g = sprtGate(b.report.gate);
-  const made = blameArgs(b, b.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report));
+  const g = pulledGate(sprtGate(b.report.gate), !!b.pulled, PULLED_CAP.blame);
+  const made = blameArgs(b, b.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!b.pulled));
   return made ? commandLine(made.argv) : fallback;
 }
 
@@ -1249,14 +1270,14 @@ function verifyMore(v: StoredVerdict): VerifyMore | null {
   if (v.verdict !== 'incomplete' || v.candidate !== null || v.repairId !== null) return null;
   const open = r.runs.filter((x) => x.verdict === 'open');
   if (!open.length) return null;
-  const gate = sprtGate(r.gate);
+  const gate = pulledGate(sprtGate(r.gate), !!v.pulled, PULLED_CAP.verify);
   const ranOut = open.filter((x) => x.decision === 'inconclusive' && !x.undecided);
   const stopped = open.filter((x) => x.decision !== 'inconclusive' && !x.undecided);
   const unjudged = open.filter((x) => !!x.undecided);
   const kind: VerifyMore['kind'] = ranOut.length || stopped.length ? 'more' : 'again';
   // A fixed count that ran out decides nothing more with more of the same.
   if (kind === 'more' && !gate && !stopped.length) return null;
-  const max = gate ? (ranOut.length ? Math.min(GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max) : r.attemptsPerRun;
+  const max = gate ? (ranOut.length ? Math.min(v.pulled ? PULLED_CAP.verify : GATE_MAX_ATTEMPTS, gate.max * 2) : gate.max) : v.pulled ? Math.min(r.attemptsPerRun, PULLED_CAP.count) : r.attemptsPerRun;
   if (kind === 'more' && gate && ranOut.length && max <= gate.max) return null;
   const raised: SprtGate | null = gate ? { ...gate, max } : null;
   // Run more attempts leaves out the budget that stopped it; Verify again runs as it ran.

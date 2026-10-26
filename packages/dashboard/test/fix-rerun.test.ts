@@ -130,6 +130,84 @@ function stopped(o: { command: string; rerun?: StepRerun; pulled?: { from: strin
   }
 }
 
+/** A stopped blame, its gate or fixed count given, made here or, with `pulled`, pulled from a teammate's store. */
+function stoppedBlame(o: { gate?: { good: number; bad: number; risk: number; max: number }; attempts?: number; flags: string[]; pulled?: { from: string; at: number } }): { fixId: string; failing: string } {
+  const theirs = o.pulled ? Store.open(':memory:') : store;
+  try {
+    const failing = makeRun(theirs, { labels: ['digest'] });
+    const report = blameReport(failing, 'stopped');
+    if (o.gate) Object.assign(report, { gate: { kind: 'sprt', ...o.gate } });
+    if (o.attempts) Object.assign(report, { attemptsPerProbe: o.attempts, needed: o.attempts });
+    const { fix } = recordBlame(theirs, { runId: failing, report, expect: EXPECT, scope: null, command: 'b', rerun: rerun(o.flags), title: 't', checkText: 'c' });
+    if (o.pulled) {
+      store.createRun({ runId: failing, mode: 'record', parentRunId: null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 1_000, meta: { labels: ['digest'] } });
+      store.endRun(failing, 'failed');
+      applyFixDoc(store, parseFixDoc(Buffer.from(JSON.stringify(fixDocOf(theirs, fix.fixId))), fix.fixId), o.pulled);
+    }
+    return { fixId: fix.fixId, failing };
+  } finally {
+    if (theirs !== store) theirs.close();
+  }
+}
+
+/** A verdict whose run ran out at its gate (inconclusive) or, with a fixed count, was stopped by its budget; made here or pulled. */
+function ranOut(o: { gate?: { good: number; bad: number; risk: number; max: number }; attempts?: number; pulled?: { from: string; at: number } }): { fixId: string; failing: string } {
+  const theirs = o.pulled ? Store.open(':memory:') : store;
+  try {
+    const failing = makeRun(theirs, { labels: ['double-email'] });
+    const { fix } = recordBlame(theirs, { runId: failing, report: blameReport(failing), expect: EXPECT, scope: null, command: 'b', rerun: rerun([]), title: 't', checkText: 'c' });
+    const report = verifyReport([{ runId: failing, role: 'target', pass: true }]);
+    report.runs[0] = { ...report.runs[0], verdict: 'open', decision: o.gate ? 'inconclusive' : 'continue' };
+    const stopReason = o.gate ? null : 'the budget of $0.01 is spent';
+    Object.assign(report, decideVerify(report.runs, stopReason), { gate: o.gate ? { kind: 'sprt', ...o.gate } : null, stopReason, attemptsPerRun: o.attempts ?? 5, needed: 4 });
+    recordVerdict(theirs, { report, expect: EXPECT, command: 'v', rerun: rerun(['--writes', 'block']) });
+    if (o.pulled) {
+      store.createRun({ runId: failing, mode: 'record', parentRunId: null, command: { argv: ['node', 'agent.mjs'], cwd: '.' }, startedAt: 1_000, meta: { labels: ['double-email'] } });
+      store.endRun(failing, 'failed');
+      applyFixDoc(store, parseFixDoc(Buffer.from(JSON.stringify(fixDocOf(theirs, fix.fixId))), fix.fixId), o.pulled);
+    }
+    return { fixId: fix.fixId, failing };
+  } finally {
+    if (theirs !== store) theirs.close();
+  }
+}
+
+describe('what one yes may spend running a pulled record again', () => {
+  const pulled = { from: 's3://team-bucket/project', at: 5 };
+  const huge = { good: 0.6, bad: 0.1, risk: 0.05, max: 1000 };
+
+  it('runs a pulled blame’s gate to at most twice blame’s default, and probes at most 2 calls past the boundary', () => {
+    const { fixId, failing } = stoppedBlame({ gate: huge, flags: ['--scan', '999', '--writes', 'stub'], pulled });
+    const again = fixDetail(store, fixId)!.actions.blameAgain!;
+    expect(again.argv).toEqual(['blame', failing, '--expect', JSON.stringify(EXPECT), '--gate', JSON.stringify({ max: 40 }), '--scan', '2', '--writes', 'stub']);
+    expect(again.command).toContain(`--gate '{"max":40}' --scan 2`);
+    // A fixed count of 100 a probe: 10.
+    const counted = stoppedBlame({ attempts: 100, flags: [], pulled });
+    expect(fixDetail(store, counted.fixId)!.actions.blameAgain!.argv).toEqual(['blame', counted.failing, '--expect', JSON.stringify(EXPECT), '--attempts', '10', '--passes', '10']);
+  });
+
+  it('runs one made here with its own figures, as it was kept', () => {
+    const { fixId, failing } = stoppedBlame({ gate: huge, flags: ['--scan', '999'] });
+    expect(fixDetail(store, fixId)!.actions.blameAgain!.argv).toEqual(['blame', failing, '--expect', JSON.stringify(EXPECT), '--gate', JSON.stringify({ max: 1000 }), '--scan', '999']);
+  });
+
+  it('runs a pulled verdict to at most twice verify’s default, a fixed count to 10, and offers no more than that', () => {
+    const gate = { good: 0.9, bad: 0.7, risk: 0.05 };
+    // A gate that ran out at 50: Run more doubles it, to 100, under the cap of 160.
+    const fifty = ranOut({ gate: { ...gate, max: 50 }, pulled });
+    expect(fixDetail(store, fifty.fixId)!.verify[0].more).toMatchObject({ kind: 'more', max: 100 });
+    expect(fixDetail(store, fifty.fixId)!.verify[0].more!.argv).toContain(JSON.stringify({ max: 100 }));
+    // One that ran out at 1,000: held to 160, so there is no more to offer.
+    expect(fixDetail(store, ranOut({ gate: { ...gate, max: 1000 }, pulled }).fixId)!.verify[0].more).toBeNull();
+    // A fixed count of 100 a run, stopped by its budget: 10.
+    const counted = ranOut({ attempts: 100, pulled });
+    const argv = fixDetail(store, counted.fixId)!.verify[0].more!.argv;
+    expect(argv.slice(argv.indexOf('--attempts'), argv.indexOf('--attempts') + 4)).toEqual(['--attempts', '10', '--passes', '4']);
+    // Made here, the same gate doubles as it was kept.
+    expect(fixDetail(store, ranOut({ gate: { ...gate, max: 300 } }).fixId)!.verify[0].more).toMatchObject({ kind: 'more', max: 600 });
+  });
+});
+
 describe('Run more attempts, Verify again and Blame again', () => {
   const planted = `shadowlap verify --fixes label:double-email --build 'sh -c "echo planted"' -- sh -c 'echo planted'`;
 

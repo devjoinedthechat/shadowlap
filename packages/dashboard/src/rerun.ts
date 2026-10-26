@@ -40,11 +40,12 @@ const LINE = /^[^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{1,4096}$/u;
 
 export type RerunKind = 'blame' | 'verify';
 
-/** A flag's value shape (null for a flag that takes none), and whether it is this machine's own. */
+/** A flag's value shape (null for a flag that takes none), whether it is this machine's own, and the most a pulled record may give it. */
 interface FlagRule {
   value: RegExp | null;
   check?: (value: string) => boolean;
   own?: true;
+  pulledMax?: number;
 }
 
 const STEP: Record<string, FlagRule> = {
@@ -56,7 +57,8 @@ const STEP: Record<string, FlagRule> = {
 
 /** The flags each command is run again with, beyond what its report and record hold. */
 const RERUN_FLAGS: Readonly<Record<RerunKind, Readonly<Record<string, FlagRule>>>> = {
-  blame: { ...STEP, '--scan': { value: /^\d{1,3}$/ } },
+  // A pulled blame probes at most its default 2 calls past the boundary: one yes spends no more than Shadowlap would.
+  blame: { ...STEP, '--scan': { value: /^\d{1,3}$/, pulledMax: 2 } },
   verify: {
     ...STEP,
     '--from': { value: MODEL },
@@ -89,7 +91,8 @@ function isCommand(v: readonly string[]): boolean {
  * A kept blame's or verdict's flags, checked: every one a flag `RERUN_FLAGS` allows for its kind,
  * each value of its shape, `drop` (flags the caller sets itself) left out. Null when the record has
  * none (kept before they were) or anything is not of its shape: then it is not run again from here.
- * Of a pulled record, `--base`, `--build` and the command after `--` are left out (`left`).
+ * Of a pulled record, `--base`, `--build` and the command after `--` are left out (`left`), and a
+ * figure is held to the most a pulled record may give it (`pulledMax`).
  */
 export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined, o: { pulled: boolean; drop?: ReadonlySet<string> }): RerunFlags | null {
   if (!rerun || !Array.isArray(rerun.flags)) return null;
@@ -115,7 +118,9 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
       if (!left.includes(flag)) left.push(flag);
       continue;
     }
-    flags.push(flag, ...(value === null ? [] : [value]));
+    // A pulled record's figure held to the most it may give (one yes spends no more than Shadowlap would).
+    const held = value !== null && o.pulled && rule.pulledMax !== undefined && Number(value) > rule.pulledMax ? String(rule.pulledMax) : value;
+    flags.push(flag, ...(held === null ? [] : [held]));
   }
   let command: string[] | null = null;
   if (rerun.command?.length) {

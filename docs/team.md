@@ -184,9 +184,12 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   blame and verdict it brings as pulled, on this machine only. **Blame again**, **Run more
   attempts** and **Verify again** build their command from the report and the flags kept beside
   it, each one a flag Shadowlap allows with a value of its shape, never from the command line the
-  fix carries. A pulled one runs without the teammate's `--build`, `--base` and command after
-  `--`, which ran on their machine, and only once you confirm the exact command line, which the
-  question shows. Its page offers the command made here to copy, not theirs.
+  fix carries, and never with a value holding a control or format character. A pulled one runs
+  without the teammate's `--build`, `--base` and command after `--`, which ran on their machine,
+  spends at most twice what Shadowlap runs by itself (a blame's gate up to 40 attempts and 2 calls
+  probed past its boundary, a verify's up to 160 a run, a fixed count up to 10), and runs only once
+  you confirm the exact command line, which the question shows. Its page offers the command made
+  here to copy, not theirs.
 - **Applied is each machine's own.** A fix is applied in a working tree: one applied on one
   machine is verified on the others, with its patch ready to apply there, and stays in their Needs
   a look until it is. `shadowlap fix apply` there puts the patch in, or finds it in already once
