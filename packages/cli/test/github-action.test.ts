@@ -546,13 +546,29 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
   });
 
-  it('refuses to run on pull_request_target, before anything runs', () => {
+  // Each gives the job the base repository's secrets and a token that may write, and is how a pull
+  // request's code gets run beside them; refused whether or not fix on failure is on, as the test alone runs the agent.
+  it.each([
+    ['pull_request_target', "runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request", 'true'],
+    ['workflow_run', "runs with the base repository's secrets and a token that may write once another workflow ends, one a pull request from a fork may have started, and is how that pull request's code gets checked out beside them: run the action in that workflow instead, on pull_request for a pull request's code, or on push for a branch of this repository", 'false'],
+    ['issue_comment', "runs with the base repository's secrets and a token that may write on a comment anyone can post, and is how a comment gets a pull request's code tested beside them: run it on pull_request, or on workflow_dispatch for a branch of this repository", 'false'],
+  ])('refuses to run on %s, before anything runs', (event, why, fix) => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-target-'));
     dirs.push(dir);
     const fake = fakeCli(dir);
-    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: 'true' }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'pull_request_target' });
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: fix }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
     expect(r.code).toBe(1);
-    expect(r.out).toContain("::error title=Shadowlap::the action does not run on pull_request_target, which runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request");
+    expect(r.out).toContain(`::error title=Shadowlap::the action does not run on ${event}, which ${why}`);
     expect(() => fake.seen()).toThrow();
+  });
+
+  it('runs on the events that run a branch of this repository, or a pull request with what a fork may have', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-events-'));
+    dirs.push(dir);
+    const fake = fakeCli(dir);
+    for (const event of ['pull_request', 'push', 'schedule', 'workflow_dispatch', 'merge_group']) {
+      const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project() }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
+      expect(r.out, event).not.toContain('the action does not run on');
+    }
   });
 });

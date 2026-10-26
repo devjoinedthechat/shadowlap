@@ -39,6 +39,19 @@ export function outputsOf(report, fixes, paths) {
 }
 
 /** Runs the action as action.yml's step does, and returns its exit code. `fetch` is GitHub's REST API's, which tests replace. */
+/**
+ * The events the action refuses to run on, each with why and what to run it on instead. Each runs
+ * with the base repository's secrets (the provider keys the agent needs among them) and a token that
+ * may write, and is the usual way to run a pull request's code beside them, which is what the action
+ * would run as the agent: so the whole action is refused, not only fix on failure, as the test
+ * session alone runs the agent with those keys.
+ */
+const REFUSED_EVENTS = {
+  pull_request_target: "runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request",
+  workflow_run: "runs with the base repository's secrets and a token that may write once another workflow ends, one a pull request from a fork may have started, and is how that pull request's code gets checked out beside them: run the action in that workflow instead, on pull_request for a pull request's code, or on push for a branch of this repository",
+  issue_comment: "runs with the base repository's secrets and a token that may write on a comment anyone can post, and is how a comment gets a pull request's code tested beside them: run it on pull_request, or on workflow_dispatch for a branch of this repository",
+};
+
 export async function main(env = process.env, { fetch: fetchFn = globalThis.fetch } = {}) {
   const input = (name, fallback = '') => (env[`INPUT_${name}`] ?? fallback).trim();
   const bool = (name, fallback) => {
@@ -51,9 +64,12 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     process.exit(1);
   }
 
-  // pull_request_target runs a pull request's workflow with the base repository's secrets and a token
-  // that may write: an agent the pull request changed, run there, would have both.
-  if (env.GITHUB_EVENT_NAME === 'pull_request_target') fail('the action does not run on pull_request_target, which runs a pull request\'s workflow with the base repository\'s secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request');
+  // Events that give a job the base repository's secrets and a token that may write, and are how a
+  // pull request's code is run beside them: the agent the action runs is whatever the job checked
+  // out, and from the event alone it can't tell whose code that is. pull_request runs a pull
+  // request's code with what a fork may have; push, schedule and workflow_dispatch run a branch here.
+  const event = env.GITHUB_EVENT_NAME ?? '';
+  if (Object.hasOwn(REFUSED_EVENTS, event)) fail(`the action does not run on ${event}, which ${REFUSED_EVENTS[event]}`);
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
