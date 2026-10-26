@@ -228,7 +228,7 @@ Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `
 
 | Option | Effect |
 |---|---|
-| `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must keep passing |
+| `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must keep passing: one that forks is kept unless it drops 10+ points below its baseline, the same run on the code without the candidate, attempt for attempt, as [verify](#verify) keeps one, its verdict bounding the drop as verify's does (`drop <= 0.10 (95%)`) |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 |
 | `--repairer <provider:model>` | `anthropic` (Claude Opus 5.5), `anthropic:<model>`, `openai:<model>`, or `claude-code[:<model>]` to run your own Claude Code in print mode |
 | `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long. Default `repair.timeout` in the config, else 600 |

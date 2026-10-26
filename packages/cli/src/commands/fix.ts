@@ -510,7 +510,8 @@ export function register(program: Command): void {
     .argument('[command...]', 'run this command instead of each run\'s recorded one (after "--")')
     .option('--fixes <run...>', 'the failing runs to repair: run ids, or label:<name>')
     .option('--holdout <run...>', 'failing runs of the same kind to keep from the repairer (default: every other --fixes run, when there are two or more)')
-    .option('--keeps <run...>', 'runs that pass and must keep passing, e.g. label:good')
+    // In verify's own words: the rule it keeps a good run by, the drop its verdict bounds.
+    .option('--keeps <run...>', `runs that pass and must keep passing, e.g. label:good: one that forks is ${describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'paired' })}, as verify keeps one, its baseline the same run on the code without the candidate, and its verdict bounds the drop as verify's does (drop <= 0.10 (95%)); verify.margin and verify.max in shadowlap.config.json change the points and the pairs, --gate's risk the risk`)
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
     .option('--repairer <provider:model>', 'the model that proposes fixes: anthropic (claude-opus-5-5), anthropic:<model>, openai:<model>, or claude-code[:<model>] to run your own Claude Code (default: repair.repairer in shadowlap.config.json)')
     .option('--repairer-timeout <seconds>', 'give up on the repairer when it has not answered after this long (default: repair.timeout in shadowlap.config.json, else 600)', parseIntArg)

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { describeBaselineRule, KEPT_DEFAULTS, SPRT_DEFAULTS } from '@shadowlap/engine';
 import { growthReason } from '../src/repair.js';
 
 /**
@@ -40,6 +41,13 @@ describe('defaults in --help', () => {
 
   it('show --max-growth in percent, as it is typed', () => {
     expect(help(['repair']).replace(/\s+/g, ' ')).toContain('--max-growth <percent> reject a fix that grows the input tokens per run by more than this (default: 25) ');
+  });
+
+  it("say how repair keeps a good run, in verify's words: the rule its report states, and the drop it bounds", () => {
+    const repair = help(['repair']).replace(/\s+/g, ' ');
+    expect(repair).toContain('--keeps <run...> runs that pass and must keep passing, e.g. label:good: one that forks is kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs, as verify keeps one, its baseline the same run on the code without the candidate, and its verdict bounds the drop as verify\'s does (drop <= 0.10 (95%));');
+    // The rule as verify's report words it, from the same function.
+    expect(repair).toContain(describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'paired' }));
   });
 });
 
