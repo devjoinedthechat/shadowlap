@@ -121,6 +121,26 @@ def _rewrite(url):
 
 _FAILURES = "x-shadowlap-failures"
 
+#: Headers this module adds for the sidecar alone. httpx and requests copy a request's headers onto a
+#: redirect they follow, so a captured call the sidecar answered with a redirect to another host
+#: would take them there: a request that goes neither to a captured host nor to the sidecar is sent
+#: without them, as node-capture's redirects are.
+_OWN_HEADERS = ("x-shadowlap-upstream", "x-shadowlap-scope", _FAILURES)
+
+
+def _drop_own(headers):
+    """Removes, in place, the headers only the sidecar reads from a request's own header map (httpx's,
+    requests', botocore's or a dict): whatever their case, every copy of each."""
+    if headers is None:
+        return
+    try:
+        names = [name for name in list(headers.keys()) if str(name).lower() in _OWN_HEADERS]
+        for name in names:
+            if name in headers:
+                del headers[name]
+    except Exception:  # never break the agent: the request goes as it was asked
+        pass
+
 
 def _injected(request_headers, response_headers):
     """(kind, message) when the sidecar answered a request that asked for it with a failure --fail-at
@@ -157,9 +177,13 @@ def _patch_httpx(module):
                 request.headers["x-shadowlap-scope"] = scoped
             if provider == "http":
                 request.headers[_FAILURES] = "raise"
-        elif scoped and _to_sidecar(str(request.url)):
+        elif _to_sidecar(str(request.url)):
             # A client already pointed at the sidecar by its base URL: only the scope needs adding.
-            request.headers["x-shadowlap-scope"] = scoped
+            if scoped:
+                request.headers["x-shadowlap-scope"] = scoped
+        else:
+            # Anywhere else, such as a redirect httpx follows to another host: nothing of the sidecar's goes.
+            _drop_own(request.headers)
 
     def failure(request, injected):
         kind, message = injected
@@ -235,6 +259,8 @@ def _patch_botocore(module):
             if provider == "http":
                 # Raised by the urllib3 patch underneath, which botocore turns into its own error.
                 request.headers[_FAILURES] = "raise"
+        elif not _to_sidecar(request.url):
+            _drop_own(request.headers)
         return send(self, request)
 
     session.send = captured_send
@@ -287,6 +313,10 @@ def _patch_urllib3(module):
         scoped = _scope_header()
         rewritten = _rewrite(full)
         if rewritten is None:
+            if not _to_sidecar(full) and headers is not None and any(str(name).lower() in _OWN_HEADERS for name in headers):
+                # Anywhere else, such as a redirect followed to another host: nothing of the sidecar's goes.
+                headers = dict(headers)
+                _drop_own(headers)
             # Already pointed at the sidecar (a base URL, or a request another patch rewrote): only the scope.
             if scoped and _to_sidecar(full):
                 headers = dict(self.headers if headers is None else headers)
@@ -334,6 +364,9 @@ def _patch_requests(module):
                 request.headers[_FAILURES] = "raise"
         if scoped and (rewritten is not None or _to_sidecar(request.url)):
             request.headers["x-shadowlap-scope"] = scoped
+        if rewritten is None and not _to_sidecar(request.url):
+            # Anywhere else, such as a redirect requests follows to another host: nothing of the sidecar's goes.
+            _drop_own(request.headers)
         response = send(self, request, *args, **kwargs)
         # The urllib3 patch underneath raises first; this covers an adapter that does not use it.
         injected = _injected(request.headers, response.headers)
