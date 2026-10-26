@@ -51,6 +51,9 @@ let lastTab: InspectorTab = 'conversation';
 /** No group folded. */
 const NO_FOLDS: ReadonlySet<number> = new Set();
 
+/** The views that may hold nothing that takes the focus, which take it themselves, by what each shows. */
+const PANE_NAMES: Partial<Record<View, string>> = { timeline: 'Timeline of the calls', turns: 'Turns of the conversation', context: 'Context of each model call' };
+
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
   // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
@@ -479,9 +482,10 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. The Timeline holds nothing
-              that takes the focus, so it takes it itself, to be scrolled by keyboard. */}
-          <div className="vbody" key={v} {...(v === 'timeline' ? { tabIndex: 0, role: 'region', 'aria-label': 'Timeline of the calls' } : { tabIndex: -1 })}>
+          {/* Each view starts at its top; Calls centres the selected call. The Timeline, the Turns of a
+              run whose model called no tool and Context hold nothing that takes the focus, so the
+              view takes it itself, to be scrolled by keyboard. */}
+          <div className="vbody" key={v} {...(PANE_NAMES[v] ? { tabIndex: 0, role: 'region', 'aria-label': PANE_NAMES[v] } : { tabIndex: -1 })}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}

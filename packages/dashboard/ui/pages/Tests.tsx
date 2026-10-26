@@ -577,7 +577,7 @@ function GateRules({ rows }: { rows: readonly GoldenRow[] }) {
 
 function ReportLines({ lines }: { lines: ReportLine[] }) {
   return (
-    <pre className="report">
+    <pre tabIndex={0} className="report">
       {lines.map((l, i) => (
         <span key={i} className={l.tone || undefined}>
           {l.text}

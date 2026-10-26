@@ -70,6 +70,22 @@ describe('what each colour may mean', () => {
     expect(value('.pcall.same', 'opacity')).toBeNull();
   });
 
+  it('dims what doesn’t apply in the faint ink, never by fading it, and keeps the bar’s words above AA on its amber', () => {
+    // The shortcuts a page doesn't offer, and a CI feature turned off: faded, they fell to 2.2 and 4.0:1.
+    expect(value('.hgroup.off dd', 'color')).toBe('var(--faint)');
+    expect(value('.hgroup.off dd', 'opacity')).toBeNull();
+    const faded = rules().filter((r) => r.selectors.some((x) => x.startsWith('.cip.off') || x.startsWith('.hgroup.off')) && /(^|;)\s*opacity\s*:/.test(r.body));
+    expect(faded.map((r) => r.selectors.join(', '))).toEqual([]);
+    // On the connection bar's amber wash the faint ink is 4.4:1: the dim one.
+    expect(value('.connbar .cr', 'color')).toBe('var(--dim)');
+  });
+
+  it('keeps a segment, a fix step’s switch and an attempt’s line 24 px tall at least, as WCAG 2.5.8 asks of a target', () => {
+    expect(value('.seg button', 'min-height')).toBe('24px');
+    expect(value('.seg a', 'min-height')).toBe('24px');
+    expect(value('.attempts a', 'min-height')).toBe('24px');
+  });
+
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {
     expect(value('.tchip.s em', 'color')).toBe('var(--o-stub)');
     expect(value('.org.stub', 'color')).toBe('var(--o-stub)');
