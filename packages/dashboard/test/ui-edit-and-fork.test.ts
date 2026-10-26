@@ -129,13 +129,15 @@ describe('Edit and fork in the inspector', () => {
   it('asks to confirm someone else’s command when the server names it, and only then forks with the yes, from the same upload', async () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const why = `01M5GRX8K4 came from an imported pack: this runs the command it was recorded with (node agent.mjs), under shadowlap replay ${RUN} --override '16=…'. Confirm it to run it`;
+    // What the server gives with its question, to say yes to the lines it named.
+    const confirm = '5ca1ab1e'.repeat(4);
     const asked: Array<Record<string, unknown>> = [];
     const base = app(sent);
     const client = {
       ...(base.client as object),
       startJob: async (kind: string, fields: Record<string, unknown>) => {
         asked.push(fields);
-        if (fields.yes !== true) throw new ApiError(409, why);
+        if (fields.yes !== confirm) throw new ApiError(409, why, confirm);
         sent.jobs.push({ kind, fields });
         return { id: 'j1' } as JobView;
       },
@@ -148,13 +150,13 @@ describe('Edit and fork in the inspector', () => {
     // Nothing ran yet; the dialog shows the command the server named.
     expect(sent.jobs).toEqual([]);
     expect(page.one('[role="dialog"]').textContent).toContain(`${why}.`);
-    // Cancelled, nothing runs; confirmed, the same upload goes with the yes.
+    // Confirmed, the same upload goes with the yes: the question's confirm.
     await page.click(page.byText('.dlg-ok', 'Run'));
     await page.until('the fork to start', () => sent.jobs.length === 1);
     expect(sent.uploads).toHaveLength(1);
     expect(asked).toEqual([
       { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000' },
-      { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000', yes: true },
+      { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000', yes: confirm },
     ]);
     expect(page.all('[role="dialog"]')).toEqual([]);
   });
@@ -163,7 +165,7 @@ describe('Edit and fork in the inspector', () => {
     const sent: Sent = { uploads: [], jobs: [] };
     const asked: unknown[] = [];
     const base = app(sent);
-    const client = { ...(base.client as object), startJob: async (_kind: string, fields: Record<string, unknown>) => (asked.push(fields), Promise.reject(new ApiError(409, '01M5GRX8K4 came from the team store: this runs the command it was recorded with (node agent.mjs), under shadowlap replay x. Confirm it to run it'))) };
+    const client = { ...(base.client as object), startJob: async (_kind: string, fields: Record<string, unknown>) => (asked.push(fields), Promise.reject(new ApiError(409, '01M5GRX8K4 came from the team store: this runs the command it was recorded with (node agent.mjs), under shadowlap replay x. Confirm it to run it', 'feed'.repeat(8)))) };
     const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
     await page.click(page.byText('button', 'Edit and fork…'));
     await page.click(page.byText('.dlg-ok', 'Fork'));

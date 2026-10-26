@@ -208,8 +208,9 @@ describe('the decision routes', () => {
     // The CLI reads each golden's checks and each run's role itself: one verify per set of checks, whatever the goldens are.
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', runId: refunded })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', refunded]);
+    // A bare yes says yes to no question: none of the session's runs is someone else's, so nothing is asked, nor passed on.
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000A', yes: true })).status).toBe(202);
-    expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A', '--yes']);
+    expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'dc-01M5000000000000000000000A']);
     expect((await startJob(dash, { kind: 'decisions-verify', sessionId: 'mg-01M5000000000000000000000B' })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['decisions', '--verify', 'mg-01M5000000000000000000000B']);
     const missing = await startJob(dash, { kind: 'decisions-verify', sessionId: 'dc-01M5000000000000000000000Z' });

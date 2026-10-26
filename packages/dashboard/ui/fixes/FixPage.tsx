@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { asksConsent } from '../actions.js';
+import { consentAsked } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
 import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
@@ -173,7 +173,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
   // A repair or an apply changes the working tree: it waits for every job running the agent from it.
   const busy = useTreeBusy('writes', fix.status === 'open' ? 'repair' : 'apply the patch');
   const [asking, setAsking] = useState<'repair' | 'apply' | 'patch' | null>(null);
-  const [consent, setConsent] = useState<{ why: string; kind: string; fields: Record<string, unknown> } | null>(null);
+  const [consent, setConsent] = useState<{ why: string; confirm: string; kind: string; fields: Record<string, unknown> } | null>(null);
   if (app.exported) return null;
   const off = app.actionsOff;
   const gitApply = fix.actions.apply?.gitApply ?? null;
@@ -226,7 +226,8 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
     app.client.startJob(jobKind, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {
-        if (err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ why: err.message, kind: jobKind, fields });
+        const asked = fields.yes === undefined ? consentAsked(err) : null;
+        if (asked) setConsent({ ...asked, kind: jobKind, fields });
         else app.watchJob(Promise.reject(err));
       },
     );
@@ -258,7 +259,7 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
           onOk={() => {
             const c = consent;
             setConsent(null);
-            app.guard(() => void start(c.kind, { ...c.fields, yes: true }));
+            app.guard(() => void start(c.kind, { ...c.fields, yes: c.confirm }));
           }}
         />
       ) : null}

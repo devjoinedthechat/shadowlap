@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asksConsent, choiceAnswer, consentTitle, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
+import { choiceAnswer, consentAsked, consentTitle, dialogCopy, forkMenu, injectsAsUser, isInject, isOverride, isUserAnswer, menuFlag, shortFlag, type ActionLike } from '../ui/actions.js';
 import { normalizeActions } from '../ui/normalize.js';
 import { keepPlaced, placePop, type PopMeasure } from '../ui/place.js';
 import { conversationLink } from '../ui/run/calls.js';
@@ -149,10 +149,18 @@ describe('an action’s dialog', () => {
   it('knows the question a blame or repair job asks before running a command someone else recorded', () => {
     const pack = '01M53N822K came from an imported pack: this runs the command it was recorded with (node triage.mjs). Confirm it to run it';
     const pulled = '01M53N7ZKV came from the team store: this runs the command it was recorded with (node support_chat.mjs). Confirm it to run it';
-    expect([asksConsent(pack), asksConsent(pulled)]).toEqual([true, true]);
-    expect([consentTitle(pack), consentTitle(pulled)]).toEqual(['Run a command from an imported pack?', 'Run a command from the team store?']);
-    // Other refusals are not questions: a capture has no command at all.
-    expect(asksConsent('01K5CQ9C4H was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame 01K5CQ9C4H -- <command>')).toBe(false);
+    const sent = '01M53N7ZKW came from a program that sent the sidecar its command: this runs the command it was recorded with (node agent.mjs). Confirm it to run it';
+    const confirm = 'ab'.repeat(16);
+    // An error as the page's client throws one (ApiError): its status, its words, and the confirm a question gives.
+    const refused = (status: number, why: string, yes?: string) => Object.assign(new Error(why), { status, ...(yes !== undefined ? { confirm: yes } : {}) });
+    // The question is a 409 with what says yes to the lines it names, whatever the words.
+    expect([pack, pulled, sent].map((why) => consentAsked(refused(409, why, confirm)))).toEqual([pack, pulled, sent].map((why) => ({ why, confirm })));
+    expect([consentTitle(pack), consentTitle(pulled), consentTitle(sent)]).toEqual(['Run a command from an imported pack?', 'Run a command from the team store?', 'Run a command a program sent the sidecar?']);
+    // Other refusals are not questions: a capture has no command at all, and a 409 that gives no confirm asks nothing.
+    expect(consentAsked(refused(409, '01K5CQ9C4H was imported from a capture and has no command to re-run: blame it in a terminal with yours, shadowlap blame 01K5CQ9C4H -- <command>'))).toBeNull();
+    expect(consentAsked(refused(409, pack))).toBeNull();
+    expect(consentAsked(refused(400, pack, confirm))).toBeNull();
+    expect(consentAsked(new Error(pack))).toBeNull();
   });
 });
 

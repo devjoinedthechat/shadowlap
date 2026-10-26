@@ -71,6 +71,15 @@ async function started(body: Record<string, unknown>): Promise<JobView> {
   return json<JobView>(res);
 }
 
+/** What the server's question (409) gives to say yes to the command lines it named, as the page sends it back. */
+async function confirmOf(body: Record<string, unknown>): Promise<string> {
+  const res = await job(body);
+  expect(res.status, await res.clone().text()).toBe(409);
+  const { confirm } = await json<{ confirm?: string }>(res);
+  expect(confirm).toMatch(/^[0-9a-f]{32}$/);
+  return confirm!;
+}
+
 /** Waits for a job to end, as the page does before the next repair or apply. */
 async function finished(j: JobView): Promise<void> {
   for (let i = 0; i < 400; i++) {
@@ -450,12 +459,14 @@ describe('the blame job', () => {
     const res = await job({ kind: 'blame', runId: imported, expect: null });
     expect(res.status).toBe(409);
     expect((await json(res)).error).toMatch(/imported pack/);
-    await started({ kind: 'blame', runId: imported, expect: null, yes: true });
+    // A bare yes isn't one: the yes is the question's confirm, for the line it named.
+    expect((await job({ kind: 'blame', runId: imported, expect: null, yes: true })).status).toBe(409);
+    await started({ kind: 'blame', runId: imported, expect: null, yes: await confirmOf({ kind: 'blame', runId: imported, expect: null }) });
     expect(spawned.at(-1)).toEqual(['blame', imported, '--yes']);
     // A run built from a capture has no command at all: blame it in a terminal, with one.
     const capture = store.createRun({ mode: 'record', command: { argv: [NO_COMMAND], cwd: '.' }, startedAt: 3_000, meta: { covers: ['api'] } }).runId;
     store.endRun(capture, 'failed');
-    const refused = await job({ kind: 'blame', runId: capture, expect: null, yes: true });
+    const refused = await job({ kind: 'blame', runId: capture, expect: null, yes: 'f'.repeat(32) });
     expect(refused.status).toBe(409);
     expect((await json(refused)).error).toMatch(/no command to re-run/);
   });
@@ -466,7 +477,10 @@ describe('the blame job', () => {
     const res = await job({ kind: 'blame', runId: pulled, expect: null });
     expect(res.status).toBe(409);
     expect((await json(res)).error).toMatch(new RegExp(`^${pulled.slice(0, 10)} came from the team store: this runs the command it was recorded with \\(`));
-    await started({ kind: 'blame', runId: pulled, expect: null, yes: true });
+    // The yes to blame it with no check is none to blame it with one, a line the question never showed.
+    const yes = await confirmOf({ kind: 'blame', runId: pulled, expect: null });
+    expect((await job({ kind: 'blame', runId: pulled, expect: { tools: { send_email: 1 } }, yes })).status).toBe(409);
+    await started({ kind: 'blame', runId: pulled, expect: null, yes });
     expect(spawned.at(-1)).toEqual(['blame', pulled, '--yes']);
   });
 });
@@ -572,7 +586,7 @@ describe('the repair job’s imported runs', () => {
     expect(res.status).toBe(409);
     expect((await json(res)).error).toMatch(new RegExp(`^${imported.slice(0, 10)} came from an imported pack`));
     expect(spawned).toEqual([]);
-    const j = await started({ kind: 'repair', fixId: fix.fixId, yes: true });
+    const j = await started({ kind: 'repair', fixId: fix.fixId, yes: await confirmOf({ kind: 'repair', fixId: fix.fixId }) });
     expect(spawned.at(-1)).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code', '--yes']);
     await api(`jobs/${j.id}/stop`, { method: 'POST' });
   });

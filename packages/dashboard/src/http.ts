@@ -3,11 +3,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** HTTP helpers every route shares: JSON answers, ETags, bodies with limits, and errors with a status. */
 
-/** An error the client caused or may see: its status and message are sent as `{ error }`. */
+/**
+ * An error the client caused or may see: its status and message are sent as `{ error }`, and a
+ * question that asks a yes to a command line, its `confirm` with them (consent.ts).
+ */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly confirm?: string,
   ) {
     super(message);
   }

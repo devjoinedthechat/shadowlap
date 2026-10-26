@@ -2,6 +2,7 @@ import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE,
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
+import { askConsent, saidYes } from './consent.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
@@ -665,21 +666,23 @@ export function actionsFor(run: RunRecord, call: CallRecord | undefined, context
 
 /**
  * A replay of a run whose command came from someone else's pack, or from the team store, runs that
- * command: only once the request says yes to it itself (`yes: true`, which the page sends from the
- * step that shows the command), whatever the action asked before (a number of attempts, an
- * instruction, an edited result). Refused, it says both commands, as a fix's jobs do.
+ * command: only once the request says yes to it itself, whatever the action asked before (a number
+ * of attempts, an instruction, an edited result). Refused, it says both commands, as a fix's jobs
+ * do, and the yes the page sends from the step that shows them is to those lines (consent.ts).
  */
-export function importedConsent(run: RunRecord, args: readonly string[], yes: unknown): { error: string; status: number } | null {
-  if (yes === true || !commandIsImported(run)) return null;
+export function importedConsent(run: RunRecord, args: readonly string[], yes: unknown): { error: string; status: number; confirm: string } | null {
+  if (!commandIsImported(run)) return null;
   // The command as the page shows it, without the --yes the action adds for the CLI.
   const shown = [...args];
   const at = shown.indexOf('--yes');
   if (at >= 0) shown.splice(at, 1);
-  return { error: `${run.runId.slice(0, 10)} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${quoteArgv(['shadowlap', ...shown])}. Confirm it to run it`, status: 409 };
+  const lines = [run.command.argv, ['shadowlap', ...shown]];
+  if (saidYes(yes, lines)) return null;
+  return askConsent(`${run.runId.slice(0, 10)} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${quoteArgv(['shadowlap', ...shown])}. Confirm it to run it`, lines);
 }
 
 /** The CLI arguments for an action, rebuilt on the server from the run and call: the browser never sends a command line. */
-export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: boolean } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number } {
+export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];

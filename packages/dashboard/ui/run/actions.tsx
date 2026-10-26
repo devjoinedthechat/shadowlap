@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { ApiError, JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
-import { asksConsent, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
+import { JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
+import { consentAsked, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
 import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
@@ -35,20 +35,21 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
   const app = useApp();
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [bisecting, setBisecting] = useState(false);
-  const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string } | null>(null);
+  const [consent, setConsent] = useState<{ p: PendingAction; value?: string; why: string; confirm: string } | null>(null);
   const findCommit = () => {
     if (app.actionsOff) return app.toast(app.actionsOff);
     const blocked = bisectBlocked(runId, offers?.bisect ?? null, app.hasKind(JOB_KINDS.bisect));
     if (blocked) return app.toast(blocked);
     app.guard(() => setBisecting(true));
   };
-  const start = (p: PendingAction, value?: string, yes = false) => {
+  const start = (p: PendingAction, value?: string, yes?: string) => {
     app.guard(
       () =>
         void app.client.action(runId, p.action.key, p.callNo, value, yes).then(
           (job) => app.watchJob(Promise.resolve(job)),
           (err: unknown) => {
-            if (!yes && err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ p, ...(value !== undefined ? { value } : {}), why: err.message });
+            const asked = yes === undefined ? consentAsked(err) : null;
+            if (asked) setConsent({ p, ...(value !== undefined ? { value } : {}), ...asked });
             else app.watchJob(Promise.reject(err));
           },
         ),
@@ -82,7 +83,7 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       onOk={() => {
         const c = consent;
         setConsent(null);
-        start(c.p, c.value, true);
+        start(c.p, c.value, c.confirm);
       }}
     />
   ) : bisecting ? (

@@ -159,19 +159,22 @@ describe('a fix pulled from the team store', () => {
     // Asked first, with the exact command line it runs; nothing runs before the yes.
     const asked = await job({ kind: 'verify', fixId, verifyId });
     expect(asked.status).toBe(409);
-    const why = ((await asked.json()) as { error: string }).error;
+    const { error: why, confirm: verifyYes } = (await asked.json()) as { error: string; confirm: string };
     expect(why).toContain(`came from the team store: this runs the command shadowlap verify --fixes ${run} --attempts 1 --passes 1 --writes block, made here from its own fields, without the --build, --base and command after -- it ran with there`);
     expect(why).not.toMatch(/writeFileSync/);
     const again = await job({ kind: 'blame', fixId, again: true });
     expect(again.status).toBe(409);
-    expect(((await again.json()) as { error: string }).error).toContain(`came from the team store: this runs the command shadowlap blame ${run} --attempts 1 --passes 1, made here from its own fields, without the command after -- it ran with there`);
+    const blameQuestion = (await again.json()) as { error: string; confirm: string };
+    expect(blameQuestion.error).toContain(`came from the team store: this runs the command shadowlap blame ${run} --attempts 1 --passes 1, made here from its own fields, without the command after -- it ran with there`);
+    // A yes is to the line its question named: a bare one, or the verify's, says yes to no blame.
+    for (const yes of [true, verifyYes]) expect((await job({ kind: 'blame', fixId, again: true, yes })).status).toBe(409);
     expect(spawned).toEqual([]);
 
     // Blame again first: a verify that passes the run verifies the fix, which then has nothing to blame again.
-    const blamed = await job({ kind: 'blame', fixId, again: true, yes: true });
+    const blamed = await job({ kind: 'blame', fixId, again: true, yes: blameQuestion.confirm });
     expect(blamed.status, await blamed.clone().text()).toBe(202);
     await finished((await blamed.json()) as JobView);
-    const more1 = await job({ kind: 'verify', fixId, verifyId, yes: true });
+    const more1 = await job({ kind: 'verify', fixId, verifyId, yes: verifyYes });
     expect(more1.status, await more1.clone().text()).toBe(202);
     await finished((await more1.json()) as JobView);
 

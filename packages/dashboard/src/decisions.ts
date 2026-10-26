@@ -1,5 +1,6 @@
 import { commandIsImported, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
+import { askConsent, saidYes } from './consent.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';
@@ -261,7 +262,7 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
     const consent = importedConsent(store, targets.byId, req.yes);
     if (consent) return consent;
   }
-  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && req.yes === true ? ['--yes'] : [])];
+  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && typeof req.yes === 'string' ? ['--yes'] : [])];
   const what = fromCode ? 'the prompt in your working tree' : typeof req.model === 'string' ? req.model : 'the fields set';
   return { args, title: `Previewing ${what}`, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
@@ -280,7 +281,7 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
   if ('error' in scope) return scope;
   const consent = importedConsent(store, targets.byId, req.yes);
   if (consent) return consent;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...(req.yes === true ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
+  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...(typeof req.yes === 'string' ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
 }
 
 /**
@@ -307,19 +308,22 @@ export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult 
   const goldenRuns = new Set(session.matrix.filter((row) => row.golden).map((row) => row.runId));
   const consent = importedConsent(store, flagged.filter((id) => !goldenRuns.has(id)), req.yes);
   if (consent) return consent;
-  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...(req.yes === true ? ['--yes'] : [])];
+  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...(typeof req.yes === 'string' ? ['--yes'] : [])];
   return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 
 /** The command a job runs, as its dialog shows it. */
 export const commandLine = (args: readonly string[]) => quoteArgv(['shadowlap', ...args]);
 
-/** A run whose command came from someone else's pack needs a yes before a job runs it. */
+/**
+ * A run whose command came from someone else's pack needs a yes before a job runs it: to the
+ * commands the question showed (consent.ts).
+ */
 function importedConsent(store: Store, runIds: readonly string[], yes: unknown): JobBuildResult | null {
-  if (yes === true) return null;
-  for (const id of runIds) {
-    const run = store.getRun(id);
-    if (run && commandIsImported(run)) return { error: `${id.slice(0, 10)} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${run.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
-  }
-  return null;
+  const imported = runIds.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null && commandIsImported(r));
+  if (!imported.length) return null;
+  const lines = imported.map((r) => r.command.argv);
+  if (saidYes(yes, lines)) return null;
+  const first = imported[0]!;
+  return askConsent(`${first.runId.slice(0, 10)} came from ${importedCommandSource(first)}: this runs the command it was recorded with (${quoteArgv(first.command.argv)})${imported.length > 1 ? `, and ${imported.length - 1} more run${imported.length === 2 ? '' : 's'} like it: ${imported.slice(1).map((r) => `${r.runId.slice(0, 10)} (${quoteArgv(r.command.argv)})`).join(', ')}` : ''}. Confirm it to run it`, lines);
 }

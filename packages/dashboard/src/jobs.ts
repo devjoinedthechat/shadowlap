@@ -154,7 +154,8 @@ export interface JobBuild {
   started?: () => void;
 }
 
-export type JobBuildResult = JobBuild | { error: string; status?: number };
+/** A job built, or why not: a question asking a yes to a command line carries its `confirm` (consent.ts). */
+export type JobBuildResult = JobBuild | { error: string; status?: number; confirm?: string };
 
 /**
  * Where a job runs: the project that is current when it starts, with its store and the store's
@@ -484,7 +485,7 @@ export class JobManager {
     }
     if ('error' in built) {
       uploads?.release(id);
-      throw new HttpError(built.status ?? 400, built.error);
+      throw new HttpError(built.status ?? 400, built.error, built.confirm);
     }
     let cwd: string | null;
     let title: string;

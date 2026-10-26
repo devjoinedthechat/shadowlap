@@ -1,7 +1,8 @@
-import { commandIsImported, hasRecordedCommand, importedCommandSource } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
+import { askConsent, saidYes } from '../consent.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { optionLike } from '../tests.js';
@@ -63,7 +64,8 @@ export function register(router: Router, ctx: RouteContext): void {
       if (run.status === 'running') return { error: 'the run is still recording: run the presets once it has ended' };
       if (!hasRecordedCommand(run)) return { error: 'A capture has no command. Replay it with yours first; the presets run on that replay.' };
       const imported = commandIsImported(run);
-      if (imported && req.confirmed !== true) return { error: `This run came from ${importedCommandSource(run)}: each preset runs its command (${run.command.argv.join(' ')}). Confirm to run it.`, status: 409 };
+      // The yes is to the command the question showed (consent.ts).
+      if (imported && !saidYes(req.confirmed, [run.command.argv])) return askConsent(`This run came from ${importedCommandSource(run)}: each preset runs its command (${quoteArgv(run.command.argv)}). Confirm to run it.`, [run.command.argv]);
       return { args: ['replay', run.runId, '--chaos', ...flags, ...(imported ? ['--yes'] : [])], runId: run.runId };
     },
   });

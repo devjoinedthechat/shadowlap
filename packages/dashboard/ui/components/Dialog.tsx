@@ -245,7 +245,7 @@ export function ConfirmDialog({ title, text, ok, danger = false, command, onOk, 
 
 /**
  * The yes a job waits for before it runs the command of a run from someone else's pack or the team
- * store (`asksConsent`): where it came from, the server's words naming the command, and the action.
+ * store (`consentAsked`): where it came from, the server's words naming the command, and the action.
  * It opens on Cancel, as it comes up after a click or an Enter of its own: an Enter pressed once too
  * often never runs someone else's command.
  */
