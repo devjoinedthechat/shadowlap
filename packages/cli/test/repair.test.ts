@@ -315,6 +315,10 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
       // candidates in structured_output, with the same three the mock repairer proposes.
       const log = join(bin, 'call.json');
       const script = `const { readFileSync, writeFileSync } = require('node:fs');
+if (process.argv[2] === '--version') {
+  process.stdout.write('2.1.248 (Claude Code)\\n');
+  process.exit(0);
+}
 let input = '';
 process.stdin.on('data', (d) => (input += d));
 process.stdin.on('end', () => {
@@ -347,8 +351,9 @@ process.stdin.on('end', () => {
       expect(report.repairer).toMatchObject({ served: 'claude-opus-5-5', cost: 0.0061 });
 
       const call = JSON.parse(readFileSync(log, 'utf8')) as { args: string[]; system: string; cwd: string; claudecode: string | null; input: string };
-      // No tool, MCP server, hook or project or user settings: what it reads is the failing runs' content.
-      expect(call.args.slice(0, 12)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--disallowed-tools', 'mcp__*', '--strict-mcp-config', '--setting-sources', '', '--max-turns', '2']);
+      // Restricted, with no tool, MCP server, hook or project or user settings, and no session kept:
+      // what it reads is the failing runs' content.
+      expect(call.args.slice(0, 12)).toEqual(['-p', '--output-format', 'json', '--tools', '', '--disallowed-tools', 'mcp__*', '--strict-mcp-config', '--restricted', '--no-session-persistence', '--max-turns', '2']);
       // The schema reaches it whole, quotes and all, through cmd.exe on Windows too.
       expect(JSON.parse(call.args[call.args.indexOf('--json-schema') + 1])).toMatchObject({ type: 'object', required: ['diagnosis', 'candidates'] });
       expect(call.args.slice(-2)).toEqual(['--model', 'claude-opus-5-5']);
@@ -564,6 +569,28 @@ process.stdin.on('end', () => {
     }
   });
 
+  it.skipIf(process.platform === 'win32')('finds out before it blames anything that the Claude Code it would ask is too old to run restricted', async () => {
+    const failed = await record();
+    mode = 'alternate';
+    const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
+    try {
+      // A Claude Code from before --restricted: it says which it is, and notes it if a repair asks it.
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nif (process.argv[2] === '--version') { console.log('2.1.200 (Claude Code)'); process.exit(0); }\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'asked'))}, process.argv.slice(2).join(' '));\n`);
+      chmodSync(join(bin, 'claude'), 0o755);
+      const before = mock.requests.length;
+      const old = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude') });
+      expect(old.code, old.out).toBe(1);
+      const report = JSON.parse(old.stdout) as Report & { noRepairer: string | null };
+      expect(report).toMatchObject({ outcome: 'not-fixed', noRepairer: "the repairer could not be asked: Claude Code 2.1.200 can't run a repair restricted", targets: [], candidates: [] });
+      expect(report.warnings).toContain("the repairer could not be asked: Claude Code 2.1.200 can't run a repair restricted: a repair runs it with --restricted, which needs Claude Code 2.1.248 or later: claude update");
+      // Blame never started, and the old Claude Code was never given the failing runs.
+      expect(mock.requests.length).toBe(before);
+      expect(existsSync(join(bin, 'asked'))).toBe(false);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+
   it('checks its flags before running anything', async () => {
     const { failed } = await runs();
     expect((await shadowlap(['repair', '--expect', ORACLE])).out).toContain('give the failing runs to repair');
@@ -770,8 +797,8 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     mode = 'alternate';
     const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
     try {
-      // A claude that never answers, and writes down its process id.
-      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+      // A claude that says its version and never answers a repair, and writes down its process id.
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nif (process.argv[2] === '--version') { console.log('2.1.248 (Claude Code)'); process.exit(0); }\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
       chmodSync(join(bin, 'claude'), 0o755);
       const started = Date.now();
       const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--repairer-timeout', '2', '--json'], { SHADOWLAP_CLAUDE: join(bin, 'claude') });
@@ -796,7 +823,7 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     mode = 'alternate';
     const bin = mkdtempSync(join(tmpdir(), 'fp-claude-'));
     try {
-      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
+      writeFileSync(join(bin, 'claude'), `#!${process.execPath}\nif (process.argv[2] === '--version') { console.log('2.1.248 (Claude Code)'); process.exit(0); }\nrequire('node:fs').writeFileSync(${JSON.stringify(join(bin, 'pid'))}, String(process.pid));\nsetInterval(() => {}, 1000);\n`);
       chmodSync(join(bin, 'claude'), 0o755);
       const child = spawn(process.execPath, [CLI, 'repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'claude-code', '--json'], {
         cwd: project,
