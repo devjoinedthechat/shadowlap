@@ -72,7 +72,10 @@ describe('checkEdit', () => {
     expect(edit('x', 9)).toEqual({ ok: false, reason: 'anchor 9 does not exist' });
     expect(edit('  ')).toEqual({ ok: false, reason: 'the replacement is empty' });
     expect(edit('You are a support agent. Follow the refund policy.')).toMatchObject({ ok: false });
-    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining("adds a ' quote the text it replaces has none of") });
+    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining("adds a ' quote, 1 where the text it replaces has none, which could end the string") });
+    // A span that has a quote already: the count says so, rather than that it has none.
+    const quoted: Anchor[] = [{ id: 1, surface: 'system prompt', text: "Don't refund above the limit.", file: 'agent.mjs', offset: 0 }];
+    expect(checkEdit({ anchor: 1, replace: "Don't refund, and don't promise one.", strategy: 's', why: 'w' }, quoted, forbidden)).toEqual({ ok: false, reason: "it adds a ' quote, 2 where the text it replaces has 1, which could end the string it goes into in agent.mjs" });
     expect(edit('You are a support agent.\nFollow the refund policy.')).toEqual({ ok: false, reason: expect.stringContaining('several lines') });
     expect(edit('a'.repeat(700))).toEqual({ ok: false, reason: expect.stringContaining('far longer') });
   });

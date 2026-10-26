@@ -240,11 +240,16 @@ function strays(text: string, syntax: TemplateSyntax): string[] {
   return [...text.matchAll(re)].map((m) => m[0]);
 }
 
-/** Why a stray character the replacement adds is refused: a quote or backslash breaks the string, anything else starts a placeholder. */
-function strayReason(ch: string, file: string): string {
-  if (ch === '\\') return `it adds a backslash the text it replaces has none of, which could escape the string it goes into in ${file}`;
-  if (ch === '"' || ch === "'" || ch === '`') return `it adds a ${ch} quote the text it replaces has none of, which could end the string it goes into in ${file}`;
-  return `it has ${ch} outside a placeholder, which could start one in ${file}: a rewrite keeps the placeholders of the text it replaces and adds none`;
+/**
+ * Why a stray character the replacement adds is refused, with how many of it each has: `has` in the
+ * replacement against `had` in the text it replaces. A quote or backslash breaks the string, anything
+ * else starts a placeholder.
+ */
+function strayReason(ch: string, had: number, has: number, file: string): string {
+  const counts = `${has} where the text it replaces has ${had === 0 ? 'none' : had}`;
+  if (ch === '\\') return `it adds a backslash, ${counts}, which could escape the string it goes into in ${file}`;
+  if (ch === '"' || ch === "'" || ch === '`') return `it adds a ${ch} quote, ${counts}, which could end the string it goes into in ${file}`;
+  return `it has ${ch} outside a placeholder, ${counts}, which could start one in ${file}: a rewrite keeps the placeholders of the text it replaces and adds none`;
 }
 
 /** What `from` has that `to` lacks, counting repeats: the placeholders a rewrite dropped, or added. */
@@ -508,8 +513,14 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   if (dropped.length) return { ok: false, reason: `it leaves out ${safeLine(dropped.join(', ')).slice(0, 120)}, which the text it replaces has: a rewrite keeps each placeholder as it is written` };
   // A quote, backslash or stray brace the replacement adds beyond what the span had: counted one at a
   // time, so a span that already holds an apostrophe can't add its literal's delimiter or a backslash.
-  const stray = lacking(strays(own, syntax), strays(was, syntax));
-  if (stray.length) return { ok: false, reason: strayReason(safeLine(stray[0]!), anchor.file) };
+  const ownStrays = strays(own, syntax);
+  const wasStrays = strays(was, syntax);
+  const stray = lacking(ownStrays, wasStrays);
+  if (stray.length) {
+    const ch = stray[0]!;
+    const count = (list: readonly string[]) => list.filter((x) => x === ch).length;
+    return { ok: false, reason: strayReason(safeLine(ch), count(wasStrays), count(ownStrays), anchor.file) };
+  }
   // The characters on either side of the span stay: a rewrite that starts after a `$` with a `{`,
   // or ends in a `%` before a `(`, makes a placeholder with them.
   if (anchor.prev !== undefined && OPENS.test(anchor.prev) && replace[0] !== anchor.text[0]) return { ok: false, reason: `it starts differently from the text it replaces, right after the ${anchor.prev} in ${anchor.file}, and the two could make a placeholder` };
