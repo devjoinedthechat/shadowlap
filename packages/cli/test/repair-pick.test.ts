@@ -149,6 +149,13 @@ describe('the candidate a repair keeps', { timeout: 120_000 }, () => {
     expect(e.bad).toBeCloseTo(1 - (1 - pass(loose, 0.7) ** 2) ** 3, 12);
   });
 
+  it('keeps none whose second verify could not run, such as a write the worktree refused, and tries the next', async () => {
+    const picker = new CandidatePicker<string>(0.05);
+    const kept = await picker.pick(['a', 'b'], { stopped: () => false, verify: (c, again) => Promise.resolve(c === 'a' && again ? 'undecided' : 'accepted') });
+    expect(kept).toBe('b');
+    expect(picker.decided).toBe(2);
+  });
+
   it('keeps none the gate accepted once when the repair stops before the second verify', async () => {
     const picker = new CandidatePicker<string>(0.05);
     let stop = false;

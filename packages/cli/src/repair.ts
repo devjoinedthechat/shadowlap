@@ -536,7 +536,8 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
           const before = c.verify;
           const result = await tryCandidate(c, edit);
           if (result && again) accepted = { c, ...result };
-          else if (again) c.reason = `the gate accepted it, then not when it was verified again with fresh attempts: ${c.reason ?? 'it did not pass'}`;
+          // Kept only once the second verify accepts it too: one that couldn't run (a write refused, a build that failed) is not.
+          else if (again) c.reason = `the gate accepted it once, but ${c.state === 'rejected' ? 'not when it was verified again with fresh attempts' : 'it could not be verified again'}: ${c.reason ?? 'it did not pass'}`;
           return result ? 'accepted' : c.verify !== before ? 'rejected' : 'undecided';
         },
       });
