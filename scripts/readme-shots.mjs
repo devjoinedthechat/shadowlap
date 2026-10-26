@@ -246,7 +246,8 @@ try {
   try {
     browser = await chromium.launch({ ...(process.env.CHROME ? { executablePath: process.env.CHROME } : {}), args: ['--disable-gpu', '--hide-scrollbars', '--force-color-profile=srgb'] });
   } catch (err) {
-    throw new Error(`readme-shots: no browser to take the pictures with (${String(err.message).split('\n')[0]}): install Playwright's headless shell (npx playwright install chromium-headless-shell, in packages/dashboard), or set CHROME=/path/to/chrome`);
+    const why = String(err.message).split('\n')[0] ?? '';
+    throw new Error(`readme-shots: no browser to take the pictures with (${why}): install Playwright's headless shell (npx playwright install chromium-headless-shell, in packages/dashboard), or set CHROME=/path/to/chrome`, { cause: err });
   }
   // No viewport of Playwright's: the pictures set their own sizes below.
   const page = await browser.newPage({ viewport: null });
