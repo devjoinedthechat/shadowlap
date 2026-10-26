@@ -449,8 +449,17 @@ describe('actions palette', () => {
     stdin.write('Be brief.');
     await frameWith(lastFrame, '› Be brief.');
     stdin.write('\r');
+    // The golden is imported with unpack, so its command is someone else's: the instruction isn't the
+    // consent. A step of its own shows the exact command line, and runs it only on a yes, passed on as --yes.
+    frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toContain(`${runId.slice(0, 10)} came from an imported pack. Replaying it runs the command it was recorded with:`);
+    expect(frame).toContain('node testing/reference-agent/dist/main.js');
+    expect(frame).toContain(`shadowlap replay ${runId} --inject '3=Be brief.' --inject-as user`);
+    expect(spawned).toEqual([]);
+    stdin.write('yes');
+    await frameWith(lastFrame, '› yes');
+    stdin.write('\r');
     const opened = await frameWith(lastFrame, 'Enter opens run');
-    // The golden is imported with unpack; submitting the prompt is the consent, passed on as --yes.
     expect(spawned).toEqual([['replay', runId, '--inject', '3=Be brief.', '--inject-as', 'user', '--yes']]);
     expect(opened).toContain('args: ["replay"');
     expect(opened).toContain('done');
@@ -458,6 +467,42 @@ describe('actions palette', () => {
     stdin.write('\r'); // open the created run: its timeline, whose header names it and its parent
     frame = await frameWith(lastFrame, `${fork.runId.slice(0, 10)} replay of ${runId.slice(0, 10)}`);
     expect(frame).toContain('0 calls');
+    store.close();
+  });
+
+  it('runs someone else’s command only on a yes of its own, after showing it exactly', async () => {
+    const { store, runId } = goldenStore();
+    const spawned: string[][] = [];
+    const spawnCli = (args: string[]) => {
+      spawned.push(args);
+      throw new Error('nothing is run here');
+    };
+    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={120} rows={30} />);
+    await frameWith(lastFrame, '> #1');
+    stdin.write(':');
+    await frameWith(lastFrame, 'The whole run');
+    // Replay from the start asks for nothing else: it goes straight to the question, with the command.
+    stdin.write('r');
+    let frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toContain('Replaying it runs the command it was recorded with:');
+    expect(frame).toContain(`shadowlap replay ${runId}`);
+    // Anything but a yes runs nothing, and says so.
+    stdin.write('ok');
+    await frameWith(lastFrame, '› ok');
+    stdin.write('\r');
+    await frameWith(lastFrame, 'not run: it runs only once you type yes');
+    expect(spawned).toEqual([]);
+    // Nor does answering what an action asks first: attempts, then the question again, then Esc.
+    stdin.write(':');
+    await frameWith(lastFrame, 'The whole run');
+    stdin.write('e');
+    await frameWith(lastFrame, 'Enter to confirm');
+    stdin.write('\r');
+    frame = await frameWith(lastFrame, 'Type yes to run it:');
+    expect(frame).toMatch(new RegExp(`shadowlap replay ${runId} --repeat \\d+`));
+    stdin.write('\u001b');
+    await frameWithout(lastFrame, 'Type yes to run it:');
+    expect(spawned).toEqual([]);
     store.close();
   });
 

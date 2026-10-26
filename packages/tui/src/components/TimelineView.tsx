@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
-import { formatDuration, formatTokens, formatUsd, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
+import { formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, runLabel } from '../data.js';
 import { fitItems, truncate } from '../render.js';
@@ -44,6 +44,8 @@ type Mode =
   | { kind: 'diff' }
   | { kind: 'actions' }
   | { kind: 'prompt'; action: Action }
+  /** A replay of someone else's run, asked once more on its own: the exact command line it runs, then a yes. */
+  | { kind: 'consent'; action: Action; args: string[] }
   | { kind: 'search' }
   | { kind: 'output'; title: string; child: ChildProcess };
 
@@ -133,10 +135,19 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     const child = spawnCli(args);
     setMode({ kind: 'output', title: `shadowlap ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, child });
   };
+  // A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
+  // their command: whatever the action asked first (attempts, an instruction), it runs only once a
+  // step of its own has shown the exact command line and been answered yes, as the dashboard asks.
   const pick = (action: Action) => {
     if (action.disabled || !spawnCli) return;
-    if (action.prompt) setMode({ kind: 'prompt', action });
+    if (action.imported === 'confirm') setMode({ kind: 'consent', action, args: action.prompt!.build('yes') });
+    else if (action.prompt) setMode({ kind: 'prompt', action });
     else if (action.args) runAction(action.args);
+  };
+  /** What the job runs after `shadowlap`, as the consent shows it: without the --yes it carries for the CLI. */
+  const shownArgs = (args: readonly string[]) => {
+    const end = args.indexOf('--');
+    return args.filter((a, i) => a !== '--yes' || (end >= 0 && i > end));
   };
 
   const payloadOf = (c: CallRecord, which: 'request' | 'response'): string => {
@@ -336,10 +347,36 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
             active
             onSubmit={(value) => {
               const args = value.trim() ? mode.action.prompt!.build(value.trim()) : [];
-              if (args.length) runAction(args);
+              if (args.length && mode.action.imported) setMode({ kind: 'consent', action: mode.action, args });
+              else if (args.length) runAction(args);
               else {
                 setMode({ kind: 'timeline' });
                 if (value.trim()) say(notRun(run));
+              }
+            }}
+            onCancel={() => setMode({ kind: 'timeline' })}
+          />
+        </Box>
+      ) : mode.kind === 'consent' ? (
+        <Box flexDirection="column" width={width} height={height - 2} borderStyle="round" borderColor="yellow" paddingX={1}>
+          <Text bold>{mode.action.label}</Text>
+          <Text>
+            {run.runId.slice(0, 10)} came from {importedCommandSource(run)}. Replaying it runs the command it was recorded with:
+          </Text>
+          <Text color="yellow">  {quoteArgv(run.command.argv)}</Text>
+          <Text>under</Text>
+          <Text color="yellow">  {quoteArgv(['shadowlap', ...shownArgs(mode.args)])}</Text>
+          <TextInput
+            stacked
+            label="Type yes to run it:"
+            placeholder="yes"
+            active
+            onSubmit={(value) => {
+              const args = mode.args;
+              if (/^y(es)?$/i.test(value.trim())) runAction(args);
+              else {
+                setMode({ kind: 'timeline' });
+                say('not run: it runs only once you type yes');
               }
             }}
             onCancel={() => setMode({ kind: 'timeline' })}
