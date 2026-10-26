@@ -5,12 +5,13 @@ import { Store } from '@shadowlap/engine';
 import { Sidecar } from '../src/server.js';
 
 /**
- * State a recording left on a provider's side that a fork's live call names: a Gemini context cache,
- * and a file the recorded run uploaded through OpenAI's, Anthropic's or Gemini's Files API. The
- * provider keeps each only for the account that made it, and the cache and Gemini's files only for a
- * while, so the live call is sent with the cache's contents, or the file's bytes, in their place,
- * rebuilt from the recording; a file it holds no copy of is sent as it was, with a warning, unless
- * Gemini has deleted it already, which refuses the call with why.
+ * State a recording left on a provider's side that a fork's live call names: a context cache on the
+ * Gemini API or Vertex AI, a file the recorded run uploaded through OpenAI's, Anthropic's or Gemini's
+ * Files API, and a vector store it made. The provider keeps each only for the account that made it,
+ * and the cache and Gemini's files only for a while, so the live call is sent with the cache's
+ * contents, or the file's bytes, in their place, rebuilt from the recording; a file it holds no copy
+ * of, or one a request names by its id alone, and a vector store, are sent as they were, with a
+ * warning, unless Gemini has deleted the file already, which refuses the call with why.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -65,7 +66,7 @@ const upload = async (url: string, headers: Record<string, string>, purpose?: st
 
 const GEMINI_ANSWER = { candidates: [{ content: { role: 'model', parts: [{ text: 'Yes, within 30 days.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 5 } };
 
-describe('a Gemini context cache the recording made', () => {
+describe('a context cache the recording made', () => {
   it("is sent as the cache's contents when a fork's live call names it", async () => {
     const google = await provider((path) => (path.endsWith('/cachedContents') ? { name: 'cachedContents/refund-desk', model: 'models/gemini-2.5-flash', expireTime: '2026-10-25T11:00:00Z' } : GEMINI_ANSWER));
     const store = Store.open(':memory:');
@@ -93,6 +94,97 @@ describe('a Gemini context cache the recording made', () => {
       // The fork's recording keeps the request as the agent sent it.
       const [, sent] = store.getCalls(fork.runId);
       expect(sent.origin).toBe('live');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it("is sent as the cache's contents on Vertex AI too, where the cache is the project's", async () => {
+    const PLACE = '/v1/projects/dev-alice/locations/us-central1';
+    const NAME = 'projects/412907/locations/us-central1/cachedContents/7340';
+    const google = await provider((path) => (path.endsWith('/cachedContents') ? { name: NAME, model: `${PLACE.slice(4)}/publishers/google/models/gemini-2.5-flash`, expireTime: '2026-10-25T11:00:00Z' } : GEMINI_ANSWER));
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { vertex: google.url } });
+    const cache = { model: `${PLACE.slice(4)}/publishers/google/models/gemini-2.5-flash`, systemInstruction: { parts: [{ text: 'You are the refund desk.' }] }, contents: [{ role: 'user', parts: [{ text: 'POLICY: refunds within 30 days of delivery.' }] }], ttl: '3600s' };
+    const ask = { contents: [{ role: 'user', parts: [{ text: 'Can I return order A-1042?' }] }] };
+    const agent = async (runId: string) => {
+      const base = `${sidecar.url}/r/${runId}/vertex${PLACE}`;
+      const made = await post(`${base}/cachedContents`, cache, { authorization: 'Bearer ya29.test' });
+      return post(`${base}/publishers/google/models/gemini-2.5-flash:generateContent`, { ...ask, cachedContent: made.body.name }, { authorization: 'Bearer ya29.test' });
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 2 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(google.seen).toHaveLength(3);
+      expect(google.seen[2].body).toEqual({ systemInstruction: cache.systemInstruction, contents: [...cache.contents, ...ask.contents] });
+      expect(summary.warnings.join('\n')).toContain(`call 2 used ${NAME}, which the recording made at call #1`);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('a file or vector store a request names by its id alone', () => {
+  it("is sent as it was, and the run names each, with the call to fork from (OpenAI's code interpreter and file search)", async () => {
+    const openai = await provider((path) =>
+      path === '/v1/files'
+        ? { id: 'file-policy', object: 'file', bytes: PDF.length, filename: 'refund-policy.pdf', purpose: 'user_data' }
+        : path === '/v1/vector_stores'
+          ? { id: 'vs_refunds', object: 'vector_store', name: 'refunds' }
+          : { id: 'resp_1', object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Thirty days.' }] }] },
+    );
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { openai: openai.url } });
+    const ask = (file: unknown, vs: unknown) => ({ model: 'gpt-5', tools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: [file] } }, { type: 'file_search', vector_store_ids: [vs] }], input: 'How long do I have?' });
+    const agent = async (runId: string) => {
+      const base = sidecar.envFor(runId).OPENAI_BASE_URL;
+      const file = await upload(`${base}/files`, { authorization: 'Bearer k' }, 'user_data');
+      const vs = await post(`${base}/vector_stores`, { name: 'refunds', file_ids: [file.id] }, { authorization: 'Bearer k' });
+      return post(`${base}/responses`, ask(file.id, vs.body.id), { authorization: 'Bearer k' });
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 3 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(openai.seen.at(-1)).toEqual({ path: '/v1/responses', body: ask('file-policy', 'vs_refunds') });
+      const said = summary.warnings.join('\n');
+      expect(said).toMatch(/call 3 names file file-policy in file_ids, which the recorded run uploaded at call #1 and OpenAI keeps only for the organization that uploaded it; it goes by its id alone, so the call was sent as it was, and it fails with another account's key\. Fork from the upload \(--diverge-at 1\)/);
+      expect(said).toMatch(/call 3 names vector store vs_refunds in vector_store_ids, which the recorded run made at call #2 and OpenAI keeps only for the organization that made it; .* Fork from where it was made \(--diverge-at 2\)/);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it("is sent as it was, and the run names it (a file in Anthropic's code execution container)", async () => {
+    const anthropic = await provider((path) => (path === '/v1/files' ? { id: 'file_011data', type: 'file', filename: 'orders.csv', mime_type: 'text/csv', size_bytes: 12 } : { id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Three late orders.' }], stop_reason: 'end_turn', usage: { input_tokens: 9, output_tokens: 3 } }));
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: anthropic.url } });
+    const headers = { 'x-api-key': 'k', 'anthropic-version': '2023-06-01', 'anthropic-beta': 'files-api-2025-04-14,code-execution-2025-08-25' };
+    const ask = (file: unknown) => ({ model: 'claude-opus-5', max_tokens: 64, tools: [{ type: 'code_execution_20250825', name: 'code_execution' }], messages: [{ role: 'user', content: [{ type: 'text', text: 'How many orders are late?' }, { type: 'container_upload', file_id: file }] }] });
+    const agent = async (runId: string) => {
+      const base = sidecar.envFor(runId).ANTHROPIC_BASE_URL;
+      const file = await upload(`${base}/v1/files`, headers);
+      return post(`${base}/v1/messages`, ask(file.id), headers);
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 2 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(anthropic.seen.at(-1)).toEqual({ path: '/v1/messages', body: ask('file_011data') });
+      expect(summary.warnings.join('\n')).toMatch(/call 2 names file file_011data in a container_upload, which the recorded run uploaded at call #1 and Anthropic keeps only for the workspace that uploaded it; it goes by its id alone, so the call was sent as it was, .* \(--diverge-at 1\)/);
     } finally {
       await sidecar.close();
       store.close();
