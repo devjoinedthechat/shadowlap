@@ -35,6 +35,8 @@ export interface Statements {
   countCalls: SqliteStatement;
   countAgentCalls: SqliteStatement;
   deleteRun: SqliteStatement;
+  /** Whether the connection is read-only just now (query sets it for each read). */
+  queryOnly: SqliteStatement;
 }
 
 export function prepareStatements(db: SqliteDatabase): Statements {
@@ -66,6 +68,7 @@ export function prepareStatements(db: SqliteDatabase): Statements {
             - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge') AS n`,
     ),
     deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
+    queryOnly: db.prepare('PRAGMA query_only'),
   };
 }
 
@@ -126,7 +129,9 @@ export function ulidNow(): string {
  * caller does. What a part reads of the store is declared here; what it calls of another part, in
  * the part. A part writes its own tables only: what it keeps of a run that another part deletes, it
  * deletes in its onRunDeleted. A part has methods only: what one keeps for as long as the store is
- * open is a field of Store's, which the part declares (as query's statement cache is).
+ * open is a field of Store's, which the part declares (as query's statement cache is), and reads
+ * through `this` but never assigns, as `this` may be a view of the store (storeView in store.ts),
+ * which would take the assignment as its own.
  */
 export abstract class StorePart {
   /** The store's connection. */

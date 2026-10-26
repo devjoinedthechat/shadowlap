@@ -1,14 +1,9 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Store } from '../src/store.js';
-import { StorePart } from '../src/store/core.js';
+import { Store, storeView } from '../src/store.js';
+import { StorePart, type QueuedWrites } from '../src/store/core.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
-
-/** A view of the store, as redact.ts and run-offers.ts make one: the store with one method replaced. */
-function viewOf<K extends keyof Store>(store: Store, name: K, method: Store[K]): Store {
-  return Object.create(store, { [name]: { value: method } }) as Store;
-}
 
 describe('Store, made of parts', () => {
   it('calls its own methods through the store, so a view that replaces one is what the others call', () => {
@@ -17,18 +12,22 @@ describe('Store, made of parts', () => {
 
     // previewRedaction counts what it reads this way: getJson reads through the view's getBlob.
     const read: string[] = [];
-    const counting = viewOf(store, 'getBlob', (h: string) => {
-      read.push(h);
-      return store.getBlob(h);
+    const counting = storeView(store, {
+      getBlob: (h) => {
+        read.push(h);
+        return store.getBlob(h);
+      },
     });
     expect(counting.getJson(hash)).toEqual({ hello: 'world' });
     expect(read).toEqual([hash]);
 
     // putJson writes through the view's putBlob.
     const written: number[] = [];
-    const writing = viewOf(store, 'putBlob', (bytes: Uint8Array) => {
-      written.push(bytes.length);
-      return store.putBlob(bytes);
+    const writing = storeView(store, {
+      putBlob: (bytes) => {
+        written.push(bytes.length);
+        return store.putBlob(bytes);
+      },
     });
     writing.putJson({ n: 1 });
     expect(written).toEqual([7]);
@@ -36,11 +35,16 @@ describe('Store, made of parts', () => {
     // findRun reads the run through the view's getRun, as run-offers' view of a run shown interrupted is read.
     const run = store.createRun({ mode: 'record', command: cmd });
     store.endRun(run.runId, 'completed');
-    const shown = viewOf(store, 'getRun', (id: string) => {
-      const got = store.getRun(id);
-      return got && { ...got, status: 'failed' };
+    const shown = storeView(store, {
+      getRun: (id) => {
+        const got = store.getRun(id);
+        return got && { ...got, status: 'failed' };
+      },
     });
     expect(shown.findRun(run.runId)?.status).toBe('failed');
+    // A method that reads the runs itself reads them as stored, and the store itself is as it was.
+    expect(shown.listRuns().map((r) => r.status)).toEqual(['completed']);
+    expect(store.findRun(run.runId)?.status).toBe('completed');
     store.close();
   });
 
@@ -48,7 +52,7 @@ describe('Store, made of parts', () => {
     const store = Store.open(':memory:');
     const run = store.createRun({ mode: 'record', command: cmd });
     store.endRun(run.runId, 'completed');
-    const recording = viewOf(store, 'recordingRuns', () => ({ live: [{ run, lastAt: Date.now() }], abandoned: [] }));
+    const recording = storeView(store, { recordingRuns: () => ({ live: [{ run, lastAt: Date.now() }], abandoned: [] }) });
     expect(store.deletionHold(run.runId)).toBeNull();
     expect(recording.deletionHold(run.runId)).toBe('still recording');
     expect(recording.gcBlobs().recording).toEqual([run.runId]);
@@ -58,14 +62,63 @@ describe('Store, made of parts', () => {
   it('runs a part’s writes in the transaction the store is asked for', () => {
     const store = Store.open(':memory:');
     const modes: string[] = [];
-    const watched = viewOf(store, 'transaction', <T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T => {
-      modes.push(mode);
-      return store.transaction(fn, mode);
+    const watched = storeView(store, {
+      transaction: <T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T => {
+        modes.push(mode);
+        return store.transaction(fn, mode);
+      },
     });
     watched.addTeamBlobs('s3://bucket/project', ['a', 'b']);
     expect(modes).toEqual(['immediate']);
     expect([...store.knownTeamBlobs('s3://bucket/project', ['a', 'b', 'c'])]).toEqual(['a', 'b']);
     store.close();
+  });
+
+  it('makes a view that keeps nothing of its own but its replacements', () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: cmd });
+    const view = storeView(store, { getRun: (id) => store.getRun(id) });
+    // The connection, query's statements and the writes queued are the store's, used through the view.
+    expect(view.query('SELECT COUNT(*) AS n FROM runs')).toEqual([{ n: 1 }]);
+    const settled: string[] = [];
+    const queue: QueuedWrites = { settle: (runId) => void settled.push(runId) };
+    const stop = view.queueWrites(queue);
+    store.countCalls(run.runId);
+    expect(settled).toEqual([run.runId]);
+    stop();
+    expect(Reflect.ownKeys(view)).toEqual(['getRun']);
+    store.close();
+  });
+
+  it('takes for a replacement a function of the method’s own type, with no `this`, for a method the store has', () => {
+    const store = Store.open(':memory:');
+    // Refused when the tests are type-checked (npm run typecheck:tests), as these lines say.
+    const refused = [
+      // @ts-expect-error getRun gives a run or null
+      () => storeView(store, { getRun: () => 42 }),
+      // @ts-expect-error a replacement has no `this`: it would be the view, whose getBlob is the replacement itself
+      () => storeView(store, { getBlob(hash) { return this.getBlob(hash); } }),
+      // @ts-expect-error the store has no such method
+      () => storeView(store, { getRuns: () => [] }),
+    ];
+    expect(refused).toHaveLength(3);
+    store.close();
+  });
+
+  it('is viewed through storeView only, and its parts assign no field through `this`, which may be a view', () => {
+    const packages = new URL('../../', import.meta.url);
+    const made: string[] = [];
+    for (const pkg of readdirSync(packages)) {
+      const src = new URL(`${pkg}/src/`, packages);
+      if (!existsSync(src)) continue;
+      for (const file of readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) => /\.tsx?$/.test(f))) {
+        if (/Object\.create\((?!null\))/.test(readFileSync(new URL(file, src), 'utf8'))) made.push(`${pkg}/src/${file}`);
+      }
+    }
+    expect(made).toEqual(['engine/src/store.ts']);
+    const parts = new URL('../src/store/', import.meta.url);
+    const assigned = readdirSync(parts).flatMap((file) => [...readFileSync(new URL(file, parts), 'utf8').matchAll(/\bthis\.(\w+)\s*(?:[-+*/%&|^]|\?\?|&&|\|\|)?=(?!=)|\bthis\.(\w+)(?:\+\+|--)/g)].map((m) => `${file}: this.${m[1] ?? m[2]}`));
+    expect(assigned).toEqual([]);
   });
 
   it('has each of its methods once, as a class method is defined', () => {

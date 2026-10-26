@@ -72,7 +72,6 @@ export class Store {
   private readonly stmts: Statements;
   // query's statements (store/read-models.ts), one set per connection.
   private readonly readStatements = new Map<string, SqliteStatement>();
-  private queryOnlyState: SqliteStatement | null = null;
   // Writes queued in this process and not made yet (store/recording.ts, queueWrites).
   private readonly queues = new Set<QueuedWrites>();
 
@@ -132,10 +131,9 @@ mixIn(PARTS);
 
 /**
  * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call
- * from one to another goes through the store, as a caller's does, so a view of the store made with
- * Object.create that replaces a method (getBlob, to count what is read) is what the others call too.
- * A name two places define stops store.ts loading. A part's onRunDeleted is kept aside instead, for
- * forgetRun: more than one part has one.
+ * from one to another goes through the store, as a caller's does, so a view of the store (storeView)
+ * that replaces a method is what the others call too. A name two places define stops store.ts
+ * loading. A part's onRunDeleted is kept aside instead, for forgetRun: more than one part has one.
  */
 function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
   for (const part of parts) {
@@ -151,4 +149,25 @@ function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart
       Object.defineProperty(Store.prototype, key, method);
     }
   }
+}
+
+/** A method of the store as a view replaces it (storeView): its parameters and its result, with no `this`. */
+type Replacement<Method> = Method extends (...args: infer Args) => infer Result ? (this: void, ...args: Args) => Result : never;
+
+/**
+ * A view of `store`: the store with the methods in `replaced` in place of its own, as a caller makes
+ * one to count what is read (getBlob), to read each blob once (getJson) or to show a run otherwise
+ * than it is stored (getRun). Each of the store's other methods runs with `this` the view, and so
+ * calls a replacement wherever it calls the method replaced, as every part's method calls another
+ * through `this`: getJson reads by getBlob, updateRunMeta and findRun given a whole id read a run by
+ * getRun, a deletion and gc ask recordingRuns. A method that reads the same rows itself does not:
+ * listRuns, childRuns and findRun given a prefix read runs without getRun. A replacement has no
+ * `this`: it reaches the store through the store it closes over, whose own method it calls so, not
+ * itself. The view keeps nothing of its own but its replacements: the connection, the statements
+ * and the writes queued are the store's, as a part only ever reads its fields through `this`.
+ */
+export function storeView(store: Store, replaced: { [Name in keyof Store]?: Replacement<Store[Name]> }): Store {
+  const view = Object.create(store) as Store;
+  for (const [name, method] of Object.entries(replaced)) Object.defineProperty(view, name, { value: method, writable: true, configurable: true });
+  return view;
 }

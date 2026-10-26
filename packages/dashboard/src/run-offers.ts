@@ -1,4 +1,4 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, storeView, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
@@ -275,7 +275,7 @@ function asListed(store: Store, run: RunRecord): Store {
   const state = runState(store, run.runId);
   if (!state || state.status === run.status) return store;
   const shown: RunRecord = { ...run, status: state.status, endedAt: run.endedAt ?? state.endedAt };
-  return Object.create(store, { getRun: { value: (id: string) => (id === run.runId ? shown : store.getRun(id)) } }) as Store;
+  return storeView(store, { getRun: (id) => (id === run.runId ? shown : store.getRun(id)) });
 }
 
 export function runOffers(store: Store, idOrPrefix: string, input: RunOffersInput): RunOffers | null {
