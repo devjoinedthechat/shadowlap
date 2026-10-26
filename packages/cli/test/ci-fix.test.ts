@@ -544,6 +544,27 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
+  it('keeps a write\'s recorded error, which the run said, from making a workflow command of the job\'s log', async () => {
+    // The refund fails, with an error that holds workflow commands, and the agent goes on to end the run.
+    const planted = 'refund_blocked: A-1042\n::error::x\n::stop-commands::t';
+    await setUp({ expect: EXPECT }, (source) =>
+      source
+        .replace("outbox({ tool: 'issue_refund', ...args });", `outbox({ tool: 'issue_refund', ...args });\n    throw new Error(${JSON.stringify(planted)});`)
+        .replace('content: JSON.stringify(await impls[use.name](use.input))', 'content: JSON.stringify(await impls[use.name](use.input).catch((e) => ({ error: e.message })))'),
+    );
+    // Every attempt refunds again, and meets the recorded error: blame finds no answer of the model's lost the run, and says why in its words.
+    mode = 'refund';
+    const r = await action({ FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' });
+    expect(r.code, r.out).toBe(0);
+    expect(r.outputs).toMatchObject({ failed: '1', fixes: '0' });
+    expect(r.out).toContain("refund-over-limit: no fix pull request: every attempt failed on issue_refund's recorded error (refund_blocked: A-1042%0A::error::x%0A::stop-commands::t)");
+    // No line of the log is a command but the action's own and the CLI's annotations.
+    const commands = r.out.split(/\r\n|\r|\n/).filter((l) => /^[\s\u0085]*(::|##\[)/.test(l));
+    expect(commands.length).toBeGreaterThan(0);
+    for (const line of commands) expect(line, line).toMatch(/^::(error|warning|notice) (title=Shadowlap|file=[^,:]+,title=Shadowlap%3A [^:]+)::/);
+    expect(r.out).not.toMatch(/^[\s\u0085]*::(error::x|stop-commands)/m);
+  });
+
   it('says why there is no fix when the repairer can’t be asked, as when claude isn’t on the runner', async () => {
     await setUp({ expect: EXPECT });
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', REPAIRER: 'claude-code', FAIL_ON_DIVERGENCE: 'false' }, { SHADOWLAP_CLAUDE: '/nonexistent/claude' });

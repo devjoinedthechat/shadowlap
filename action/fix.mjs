@@ -28,6 +28,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { dispatchWorkflow, githubToken, tokenEnv } from './github.mjs';
+import { annotation, logLine, logLines } from './log.mjs';
 import { markdownCode, markdownFence, markdownText } from './markdown.mjs';
 
 /** Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports. */
@@ -704,15 +705,12 @@ export function pushFix({ cli, db, workdir, env, fixIds = [], sentInJob = new Se
   return failed(stayed ? `runs stayed in the job, so the fix may have too: ${stayed.reason}` : "shadowlap push didn't report sending it");
 }
 
-/** A workflow command's message on one line, as GitHub reads it: `%`, CR and LF escaped. */
-const commandText = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
-
-/** What the job's log says about a fix's push: one that couldn't happen is a warning, with why. */
+/** What the job's log says about a fix's push: one that couldn't happen is a warning, with why. Either is a line no workflow command can start in. */
 export function pushLine(name, pushed) {
   if (pushed.state === 'sent') return 'the fix was sent to the team store';
-  if (pushed.state === 'pr') return `the fix's runs went to pull request ${pushed.pr}'s own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page`;
-  if (pushed.state === 'off') return `the fix was not sent to the team store: ${pushed.why}`;
-  return `::warning title=Shadowlap::${commandText(`${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`)}`;
+  if (pushed.state === 'pr') return logLine(`the fix's runs went to pull request ${pushed.pr}'s own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page`);
+  if (pushed.state === 'off') return logLine(`the fix was not sent to the team store: ${pushed.why}`);
+  return annotation('warning', `${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`);
 }
 
 /**
@@ -778,9 +776,10 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         writeFileSync(expectFile, JSON.stringify(r.expect));
         const gateFile = plan.gate?.kind === 'sprt' ? join(scratch, `${n}-gate.json`) : null;
         if (gateFile) writeFileSync(gateFile, JSON.stringify({ good: plan.gate.good, bad: plan.gate.bad, risk: plan.gate.risk, max: plan.gate.max }));
-        log(line);
+        log(logLine(line));
         const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile, guard, build })], workdir, fixEnv);
-        if (res.stderr) process.stderr.write(res.stderr);
+        // Repair's own output, as it printed it, but no line of it a workflow command: it quotes runs and errors.
+        if (res.stderr) process.stderr.write(logLines(res.stderr));
         let repair = null;
         try {
           repair = JSON.parse(res.stdout);
@@ -797,7 +796,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
       // No patch fixed them all: one that fixes one of them is still a fix, and the group's one pull request.
       const alone = [];
       if (!chosen && group.members.length > 1 && worthSplitting(together.repair) && spent < allowed) {
-        log(`no fix was accepted for ${listed(goldens)} together (${together.why}), so each is repaired on its own, until a fix is accepted for one`);
+        log(logLine(`no fix was accepted for ${listed(goldens)} together (${together.why}), so each is repaired on its own, until a fix is accepted for one`));
         for (const m of group.members) {
           const left = Number((allowed - spent).toFixed(6));
           if (left <= 0) break;
@@ -828,15 +827,15 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const leftOut = group.members.filter((m) => !chosen.members.includes(m));
         const unfixedWhy = leftOut.length ? leftOutWhy(goldens, together.why, chosen.members.map(goldenOf)) : null;
         const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, build, env: fixEnv, scratch });
-        if (branchState.warning) log(`::warning title=Shadowlap::${commandText(`${names}: ${branchState.warning}`)}`);
+        if (branchState.warning) log(annotation('warning', `${names}: ${branchState.warning}`));
         for (const g of branchState.goldens) {
-          if (g.state === 'recorded') log(`${g.golden} re-recorded on ${branch}`);
-          else if (g.state === 'stale') log(`${g.golden} not re-recorded on ${branch}: ${String(g.why)}`);
-          else if (g.state === 'unfixed') log(`${g.golden} fails the same check, and the fix on ${branch} is not verified for it${g.fork ? '' : `: see whether it fixes it too with shadowlap test ${g.golden} --update on the branch`}`);
-          else log(`${g.golden} may fork: left as it is`);
+          if (g.state === 'recorded') log(logLine(`${g.golden} re-recorded on ${branch}`));
+          else if (g.state === 'stale') log(logLine(`${g.golden} not re-recorded on ${branch}: ${String(g.why)}`));
+          else if (g.state === 'unfixed') log(logLine(`${g.golden} fails the same check, and the fix on ${branch} is not verified for it${g.fork ? '' : `: see whether it fixes it too with shadowlap test ${g.golden} --update on the branch`}`));
+          else log(logLine(`${g.golden} may fork: left as it is`));
         }
         const diverging = branchState.others.diverging;
-        if (diverging.length) log(`${diverging.join(' ')} ${diverging.length === 1 ? 'diverges' : 'diverge'} on ${branch} under the fix: re-record with shadowlap test ${diverging.join(' ')} --update on the branch`);
+        if (diverging.length) log(logLine(`${diverging.join(' ')} ${diverging.length === 1 ? 'diverges' : 'diverge'} on ${branch} under the fix: re-record with shadowlap test ${diverging.join(' ')} --update on the branch`));
         // The body is kept beside repair's report, to be read after the job.
         const reportFile = resolve(workdir, repair.output.report ?? join(repair.output.dir ?? '.', 'report.md'));
         const bodyFile = join(dirname(reportFile), 'pull-request.md');
@@ -851,7 +850,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         if (onOrigin.ok) {
           const dispatch = auth.startsWorkflows ? null : await dispatchWorkflow({ env, auth, branch, fetch: fetchFn });
           checks = auth.startsWorkflows ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
-          if (dispatch && !dispatch.dispatched) log(`::warning title=Shadowlap::${commandText(`${names}: the fix's pull request has no check started: ${String(dispatch.why)}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`)}`);
+          if (dispatch && !dispatch.dispatched) log(annotation('warning', `${names}: the fix's pull request has no check started: ${String(dispatch.why)}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`));
           writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}\n${evidenceNote(chosen.attempt.plan)}\n${checksNote({ auth, dispatch })}`);
           opened = createPullRequest(root, branch, bodyFile, ghEnv);
         }

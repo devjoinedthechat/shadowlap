@@ -10,7 +10,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
 import { HOSTILE } from '../../engine/test/markdown-cases.js';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
-import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
 import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
 import { dispatchWorkflow, githubToken, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
@@ -515,6 +516,33 @@ describe('the inputs in action.yml', () => {
     // The CLI comes from npm unless the step asks for a source build.
     expect(yml).toContain("id: install\n      if: inputs.build-from-source != 'true'");
     expect(yml).toContain("id: build\n      if: inputs.build-from-source == 'true'");
+  });
+});
+
+describe("what the Action writes to the job's log", () => {
+  // The runner reads a line whose text starts with `::` (or `##[`) as a workflow command: an annotation,
+  // add-mask, or stop-commands, which silences the action's own warnings after it.
+  const nel = String.fromCharCode(0x85);
+
+  it('keeps what a run, a model, git or GitHub wrote on its one line, and never at the start of one as a command', () => {
+    const planted = "refund_blocked: A-1042\n::error::x\n::stop-commands::t";
+    expect(commandText(planted)).toBe('refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
+    expect(logLine(`refund-flow: no fix pull request: ${planted}`)).toBe('refund-flow: no fix pull request: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
+    expect(logLine('100% done\r\n::stop-commands::t')).toBe('100%25 done%0D%0A::stop-commands::t');
+    // A line that would itself start one: past the spaces the runner trims, NEL among them.
+    expect(logLine('::error::x: no fix pull request')).toBe('%3A:error::x: no fix pull request');
+    expect(logLine('  ::add-mask::y')).toBe('  %3A:add-mask::y');
+    expect(logLine(`${nel}::warning::y`)).toBe(`${nel}%3A:warning::y`);
+    expect(logLine('##[error]w')).toBe('%23#[error]w');
+    expect(logLine('a :: b ##[ c')).toBe('a :: b ##[ c');
+    // The action's own annotations: its title, what they say as their data.
+    expect(annotation('warning', `refund-flow: ${planted}`)).toBe('::warning title=Shadowlap::refund-flow: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
+    expect(pushLine('refund-flow', { state: 'off', why: planted, pr: null })).toBe('the fix was not sent to the team store: refund_blocked: A-1042%0A::error::x%0A::stop-commands::t');
+  });
+
+  it("passes another program's lines on as they are, but none of them as a command", () => {
+    expect(logLines('repairing\n::error::x\r\n  ::stop-commands::t\n##[group]g\nlast')).toBe('repairing\n%3A:error::x\r\n  %3A:stop-commands::t\n%23#[group]g\nlast');
+    expect(logLines('one\rtwo ::x::')).toBe('one\rtwo ::x::');
   });
 });
 

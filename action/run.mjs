@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
 import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
+import { annotation, logLine } from './log.mjs';
 
 /**
  * The step's outputs from a test report and the fixes opened, each named once, as action.yml declares
@@ -46,7 +47,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     return v === 'true';
   };
   function fail(message) {
-    process.stdout.write(`::error title=Shadowlap::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}\n`);
+    process.stdout.write(`${annotation('error', message)}\n`);
     process.exit(1);
   }
 
@@ -119,7 +120,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const auth = githubToken(env);
   const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
 
-  process.stdout.write(`shadowlap test ${packs.join(' ')}\n`);
+  process.stdout.write(`${logLine(`shadowlap test ${packs.join(' ')}`)}\n`);
   const r = spawnSync(process.execPath, args, { cwd: workdir, stdio: 'inherit', env: cliEnv });
   if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${String(r.status ?? r.signal)}); its output is above`);
 
@@ -130,17 +131,18 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (fixOnFailure && report.failed && !report.interrupted) {
     fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuild, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
     for (const f of fixes) {
-      if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${String(f.pr)}\n`);
-      else process.stdout.write(`${f.name}: no fix pull request: ${String(f.why)}\n`);
+      // A fix's why can quote a run (a write's recorded error) or git and GitHub: never a workflow command here.
+      if (f.outcome === 'opened') process.stdout.write(`${annotation('notice', `${f.name}: opened ${String(f.pr)}`)}\n`);
+      else process.stdout.write(`${logLine(`${f.name}: no fix pull request: ${String(f.why)}`)}\n`);
     }
   }
   // On a pull request, one comment with each golden's verdict, edited in place. Never fails the job.
   let posted = null;
   if (comment && !report.interrupted) {
     posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
-    if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}\n`);
-    else if (posted.state === 'failed') process.stdout.write(`::warning title=Shadowlap::the pull request comment was not posted: ${String(posted.why)}\n`);
-    else if (posted.state !== 'none') process.stdout.write(`the pull request comment was not posted: ${String(posted.why)}\n`);
+    if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`${logLine(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}`)}\n`);
+    else if (posted.state === 'failed') process.stdout.write(`${annotation('warning', `the pull request comment was not posted: ${String(posted.why)}`)}\n`);
+    else if (posted.state !== 'none') process.stdout.write(`${logLine(`the pull request comment was not posted: ${String(posted.why)}`)}\n`);
   }
   const outputs = outputsOf(report, fixes, { json, markdown, junit });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));
@@ -156,7 +158,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       process.exitCode = code;
     },
     (err) => {
-      process.stdout.write(`::error title=Shadowlap::${String(err instanceof Error ? err.message : err).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}\n`);
+      process.stdout.write(`${annotation('error', err instanceof Error ? err.message : err)}\n`);
       process.exitCode = 1;
     },
   );
