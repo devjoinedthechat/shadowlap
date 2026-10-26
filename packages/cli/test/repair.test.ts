@@ -7,7 +7,7 @@ import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { releaseLock, unifiedDiff } from '@shadowlap/engine';
+import { releaseLock, Store, unifiedDiff } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
 import { applyAccepted, noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
 
@@ -215,6 +215,33 @@ describe('shadowlap repair', { timeout: 120_000 }, () => {
     expect(md).toContain('each failing run by its gate, which tells 90%+ from 70%- at <= 5% risk, and each good one against its baseline, which tells no drop from one of 10+ points at <= 5% risk.');
     expect(md).not.toMatch(/at least|at most|of the time/);
     expect(md).toContain(good.slice(0, 10));
+  });
+
+  it("says a run its blame found lost gradually around two calls so, from the blame stored on it: in its log, the repairer's prompt and the report", async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    // A blame kept with its fix, then read as one that found no one call lost the run. Two attempts a
+    // probe, and the one rewrite that works, keep what runs short.
+    const blamed = await shadowlap(['blame', failed[0], '--expect', ORACLE, '--attempts', '2', '--passes', '1']);
+    expect(blamed.code, blamed.out).toBe(0);
+    proposals = (prompt) => [{ anchor: Number(/\[(\d+)\] system prompt, in [^:]+:/.exec(prompt)![1]), replace: FIX, strategy: 'Escalate refunds above the policy limit', why: 'It says what to do above the limit.' }];
+    const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
+    const blame = store.getRun(failed[0])!.meta!.blame!;
+    const models = store.getCalls(failed[0]).filter((c) => c.kind === 'api').map((c) => c.callNo);
+    const [from, to] = [blame.callNo!, models[models.indexOf(blame.callNo!) + 1]];
+    store.updateRunMeta(failed[0], { blame: { ...blame, range: { from, to, gradual: true } } });
+    store.close();
+    const asked = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed[0], '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(0);
+    expect(r.out).toContain(`${failed[0].slice(0, 10)}: lost gradually, around model calls #${from} and #${to}, from the blame already stored on it`);
+    const [fromStep, toStep] = [models.indexOf(from) + 1, models.indexOf(to) + 1];
+    const prompt = mock.requests.slice(asked).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents')).map((q) => JSON.stringify(q.body.messages)).join('\n');
+    expect(prompt).toContain(`Failed run 1 of 1: lost gradually, around model calls ${fromStep} and ${toStep} of ${models.length}, where no one call lost it; shown at model call ${fromStep}`);
+    const report = JSON.parse(r.stdout) as Report & { targets: Array<{ range: unknown; reused: boolean }> };
+    expect(report.targets[0]).toMatchObject({ callNo: from, reused: true, range: { from, to, fromStep, toStep, gradual: true } });
+    const md = readFileSync(join(project, report.output.report), 'utf8');
+    expect(md).toContain(`gradually, around model calls #<span></span>${from} and #<span></span>${to} (${fromStep} and ${toStep} of ${models.length})`);
   });
 
   // The stand-in for gh is a shell script, which Windows won't run by name.

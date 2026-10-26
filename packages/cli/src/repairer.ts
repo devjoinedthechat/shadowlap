@@ -100,6 +100,8 @@ export interface RepairCase {
   step: number;
   steps: number;
   callNo: number;
+  /** When the run was lost gradually around two calls, or between two, and no one call lost it: their places. `step` is the first, where it is shown. */
+  range?: { fromStep: number; toStep: number; gradual?: true };
   /** The conversation the model saw at the blamed call. */
   conversation: Conversation | null;
   recorded: Block[];
@@ -159,7 +161,7 @@ export function buildRepairPrompt(input: RepairPromptInput): { system: string; u
   input.cases.forEach((c, i) => {
     sections.push(
       [
-        `## Failed run ${i + 1} of ${input.cases.length}: lost at model call ${c.step} of ${c.steps}`,
+        `## Failed run ${i + 1} of ${input.cases.length}: ${c.range ? `lost ${c.range.gradual ? 'gradually, around' : 'between'} model calls ${c.range.fromStep} and ${c.range.toStep} of ${c.steps}, where no one call lost it; shown at model call ${c.step}` : `lost at model call ${c.step} of ${c.steps}`}`,
         `It fails because: ${c.failures.join('; ')}.`,
         `The conversation up to that call:\n${renderConversation(c.conversation)}`,
         `What the agent did there: ${answer(c.recorded)}`,

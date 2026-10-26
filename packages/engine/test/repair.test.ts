@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { lostWhere } from '../src/blame.js';
 import { applyEdit, caseDetails, checkEdit, editSize, findAnchors, forbiddenDetails, formatRepair, noRepairerOf, repairMarkdown, unifiedDiff, type Anchor } from '../src/repair.js';
 import { repairReport } from './fix-fixtures.js';
 
@@ -180,6 +181,27 @@ describe('repairMarkdown', () => {
     expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual(['model call #<span></span>5 (3 of 4)', 'not settled from the first model call', 'passes when replayed']);
     expect(formatRepair(report)).toMatch(/01M540RWR1 +not settled from the first model call/);
     expect(formatRepair(report)).not.toContain('not rescued');
+  });
+
+  it('says a run blame found lost gradually around two calls, or between two, so, as blame words it, in the pull request and the terminal', () => {
+    const report = repairReport({ targets: ['01M540RX39NC308SMAJ73MN8RB', '01M540RWR1MGKZC97YKV0T4DB6', '01M540RZZZ0000000000000000'], accepted: false });
+    report.targets[0] = { ...report.targets[0], callNo: 17, step: 17, steps: 30, range: { from: 17, to: 18, fromStep: 17, toStep: 18, gradual: true } };
+    report.targets[1] = { ...report.targets[1], callNo: 7, step: 7, steps: 30, range: { from: 7, to: 9, fromStep: 7, toStep: 9 } };
+    const md = repairMarkdown(report);
+    expect(md.split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual([
+      'gradually, around model calls #<span></span>17 and #<span></span>18 (17 and 18 of 30)',
+      'between model calls #<span></span>7 and #<span></span>9 (7 and 9 of 30)',
+      'model call #<span></span>5 (3 of 4)',
+    ]);
+    expect(md).toContain('lets the run pass (`shadowlap blame`), or gradually around two calls, where no one call lost it.');
+    expect(formatRepair(report)).toMatch(/01M540RX39 +gradually, around model calls #17 and #18 \(17 and 18 of 30\)/);
+    expect(formatRepair(report)).toMatch(/01M540RWR1 +between model calls #7 and #9 \(7 and 9 of 30\)/);
+    // A pinned call, or none at all, is the call alone, and so is a range from a pack that isn't two call numbers.
+    expect(lostWhere(5, null)).toBe('at model call #5');
+    expect(lostWhere(5, { from: 5, to: 5 })).toBe('at model call #5');
+    expect(lostWhere(17, { from: 17, to: 18, gradual: true })).toBe('gradually, around model calls #17 and #18');
+    expect(lostWhere(7, { from: 7, to: 9 })).toBe('between model calls #7 and #9');
+    expect(lostWhere(5, { from: '5\u001b[2J', to: 9, gradual: true })).toBe('at model call #5');
   });
 
   it('states how a good run was kept against its own baseline: both tallies and the bound on the drop, and both rules', () => {

@@ -84,7 +84,7 @@ export const SHAPES = {
   verifyRun: { page: 'verify.md', section: 'JSON', grows: true, fields: ['runId', 'role', 'outcome', 'passes', 'attempts', 'decision', 'rate', 'deterministic', 'recorded', 'undecided', 'unavailable', 'cutShort', 'runs'] },
   verifySummary: { page: 'verify.md', section: 'JSON', grows: true, fields: ['targets', 'holdout', 'good'] },
   repair: { page: 'repair.md', section: 'JSON', grows: true, fields: ['outcome', 'why', 'targets', 'holdout', 'good', 'heldOutAutomatically', 'oracle', 'repairer', 'noRepairer', 'diagnosis', 'anchors', 'candidates', 'accepted', 'patch', 'cost', 'output', 'warnings', 'repairId', 'verifyId', 'fixes'] },
-  repairTarget: { page: 'repair.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'callNo', 'step', 'steps', 'rescuedRunId', 'rescuedBy', 'reused', 'recorded', 'rescued', 'note'] },
+  repairTarget: { page: 'repair.md', section: 'JSON', grows: true, fields: ['runId', 'outcome', 'callNo', 'step', 'steps', 'range', 'rescuedRunId', 'rescuedBy', 'reused', 'recorded', 'rescued', 'note'] },
   repairCandidate: { page: 'repair.md', section: 'JSON', grows: true, fields: ['id', 'source', 'strategy', 'why', 'surface', 'file', 'offset', 'before', 'after', 'size', 'state', 'reason', 'verify'] },
   repairOutput: { page: 'repair.md', section: 'JSON', grows: true, fields: ['dir', 'patch', 'report', 'goldens', 'applied', 'branch', 'pr'] },
   fixList: { section: 'fix', grows: true, fields: ['fixes', 'counts'] },
