@@ -24,8 +24,10 @@ export interface UnrecordedTool {
   firstCallNo: number;
   /** What it does to the world, as far as Shadowlap can tell: declared in the config, a known built-in, its name, or unknown. */
   effect: UnrecordedEffect;
-  /** Why it has that effect, in a few words: `declared write in shadowlap.config.json`, `a built-in that writes`, `"send" changes something`. */
+  /** Why it has that effect, in a few words: `declared write in shadowlap.config.json`, `a Claude Code built-in that runs a command`, `"send" changes something`. */
   why: string;
+  /** How to have it recorded (unrecordedFix): through the Claude Agent SDK's fence, `shadowlap mcp`, or wrapped. */
+  fix: UnrecordedFix;
 }
 
 export interface UnrecordedOptions {
@@ -115,12 +117,64 @@ export function toolNameEffect(name: string): { effect: 'write' | 'read' | 'pure
 }
 
 /**
- * Tools agent runtimes and providers define and the agent runs itself: the Claude Agent SDK's and
- * Claude Code's built-ins, Anthropic's client tools (bash, the text editor, computer use) and the
- * Responses API's (computer use, the local shell, apply_patch).
+ * Claude Code's built-in tools, which the Claude Agent SDK runs, by what each does (Claude Code's
+ * tools reference names them): those that run a command, change a file or send something out write;
+ * those that look, or keep the session's own state (its task list, its mode), only read. Agent and
+ * Workflow start subagents, whose own tool calls a recording names apart and the fence sees.
  */
-const BUILT_IN_WRITES = new Set(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'KillShell', 'KillBash', 'bash', 'computer', 'str_replace_editor', 'str_replace_based_edit_tool', 'text_editor', 'local_shell', 'shell', 'apply_patch']);
-const BUILT_IN_READS = new Set(['Read', 'Glob', 'Grep', 'LS', 'WebFetch', 'WebSearch', 'NotebookRead', 'BashOutput', 'TodoWrite', 'TodoRead', 'ExitPlanMode']);
+const CLAUDE_CODE_TOOLS: Readonly<Record<string, { effect: 'read' | 'write'; why: string }>> = (() => {
+  const out: Record<string, { effect: 'read' | 'write'; why: string }> = {};
+  const as = (effect: 'read' | 'write', why: string, names: string[]) => names.forEach((n) => (out[n] = { effect, why: `a Claude Code built-in that ${why}` }));
+  as('write', 'runs a command', ['Bash', 'PowerShell']);
+  as('write', 'runs a command, or opens a WebSocket', ['Monitor']);
+  as('write', 'changes a file', ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+  as('write', 'stops a background task', ['KillShell', 'KillBash', 'TaskStop']);
+  as('write', 'makes or leaves a git worktree', ['EnterWorktree', 'ExitWorktree']);
+  as('write', 'publishes a page on claude.ai', ['Artifact']);
+  as('write', 'sends a notification', ['PushNotification']);
+  as('write', 'makes or runs a scheduled task on claude.ai', ['RemoteTrigger']);
+  as('write', 'sends a message to another agent or session', ['SendMessage']);
+  as('write', 'sends a file to the person', ['SendUserFile']);
+  as('write', 'uploads a guide to share', ['ShareOnboardingGuide']);
+  as('read', 'only reads', ['Read', 'Glob', 'Grep', 'LS', 'LSP', 'WebFetch', 'WebSearch', 'NotebookRead', 'BashOutput', 'TaskOutput', 'ListMcpResourcesTool', 'ReadMcpResourceTool', 'ToolSearch', 'WaitForMcpServers', 'ListAgents', 'CronList', 'TaskGet', 'TaskList']);
+  as('read', 'starts a subagent, whose own tool calls are named apart', ['Agent', 'Task', 'Workflow']);
+  as('read', "loads a skill's instructions", ['Skill']);
+  as('read', 'asks the person a question', ['AskUserQuestion']);
+  as('read', "keeps the session's task list", ['TodoWrite', 'TodoRead', 'TaskCreate', 'TaskUpdate']);
+  as('read', "switches the session's mode", ['EnterPlanMode', 'ExitPlanMode']);
+  as('read', 'schedules a prompt in the session', ['CronCreate', 'CronDelete', 'ScheduleWakeup']);
+  as('read', 'shows findings in the session', ['ReportFindings']);
+  as('read', 'drafts feedback the person sends or not', ['SendFeedback']);
+  as('read', 'ends the session', ['EndConversation']);
+  as('read', "hands a subagent's report back", ['SubagentHandback']);
+  return Object.freeze(out);
+})();
+
+/**
+ * Claude Code's built-ins the Claude Agent SDK's fence (withFence) records and fences as it is, as
+ * its BUILT_IN_EFFECTS lists them: a run that left one unrecorded ran without it.
+ */
+export const FENCED_BUILT_INS: ReadonlySet<string> = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash']);
+
+/** Other runtimes' and providers' client tools the agent runs itself: Anthropic's (bash, the text editor, computer use) and the Responses API's (computer use, the local shell, apply_patch). */
+const CLIENT_WRITES = new Set(['bash', 'computer', 'str_replace_editor', 'str_replace_based_edit_tool', 'text_editor', 'local_shell', 'shell', 'apply_patch']);
+
+/**
+ * How to have an unrecorded tool recorded: `fence`, a Claude Code built-in the Claude Agent SDK's
+ * fence records as it is; `fence-effects`, another Claude Code built-in that writes, which the
+ * fence records once its effects name it; `mcp`, an MCP server's tool, recorded when Claude Code
+ * reaches the server through `shadowlap mcp`; `none`, a Claude Code built-in that keeps to its own
+ * session; `wrap`, anything else, wrapped where the agent runs it.
+ */
+export type UnrecordedFix = 'fence' | 'fence-effects' | 'mcp' | 'none' | 'wrap';
+
+export function unrecordedFix(name: string): UnrecordedFix {
+  if (FENCED_BUILT_INS.has(name)) return 'fence';
+  const builtIn = CLAUDE_CODE_TOOLS[name];
+  if (builtIn) return builtIn.effect === 'write' ? 'fence-effects' : 'none';
+  if (mcpToolName(name) !== null) return 'mcp';
+  return 'wrap';
+}
 
 /** A built-in the provider runs itself and answers within the same response (web search, code execution, an MCP connector): nothing runs in the agent. */
 function providerRun(block: { name: string; hosted?: true }): boolean {
@@ -138,8 +192,9 @@ export function unrecordedEffect(name: string, declared: Readonly<Record<string,
   const bare = mcpToolName(name);
   const said = Object.hasOwn(declared, name) ? declared[name] : bare !== null && Object.hasOwn(declared, bare) ? declared[bare] : undefined;
   if (said === 'read' || said === 'write') return { effect: said, why: `declared ${said} in shadowlap.config.json` };
-  if (BUILT_IN_WRITES.has(name) || name.startsWith('computer.')) return { effect: 'write', why: 'a built-in that writes' };
-  if (BUILT_IN_READS.has(name)) return { effect: 'read', why: 'a built-in that only reads' };
+  const builtIn = Object.hasOwn(CLAUDE_CODE_TOOLS, name) ? CLAUDE_CODE_TOOLS[name] : undefined;
+  if (builtIn) return builtIn;
+  if (CLIENT_WRITES.has(name) || name.startsWith('computer.')) return { effect: 'write', why: 'a built-in that writes' };
   const byName = toolNameEffect(bare ?? name);
   if (byName) {
     const why = byName.effect === 'write' ? (STATEMENT_LANGUAGES.has(byName.word) ? `it runs ${byName.word === 'gql' ? 'GraphQL' : byName.word.toUpperCase()} the model writes, which can change data` : `"${byName.word}" changes something`) : byName.effect === 'read' ? `"${byName.word}" only looks` : `"${byName.word}" depends only on its input`;
@@ -186,5 +241,5 @@ export function unrecordedTools(store: Store, runId: string, options: Unrecorded
       else found.set(name, { count: 1, firstCallNo: c.callNo });
     }
   }
-  return [...found].map(([name, { count, firstCallNo }]) => ({ name, count, firstCallNo, ...unrecordedEffect(name, options.declared) }));
+  return [...found].map(([name, { count, firstCallNo }]) => ({ name, count, firstCallNo, ...unrecordedEffect(name, options.declared), fix: unrecordedFix(name) }));
 }

@@ -15,7 +15,7 @@ import { declareSnippet, noteText, preloadsOf, preloadWords, runNotes, viaWords 
  * WebSockets that went live, a replay's extra reads, and the host a model call went through.
  */
 
-const BASH = { name: 'Bash', count: 14, firstCallNo: 3, effect: 'write' as const, why: 'a built-in that writes' };
+const BASH = { name: 'Bash', count: 14, firstCallNo: 3, effect: 'write' as const, why: 'a Claude Code built-in that runs a command', fix: 'fence' as const };
 const SEARCH = { name: 'WebSearch', count: 2, firstCallNo: 7, effect: 'read' as const, why: 'a built-in that only reads' };
 
 describe('the notes under a run’s banner', () => {
@@ -23,14 +23,20 @@ describe('the notes under a run’s banner', () => {
     const [n] = runNotes({ unrecorded: { tools: [BASH, SEARCH], partial: false }, mode: 'record' });
     expect(n).toMatchObject({ kind: 'unrecorded', tone: 'err', label: 'not recorded', tools: [BASH, SEARCH] });
     expect(noteText(n.parts)).toBe(
-      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. Bash writes, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
     );
-    expect(noteText(n.hint!.parts)).toBe("Wrap each where your agent runs it, so it is recorded and replayed: tool('Bash', { effect: 'write' }, fn) with @shadowlap/sdk. Or declare what each does in shadowlap.config.json: ");
+    // A Claude Code built-in is recorded through the Claude Agent SDK's fence, not wrapped.
+    expect(noteText(n.hint!.parts)).toBe('To have it recorded and replayed, run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in Python), which records Bash and fences it on replay. Or declare what each does in shadowlap.config.json: ');
     expect(n.hint!.copy).toBe('"tools": { "unrecorded": { "Bash": "write", "WebSearch": "read" } }');
     // Reads alone: amber, nothing refused; a replay says it ran them itself.
     const [reads] = runNotes({ unrecorded: { tools: [SEARCH], partial: false }, mode: 'replay' });
     expect(reads.tone).toBe('warn');
     expect(noteText(reads.parts)).toBe('The model called a tool Shadowlap did not record: this replay ran it for real.');
+    // A built-in that keeps to Claude Code's session needs nothing: no hint; an MCP server's tool goes through shadowlap mcp.
+    const AGENT = { name: 'Agent', count: 1, firstCallNo: 2, effect: 'read' as const, why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart', fix: 'none' as const };
+    expect(runNotes({ unrecorded: { tools: [AGENT], partial: false }, mode: 'record' })[0].hint).toBeUndefined();
+    const MCP = { name: 'mcp__issues__close_issue', count: 1, firstCallNo: 4, effect: 'write' as const, why: '"close" changes something', fix: 'mcp' as const };
+    expect(noteText(runNotes({ unrecorded: { tools: [AGENT, MCP], partial: false }, mode: 'record' })[0].hint!.parts)).toContain('connect Claude Code to its MCP server through shadowlap mcp');
     // A tool whose effect nothing says is declared a write, the safe guess.
     expect(declareSnippet([{ name: 'frobnicate', effect: 'unknown' }])).toBe('"tools": { "unrecorded": { "frobnicate": "write" } }');
   });
@@ -40,12 +46,12 @@ describe('the notes under a run’s banner', () => {
     const [one] = runNotes({ unrecorded: { tools: [FROB, SEARCH], partial: false }, mode: 'record' });
     expect(one.tone).toBe('err');
     expect(noteText(one.parts)).toBe(
-      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. frobnicate may write, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. frobnicate may write, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
     );
     // The one to wrap is the one refused.
     expect(noteText(one.hint!.parts)).toContain("tool('frobnicate', { effect: 'write' }, fn)");
     // Beside one that writes: they write, or may; of unknown effect alone, they may write.
-    expect(noteText(runNotes({ unrecorded: { tools: [BASH, FROB], partial: false }, mode: 'record' })[0].parts)).toContain('Bash and frobnicate write, or may, so shadowlap replay and test refuse to run them again until they are recorded');
+    expect(noteText(runNotes({ unrecorded: { tools: [BASH, FROB], partial: false }, mode: 'record' })[0].parts)).toContain('Bash and frobnicate write, or may, so every command that replays the run refuses to run them again until they are recorded');
     expect(noteText(runNotes({ unrecorded: { tools: [FROB, { ...FROB, name: 'zap' }], partial: false }, mode: 'record' })[0].parts)).toContain('frobnicate and zap may write, so');
   });
 
@@ -135,7 +141,7 @@ describe('what a run never recorded, from the server', () => {
     store = Store.open(':memory:');
     const runId = recording(store);
     const run = store.getRun(runId)!;
-    expect(runUnrecorded(store, run)).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'write', why: 'a built-in that writes' }], partial: false });
+    expect(runUnrecorded(store, run)).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' }], partial: false });
     expect(runUnrecorded(store, run, { Bash: 'read' }).tools[0]).toMatchObject({ effect: 'read', why: 'declared read in shadowlap.config.json' });
     // A run that holds its model calls alone says so.
     const partial = recording(store, { covers: ['api'] });
@@ -149,7 +155,7 @@ describe('what a run never recorded, from the server', () => {
     const get = (path: string) => fetch(`${dash!.url}/api/${path}`, { headers: { 'x-shadowlap-token': dash!.token } });
     const res = await get(`runs/${runId}/unrecorded`);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { unrecorded: unknown }).unrecorded).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'read', why: 'declared read in shadowlap.config.json' }], partial: false });
+    expect(((await res.json()) as { unrecorded: unknown }).unrecorded).toEqual({ runId, tools: [{ name: 'Bash', count: 2, firstCallNo: 1, effect: 'read', why: 'declared read in shadowlap.config.json', fix: 'fence' }], partial: false });
     // By a short id too, and a run the store doesn't hold is named.
     expect((await get(`runs/${runId.slice(0, 10)}/unrecorded`)).status).toBe(200);
     expect((await get('runs/01NOPE0000000000000000000Z/unrecorded')).status).toBe(404);

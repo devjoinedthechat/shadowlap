@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store, type RunRecord } from '@shadowlap/engine';
+import { FENCED_BUILT_INS, Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { BUILT_IN_EFFECTS, fenceHooks, withEffects, withFence, type HookMatcherLike } from '../src/claude-agent-sdk.js';
 import { matcherPicks } from '../src/claude-hooks.js';
@@ -82,6 +82,15 @@ function within(run: RunRecord): void {
 }
 
 const command = { argv: ['agent'], cwd: ROOT };
+
+describe('the built-ins the fence records', () => {
+  it('are the ones the CLI tells a person the fence records, in both SDKs', () => {
+    expect(new Set(Object.keys(BUILT_IN_EFFECTS))).toEqual(FENCED_BUILT_INS);
+    const python = readFileSync(new URL('../../../sdks/python/shadowlap/adapters/claude_agent_sdk.py', import.meta.url), 'utf8');
+    const table = /BUILT_IN_EFFECTS: Mapping\[str, str\] = \{([^}]*)\}/.exec(python)![1];
+    expect(new Set([...table.matchAll(/"(\w+)":/g)].map((m) => m[1]))).toEqual(FENCED_BUILT_INS);
+  });
+});
 
 describe('the Claude Agent SDK fence', () => {
   let recording: RunRecord;
