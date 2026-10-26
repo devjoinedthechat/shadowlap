@@ -563,9 +563,9 @@ describe("what the Action posts, in the Markdown GitHub renders", () => {
       2,
     );
     expect(summary).toContain(`| ➖ | \`z\` | a check is inconclusive (${safe}), which no prompt fix decides |  |`);
-    expect(summary).toContain(' · goldens/refund-flow re-recorded · goldens/@<!-- -->alice-&#91;x&#93;(https:<!-- -->//evil.example) fails the same check');
+    expect(summary).toContain(' · goldens/refund-flow re-recorded · goldens/@<span></span>alice-&#91;x&#93;(https:<span></span>//evil.example) fails the same check');
     // The repairer's title, escaped, is the link text of the fix's own pull request.
-    expect(summary).toContain(`[Ask @<!-- -->security, see &#91;docs&#93;(https:<!-- -->//evil.example)](${fix.pr})`);
+    expect(summary).toContain(`[Ask @<span></span>security, see &#91;docs&#93;(https:<span></span>//evil.example)](${fix.pr})`);
     // With the fixes' own pull request links taken out, nothing else renders, links or mentions.
     const ours = summary.replace(/\[([^\]]*)\]\(https:\/\/github\.test\/northwind\/agent\/pull\/13\)/g, '$1');
     expect(live(ours)).toEqual([]);

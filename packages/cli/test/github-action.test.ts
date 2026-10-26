@@ -300,7 +300,7 @@ describe('test reports', () => {
     // Outside fenced blocks and code spans, nothing is left that GitHub would render, link or mention.
     const text = md.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1$/gm, '').replace(/(`+)[^`]*?\1/g, '');
     expect(text).not.toMatch(/!\[|\]\(|<img|@alice|https?:\/\/|(?<!&)#1\b/);
-    expect(md).toContain('<details open><summary><b>refund-flow</b>: check failed: send_email with {"to":"!&#91;x&#93;(https:<!-- -->//evil.example/t.png) @<!-- -->alice &lt;img src=x> #<!-- -->1 &#91;docs&#93;(https:<!-- -->//evil.example)"}</summary>');
+    expect(md).toContain('<details open><summary><b>refund-flow</b>: check failed: send_email with {"to":"!&#91;x&#93;(https:<span></span>//evil.example/t.png) @<span></span>alice &lt;img src=x> #<span></span>1 &#91;docs&#93;(https:<span></span>//evil.example)"}</summary>');
   });
 
   it('escapes GitHub annotation properties and data', () => {

@@ -14,4 +14,5 @@ export const HOSTILE = [
   '# heading', '> quote', '- item', '+++', '1. item', '2) item', '---', '=== under', '- [ ] task',
   'line\nbreak\r\nand\u2028sep', 'bidi \u202eevil\u202c here', 'zero\u200bwidth @gr\u200bace', 'tab\there', 'nul\u0000byte',
   'a&b <= c >= d', '<=5% risk, up to 80 attempts', 'issue_refund called 0 times, but called 1 time', 'model call #5 (3 of 5)', '{"to":"oncall@example.com","amount":240}', 'C:\\path\\to\\file',
+  'costs $5 and $10 today', 'a $x$ b', '$`x`$', 'x\\$y$z$', '$$\\huge\\color{red}\\text{Approved}$$', ':smile: :+1:', 'org/repo@abc1234', 'cli/cli#1', 'git@github.com:x/y', '[^n]', '<details>open',
 ];

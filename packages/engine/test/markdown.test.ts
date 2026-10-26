@@ -7,40 +7,49 @@ import { HOSTILE } from './markdown-cases.js';
 /**
  * Text a run, a model or a tool wrote goes into the Markdown GitHub renders: a fix pull request's
  * body, the Action's comment and its job summary. These hold the escaper to "shows as it is, makes
- * nothing": no image, link, mention, issue reference, raw HTML, code span, math or emphasis, in a
- * paragraph, a heading, a table cell or an HTML block. The same cases ran through cmark-gfm,
- * GitHub's own renderer, with its mention and reference filters played on the text it rendered.
+ * nothing": no image, link, mention, issue reference, raw HTML, code span, math, emphasis or emoji,
+ * in a paragraph, a heading, a table cell or an HTML block. The same cases, in each of those
+ * places and as code spans, went through GitHub's own renderer (its Markdown API, in a repository
+ * with issues), which made nothing of any of them; unescaped, it made images, links, mentions,
+ * issue links, footnotes, math and emphasis of them.
  */
 
 /** What GitHub would read in Markdown text as something other than the text itself. */
 function active(out: string): string[] {
-  const text = out.replace(/<!-- -->/g, '').replace(/&#?\w+;/g, '');
+  // The escaper's own marks taken out: the empty span that splits, and the character references it writes.
+  const text = out.replace(/<span><\/span>/g, '').replace(/&#?\w+;/g, '');
   const found: string[] = [];
   for (const [what, re] of [
     ['a link, an image or a footnote', /[[\]]/],
     ['a code span or an escape', /[`]|\\(?!\|)/],
-    ['math', /\$/],
     ['emphasis', /[*~]|(?<![A-Za-z0-9])_|_(?![A-Za-z0-9])/],
     ['raw HTML', /<[A-Za-z/!?]/],
     ['a line break', /[\n\r\u2028\u2029]/],
     ['a hidden or reordering character', /[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/],
     ['a table cell boundary', /(?<!\\)\|/],
   ] as const) if (re.test(text)) found.push(what);
-  // Mentions, references, URLs and addresses are split by the empty comment, so the text GitHub scans has none.
+  // What GitHub finds once it has rendered the text, and the links it makes as it parses: each mark
+  // split from what follows by the empty span, and two dollar signs apart, so the text it scans has none.
+  for (const [what, re] of [
+    ['math', /\$(?!<span><\/span>)/],
+    ['math a paragraph of its own makes', /\$<span><\/span>\$/],
+  ] as const) if (re.test(out)) found.push(what);
   for (const [what, re] of [
     ['a mention or an email address', /@[A-Za-z0-9]/],
     ['an issue or pull request reference', /(?<!&)#\d|\bGH-\d/i],
+    ['an emoji', /:[A-Za-z0-9_+-]+:/],
     ['a URL', /[A-Za-z]:\/\//],
     ['a www. address', /\bwww\./i],
   ] as const) if (re.test(out.replace(/&#?\w+;/g, ''))) found.push(what);
   return found;
 }
 
-/** The text a reader sees: the comments gone, the character references read, the cell's escaped pipe a pipe. */
+/** The text a reader sees: the spans and the word joiner between two dollar signs, which show nothing, gone, the character references read, the cell's escaped pipe a pipe. */
 function shown(out: string): string {
   const named: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"' };
   return out
-    .replace(/<!-- -->/g, '')
+    .replace(/<span><\/span>/g, '')
+    .replace(/\$&#8288;/g, '$')
     .replace(/\\\|/g, '|')
     .replace(/&#(\d+);/g, (_m, n: string) => String.fromCharCode(Number(n)))
     .replace(/&(\w+);/g, (m, name: string) => named[name] ?? m);
@@ -57,6 +66,15 @@ describe('markdownText', () => {
     // Prose a check or a gate writes reads the same in the Markdown it renders as.
     expect(markdownText('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts')).toBe('passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts');
     expect(markdownText('check failed: issue_refund called 0 times, but called 1 time')).toBe('check failed: issue_refund called 0 times, but called 1 time');
+  });
+
+  it('splits what GitHub finds in the text it has rendered with an empty span, which a table cell keeps, and two dollar signs with a word joiner', () => {
+    // GitHub reads character references before it looks for math, mentions, references and emoji,
+    // and in a table cell it drops an HTML comment first: of the three, only a span splits the text
+    // it looks in everywhere. A paragraph whose text starts and ends with `$$` is math, spans or not.
+    expect(markdownText('@alice #5 GH-3 :smile: https://x.example www.x.example')).toBe('@<span></span>alice #<span></span>5 GH-<span></span>3 :<span></span>smile: https:<span></span>//x.example www<span></span>.x.example');
+    expect(markdownText('$$x$$')).toBe('$<span></span>&#8288;$<span></span>x$<span></span>&#8288;$<span></span>');
+    expect(markdownText('costs $5 and $10')).toBe('costs $<span></span>5 and $<span></span>10');
   });
 
   it('writes a code span its own backticks cannot end, and a fence no line inside can close', () => {
@@ -88,7 +106,7 @@ describe('repairMarkdown and what the repairer and the runs wrote', () => {
     expect(outside).not.toContain('```');
     expect(outside).not.toMatch(/!\[|\]\(|<img|@(?:alice|bob|northwind)|https?:\/\/|www\.evil|(?<!&)#1\b/);
     // The title, cut to a commit title's length, then escaped.
-    expect(body).toContain('## Escalate refunds @<!-- -->northwind/security-team !&#91;x&#93;(https:<!-- -->//evil.example/a.p…\n');
+    expect(body).toContain('## Escalate refunds @<span></span>northwind/security-team !&#91;x&#93;(https:<span></span>//evil.example/a.p…\n');
     // The diff is a fence its own backticks can't close.
     expect(body).toContain('````diff\n- ');
     expect(body).toContain('+ Follow the policy. ``` and [docs](https://evil.example) @alice\n````');

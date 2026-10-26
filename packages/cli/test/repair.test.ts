@@ -454,8 +454,8 @@ process.stdin.on('end', () => {
     expect(report.cost.blame).toBeGreaterThan(0.01);
     expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [], writes: 'block' });
     const md = readFileSync(join(project, report.output.report), 'utf8');
-    // Why, as text: its dollar sign as a character reference, which GitHub shows and starts no math at.
-    expect(md).toContain('## Not fixed: the budget of &#36;0.01 is spent');
+    // Why, as text: its dollar sign split from what follows by an empty span, so GitHub starts no math at it.
+    expect(md).toContain('## Not fixed: the budget of $<span></span>0.01 is spent');
     // The pull request body names the write policy the replays ran under.
     expect(md).toContain('Writes were blocked in every replay.');
     expect(md).not.toContain('stubbed');
