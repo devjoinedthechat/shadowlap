@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistory, decidePaired, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -84,7 +84,7 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
     runId: a.run.runId,
     passed: a.passed,
     verdict: a.verdict,
-    ...(a.unavailable ? { unavailable: true } : {}),
+    ...(a.cutShort ? { cutShort: true as const } : a.unavailable ? { unavailable: true } : {}),
     exitCode: a.code,
     failures: a.failures,
     forkedAt: a.summary.divergence?.callNo ?? null,
@@ -94,8 +94,13 @@ function kept(a: Attempt, costOf: AttemptRunner['costOf']): VerifyAttempt {
   };
 }
 
-/** Why an attempt says nothing of the change's effect: it could not be judged, or (for the baseline) it never reached its model through Shadowlap. Null when it does. */
+/**
+ * Why an attempt says nothing of the change's effect: it could not be judged, or (for the baseline) it
+ * never reached its model through Shadowlap. Null when it does, and for one the provider cut short,
+ * which is counted against either verdict.
+ */
 function unjudged(a: Attempt): string | null {
+  if (a.cutShort) return null;
   if (a.verdict === 'inconclusive') return a.failures[0] ?? 'a check could not be decided';
   if (a.verdict !== 'passed' && a.verdict !== 'failed') return a.failures[0] ?? `the attempt came out ${String(a.verdict)}`;
   return null;
@@ -199,16 +204,25 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       /**
        * Attempts the provider was unavailable for, the change's and the baseline's: the runner retried
        * each and never counted it; the one it returns after too many in a row is unavailable itself.
+       * One it cut short after the model answered is counted, against either verdict, apart.
        */
       const countUnavailable = (a: Attempt) => {
-        const n = (a.unavailableBefore ?? 0) + (a.unavailable ? 1 : 0);
+        const n = (a.unavailableBefore ?? 0) + (a.unavailable && !a.cutShort ? 1 : 0);
         if (n) result.unavailable = (result.unavailable ?? 0) + n;
+        if (a.cutShort) result.cutShort = (result.cutShort ?? 0) + 1;
+      };
+      // Under a gate, an attempt the provider cut short after the model answered is counted against either verdict; a fixed count runs it again.
+      const late = s.gate ? ('count' as const) : ('retry' as const);
+      /** The change's attempts the gate counted, and which of them the provider cut short. */
+      const counted = () => {
+        const judged = result.attempts.filter((x) => x.verdict !== 'inconclusive' || x.cutShort);
+        return { outcomes: judged.map((x) => x.passed), unavailableAt: judged.flatMap((x, i) => (x.cutShort ? [i] : [])) };
       };
 
       /** One attempt of the change, kept in the run's report. */
       const changed = async (n: number): Promise<Attempt | null> => {
         const marks = { repeat: { group: `${group}-${parent.runId}`, attempt: n, of }, verify: { role, passed: false } };
-        const a = await runner.attempt(target, { ...(interventions ? { interventions } : {}), meta: marks });
+        const a = await runner.attempt(target, { ...(interventions ? { interventions } : {}), meta: marks }, true, { late });
         // Stopped by Ctrl-C part way: what it did is no evidence either way.
         if (interrupted()) return null;
         countUnavailable(a);
@@ -223,7 +237,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       // run first (a clean replay settles the run there), then one at a time until it settles.
       const byGate = async (): Promise<void> => {
         const settle = () => {
-          if (s.gate) Object.assign(result, gateVerdict(result.passes, result.attempts.length, s.gate, result.deterministic));
+          if (s.gate) Object.assign(result, gateVerdict(result.passes, result.attempts.length, s.gate, result.deterministic, result.cutShort ?? 0));
           else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic);
         };
         if (result.attempts.length) settle();
@@ -267,15 +281,21 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         result.baselineRuns = baseRuns;
         const baseAttempt = async (n: number): Promise<Attempt | null> => {
           const marks = { repeat: { group: `${group}-${parent.runId}-baseline`, attempt: n, of: rule.max }, verify: { role, passed: false, arm: 'baseline' as const, revision: at } };
-          const b = await opened.runner.attempt(baseTarget, { divergeAt: forkAt, meta: marks });
+          const b = await opened.runner.attempt(baseTarget, { divergeAt: forkAt, meta: marks }, true, { late: 'count' });
           if (interrupted()) return null;
           countUnavailable(b);
           baseRuns.push(kept(b, opened.runner.costOf));
           store.updateRunMeta(b.run.runId, { verify: { role, passed: b.passed, verdict: b.unavailable ? 'unavailable' : b.verdict, arm: 'baseline', revision: at }, ...(b.checks.length ? { checks: b.checks } : {}) });
-          if (b.unavailable) runner.stopReason ??= opened.runner.stopReason ?? b.failures[0] ?? null;
+          if (b.unavailable && !b.cutShort) runner.stopReason ??= opened.runner.stopReason ?? b.failures[0] ?? null;
           return b;
         };
-        let pairs: PairCounts = NO_PAIRS;
+        // Two tallies of the same pairs: an attempt the provider cut short counts against keeping in
+        // the one (the change's as a failure, the baseline's as a pass) and against breaking in the
+        // other, and kept must hold on the first, broken on the second (decidePairedAround). The pairs
+        // both arms answered are tallied apart, for the report.
+        let keeping: PairCounts = NO_PAIRS;
+        let breaking: PairCounts = NO_PAIRS;
+        let answered: PairCounts = NO_PAIRS;
         let changedNow: Attempt | null = first;
         for (let n = 1; ; n++) {
           // A pair: the change's attempt, then the baseline's, one after the other, as a run's attempts go.
@@ -286,37 +306,49 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           }
           // The provider stayed unavailable for the change's attempt: it says nothing, and neither would
           // a baseline attempt beside it (the provider is the same), so none runs.
-          if (changedNow.unavailable) {
+          if (changedNow.unavailable && !changedNow.cutShort) {
             log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
             result.undecided = unjudged(changedNow);
             break;
           }
-          const b = await baseAttempt(n);
-          if (!changedNow || !b) break;
-          if (n > 1) log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
-          log(`  ${label}  ${p.dim(`baseline ${n}`)}  ${describeAttempt(b)}`);
-          const why = unjudged(changedNow);
-          if (why) {
-            result.undecided = why;
-            break;
+          if (changedNow.cutShort) {
+            // Cut short after the model answered: counted, with no baseline attempt beside it, a
+            // failure against a pass toward keeping and a pass against a failure toward breaking.
+            if (n > 1) log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
+            keeping = addPair(keeping, false, true);
+            breaking = addPair(breaking, true, false);
+          } else {
+            const b = await baseAttempt(n);
+            if (!b) break;
+            if (n > 1) log(`  ${label}  ${p.dim(`attempt ${n}`)}  ${describeAttempt(changedNow)}`);
+            log(`  ${label}  ${p.dim(`baseline ${n}`)}  ${describeAttempt(b)}`);
+            const why = unjudged(changedNow);
+            if (why) {
+              result.undecided = why;
+              break;
+            }
+            // An attempt of the baseline that never reached its model through Shadowlap ran nothing the
+            // recording holds: the base can't run the agent, and no verdict may rest on it.
+            if (b.bypassed) {
+              result.undecided = `the baseline${at ? ` at ${at}` : base ? ` on ${base.label}` : ''} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}`;
+              break;
+            }
+            const whyBase = unjudged(b);
+            if (whyBase) {
+              result.undecided = b.unavailable ? whyBase : `the baseline's attempt ${n} could not be judged: ${whyBase}`;
+              break;
+            }
+            // The baseline's attempt cut short: a pass toward keeping, a failure toward breaking.
+            keeping = addPair(keeping, changedNow.passed, b.cutShort ? true : b.passed);
+            breaking = addPair(breaking, changedNow.passed, b.cutShort ? false : b.passed);
+            if (!b.cutShort) answered = addPair(answered, changedNow.passed, b.passed);
           }
-          // An attempt of the baseline that never reached its model through Shadowlap ran nothing the
-          // recording holds: the base can't run the agent, and no verdict may rest on it.
-          if (b.bypassed) {
-            result.undecided = `the baseline${at ? ` at ${at}` : base ? ` on ${base.label}` : ''} could not run the agent: ${b.failures[0] ?? 'it made no model calls through Shadowlap'}`;
-            break;
-          }
-          const whyBase = unjudged(b);
-          if (whyBase) {
-            result.undecided = b.unavailable ? whyBase : `the baseline's attempt ${n} could not be judged: ${whyBase}`;
-            break;
-          }
-          pairs = addPair(pairs, changedNow.passed, b.passed);
-          const decision = decidePaired(pairs, rule);
+          const decision = decidePairedAround(keeping, breaking, rule);
           Object.assign(result, keptVerdict(decision));
-          result.baseline = { passes: pairs.basePasses, attempts: n, source: 'paired', revision: at };
+          result.baseline = { passes: answered.basePasses, attempts: baseRuns.filter((x) => !x.unavailable).length, source: 'paired', revision: at };
           result.margin = rule.margin;
-          result.drop = pairedDrop(pairs, rule.risk);
+          // Each end of the drop's interval from the tally against its own verdict.
+          result.drop = pairsOf(keeping) === pairsOf(answered) ? pairedDrop(answered, rule.risk) : { ...pairedDrop(keeping, rule.risk), lo: pairedDrop(breaking, rule.risk).lo };
           if (decision !== 'continue') break;
         }
         // An attempt it could not judge stopped it: inconclusive, as no attempt after it would say more.
@@ -349,9 +381,11 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
             }
           }
           const judged = { passes: result.passes, attempts: result.attempts.length };
-          const decision = decideAgainstHistory(judged, history, rule);
+          // Attempts the provider cut short are among them, against either verdict.
+          const cut = result.cutShort ?? 0;
+          const decision = decideAgainstHistoryAround(judged, cut, history, rule);
           Object.assign(result, keptVerdict(decision));
-          result.drop = historyDrop(judged, history, rule.risk);
+          result.drop = cut ? { ...historyDrop(judged, history, rule.risk), lo: historyDrop({ passes: judged.passes + cut, attempts: judged.attempts }, history, rule.risk).lo } : historyDrop(judged, history, rule.risk);
           if (decision !== 'continue') break;
         }
         return true;
@@ -375,7 +409,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         }
       }
       // What the gate made of the attempts it judged: the rate's interval and the risk it decided at.
-      if (s.gate && result.attempts.length && !result.baseline) result.gate = gateResult(s.gate, result.attempts.filter((x) => x.verdict !== 'inconclusive').map((x) => x.passed), { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue', ...(result.unavailable ? { unavailable: result.unavailable } : {}) });
+      if (s.gate && result.attempts.length && !result.baseline) {
+        const c = counted();
+        result.gate = gateResult(s.gate, c.outcomes, { clean: result.deterministic && !result.undecided, decision: result.decision ?? 'continue', ...(result.unavailable ? { unavailable: result.unavailable } : {}), ...(c.unavailableAt.length ? { unavailableAt: c.unavailableAt } : {}) });
+      }
       if (result.verdict === 'fail') failed = true;
       const o = outcomeOf(result);
       // The tally and its bound beside the outcome; the rule was said once, above. A run an attempt it
@@ -408,6 +445,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       // Both arms: the baseline's attempts are what verifying cost too.
       attempts: runner.attempts + (both?.attempts ?? 0),
       ...(runner.unavailable + (both?.unavailable ?? 0) ? { unavailable: runner.unavailable + (both?.unavailable ?? 0) } : {}),
+      ...(runner.cutShort + (both?.cutShort ?? 0) ? { cutShort: runner.cutShort + (both?.cutShort ?? 0) } : {}),
       spent: runner.spent + (both?.spent ?? 0),
       upstreamRequests: runner.upstreamRequests + (both?.upstreamRequests ?? 0),
       // Judge checks' calls, apart from the agent's.

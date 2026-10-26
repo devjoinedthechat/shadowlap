@@ -1,4 +1,4 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decide, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -515,10 +515,30 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
   let unusable = 0;
   let stop: string | null = null;
   for (let i = 0; decided.size < targets.length && i < max && runner.canStart(); i++) {
-    const a = await runner.attempt(target, { overrides: new Map([[call.callNo, neutral]]), unrecordedReads: report.unrecordedReads, meta: marks(resultId, i + 1, max, { role: 'clean', read: call.callNo }, i + 1, max) });
+    // One the provider cut short after the model answered is counted, against either verdict (decideUnavailable).
+    const a = await runner.attempt(target, { overrides: new Map([[call.callNo, neutral]]), unrecordedReads: report.unrecordedReads, meta: marks(resultId, i + 1, max, { role: 'clean', read: call.callNo }, i + 1, max) }, true, { late: 'count' });
     if (runner.interrupted) break;
     emitJobEvent({ type: 'run', runId: a.run.runId, role: 'attempt' });
     const forkedAt = a.summary.divergence?.callNo ?? null;
+    if (a.cutShort) {
+      // Whether its writes would have gone is not known: not gone toward caused, gone toward not caused.
+      const why = `the provider cut it short (${a.unavailable!.reason}), so it counts against either verdict`;
+      report.attempts.push({ runId: a.run.runId, attempt: i + 1, forkedAt, exitCode: a.code, made: [], gone: [], why });
+      for (const w of report.writes) {
+        if (decided.has(w.callNo)) continue;
+        w.attempts++;
+        w.cutShort = (w.cutShort ?? 0) + 1;
+        const d = decideUnavailable(w.gone, w.attempts, w.cutShort, s.gate);
+        if (d !== 'continue') {
+          w.verdict = d === 'pass' ? 'caused' : d === 'fail' ? 'not caused' : 'inconclusive';
+          decided.set(w.callNo, w.verdict);
+        }
+        w.bound = cleanBound(w, s.gate);
+      }
+      say(`  ${p.dim(`clean attempt ${i + 1}`)}  ${p.yellow(safe(why))}${p.dim(` · ${shortId(a.run.runId)}`)}`);
+      keep(store, report, s.actor, s.sessionId);
+      continue;
+    }
     // Every write the attempt made counts, the ones replayed from the recording before its fork
     // included: a write asked for in the same turn as the read was chosen before its content was seen.
     const served = a.calls.find((c) => c.kind === 'tool' && c.end?.meta.overriddenFrom === call.callNo);
@@ -536,7 +556,7 @@ export async function cleanInjection(runner: AttemptRunner, target: AttemptTarge
         if (decided.has(w.callNo)) continue;
         w.attempts++;
         if (gone.includes(w.callNo)) w.gone++;
-        const d = decide(w.gone, w.attempts, s.gate);
+        const d = decideUnavailable(w.gone, w.attempts, w.cutShort ?? 0, s.gate);
         if (d !== 'continue') {
           w.verdict = d === 'pass' ? 'caused' : d === 'fail' ? 'not caused' : 'inconclusive';
           decided.set(w.callNo, w.verdict);

@@ -15,6 +15,7 @@ import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.j
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
 import { unrecordedInGoldens } from '../unrecorded-goldens.js';
 import { sessionSource } from '../baseline-branch.js';
+import { unavailableWords } from '../provider-retry.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
@@ -357,7 +358,7 @@ export function register(program: Command): void {
             // The line a dashboard job reads a new run from, and a way to open each replay.
             onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
             // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
-            onUnavailable: (u, waitMs) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: the provider was unavailable (${u.reason}), so that attempt isn't counted; running it again in ${formatDuration(waitMs)}\n`)),
+            onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
             stopped,
             ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
             ...(flags.continue ? { continue: true } : {}),

@@ -56,6 +56,8 @@ export interface BlameAttempt {
   exitCode: number;
   /** Why the attempt failed the oracle: failed checks, a non-zero exit, a timeout. Empty when it passed. */
   failures: string[];
+  /** The provider cut it short after the model had answered (unavailable.ts): counted against either verdict, a failure toward a rescue and a pass toward a loss. Absent otherwise. */
+  cutShort?: true;
   /** Approximate USD spent on the attempt's live model calls. */
   spent: number;
   upstreamRequests: number;
@@ -94,6 +96,8 @@ export interface BlameProbe {
    * so they say nothing about the answer. Absent when there were none.
    */
   unavailable?: number;
+  /** Attempts the provider cut short after the model had answered: among `attempts`, each counted against either verdict. Absent when there were none. */
+  cutShort?: number;
 }
 
 export type ProbeVerdict = 'rescued' | 'lost' | 'open';
@@ -140,8 +144,8 @@ export function probeGate(gate: SprtGate, probes: number): SprtGate {
 /** A probe's verdict in a word: rescued, lost, or inconclusive. */
 export const probeWord = (x: Pick<BlameProbe, 'rescued' | 'decision'> & { undecided?: string | null | undefined }): 'rescued' | 'lost' | 'inconclusive' => (x.rescued ? 'rescued' : x.decision === 'inconclusive' || x.undecided ? 'inconclusive' : 'lost');
 
-/** The attempts of a probe that could not be judged: neither passed nor failed. */
-const unjudged = (x: Pick<BlameProbe, 'attempts'>): number => x.attempts.filter((a) => a.verdict === 'inconclusive').length;
+/** The attempts of a probe that could not be judged: neither passed nor failed. One the provider cut short was counted. */
+const unjudged = (x: Pick<BlameProbe, 'attempts'>): number => x.attempts.filter((a) => a.verdict === 'inconclusive' && !a.cutShort).length;
 
 /**
  * A probe's tally: how many of the attempts it judged passed, then `unit` (`2 of 4`, `2 of 4
@@ -372,7 +376,7 @@ function roseBeyondChance(rises: BlameSearchResult['nonMonotone'], probed: Reado
   });
 }
 
-/** A probe's judged attempts and how many passed: what the fit weighs it by. */
+/** A probe's judged attempts and how many passed: what the fit weighs it by. One the provider cut short is no rate's evidence, and is left out. */
 function judgedRate(p: Pick<BlameProbe, 'passes' | 'attempts'>): { rate: number; weight: number } {
   const judged = p.attempts.filter((a) => a.verdict !== 'inconclusive').length;
   return { rate: judged ? Math.min(1, p.passes / judged) : 0, weight: judged };

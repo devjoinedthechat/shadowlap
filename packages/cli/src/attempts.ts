@@ -78,13 +78,22 @@ export interface Attempt {
   /**
    * The provider was unavailable (unavailable.ts in the engine): an attempt the agent failed while
    * one of its live model calls ended on 408, 409, 429, a 5xx or a failed connection. `attempt`
-   * retries such an attempt after a pause and never tallies it, and returns one only once the
-   * provider was unavailable `retry.inARow` attempts in a row: with the verdict `inconclusive`, so
-   * that every caller leaves it out of a tally as it does an attempt no check could decide, why first
-   * among its failures, and `stopReason` set, so the run or probe it was for ends inconclusive, never
-   * failed. Its run is marked `verdict: 'unavailable'` where the caller's marks keep a verdict.
+   * retries such an attempt after a pause and never tallies it, unless its caller counts one the
+   * provider cut short after the model answered (`cutShort`), and returns an uncounted one only once
+   * the provider was unavailable `retry.inARow` attempts in a row: with the verdict `inconclusive`,
+   * so that every caller leaves it out of a tally as it does an attempt no check could decide, why
+   * first among its failures, and `stopReason` set, so the run or probe it was for ends
+   * inconclusive, never failed. Its run is marked `verdict: 'unavailable'` where the caller's marks
+   * keep a verdict.
    */
   unavailable?: Unavailable;
+  /**
+   * The provider cut it short after the model had answered part of it (`unavailable.early` false),
+   * and the caller counts such attempts (`late: 'count'`): it is returned to be counted against
+   * either verdict, a failure toward a pass and a pass toward a failure (the engine's
+   * `decideUnavailable`), never run again. Absent otherwise.
+   */
+  cutShort?: true;
   /**
    * Attempts the provider was unavailable for that ran before this one in its place, retried and
    * never tallied: what a run's or a probe's report counts as `unavailable`, with this one when it
@@ -113,16 +122,33 @@ export const BYPASSED =
  */
 const GROUP = GROUPS;
 
+/** How `attempt` treats an attempt the provider was unavailable for. */
+export interface AttemptOptions {
+  /**
+   * An attempt the provider cut short after the model had answered: `count` returns it, `cutShort`,
+   * for a gate to count against either verdict, after the pause the next attempt waits; `retry`, the
+   * default, runs it again after the pause, never tallied, as an attempt the provider failed before
+   * the model answered always is.
+   */
+  late?: 'count' | 'retry';
+  /** An unavailable attempt this says to keep is returned as it is after the pause, never run again: what it showed stands whatever failed after it. */
+  keep?: (a: Attempt) => boolean;
+}
+
 export class AttemptRunner {
-  /** Attempts run and tallied, and what they sent upstream and cost: the agent's, and apart, its judge checks'. */
+  /** Attempts run and tallied, those the provider cut short that a caller counts included, and what they sent upstream and cost: the agent's, and apart, its judge checks'. */
   attempts = 0;
-  /** Attempts the provider was unavailable for: run and paid for, retried, never tallied. */
+  /** Attempts the provider was unavailable for and nobody counted: run and paid for, retried, never tallied. */
   unavailable = 0;
+  /** Attempts the provider cut short after the model answered, returned to be counted against either verdict. */
+  cutShort = 0;
+  /** Attempts in a row the provider was unavailable for, across calls of `attempt`: `retry.inARow` of them stop the runner. */
+  private inARow = 0;
   /** How unavailable attempts are retried, and the pause itself: tests pass their own. */
   retry: { inARow: number; firstDelayMs: number; maxDelayMs: number } = UNAVAILABLE_RETRY;
   sleep: ((ms: number) => Promise<void>) | null = null;
-  /** Called before the pause that follows an unavailable attempt. */
-  onUnavailable: ((u: Unavailable, waitMs: number) => void) | null = null;
+  /** Called before the pause that follows an unavailable attempt, with whether it is counted (cut short, for a caller that counts those). */
+  onUnavailable: ((u: Unavailable, waitMs: number, counted: boolean) => void) | null = null;
   spent = 0;
   upstreamRequests = 0;
   judgeSpent = 0;
@@ -219,13 +245,17 @@ export class AttemptRunner {
    * `repeat`), so run lists bundle it as an attempt while it runs, not only once it is done.
    * `extra.recordedWrites` answers a write the recording made with what it got then (see `ReplayOptions`).
    *
-   * An attempt the agent failed while its provider was unavailable is no evidence about the agent: it
-   * is kept as a run, never tallied, and run again after a pause (what the provider's `retry-after`
-   * asked, at most a minute, else 5 s, then 15 s). After `retry.inARow` in a row, the last of them is
-   * returned, `inconclusive` with `unavailable` set, and no more attempts start (`stopReason`). The
-   * attempt returned says how many unavailable ones it was run in place of (`unavailableBefore`).
+   * An attempt the agent failed while its provider was unavailable is kept as a run, and run again
+   * after a pause (what the provider's `retry-after` asked, at most a minute, else 5 s, then 15 s),
+   * never tallied: one the provider failed before the model answered says nothing of how it would
+   * have gone. One it cut short after the model answered may have failed with the course it took,
+   * so a gate counts it (`o.late: 'count'`): it is returned after the pause, `cutShort`, and tallied.
+   * After `retry.inARow` unavailable in a row, counting from any earlier call that returned one cut
+   * short, the last of them is returned, `inconclusive` with `unavailable` set, and no more attempts
+   * start (`stopReason`). The attempt returned says how many unavailable ones it was run in place of
+   * (`unavailableBefore`).
    */
-  async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true): Promise<Attempt> {
+  async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true, o: AttemptOptions = {}): Promise<Attempt> {
     // A tool the model called that the recording never recorded runs again for real in every
     // attempt: one that writes is refused before the first starts (the commands check first too).
     if (!this.refusalChecked.has(target.parent.runId)) {
@@ -233,18 +263,31 @@ export class AttemptRunner {
       this.refusalChecked.add(target.parent.runId);
     }
     const before = (a: Attempt, n: number): Attempt => (n ? { ...a, unavailableBefore: n } : a);
-    for (let inARow = 1; ; inARow++) {
+    for (let retried = 0; ; retried++) {
       const a = await this.once(target, extra, tally);
-      if (!a.unavailable || this.interrupted) return before(a, inARow - 1);
-      if (inARow >= this.retry.inARow) {
-        const why = unavailableReason(inARow, a.unavailable);
-        this.stopReason ??= why;
-        return before({ ...a, failures: [why, ...a.failures.slice(1)] }, inARow - 1);
+      if (!a.unavailable || this.interrupted) {
+        if (!a.unavailable) this.inARow = 0;
+        else this.unavailable++;
+        return before(a, retried);
       }
-      const wait = retryDelay(inARow, a.unavailable.retryAfterMs, Math.random, this.retry);
-      this.onUnavailable?.(a.unavailable, wait);
+      this.inARow++;
+      if (this.inARow >= this.retry.inARow) {
+        this.unavailable++;
+        const why = unavailableReason(this.inARow, a.unavailable);
+        this.stopReason ??= why;
+        return before({ ...a, failures: [why, ...a.failures.slice(1)] }, retried);
+      }
+      const wait = retryDelay(this.inARow, a.unavailable.retryAfterMs, Math.random, this.retry);
+      const counted = o.late === 'count' && !a.unavailable.early;
+      this.onUnavailable?.(a.unavailable, wait, counted && tally);
       await (this.sleep ?? ((ms: number) => pauseUnless(ms, () => this.interrupted)))(wait);
-      if (this.interrupted) return before(a, inARow - 1);
+      if (counted && tally && !this.interrupted) {
+        this.attempts++;
+        this.cutShort++;
+        return before({ ...a, cutShort: true }, retried);
+      }
+      this.unavailable++;
+      if (this.interrupted || o.keep?.(a)) return before(a, retried);
     }
   }
 
@@ -353,7 +396,7 @@ export class AttemptRunner {
     // agent, so never tallied, though what it spent counts. A replay no preload loaded in failed by
     // itself (the guard), whatever its provider answered: that is never the provider's doing.
     const down = failures.length && !timedOut && !this.interrupted && !bypassed && !ended.preloads?.failed ? providerUnavailable(calls) : null;
-    if (down) this.unavailable++;
+    // One the provider was unavailable for is counted, or not, by `attempt`, which knows what its caller counts.
     if (tally && !this.interrupted) {
       if (!down) this.attempts++;
       this.spent += ended.summary.cost.spent;

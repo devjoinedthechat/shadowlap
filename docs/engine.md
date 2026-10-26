@@ -158,10 +158,13 @@ parseGate(json, where, defaults?): Gate
 // 'pass' | 'fail' | 'continue' | 'inconclusive'; a baseline gate without history
 // compares with the recording (RECORDING_BASELINE, one attempt that passed)
 decide(passes, attempts, gate, history?)
+// the same when `unavailable` of the attempts were cut short by the provider after the model
+// answered: a pass must hold with them as failures, a failure with them as passes
+decideUnavailable(passes, attempts, unavailable, gate, history?)
 // the decision, each outcome, the interval, pass^k, the evidence path and the verdict line;
 // `decision` freezes one reached before attempts still running ended, `carried` counts
 // attempts a continued session took over
-gateResult(gate, outcomes, { history?, clean?, decision?, carried?, unavailable? }): GateResult
+gateResult(gate, outcomes, { history?, clean?, decision?, carried?, unavailable?, unavailableAt? }): GateResult
 // what a report says, never a claimed rate: the rule (`tells 90%+ from 70%- at <= 5% risk,
 // up to 80 attempts`), the verdict word with the tally and the bound (`passed · 12 of 12
 // · rate >= 0.73 (95%)`), the two as one line, the bound alone (`wilsonBound` is its old name),
@@ -170,11 +173,12 @@ describeGate(gate) / verdictLine(result) / gateSentence(gate, result)
 rateBound(result) / formatTally(result)
 // the pass rate's interval at 1 − risk: exact under the gate's own stopping (`stagewise`), else a
 // confidence sequence; from a tally alone; a fixed count's (Clopper–Pearson); and the end a verdict shows
-gateInterval(gate, outcomes, { decision?, history?, carried?, clean? }) / tallyInterval(gate, tally, decision, history?)
+gateInterval(gate, outcomes, { decision?, history?, carried?, clean?, unavailable? }) / tallyInterval(gate, tally, decision, history?, unavailable?)
 clopperPearson(passes, n, confidence) / confidenceSequence(passes, n, confidence) / boundOf(interval, decision)
 // a test session's one risk split across its gated goldens, each gate's share, and the forecast
 planSuite(goldens, { risk?, inconclusive? }): SuitePlan | null
-// whether a failed attempt's provider was unavailable, read from its call records, and the pause before a retry
+// whether a failed attempt's provider was unavailable, read from its call records (`early`: before
+// the model had answered anything, so it is retried and never counted), and the pause before a retry
 providerUnavailable(calls): Unavailable | null / retryDelay(n, retryAfterMs)
 // the exact odds of each verdict, and the attempts run on average, every look counted;
 // `from` continues from a tally already seen

@@ -173,7 +173,8 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     failedWrite: r.failedWrite ?? null,
     // A probe's sentence in blame's words, as its report says it: rescued or lost, the tally, the bound and the rule;
     // and the attempts the provider was unavailable for, retried and never counted.
-    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, risk: x.risk ?? null, unavailable: x.unavailable ?? 0, runs: x.attempts })),
+    // and those it cut short after the model answered, which the gate counted against either verdict.
+    probes: r.probes.map((x) => ({ ...probe(x), rescued: x.rescued, decision: x.decision ?? null, rate: x.gate && !x.undecided ? { ...gateJson(x.gate)!, sentence: `${probeFinding(x, r.gate ?? null)} · ${rescueRule(r)}` } : null, undecided: x.undecided ?? null, risk: x.risk ?? null, unavailable: x.unavailable ?? 0, cutShort: x.cutShort ?? 0, runs: x.attempts })),
     // The probes' rescue rates fitted non-increasing, in call order.
     fit: r.fit ?? [],
     nonMonotone: r.nonMonotone,
@@ -241,8 +242,10 @@ export function verifyJson(r: VerifyReport, kept?: { verifyId: string; fixes: Ar
       ...(x.baseline ? { baseline: x.baseline, margin: x.margin ?? null, drop: x.drop ?? null } : {}),
       ...(x.baselineRuns ? { baselineRuns: x.baselineRuns } : {}),
       ...(x.noBaseline ? { noBaseline: x.noBaseline } : {}),
-      // Attempts the provider was unavailable for, the change's and the baseline's: retried, never counted.
+      // Attempts the provider was unavailable for, the change's and the baseline's: retried, never counted;
+      // and those it cut short after the model answered, counted against either verdict.
       unavailable: x.unavailable ?? 0,
+      cutShort: x.cutShort ?? 0,
       runs: x.attempts,
     })),
     // The rule good runs were kept by: against what, the margin, the risk and the most pairs or attempts.

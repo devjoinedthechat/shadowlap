@@ -19,12 +19,18 @@ let mock: MockServer;
 /** Requests the mock answers 529 before it answers again, and the status it answers then. */
 let overloaded = 0;
 let then = 200;
+/** Second requests of an attempt (after the model answered its first) the mock answers 529. */
+let lateOverloaded = 0;
 const OVERLOADED = { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } };
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 
 beforeAll(async () => {
   mock = await startMockAnthropic({
-    script: () => {
+    script: (ctx) => {
+      if (lateOverloaded > 0 && JSON.stringify(ctx.request.messages ?? '').includes('again')) {
+        lateOverloaded--;
+        return { status: 529, body: OVERLOADED, headers: { 'retry-after': '0' } };
+      }
       if (overloaded > 0) {
         overloaded--;
         return { status: 529, body: OVERLOADED, headers: { 'retry-after': '0' } };
@@ -42,6 +48,10 @@ afterAll(async () => {
 /** An agent that asks the model once and exits 0 when it answered, else 1 (or 0 when told to recover). */
 const agent = (recover = false) =>
   `fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 10, messages: [{ role: 'user', content: 'hi' }] }) }).then((r) => process.exit(r.ok || ${recover} ? 0 : 1), () => process.exit(${recover} ? 0 : 1))`;
+
+/** An agent that asks the model twice, the second time once the first was answered: exits 0 when both were. */
+const twice = `const ask = (content) => fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-opus-5', max_tokens: 10, messages: [{ role: 'user', content }] }) });
+ask('hi').then((r) => (r.ok ? ask('again').then((s) => process.exit(s.ok ? 0 : 1)) : process.exit(1)), () => process.exit(1));`;
 
 async function runner(name: string) {
   const db = join(dir, `${name}.db`);
@@ -127,6 +137,67 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
     } finally {
       then = 200;
       await r.close();
+    }
+  }, 60_000);
+
+  it('returns an attempt the provider cut short after the model answered to a gate that counts it, and runs it again for one that does not', async () => {
+    const { r, recorded, waits } = await runner('cut-short');
+    const target = { parent: recorded, argv: [process.execPath, '-e', twice], commandFromImport: false };
+    try {
+      // Counted: returned cut short after the pause, tallied, never run again.
+      lateOverloaded = 1;
+      const counted = await r.attempt(target, {}, true, { late: 'count' });
+      expect(counted).toMatchObject({ passed: false, verdict: 'inconclusive', cutShort: true, unavailable: { status: 529, early: false } });
+      expect(counted.unavailableBefore).toBeUndefined();
+      expect([r.attempts, r.cutShort, r.unavailable]).toEqual([1, 1, 0]);
+      expect(waits).toEqual([0]);
+      // Not counted (a fixed count): run again, never tallied, as one the provider failed before the model answered.
+      lateOverloaded = 1;
+      const retried = await r.attempt(target, {}, true, { late: 'retry' });
+      expect(retried).toMatchObject({ passed: true, unavailableBefore: 1 });
+      expect(retried.cutShort).toBeUndefined();
+      expect([r.attempts, r.cutShort, r.unavailable]).toEqual([2, 1, 1]);
+      // An error before the model answered is run again even for a gate that counts the rest.
+      overloaded = 1;
+      const early = await r.attempt(target, {}, true, { late: 'count' });
+      expect(early).toMatchObject({ passed: true, unavailableBefore: 1 });
+      expect([r.attempts, r.cutShort, r.unavailable]).toEqual([3, 1, 2]);
+    } finally {
+      overloaded = 0;
+      lateOverloaded = 0;
+      await r.close();
+    }
+  }, 60_000);
+
+  it('counts three unavailable in a row across attempts, a counted one included, and keeps one a caller says to keep', async () => {
+    const { r, recorded } = await runner('in-a-row');
+    const target = { parent: recorded, argv: [process.execPath, '-e', twice], commandFromImport: false };
+    try {
+      lateOverloaded = 1;
+      expect((await r.attempt(target, {}, true, { late: 'count' })).cutShort).toBe(true);
+      // Two more in a row, the first before the model answered: the third stops the runner.
+      overloaded = 1;
+      lateOverloaded = 1;
+      const stopped = await r.attempt(target, {}, true, { late: 'count' });
+      expect(stopped.cutShort).toBeUndefined();
+      expect(stopped.failures[0]).toMatch(/^provider unavailable: 3 attempts in a row ended on HTTP 529/);
+      expect(r.canStart()).toBe(false);
+    } finally {
+      overloaded = 0;
+      lateOverloaded = 0;
+      await r.close();
+    }
+    const kept = await runner('kept');
+    try {
+      lateOverloaded = 1;
+      const a = await kept.r.attempt({ parent: kept.recorded, argv: [process.execPath, '-e', twice], commandFromImport: false }, {}, true, { keep: (x) => x.unavailable?.early === false });
+      // Returned as it is, after the pause, for its caller to judge: never run again, and not counted cut short.
+      expect(a).toMatchObject({ passed: false, unavailable: { early: false } });
+      expect(a.cutShort).toBeUndefined();
+      expect([kept.r.attempts, kept.r.cutShort, kept.r.unavailable]).toEqual([0, 0, 1]);
+    } finally {
+      lateOverloaded = 0;
+      await kept.r.close();
     }
   }, 60_000);
 

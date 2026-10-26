@@ -76,7 +76,8 @@ export function attemptsOf(r: Pick<TestResult, 'ok' | 'failure' | 'data'>): Tall
   if (r.failure === 'error') return null;
   const a = r.data?.attempts;
   if (a && Number.isInteger(a.total) && Number.isInteger(a.passed)) {
-    const attempts = a.total - (a.inconclusive ?? 0);
+    // An attempt the provider cut short, which its gate counted against either verdict, is no baseline's evidence.
+    const attempts = a.total - (a.inconclusive ?? 0) - (a.cutShort ?? 0);
     return attempts > 0 && a.passed <= attempts ? { passes: a.passed, attempts } : null;
   }
   return { passes: r.ok ? 1 : 0, attempts: 1 };
@@ -154,7 +155,9 @@ export function sessionAttempts(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, 
   const outcomes = Array.isArray(g?.outcomes) ? g.outcomes : null;
   if (!outcomes) return all;
   const carried = typeof g?.carried === 'number' && g.carried > 0 ? g.carried : 0;
-  const own = outcomes.slice(carried, carried + first);
+  // Its own attempts after those it carried over, without any the provider cut short.
+  const cut = new Set(Array.isArray(g?.unavailableAt) ? g.unavailableAt : []);
+  const own = outcomes.flatMap((x, i) => (i >= carried && !cut.has(i) ? [x] : [])).slice(0, first);
   return own.length ? { passes: own.filter(Boolean).length, attempts: own.length } : null;
 }
 

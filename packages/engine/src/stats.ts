@@ -296,6 +296,23 @@ export function decide(passes: number, attempts: number, gate: Gate, history?: G
 }
 
 /**
+ * What a gate says when `unavailable` of the attempts it counts were cut short by the provider after
+ * the model had answered (unavailable.ts), none of them among `passes`. A pass must hold with them
+ * counted as failures, and a failure with them counted as passes, so neither verdict rests on how
+ * they would have ended, whatever made the provider fail where it did; with neither, it runs another
+ * attempt, and at `max` it is inconclusive. Each view is the gate's own test of every attempt it
+ * counts, so each verdict keeps the gate's risk however the provider's errors fall: the SPRT's by
+ * Ville's inequality, whatever the stopping. With none cut short, it is `decide`.
+ */
+export function decideUnavailable(passes: number, attempts: number, unavailable: number, gate: Gate, history?: GateHistory | Tally | null): GateDecision {
+  if (!unavailable) return decide(passes, attempts, gate, history);
+  checkTally(passes + unavailable, attempts);
+  if (decide(passes, attempts, gate, history) === 'pass') return 'pass';
+  if (decide(passes + unavailable, attempts, gate, history) === 'fail') return 'fail';
+  return attempts >= gate.max ? 'inconclusive' : 'continue';
+}
+
+/**
  * The fixed count every gate replaced, as the same kind of decision: pass at `needed` passes, fail
  * once the attempts left can't reach it, else continue. Never inconclusive: it states no risk.
  */
@@ -820,9 +837,10 @@ function reachable(rule: Rule, t: GateStop): boolean {
  * had ended, a `clean` replay that settled it alone. For a gate against history, `history` is its
  * baseline (none: the golden's recording), which its rule depends on.
  */
-export function gateInterval(gate: Gate, outcomes: readonly boolean[], o: { decision?: GateDecision | undefined; history?: Tally | null | undefined; carried?: number | undefined; clean?: boolean | undefined } = {}): RateInterval {
+export function gateInterval(gate: Gate, outcomes: readonly boolean[], o: { decision?: GateDecision | undefined; history?: Tally | null | undefined; carried?: number | undefined; clean?: boolean | undefined; unavailable?: number | undefined } = {}): RateInterval {
   const confidence = 1 - gate.risk;
   const passes = outcomes.filter(Boolean).length;
+  if (o.unavailable) return aroundUnavailable(passes, outcomes.length, o.unavailable, confidence);
   if (!o.carried && !o.clean && outcomes.length > 0) {
     const rule = decider(gate, o.history ?? null);
     const stop = firstStop(rule, outcomes);
@@ -834,13 +852,28 @@ export function gateInterval(gate: Gate, outcomes: readonly boolean[], o: { deci
 }
 
 /**
+ * The interval when `unavailable` of the `attempts` were cut short by the provider (none among
+ * `passes`): the low end with them counted as failures, the high end with them counted as passes,
+ * each a confidence sequence, since the gate stopped by the two views together, not by its own rule
+ * on one. Each sequence is at (1 + confidence) / 2, so the two ends shown together are wrong at most
+ * 1 − confidence of the time, as an interval's are; the agent's rate lies between the two views
+ * whatever the cut-short attempts would have done.
+ */
+function aroundUnavailable(passes: number, attempts: number, unavailable: number, confidence: number): RateInterval {
+  const each = (1 + confidence) / 2;
+  return { lo: confidenceSequence(passes, attempts, each).lo, hi: confidenceSequence(passes + unavailable, attempts, each).hi, confidence, method: 'confidence-sequence' };
+}
+
+/**
  * The same from a tally alone, for a report that kept only the counts: stagewise when the gate's rule
  * can stop at `passes` of `attempts` with `decision` (an SPRT's stop depends on the counts alone),
- * otherwise a confidence sequence.
+ * otherwise a confidence sequence; with `unavailable` of the attempts cut short by the provider, the
+ * two views' (`aroundUnavailable`).
  */
-export function tallyInterval(gate: Gate, tally: Tally, decision: GateDecision, history?: Tally | null): RateInterval {
+export function tallyInterval(gate: Gate, tally: Tally, decision: GateDecision, history?: Tally | null, unavailable = 0): RateInterval {
   checkTally(tally.passes, tally.attempts);
   const confidence = 1 - gate.risk;
+  if (unavailable) return aroundUnavailable(tally.passes, tally.attempts, unavailable, confidence);
   const rule = decider(gate, history ?? null);
   const stop: GateStop | null = decision === 'continue' ? null : { passes: tally.passes, attempts: tally.attempts, decision };
   if (stop && tally.attempts > 0 && reachable(rule, stop)) return { ...stagewiseInterval(rule, stop, confidence), confidence, method: 'stagewise' };
@@ -999,8 +1032,14 @@ export interface GateOutcome {
   interval: { lo: number; hi: number; confidence: number };
   /** The end, or ends, of `interval` that bear on the verdict, and how it was worked out: what the verdict line shows. Absent for a clean replay, and on results kept before. */
   bound?: RateBound;
-  /** Attempts the provider was unavailable for (`unavailable.ts`): retried, never counted in `outcomes`. Absent when there were none. */
+  /** Attempts the provider was unavailable for before the model answered (`unavailable.ts`): retried, never counted in `outcomes`. Absent when there were none. */
   unavailable?: number;
+  /**
+   * The attempts of `outcomes` the provider cut short after the model had answered, by their place in
+   * it: each a failure there (`passes` leaves them out), counted against either verdict, a failure
+   * toward a pass and a pass toward a failure (`decideUnavailable`). Absent when there were none.
+   */
+  unavailableAt?: number[];
   /** pass^k for k = 1, 2, … up to the attempts run (at most 8). */
   passK: Array<{ k: number; value: number }>;
   evidence: SprtEvidence | BaselineEvidence;
@@ -1041,14 +1080,17 @@ export const PASS_K_SHOWN = 5;
  * that rule (`gateInterval`); a clean replay's, a cut-short gate's and a continued one's is a
  * confidence sequence, which holds however the attempts stopped.
  */
-export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision; carried?: number; unavailable?: number } = {}): GateResult {
+export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { history?: GateHistory | null; clean?: boolean; decision?: GateDecision; carried?: number; unavailable?: number; unavailableAt?: readonly number[] } = {}): GateResult {
   const attempts = outcomes.length;
   const passes = outcomes.filter(Boolean).length;
   const history = o.history && o.history.attempts > 0 ? o.history : null;
   const clean = !!o.clean && attempts > 0;
-  const decision = o.decision ?? (clean ? (outcomes[0] ? 'pass' : 'fail') : decide(passes, attempts, gate, history));
+  // The attempts the provider cut short, each a failure in `outcomes`, counted against either verdict.
+  const unavailableAt = [...new Set(o.unavailableAt ?? [])].filter((i) => Number.isInteger(i) && i >= 0 && i < attempts && !outcomes[i]).sort((a, b) => a - b);
+  const cut = unavailableAt.length;
+  const decision = o.decision ?? (clean ? (outcomes[0] ? 'pass' : 'fail') : decideUnavailable(passes, attempts, cut, gate, history));
   const carried = o.carried && o.carried > 0 ? Math.min(o.carried, attempts) : 0;
-  const exact = gateInterval(gate, outcomes, { decision, history, carried, clean });
+  const exact = gateInterval(gate, outcomes, { decision, history, carried, clean, unavailable: cut });
   const interval = { lo: exact.lo, hi: exact.hi, confidence: exact.confidence };
   const passK: GateResult['passK'] = [];
   for (let k = 1; k <= Math.min(attempts, PASS_K_MAX); k++) passK.push({ k, value: passHatK(passes, attempts, k)! });
@@ -1084,11 +1126,12 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
     interval,
     ...(clean || !attempts ? {} : { bound: boundOf(exact, decision) }),
     ...(unavailable ? { unavailable } : {}),
+    ...(cut ? { unavailableAt } : {}),
     passK,
     evidence,
     clean,
     ...(carried ? { carried } : {}),
-    sentence: gateSentence(gate, { decision, passes, attempts, interval, clean, evidence, ...(carried ? { carried } : {}), ...(unavailable ? { unavailable } : {}) }),
+    sentence: gateSentence(gate, { decision, passes, attempts, interval, clean, evidence, ...(carried ? { carried } : {}), ...(unavailable ? { unavailable } : {}), ...(cut ? { cutShort: cut } : {}) }),
   };
 }
 
@@ -1109,10 +1152,13 @@ function baselineWords(e: BaselineEvidence): string {
  * verdict word, the tally and the bound, `passed · 12 of 12 · rate >= 0.73 (95%)`; against history,
  * the baseline after them. A clean replay's one attempt has no rate to show: it is the same every time.
  * The tally says what it left out or took in apart: attempts carried over from a session it continued,
- * and attempts the provider was unavailable for, never counted (`12 of 12 (2 unavailable, not counted)`).
+ * attempts the provider cut short after the model had answered, counted against either verdict
+ * (`21 of 23 (2 cut short by the provider, counted against either verdict)`), and attempts it was
+ * unavailable for before then, never counted (`12 of 12 (2 unavailable, not counted)`).
  */
-export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
-  const apart = [r.carried ? `${r.carried} carried over` : null, r.unavailable ? `${r.unavailable} unavailable, not counted` : null].filter(Boolean).join('; ');
+export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined; cutShort?: number | undefined; unavailableAt?: readonly number[] | undefined }): string {
+  const cut = r.cutShort ?? r.unavailableAt?.length ?? 0;
+  const apart = [r.carried ? `${r.carried} carried over` : null, cut ? `${cut} cut short by the provider, counted against either verdict` : null, r.unavailable ? `${r.unavailable} unavailable, not counted` : null].filter(Boolean).join('; ');
   const tally = `${r.passes} of ${r.attempts}${apart ? ` (${apart})` : ''}`;
   if (r.clean) return `${decisionWord(r.decision)} · ${tally} · a clean replay, the same every time`;
   const parts = [decisionWord(r.decision), tally, rateBound(r)];
@@ -1127,7 +1173,7 @@ export function verdictLine(r: Pick<GateOutcome, 'decision' | 'passes' | 'attemp
  * against history, `passed · 5 of 5 · rate >= 0.47 (95%) · against 0.94 over the last 10 sessions
  * (47 of 50) · gate: fails a drop of 15+ points …`. A clean replay is settled by its one attempt.
  */
-export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined }): string {
+export function gateSentence(g: Gate, r: Pick<GateOutcome, 'decision' | 'passes' | 'attempts' | 'interval' | 'clean' | 'evidence'> & { carried?: number | undefined; unavailable?: number | undefined; cutShort?: number | undefined }): string {
   if (r.clean) return `${verdictLine(r)}, so its one attempt settles it`;
   return `${verdictLine(r)} · gate: ${describeGate(g)}`;
 }

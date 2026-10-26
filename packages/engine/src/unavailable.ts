@@ -3,9 +3,19 @@ import type { CallRecord } from './types.js';
 
 /**
  * A provider that is down, overloaded or rate limiting says nothing about the agent. An attempt the
- * agent failed while one of its live model calls ended in such an error is `unavailable`: it is
- * retried after a pause, never counted in a gate's tally, and enough of them in a row make the result
- * inconclusive, with the provider named as the reason, instead of a verdict on the agent.
+ * agent failed while one of its live model calls ended in such an error is `unavailable`, and enough
+ * of them in a row make the result inconclusive, with the provider named as the reason, instead of a
+ * verdict on the agent. When the provider failed it decides how the attempt is counted:
+ *
+ * - `early`: before the model had answered anything live in the attempt. Nothing of the attempt's
+ *   own course was sampled yet, so the error can't depend on how it would have gone: the attempt is
+ *   retried after a pause and never counted, which leaves the attempts that are counted as they would
+ *   have been.
+ * - otherwise, part way through, after the model had answered: the error may come with the course the
+ *   attempt took (an agent that loops until it is rate limited), and leaving such attempts out would
+ *   leave the failing ones out. A gate counts it against either verdict: as a failure toward a pass,
+ *   and as a pass toward a failure (stats.ts `decideUnavailable`), so neither verdict rests on how the
+ *   attempts the provider cut short would have ended.
  *
  * What counts is what the call records hold, the final answer of each of the agent's live model calls
  * (a call its SDK retried and that then succeeded is fine): HTTP 408, 409, 429 or any 5xx from the
@@ -37,6 +47,12 @@ export interface Unavailable {
   retryAfterMs: number | null;
   /** In words: `HTTP 529 from anthropic at call #3`. */
   reason: string;
+  /**
+   * No live model call of the agent's in the attempt had been answered: the provider failed before the
+   * attempt's own course began, so the error says nothing of how it would have gone, and the attempt
+   * is retried, never counted. False when the model had answered some call live first.
+   */
+  early: boolean;
 }
 
 /** What the sidecar records for an upstream it could not reach, a stream cut short, and an answer it could not pass on. */
@@ -64,6 +80,8 @@ export function retryAfter(headers: Record<string, string> | undefined, now = Da
  */
 export function providerUnavailable(calls: readonly CallRecord[]): Unavailable | null {
   let found: Unavailable | null = null;
+  // A live model call of the agent's the provider answered: the attempt's own course had begun.
+  const answered = calls.some((c) => c.kind === 'api' && c.origin === 'live' && !isJudgeCall(c) && c.end?.outcome === 'ok');
   for (const c of calls) {
     if (c.kind !== 'api' || c.origin !== 'live' || isJudgeCall(c) || !c.end || c.end.outcome !== 'error') continue;
     const meta = c.end.meta;
@@ -76,7 +94,7 @@ export function providerUnavailable(calls: readonly CallRecord[]): Unavailable |
     if (!connection && !(status !== null && unavailableStatus(status))) continue;
     const provider = typeof meta.provider === 'string' ? meta.provider : typeof c.meta.provider === 'string' ? c.meta.provider : null;
     const what = connection ? (error === 'UpstreamStreamError' ? 'a stream cut short' : error === 'UpstreamResponseError' ? 'an answer that could not be passed on' : 'a connection that failed') : `HTTP ${status!}`;
-    found = { callNo: c.callNo, provider, status, error: connection ? error : null, retryAfterMs: retryAfter(meta.headers, c.end.at), reason: `${what}${provider ? ` from ${provider}` : ''} at call #${c.callNo}` };
+    found = { callNo: c.callNo, provider, status, error: connection ? error : null, retryAfterMs: retryAfter(meta.headers, c.end.at), reason: `${what}${provider ? ` from ${provider}` : ''} at call #${c.callNo}`, early: !answered };
   }
   return found;
 }

@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decide, decideCount, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, normalizeResponse, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCount, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, normalizeResponse, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -78,40 +78,49 @@ export interface BlameRun extends BlameReport {
  * are evidence, but nothing decides again, so a verdict once reached never reopens, and the caller
  * starts no attempt after it (probeAttempts). An attempt that could not be judged (null) decides the
  * probe inconclusive when its turn comes, on the attempts before it: no attempt after it would say
- * more.
+ * more. One the provider cut short after the model answered (`cut`) is counted, against either
+ * verdict, `settle` told how many of the attempts it reads were.
  */
 export class ProbeTally {
-  private readonly outcomes: Array<boolean | null | undefined> = [];
+  private readonly outcomes: Array<boolean | null | 'cut' | undefined> = [];
   private seen = 0;
   private passes = 0;
+  private cut = 0;
   /** The first answer other than continue, and after how many attempts (by the order they started); null until then. */
   decided: { decision: GateDecision; at: number } | null = null;
 
-  constructor(private readonly settle: (passes: number, attempts: number) => GateDecision) {}
+  constructor(private readonly settle: (passes: number, attempts: number, cut: number) => GateDecision) {}
 
   /** How many attempts it has read: the first to start, each read once every one before it had ended. */
   get read(): number {
     return this.seen;
   }
 
-  /** Attempt `n` (the nth to start, from 1) ended, and passed or not, or (null) could not be judged. */
-  add(n: number, passed: boolean | null): void {
+  /** Attempt `n` (the nth to start, from 1) ended, and passed or not, or (null) could not be judged, or (`cut`) the provider cut it short after the model answered. */
+  add(n: number, passed: boolean | null | 'cut'): void {
     this.outcomes[n - 1] = passed;
     while (!this.decided && this.seen < this.outcomes.length && this.outcomes[this.seen] !== undefined) {
-      if (this.outcomes[this.seen] === null) {
+      const x = this.outcomes[this.seen];
+      if (x === null) {
         this.decided = { decision: 'inconclusive', at: this.seen };
         break;
       }
-      if (this.outcomes[this.seen]) this.passes++;
+      if (x === 'cut') this.cut++;
+      else if (x) this.passes++;
       this.seen++;
-      const d = this.settle(this.passes, this.seen);
+      const d = this.settle(this.passes, this.seen, this.cut);
       if (d !== 'continue') this.decided = { decision: d, at: this.seen };
     }
   }
 
-  /** The attempts the decision rests on, in the order they started. */
+  /** The attempts the decision rests on, in the order they started: one the provider cut short as a failure (`cutAt` says which). */
   decidedOn(): boolean[] {
-    return this.decided ? (this.outcomes.slice(0, this.decided.at) as boolean[]) : [];
+    return this.decided ? this.outcomes.slice(0, this.decided.at).map((x) => x === true) : [];
+  }
+
+  /** Which of the attempts the decision rests on the provider cut short, by their place among them. */
+  cutAt(): number[] {
+    return this.decided ? this.outcomes.slice(0, this.decided.at).flatMap((x, i) => (x === 'cut' ? [i] : [])) : [];
   }
 }
 
@@ -212,7 +221,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const budget = maxProbes(steps.length, s.scan);
     const each: SprtGate | null = s.gate ? probeGate(s.gate, budget) : null;
     const limit = each ? each.max : s.attempts;
-    const settle = (passes: number, done: number): GateDecision => (each ? decide(passes, done, each) : decideCount(passes, done, s.attempts, s.needed));
+    // A gate counts an attempt the provider cut short after the model answered against either verdict; a fixed count runs it again.
+    const settle = (passes: number, done: number, cut: number): GateDecision => (each ? decideUnavailable(passes, done, cut, each) : decideCount(passes, done, s.attempts, s.needed));
     // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
     const risk = probeRisk(each ? { gate: each } : { attempts: s.attempts, needed: s.needed });
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
@@ -224,6 +234,8 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       // Attempts the provider was unavailable for: retried by the runner, never counted. Once it stays
       // unavailable attempt after attempt the runner stops, and the probe decides nothing.
       let unavailable = 0;
+      // Attempts the provider cut short after the model answered: counted by the gate, against either verdict.
+      let cutShort = 0;
       let providerDown = false;
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       await probeAttempts({
@@ -233,7 +245,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
         more: () => !prefixBroken && !tally.decided && runner.canStart(),
         attempt: async (n) => {
           const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: limit }, probe: { of: parent.runId, callNo, passed: false } };
-          const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks });
+          const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks }, true, { late: each ? 'count' : 'retry' });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) return;
           const d = a.summary.divergence;
@@ -246,19 +258,21 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
               ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
               : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
           }
-          unavailable += (a.unavailableBefore ?? 0) + (a.unavailable ? 1 : 0);
+          unavailable += (a.unavailableBefore ?? 0) + (a.unavailable && !a.cutShort ? 1 : 0);
           store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.unavailable ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
           // The provider was unavailable for it and the attempts before it in a row: it says nothing
           // about the answer re-asked, and nothing after it is asked (the runner's stopReason says why).
-          if (a.unavailable) {
+          if (a.unavailable && !a.cutShort) {
             providerDown = true;
             log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}`);
             return;
           }
-          done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
+          if (a.cutShort) cutShort++;
+          done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, ...(a.cutShort ? { cutShort: true as const } : {}), exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
           const late = tally.decided !== null;
-          // An attempt that all it fell short on is a check that could not be decided says nothing of the answer re-asked.
-          tally.add(n, a.verdict === 'inconclusive' ? null : a.passed);
+          // An attempt that all it fell short on is a check that could not be decided says nothing of the
+          // answer re-asked; one the provider cut short is counted, against either verdict.
+          tally.add(n, a.cutShort ? 'cut' : a.verdict === 'inconclusive' ? null : a.passed);
           log(`    ${p.dim(`attempt ${n}`)}  ${describeAttempt(a)}${late ? p.dim(' · ended after the probe decided') : ''}`);
         },
       });
@@ -277,11 +291,12 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const rescued = decision === 'pass';
       // An attempt that could not be judged stopped the probe, inconclusive, whatever decides it: with
       // why. One that ended after a gate or a count had decided it is only a late attempt.
-      const stopper = attempts.find((a) => a.verdict === 'inconclusive');
+      const stopper = attempts.find((a) => a.verdict === 'inconclusive' && !a.cutShort);
       const undecided = decision === 'inconclusive' ? (stopper?.failures[0] ?? null) : null;
       // The gate's result rests on the attempts it decided on: the first to start, up to the one that settled it.
       const apart = unavailable ? { unavailable } : {};
-      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision, ...apart }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk, ...apart };
+      const cutAt = tally.cutAt();
+      const found: BlameProbe = { callNo, step, attempts, passes, rescued, ...(each ? { decision, gate: gateResult(each, tally.decidedOn(), { decision: undecided ? 'continue' : decision, ...apart, ...(cutAt.length ? { unavailableAt: cutAt } : {}) }) } : undecided ? { decision } : {}), ...(undecided ? { undecided } : {}), risk, ...apart, ...(cutShort ? { cutShort } : {}) };
       // Under a gate, its verdict word, tally and bound; the rule was said once, above.
       const words = each || undecided ? probeFinding(found, each) : `${rescued ? 'rescued' : 'lost'}: ${probeTally(found, ' passed')}`;
       log(`    ${rescued ? p.green(words) : decision === 'inconclusive' ? p.yellow(words) : p.red(words)}`);
