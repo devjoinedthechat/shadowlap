@@ -453,10 +453,10 @@ Call 2's fingerprint is the SHA-256 of `{"args":{"id":"A-17"},"kind":"tool","nam
 }
 ```
 
-Check a pack you wrote with [`shadowlap test`](./cli.md#test): it brings the pack in as a reader must, runs its command with every provider offline, and passes only when the agent sent every recorded request unchanged, and no other:
+Check a pack you wrote with [`shadowlap test`](./cli.md#test): it brings the pack in as a reader must, runs its command with every provider offline, and passes only when the agent sent every recorded request unchanged, and no other. Its command came from your producer, not from a recording made here, so until your repository tracks the pack, `test` asks before it runs it; `--yes` says yes:
 
 ```sh
-shadowlap test refund-flow
+shadowlap test refund-flow --yes
 ```
 
 ```

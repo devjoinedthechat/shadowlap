@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { CommanderError, InvalidArgumentError } from 'commander';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { CliError, EXIT, exitCodeOf, inconclusiveStatus, reportError, signalExit } from '../src/exit-codes.js';
 
 /**
@@ -145,6 +146,7 @@ describe('the built CLI', () => {
     const golden = fresh();
     writeFileSync(join(golden, 'agent.mjs'), AGENT);
     expect(shadowlap(golden, ['--db', join(project, '.shadowlap', 'shadowlap.db'), 'pack', runId, join(golden, 'goldens', 'hello')]).code).toBe(0);
+    trackInGit(golden, 'goldens');
     writeFileSync(join(golden, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/hello': { expect: { judge: [{ name: 'greets', question: 'Does it say hello?', of: 'output', model: 'claude-haiku-4-5' }] } } } }));
     const keyless = { ANTHROPIC_API_KEY: '', SHADOWLAP_UPSTREAM_ANTHROPIC: '' };
     const tested = shadowlap(golden, ['test', 'goldens/hello', '--cwd', project], keyless);

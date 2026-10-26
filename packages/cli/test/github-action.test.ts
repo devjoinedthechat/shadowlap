@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 import { gateResult, Store } from '@shadowlap/engine';
 import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
@@ -113,6 +114,7 @@ describe('the GitHub Action', () => {
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(project, 'goldens', 'reference-agent'), { recursive: true });
     symlinkSync(join(ROOT, 'testing'), join(project, 'testing'), 'dir');
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/reference-agent': { expect: { judge: [{ name: 'summarizes', question: 'Does the email summarize what the agent found?', model: 'claude-haiku-4-5' }] } } } }));
+    trackInGit(project, 'goldens', 'shadowlap.config.json');
     const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project, GUARD: 'off' });
     expect(r.code, r.out).toBe(1);
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', diverged: '0', 'checks-failed': '0', inconclusive: '1' });

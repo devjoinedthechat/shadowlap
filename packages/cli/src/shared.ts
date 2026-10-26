@@ -141,14 +141,14 @@ export function fileSize(path: string): number {
  * team store); refuses outright when nobody can answer. `own` is how to run the agent with a command
  * of the person's own instead, as the refusal suggests (default: a replay with one).
  */
-export async function confirmImportedCommand(run: RunRecord, argv: string[], own = `shadowlap replay ${shortId(run.runId)} -- <command>`): Promise<boolean> {
+export async function confirmImportedCommand(run: RunRecord, argv: string[], own = `shadowlap replay ${shortId(run.runId)} -- <command>`, refusal = `Pass --yes to run it, or give your own command: ${own}`): Promise<boolean> {
   const runId = run.runId;
   const cmd = quoteArgv(argv);
   const author = typeof run.meta?.author === 'string' && run.meta.author ? run.meta.author : null;
   const from = pulledRun(run) ? `came from the team store${author ? `, recorded by ${safe(author)}` : ''}` : 'was imported from a pack';
   const explain = `Run ${shortId(runId)} ${from}. Replaying it runs the command it was recorded with:\n\n    ${safe(cmd)}\n\n`;
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    process.stderr.write(p.red(explain) + `Pass --yes to run it, or give your own command: ${own}\n`);
+    process.stderr.write(p.red(explain) + `${refusal}\n`);
     return false;
   }
   const { createInterface } = await import('node:readline/promises');

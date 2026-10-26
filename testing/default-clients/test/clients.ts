@@ -121,6 +121,17 @@ export async function startProviders(): Promise<Providers> {
 const CREDENTIALS = providers.flatMap((p) => p.keys?.credentials ?? []);
 
 /** A folder for a test's project and stores, and one that stands for a home with no sign-ins in it. */
+/**
+ * Adds `paths` to the git index of `dir`, made a repository if it isn't one, as CI's checkout holds
+ * the goldens a repository committed: `shadowlap test` runs the command of a pack the repository
+ * tracks without asking, and asks of any other, which a job without a terminal doesn't run. Added
+ * whatever ignores them: a store kept in `dir` itself gives it a `.gitignore` of everything.
+ */
+export function committed(dir: string, ...paths: string[]): void {
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['add', '-f', '--', ...paths], { cwd: dir, stdio: 'ignore' });
+}
+
 export function workdir(prefix: string): { dir: string; empty: string; remove(): void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   const empty = mkdtempSync(join(tmpdir(), 'sl-no-sign-in-'));

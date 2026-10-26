@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 
 /**
@@ -80,6 +81,7 @@ describe('a redacted pack, replayed as CI replays it', () => {
     expect(again.out).toContain('export html, har and dataset mask it (#2, #3 already do)');
 
     expect((await shadowlap(['pack', runId, 'goldens/card'])).code).toBe(0);
+    trackInGit(work, 'goldens/card');
     const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/card']);
     expect(ci.code, ci.out).toBe(0);
     expect((await shadowlap(['test', 'goldens/card'])).code).toBe(0);
@@ -101,6 +103,7 @@ describe('a redacted pack, replayed as CI replays it', () => {
     const blobs = readdirSync(join(work, 'goldens', 'hidden', 'blobs')).map((f) => readFileSync(join(work, 'goldens', 'hidden', 'blobs', f), 'utf8')).join('\n');
     expect(blobs).not.toContain('<HIDDEN>');
     expect(blobs).toContain('"card":4111111111111111');
+    trackInGit(work, 'goldens/hidden');
     const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/hidden']);
     expect(ci.code, ci.out).toBe(0);
     // export html, which is only read, masks the tool's result (the engine's tests hold the clock read to its bytes there).
@@ -121,6 +124,7 @@ describe('a redacted pack, replayed as CI replays it', () => {
     const blobs = readdirSync(join(work, 'goldens', 'ticket', 'blobs')).map((f) => readFileSync(join(work, 'goldens', 'ticket', 'blobs', f), 'utf8')).join('\n');
     expect(blobs).not.toContain('<REDACTED>');
     // Where the pack is all there is, the agent reads the uuid it read when it was recorded, and files the same ticket.
+    trackInGit(work, 'goldens/ticket');
     const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/ticket']);
     expect(ci.code, ci.out).toBe(0);
     expect(ci.out).toMatch(/ticket: 2\/2 replayed/);

@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from '@shadowlap/sidecar';
-import { answered, ciEnv, CLI, findPython, HERE, node, recorded, refusal, run, startProviders, workdir, type Providers } from './clients.js';
+import { answered, ciEnv, CLI, committed, findPython, HERE, node, recorded, refusal, run, startProviders, workdir, type Providers } from './clients.js';
 
 /**
  * Agents that bring a credential of their own, not a key the environment holds when they start:
@@ -48,6 +48,7 @@ describe('signed in with an Anthropic profile, no key in the environment', () =>
     runId = recorded(made.out);
     expect(last('anthropic').headers).toMatchObject({ authorization: 'Bearer oauth-token-of-the-developer', 'anthropic-beta': expect.stringContaining('oauth-') });
     expect((await shadowlap(['pack', runId, 'goldens/profile'])).code).toBe(0);
+    committed(work.dir, 'goldens/profile');
   });
 
   it('replays clean on the developer machine, with the profile: no placeholder takes its place', async () => {
@@ -86,6 +87,7 @@ describe('a key the agent loads from its .env file', () => {
     runId = recorded(made.out);
     expect(last('openai').headers.authorization).toBe('Bearer sk-from-dotenv');
     expect((await shadowlap(['pack', runId, join(project, 'goldens', 'dotenv')], {}, 'store.db', project)).code).toBe(0);
+    committed(project, 'goldens/dotenv');
   });
 
   it('replays clean, and its fork goes live with the key from .env, which no placeholder shadows', async () => {
@@ -117,6 +119,7 @@ describe('Azure OpenAI signed in with a Microsoft Entra ID token provider', () =
     runId = recorded(made.out);
     expect(last('azure').headers.authorization).toBe('Bearer entra-token-of-the-developer');
     expect((await shadowlap(['pack', runId, 'goldens/entra'])).code).toBe(0);
+    committed(work.dir, 'goldens/entra');
   });
 
   it('replays clean and passes shadowlap test: no key goes beside the token provider, which the client refuses', async () => {
@@ -162,6 +165,7 @@ describe.skipIf(!boto3)('Bedrock through boto3 on an instance role, which the me
     runId = recorded(made.out);
     expect(String(last('bedrock').headers.authorization)).toContain('Credential=ASIAINSTANCEROLE/');
     expect((await shadowlap(['pack', runId, 'goldens/role'])).code).toBe(0);
+    committed(work.dir, 'goldens/role');
   });
   afterAll(() => new Promise<void>((resolve) => imds.close(() => resolve())));
 
@@ -187,6 +191,7 @@ describe('in-process capture off', () => {
     expect(made.code, made.out).toBe(0);
     const azure = recorded(made.out);
     expect((await shadowlap(['pack', azure, 'goldens/azure-capture'])).code).toBe(0);
+    committed(work.dir, 'goldens/azure-capture');
     const viaBoto = boto3 ? await shadowlap(['run', '--', boto3, join(HERE, 'boto_agent.py')], { AWS_ACCESS_KEY_ID: 'AKIARECORDING', AWS_SECRET_ACCESS_KEY: 'recording-secret' }) : null;
     if (viaBoto) expect(viaBoto.code, viaBoto.out).toBe(0);
     const before = providers.all().length;

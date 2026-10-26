@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { classifyRun, Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
@@ -35,6 +36,8 @@ beforeAll(async () => {
   });
   work = mkdtempSync(join(tmpdir(), 'fp-checks-'));
   cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(work, 'goldens', 'reference-agent'), { recursive: true });
+  // Committed, as a checkout holds it.
+  trackInGit(work, 'goldens');
 });
 afterAll(async () => {
   await mock.close();

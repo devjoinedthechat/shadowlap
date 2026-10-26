@@ -8,6 +8,7 @@ import { Store } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { departures, type ShapeName } from './json-shapes.js';
+import { trackInGit } from './tracked.js';
 
 /**
  * A gate in `shadowlap test`, through the CLI, on the committed golden of the reference agent. The
@@ -51,6 +52,8 @@ beforeAll(async () => {
   });
   work = mkdtempSync(join(tmpdir(), 'sl-gate-'));
   cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(work, 'goldens', 'reference-agent'), { recursive: true });
+  // Committed, as CI's checkout holds its goldens: their recorded command runs without asking.
+  trackInGit(work, 'goldens');
 });
 afterAll(async () => {
   await mock.close();
@@ -317,6 +320,7 @@ describe('shadowlap test with a gate against history', () => {
 describe('shadowlap test with several gated goldens', () => {
   it('splits the session\'s risk across them, says so with a forecast before it runs, and reports both', async () => {
     cpSync(join(work, 'goldens', 'reference-agent'), join(work, 'goldens', 'reference-agent-copy'), { recursive: true });
+    trackInGit(work, 'goldens/reference-agent-copy');
     try {
       const tests = { 'goldens/reference-*': { fork: true, gate: {}, expect: CHECKS } };
       const r = await shadowlapTestAll(tests, FIX);
