@@ -29,6 +29,9 @@ const FILES = new Set([
   `${GLOBAL}\\claude.cmd`,
   `${PYTHON_DIR}\\python.exe`,
   `${TOOLS}\\uv.cmd`,
+  `${TOOLS}\\one-by-one.cmd`,
+  `${TOOLS}\\unquoted.cmd`,
+  `${TOOLS}\\quoted.cmd`,
   `C:\\later\\uv.exe`,
   `${PROJECT}\\node_modules\\.bin\\tsx`,
   `${PROJECT}\\node_modules\\.bin\\tsx.cmd`,
@@ -46,6 +49,10 @@ const TEXTS = new Map([
   [`${PROJECT}\\node_modules\\.bin\\tsx.cmd`, npmBin('..\\tsx\\dist\\cli.mjs')],
   // One a project wrote itself, which takes one argument, in quotes, and passes nothing on.
   [`${PROJECT}\\run.bat`, '@python "%~dp0agent.py" "%~1"\r\n'],
+  // Launchers that read their arguments one by one: as they are, with their quotes taken off, or quoted as they came.
+  [`${TOOLS}\\one-by-one.cmd`, '@node "%~dp0agent.js" %1 %2 %3 %4 %5 %6 %7 %8 %9\r\n'],
+  [`${TOOLS}\\unquoted.cmd`, '@node "%~dp0agent.js" %~1\r\n'],
+  [`${TOOLS}\\quoted.cmd`, '@node "%~dp0agent.js" "%1"\r\n'],
 ]);
 const read = (file: string) => TEXTS.get(file) ?? null;
 const WINDOWS = { platform: 'win32', exists, read } as const;
@@ -124,6 +131,26 @@ function cmdPass(line: string): { out: string; runs: string | null } {
   return { out, runs: null };
 }
 
+/**
+ * How a batch file reads the arguments its line gave it into `%1`, `%2`, …: split at a space, a tab,
+ * a comma, a semicolon or an equals sign outside quotes, each quote turning quoting on or off, a
+ * caret no different from any other character.
+ */
+function batchArguments(line: string): string[] {
+  const out: string[] = [];
+  let arg = '';
+  let quoted = false;
+  for (const ch of line) {
+    if (ch === '"') quoted = !quoted;
+    if (!quoted && ' \t,;='.includes(ch)) {
+      if (arg) out.push(arg);
+      arg = '';
+    } else arg += ch;
+  }
+  if (arg) out.push(arg);
+  return out;
+}
+
 const TRICKY = ['start', 'two words', '', 'say "hi"', 'C:\\dir\\', 'a\\"b', 'a\\\\"b', 'tab\there', '50% off', '%PATH%', 'a&b|c<d>e^f', '!x!', '(paren)', 'semi;comma,', 'star*?', '`tick`', 'trailing\\\\', '"', '\\'];
 
 describe('a cmd.exe argument', () => {
@@ -191,6 +218,39 @@ describe('a command on Windows', () => {
     expect(passesArgumentsOn(`${PROJECT}\\run.bat`, read)).toBe(false);
     expect(onWindows('run.bat', ['two words']).args[3]).toBe(`""${PROJECT}\\run.bat" ^"two^ words^""`);
     expect(startCommand('x', ['a b'], OPTIONS, { platform: 'win32', exists: (f) => f === `${TOOLS}\\x.cmd`, read: () => null }).args[3]).toBe(`""${TOOLS}\\x.cmd" ^^^"a^^^ b^^^""`);
+  });
+
+  it('escapes twice the arguments of a batch file that puts them in its line one by one, %1, %~1 or "%1", so none runs what follows', () => {
+    // As a launcher that reads %1 or %~1 would put them in its line: one by one, each where it stands.
+    const lineOf = (file: string, args: string[]): string => {
+      const first = cmdPass(onWindows(file, args).args[3].slice(1, -1));
+      expect(first.runs, file).toBeNull();
+      const given = batchArguments(first.out).slice(1);
+      const text = TEXTS.get(`${TOOLS}\\${file}`)!;
+      return text.replace(/(")?%(~)?([1-9])(")?/g, (_whole, q1: string | undefined, tilde: string | undefined, n: string, q2: string | undefined) => {
+        const arg = given[Number(n) - 1] ?? '';
+        const bare = tilde && arg.startsWith('"') && arg.endsWith('"') && arg.length > 1 ? arg.slice(1, -1) : arg;
+        return `${q1 ?? ''}${bare}${q2 ?? ''}`;
+      });
+    };
+    for (const file of ['one-by-one.cmd', 'unquoted.cmd', 'quoted.cmd']) {
+      expect(passesArgumentsOn(`${TOOLS}\\${file}`, read), file).toBe(true);
+      for (const hostile of ['x" & calc & "', 'a & calc', 'a"|b', '")&(calc', 'say "hi" > out.txt']) {
+        expect(cmdPass(lineOf(file, [hostile])).runs, `${file} ${hostile}`).toBeNull();
+      }
+    }
+    // Escaped once, as before, each of them would have run it.
+    for (const [file, hostile] of [['one-by-one.cmd', 'x" & calc & "'], ['unquoted.cmd', 'a & calc']] as const) {
+      const once = cmdPass(`"${TOOLS}\\${file}" ${cmdArgument(hostile)}`);
+      const given = batchArguments(once.out).slice(1);
+      const line = TEXTS.get(`${TOOLS}\\${file}`)!.replace(/%(~)?([1-9])/g, (_w, tilde: string | undefined, n: string) => {
+        const arg = given[Number(n) - 1] ?? '';
+        return tilde && arg.startsWith('"') && arg.endsWith('"') ? arg.slice(1, -1) : arg;
+      });
+      expect(cmdPass(line).runs, file).not.toBeNull();
+    }
+    // A file that reads its argument only as "%~1" is escaped once: its program gets it as given, words and all.
+    expect(passesArgumentsOn(`${PROJECT}\\run.bat`, read)).toBe(false);
   });
 
   it('reads PATH and PATHEXT whatever the case of their names, from this process when the child has none', () => {
