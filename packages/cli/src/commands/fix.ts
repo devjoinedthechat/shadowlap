@@ -21,6 +21,7 @@ import { HandOverError, RepairError, runRepair, splitHoldout } from '../repair.j
 import { parseRepairer, type Repairer } from '../repairer.js';
 import { loadConfig } from '../config.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
+import { progressLog } from '../progress.js';
 
 /** Finding where a failed run went wrong (blame), and checking that a change fixes it (verify). */
 
@@ -346,7 +347,9 @@ export function register(program: Command): void {
         return;
       }
 
-      const log = (line: string) => process.stderr.write(`${line}\n`);
+      // In a terminal each probe's attempts fold into one line that counts them; -v keeps every line.
+      const progress = progressLog(process.stderr, !opts.verbose);
+      const log = progress.log;
       const most = maxProbes(steps, flags.scan);
       log(`${p.yellow('⑂')} Blaming ${shortId(parent.runId)} ${p.dim(`(${safe(quoteArgv(argv))})`)}: ${steps} model call${steps === 1 ? '' : 's'}${flags.scope ? ` in scope ${safe(flags.scope)}` : ''}`);
       const each = rule.gate ? rescueRule({ gate: rule.gate, needed: 0, attemptsPerProbe: rule.gate.max, probeBudget: most }) : `${rule.attempts} attempts, a rescue at ${rule.needed} passing`;
@@ -368,7 +371,7 @@ export function register(program: Command): void {
           settings,
           command: blameCommand(parent.runId, { ...settings, argv: command.length ? command : null }),
           log,
-        });
+        }).finally(() => progress.done());
         if (flags.json) process.stdout.write(JSON.stringify(blameJson(report), null, 2) + '\n');
         else process.stdout.write('\n' + formatBlame(report, p) + '\n' + (report.fix ? fixLine(report.fix, report.fix.opened ? 'opened' : 'joined') : ''));
         if (report.contrast) emitJobEvent({ type: 'run', runId: report.contrast.rescuedRunId, role: 'passing' });
@@ -465,7 +468,8 @@ export function register(program: Command): void {
       }
       const runs: Parameters<typeof runVerify>[0]['runs'] = resolved.map((t) => ({ ...t, role: chosen.get(t.parent.runId)!.role }));
 
-      const log = (line: string) => process.stderr.write(`${line}\n`);
+      const progress = progressLog(process.stderr, !opts.verbose);
+      const log = progress.log;
       const n = (role: VerifyRole) => runs.filter((r) => r.role === role).length;
       const counts = [n('target') ? `${n('target')} to fix` : '', n('holdout') ? `${n('holdout')} held out` : '', n('good') ? `${n('good')} to keep` : ''].filter(Boolean).join(', ');
       log(`${p.yellow('⑂')} Verifying the code as it is now against ${runs.length} run${runs.length === 1 ? '' : 's'} (${counts})`);
@@ -484,7 +488,7 @@ export function register(program: Command): void {
         runs,
         settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
         log,
-      });
+      }).finally(() => progress.done());
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
       // and counts there: it checked the fix's own check, on a run that failed it as recorded.
       const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
@@ -586,7 +590,8 @@ export function register(program: Command): void {
       if (heldOutAutomatically) ({ targets, holdout: held } = splitHoldout(targets));
       const good = pick(dedupe(keeps));
 
-      const log = (line: string) => process.stderr.write(`${line}\n`);
+      const progress = progressLog(process.stderr, !opts.verbose);
+      const log = progress.log;
       log(`${p.yellow('⑂')} Repairing ${targets.length} failing run${targets.length === 1 ? '' : 's'}${held.length ? `, with ${held.length} held out from the repairer${heldOutAutomatically ? ' (every other one)' : ''}` : ''}${good.length ? `, keeping ${good.length} good run${good.length === 1 ? '' : 's'}` : ''}`);
       log(p.dim(`  repairer: ${repairer ? (repairer.model ? `${repairer.provider}:${repairer.model}` : `${repairer.provider}, with its own default model`) : 'none (--repairer)'} · the gate: ${rule.gate ? describeGate(rule.gate) : `${rule.needed} of ${rule.attempts} attempts per run`} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}`));
 
@@ -600,7 +605,7 @@ export function register(program: Command): void {
         try {
           // How long the repairer may take: the flag, else the config, else the default (repairer.ts).
           const repairerTimeout = flags.repairerTimeout ?? config.repair?.timeout;
-          report = await runRepair({ opts, targets, holdout: held, good, heldOutAutomatically, settings: { ...settings, repairerConfigured: repairer !== null, ...(repairerTimeout !== undefined ? { repairerTimeoutMs: repairerTimeout * 1000 } : {}) }, outputs, log });
+          report = await runRepair({ opts, targets, holdout: held, good, heldOutAutomatically, settings: { ...settings, repairerConfigured: repairer !== null, ...(repairerTimeout !== undefined ? { repairerTimeoutMs: repairerTimeout * 1000 } : {}) }, outputs, log }).finally(() => progress.done());
         } catch (err) {
           if (!(err instanceof HandOverError)) throw err;
           handOverFailed = err;

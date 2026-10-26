@@ -58,6 +58,14 @@ describe('shadowlap demo', () => {
     const done = /✓ Done in (\d+) s, (\d+) requests to the scripted model, none to a real one\./.exec(r.out);
     expect(done, r.out).not.toBeNull();
     expect(Number(done![1])).toBeLessThan(60);
+    // Away from a terminal every attempt keeps its line.
+    expect(r.err).toMatch(/^ {4}attempt 1 {2}[✓✗]/m);
+    // What a probe's line says, and where the requests went, each in a line: blame's count is its own report's.
+    expect(r.out).toMatch(/ {2}Read a probe as: model call #5, asked again from forks, passed \d+ of \d+ attempts, and passes at least the rate shown, at the confidence in brackets: often enough that a better answer there saves the run, rescued\. #7 passed 0 of \d+, and passes at most its rate: too rarely to save it there, lost\.\n/);
+    const where = / {2}(\d+) recorded the four runs, (\d+) were blame's attempts, each asking again from its fork on, (\d+) were repair's: blaming the other failing run, asking the repairer, and verify's attempts; the replay and the goldens' test sent none\. A real model is paid for these, and not for what the forks replayed\.\n/.exec(r.out);
+    expect(where, r.out).not.toBeNull();
+    expect(Number(where![1]) + Number(where![2]) + Number(where![3])).toBe(Number(done![2]));
+    expect(Number(where![2])).toBe(Number(/\d+ attempts · (\d+) upstream requests · /.exec(r.out)?.[1]));
     // Its folder is gone with it.
     const dir = /Working in (.+), a git repository removed at the end/.exec(r.out)![1];
     expect(existsSync(dir)).toBe(false);

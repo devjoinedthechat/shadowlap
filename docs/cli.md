@@ -1,6 +1,6 @@
 # CLI
 
-Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
+Global options: `--db <path>` (default `./.shadowlap/shadowlap.db`), `-v` / `--verbose` (sidecar log on stderr, and every attempt's own line where a terminal folds them, as [blame](#blame), verify and repair do), given before the command or after it: `shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Each command's `--help` lists them. Run ids can be abbreviated to any unique prefix.
 
 The CLI runs on Node 22.16 or later, but not on Node 23: every store keeps a full-text index, which Node's built-in SQLite has from 22.16 on and in 24 and later. On another Node it names the Node it needs and exits 2. On a Node in that range whose SQLite was built without full-text search, such as a custom build, opening a store says to use an official build, as [`doctor`](#doctor) does.
 
@@ -34,7 +34,8 @@ repository, which it removes at the end, it writes the agent, the check its runs
 the agent in Anthropic's Messages API and the repairer in OpenAI's Chat Completions, and the demo
 says it is scripted. Then it runs `run`, `label`, `replay`, `blame`, `repair` and `fix apply` there,
 each printing as it does in a terminal, and ends with how long that took and how many requests the
-scripted model answered. Your own model keys and endpoints are left out of its environment, and
+scripted model answered, and where they went: the recordings, blame's attempts and repair's. After
+blame it says, in a line, how to read a probe's verdict from the probes it made. Your own model keys and endpoints are left out of its environment, and
 [telemetry](./telemetry.md) is off for it. `--keep <dir>` runs it in that folder, a new or an empty
 one, and keeps it, to look around with `shadowlap dashboard`. It needs git. It ends with 0 when
 every step did what the demo expects; otherwise with the status of the step that didn't, which it
@@ -162,7 +163,7 @@ With `--concurrency`, attempts run at the same time through one sidecar; each at
 shadowlap blame <run> [options] [-- <command> [args...]]
 ```
 
-Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits.
+Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of; with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
 
 | Option | Effect |
 |---|---|
