@@ -183,6 +183,37 @@ describe('import har', () => {
     }
   });
 
+  it('keeps none of the parameters Bedrock takes as headers, and its replay matches whatever guardrail it names', async () => {
+    // nock and VCR keep only the headers they were told to: an import can't tell a guardrail it lost from none.
+    const bedrockPath = '/model/anthropic.claude-x/invoke';
+    const bedrockBody = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 64, messages: [{ role: 'user', content: 'hi' }] };
+    const bedrockEntry = entry({
+      request: {
+        method: 'POST',
+        url: `https://bedrock-runtime.us-east-1.amazonaws.com${bedrockPath}`,
+        headers: [{ name: 'content-type', value: 'application/json' }, { name: 'x-amzn-bedrock-guardrailidentifier', value: 'gr-1' }, { name: 'x-amzn-bedrock-guardrailversion', value: '1' }],
+        postData: { mimeType: 'application/json', text: JSON.stringify(bedrockBody) },
+      },
+    });
+    for (const clock of ['exact', 'auto'] as const) {
+      const store = open();
+      const { run } = importHar(store, har(bedrockEntry), { source: 'bedrock.har' });
+      const [call] = store.getCalls(run.runId);
+      expect(call.meta.fingerprintHeaders).toEqual({});
+      expect(call.fingerprint).toBe(fingerprintApi({ method: 'POST', path: bedrockPath, headers: {}, body: bedrockBody }, [], []).fingerprint);
+      const sidecar = await Sidecar.start({ store, clock, upstreams: { bedrock: 'http://127.0.0.1:9' } });
+      try {
+        const rep = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['agent'], cwd: '.' }, offline: true });
+        const res = await fetch(`${sidecar.url}/r/${rep.runId}/bedrock${bedrockPath}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20261026/us-east-1/bedrock/aws4_request, SignedHeaders=host, Signature=abc', 'x-amzn-bedrock-guardrailidentifier': 'gr-2', 'x-amzn-bedrock-guardrailversion': '1' }, body: JSON.stringify(bedrockBody) });
+        expect(res.status, clock).toBe(200);
+        expect(sidecar.endRun(rep.runId, 'completed').summary.divergence, clock).toBeNull();
+      } finally {
+        await sidecar.close();
+        store.close();
+      }
+    }
+  });
+
   it('runs kinds the recording never saw live, without ending the replay', () => {
     const store = open();
     const { run } = importHar(store, har(entry()), { source: 'test.har' });

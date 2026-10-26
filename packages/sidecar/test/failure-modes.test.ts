@@ -12,6 +12,7 @@ import OpenAI from 'openai';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type CallRecord } from '@shadowlap/engine';
 import { message, sseEvents, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { providers as defaultProviders } from '../src/providers.js';
 import { Sidecar } from '../src/server.js';
 import { resignSigV4 } from '../src/sigv4.js';
 
@@ -259,6 +260,75 @@ describe('an agent that leaves before its answer came', () => {
   });
 });
 
+describe('an answer its provider module cannot read', () => {
+  it('is passed on and recorded whole, without the model, usage or stop reason it could not read', async () => {
+    const mock = await startMockAnthropic({ script: () => ({ message: message([text('Refund issued.')]) }) });
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    // A module that throws on what it reads, as one meeting a shape it never saw would.
+    const module = defaultProviders.find((p) => p.id === 'anthropic')!;
+    const read = { model: module.extractModel, usage: module.extractUsage, stop: module.extractStopReason };
+    const fail = () => {
+      throw new Error('unreadable');
+    };
+    Object.assign(module, { extractModel: fail, extractUsage: fail, extractStopReason: fail });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      expect(textOf(await anthropic(sidecar, run.runId).messages.create(params))).toBe('Refund issued.');
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call.end).toMatchObject({ outcome: 'ok', meta: { status: 200 } });
+      expect(call.end!.meta).not.toHaveProperty('usage');
+      expect(recordedText(store, call)).toBe('Refund issued.');
+    } finally {
+      Object.assign(module, { extractModel: read.model, extractUsage: read.usage, extractStopReason: read.stop });
+      await sidecar.close();
+      await mock.close();
+      store.close();
+    }
+  });
+});
+
+describe('a replay of a call its agent gave up on', () => {
+  it('holds the connection as long as the agent waited then: it times out as it did, or, waiting longer, sees it cut there', async () => {
+    // A model that never answers: the agent's client gives up after 400 ms, and doesn't try again.
+    const url = await serve((req) => req.resume());
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: url } });
+    /** How the agent's call ended, and when. */
+    const asked = async (runId: string, timeout: number) => {
+      const started = performance.now();
+      const error = await anthropic(sidecar, runId, { timeout }).messages.create(params).then(() => null, (e: unknown) => e);
+      return { error, ms: performance.now() - started };
+    };
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      expect((await asked(run.runId, 400)).error).toBeInstanceOf(Anthropic.APIConnectionTimeoutError);
+      // Recorded once the request upstream has ended with it.
+      await until(() => store.getCalls(run.runId)[0]?.end != null);
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call.end).toMatchObject({ outcome: 'error', meta: { error: { name: 'ClientDisconnected' } } });
+      expect(call.end!.meta.latencyMs).toBeGreaterThanOrEqual(300);
+
+      // A client that would wait longer now sees the connection cut where the recording's agent left, not at once.
+      const longer = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command, offline: true });
+      const cut = await asked(longer.runId, 5_000);
+      expect(cut.error).toBeInstanceOf(Anthropic.APIConnectionError);
+      expect(cut.error).not.toBeInstanceOf(Anthropic.APIConnectionTimeoutError);
+      expect(cut.ms).toBeGreaterThanOrEqual(300);
+      expect(sidecar.endRun(longer.runId, 'completed').summary).toMatchObject({ divergence: null, byOrigin: { replayed: 1 } });
+      // One that gives up sooner sees its own timeout, as the recording's agent did, never a broken connection.
+      const sooner = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command, offline: true });
+      expect((await asked(sooner.runId, 150)).error).toBeInstanceOf(Anthropic.APIConnectionTimeoutError);
+      sidecar.endRun(sooner.runId, 'completed');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
 describe('an agent that leaves before its answer came, elsewhere on the proxy', () => {
   /** A raw request that gives up after `ms`, as a client's timeout does; how it ended. */
   const giveUpAfter = (url: string, headers: Record<string, string>, body: string, ms: number) =>
@@ -307,8 +377,11 @@ describe('an agent that leaves before its answer came, elsewhere on the proxy', 
       expect(call.end).toMatchObject({ outcome: 'error', meta: { error: { name: 'ClientDisconnected' } } });
 
       const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      // Held as long as the agent waited then (200 ms), then closed again.
+      const started = performance.now();
       const replayed = await giveUpAfter(`${sidecar.url}/r/${replay.runId}/http/orders/search`, { 'x-shadowlap-upstream': host }, '{"q":"A-1042"}', 0);
       expect(replayed).toMatch(/^error: socket hang up|^error: .*ECONNRESET/);
+      expect(performance.now() - started).toBeGreaterThanOrEqual(120);
       expect(asked).toBe(1);
       expect(sidecar.endRun(replay.runId, 'completed').summary.divergence).toBeNull();
     } finally {

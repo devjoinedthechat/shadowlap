@@ -10,6 +10,8 @@
  * that is only read masks them like any other text.
  */
 
+import { cloneExact } from './json-exact.js';
+
 /** Blocks signed whole, by their `type`. */
 const SIGNED_TYPES = new Set(['thinking', 'redacted_thinking', 'thinking_delta', 'signature_delta', 'reasoning.text', 'reasoning.encrypted']);
 
@@ -99,7 +101,8 @@ export function isSignedMark(value: unknown): boolean {
 export function cutSigned(request: unknown): { cut: unknown; parts: Array<{ place: Place; value: unknown }>; paste: (masked: unknown) => unknown } {
   const parts = signedParts(request);
   if (!parts.length) return { cut: request, parts, paste: (masked) => masked };
-  const cut = structuredClone(request);
+  // A number kept as written (parseJsonExact) stays one in the copy.
+  const cut = cloneExact(request);
   // Cut out as a mark that holds no text, which the observer is kept from counting (isSignedMark).
   parts.forEach((p, n) => {
     const slot = p.place.length ? slotAt(cut, p.place) : undefined;

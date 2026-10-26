@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { compareRuns, Store, storeApiRequest, type RunRecord } from '@shadowlap/engine';
+import { compareRuns, parseJsonExact, Store, storeApiRequest, type RunMeta, type RunRecord } from '@shadowlap/engine';
 import { codeChangeCache, compareHead, HEAD_READS, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { compareTarget } from '../ui/runs.js';
@@ -269,6 +269,28 @@ describe('what Compare shows first', () => {
     const other = run(store, { ask: asks, got: asks, keeps: 'v2:' });
     expect(compareHead(store, long.runId, other.runId)).toBeNull();
     expect(whole(store, long, other)).toMatchObject({ identicalPrefix: HEAD_READS + 1, firstRequestDifference: null });
+    store.close();
+  });
+
+  it('shows an id past 2^53 that changed, as the whole comparison does, and reads an older run rounded on both sides', () => {
+    const store = Store.open(':memory:');
+    const asked = (order: string) => `{"model":"claude-sonnet-4-5","max_tokens":512,"messages":[{"role":"user","content":"Refund it."}],"metadata":{"order":${order}}}`;
+    /** A recording of one model call that sent `request`, under `fingerprint`. */
+    const recorded = (request: unknown, fingerprint: string, meta?: RunMeta): RunRecord => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, startedAt: 1_760_000_000_000, ...(meta ? { meta } : {}) });
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint, occurrence: 1 };
+      store.appendCallStart({ runId: r.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, request), meta: {}, at: 1 });
+      store.appendCallEnd(identity, { runId: r.runId, callNo: 1, attempt: 0, responseRef: store.putJson({ said: 'Refunded.' }), outcome: 'ok', meta: { latencyMs: 10 }, at: 2 });
+      store.endRun(r.runId, 'completed', 99);
+      return store.getRun(r.runId)!;
+    };
+    // Each kept as it was sent: two ids a double rounds alike.
+    const a = recorded(parseJsonExact(asked('12345678901234567891')), 'f-1', { exactNumbers: true });
+    const b = recorded(parseJsonExact(asked('12345678901234567892')), 'f-2', { exactNumbers: true });
+    expect(same(store, a, b).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.metadata.order', op: 'changed', before: '12345678901234567891', after: '12345678901234567892' }] });
+    // A recording made before requests kept their numbers stored the id rounded: the same id sent.
+    const older = recorded(JSON.parse(asked('12345678901234567891')), 'f-3');
+    expect(same(store, older, a)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
 });

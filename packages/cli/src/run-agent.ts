@@ -3,7 +3,7 @@ import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { links } from '@shadowlap/dashboard';
-import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta } from './activity.js';
@@ -361,6 +361,9 @@ export async function judgeAttempt(
   if (a.interrupted) return unjudged(judges, 'the replay was interrupted');
   if (a.timedOut) return unjudged(judges, 'the agent was stopped before it finished');
   if (a.code !== 0) return unjudged(judges, `the agent exited with code ${a.code}`);
+  // What the judge reads of the run, once its rows are made: waited for on the writer's timer, so
+  // another attempt's stream goes on while another process holds the store.
+  await sidecar.settled(runId);
   if (a.forkFails && store.getRun(runId)?.divergence) return unjudged(judges, 'the replay diverged, which fails the test whatever the judge says');
   return askJudges(judges, materialOf(store, runId, a.stdout, a.clock), { sidecar, store, runId, upstreams: a.upstreams, redact: a.redact, ...(a.normalize ? { normalize: a.normalize } : {}), ...(a.prices ? { prices: a.prices } : {}) });
 }
@@ -377,7 +380,8 @@ export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<
     // `@@…` is text starting with `@` (which is no JSON either), never a file name.
     const raw = m[2]!.startsWith('@@') ? m[2]!.slice(1) : m[2]!.startsWith('@') ? readFileSync(m[2]!.slice(1), 'utf8') : m[2]!;
     try {
-      out.set(callNo, JSON.parse(raw));
+      // Each number as it was typed: an id past 2^53 reaches the agent with its digits.
+      out.set(callNo, parseJsonExact(raw));
     } catch {
       throw new Error(`--override: the result for call #${callNo} is not valid JSON`);
     }

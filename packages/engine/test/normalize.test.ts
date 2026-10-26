@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseJsonExact } from '../src/json-exact.js';
 import { applyNormalizers, compilePattern, parsePath, stripKeysDeep } from '../src/normalize.js';
 
 describe('parsePath', () => {
@@ -66,6 +67,19 @@ describe('applyNormalizers', () => {
       't',
     ) as { a: string };
     expect(out.a).toBe('at <T> id <U>');
+  });
+
+  it('leaves a number kept as written as it is, wherever a rule reaches, and reports it by its digits', () => {
+    // A request read with each number as it was sent: an id past 2^53, and a Python float.
+    const request = parseJsonExact('{"to":"dana@example.com","order":{"id":12345678901234567891,"total":20.0},"items":[12345678901234567891]}');
+    const unmasked: Array<{ text: string; what: string }> = [];
+    const out = applyNormalizers(request, [{ pattern: 'email', replace: '<EMAIL>' }, { path: '$.order.*', pattern: '/\\d{19}/', replace: '<ID>' }, { pattern: '/\\d{19,}/', replace: '<N>' }], 'api', 'POST /v1/messages', { unmasked: (_i, text, at) => void unmasked.push({ text, what: at.what }) });
+    // The strings are masked; each number goes out as it was written, exact and unchanged.
+    expect(JSON.stringify(out)).toBe('{"to":"<EMAIL>","order":{"id":12345678901234567891,"total":20.0},"items":[12345678901234567891]}');
+    // A pattern that matches a number leaves it as it is, and says so with the number's own digits.
+    expect(unmasked).toEqual(expect.arrayContaining([{ text: '12345678901234567891', what: 'number' }]));
+    // A path rule without a pattern masks the number whole, as it masks any value at its path.
+    expect(JSON.stringify(applyNormalizers(request, [{ path: '$.order.id', replace: '<ID>' }], 'api', 'POST /v1/messages'))).toContain('"id":"<ID>"');
   });
 });
 

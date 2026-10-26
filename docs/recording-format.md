@@ -66,6 +66,7 @@ A run made where nothing knows what started the agent, such as a capture of prod
 | `keyEnv` | The providers whose credentials the environment the agent started in held, each with the variables among those its SDKs read that held its key, such as `{ "anthropic": ["ANTHROPIC_API_KEY"], "bedrock": [] }` (empty for a credential of another kind: a profile, a shared file, an identity): names, never values. `shadowlap replay` gives the agent a [placeholder key](./how-it-works.md#keys) for those providers when its environment has none. A reader takes only the providers and variables it knows; a producer may leave it out |
 | `normalizersHash` | Under what the stored fingerprints were computed ([identity](#identity)). A producer leaves it out |
 | `exactNumbers` | `true`: the run's model requests are stored with each number as it was sent, an integer past 2^53 by its digits and `20.0` as written ([identity](#identity)) |
+| `headerParameters` | `true`: the run's model calls kept the parameters their provider takes as headers among their `fingerprintHeaders` (Bedrock's guardrail, trace, latency profile and service tier, [identity](#identity)) |
 | `imported` | Written by a reader that brings the run into a store: where it came from. A pack's own is replaced |
 
 Shadowlap keeps more under `meta` (what a blame found, how a test judged the run, what a replay changed); a producer leaves those out.
@@ -193,16 +194,19 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 - A recording none of whose calls to a provider kept a `query`, such as one built from a trace, is matched whatever query a replay's calls to it carry: the replay leaves the query out of their fingerprints and keeps none on them, so its own replays match the same way.
 - `headers` are the request's fingerprint headers, named in lower case: the few headers that change what the model does. An `anthropic` call's `anthropic-beta` counts without the betas that only say how the call signed in, those starting `oauth-` (a profile's sign-in sends `oauth-2025-04-20`, a key none), and is left out when nothing else is in it. `fingerprintHeaders` keeps it as it was sent.
 - A recording none of whose `anthropic` calls names an `anthropic-version`, such as one built from a trace (which keeps what was asked, not the headers it was sent with), is matched whatever version a replay's requests name: the replay leaves the version out of its own calls' fingerprints and `fingerprintHeaders`, so it names none either and holds the same calls.
+- A recording without `headerParameters`, made before calls kept them or imported, is matched without the parameters a provider takes as headers beside the body (the `x-amzn-bedrock-` headers below), whatever a replay's calls send and whatever its own calls kept: the replay leaves them out of its calls' fingerprints and `fingerprintHeaders` and has no `headerParameters` either, so its own replays match the same way.
 - The project's [normalizers](./normalizers-and-redaction.md) apply first, and under `"clock": "auto"` (the default) so does masking the dates and timestamps near the run's start.
 
 | Provider | Fingerprint headers |
 |---|---|
 | `anthropic`, `foundry` | `anthropic-version`, `anthropic-beta` |
-| `openai`, `azure`, `bedrock-mantle` | `openai-beta` |
+| `openai`, `azure` | `openai-beta` |
 | `vertex` | `anthropic-beta` |
-| `gemini`, `bedrock` | none |
+| `bedrock` | `x-amzn-bedrock-guardrailidentifier`, `x-amzn-bedrock-guardrailversion`, `x-amzn-bedrock-trace`, `x-amzn-bedrock-performanceconfig-latency`, `x-amzn-bedrock-service-tier` |
+| `bedrock-mantle` | `openai-beta`, `x-amzn-bedrock-guardrailidentifier`, `x-amzn-bedrock-guardrailversion`, `x-amzn-bedrock-trace`, `x-amzn-bedrock-performanceconfig-latency`, `x-amzn-bedrock-service-tier` |
+| `gemini` | none |
 
-A call that went through a host of another's format (`via`) is fingerprinted with its format's headers, and with the part of its path under the host's root read as the format's own API names it: `/anthropic/v1/messages` through `foundry` as `/v1/messages`, `/openai/v1/responses` through `bedrock-mantle` as `/v1/responses`, and a call under a declared host's `root` so too.
+A call that went through a host of another's format (`via`) is fingerprinted with the host's headers above (its format's, and Bedrock's parameters too through `bedrock-mantle`), and with the part of its path under the host's root read as the format's own API names it: `/anthropic/v1/messages` through `foundry` as `/v1/messages`, `/openai/v1/responses` through `bedrock-mantle` as `/v1/responses`, and a call under a declared host's `root` so too.
 
 The occurrence is *n* for the *n*-th call of the run with the same kind and fingerprint, counted within the call's scope when the run has scopes.
 

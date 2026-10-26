@@ -1,5 +1,5 @@
 import { apiCallName, credentialFreeQuery, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
-import { identityQuery, providers, type Provider } from '@shadowlap/sidecar';
+import { identityQuery, providers, withoutHeaderParameters, type Provider } from '@shadowlap/sidecar';
 
 /**
  * Building a recording out of traffic something else captured.
@@ -228,7 +228,10 @@ export class ImportWriter {
 
     const method = c.method.toUpperCase();
     const path = url.pathname;
-    const headers = strip(c.requestHeaders);
+    // Without the parameters its provider takes as headers (Bedrock's guardrail): nock and VCR keep
+    // only the headers they were told to, so an import holds none, and a replay of it is matched
+    // without them (RunMeta.headerParameters).
+    const headers = withoutHeaderParameters(provider, strip(c.requestHeaders));
     const name = apiCallName(method, path);
     // As the sidecar fingerprints the call (Provider.matchPath, Provider.matchHeaders, its query without credentials), so a replay matches the stored fingerprint.
     const { fingerprint } = fingerprintApi({ method, path, headers: provider.matchHeaders?.(headers) ?? headers, body: c.requestBody, query: identityQuery(url.search) }, [], provider.fingerprintHeaders, undefined, { matchPath: provider.matchPath?.(path) });

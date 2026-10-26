@@ -1,4 +1,5 @@
 import { setOwn } from './canonical.js';
+import { cloneExact, isRawNumber } from './json-exact.js';
 import { patternProblem, textSize, withinPatternBudget } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -140,7 +141,8 @@ function applyNormalizersNow(value: unknown, normalizers: Normalizer[], kind: Ca
   normalizers.forEach((n, i) => {
     if (!normalizerApplies(n, kind, name)) return;
     if (!cloned) {
-      copy = structuredClone(value);
+      // A number kept as written (parseJsonExact) is copied as it is: no rule rewrites a number.
+      copy = cloneExact(value);
       cloned = true;
     }
     const regex = n.pattern === undefined ? null : compilePattern(n.pattern);
@@ -191,7 +193,7 @@ export function reportUnmasked(value: unknown, rules: readonly Normalizer[], app
       return;
     }
     visitPaths(value, parsePath(rule.path), prefix, (leaf, path) => {
-      if (typeof leaf === 'number') test(JSON.stringify(leaf), path, 'number');
+      if (typeof leaf === 'number' || isRawNumber(leaf)) test(numberText(leaf), path, 'number');
       else if (leaf !== null && typeof leaf === 'object') walkLeft(leaf, [...path], test, true);
     });
   });
@@ -203,7 +205,7 @@ export function reportUnmasked(value: unknown, rules: readonly Normalizer[], app
  */
 function walkLeft(value: unknown, path: Array<string | number>, test: (text: string, path: Array<string | number>, what: UnmaskedAt['what']) => void, strings: boolean): void {
   if (ArrayBuffer.isView(value)) return;
-  if (typeof value === 'number') test(JSON.stringify(value), path, 'number');
+  if (typeof value === 'number' || isRawNumber(value)) test(numberText(value), path, 'number');
   else if (typeof value === 'string') {
     if (strings) test(value, path, 'string');
   } else if (Array.isArray(value)) {
@@ -238,7 +240,12 @@ function visitPaths(node: unknown, segs: Segment[], path: Array<string | number>
   down(node, 0, path);
 }
 
-/** Applies a pattern to every string value in a (JSON-like) value, within the time budget. Bytes (a request sent as a binary body) hold no string, and stay as they are. */
+/** A number's text as a rule's pattern is tested against it: as it was written, for one kept so (parseJsonExact). */
+function numberText(value: unknown): string {
+  return isRawNumber(value) ? value.rawJSON : JSON.stringify(value);
+}
+
+/** Applies a pattern to every string value in a (JSON-like) value, within the time budget. Bytes (a request sent as a binary body) hold no string, and stay as they are, as does a number kept as written. */
 export function rewriteStringsDeep(value: unknown, regex: RegExp, replace: string, onChange?: (before: string, after: string, count: number) => void): unknown {
   return withinPatternBudget(
     textSize(value),
@@ -256,7 +263,7 @@ function rewriteStringsDeepNow(value: unknown, regex: RegExp, replace: string, o
     return out;
   }
   if (Array.isArray(value)) return value.map((v) => rewriteStringsDeepNow(v, regex, replace, onChange));
-  if (value && typeof value === 'object') {
+  if (value && typeof value === 'object' && !isRawNumber(value)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, rewriteStringsDeepNow(v, regex, replace, onChange));
     return out;
@@ -317,7 +324,7 @@ function visit(node: unknown, segs: Segment[], depth: number, onLeaf: (parent: o
 
 /** The keys of `node` one segment of a path names: every one for a wildcard, else the one there is. */
 function childKeys(node: unknown, seg: Segment): Array<string | number> {
-  if (node === null || typeof node !== 'object' || ArrayBuffer.isView(node)) return [];
+  if (node === null || typeof node !== 'object' || ArrayBuffer.isView(node) || isRawNumber(node)) return [];
   if (seg.type === 'wild') return Array.isArray(node) ? node.map((_, i) => i) : Object.keys(node);
   if (seg.type === 'index') {
     if (!Array.isArray(node)) return [];
@@ -330,7 +337,7 @@ function childKeys(node: unknown, seg: Segment): Array<string | number> {
 
 /** Deep-removes the named keys from a copy of `value`. Used for the built-in `cache_control` exclusion. */
 export function stripKeysDeep(value: unknown, keys: readonly string[]): unknown {
-  if (value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== 'object' || isRawNumber(value)) return value;
   if (Array.isArray(value)) return value.map((v) => stripKeysDeep(v, keys));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {

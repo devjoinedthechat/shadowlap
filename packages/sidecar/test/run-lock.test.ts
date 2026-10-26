@@ -142,6 +142,8 @@ describe('a run that starts or ends while another process holds the store', () =
       const lock = await holdLock(path, 4_000);
       const stream = streamed(sidecar, a.runId);
       await sleep(150);
+      // The run that ends next makes one more call with the store held: its rows wait their turn.
+      await clockRead(sidecar, b.runId);
       // A run starts, and another ends, with the store held: each takes one short try at the lock.
       let t = performance.now();
       const c = sidecar.startRun({ mode: 'record', command, meta: { author: 'dana@example.com' } });
@@ -151,9 +153,11 @@ describe('a run that starts or ends while another process holds the store', () =
       const endMs = performance.now() - t;
       expect(startMs).toBeLessThan(300);
       expect(endMs).toBeLessThan(300);
-      // The ended run reads as it ended, and as its calls were.
+      // The end waited for none of its call's rows, which are still to be written...
+      expect(beside.calls(b.runId)).toBe(2);
+      // ...and reads as it ended, with every call it made.
       expect(ended.run).toMatchObject({ runId: b.runId, status: 'completed' });
-      expect(ended.summary.total).toBe(1);
+      expect(ended.summary).toMatchObject({ total: 2, byKind: { clock: 2 } });
       // Its new run's calls are answered meanwhile, as any agent's are.
       expect(typeof (await clockRead(sidecar, c.runId))).toBe('number');
       await sleep(800);
@@ -163,10 +167,11 @@ describe('a run that starts or ends while another process holds the store', () =
 
       await lock.release();
       await sidecar.settled();
-      // Written in order once the store was free: the start with what it was given to keep, its call, the other's end.
+      // Written in order once the store was free: the start with what it was given to keep, its call, the other's call and end.
       const written = beside.run(c.runId)!;
       expect(JSON.parse(written.meta!)).toMatchObject({ author: 'dana@example.com' });
       expect(beside.calls(c.runId)).toBe(2);
+      expect(beside.calls(b.runId)).toBe(4);
       expect(beside.run(b.runId)).toMatchObject({ status: 'completed', ended_at: ended.run.endedAt });
       // The stream went on while the store was held: one chunk every 50 ms, never one long wait.
       const { longestGap, chunks } = await stream;

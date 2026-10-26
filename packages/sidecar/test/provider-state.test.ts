@@ -1,16 +1,18 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type CallRecord } from '@shadowlap/engine';
+import { ProviderState } from '../src/provider-state.js';
 import { Sidecar } from '../src/server.js';
 
 /**
- * State a recording left on a provider's side that a fork's live call names: a Gemini context cache,
- * and a file the recorded run uploaded through OpenAI's, Anthropic's or Gemini's Files API. The
- * provider keeps each only for the account that made it, and the cache and Gemini's files only for a
- * while, so the live call is sent with the cache's contents, or the file's bytes, in their place,
- * rebuilt from the recording; a file it holds no copy of is sent as it was, with a warning, unless
- * Gemini has deleted it already, which refuses the call with why.
+ * State a recording left on a provider's side that a fork's live call names: a context cache on the
+ * Gemini API or Vertex AI, a file the recorded run uploaded through OpenAI's, Anthropic's or Gemini's
+ * Files API, and a vector store it made. The provider keeps each only for the account that made it,
+ * and the cache and Gemini's files only for a while, so the live call is sent with the cache's
+ * contents, or the file's bytes, in their place, rebuilt from the recording; a file it holds no copy
+ * of, or one a request names by its id alone, and a vector store, are sent as they were, with a
+ * warning, unless Gemini has deleted the file already, which refuses the call with why.
  */
 
 const command = { argv: ['agent'], cwd: '/' };
@@ -65,7 +67,7 @@ const upload = async (url: string, headers: Record<string, string>, purpose?: st
 
 const GEMINI_ANSWER = { candidates: [{ content: { role: 'model', parts: [{ text: 'Yes, within 30 days.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 9, candidatesTokenCount: 5 } };
 
-describe('a Gemini context cache the recording made', () => {
+describe('a context cache the recording made', () => {
   it("is sent as the cache's contents when a fork's live call names it", async () => {
     const google = await provider((path) => (path.endsWith('/cachedContents') ? { name: 'cachedContents/refund-desk', model: 'models/gemini-2.5-flash', expireTime: '2026-10-25T11:00:00Z' } : GEMINI_ANSWER));
     const store = Store.open(':memory:');
@@ -93,6 +95,97 @@ describe('a Gemini context cache the recording made', () => {
       // The fork's recording keeps the request as the agent sent it.
       const [, sent] = store.getCalls(fork.runId);
       expect(sent.origin).toBe('live');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it("is sent as the cache's contents on Vertex AI too, where the cache is the project's", async () => {
+    const PLACE = '/v1/projects/dev-alice/locations/us-central1';
+    const NAME = 'projects/412907/locations/us-central1/cachedContents/7340';
+    const google = await provider((path) => (path.endsWith('/cachedContents') ? { name: NAME, model: `${PLACE.slice(4)}/publishers/google/models/gemini-2.5-flash`, expireTime: '2026-10-25T11:00:00Z' } : GEMINI_ANSWER));
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { vertex: google.url } });
+    const cache = { model: `${PLACE.slice(4)}/publishers/google/models/gemini-2.5-flash`, systemInstruction: { parts: [{ text: 'You are the refund desk.' }] }, contents: [{ role: 'user', parts: [{ text: 'POLICY: refunds within 30 days of delivery.' }] }], ttl: '3600s' };
+    const ask = { contents: [{ role: 'user', parts: [{ text: 'Can I return order A-1042?' }] }] };
+    const agent = async (runId: string) => {
+      const base = `${sidecar.url}/r/${runId}/vertex${PLACE}`;
+      const made = await post(`${base}/cachedContents`, cache, { authorization: 'Bearer ya29.test' });
+      return post(`${base}/publishers/google/models/gemini-2.5-flash:generateContent`, { ...ask, cachedContent: made.body.name }, { authorization: 'Bearer ya29.test' });
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 2 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(google.seen).toHaveLength(3);
+      expect(google.seen[2].body).toEqual({ systemInstruction: cache.systemInstruction, contents: [...cache.contents, ...ask.contents] });
+      expect(summary.warnings.join('\n')).toContain(`call 2 used ${NAME}, which the recording made at call #1`);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('a file or vector store a request names by its id alone', () => {
+  it("is sent as it was, and the run names each, with the call to fork from (OpenAI's code interpreter and file search)", async () => {
+    const openai = await provider((path) =>
+      path === '/v1/files'
+        ? { id: 'file-policy', object: 'file', bytes: PDF.length, filename: 'refund-policy.pdf', purpose: 'user_data' }
+        : path === '/v1/vector_stores'
+          ? { id: 'vs_refunds', object: 'vector_store', name: 'refunds' }
+          : { id: 'resp_1', object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Thirty days.' }] }] },
+    );
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { openai: openai.url } });
+    const ask = (file: unknown, vs: unknown) => ({ model: 'gpt-5', tools: [{ type: 'code_interpreter', container: { type: 'auto', file_ids: [file] } }, { type: 'file_search', vector_store_ids: [vs] }], input: 'How long do I have?' });
+    const agent = async (runId: string) => {
+      const base = sidecar.envFor(runId).OPENAI_BASE_URL;
+      const file = await upload(`${base}/files`, { authorization: 'Bearer k' }, 'user_data');
+      const vs = await post(`${base}/vector_stores`, { name: 'refunds', file_ids: [file.id] }, { authorization: 'Bearer k' });
+      return post(`${base}/responses`, ask(file.id, vs.body.id), { authorization: 'Bearer k' });
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 3 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(openai.seen.at(-1)).toEqual({ path: '/v1/responses', body: ask('file-policy', 'vs_refunds') });
+      const said = summary.warnings.join('\n');
+      expect(said).toMatch(/call 3 names file file-policy in file_ids, which the recorded run uploaded at call #1 and OpenAI keeps only for the organization that uploaded it; it goes by its id alone, so the call was sent as it was, and it fails with another account's key\. Fork from the upload \(--diverge-at 1\)/);
+      expect(said).toMatch(/call 3 names vector store vs_refunds in vector_store_ids, which the recorded run made at call #2 and OpenAI keeps only for the organization that made it; .* Fork from where it was made \(--diverge-at 2\)/);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
+  it("is sent as it was, and the run names it (a file in Anthropic's code execution container)", async () => {
+    const anthropic = await provider((path) => (path === '/v1/files' ? { id: 'file_011data', type: 'file', filename: 'orders.csv', mime_type: 'text/csv', size_bytes: 12 } : { id: 'msg_1', type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Three late orders.' }], stop_reason: 'end_turn', usage: { input_tokens: 9, output_tokens: 3 } }));
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: anthropic.url } });
+    const headers = { 'x-api-key': 'k', 'anthropic-version': '2023-06-01', 'anthropic-beta': 'files-api-2025-04-14,code-execution-2025-08-25' };
+    const ask = (file: unknown) => ({ model: 'claude-opus-5', max_tokens: 64, tools: [{ type: 'code_execution_20250825', name: 'code_execution' }], messages: [{ role: 'user', content: [{ type: 'text', text: 'How many orders are late?' }, { type: 'container_upload', file_id: file }] }] });
+    const agent = async (runId: string) => {
+      const base = sidecar.envFor(runId).ANTHROPIC_BASE_URL;
+      const file = await upload(`${base}/v1/files`, headers);
+      return post(`${base}/v1/messages`, ask(file.id), headers);
+    };
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await agent(rec.runId);
+      sidecar.endRun(rec.runId, 'completed');
+      const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, replay: { divergeAt: 2 } });
+      expect((await agent(fork.runId)).status).toBe(200);
+      const { summary } = sidecar.endRun(fork.runId, 'completed');
+      expect(anthropic.seen.at(-1)).toEqual({ path: '/v1/messages', body: ask('file_011data') });
+      expect(summary.warnings.join('\n')).toMatch(/call 2 names file file_011data in a container_upload, which the recorded run uploaded at call #1 and Anthropic keeps only for the workspace that uploaded it; it goes by its id alone, so the call was sent as it was, .* \(--diverge-at 1\)/);
     } finally {
       await sidecar.close();
       store.close();
@@ -212,5 +305,55 @@ describe('a file the recorded run uploaded', () => {
         store.close();
       }
     });
+  });
+});
+
+describe('what a fork sends inline in place of a file', () => {
+  const MB = 1024 * 1024;
+  /** The recorded run's uploads through `format`'s Files API (a form, as the SDKs send one), as a fork's live call reads them. */
+  async function uploaded(format: 'azure' | 'anthropic', files: Array<{ id: string; bytes: Buffer; mime: string; name: string }>): Promise<ProviderState> {
+    const calls: CallRecord[] = [];
+    const forms = new Map<number, string>();
+    const answers = new Map<number, Buffer>();
+    for (const [i, f] of files.entries()) {
+      const form = new FormData();
+      form.append('file', new Blob([f.bytes], { type: f.mime }), f.name);
+      forms.set(i + 1, Buffer.from(await new Request('http://upload', { method: 'POST', body: form }).arrayBuffer()).toString('base64'));
+      answers.set(i + 1, Buffer.from(JSON.stringify(format === 'azure' ? { id: f.id, object: 'file', filename: f.name } : { id: f.id, type: 'file', filename: f.name, mime_type: f.mime })));
+      calls.push({ runId: 'r', callNo: i + 1, kind: 'api', name: format === 'azure' ? 'POST /openai/files' : 'POST /v1/files', fingerprint: 'f', occurrence: i + 1, origin: 'live', effect: null, requestRef: 'q', meta: { provider: format }, at: i, end: { runId: 'r', callNo: i + 1, attempt: 0, responseRef: 'a', outcome: 'ok', meta: {}, at: i }, attempts: [] });
+    }
+    return new ProviderState(calls, { request: (c) => forms.get(c.callNo), response: (c) => answers.get(c.callNo) ?? null });
+  }
+  const sent = (out: { body?: unknown }) => JSON.stringify(out.body ?? null);
+
+  it('counts each file as base64, as the request carries it, against what the provider takes in a request', async () => {
+    // Azure takes 20 MB: a 16 MB file comes to 21.3 MB in base64.
+    const big = await uploaded('azure', [{ id: 'file-big', bytes: Buffer.alloc(16 * MB, 7), mime: 'application/pdf', name: 'big.pdf' }]);
+    const out = big.rebuild('azure', 2, { model: 'gpt-5', input: [{ role: 'user', content: [{ type: 'input_file', file_id: 'file-big' }] }] });
+    expect(out.body).toBeUndefined();
+    expect(out.notes.map((n) => n.text).join('\n')).toMatch(/call 2 refers to file file-big, .*can't send it in the request \(in base64 it would bring the request to 21\.3 MB, over the 20 MB a request may be\), so it was sent as it was/);
+
+    // Three of 7 MB, each 9.3 MB in base64: two go in, the request then 18.7 MB, and the third would take it past 20.
+    const three = await uploaded('azure', ['a', 'b', 'c'].map((id) => ({ id: `file-${id}`, bytes: Buffer.alloc(7 * MB, 1), mime: 'application/pdf', name: `${id}.pdf` })));
+    const both = three.rebuild('azure', 4, { model: 'gpt-5', input: [{ role: 'user', content: ['a', 'b', 'c'].map((id) => ({ type: 'input_file', file_id: `file-${id}` })) }] });
+    expect(sent(both)).not.toContain('"file_id":"file-a"');
+    expect(sent(both)).not.toContain('"file_id":"file-b"');
+    expect(sent(both)).toContain('"file_id":"file-c"');
+    expect(both.notes.find((n) => n.key === 'file:file-c')?.text).toMatch(/in base64 it would bring the request to 28 MB, over the 20 MB a request may be/);
+  });
+
+  it("holds an image to Anthropic's 5 MB in base64", async () => {
+    const state = await uploaded('anthropic', [
+      { id: 'file_011large', bytes: Buffer.alloc(4 * MB, 3), mime: 'image/png', name: 'large.png' },
+      { id: 'file_011small', bytes: Buffer.alloc(3 * MB, 3), mime: 'image/png', name: 'small.png' },
+    ]);
+    const ask = (id: string) => ({ model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'file', file_id: id } }, { type: 'text', text: 'What is in it?' }] }] });
+    // 4 MB is 5.3 MB in base64: sent as it was, saying why.
+    const large = state.rebuild('anthropic', 3, ask('file_011large'));
+    expect(large.body).toBeUndefined();
+    expect(large.notes[0]?.text).toMatch(/can't send it in the request \(in base64 it is 5\.3 MB, over the 5 MB an image may be\)/);
+    // 3 MB is 4 MB in base64: sent in its place.
+    const small = state.rebuild('anthropic', 3, ask('file_011small'));
+    expect(small.body).toMatchObject({ messages: [{ content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png' } }, { type: 'text' }] }] });
   });
 });

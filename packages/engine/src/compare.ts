@@ -9,6 +9,7 @@ import { pathOf } from './repeat.js';
 import { finalAnswer, normalizeResponse } from './responses.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf } from './judge-scope.js';
+import { parseJsonExact, reportable } from './json-exact.js';
 import { loadApiRequest } from './manifest.js';
 import type { Palette } from './report.js';
 import { requestPathLabel } from './request-paths.js';
@@ -188,9 +189,18 @@ export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: 
 }
 
 
-function request(store: Store, c: CallRecord): unknown {
+/**
+ * A call's request as Compare reads it, as a divergence report shows it (reportable): each number as
+ * it was sent, an integer past 2^53 by its digits, so two ids a double rounds alike show as the change
+ * they are. A model call of a run made before requests kept their numbers (`rounded`,
+ * RunMeta.exactNumbers) has every number read as the double it was stored as, on both sides, as
+ * matching reads it.
+ */
+function request(store: Store, c: CallRecord, rounded: boolean): unknown {
   if (!c.requestRef) return null;
-  return c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
+  if (c.kind === 'api') return reportable(loadApiRequest(store, c.requestRef, { exact: !rounded }));
+  const bytes = store.getBlob(c.requestRef);
+  return bytes === null ? null : reportable(parseJsonExact(bytes.toString('utf8')));
 }
 
 /** A model call's answer as the provider's response says it, or null when it can't be read (an error, nothing stored). */
@@ -439,8 +449,9 @@ export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: R
 function requestDifference(store: Store, a: RunRecord, x: CallRecord, b: RunRecord, y: CallRecord): Array<DiffEntry & { what?: string }> | null {
   if (x.kind !== y.kind || x.name !== y.name) return [{ path: '$', op: 'changed', before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
   if (x.fingerprint === y.fingerprint || servedFrom(b, y, a, x) || servedFrom(a, x, b, y)) return null;
-  const qx = request(store, x);
-  const qy = request(store, y);
+  const rounded = a.meta?.exactNumbers !== true || b.meta?.exactNumbers !== true;
+  const qx = request(store, x, rounded);
+  const qy = request(store, y, rounded);
   const diff = [
     ...(x.kind === 'api' ? headerDiff(identityHeaders(x), identityHeaders(y)) : []),
     ...(x.kind === 'api' ? queryDiff(queryPairs(storedQuery(x)), queryPairs(storedQuery(y))) : []),

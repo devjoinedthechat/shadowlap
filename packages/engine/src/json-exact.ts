@@ -22,7 +22,8 @@ export const isRawNumber = (value: unknown): value is RawJson => json.isRawJSON?
  */
 export function parseJsonExact(text: string, kept?: { raw: boolean }): unknown {
   const raw = json.rawJSON;
-  if (!raw) return JSON.parse(text);
+  // No number a double reads otherwise: JSON.parse gives the very same, five times as fast as a reviver.
+  if (!raw || !rereadNumber(text)) return JSON.parse(text);
   return JSON.parse(text, function (this: unknown, _key: string, value: unknown, context?: { source?: string }) {
     if (typeof value !== 'number' || typeof context?.source !== 'string' || String(value) === context.source) return value;
     if (kept) kept.raw = true;
@@ -47,6 +48,19 @@ export function matchable(value: unknown): unknown {
 }
 
 /**
+ * A deep copy of a value from `parseJsonExact`: a number kept as written stays the very value it is
+ * (it is frozen, and structuredClone would turn it into an object holding its text), and bytes stay
+ * as they are. What the rules a copy applies (normalize.ts) work on.
+ */
+export function cloneExact<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || isRawNumber(value) || ArrayBuffer.isView(value)) return value;
+  if (Array.isArray(value)) return value.map((v: unknown) => cloneExact(v)) as T;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, cloneExact(v));
+  return out as T;
+}
+
+/**
  * A value from `parseJsonExact` as `JSON.parse` would have read it: every number the double it reads
  * as, an integer past 2^53 rounded. How a model request was matched before requests kept their
  * numbers, which a replay of a recording made then matches it by.
@@ -60,6 +74,64 @@ export function asParsed(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * Whether JSON text may hold a number whose text a double reads otherwise, which parseJsonExact keeps
+ * as written: one with an exponent (`1e-07`), a fraction ending in zero (`20.0`), 16 significant
+ * digits or more (an id past 2^53), `-0`, or below 1e-6 (`0.0000001`, which reads back as `1e-7`).
+ * Any other number, at most 15 significant digits, is the shortest text of the double it reads as,
+ * which is how a double is written. Strings are skipped, so a hash or base64 in one never counts;
+ * text that isn't JSON says yes, and JSON.parse with the reviver says why.
+ */
+function rereadNumber(text: string): boolean {
+  const n = text.length;
+  const digit = (i: number) => {
+    const c = text.charCodeAt(i);
+    return c >= 48 && c <= 57;
+  };
+  for (let i = 0; i < n; ) {
+    const c = text.charCodeAt(i);
+    if (c === 34) {
+      // A string: to its closing quote, past every escaped one.
+      let end = i;
+      for (;;) {
+        end = text.indexOf('"', end + 1);
+        if (end < 0) return true;
+        let slashes = 0;
+        while (text.charCodeAt(end - 1 - slashes) === 92) slashes++;
+        if (slashes % 2 === 0) break;
+      }
+      i = end + 1;
+      continue;
+    }
+    if (c !== 45 && !(c >= 48 && c <= 57)) {
+      i++;
+      continue;
+    }
+    // A number: -?int(.frac)?(e±exp)?
+    let j = c === 45 ? i + 1 : i;
+    const intStart = j;
+    while (j < n && digit(j)) j++;
+    const intDigits = j - intStart;
+    const zeroInt = intDigits === 1 && text.charCodeAt(intStart) === 48;
+    let fracDigits = 0;
+    let leadingZeros = 0;
+    if (text.charCodeAt(j) === 46) {
+      const fracStart = ++j;
+      while (j < n && digit(j)) j++;
+      fracDigits = j - fracStart;
+      if (fracDigits && text.charCodeAt(j - 1) === 48) return true;
+      while (leadingZeros < fracDigits && text.charCodeAt(fracStart + leadingZeros) === 48) leadingZeros++;
+    }
+    const e = text.charCodeAt(j);
+    if (e === 101 || e === 69) return true;
+    if (c === 45 && zeroInt && fracDigits === 0) return true;
+    const significant = zeroInt ? fracDigits - leadingZeros : intDigits + fracDigits;
+    if (significant >= 16 || (zeroInt && leadingZeros >= 6)) return true;
+    i = Math.max(j, i + 1);
+  }
+  return false;
 }
 
 /**

@@ -28,4 +28,46 @@ describe('JSON with exact numbers', () => {
     // Plain JSON, as the run stores its divergence.
     expect(JSON.parse(JSON.stringify(value))).toEqual(value);
   });
+
+  it('keeps every number a double reads otherwise, however the text around it reads, and the rest as JSON.parse does', () => {
+    // Each written so a double reads it otherwise, and some that a double keeps as written.
+    const changed = ['20.0', '1.50', '-0', '-0.0', '1e3', '1E3', '1e-07', '0.0000001', '0.00000012', '9007199254740993', '1234567890123456789', '12345678901234567891', '0.1000000000000000055511151231257827', '100000000000000000000000'];
+    // Two of these a double writes back as they are only by luck of their digits: read the long way, kept all the same.
+    const kept = ['0', '7', '-7', '100', '0.1', '-2.5', '3.14', '0.000001', '0.0000012', '123456789012345', '0.123456789012345', '999999999999999', '1.5', '42.25', '1.5e+21', '123456789012345.67'];
+    for (const n of [...changed, ...kept]) {
+      const text = `{"n":${n},"s":"a1e3 20.0 -0","list":[${n},"${n}"],"esc":"\\"${n}\\\\","t":true}`;
+      expect(JSON.stringify(parseJsonExact(text)), n).toBe(text);
+      const flag = { raw: false };
+      parseJsonExact(text, flag);
+      expect(flag.raw, n).toBe(changed.includes(n));
+    }
+    // Quotes escaped in a string, and backslashes before its closing quote, end it where JSON ends it.
+    for (const text of ['{"a":"\\"","n":20.0,"b":"\\""}', '{"a":"x\\\\","n":20.0,"b":"\\""}']) expect(JSON.stringify(parseJsonExact(text)), text).toBe(text);
+    // A number only a string holds is no number, however it reads: the text parses as JSON.parse reads it.
+    const quoted = '{"hash":"9007199254740993e5","b64":"MTIzNDU2Nzg5MDEyMzQ1Njc4OTA=","n":12}';
+    const flag = { raw: false };
+    expect(parseJsonExact(quoted, flag)).toEqual(JSON.parse(quoted));
+    expect(flag.raw).toBe(false);
+    // Text that isn't JSON fails as JSON.parse fails it.
+    expect(() => parseJsonExact('{"n":1.')).toThrow(SyntaxError);
+    expect(() => parseJsonExact('{"s":"unclosed')).toThrow(SyntaxError);
+  });
+
+  it('reads a request with no such number about as fast as JSON.parse: CPU time against it, on 4 MB', () => {
+    const messages = Array.from({ length: 3000 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: [{ type: 'text', text: 'word '.repeat(200) }, { type: 'tool_result', tool_use_id: `t${i}`, content: JSON.stringify({ id: i, score: i / 7 }) }], meta: { n: i, f: i + 0.5 } }));
+    const text = JSON.stringify({ model: 'm', max_tokens: 1024, messages });
+    const cpu = (read: () => unknown) => {
+      let best = Infinity;
+      for (let i = 0; i < 5; i++) {
+        const c0 = process.cpuUsage();
+        read();
+        const c = process.cpuUsage(c0);
+        best = Math.min(best, c.user + c.system);
+      }
+      return best;
+    };
+    const plain = cpu(() => JSON.parse(text));
+    // A reviver on every value made it five times JSON.parse; read whole only where a number needs it.
+    expect(cpu(() => parseJsonExact(text))).toBeLessThan(plain * 3);
+  });
 });

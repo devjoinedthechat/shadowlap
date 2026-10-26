@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareRuns, formatComparison } from '../src/compare.js';
+import { parseJsonExact } from '../src/json-exact.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { Store } from '../src/store.js';
 import type { CallKind, CallMeta, Origin, RunMeta, RunRecord } from '../src/types.js';
@@ -132,6 +133,29 @@ describe('calls paired across two runs', () => {
     store.close();
   });
 
+  it("takes a replay's call for the recorded call it was served from, though what each sent differs where matching masked it", () => {
+    const store = Store.open(':memory:');
+    const dated = (day: string) => ({ ...ask, system: `Today is 2026-10-${day}.` });
+    const a = store.createRun({ mode: 'record', command: cmd });
+    put(store, a, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), request: dated('25'), meta: { provider: 'anthropic' }, answer: '{"content":[]}' });
+    put(store, a, 2, { kind: 'tool', name: 'lookup_order', fingerprint: 'b'.repeat(64), request: { args: { id: 'A-1042', asOf: '2026-10-25' } }, answer: '{"result":"shipped"}' });
+    // A day later: each date masked against its own run's start, so each call was served from the
+    // recording's, the tool's with a result a flag gave; the fingerprints each run keeps differ.
+    const b = store.createRun({ mode: 'replay', parentRunId: a.runId, command: cmd });
+    put(store, b, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'c'.repeat(64), request: dated('26'), meta: { provider: 'anthropic' }, answer: '{"content":[]}', origin: 'replayed', end: { replayedFrom: 1 } });
+    put(store, b, 2, { kind: 'tool', name: 'lookup_order', fingerprint: 'd'.repeat(64), request: { args: { id: 'A-1042', asOf: '2026-10-26' } }, answer: '{"result":"lost"}', origin: 'overridden', end: { overriddenFrom: 2 } });
+    for (const [x, y] of [[a, b], [b, a]] as const) expect(compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId))).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null, responseDifferences: [{ callNo: 2 }] });
+    // A run that is no replay of the other is compared by what each sent: the date is the change.
+    const c = store.createRun({ mode: 'record', command: cmd });
+    put(store, c, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'c'.repeat(64), request: dated('26'), meta: { provider: 'anthropic' }, answer: '{"content":[]}' });
+    expect(compareRuns(store, a, store.getCalls(a.runId), c, store.getCalls(c.runId)).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.system', op: 'changed' }] });
+    // Nor is a replay of that run, served from its call #1, ever taken for one served from the first run's.
+    const d = store.createRun({ mode: 'replay', parentRunId: c.runId, command: cmd });
+    put(store, d, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'e'.repeat(64), request: dated('27'), meta: { provider: 'anthropic' }, answer: '{"content":[]}', origin: 'replayed', end: { replayedFrom: 1 } });
+    expect(compareRuns(store, a, store.getCalls(a.runId), d, store.getCalls(d.runId)).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.system', op: 'changed' }] });
+    store.close();
+  });
+
   it('pairs calls whose fingerprints differ when what each sent is the same, and finds the one that changed', () => {
     const store = Store.open(':memory:');
     const a = store.createRun({ mode: 'record', command: cmd });
@@ -148,6 +172,31 @@ describe('calls paired across two runs', () => {
     expect(c.identicalPrefix).toBe(2);
     expect(c.firstRequestDifference).toMatchObject({ callNo: 3 });
     expect(c.firstRequestDifference!.diff!.map((e) => e.path)).toEqual(['headers.anthropic-version', '$.messages[0].content']);
+    store.close();
+  });
+
+  it('tells two ids a double rounds alike apart, and reads a run made before requests kept their numbers as matching reads it', () => {
+    const store = Store.open(':memory:');
+    const asked = (order: string) => `{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"Refund it."}],"metadata":{"order":${order}}}`;
+    const model = (run: RunRecord, fingerprint: string, request: unknown) => put(store, run, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint, request, meta: { provider: 'anthropic', query: '' }, answer: '{"content":[]}' });
+    const tool = (run: RunRecord, fingerprint: string, order: string) => put(store, run, 1, { kind: 'tool', name: 'refund', fingerprint, request: parseJsonExact(`{"args":{"order":${order}}}`), answer: '{"result":"refunded"}' });
+    const exact = (): RunRecord => store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } });
+    const compared = (x: RunRecord, y: RunRecord) => compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
+
+    // Each request kept as it was sent: ids that differ past 2^53, in a model call and in a tool's arguments.
+    const [a, b, c, d] = [exact(), exact(), exact(), exact()];
+    model(a, '5'.repeat(64), parseJsonExact(asked('12345678901234567891')));
+    model(b, '6'.repeat(64), parseJsonExact(asked('12345678901234567892')));
+    expect(compared(a, b).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.metadata.order', op: 'changed', before: '12345678901234567891', after: '12345678901234567892' }] });
+    tool(c, '7'.repeat(64), '12345678901234567891');
+    tool(d, '8'.repeat(64), '12345678901234567892');
+    expect(compared(c, d).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.args.order', op: 'changed', before: '12345678901234567891', after: '12345678901234567892' }] });
+
+    // A recording made before requests kept their numbers stored the id rounded: the same id sent,
+    // read as matching reads that run, every number a double.
+    const older = store.createRun({ mode: 'record', command: cmd });
+    model(older, '9'.repeat(64), JSON.parse(asked('12345678901234567891')));
+    for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
 });

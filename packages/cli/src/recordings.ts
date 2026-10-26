@@ -84,8 +84,8 @@ export class RecordingHost {
   readonly api = async (route: ApiRoute): Promise<{ status: number; body: unknown } | undefined> => {
     if (route.method !== 'POST') return undefined;
     if (route.path === 'v1/recordings/start') return { status: 201, body: this.start((await route.body()) as StartBody) };
-    if (route.path === 'v1/recordings/calls') return { status: 200, body: this.calls((await route.body()) as EndBody) };
-    if (route.path === 'v1/recordings/end') return { status: 200, body: this.end((await route.body()) as EndBody) };
+    if (route.path === 'v1/recordings/calls') return { status: 200, body: await this.calls((await route.body()) as EndBody) };
+    if (route.path === 'v1/recordings/end') return { status: 200, body: await this.end((await route.body()) as EndBody) };
     return undefined;
   };
 
@@ -141,9 +141,11 @@ export class RecordingHost {
     return { runId: run.runId, mode: 'replay', recording: rel, ...(Object.keys(placeholders).length ? { placeholders } : {}) };
   }
 
-  calls(body: { runId?: unknown }): RecordedCalls {
+  async calls(body: { runId?: unknown }): Promise<RecordedCalls> {
     const a = typeof body.runId === 'string' ? this.active.get(body.runId) : undefined;
     if (!a) throw new HttpError(404, `no recording in progress for run ${String(body.runId)}`);
+    // Read once its rows are made, waited for on the writer's timer: another test's stream goes on.
+    await this.sidecar!.settled(a.runId);
     const calls = this.store.getCalls(a.runId);
     return {
       calls: calls.map((c) => {
@@ -163,13 +165,15 @@ export class RecordingHost {
     };
   }
 
-  end(body: EndBody): RecordingResult {
+  async end(body: EndBody): Promise<RecordingResult> {
     const sidecar = this.sidecar!;
     const a = typeof body.runId === 'string' ? this.active.get(body.runId) : undefined;
     if (!a) throw new HttpError(404, `no recording in progress for run ${String(body.runId)}`);
     this.active.delete(a.runId);
     const passed = body.passed === true;
     const { summary } = sidecar.endRun(a.runId, passed ? 'completed' : 'failed');
+    // Packed or deleted once its rows are made, waited for on the writer's timer: another test's stream goes on.
+    await sidecar.settled(a.runId);
     const recording = relative(this.root, a.dir).split('\\').join('/');
     const base = { runId: a.runId, recording, calls: summary.total, replayed: summary.byOrigin.replayed + summary.byOrigin.overridden };
 
