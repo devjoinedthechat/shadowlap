@@ -7,7 +7,7 @@ import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { aboutUsd, plain } from './report.js';
 import { normalizeResponse } from './responses.js';
-import { safeLine } from './text.js';
+import { safeLine, safeText } from './text.js';
 import type { CallRecord, Effect, Normalizer } from './types.js';
 import type { RetirementNotice } from './model-retirements.js';
 
@@ -847,7 +847,9 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     const name = run.golden ? `${safeLine(run.golden)} ${p.dim(run.runId.slice(0, 10))}` : run.runId.slice(0, 10);
     const summary = run.rank !== null ? `${run.decisions.filter((s) => s.rank !== null).length} changed, most: rank ${run.rank} (${RANK_LABELS[run.rank]})` : run.asked ? 'the same decisions' : run.counts.untouched === run.steps && run.steps ? 'the change leaves its requests as recorded' : 'nothing asked';
     if (run.refused) {
-      lines.push(`${p.bold(name)}  ${p.yellow('not asked')}: ${safeLine(run.refused)}`);
+      // A refusal of several lines (an unrecorded write's, with what to do) keeps its line breaks, each line under the run's.
+      const [first = '', ...more] = safeText(run.refused).split('\n');
+      lines.push(`${p.bold(name)}  ${p.yellow('not asked')}: ${first}`, ...more.map((l) => `  ${l}`));
       continue;
     }
     lines.push(`${p.bold(name)}  ${p.dim(`${run.asked} of ${run.steps} model call${run.steps === 1 ? '' : 's'} asked`)} · ${run.majority !== null && run.majority <= 2 ? p.red(summary) : run.rank !== null ? p.yellow(summary) : summary}`);
