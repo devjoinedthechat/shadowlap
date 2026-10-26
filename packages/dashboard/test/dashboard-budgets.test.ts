@@ -69,6 +69,14 @@ async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: nu
   return { status: res.status, ms: performance.now() - t0, bytes: Buffer.byteLength(text), body: text ? JSON.parse(text) : null };
 }
 
+/** A write, as the page sends one. */
+async function send(d: Dashboard, path: string, method: 'POST' | 'DELETE', body?: unknown): Promise<{ status: number; ms: number; body: any }> {
+  const t0 = performance.now();
+  const res = await fetch(`${d.url}/api/${path}`, { method, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const text = await res.text();
+  return { status: res.status, ms: performance.now() - t0, body: text ? JSON.parse(text) : null };
+}
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const median = (xs: readonly number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
@@ -313,6 +321,27 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       store.close();
     }
   }, TIMEOUT);
+
+  // Last: it deletes runs the others count.
+  it('deletes fifty runs beside the server, with their calls and what nothing else uses', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, readOnly: false });
+    try {
+      await ask(d, 'meta');
+      const ids = ((await ask(d, 'runs/page?limit=50')).body.runs as Array<{ runId: string }>).map((r) => r.runId);
+      expect(ids).toHaveLength(50);
+      const t = await onServerThread(() => send(d, 'runs/delete', 'POST', { ids }));
+      said(`50 runs deleted in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.done).toHaveLength(50);
+      // Every call of each, its search index and the data nothing else used: none of it on the server's thread.
+      beside('runs/delete', t);
+      expect((await ask(d, `runs/${ids[0]}`)).status).toBe(404);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
 });
 
 describe('a run of twenty thousand calls', () => {
@@ -495,6 +524,25 @@ describe('a run of twenty thousand calls', () => {
       }
       expect((await ask(d, `runs/${big.runId}/provenance`)).body).toMatchObject({ runId: big.runId, calls: { model: CALLS / 2, tool: CALLS / 2 } });
       expect((await ask(d, `fixes/${fixId}`)).body.blame.callRow).toHaveLength(CALLS);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  // Last: it deletes the fork the others compare.
+  it('deletes its fork of twenty thousand calls beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, readOnly: false });
+    try {
+      await ask(d, 'meta');
+      const t = await onServerThread(() => send(d, `runs/${fork.runId}`, 'DELETE'));
+      said(`a run of ${CALLS} calls deleted in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.deleted).toBe(fork.runId);
+      beside(`runs/<fork> DELETE`, t);
+      expect((await ask(d, `runs/${fork.runId}`)).status).toBe(404);
+      expect((await ask(d, `runs/${big.runId}`)).status).toBe(200);
     } finally {
       await d.close();
       store.close();
