@@ -264,7 +264,7 @@ export function setRequestFields(shape: RequestShape, body: unknown, fields: Rec
       const holder = node as Record<string | number, unknown>;
       if (last) {
         // A number kept as written (`1.0`) is the value it reads as: setting it so changes nothing.
-        if (!deepEqual(asParsed(holder[slot]), value)) changed = true;
+        if (!deepEqual(asParsed(holder[slot]), asParsed(value))) changed = true;
         holder[slot] = value;
         break;
       }

@@ -80,6 +80,11 @@ describe('numbers in tool payloads', () => {
       const overridden = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['a'], cwd: '.' }, replay: { overrides: new Map([[callNo, override]]) } });
       expect(await resolve(overridden.runId)).toContain('"result":{"id":1234567890123456789,"price":20.0,"note":"Lost."}');
       sidecar.endRun(overridden.runId, 'completed');
+      // The same through the runs endpoint, as an SDK starts a replay: its JSON as the SDK wrote it.
+      const started = await fetch(`${sidecar.url}/v1/runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: `{"mode":"replay","parentRunId":"${rec.runId}","command":{"argv":["a"],"cwd":"."},"replay":{"divergeAt":9,"overrides":{"${callNo}":{"id":1234567890123456789,"price":20.0,"note":"Lost."}}}}` });
+      const { run: sdkRun } = (await started.json()) as { run: { runId: string } };
+      expect(await resolve(sdkRun.runId)).toContain('"result":{"id":1234567890123456789,"price":20.0,"note":"Lost."}');
+      sidecar.endRun(sdkRun.runId, 'completed');
     } finally {
       await sidecar.close();
       store.close();

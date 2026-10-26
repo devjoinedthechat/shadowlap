@@ -1254,10 +1254,15 @@ export class Sidecar {
     if (rest === 'v1/health' && method === 'GET') return json(res, 200, { ok: true, activeRun: this.activeRunId });
 
     if (rest === 'v1/runs' && method === 'POST') {
-      const body = (await readJson(req)) as Partial<StartRunInput> & {
+      type StartBody = Partial<StartRunInput> & {
         replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown>; failAt?: Record<string, number>; toolFailures?: Record<string, ToolFailure>; plants?: Record<string, string> };
         interventions?: Interventions;
       };
+      // Read as JSON.parse reads it, but for the results an override gives: each of their numbers as
+      // the SDK wrote it, an id past 2^53 by its digits, as the CLI's --override keeps them.
+      const exact = (await readJson(req, true)) as StartBody;
+      const body = asParsed(exact) as StartBody;
+      if (body.replay && exact.replay?.overrides) body.replay.overrides = exact.replay.overrides;
       if (body.mode !== 'record' && body.mode !== 'replay') throw new HttpError(400, 'mode must be record or replay');
       // Maps keyed by call number arrive as JSON objects.
       const byCall = <T>(o: Record<string, T> | undefined) => (o && typeof o === 'object' ? new Map(Object.entries(o).map(([k, v]) => [Number(k), v] as const)) : undefined);
