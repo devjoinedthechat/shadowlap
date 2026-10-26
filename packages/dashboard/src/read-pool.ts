@@ -408,6 +408,23 @@ export class LocalReads implements ReadModels {
   }
 }
 
+/** The error a read model's answer that is no 200 is, in its own words: a missing run, a bad request. */
+function answerError(a: ReadAnswer): HttpError {
+  let error = `HTTP ${a.status}`;
+  try {
+    error = (JSON.parse(a.body) as { error?: string }).error ?? error;
+  } catch {
+    // the status says it
+  }
+  return new HttpError(a.status, error);
+}
+
+/** A read model's answer as data, for a route that answers with more than it: an answer that is no 200 is thrown, as sendAnswer throws it. */
+export function answerData<T>(a: ReadAnswer): T {
+  if (a.status !== 200) throw answerError(a);
+  return JSON.parse(a.body) as T;
+}
+
 /**
  * Answers a request with a read model's answer: its JSON as worked out, with its ETag (`etag` when
  * the route gives one of its own), so a browser that has it gets a 304; an answer that is still
@@ -415,15 +432,7 @@ export class LocalReads implements ReadModels {
  * which the server answers as it answers any.
  */
 export function sendAnswer(r: RouteRequest, a: ReadAnswer, o: { etag?: string | null } = {}): void {
-  if (a.status !== 200) {
-    let error = `HTTP ${a.status}`;
-    try {
-      error = (JSON.parse(a.body) as { error?: string }).error ?? error;
-    } catch {
-      // the status says it
-    }
-    throw new HttpError(a.status, error);
-  }
+  if (a.status !== 200) throw answerError(a);
   const etag = a.warming ? null : o.etag !== undefined ? o.etag : a.etag;
   if (etag && r.req.headers['if-none-match'] === etag) {
     r.res.writeHead(304, { etag, 'cache-control': 'no-cache' });

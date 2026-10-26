@@ -38,6 +38,7 @@ import { loadRunIndex, type IndexedRun } from './run-index.js';
 import { asksFor } from './run-stats.js';
 import { countRuns } from './runs-list.js';
 import { teamStoreStatus, type TeamStoreInput, type TeamStoreStatus } from './team-store.js';
+import { toolReads, type ToolReads } from './tool-reads.js';
 
 /**
  * The read model behind Settings: one plain function per tab (Matching, Redaction, Coding agents,
@@ -606,16 +607,17 @@ const effectOf = (v: unknown): Effect | null => (EFFECTS.includes(v as Effect) ?
 /**
  * The Tools tab: every tool any run called, from one query across the store, by what happens to it
  * after a fork; the hosts under `http` and `mcp.effects` in the config; and the MCP servers the
- * project's client configs list, with the `shadowlap mcp` line that records each.
+ * project's client configs list, with the `shadowlap mcp` line that records each. The server hands
+ * it the store's part, read beside it (`reads`); without them it reads them itself.
  */
-export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string | null } = {}): ToolsSettings {
+export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string | null; reads?: ToolReads } = {}): ToolsSettings {
   const { info, file } = loadConfigFile(ctx.cwd);
   const data = file?.data ?? {};
   const mcpEffects = isObject(data.mcp) && isObject(data.mcp.effects) ? data.mcp.effects : {};
   const httpRules = isObject(data.http) ? Object.entries(data.http) : [];
 
   // One row per tool: the effect of its latest call, and whether an earlier one differed.
-  const { usage, mcp: mcpUsage } = toolReads(ctx.store);
+  const { usage, mcp: mcpUsage } = options.reads ?? toolReads(ctx.store);
   const tools = new Map<string, ToolRow>();
   const hostCalls = new Map<string, { calls: number; lastAt: number; effect: Effect | null }>();
   for (const u of usage) {
@@ -678,30 +680,6 @@ export function toolsSettings(ctx: SettingsContext, options: { mcpDoc?: string |
     http,
     mcp: { effects, servers, recorded, files: found.files, ...clientConfigs(servers, doc === null ? null : mcpClientConfig(doc)) },
   };
-}
-
-/** What the Tools tab reads from the store: every tool across runs, and the MCP servers calls came through. */
-interface ToolReads {
-  key: string;
-  usage: ReturnType<Store['toolUsage']>;
-  mcp: ReturnType<Store['mcpServerUsage']>;
-}
-
-const toolReadCache = new WeakMap<Store, ToolReads>();
-
-/**
- * The Tools tab's store reads, kept per store until its runs or calls change (`changeCounts`): each
- * scans every call in the store, on the server's thread, so a tab read again with nothing new (the
- * window back in focus, a second tab) costs nothing.
- */
-export function toolReads(store: Store): ToolReads {
-  const counts = store.changeCounts();
-  const key = `${counts.runs ?? 0}:${counts.calls ?? 0}`;
-  const kept = toolReadCache.get(store);
-  if (kept && kept.key === key) return kept;
-  const read: ToolReads = { key, usage: store.toolUsage(), mcp: store.mcpServerUsage() };
-  toolReadCache.set(store, read);
-  return read;
 }
 
 /** The MCP servers recorded calls came through, with their tools and writes (Store.mcpServerUsage). */

@@ -26,6 +26,8 @@ import { recordLoop } from './long-run.js';
  *   percentile, and it is busy under half the time, the test's own asking among it.
  * - While a run records into that store, the status bar's poll of /api/meta costs its thread a few
  *   milliseconds: the run index counts the new calls into what it had (82 ms a poll, before).
+ * - Settings → Tools, which reads every tool call in that store, costs the server's thread a few
+ *   milliseconds: the store is read beside it.
  * - A run of 20,000 calls answers its first page under 1 MB, where it sent every call at once
  *   (15 MB), worked out in under 500 ms of CPU read through a connection of its own, as a thread
  *   reads it (the median of five); its other pages come from /calls?from=.
@@ -35,7 +37,7 @@ import { recordLoop } from './long-run.js';
  *   comparison comes, and holds the server's thread up no more than any other read.
  * - Its Provenance, its untrusted reads, the tools' trust over every call and the page of the fix
  *   that blamed it, each of which reads every call of the run, cost the server's thread a few
- *   milliseconds each.
+ *   milliseconds each, or a small share of the time each takes (`cheap`).
  */
 
 const TIMEOUT = 300_000;
@@ -49,6 +51,15 @@ const HELD_P99_MS = 60;
  * took 70% of it on the server's thread, in 50 ms slices every 20 ms.
  */
 const BUSY_SHARE = 1 / 2;
+
+/**
+ * Whether a request cost the server's thread little: under 50 ms, or under half the time it took. A
+ * big answer moved through the thread's sockets is work of its own, which a busy machine stretches as
+ * it stretches the time taken (a fix's page of 20,000 calls, 2 MB: 17 ms of 240 here, 62 ms under the
+ * whole suite); a read of every call on the thread took nearly all of the time.
+ */
+const cheap = (t: { busyMs: number; busy: number }) => t.busyMs < 50 || t.busy < BUSY_SHARE;
+const cost = (t: { busyMs: number; busy: number }) => `${t.busyMs.toFixed(0)} ms, ${(t.busy * 100).toFixed(0)}% of the time`;
 
 async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: number; bytes: number; body: any }> {
   const t0 = performance.now();
@@ -252,6 +263,24 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       store.close();
     }
   }, TIMEOUT);
+
+  it('reads Settings → Tools, a scan of every call in the store, beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, project: { path: dir } });
+    try {
+      await ask(d, 'meta');
+      await untilWhole(d);
+      const t = await onServerThread(() => ask(d, 'settings/tools'));
+      said(`settings/tools answered in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.live.map((tool: { name: string }) => tool.name)).toEqual(['lookup_order']);
+      // Every tool call of every run, and the MCP servers they came through: none of it read on the server's thread.
+      expect(cheap(t), `what it cost the server's thread, ${cost(t)}`).toBe(true);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
 });
 
 describe('a run of twenty thousand calls', () => {
@@ -430,7 +459,7 @@ describe('a run of twenty thousand calls', () => {
         said(`${path.replace(big.runId, '<run>')} answered in ${t.out.ms.toFixed(0)} ms`, t);
         expect(t.out.status, path).toBe(200);
         // Each reads every call of the run, or of every run: none of it on the server's thread.
-        expect(t.busyMs, `${path}: what it cost the server's thread`).toBeLessThan(50);
+        expect(cheap(t), `${path}: what it cost the server's thread, ${cost(t)}`).toBe(true);
       }
       expect((await ask(d, `runs/${big.runId}/provenance`)).body).toMatchObject({ runId: big.runId, calls: { model: CALLS / 2, tool: CALLS / 2 } });
       expect((await ask(d, `fixes/${fixId}`)).body.blame.callRow).toHaveLength(CALLS);

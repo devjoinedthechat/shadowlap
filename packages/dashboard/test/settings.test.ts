@@ -7,7 +7,8 @@ import { REDACTION_EXPORTS, Store, addRule, addRules, readConfigFile, recordEven
 import { PREVIEW_LIMITS, tookTooLong } from '../src/redaction-preview.js';
 import { times, timesOf } from '../../engine/test/timing.js';
 import { mcpServerUrl, parseHeaderFlags } from '../../cli/src/mcp.js';
-import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolReads, toolsSettings } from '../src/settings.js';
+import { agentsSection, clientConfigs, cleanupArgv, codingAgentsSettings, hideSecrets, hideUrlSecrets, matchingSettings, mcpClientConfig, mcpEntryAsTyped, mcpServerFor, mcpServers, parseJsonc, projectSettings, proposedRules, redactionPreview, redactionSettings, shownPath, splitCommandLine, stdioServerName, toolsSettings } from '../src/settings.js';
+import { toolReads } from '../src/tool-reads.js';
 
 const repoDoc = (name: string) => readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), 'utf8');
 
