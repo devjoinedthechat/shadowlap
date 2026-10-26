@@ -507,7 +507,8 @@ export function register(program: Command): void {
       for (const { fix: f } of kept?.fixes ?? []) emitJobEvent({ type: 'link', label: 'Open the fix', href: fixHref(f.fixId, 'verify', kept!.verdict.verifyId) });
       emitJobEvent({ type: 'result', data: json });
       // Accepted, 0; rejected, 1; not finished (a run's gate undecided, the budget spent), 3.
-      process.exitCode = report.verdict === 'accepted' ? EXIT.ok : report.verdict === 'rejected' ? EXIT.failed : stoppedBy() ? interruptedStatus() : EXIT.inconclusive;
+      // A stop signal ends it with its own status whenever it came, the verdict reached or not.
+      process.exitCode = stoppedBy() ? interruptedStatus() : report.verdict === 'accepted' ? EXIT.ok : report.verdict === 'rejected' ? EXIT.failed : EXIT.inconclusive;
     });
 
   program
@@ -658,7 +659,7 @@ export function register(program: Command): void {
         if (report.output.patch) emitJobEvent({ type: 'file', path: report.output.patch, label: 'fix.patch' });
         emitJobEvent({ type: 'result', data: json });
         // Fixed and handed over, 0; stopped before a verdict, by its reason; no fix, or a hand-over that failed, 1.
-        process.exitCode = report.outcome === 'fixed' && !handOverFailed ? EXIT.ok : report.outcome === 'stopped' ? stoppedStatus(report.why) : EXIT.failed;
+        process.exitCode = stoppedBy() ? interruptedStatus() : report.outcome === 'fixed' && !handOverFailed ? EXIT.ok : report.outcome === 'stopped' ? stoppedStatus(report.why) : EXIT.failed;
       } catch (err) {
         if (!(err instanceof RepairError)) throw err;
         if (flags.json) process.stdout.write(JSON.stringify({ outcome: 'error', error: { message: err.message } }, null, 2) + '\n');

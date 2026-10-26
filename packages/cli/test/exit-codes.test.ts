@@ -130,6 +130,10 @@ describe('the built CLI', () => {
     const invalid = shadowlap(configured, ['--db', join(project, '.shadowlap', 'shadowlap.db'), 'replay', runId, '--', process.execPath, join(project, 'agent.mjs')]);
     expect(invalid.code, invalid.out).toBe(2);
     expect(invalid.stderr).toContain('shadowlap.config.json: clock must be "auto" or "exact"');
+    // A golden path that names no pack is a typo to fix: 2, the golden failed in the report all the same.
+    const missing = shadowlap(project, ['test', 'goldens/missing']);
+    expect(missing.code, missing.out).toBe(2);
+    expect(missing.out).toContain('goldens/missing is not a Shadowlap pack');
   });
 
   it('3: inconclusive, and 0 when --inconclusive warn lets it through', () => {
@@ -167,6 +171,25 @@ describe('the built CLI', () => {
     expect(debug.code).toBe(70);
     expect(debug.stderr).toMatch(/TypeError: Cannot read properties of null[\s\S]*\n\s+at /);
     expect(debug.stderr).toContain('please report it, with the stack above');
+  });
+
+  it.skipIf(process.platform === 'win32')('128 + n: a signal that comes once the command has set its status, as it winds down', async () => {
+    // A command that set its verdict's status and is still closing (verify after its verdict, repair
+    // closing its store), with a listener of its own for the signal: the signal's status is the one.
+    const dir = fresh();
+    const script = join(dir, 'late.mjs');
+    writeFileSync(
+      script,
+      `import { watchStopSignals } from ${JSON.stringify(new URL('../dist/exit-codes.js', import.meta.url).href)};
+watchStopSignals();
+process.on('SIGINT', () => {});
+process.exitCode = 1;
+setTimeout(() => process.kill(process.pid, 'SIGINT'), 50);
+setTimeout(() => {}, 400);
+`,
+    );
+    const r = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(130);
   });
 
   it.skipIf(process.platform === 'win32')('128 + n: a signal, however the command wound down', async () => {

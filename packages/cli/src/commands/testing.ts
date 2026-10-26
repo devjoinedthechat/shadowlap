@@ -22,7 +22,7 @@ import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { Turns } from '../turns.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
-import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
+import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -294,6 +294,9 @@ export function register(program: Command): void {
       if (unmatched.length) {
         throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
       }
+      // A path named as it is that holds no pack is a typo to fix, as a bad flag is: the others still
+      // run, and it fails as a golden in every report, but the session ends with 2.
+      const noPack = packs.filter((d) => !isPack(resolve(projectDir, d)));
       // Team store: no store or no credentials is a warning; the tests still decide the exit code.
       const pusher = flags.push ? await prepareTestPush(teamEnv(opts.db), { ...(flags.annotations ? { annotations: true } : {}) }) : null;
 
@@ -627,7 +630,7 @@ export function register(program: Command): void {
       await telemetry().flush();
       // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM. Then a golden
       // that failed, 1; one that was inconclusive and not let through (--inconclusive warn), 3.
-      process.exitCode = signal ? signalExit(signal) : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
+      process.exitCode = signal ? signalExit(signal) : noPack.length ? EXIT.usage : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
     });
 
   program
