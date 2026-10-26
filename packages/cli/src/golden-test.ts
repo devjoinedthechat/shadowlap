@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { UNAVAILABLE_RETRY, agentCallsOf, decideCount, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, providerUnavailable, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, agentCallsOf, decideCount, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, providerUnavailable, unavailableReason, unpackRun, volatileValues, wholeInput, safeLine, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -690,7 +690,9 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
 
 /** The checks, one per line, as the terminal and the JUnit report show them: passed, failed, inconclusive or not applicable. */
 export function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => checkLine(c)).join('\n');
+  // Each on its one line, its control characters escaped: a judge's reason is a model's words, and can
+  // break the line where a CI log reads what starts the next as a command.
+  return checks.map((c) => safeLine(checkLine(c))).join('\n');
 }
 
 /**
