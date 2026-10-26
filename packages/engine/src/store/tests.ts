@@ -70,8 +70,10 @@ export interface TestResultData {
    * pool them, one attempt included (a result kept before has it only for a recording that
    * repeats). `inconclusive`: attempts a check couldn't judge, which count neither way.
    * `unavailable`: attempts the provider was unavailable for, retried and never counted (`total` leaves them out).
+   * `cutShort`: attempts the provider cut short after the model had answered, which a gate counted
+   * against either verdict (`total` has them, `passed` none of them).
    */
-  attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number; unavailable?: number };
+  attempts?: { total: number; passed: number; required: number | null; runs: string[]; inconclusive?: number; unavailable?: number; cutShort?: number };
   /** How the golden came out: passed, failed, or inconclusive (its gate ran out between its bounds, or a check couldn't be decided). Absent before results said. */
   verdict?: 'passed' | 'failed' | 'inconclusive';
   /** A golden with a gate: its decision, interval, pass^k, evidence path and sentence (stats.ts), as the reports show it. */

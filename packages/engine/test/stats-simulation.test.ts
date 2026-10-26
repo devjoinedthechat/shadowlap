@@ -157,25 +157,25 @@ describe('a simulated 95% agent across 100 goldens', () => {
     expect(runsRed(fixedExact, GOLDENS)).toBeCloseTo(0.898, 3);
   });
 
-  it('a gate per golden at its own 5% fails far fewer, but 100 of them still turn about a sixth of runs red', () => {
+  it('a gate per golden at its own 5% fails far fewer, but 100 of them still turn about a seventh of runs red', () => {
     const odds = exact(oneGate);
-    // Under a fifth of 4 of 5's spurious failures; exactly, 0.17 per run against 2.26.
+    // Under a fifth of 4 of 5's spurious failures; exactly, 0.15 per run against 2.26.
     expect(gated.total.failed * 5).toBeLessThan(fixed.total.failed);
     expect(odds.fail * GOLDENS).toBeLessThan(0.2);
     expect(perGolden(gated.total.failed)).toBeCloseTo(odds.fail, 2);
     expect(perGolden(gated.total.inconclusive)).toBeCloseTo(odds.inconclusive, 3);
-    // Red runs as --inconclusive fail counts them: about 16%, where 4 of 5 is 90%.
-    expect(runsRed(odds, GOLDENS, 'fail')).toBeCloseTo(0.156, 3);
+    // Red runs as --inconclusive fail counts them: about 15%, where 4 of 5 is 90%.
+    expect(runsRed(odds, GOLDENS, 'fail')).toBeCloseTo(0.146, 3);
     expect(Math.abs(red(gated, 'fail') - runsRed(odds, GOLDENS, 'fail'))).toBeLessThan(0.07);
-    // About 16.6 attempts a golden, the price of telling 90% from 70% at 5% risk.
+    // About 16.7 attempts a golden, the price of telling 90% from 70% at 5% risk.
     expect(perGolden(gated.total.attempts)).toBeCloseTo(odds.attempts, 0);
-    expect(odds.attempts).toBeCloseTo(16.61, 1);
+    expect(odds.attempts).toBeCloseTo(16.69, 1);
   });
 
   it('with less room, it fails as few but leaves goldens inconclusive, which turn runs red by default', () => {
-    // max 40: 0.75% of goldens inconclusive, so 60% of runs red; under warn, the false failures alone.
+    // max 40: 0.78% of goldens inconclusive, so 61% of runs red; under warn, the false failures alone.
     expect(gated40.total.failed * 5).toBeLessThan(fixed.total.failed);
-    expect(runsRed(exact(sprt40), GOLDENS, 'fail')).toBeCloseTo(0.6, 2);
+    expect(runsRed(exact(sprt40), GOLDENS, 'fail')).toBeCloseTo(0.61, 2);
     expect(Math.abs(red(gated40, 'fail') - runsRed(exact(sprt40), GOLDENS, 'fail'))).toBeLessThan(0.1);
     expect(red(gated40, 'warn')).toBeLessThan(0.3);
     // max 20: a fifth of the goldens inconclusive, every run red.

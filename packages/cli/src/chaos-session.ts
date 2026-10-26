@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { formatDuration, hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
@@ -12,6 +12,7 @@ import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './golde
 import { EXIT, inconclusiveStatus, signalExit } from './exit-codes.js';
 import { emitJobEvent } from './job-events.js';
 import { junitXml } from './junit.js';
+import { unavailableWords } from './provider-retry.js';
 import { type GuardMode } from './run-agent.js';
 import { telemetry, type GlobalOpts } from './shared.js';
 import { palette as p, safe, shortId } from './ui.js';
@@ -169,6 +170,7 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         session: session.id,
         golden,
         onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, golden, preset, attempt)),
+        onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
         stopped: session.stopped,
         ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
       });
@@ -207,6 +209,7 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
       session: session.id,
       ...(argv?.length ? { argv } : {}),
       onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, shortId(parent.runId), preset, attempt)),
+      onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] run ${shortId(parent.runId)}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
       stopped: session.stopped,
       ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
     });

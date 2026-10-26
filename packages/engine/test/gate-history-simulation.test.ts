@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { attemptsOf, gateHistory } from '../src/gate-history.js';
-import { BASELINE_DEFAULTS, decide, gateOdds, type BaselineGate, type GateDecision, type Tally } from '../src/stats.js';
+import { BASELINE_DEFAULTS, decide, gateOdds, type BaselineGate, type GateDecision, type GateResult, type Tally } from '../src/stats.js';
 import { Store, type TestResultData } from '../src/store.js';
 
 /**
@@ -39,15 +39,19 @@ interface Session {
   decision: GateDecision;
   passes: number;
   attempts: number;
+  outcomes: boolean[];
 }
 
 /** One session of the gate: attempts until it decides, against `history` (none: the recording). */
 function session(random: () => number, rate: number, history: Tally | null): Session {
+  const outcomes: boolean[] = [];
   let passes = 0;
   for (let n = 1; ; n++) {
-    if (random() < rate) passes++;
+    const x = random() < rate;
+    outcomes.push(x);
+    if (x) passes++;
     const d = decide(passes, n, GATE, history);
-    if (d !== 'continue') return { decision: d, passes, attempts: n };
+    if (d !== 'continue') return { decision: d, passes, attempts: n, outcomes };
   }
 }
 
@@ -55,7 +59,9 @@ function session(random: () => number, rate: number, history: Tally | null): Ses
 function keep(store: Store, golden: string, s: Session, at: number): void {
   const verdict = s.decision === 'pass' ? 'passed' : s.decision === 'fail' ? 'failed' : 'inconclusive';
   const { sessionId } = store.startTestSession({ command: ['shadowlap', 'test', golden], startedAt: at, owner: null });
-  const data: TestResultData = { mode: 'fork', checks: CHECKS, attempts: { total: s.attempts, passed: s.passes, required: null, runs: [] }, verdict, branch: 'main', pullRequest: false, baselineBranch: 'main', revision: 'a1b2c3d' };
+  // Its gate's outcomes in order, which a baseline reads its first attempts from (the rest of a gate result is no part of one).
+  const gate = { ...GATE, decision: s.decision, passes: s.passes, attempts: s.attempts, outcomes: s.outcomes } as unknown as GateResult;
+  const data: TestResultData = { mode: 'fork', checks: CHECKS, attempts: { total: s.attempts, passed: s.passes, required: null, runs: [] }, verdict, gate, branch: 'main', pullRequest: false, baselineBranch: 'main', revision: 'a1b2c3d' };
   store.addTestResult({ sessionId, golden, ok: verdict === 'passed', failure: verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : 'check', goldenRunId: 'REC', at, revision: 'a1b2c3d', data });
 }
 
@@ -65,8 +71,8 @@ function everySession(store: Store, golden: string): Tally {
   return { passes: pooled.reduce((n, t) => n + t.passes, 0), attempts: pooled.reduce((n, t) => n + t.attempts, 0) };
 }
 
-/** The baseline as `shadowlap test` pools it: sessions that passed on main, for no pull request. */
-const passedOnMain = (store: Store, golden: string): Tally => gateHistory(store, golden, { window: GATE.window, branch: 'main', mode: 'fork', checks: CHECKS.map((c) => c.label), goldenRunId: 'REC' });
+/** The baseline as `shadowlap test` pools it: sessions that passed on main, for no pull request, each by its first `min` attempts. */
+const passedOnMain = (store: Store, golden: string): Tally => gateHistory(store, golden, { window: GATE.window, first: GATE.min, branch: 'main', mode: 'fork', checks: CHECKS.map((c) => c.label), goldenRunId: 'REC' });
 
 describe('a regression from 95% to 60% on the default branch, re-run in CI', () => {
   // The agent before the regression: 10 sessions at 95% that passed, the same for every replica.
@@ -76,7 +82,8 @@ describe('a regression from 95% to 60% on the default branch, re-run in CI', () 
     const s = session(warm, HEALTHY, null);
     if (s.decision === 'pass') before.push(s);
   }
-  const start: Tally = { passes: before.reduce((n, s) => n + s.passes, 0), attempts: before.reduce((n, s) => n + s.attempts, 0) };
+  // Each pooled by its first `min` attempts, as passedOnMain reads them back.
+  const start: Tally = { passes: before.reduce((n, s) => n + s.outcomes.slice(0, GATE.min).filter(Boolean).length, 0), attempts: before.reduce((n, s) => n + Math.min(GATE.min, s.attempts), 0) };
   // The power stated for the first run: exactly, every look counted, against that baseline.
   const first = gateOdds(GATE, REGRESSED, start);
   const stated = first.fail + first.inconclusive;

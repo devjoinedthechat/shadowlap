@@ -9,6 +9,7 @@ import { loadConfig } from './config.js';
 import { candidateTree, COPY_LIMIT, fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_ANTHROPIC_REPAIRER, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
+import { CandidatePicker, untriedWords } from './repair-pick.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
 import { runVerify } from './verify.js';
@@ -520,15 +521,36 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
       }
     }
 
-    // 4. Try candidates smallest first; the first the gate accepts is kept.
+    // 4. Try candidates smallest first. The first the gate accepts is verified again with fresh
+    // attempts and kept only if it passes again: the first of several to pass is likelier than any one
+    // to have passed by chance (repair-pick.ts), and no more than ⌊1/risk⌋ are decided.
     let accepted: { c: RepairCandidate; original: string; patched: string } | null = null;
+    const picker = new CandidatePicker<(typeof candidates)[number]>(s.gate?.risk ?? null);
     const tryAll = async (list: typeof candidates): Promise<void> => {
       const ordered = [...list].filter((x) => x.c.state === 'untried').sort((a, b) => a.c.size - b.c.size || a.c.id - b.c.id);
-      for (const { c, edit } of ordered) {
-        if (accepted || interrupted || outOfBudget() || providerDown) return;
-        log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${c.after.length > 100 ? `${c.after.slice(0, 99)}…` : c.after}`);
-        const result = await tryCandidate(c, edit);
-        if (result) accepted = { c, ...result };
+      await picker.pick(ordered, {
+        stopped: () => interrupted || outOfBudget() || !!providerDown,
+        verify: async ({ c, edit }, again) => {
+          if (again) log(`  ${p.dim(`verifying candidate ${c.id} again, with fresh attempts: it is kept only if it passes twice`)}`);
+          else log(`\n  ${p.bold(`candidate ${c.id}`)} ${p.dim(`(${c.surface}, ${c.size} characters changed)`)}: ${c.after.length > 100 ? `${c.after.slice(0, 99)}…` : c.after}`);
+          const before = c.verify;
+          const result = await tryCandidate(c, edit);
+          if (result && again) accepted = { c, ...result };
+          // Kept only once the second verify accepts it too: one that couldn't run (a write refused, a build that failed) is not.
+          else if (again) c.reason = `the gate accepted it once, but ${c.state === 'rejected' ? 'not when it was verified again with fresh attempts' : 'it could not be verified again'}: ${c.reason ?? 'it did not pass'}`;
+          return result ? 'accepted' : c.verify !== before ? 'rejected' : 'undecided';
+        },
+      });
+      const once = picker.unconfirmed?.c;
+      if (once?.state === 'accepted') {
+        once.state = 'incomplete';
+        once.reason = 'the gate accepted it once, and the repair stopped before it could be verified again';
+      }
+      const left = list.filter((x) => x.c.state === 'untried');
+      if (!picker.kept && !picker.open && s.gate && left.length) {
+        const words = untriedWords(picker.most, s.gate.risk, left.length);
+        for (const x of left) x.c.reason = words.reason;
+        warnings.push(words.warning);
       }
     };
     await tryAll(candidates);

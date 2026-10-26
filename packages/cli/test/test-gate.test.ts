@@ -257,6 +257,9 @@ describe('shadowlap test with a gate against history', () => {
     expect(again.out).not.toContain('attempt 6 of');
     expect(again.out).not.toContain('no session that passed');
 
+    // A baseline of 10 of 10 says little: the session sizes the gate for an agent as low as 85% (its
+    // drop below the 100% it shows), and gives it the attempts to settle one there, 62.
+    const sized = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 62';
     // An agent that now passes every other attempt, starting with a pass: 3 of 5 could be bad luck,
     // so it runs on, and fails once the drop is clear, after 10.
     flaky = true;
@@ -269,8 +272,8 @@ describe('shadowlap test with a gate against history', () => {
     }
     expect(halved.code).toBe(1);
     expect(halved.report.results[0]).toMatchObject({ verdict: 'failed', attempts: { total: 10, passed: 5 }, gate: { decision: 'fail', attempts: 10, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
-    expect(halved.out).toContain(`failed · 5 of 10 · rate <= 0.87 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
-    expect(halved.out).toContain('attempt 10 of up to 40');
+    expect(halved.out).toContain(`failed · 5 of 10 · rate <= 0.87 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${sized}`);
+    expect(halved.out).toContain('attempt 10 of up to 62');
     expect(halved.out).not.toContain('attempt 11 of');
     const path = halved.report.results[0].gate.evidence.probabilities as Array<number | null>;
     expect(path.slice(0, 4)).toEqual([null, null, null, null]);
@@ -282,7 +285,7 @@ describe('shadowlap test with a gate against history', () => {
     const broken = await shadowlapTest(tests, { ...FORKS_AND_EMAILS, ...ON_MAIN }, { db });
     expect(broken.code).toBe(1);
     expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
-    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
+    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${sized}`);
 
     // A pull request's session that passes is kept, and is still no part of the baseline.
     const pr = await shadowlapTest(tests, { ...FIX, ...ON_PR }, { db });
@@ -321,12 +324,16 @@ describe('shadowlap test with several gated goldens', () => {
       expect(r.out).toMatch(/forecast: about \d+ attempts \([\d.]+ a golden on average\), up to 164 · /);
       expect(r.out).toContain('suite risk 5%: 2 gated goldens, 2.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer');
       // Each gate keeps its risk for a pass, takes its share for a failure, and its max is sized for it.
-      const rule = 'gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 2.2% to fail, up to 82 attempts';
+      const rule = 'gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 2.3% to fail, up to 82 attempts';
       for (const result of r.report.results) {
-        expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, failRisk: 0.022, max: 82, decision: 'pass', attempts: 12 });
+        expect(result.gate).toMatchObject({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, failRisk: 0.023, max: 82, decision: 'pass', attempts: 12 });
         expect(result.gate.sentence).toBe(`passed · 12 of 12 · rate >= 0.73 (95%) · ${rule}`);
         expect(result.gate.bound).toEqual({ lo: expect.closeTo(0.7354, 4), confidence: 0.95, method: 'stagewise' });
       }
+      // Their attempts run in turns, one golden's then the other's, so a burst of failures lands on both once each.
+      const order = [...r.out.matchAll(/replaying run \w+ for (goldens\/reference-agent(?:-copy)?), attempt (\d+) of up to 82/g)].map((m) => `${m[1]} ${m[2]}`);
+      expect(order.slice(0, 4)).toEqual(['goldens/reference-agent 1', 'goldens/reference-agent-copy 1', 'goldens/reference-agent 2', 'goldens/reference-agent-copy 2']);
+      expect(order).toHaveLength(24);
       expect(r.report.suite).toMatchObject({ risk: 0.05, perGoldenRisk: 0.025, method: 'bonferroni', goldens: 2, inconclusive: 'fail', forecast: { most: 164 } });
       expect(r.report.suite.red).toBeLessThanOrEqual(0.05);
       expect(r.report.suite.forecast.attempts).toBeGreaterThan(24);

@@ -15,10 +15,12 @@ import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.j
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
 import { unrecordedInGoldens } from '../unrecorded-goldens.js';
 import { sessionSource } from '../baseline-branch.js';
+import { unavailableWords } from '../provider-retry.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
+import { Turns } from '../turns.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
@@ -320,49 +322,77 @@ export function register(program: Command): void {
       const takeoverAt = takeoverReader(projectDir, store);
       const forkedEarly: Array<{ packDir: string; golden: string; at: number; takeover: number }> = [];
       // Ctrl-C, or a dashboard job being stopped: the replay running now is cut short (its agent, and
-      // whatever the agent started, get the signal), the goldens after it don't run, and the session
-      // ends with the results of the ones that finished.
+      // whatever the agent started, get the signal), nothing more starts, and the session ends with
+      // the results of the goldens that finished.
       let signal = null as NodeJS.Signals | null;
       let current = null as string | null;
+      // The goldens' attempts interleave (turns.ts): one runs at a time, each golden's next behind the
+      // other goldens still open, so failures that come in a burst land on many goldens once each, not
+      // on one golden's attempts in a row (gating.md, "Attempts are independent").
+      const turns = packs.length > 1 ? new Turns() : null;
       const onSignal = (sig: NodeJS.Signals) => {
         if (signal) return;
         signal = sig;
-        process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${current ? `stopping ${current}, ` : ''}no golden after it runs, and the session keeps what finished\n`));
+        turns?.close();
+        process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${current ? `stopping ${current}, ` : ''}nothing more starts, and the session keeps what finished\n`));
       };
       for (const s of STOP_SIGNALS) process.on(s, onSignal);
       const stopped = () => signal !== null;
-      let cut = null as string | null;
+      // The goldens a signal cut short: no result this time.
+      const cut: string[] = [];
+      /** A golden's spec, its gate with its share of the session's risk, and how its replays run. */
+      const prepare = (packDir: string) => {
+        const golden = goldenName(packDir, projectDir);
+        const configured = specFor(tests, packDir, projectDir);
+        // Its gate with its share of the session's risk.
+        const share = planned?.gates.get(golden);
+        const spec = configured && share ? { ...configured, gate: share } : configured;
+        const expect = rawExpectFor(tests, packDir, projectDir);
+        const ctx: RecordingTestContext = {
+          store,
+          config,
+          cwd,
+          writes: flags.writes,
+          guard: flags.guard,
+          online: !!flags.online,
+          test: { golden, session: session.sessionId },
+          branch: source.branch,
+          baselineBranch: source.baselineBranch,
+          // The line a dashboard job reads a new run from, and a way to open each replay.
+          onRun: (runId, attempt, of) => {
+            current = golden;
+            process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`));
+          },
+          // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
+          onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
+          stopped,
+          ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
+          ...(flags.continue ? { continue: true } : {}),
+          allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
+        };
+        return { golden, spec, expect, ctx };
+      };
+      const prepared = new Map(packs.map((d) => [d, prepare(d)] as const));
+      // Each golden's replays, run first and in turn when there are several: a golden whose replay is
+      // clean is decided in the first round, one that forks over as many rounds as its gate takes.
+      // Then each golden's result is taken in order, as one after another would give it.
+      const replays = new Map<string, GoldenOutcome>();
       // Applied fixes whose goldens failed their last test and passed every one of them here.
       let settled: StoredFix[] = [];
       try {
+        if (turns) {
+          await Promise.all(
+            packs.map(async (d) => {
+              const g = prepared.get(d)!;
+              replays.set(d, await testGolden(d, g.golden, g.spec, { ...g.ctx, turns }));
+            }),
+          );
+        }
         for (const packDir of packs) {
-          if (signal) break;
-          const golden = goldenName(packDir, projectDir);
+          // Stopped: nothing more runs, but a golden whose replays had ended keeps its result.
+          if (signal && !replays.has(packDir)) break;
+          const { golden, spec, expect, ctx } = prepared.get(packDir)!;
           current = golden;
-          const configured = specFor(tests, packDir, projectDir);
-          // Its gate with its share of the session's risk.
-          const share = planned?.gates.get(golden);
-          const spec = configured && share ? { ...configured, gate: share } : configured;
-          const expect = rawExpectFor(tests, packDir, projectDir);
-          const ctx: RecordingTestContext = {
-            store,
-            config,
-            cwd,
-            writes: flags.writes,
-            guard: flags.guard,
-            online: !!flags.online,
-            test: { golden, session: session.sessionId },
-            branch: source.branch,
-            baselineBranch: source.baselineBranch,
-            // The line a dashboard job reads a new run from, and a way to open each replay.
-            onRun: (runId, attempt, of) => process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`)),
-            // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
-            onUnavailable: (u, waitMs) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: the provider was unavailable (${u.reason}), so that attempt isn't counted; running it again in ${formatDuration(waitMs)}\n`)),
-            stopped,
-            ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
-            ...(flags.continue ? { continue: true } : {}),
-            allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
-          };
           // Every run this golden makes, for --push: its replays, and a re-recording with --update.
           const made: string[] = [];
           // Every replay counts towards the session's upstream requests, an updated golden's first one too.
@@ -375,11 +405,12 @@ export function register(program: Command): void {
             }
             return o;
           };
-          let outcome = replayed(await testGolden(packDir, golden, spec, ctx));
-          // Cut short, it says nothing about the golden: no result, and nothing after it.
+          let outcome = replayed(replays.get(packDir) ?? (await testGolden(packDir, golden, spec, ctx)));
+          // Cut short, it says nothing about the golden: no result, and nothing new after it. One stopped
+          // before its first attempt started (waiting for its turn) never ran.
           if (outcome.interrupted) {
-            cut = golden;
-            break;
+            if (outcome.result) cut.push(golden);
+            continue;
           }
           // Its injection gate, once its replay passed: plant payloads in its untrusted reads, live from
           // the model call that reads them, writes stubbed, and fail it when too many attempts obey, or
@@ -419,8 +450,8 @@ export function register(program: Command): void {
           };
           const first = await gated(outcome);
           if (!first) {
-            cut = golden;
-            break;
+            cut.push(golden);
+            continue;
           }
           outcome = first.outcome;
           let injection = first.injection;
@@ -502,8 +533,8 @@ export function register(program: Command): void {
                   // The updated golden's own injection gate, now that it replays.
                   const regated = await gated(again);
                   if (!regated) {
-                    cut = golden;
-                    break;
+                    cut.push(golden);
+                    continue;
                   }
                   outcome = regated.outcome;
                   injection = regated.injection;
@@ -568,7 +599,7 @@ export function register(program: Command): void {
         }
       }
       const notRun = packs.length - results.length;
-      if (cut) process.stdout.write(`${p.yellow('⏹')} ${safe(cut)}: interrupted, so it has no result this time\n`);
+      for (const c of cut) process.stdout.write(`${p.yellow('⏹')} ${safe(c)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
       const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null }, planned ? suiteJson(planned.plan) : null);
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');

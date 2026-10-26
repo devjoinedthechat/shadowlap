@@ -1,3 +1,4 @@
+import { clopperPearsonBound } from './noninferiority.js';
 import { BASELINE_DEFAULTS, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, decide, gateOdds, type BaselineGate, type Gate, type GateDecision, type SprtGate, type Tally } from './stats.js';
 
 /**
@@ -21,7 +22,12 @@ import { BASELINE_DEFAULTS, GATE_MAX_ATTEMPTS, SPRT_DEFAULTS, decide, gateOdds, 
  * `--max-attempts` set one, is raised until at most 1% of attempts at `good` (or half the share, when
  * that is less) end inconclusive. An agent that passes more often than `good` goes red less often
  * still: the chance of a pass only rises with the pass rate. A gate against history gets the share
- * as its `risk`, and its red rate is worked out at the pass rate its baseline shows.
+ * as its `risk`, and its red rate is worked out at the low end of its baseline's pass rate
+ * (`HISTORY_SIZED_AT`), not at the rate the baseline shows: a baseline that came out lucky makes the
+ * gate fail an agent that is as it was more often than one that didn't, and a gate sized at the rate
+ * it shows went red four times its share. A seeded loop of sessions, each sized and decided as
+ * `shadowlap test` does and pooled as the store pools them, holds it to the share
+ * (gate-history-budget.test.ts).
  */
 
 /** The most a healthy suite goes red for nothing, by default: `--suite-risk`, `tests.suiteRisk`. */
@@ -32,6 +38,18 @@ export const INCONCLUSIVE_AT_GOOD = 0.01;
 
 /** The most attempts a sized gate against history runs: its odds are worked out attempt by attempt, and past this a history gate is the wrong tool. */
 const HISTORY_SIZE_LIMIT = 400;
+
+/**
+ * The confidence of the low end of its baseline's pass rate, one-sided (Clopper–Pearson), that a
+ * gate against history is sized at: 0.87 for 47 of 50. Ninety in a hundred baselines show no more
+ * than the agent's own rate there, and the gate keeps within its share for an agent at that rate;
+ * one that came out higher than that goes red more often, but less than the others leave unspent.
+ * Surer than that, and too many baselines are sized for an agent their own drop would fail. Never
+ * more than the gate's `drop` below the rate the baseline shows: an agent that far down is one the
+ * gate is there to fail, which a short history's low end (0.63 for 5 of 5) would otherwise ask it
+ * to keep green.
+ */
+export const HISTORY_SIZED_AT = 0.9;
 
 /** A gated golden as the session finds it, before its gate takes its share. */
 export interface SuiteGolden {
@@ -51,11 +69,11 @@ export interface SuiteGolden {
 export interface PlannedGolden {
   golden: string;
   gate: Gate;
-  /** The chance it goes red for nothing, exactly: at its gate's `good` rate (an SPRT), at its baseline's rate (history). */
+  /** The chance it goes red for nothing, exactly: at its gate's `good` rate (an SPRT), at the low end of its baseline's rate (history). */
   red: number;
   /** The pass rate `red` is worked out at. */
   at: number;
-  /** The pass rate the forecast is worked out at: its recent results', else `at`. */
+  /** The pass rate the forecast is worked out at: its recent results', else its gate's `good` rate or its baseline's. */
   forecastAt: number;
   /** Attempts it runs on average at `forecastAt`, and the most it can. */
   attempts: number;
@@ -92,8 +110,11 @@ function roundDown(x: number): number {
   return Math.floor(x * scale) / scale;
 }
 
-/** After each attempt n (index n), the chance a rule has passed, failed, and is still going: one walk to `limit`. */
-function curves(rule: (passes: number, attempts: number) => GateDecision, p: number, limit: number): { pass: number[]; fail: number[]; going: number[] } {
+/**
+ * After each attempt n (index n), the chance a rule has passed, failed, and is still going: one walk
+ * to `limit`, or to the first attempt at which `enough` says the walk has gone far enough.
+ */
+function curves(rule: (passes: number, attempts: number) => GateDecision, p: number, limit: number, enough: (attempts: number, going: number) => boolean = () => false): { pass: number[]; fail: number[]; going: number[] } {
   const pass = [0];
   const fail = [0];
   const going = [1];
@@ -123,6 +144,7 @@ function curves(rule: (passes: number, attempts: number) => GateDecision, p: num
     fail.push(fail[n - 1]! + failed);
     going.push(left);
     walking = next;
+    if (enough(n, left)) break;
     if (left < 1e-15) {
       for (let k = n + 1; k <= limit; k++) {
         pass.push(pass[n]!);
@@ -138,8 +160,10 @@ function curves(rule: (passes: number, attempts: number) => GateDecision, p: num
 /** How a gate with these figures does at rate p: its `max` (given, or the fewest from `floor` up that leave at most `inconclusive` going), and the chance it goes red there. */
 function sized(gate: Gate, p: number, o: { maxGiven: boolean; floor: number; inconclusive: number; mode: 'fail' | 'warn'; history: Tally | null; limit: number }): { max: number; red: number; going: number } {
   const unbounded: Gate = { ...gate, max: o.limit };
-  const c = curves((s, n) => decide(s, n, unbounded, o.history), p, o.limit);
-  let max = o.maxGiven ? Math.min(gate.max, o.limit) : o.floor;
+  const given = Math.min(gate.max, o.limit);
+  // The walk stops where the max it looks for is: the one given, or the first from `floor` on that leaves few enough going.
+  const c = curves((s, n) => decide(s, n, unbounded, o.history), p, o.limit, (n, going) => (o.maxGiven ? n >= given : n >= o.floor && going <= o.inconclusive));
+  let max = o.maxGiven ? given : o.floor;
   if (!o.maxGiven) while (max < o.limit && c.going[max]! > o.inconclusive) max++;
   const red = o.mode === 'fail' ? 1 - c.pass[max]! : c.fail[max]!;
   return { max: o.maxGiven ? gate.max : max, red: Math.max(0, red), going: c.going[max]! };
@@ -182,9 +206,16 @@ function overWhy(g: Gate, first: { red: number; going: number }, r: number, o: {
 
 const pct = (x: number) => `${+(x * 100).toPrecision(2)}%`;
 
-/** A gate against history for its share `r`: `risk` at most the share, halved until its red rate at its baseline's rate is within it. */
-function planHistory(g: BaselineGate, r: number, history: Tally | null, o: { maxGiven: boolean; mode: 'fail' | 'warn' }): { gate: BaselineGate; red: number; at: number; over?: string } {
-  const at = history && history.attempts > 0 ? history.passes / history.attempts : 1;
+/**
+ * A gate against history for its share `r`: `risk` at most the share, halved until its red rate at
+ * the low end of its baseline's rate (`HISTORY_SIZED_AT`) is within it. With no history its baseline
+ * is its recording, which a golden that fails now and then never drops below: its red rate is
+ * worked out for one that always passes.
+ */
+function planHistory(g: BaselineGate, r: number, history: Tally | null, o: { maxGiven: boolean; mode: 'fail' | 'warn' }): { gate: BaselineGate; red: number; at: number; estimate: number; over?: string } {
+  const known = history && history.attempts > 0 ? history : null;
+  const estimate = known ? known.passes / known.attempts : 1;
+  const at = known ? Math.max(clopperPearsonBound(known.passes, known.attempts, 1 - HISTORY_SIZED_AT, 'lower'), estimate - g.drop) : 1;
   const inconclusive = o.mode === 'fail' ? Math.min(INCONCLUSIVE_AT_GOOD, r / 2) : INCONCLUSIVE_AT_GOOD;
   const floor = o.maxGiven ? g.max : Math.max(g.max, BASELINE_DEFAULTS.max, g.min);
   let risk = Math.min(g.risk, roundDown(r));
@@ -193,10 +224,10 @@ function planHistory(g: BaselineGate, r: number, history: Tally | null, o: { max
     const gate: BaselineGate = { ...g, risk };
     const s = sized(gate, at, { maxGiven: o.maxGiven, floor, inconclusive, mode: o.mode, history, limit: Math.max(floor, HISTORY_SIZE_LIMIT) });
     last = { gate: { ...gate, max: s.max }, red: s.red };
-    if (s.red <= r) return { ...last, at };
+    if (s.red <= r) return { ...last, at, estimate };
     risk = roundDown(risk / 2);
   }
-  return { ...last!, at, over: `it goes red ${pct(last!.red)} of the time at the pass rate its baseline shows (${pct(at)}), more than its ${pct(r)} share of the suite's risk` };
+  return { ...last!, at, estimate, over: `it goes red ${pct(last!.red)} of the time at the low end of the pass rate its baseline shows (${pct(at)}), more than its ${pct(r)} share of the suite's risk` };
 }
 
 /**
@@ -210,19 +241,20 @@ export function planSuite(goldens: readonly SuiteGolden[], o: { risk?: number; i
   const mode = o.inconclusive ?? 'fail';
   const share = risk / goldens.length;
   // Goldens under one tests entry share their figures: each set of figures is planned once.
-  const plans = new Map<string, { gate: Gate; red: number; at: number; over?: string }>();
-  const planOf = (x: SuiteGolden, history: Tally | null): { gate: Gate; red: number; at: number; over?: string } => {
+  const plans = new Map<string, { gate: Gate; red: number; at: number; estimate: number; over?: string }>();
+  const planOf = (x: SuiteGolden, history: Tally | null): { gate: Gate; red: number; at: number; estimate: number; over?: string } => {
     const key = JSON.stringify([x.gate, x.maxGiven, x.gate.kind === 'baseline' ? history : null]);
     const known = plans.get(key);
     if (known) return known;
-    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode }), at: x.gate.good } : planHistory(x.gate, share, history, { maxGiven: x.maxGiven, mode });
+    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode }), at: x.gate.good, estimate: x.gate.good } : planHistory(x.gate, share, history, { maxGiven: x.maxGiven, mode });
     plans.set(key, p);
     return p;
   };
   const planned = goldens.map((x): PlannedGolden => {
     const history = x.history && x.history.attempts > 0 ? x.history : null;
     const p = planOf(x, history);
-    const forecastAt = x.rate ?? p.at;
+    // What it costs is forecast at the rate its recent results show, else the one its gate or baseline does.
+    const forecastAt = x.rate ?? p.estimate;
     const odds = gateOdds(p.gate, forecastAt, history);
     return {
       golden: x.golden,

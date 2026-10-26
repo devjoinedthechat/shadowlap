@@ -2,7 +2,7 @@ import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, decide, describeGate, percent, rateBound, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -78,6 +78,8 @@ export interface VerifyAttempt {
   verdict?: 'passed' | 'failed' | 'inconclusive';
   /** The provider was unavailable for it and the attempts before it in a row (unavailable.ts): inconclusive, and none counted. Absent otherwise. */
   unavailable?: boolean;
+  /** The provider cut it short after the model had answered: counted against either verdict, a failure toward fixed or kept and a pass toward not fixed or broken. Absent otherwise. */
+  cutShort?: true;
   exitCode: number;
   failures: string[];
   /** Where the attempt forked, or null when it replayed clean. */
@@ -129,6 +131,8 @@ export interface VerifiedRun {
    * (`unavailableStop`) and the run is inconclusive, never not fixed or broken. Absent when none.
    */
   unavailable?: number;
+  /** Attempts the provider cut short after the model had answered, the change's and its baseline's: counted against either verdict. Absent when none. */
+  cutShort?: number;
 }
 
 /** A run's verdict after `done` attempts. A deterministic run is settled by its first. */
@@ -143,8 +147,9 @@ export function runVerdict(passes: number, done: number, attempts: number, neede
  * is settled by its first, else the gate decides. `open` while it continues, and for an
  * inconclusive gate, which `decision` tells apart.
  */
-export function gateVerdict(passes: number, done: number, gate: SprtGate, deterministic: boolean): { verdict: RunVerdict; decision: GateDecision } {
-  const decision: GateDecision = deterministic && done > 0 ? (passes > 0 ? 'pass' : 'fail') : decide(passes, done, gate);
+export function gateVerdict(passes: number, done: number, gate: SprtGate, deterministic: boolean, unavailable = 0): { verdict: RunVerdict; decision: GateDecision } {
+  // Attempts the provider cut short are among `done`: against either verdict (decideUnavailable).
+  const decision: GateDecision = deterministic && done > 0 ? (passes > 0 ? 'pass' : 'fail') : decideUnavailable(passes, done, unavailable, gate);
   return { verdict: decision === 'pass' ? 'pass' : decision === 'fail' ? 'fail' : 'open', decision };
 }
 
@@ -182,10 +187,13 @@ export function outcomeOf(r: Pick<VerifiedRun, 'role' | 'verdict'> & { decision?
  * A good run against its baseline: both tallies, and the bound on the drop that bears on its
  * verdict: `38 of 38 passed, baseline 38 of 38 · drop <= 0.10 (95%)`.
  */
-export function keptTally(r: Pick<VerifiedRun, 'passes' | 'attempts' | 'drop' | 'decision'>, b: NonNullable<VerifiedRun['baseline']>): string {
+export function keptTally(r: Pick<VerifiedRun, 'passes' | 'attempts' | 'drop' | 'decision'> & { cutShort?: number | undefined }, b: NonNullable<VerifiedRun['baseline']>): string {
   const bound = r.drop ? dropBound(r.drop, r.decision) : null;
-  return `${r.passes} of ${r.attempts.length} passed, baseline ${b.passes} of ${b.attempts}${bound ? ` · ${bound}` : ''}`;
+  return `${r.passes} of ${r.attempts.length} passed, baseline ${b.passes} of ${b.attempts}${cutWords(r.cutShort)}${bound ? ` · ${bound}` : ''}`;
 }
+
+/** The attempts the provider cut short, as a tally says them apart: ` (2 cut short by the provider, counted against either verdict)`. */
+const cutWords = (n: number | undefined) => (n ? ` (${n} cut short by the provider, counted against either verdict)` : '');
 
 /**
  * A run's tally, and under a gate the Wilson bound at the confidence it decided at: `12 of 12 passed
@@ -194,15 +202,19 @@ export function keptTally(r: Pick<VerifiedRun, 'passes' | 'attempts' | 'drop' | 
  */
 function tally(r: VerifiedRun): string {
   if (r.undecided) {
-    const judged = r.attempts.filter((a) => a.verdict !== 'inconclusive').length;
+    // An attempt the provider cut short is counted, against either verdict; one no check could decide is not.
+    const judged = r.attempts.filter((a) => a.verdict !== 'inconclusive' || a.cutShort).length;
     return `${judged ? `${r.passes} of ${judged} passed, ` : ''}${unavailableStop(r.undecided) ? 'the provider unavailable' : `attempt ${r.attempts.length} not judged`}`;
   }
   if (r.deterministic) return 'clean replay';
   if (r.baseline) return keptTally(r, r.baseline);
   const g = r.gate;
   const bound = g && r.attempts.length ? rateBound(g) : null;
-  return `${r.passes} of ${r.attempts.length} passed${bound ? ` · ${bound}` : ''}`;
+  return `${r.passes} of ${r.attempts.length} passed${cutWords(r.cutShort)}${bound ? ` · ${bound}` : ''}`;
 }
+
+/** The first attempt that failed on its own, the reason a run failed: one the provider cut short says nothing of the change, though it was counted. */
+const ownFailure = (r: Pick<VerifiedRun, 'attempts'>): VerifyAttempt | undefined => r.attempts.find((a) => !a.passed && !a.cutShort && !a.unavailable) ?? r.attempts.find((a) => !a.passed);
 
 /**
  * Whether a reason `decideVerify` gives says a run is inconclusive or not settled, rather than that the
@@ -216,7 +228,7 @@ export function decideVerify(runs: readonly VerifiedRun[], stopReason: string | 
   const reasons: string[] = [];
   for (const r of runs) {
     if (r.verdict !== 'fail') continue;
-    const why = r.attempts.find((a) => !a.passed)?.failures[0];
+    const why = ownFailure(r)?.failures[0];
     reasons.push(`${ROLE[r.role]} run ${short(r.runId)} ${outcomeOf(r)}: ${tally(r)}${why ? ` (${why})` : ''}`);
   }
   // A gate that ran out of attempts between its bounds settled nothing either, and says so apart; so
@@ -259,6 +271,8 @@ export interface VerifyReport extends VerifyDecision {
   attempts: number;
   /** Attempts the provider was unavailable for, both arms': retried, never counted, apart from `attempts`. Absent when none. */
   unavailable?: number;
+  /** Attempts the provider cut short after the model had answered, both arms': among `attempts`, each counted against either verdict. Absent when none. */
+  cutShort?: number;
   spent: number;
   upstreamRequests: number;
   /** What its judge checks' calls cost, apart from `spent` and `upstreamRequests`: only when a judge was asked. */
@@ -277,8 +291,8 @@ export interface VerifyReport extends VerifyDecision {
 
 /** What the settled runs would cost live, as recorded and under the change (the mean of each run's attempts). */
 export function footprintDelta(runs: readonly VerifiedRun[]): { runs: number; recorded: Footprint; now: Footprint } | null {
-  // An attempt the provider never answered ran no agent's worth of calls: it says nothing of the cost either.
-  const measured = runs.map((r) => ({ ...r, attempts: r.attempts.filter((a) => !a.unavailable) })).filter((r) => r.attempts.length > 0);
+  // An attempt the provider never answered, or cut short, ran no whole agent's worth of calls: it says nothing of the cost either.
+  const measured = runs.map((r) => ({ ...r, attempts: r.attempts.filter((a) => !a.unavailable && !a.cutShort) })).filter((r) => r.attempts.length > 0);
   if (!measured.length) return null;
   const add = (a: Footprint, b: Footprint): Footprint => ({ inputTokens: a.inputTokens + b.inputTokens, outputTokens: a.outputTokens + b.outputTokens, cost: a.cost === null || b.cost === null ? null : a.cost + b.cost });
   const zero: Footprint = { inputTokens: 0, outputTokens: 0, cost: 0 };
@@ -319,7 +333,7 @@ export function verifyRule(r: Pick<VerifyReport, 'needed' | 'attemptsPerRun' | '
 
 /** A gate's rule in a few words, for a step's line: `tells 90%+ from 70%- at <= 5% risk`. */
 export function gateShort(g: Pick<SprtGate, 'good' | 'bad' | 'risk'>): string {
-  return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${percent(g.risk)} risk`;
+  return `tells ${atLeast(g.good)} from ${atMost(g.bad)} at <= ${riskPercent(g.risk)} risk`;
 }
 
 /**
@@ -365,7 +379,7 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
     for (const x of r.runs) {
       const o = outcomeOf(x);
       const colored = o === 'fixed' || o === 'kept' ? p.green(o.padEnd(outcomeWidth)) : o === 'unsettled' || o === 'inconclusive' ? p.yellow(o.padEnd(outcomeWidth)) : p.red(o.padEnd(outcomeWidth));
-      const failure = x.verdict === 'fail' ? x.attempts.find((a) => !a.passed)?.failures[0] : (x.undecided ?? undefined);
+      const failure = x.verdict === 'fail' ? ownFailure(x)?.failures[0] : (x.undecided ?? undefined);
       const forks = [...new Set(x.attempts.map((a) => a.forkedAt).filter((f): f is number => f !== null))];
       const note = failure ? safeLine(failure) : forks.length ? `forked at ${forks.map((f) => `#${f}`).join(', ')}` : '';
       const width = r.gate ? (r.kept ? 64 : 38) : 14;
@@ -387,8 +401,9 @@ export function formatVerify(r: VerifyReport, p: Palette = plain): string {
   }
   const unpriced = r.unknownModels.length ? ` (no price for ${r.unknownModels.map(safeLine).join(', ')})` : '';
   const judged = r.judge ? ` · judge checks: ${r.judge.upstreamRequests} upstream request${r.judge.upstreamRequests === 1 ? '' : 's'}, ≈${formatUsd(r.judge.spent)}` : '';
-  // Attempts the provider was unavailable for ran and were paid for, but never counted.
+  // Attempts the provider was unavailable for ran and were paid for, but never counted; those it cut short were.
   const down = r.unavailable ? ` (and ${r.unavailable} the provider was unavailable for, not counted)` : '';
-  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
+  const cut = r.cutShort ? `, ${r.cutShort} cut short by the provider` : '';
+  lines.push(p.dim(`  verifying: ${r.attempts} attempt${r.attempts === 1 ? '' : 's'}${cut}${down} · ${r.upstreamRequests} upstream requests · ≈${formatUsd(r.spent)} spent${unpriced}${judged}${r.codeVersion ? ` · code ${safeLine(r.codeVersion)}` : ''}`));
   return lines.join('\n');
 }

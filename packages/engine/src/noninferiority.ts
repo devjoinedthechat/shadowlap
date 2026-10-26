@@ -1,4 +1,4 @@
-import { betaCdf, percent, type Tally } from './stats.js';
+import { betaCdf, confidencePercent, riskPercent, type Tally } from './stats.js';
 
 /**
  * Whether a change keeps a good run: not worse than the run's own baseline by `margin` or more. A
@@ -161,6 +161,28 @@ export function decidePaired(c: Pick<PairCounts, 'better' | 'worse' | 'same'>, r
   return n >= rule.max ? 'inconclusive' : 'continue';
 }
 
+/**
+ * The paired test when the provider cut some pairs' attempts short after the model had answered
+ * (unavailable.ts): two tallies of the same pairs, `kept` with each cut-short attempt counted against
+ * keeping (the change's as a failure, the baseline's as a pass, an attempt not run as the worst for
+ * it), `broken` with each counted against breaking. Kept must hold on the first, broken on the
+ * second, so neither verdict rests on how the cut-short attempts would have ended: each e-process
+ * stays a supermartingale under its null, as each of its pairs only moves the way its null allows,
+ * and Ville's inequality keeps each verdict within `risk` however the provider's errors fell. With
+ * neither, another pair; at `max` pairs, inconclusive. With none cut short, both tallies are one and
+ * it is `decidePaired`.
+ */
+export function decidePairedAround(kept: Pick<PairCounts, 'better' | 'worse' | 'same'>, broken: Pick<PairCounts, 'better' | 'worse' | 'same'>, rule: BaselineRule): BaselineDecision {
+  checkRule(rule);
+  const n = pairsOf(kept);
+  if (pairsOf(broken) !== n) throw new RangeError(`both tallies count the same pairs: ${n} and ${pairsOf(broken)}`);
+  if (n === 0) return 'continue';
+  const bar = Math.log(1 / rule.risk) - EPS;
+  if (pairedKeptLog(kept, rule.margin) >= bar) return 'kept';
+  if (pairedBrokenLog(broken, 0) >= bar) return 'broken';
+  return n >= rule.max ? 'inconclusive' : 'continue';
+}
+
 /** Bisection for where a monotone function of the drop crosses `bar`, in (-1, 1). */
 function crossing(f: (drop: number) => number, bar: number, rising: boolean): number | null {
   let lo = -1 + 1e-9;
@@ -233,8 +255,19 @@ export function historyBrokenLog(changed: Tally, ceiling: number): number {
 
 /** The bounds on the baseline's pass rate a history gives, each at 1 - risk/2. */
 export function historyBounds(history: Tally, risk: number): { lo: number; hi: number } {
-  return { lo: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'lower'), hi: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'upper') };
+  // A run's test asks for the same history's bounds after every attempt, and the odds after every count.
+  const key = `${history.passes}/${history.attempts}/${risk}`;
+  let b = boundsKept.get(key);
+  if (!b) {
+    b = { lo: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'lower'), hi: clopperPearsonBound(history.passes, history.attempts, risk / 2, 'upper') };
+    if (boundsKept.size >= 64) boundsKept.delete(boundsKept.keys().next().value!);
+    boundsKept.set(key, b);
+  }
+  return { ...b };
 }
+
+/** historyBounds' answers already worked out: it is pure, so they are the same every time. */
+const boundsKept = new Map<string, { lo: number; hi: number }>();
 
 /**
  * What the test against history says after the change's attempts so far: kept once its e-process
@@ -245,6 +278,24 @@ export function decideAgainstHistory(changed: Tally, history: Tally, rule: Basel
   checkRule(rule);
   if (history.attempts === 0) throw new RangeError('a baseline from history needs at least one attempt in it');
   return againstBounds(changed, historyBounds(history, rule.risk), rule);
+}
+
+/**
+ * The test against history when the provider cut `unavailable` of the change's attempts short after
+ * the model had answered, none of them among `changed.passes`: kept must hold with them counted as
+ * failures, broken with them counted as passes; with neither, another attempt, and at `max`,
+ * inconclusive. With none cut short, it is `decideAgainstHistory`.
+ */
+export function decideAgainstHistoryAround(changed: Tally, unavailable: number, history: Tally, rule: BaselineRule): BaselineDecision {
+  if (!unavailable) return decideAgainstHistory(changed, history, rule);
+  checkRule(rule);
+  if (history.attempts === 0) throw new RangeError('a baseline from history needs at least one attempt in it');
+  if (changed.passes + unavailable > changed.attempts) throw new RangeError('the attempts cut short are among the attempts, and none of the passes');
+  const b = historyBounds(history, rule.risk);
+  const bar = Math.log(2 / rule.risk) - EPS;
+  if (historyKeptLog(changed, b.hi - rule.margin) >= bar) return 'kept';
+  if (historyBrokenLog({ passes: changed.passes + unavailable, attempts: changed.attempts }, b.lo) >= bar) return 'broken';
+  return changed.attempts >= rule.max ? 'inconclusive' : 'continue';
 }
 
 /** The same with the history's bounds worked out already. */
@@ -476,7 +527,7 @@ const points = (x: number) => `${+(x * 100).toFixed(1)}`;
  */
 export function describeBaselineRule(r: BaselineRule & { source: BaselineSource; revision?: string | null }): string {
   const against = r.source === 'paired' ? `its baseline${r.revision ? ` at ${r.revision}` : ''}, attempt for attempt` : "its golden's history";
-  return `kept unless it drops ${points(r.margin)}+ points below ${against}, <= ${percent(r.risk)} risk, up to ${r.max} ${r.source === 'paired' ? 'pairs' : 'attempts'}`;
+  return `kept unless it drops ${points(r.margin)}+ points below ${against}, <= ${riskPercent(r.risk)} risk, up to ${r.max} ${r.source === 'paired' ? 'pairs' : 'attempts'}`;
 }
 
 /**
@@ -485,7 +536,7 @@ export function describeBaselineRule(r: BaselineRule & { source: BaselineSource;
  * `risk` of the time.
  */
 export function baselineShort(r: Pick<BaselineRule, 'margin' | 'risk'>): string {
-  return `tells no drop from one of ${points(r.margin)}+ points at <= ${percent(r.risk)} risk`;
+  return `tells no drop from one of ${points(r.margin)}+ points at <= ${riskPercent(r.risk)} risk`;
 }
 
 /** A drop to two places, signed: `0.07`, `-0.03`. */
@@ -497,7 +548,7 @@ const signed = (x: number) => (Math.abs(x) < 0.005 ? '0.00' : x.toFixed(2));
  * test stopped. Null with nothing to bound.
  */
 export function dropBound(d: DropBound, decision: BaselineDecision | 'pass' | 'fail' | null | undefined): string | null {
-  const at = `(${percent(d.confidence)})`;
+  const at = `(${confidencePercent(d.confidence)})`;
   if ((decision === 'kept' || decision === 'pass') && d.hi !== null) return `drop <= ${signed(d.hi)} ${at}`;
   if ((decision === 'broken' || decision === 'fail') && d.lo !== null) return `drop >= ${signed(d.lo)} ${at}`;
   if (d.lo === null && d.hi === null) return null;

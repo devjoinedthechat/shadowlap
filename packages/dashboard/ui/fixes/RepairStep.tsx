@@ -86,7 +86,7 @@ function Accepted({ r }: { r: RepairStep }) {
         </section>
         <Why r={r} />
       </div>
-      <Candidates r={r} sub="tried smallest first; the first the gate accepts is kept" />
+      <Candidates r={r} sub="tried smallest first; the first the gate accepts twice is kept" />
       <div className="grid2 fxgap">
         <HandedOver r={r} />
         <Report r={r} />

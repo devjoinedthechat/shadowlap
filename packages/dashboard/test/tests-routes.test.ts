@@ -148,9 +148,9 @@ describe('GET /api/tests/gate', () => {
     const preview = await getJson<{ gate: unknown; description: string; toPass: number; toFail: number; odds: Array<{ rate: number; pass: number; attempts: number }>; defaults: { sprt: unknown } }>(dash, 'tests/gate?good=0.9&bad=0.7&risk=0.05&max=20');
     expect(preview).toMatchObject({ gate: { kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, description: 'tells 90%+ from 70%- at <= 5% risk, up to 20 attempts', toPass: 12, toFail: 3, defaults: { sprt: { good: 0.9, bad: 0.7, risk: 0.05, max: 80 } } });
     expect(preview.odds.find((o) => o.rate === 0.7)!.pass).toBeCloseTo(0.0222, 4);
-    // About the default gate: 80 attempts turn a sixth of a healthy agent's CI runs red, counting inconclusive ones.
+    // About the default gate: 80 attempts turn one in seven of a healthy agent's CI runs red, counting inconclusive ones.
     expect((preview as unknown as { ci: { red: number } }).ci.red).toBeGreaterThan(0.99);
-    expect((await getJson<{ ci: { goldens: number; red: number; redWarn: number } }>(dash, 'tests/gate')).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1558, 4), redWarn: expect.closeTo(0.1537, 4) });
+    expect((await getJson<{ ci: { goldens: number; red: number; redWarn: number } }>(dash, 'tests/gate')).ci).toMatchObject({ goldens: 100, red: expect.closeTo(0.1458, 4), redWarn: expect.closeTo(0.1435, 4) });
     // A gate against history is figured against a baseline: its power to catch a drop, by the pass rate now.
     const history = await getJson<{ gate: unknown; toPass: null; history: unknown; odds: Array<{ rate: number; fail: number; attempts: number }> }>(dash, 'tests/gate?baseline=history');
     expect(history).toMatchObject({ gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40 }, toPass: null, history: { passes: 47, attempts: 50 } });

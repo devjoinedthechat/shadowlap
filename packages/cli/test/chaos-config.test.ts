@@ -123,13 +123,16 @@ describe('the gate', () => {
   });
 
   it('counts a bound reached to the last rounding as reached', () => {
-    // A pass adds ln(0.6/0.2) = ln 3, and the bound is ln(0.75/0.25) = ln 3: one pass reaches it. In
-    // floating point 0.6/0.2 is 2.9999999999999996, a hair under, which must not cost a second pass.
-    const close = parseGate({ good: 0.6, bad: 0.2, risk: 0.25, max: 10 }, 'g') as SprtGate;
+    // A pass adds ln(0.6/0.2) = ln 3, and the bound is ln(1 / risk) = ln 3 at a risk of a third: one
+    // pass reaches it. In floating point the pass falls a hair under the bound, which must not cost a
+    // second pass.
+    const close = parseGate({ good: 0.6, bad: 0.2, risk: 1 / 3, max: 10 }, 'g') as SprtGate;
+    expect(Math.log(0.6 / 0.2)).toBeLessThan(-Math.log(1 / 3));
     expect(attemptsToPass(close)).toBe(1);
     expect(decide(1, 1, close)).toBe('pass');
-    const nine = parseGate({ good: 0.9, bad: 0.3, risk: 0.1, max: 10 }, 'g') as SprtGate;
-    // ln 3 per pass against ln 9: two passes.
+    const nine = parseGate({ good: 0.9, bad: 0.3, risk: 1 / 9, max: 10 }, 'g') as SprtGate;
+    // ln 3 per pass against ln 9: two passes, which in floating point sum a hair under it too.
+    expect(2 * Math.log(0.9 / 0.3)).toBeLessThan(-Math.log(1 / 9));
     expect(attemptsToPass(nine)).toBe(2);
     expect(decide(2, 2, nine)).toBe('pass');
     expect(decide(1, 1, nine)).toBe('continue');

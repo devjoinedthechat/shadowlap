@@ -25,12 +25,18 @@ let mock: MockServer;
 let work: string;
 /** Attempts whose first model call the mock answers 529, from the next one on. */
 let overloaded = 0;
+/** Attempts whose fourth model call, after the model answered three, the mock answers 529. */
+let cutShort = 0;
 
 beforeAll(async () => {
   mock = await startMockAnthropic({
     script: (ctx) => {
       if (ctx.assistantTurns === 0 && overloaded > 0) {
         overloaded--;
+        return { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after-ms': '1', 'x-should-retry': 'false' } };
+      }
+      if (ctx.assistantTurns === 3 && cutShort > 0) {
+        cutShort--;
         return { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after-ms': '1', 'x-should-retry': 'false' } };
       }
       const obeys = JSON.stringify(ctx.request.system ?? '').includes('Never send email.');
@@ -103,6 +109,30 @@ describe('shadowlap test while the provider is unavailable', () => {
       expect(store.listTestResults({ golden: 'goldens/reference-agent' })[0].data?.attempts).toMatchObject({ total: 12, passed: 12, unavailable: 2 });
     } finally {
       store.close();
+    }
+  }, 180_000);
+
+  it('counts an attempt the provider cut short after the model answered against either verdict: a pass then takes the passes a failure would', async () => {
+    cutShort = 1;
+    try {
+      const r = await shadowlapTest(tests, join(work, 'cut-short.db'));
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain('the provider cut that attempt short (HTTP 529 from anthropic at call #');
+      expect(r.out).toContain('so it is counted against either verdict; running the next attempt in');
+      const result = r.report.results[0];
+      // A failure toward the pass: 17 passes of 18, where 12 of 12 would have done.
+      expect(result).toMatchObject({ verdict: 'passed', attempts: { total: 18, passed: 17, cutShort: 1 }, gate: { decision: 'pass', passes: 17, attempts: 18, unavailableAt: [0], bound: { method: 'confidence-sequence' } } });
+      expect(result.attempts.unavailable).toBeUndefined();
+      expect(result.gate.sentence).toMatch(/^passed · 17 of 18 \(1 cut short by the provider, counted against either verdict\) · rate >= 0\.\d\d \(95%\) · gate: /);
+      expect(result.runs[0].verdict).toBe('unavailable');
+      const store = Store.open(join(work, 'cut-short.db'));
+      try {
+        expect(store.listTestResults({ golden: 'goldens/reference-agent' })[0].data?.attempts).toMatchObject({ total: 18, passed: 17, cutShort: 1 });
+      } finally {
+        store.close();
+      }
+    } finally {
+      cutShort = 0;
     }
   }, 180_000);
 

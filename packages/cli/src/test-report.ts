@@ -93,7 +93,20 @@ export interface TestReport {
    * went red for nothing at most as planned, and the forecast made before it ran: attempts on
    * average and at most, and their cost on average (null with no price; `unpriced` goldens had none).
    */
-  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number } };
+  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number }; over?: number };
+}
+
+/**
+ * What the plan says a healthy suite does, after its split: `so a healthy suite goes red for nothing
+ * in 5% of runs or fewer`, or, when a golden can't keep within its share (a max the config set),
+ * the chance the plan works out, rounded up: `but 1 golden can't keep within its share, so a healthy
+ * suite goes red for nothing in 56% of runs or fewer`.
+ */
+export function suiteRed(plan: { risk: number; red: number; over?: number }, red = 'goes red for nothing'): string {
+  if (!(plan.red > plan.risk)) return `so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer`;
+  const over = plan.over ?? 0;
+  const who = over ? `${over === 1 ? '1 golden' : `${over} goldens`} can't keep within ${over === 1 ? 'its' : 'their'} share` : "its goldens can't keep within their shares";
+  return `but ${who}, so a healthy suite ${red} in ${riskPercent(plan.red)} of runs or fewer`;
 }
 
 export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
@@ -170,7 +183,8 @@ export function markdownReport(report: TestReport): string {
         : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
   lines.push(`### Shadowlap: ${head}`, '');
   // The session's one risk, when gated goldens shared it.
-  if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), so a healthy suite goes red for nothing in ${riskPercent(report.suite.risk)} of runs or fewer.`, '');
+  // A golden that can't keep within its share makes the plan's own chance the bound, never the risk given.
+  if (report.suite && report.suite.goldens > 1) lines.push(`Suite risk ${riskPercent(report.suite.risk)}, split across ${report.suite.goldens} gated goldens (${riskPercent(report.suite.perGoldenRisk)} each), ${suiteRed(report.suite, report.suite.inconclusive === 'warn' ? 'fails a golden for nothing' : 'goes red for nothing')}.`, '');
   lines.push('| | Recording | Result | Replayed | Input tokens not re-spent |', '|---|---|---|---:|---:|');
   for (const r of report.results) {
     // Out of the recording for one that stopped short of it, so it never reads as whole.

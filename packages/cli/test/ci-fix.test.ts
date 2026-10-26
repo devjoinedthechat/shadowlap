@@ -214,8 +214,10 @@ afterEach(() => {
   dispatchStatus = 204;
 });
 
-// The stand-in for gh is a shell script, which Windows won't run by name.
-describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Action', () => {
+// The stand-in for gh is a shell script, which Windows won't run by name. Each fix runs the Action end
+// to end: test, blame, repair (its fix verified twice) and the re-recorded goldens' test, about 30 s
+// beside the suite's other workers, so these have a limit of their own.
+describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Action', { timeout: 90_000 }, () => {
   it('opens a pull request with the fix verify accepted and the golden re-recorded under it, starts its checks, and merges nothing', async () => {
     await setUp({ expect: EXPECT });
     const head = sh(project, 'git', ['rev-parse', 'HEAD']);

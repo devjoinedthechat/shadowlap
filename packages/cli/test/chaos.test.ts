@@ -17,9 +17,17 @@ import { departures, docsOf, names, SHAPES } from './json-shapes.js';
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./forecast-agent.mjs', import.meta.url));
 
+/** Model calls after a tool that failed that the provider, for real, answers 529: what `test --chaos` must read as the provider's. */
+let overloaded = 0;
+const OVERLOADED = { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after-ms': '1', 'x-should-retry': 'false' } };
+
 /** The model: asks for the units and the forecast at once, alerts when the forecast says it is warm, then answers. */
 function script(ctx: ScriptContext) {
   const results = ctx.request.messages.flatMap((m) => (Array.isArray(m.content) ? (m.content as Array<{ type: string; content?: unknown; is_error?: boolean }>).filter((b) => b.type === 'tool_result') : []));
+  if (overloaded > 0 && results.some((r) => r.is_error)) {
+    overloaded--;
+    return OVERLOADED;
+  }
   const warm = results.some((r) => typeof r.content === 'string' && /^\d+°$/.test(r.content) && Number.parseInt(r.content, 10) > 20);
   const alerted = ctx.request.messages.some((m) => Array.isArray(m.content) && (m.content as Array<{ type: string; name?: string }>).some((b) => b.type === 'tool_use' && b.name === 'send_alert'));
   if (ctx.assistantTurns === 0) return { message: message([text('Checking.'), toolUse('get_units', {}, `toolu_units_${ctx.requestNo}`), toolUse('get_forecast', { city: 'Lisbon' }, `toolu_forecast_${ctx.requestNo}`)]) };
@@ -244,7 +252,7 @@ describe('test --chaos', () => {
   }, 180_000);
 
   it('gates each preset as attempts come in: a sequential test stops as soon as it can say', async () => {
-    // Each pass adds ln(0.9/0.5), each failure ln(0.1/0.5); the bounds are ±ln(0.9/0.1): four passes, or two failures.
+    // Each pass adds ln(0.9/0.5), each failure ln(0.1/0.5); the bounds are ±ln(1/0.1): four passes, or two failures.
     config({ 'goldens/forecast': { chaos: { presets: ['timeout', 'malformed'], gate: { good: 0.9, bad: 0.5, risk: 0.1, max: 6 } } } });
     const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'gate.json', '--markdown', 'gate.md', '--junit', 'gate.xml']);
     expect(r.code, r.out).toBe(1);
@@ -265,6 +273,46 @@ describe('test --chaos', () => {
     expect(xml).toContain(`<system-out><![CDATA[get_forecast (#3) timed out: 4 of 4 attempts passed · rate >= 0.47 (90%) · ${rule}]]></system-out>`);
     expect(xml).toMatch(/<failure message="failed: get_forecast \(#3\) answered malformed JSON: 0 of 2 attempts passed · rate &lt;= 0\.\d\d \(90%\); [^"]* · gate: tells 90%\+ from 50%- at &lt;= 10% risk, up to 6 attempts">/);
     expect(`${md}${xml}`).not.toMatch(/at least|at most|of the time/);
+  }, 180_000);
+});
+
+describe('test --chaos while the provider fails for real', () => {
+  // An agent with no fallback for a model call that fails: a real 529 after the preset ended it.
+  const strict = { AGENT_STRICT: '1' };
+  const gate = { good: 0.9, bad: 0.5, risk: 0.1, max: 6 };
+
+  it("runs again an attempt the provider failed before the model answered, never counts it, and passes the preset on the agent's own attempts", async () => {
+    config({ 'goldens/forecast': { chaos: { presets: ['timeout'], gate } } });
+    overloaded = 2;
+    try {
+      const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'provider.json'], strict);
+      expect(r.code, r.out).toBe(0);
+      expect(r.out).toContain('the provider was unavailable (HTTP 529 from anthropic at call #4), so that attempt isn\'t counted; running it again in');
+      const p = byPreset(report('provider.json'));
+      // Four passes decide it, as with no error at all: the two the provider failed were run again.
+      expect(p.timeout).toMatchObject({ verdict: 'passed', passes: 4, attempts: 4, unavailable: 2 });
+      expect(p.timeout.runs.map((x) => x.verdict)).toEqual(['inconclusive', 'inconclusive', 'passed', 'passed', 'passed', 'passed']);
+      expect(p.timeout.runs[0].reason).toBe("the provider was unavailable (HTTP 529 from anthropic at call #4), so this attempt isn't counted");
+    } finally {
+      overloaded = 0;
+    }
+  }, 180_000);
+
+  it('is inconclusive after three in a row, with the provider named, and never fails the preset on them', async () => {
+    config({ 'goldens/forecast': { chaos: { presets: ['timeout'], gate } } });
+    overloaded = 100;
+    try {
+      const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'gave-up.json'], strict);
+      // Inconclusive, not failed: exit 3 under --inconclusive fail, as a preset no gate could settle.
+      expect(r.code, r.out).toBe(3);
+      const out = report('gave-up.json');
+      expect(out).toMatchObject({ passed: 0, failed: 0, inconclusive: 1 });
+      const p = byPreset(out);
+      expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 0, unavailable: 3 });
+      expect(p.timeout.reason).toMatch(/^provider unavailable: 3 attempts in a row ended on HTTP 529 from anthropic at call #4, so none of them says anything about the agent/);
+    } finally {
+      overloaded = 0;
+    }
   }, 180_000);
 });
 

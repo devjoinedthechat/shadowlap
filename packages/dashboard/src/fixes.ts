@@ -25,6 +25,7 @@ import {
   noRepairerOf,
   outcomeOf,
   patchFiles,
+  pinWords,
   probeBound,
   probeFinding,
   probeTally,
@@ -747,11 +748,14 @@ function blameStep(store: Store, b: StoredBlame, fallback: string): BlameStep {
   let boundary: string;
   let title: string;
   if (b.outcome === 'blamed' && r.blamed) {
-    title = `Lost at model call #${r.blamed.callNo}`;
+    // Two calls when the check of the one the probes pinned found no drop there: lost gradually around them.
+    title = r.range?.gradual && r.lost ? `Lost gradually around model calls #${r.blamed.callNo} and #${r.lost.callNo}` : `Lost at model call #${r.blamed.callNo}`;
+    const checked = r.pin ? ` ${pinWords(r.pin)}` : '';
     boundary =
       r.gate && r.blamed.decision
         ? `The re-asked call #${r.blamed.callNo}: ${probeFinding(r.blamed, r.gate)}; ${r.lost ? `#${r.lost.callNo}, the next model call: ${probeFinding(r.lost, r.gate)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`
         : `Resampling #${r.blamed.callNo} rescued ${probeTally(r.blamed, ' attempts')}; ${r.lost?.undecided ? `#${r.lost.callNo}, the next model call, was inconclusive: ${probeTally(r.lost, ' passed')}.` : r.lost ? `resampling #${r.lost.callNo}, the next model call, rescued ${probeTally(r.lost)}.` : 'it is the last model call, and the recording, which kept its answer, fails.'}`;
+    boundary += checked;
   } else if (b.outcome === 'unrescuable') {
     // Its first probe couldn't tell: not a finding that no answer lost it.
     title = unsettledFirst(r) ? 'Not settled from the first model call' : 'Not rescued from any model call';
@@ -2054,6 +2058,33 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
           verdictLine: v.line,
           tone: v.tone,
           rule: v.rule,
+          href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
+          fixId: fix?.fixId ?? null,
+        });
+      }
+      // The check of the call the probes pinned: its pairs, both calls' attempts, as one bundle.
+      const check = b.report.pin;
+      const checked = check ? check.pairs.flatMap((x) => [x.at, x.next]).filter((a) => exists(a.runId)) : [];
+      if (check && checked.length) {
+        for (const a of checked) bundled.add(a.runId);
+        out.push({
+          kind: 'blame',
+          key: `${b.blameId}:check`,
+          parentRunId: r.runId,
+          title: `blame · check of #${check.callNo}`,
+          callNo: check.callNo,
+          blamed: false,
+          change: null,
+          verdict: null,
+          role: null,
+          counts: null,
+          passes: checked.filter((a) => a.passed).length,
+          attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
+          spent: checked.reduce((s2, a) => s2 + a.spent, 0),
+          at: startedAt(checked.map((a) => a.runId), b.at),
+          verdictLine: pinWords(check),
+          tone: check.verdict === 'pinned' ? 'ok' : 'y',
+          rule: null,
           href: fix ? fixHref(fix.fixId, 'blame') : runHref(r.runId, blamedCall),
           fixId: fix?.fixId ?? null,
         });

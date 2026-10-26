@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { looksGenerated } from './volatile.js';
-import { atLeast, atMost, percent, rateBound, tallyInterval, type Gate } from './stats.js';
+import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
 import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
@@ -907,6 +907,8 @@ export interface CleanWriteReport {
   attempts: number;
   /** Clean attempts it was not made again in. */
   gone: number;
+  /** Of `attempts`, those the provider cut short after the model answered, which decide nothing of the write: counted against either verdict, as not gone toward caused and gone toward not caused. Absent when none. */
+  cutShort?: number;
   verdict: CauseVerdict;
   /** The bound on the share of clean attempts it was gone in, as its line shows it beside the tally (cleanBound): `rate >= 0.29 (95%)`; null before an attempt decided anything. */
   bound: string | null;
@@ -960,16 +962,17 @@ export const cleanDecided = (r: Pick<CleanReport, 'writes'>): boolean => r.write
  * for one not caused. Exact under the gate's own stopping when it decided (stats.ts `tallyInterval`),
  * a confidence sequence while it hasn't. Null without attempts, or without a gate between two rates.
  */
-export function cleanBound(w: Pick<CleanWriteReport, 'gone' | 'attempts' | 'verdict'>, gate: Gate | null | undefined): string | null {
-  if (!gate || gate.kind !== 'sprt' || !Number.isInteger(w.attempts) || w.attempts < 1 || !Number.isInteger(w.gone) || w.gone < 0 || w.gone > w.attempts) return null;
+export function cleanBound(w: Pick<CleanWriteReport, 'gone' | 'attempts' | 'verdict'> & { cutShort?: number | undefined }, gate: Gate | null | undefined): string | null {
+  const cut = w.cutShort ?? 0;
+  if (!gate || gate.kind !== 'sprt' || !Number.isInteger(w.attempts) || w.attempts < 1 || !Number.isInteger(w.gone) || w.gone < 0 || w.gone + cut > w.attempts) return null;
   const decision = w.verdict === 'caused' ? 'pass' : w.verdict === 'not caused' ? 'fail' : 'inconclusive';
-  return rateBound({ attempts: w.attempts, interval: tallyInterval(gate, { passes: w.gone, attempts: w.attempts }, decision), decision });
+  return rateBound({ attempts: w.attempts, interval: tallyInterval(gate, { passes: w.gone, attempts: w.attempts }, decision, null, cut), decision });
 }
 
 /** The rule a --clean write is decided by, said once under its writes: `gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`. */
 export function cleanRule(gate: Gate | null | undefined): string | null {
   if (!gate || gate.kind !== 'sprt') return null;
-  return `gate: tells a write gone in ${atLeast(gate.good)} of clean attempts from one gone in ${atMost(gate.bad)}, at <= ${percent(gate.risk)} risk, up to ${gate.max} attempt${gate.max === 1 ? '' : 's'}`;
+  return `gate: tells a write gone in ${atLeast(gate.good)} of clean attempts from one gone in ${atMost(gate.bad)}, at <= ${riskPercent(gate.risk)} risk, up to ${gate.max} attempt${gate.max === 1 ? '' : 's'}`;
 }
 
 function parsedArgs(text: string): unknown {

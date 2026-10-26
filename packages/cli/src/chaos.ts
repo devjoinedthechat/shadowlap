@@ -1,6 +1,7 @@
 import {
+  UNAVAILABLE_RETRY,
   chaosTargets,
-  decide,
+  decideUnavailable,
   describeGate,
   effectsFor,
   formatUsd,
@@ -24,11 +25,14 @@ import {
   type Palette,
   type RunRecord,
   type Store,
+  type Unavailable,
   type WritePolicy,
+  unavailableReason,
 } from '@shadowlap/engine';
 import { type ChaosSpec } from './chaos-config.js';
 import { evaluateChecks, type TestSpec } from './checks.js';
-import { attemptVerdict } from './golden-test.js';
+import { attemptVerdict, unavailableIn } from './golden-test.js';
+import { ProviderRetry } from './provider-retry.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { storedResult } from './interventions.js';
 import { emitJobEvent } from './job-events.js';
@@ -46,17 +50,27 @@ import { usageOf, telemetry } from './shared.js';
  * tools hold on any path. A preset's attempts are decided by a gate as they come in, the golden's
  * own `repeat` and `passes` unless its `chaos.gate` gives one, and the verdict is passed, failed,
  * inconclusive (the gate's attempts ran out between its bounds, or the replay never reached the
- * call), or not applicable (no call the preset can hit).
+ * call), or not applicable (no call the preset can hit). The provider failing for real, beyond what
+ * the preset plays in, is the provider's, as under `shadowlap test`: an attempt it failed before the
+ * model answered is run again and never counted, one it cut short after is counted by a sequential
+ * gate against either verdict, and three in a row leave the preset inconclusive with the provider
+ * named, never failed.
  */
 
 export interface PresetRun {
   runId: string;
   /**
    * How the attempt came out: passed, failed, or inconclusive when it says nothing of the agent's
-   * error path (the replay never reached the call, so the preset was never played in, or all that
-   * kept it from passing is a check no attempt can decide).
+   * error path (the replay never reached the call, so the preset was never played in, all that kept
+   * it from passing is a check no attempt can decide, or its provider failed for real).
    */
   verdict: Exclude<ChaosVerdict, 'not-applicable'>;
+  /**
+   * The provider failed for real in it, beyond what the preset played in: before the model answered
+   * (`retried`: run again, never counted), or after (`counted`: a sequential gate counted it against
+   * either verdict; a fixed count ran it again). Absent otherwise.
+   */
+  unavailable?: 'retried' | 'counted';
   /** True for a passed attempt only. */
   passed: boolean;
   exitCode: number;
@@ -87,6 +101,9 @@ export interface PresetOutcome {
   gate: { good: number; bad: number; risk: number; max: number } | { repeat: number; passes: number };
   upstreamRequests: number;
   spent: number;
+  /** Attempts its provider failed for real and nobody counted, and those it cut short that the gate counted. Absent when none. */
+  unavailable?: number;
+  cutShort?: number;
 }
 
 /** What judged a recording's presets besides the agent exiting 0. */
@@ -117,6 +134,11 @@ export interface ChaosContext {
   stopped?: () => boolean;
   /** The tools `--allow-unrecorded` lets an attempt run again though the recording never recorded them and they write. */
   allowUnrecorded?: ReadonlySet<string>;
+  /** Called before the pause that follows an attempt the provider was unavailable for, with how long it is, and whether the attempt is counted. */
+  onUnavailable?: (u: Unavailable, waitMs: number, counted: boolean) => void;
+  /** How unavailable attempts are retried (UNAVAILABLE_RETRY), and the pause itself: tests pass their own. */
+  unavailable?: { inARow: number; firstDelayMs: number; maxDelayMs: number };
+  sleep?: (ms: number) => Promise<void>;
 }
 
 type FixedGate = { repeat: number; passes: number };
@@ -274,6 +296,13 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     let spent = 0;
     let decision: GateDecision = 'continue';
     let unreached: string | null = null;
+    // The provider failing for real, as `shadowlap test` reads it: counted against either verdict by
+    // a sequential gate when it cut an attempt short, else run again; three in a row stop the preset.
+    const providers = new ProviderRetry({ retry: ctx.unavailable ?? UNAVAILABLE_RETRY, sleep: ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped)), onUnavailable: ctx.onUnavailable, count: 'kind' in gate });
+    // Attempts that count, and of them those the provider cut short.
+    let counted = 0;
+    let cut = 0;
+    let gaveUp: string | null = null;
     while (decision === 'continue') {
       if (ctx.stopped?.()) {
         interrupted = true;
@@ -317,26 +346,47 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         runs.push({ runId: s.runId, verdict: 'inconclusive', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
         break;
       }
-      // A check no attempt can decide (a judge with no verdict, a condition it can't read) says nothing
-      // of the agent's error path, and won't on the next attempt either: inconclusive, with why.
-      if (attemptVerdict(attempt) === 'inconclusive') {
-        unreached = attempt.failure!.message;
-        runs.push({ runId: s.runId, verdict: 'inconclusive', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
+      // The provider failed for real, beyond what the preset played in: no failure of the agent's error path.
+      const down = unavailableIn(ctx.store, attempt);
+      const after = await providers.after(down);
+      if (after === 'stop') {
+        gaveUp = unavailableReason(providers.inARow, down!);
+        runs.push({ runId: s.runId, verdict: 'inconclusive', unavailable: 'retried', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: gaveUp, lastLine: null });
         break;
       }
-      const passed = !attempt.failure;
-      if (passed) passes++;
-      runs.push({ runId: s.runId, verdict: passed ? 'passed' : 'failed', passed, exitCode: attempt.code, checks: attempt.checks, reason: attempt.failure?.message ?? null, lastLine: attempt.kind === 'exit' ? lastLine(attempt.output) : null });
-      decision = 'kind' in gate ? decide(passes, runs.length, gate) : decideFixed(passes, runs.length, gate);
+      if (after === 'retry') {
+        runs.push({ runId: s.runId, verdict: 'inconclusive', unavailable: 'retried', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: `the provider was unavailable (${down!.reason}), so this attempt isn't counted`, lastLine: null });
+        continue;
+      }
+      counted++;
+      if (after === 'cut') {
+        cut++;
+        runs.push({ runId: s.runId, verdict: 'inconclusive', unavailable: 'counted', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: `the provider cut it short (${down!.reason}), counted against either verdict`, lastLine: null });
+      } else {
+        // A check no attempt can decide (a judge with no verdict, a condition it can't read) says nothing
+        // of the agent's error path, and won't on the next attempt either: inconclusive, with why.
+        if (attemptVerdict(attempt) === 'inconclusive') {
+          unreached = attempt.failure!.message;
+          runs.push({ runId: s.runId, verdict: 'inconclusive', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: unreached, lastLine: null });
+          break;
+        }
+        const passed = !attempt.failure;
+        if (passed) passes++;
+        runs.push({ runId: s.runId, verdict: passed ? 'passed' : 'failed', passed, exitCode: attempt.code, checks: attempt.checks, reason: attempt.failure?.message ?? null, lastLine: attempt.kind === 'exit' ? lastLine(attempt.output) : null });
+      }
+      decision = 'kind' in gate ? decideUnavailable(passes, counted, cut, gate) : decideFixed(passes, counted, gate);
     }
+    // The provider unavailable too often stopped it before it decided: inconclusive, the provider named.
+    if (gaveUp && decision === 'continue') unreached = gaveUp;
     if (interrupted && decision === 'continue') break;
     const verdict: ChaosVerdict = unreached ? 'inconclusive' : decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive';
     const firstFail = runs.find((r) => r.verdict === 'failed');
     const checks = runs.at(-1)?.checks?.length ?? 0;
     // Under a gate, its bound beside the tally (exact under its stopping, stats.ts); the rule is said once, under the table.
     const sprt = 'kind' in gate && gate.kind === 'sprt' ? gate : null;
-    const bound = sprt && runs.length ? rateBound({ attempts: runs.length, interval: tallyInterval(sprt, { passes, attempts: runs.length }, decision), decision }) : null;
-    const tally = runs.length > 1 ? `${passes} of ${runs.length} attempts passed${bound ? ` · ${bound}` : ''}` : null;
+    const bound = sprt && counted ? rateBound({ attempts: counted, interval: tallyInterval(sprt, { passes, attempts: counted }, decision, null, cut), decision }) : null;
+    const cutWords = cut ? ` (${cut} cut short by the provider, counted against either verdict)` : '';
+    const tally = counted > 1 ? `${passes} of ${counted} attempts passed${cutWords}${bound ? ` · ${bound}` : ''}` : null;
     const said = firstFail?.lastLine ? ` (${firstFail.lastLine})` : '';
     const summary = unreached
       ? `${what}: ${unreached}`
@@ -344,7 +394,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         ? `${what}: ${tally ?? `the agent exited 0${checks ? `, ${plural(checks, 'check')} passed` : ''}`}`
         : verdict === 'failed'
           ? `${what}: ${tally ? `${tally}; ` : ''}${firstFail?.reason ?? 'it failed'}`
-          : `${what}: ${tally ?? `${passes} of ${runs.length} passed`}, between the gate's bounds when its ${'kind' in gate && gate.kind === 'sprt' ? gate.max : runs.length} attempts ran out`;
+          : `${what}: ${tally ?? `${passes} of ${counted} passed`}, between the gate's bounds when its ${'kind' in gate && gate.kind === 'sprt' ? gate.max : counted} attempts ran out`;
     outcomes.push(
       record(ctx, parent, {
         preset,
@@ -353,7 +403,9 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         callNo: target.callNo,
         target: at,
         passes,
-        attempts: runs.length,
+        // Every attempt but those the provider was unavailable for and nobody counted: one that never
+        // reached the call, or whose check could not be decided, ran and said so.
+        attempts: runs.filter((r) => r.unavailable !== 'retried').length,
         detail: `${callWords(preset, target)} ${summary}${verdict === 'failed' ? said : ''}`,
         summary,
         reason: verdict === 'failed' ? `${firstFail?.reason ?? 'it failed'}${said}` : unreached,
@@ -361,10 +413,18 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         gate: shownGate,
         upstreamRequests: upstream,
         spent,
+        ...(providers.unavailable ? { unavailable: providers.unavailable } : {}),
+        ...(cut ? { cutShort: cut } : {}),
       }),
     );
   }
   return { outcomes, interrupted, judge };
+}
+
+/** Waits `ms`, or less once `stopped` says a signal came: a pause before another attempt never holds up Ctrl-C. */
+async function pause(ms: number, stopped?: () => boolean): Promise<void> {
+  const until = Date.now() + ms;
+  while (Date.now() < until && !stopped?.()) await new Promise<void>((r) => setTimeout(r, Math.min(250, until - Date.now())));
 }
 
 /** Keeps an outcome in the session; a store that refuses it costs the history, not the result. */

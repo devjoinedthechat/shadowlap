@@ -8,6 +8,7 @@
 //
 //   AGENT_OUTBOX=…   file the write tool appends to, so a test can see what really executed
 //   AGENT_SAFE=1     parse the forecast in a try, so malformed JSON doesn't crash it either
+//   AGENT_STRICT=1   no fallback for a model call that fails: it exits 1, as an agent with none does
 //   AGENT_SLEEP_MS=… wait this long before answering, for a test that stops it part way
 import { appendFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
@@ -70,6 +71,6 @@ try {
     messages.push({ role: 'user', content: results });
   }
 } catch (err) {
-  if (!(err instanceof Anthropic.APIError)) throw err;
+  if (!(err instanceof Anthropic.APIError) || process.env.AGENT_STRICT) throw err;
   console.log(`The weather service is unavailable (${err.status ?? 'no response'}); try again later.`);
 }

@@ -1,5 +1,6 @@
 import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, type Gate, type Price, type RunRecord, type Store, type SuiteGolden, type SuitePlan } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
+import { suiteRed } from './test-report.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
 import { importGolden } from './golden-test.js';
 import { goldenName } from './goldens.js';
@@ -49,7 +50,7 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
       continue;
     }
     const checks = oracleLabels(spec).slice(1);
-    const history = spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { window: spec.gate.window, goldenRunId: parent.runId, checks, mode: 'fork', ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) }) : null;
+    const history = spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { window: spec.gate.window, first: spec.gate.min, goldenRunId: parent.runId, checks, mode: 'fork', ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) }) : null;
     const recent = recentAttempts(o.store, golden, { window: RECENT, goldenRunId: parent.runId, checks });
     goldens.push({
       golden,
@@ -75,7 +76,8 @@ const plural = (n: number, noun: string) => `${count(n)} ${noun}${Math.round(n) 
  * What the session says before it runs: the forecast, and with more than one gated golden, how the
  * risk is split. `forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about
  * $41.87` and `suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing
- * in 5% of runs or fewer`. A golden whose share can't be met says why.
+ * in 5% of runs or fewer`. A golden whose share can't be met says why, and the suite's line then says
+ * what the plan works out instead of the risk it was given (`suiteRed`), which it would overstate.
  */
 export function suiteLines(plan: SuitePlan): string[] {
   const f = plan.forecast;
@@ -84,13 +86,14 @@ export function suiteLines(plan: SuitePlan): string[] {
   const lines = [`forecast: about ${plural(f.attempts, 'attempt')}${each}, up to ${count(f.most)} · ${cost}`];
   if (plan.goldens > 1) {
     const red = plan.inconclusive === 'fail' ? 'goes red for nothing' : 'fails a golden for nothing';
-    lines.push(`suite risk ${riskPercent(plan.risk)}: ${plan.goldens} gated goldens, ${riskPercent(plan.perGoldenRisk)} each, so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer`);
+    lines.push(`suite risk ${riskPercent(plan.risk)}: ${plan.goldens} gated goldens, ${riskPercent(plan.perGoldenRisk)} each, ${suiteRed({ ...plan, over: plan.planned.filter((p) => p.over).length }, red)}`);
   }
   for (const p of plan.planned) if (p.over) lines.push(`${p.golden}: ${p.over}`);
   return lines;
 }
 
-/** The plan as `--json` reports it, under `suite`. */
-export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast'] } {
-  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast };
+/** The plan as `--json` reports it, under `suite`: with `over`, the goldens whose share could not be met, when any could not. */
+export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number } {
+  const over = plan.planned.filter((p) => p.over).length;
+  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}) };
 }

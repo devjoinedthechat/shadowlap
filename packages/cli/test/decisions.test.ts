@@ -443,6 +443,42 @@ describe('shadowlap decisions', () => {
     expect(two.notes).toContain("Each step was asked 2 times, too few to tell a change from the model's own variation: from --samples 3, each step is asked as recorded as often too, and a change ranked only beyond it.");
   }, 120_000);
 
+  it('ranks no step whose request as recorded got no answer for now, and ranks by its own samples one the provider will never answer again', async () => {
+    const runId = await record();
+    const emailStep = callOf(runId, 'send_email');
+    const turnedAway = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+    // The recorded model's requests, the control's, fail: overloaded for now, or gone for good.
+    for (const [status, type] of [
+      [529, 'overloaded_error'],
+      [404, 'not_found_error'],
+    ] as const) {
+      const down = await startMockAnthropic({ script: withJudge(() => turnedAway, (ctx) => (ctx.request.model === 'claude-opus-5' ? { status, body: { type: 'error', error: { type, message: `${type} for the test` } }, headers: { 'retry-after': '0' } } : referenceScript(ctx))), eventDelayMs: () => 0 });
+      try {
+        const r = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
+        const report = json<DecisionsReport>(r);
+        const step = report.runs[0].decisions.find((s) => s.callNo === emailStep)!;
+        expect(step).toMatchObject({ sampled: 1, samples: { asked: 3, answered: 3, changed: 1 }, control: { asked: 3, answered: 0 } });
+        if (status === 529) {
+          // One changed sample of three, and nothing as recorded to tell it from the model's own variation: not ranked, not settled.
+          expect(step).toMatchObject({ rank: null, majority: null });
+          expect(report.runs[0].counts.notAsked).toBeGreaterThanOrEqual(1);
+          expect(report.warnings.some((w) => /got no answer as recorded \(.*overloaded_error.*\): not ranked, since nothing told/.test(w)), report.warnings.join('\n')).toBe(true);
+          // It settles nothing: decisions exits 3 for it.
+          expect(r.code, r.out).toBe(3);
+          const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
+          expect(text.stdout).toMatch(new RegExp(`#${emailStep} +step \\d+ {2}not settled {2}send_email is called with other arguments · in 1 of 3 samples; as recorded, no answer`));
+        } else {
+          // A request the provider will never answer again: the change's samples rank it, and the warnings say so.
+          expect(step).toMatchObject({ rank: 1, majority: null });
+          expect(report.warnings.some((w) => /could not be asked as recorded any more \(.*not_found_error.*\): ranked by the change's samples alone/.test(w)), report.warnings.join('\n')).toBe(true);
+          expect(r.code, r.out).toBe(0);
+        }
+      } finally {
+        await down.close();
+      }
+    }
+  }, 120_000);
+
   it("ranks a change every sample shows and no sample as recorded does, with both arms' counts", async () => {
     const runId = await record();
     const emailStep = callOf(runId, 'send_email');

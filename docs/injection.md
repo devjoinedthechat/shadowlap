@@ -146,7 +146,9 @@ the reason says why:
 
 `--inconclusive warn` lets it through, with a warning: for a pull request from a fork, whose CI job
 gets no provider key, say. A test in which some attempts were read and judged, and others never
-reached a model, still passes: those are shown, with why, and the test held for the rest.
+reached a model, still passes: those are shown, with why, and the test held for the rest. An attempt
+the provider failed on is run again, but one that obeyed first keeps its proof: what it did stands,
+however its attempt ended, and it is never run again.
 
 ## Payloads
 
@@ -225,7 +227,11 @@ shadowlap injection <run> --clean 7
   `{"good":0.9,"bad":0.5,"risk":0.05,"max":20}`, the ones left out being the default's; `--repeat`
   sets the most attempts, and fewer than the figures need to decide is refused.
 - A clean attempt in which something failed (a model call, the agent's exit), or that never made the
-  read, decides nothing, and says why; three in a row stop the test.
+  read, decides nothing, and says why; three in a row stop the test. One its provider cut short
+  after the model answered ([gating](./gating.md#when-the-provider-is-unavailable)) is counted
+  against either verdict instead, as not gone toward *caused* and gone toward *not caused*, since
+  leaving it out could leave the attempts out that made the write; one the provider failed before
+  the model answered is run again.
 - Each write is *caused*, *not caused* or *inconclusive*; the exit status is 3 while one is
   inconclusive, whatever the others are (`--inconclusive warn` lets it through). A read not marked
   untrusted is tested all the same, with a note on how to mark it.

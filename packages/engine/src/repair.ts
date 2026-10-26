@@ -1016,7 +1016,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
   if (r.diagnosis) lines.push('', `  ${p.bold('Diagnosis')} ${p.dim(`(${r.repairer ? safeLine(r.repairer.served ?? r.repairer.model) : 'repairer'})`)}`, `    ${one(r.diagnosis, 300)}`);
 
   if (r.candidates.length) {
-    lines.push('', `  ${p.bold('Candidates')} ${p.dim('(tried smallest first; the first the gate accepts is kept)')}`);
+    lines.push('', `  ${p.bold('Candidates')} ${p.dim('(tried smallest first; the first the gate accepts twice is kept)')}`);
     const w = Math.max(...r.candidates.map((c) => c.state.length));
     for (const c of r.candidates) {
       const state = c.state === 'accepted' ? p.green(c.state.padEnd(w)) : c.state === 'untried' ? p.dim(c.state.padEnd(w)) : p.yellow(c.state.padEnd(w));
