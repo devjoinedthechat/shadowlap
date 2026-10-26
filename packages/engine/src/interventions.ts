@@ -2,6 +2,7 @@ import { STATUS_CODES } from 'node:http';
 import { canonicalize } from './canonical.js';
 import { deepEqual } from './diff.js';
 import { sha256 } from './ids.js';
+import { asParsed, cloneExact, isRawNumber } from './json-exact.js';
 import { stripKeysDeep } from './normalize.js';
 import type { SerializedError } from './types.js';
 
@@ -262,12 +263,13 @@ export function setRequestFields(shape: RequestShape, body: unknown, fields: Rec
       }
       const holder = node as Record<string | number, unknown>;
       if (last) {
-        if (!deepEqual(holder[slot], value)) changed = true;
+        // A number kept as written (`1.0`) is the value it reads as: setting it so changes nothing.
+        if (!deepEqual(asParsed(holder[slot]), value)) changed = true;
         holder[slot] = value;
         break;
       }
       const child = holder[slot];
-      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...(child as unknown[])] : isObject(child) ? { ...child } : {};
+      const copy: Record<string, unknown> | unknown[] = Array.isArray(child) ? [...(child as unknown[])] : isObject(child) && !isRawNumber(child) ? { ...child } : {};
       holder[slot] = copy;
       node = copy;
     }
@@ -428,12 +430,13 @@ export function plantInResult(result: unknown, text: string): { result: unknown;
       const score: [number, number] = [/\s/.test(v.trim()) ? 1 : 0, v.length];
       if (!best || score[0] > best.score[0] || (score[0] === best.score[0] && score[1] > best.score[1])) best = { path, score };
     } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, [...path, i]));
-    else if (isObject(v)) for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
+    else if (isObject(v) && !isRawNumber(v)) for (const [k, x] of Object.entries(v)) walk(x, [...path, k]);
   };
   walk(result, []);
   const found = best as { path: Array<string | number>; score: [number, number] } | null;
   if (!found) return { refused: 'its recorded result holds no text to add to; give the whole result you want with --override instead' };
-  const copy = structuredClone(result) as Record<string | number, unknown>;
+  // Each number as it was recorded (parseJsonExact), which structuredClone would make a plain object of.
+  const copy = cloneExact(result) as Record<string | number, unknown>;
   let node: Record<string | number, unknown> = copy;
   for (const key of found.path.slice(0, -1)) node = node[key] as Record<string | number, unknown>;
   const last = found.path[found.path.length - 1]!;

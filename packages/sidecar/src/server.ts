@@ -19,6 +19,7 @@ import {
   refused,
   storeApiRequest,
   normalizersHash,
+  asParsed,
   isRawNumber,
   parseJsonExact,
   reportable,
@@ -1517,7 +1518,8 @@ export class Sidecar {
     const claimed = call.retrying ? ctx.claimRetry(retryKey) : undefined;
     const place = (claimed !== undefined ? ctx.calls.get(claimed)?.place : undefined) ?? ctx.interventions.next(scope);
     const done: Rewritten = { retryKey, place, ...(claimed !== undefined ? { claimed } : {}) };
-    const rewrite = ctx.interventions.apply(place, recordedId(provider), call.sent, call.body);
+    // From the request as the agent wrote it, so what is sent in its place keeps each of its numbers.
+    const rewrite = ctx.interventions.apply(place, recordedId(provider), call.sent, call.exact);
     if ('refused' in rewrite) return { ...done, refusal: rewrite.refused };
     // At the call a flag named: a changed body diverges on its own, and its diff shows the change; a
     // model switched in the path, or a setting the request already had, is forced.
@@ -1527,9 +1529,9 @@ export class Sidecar {
     }
     if (rewrite.changed) {
       call.path = rewrite.path;
-      call.body = rewrite.body;
       call.exact = rewrite.body;
-      call.rawBody = Buffer.from(JSON.stringify(call.body), 'utf8');
+      call.body = asParsed(rewrite.body);
+      call.rawBody = Buffer.from(JSON.stringify(rewrite.body), 'utf8');
       // AWS signs a request's exact path and body: the changed one is signed again, or refused. One
       // signed with placeholder credentials is never sent, so forwardLive refuses it as it is.
       const keyId = signingKeyId(call.headers.authorization);
@@ -2274,7 +2276,8 @@ export class Sidecar {
       }
       case 'planted': {
         const recorded = decision.record.end!;
-        const payload = (recorded.responseRef ? this.store.getJson<StoredHttpEnd>(recorded.responseRef) : null) ?? {};
+        // Each number as it was recorded: the agent gets the result with only the text added.
+        const payload = (recorded.responseRef ? this.getJsonExact<StoredHttpEnd>(recorded.responseRef) : null) ?? {};
         const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
         if (refused(planted)) {
           ctx.session.declined(decision.record.callNo);
@@ -2440,7 +2443,8 @@ export class Sidecar {
       case 'planted': {
         const record = decision.record;
         const recorded = record.end!;
-        const payload = (recorded.responseRef ? this.store.getJson<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+        // Each number as it was recorded: the agent gets the result with only the text added.
+        const payload = (recorded.responseRef ? this.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
         const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
         if (!refused(planted)) {
           end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });

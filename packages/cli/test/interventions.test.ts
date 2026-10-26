@@ -8,6 +8,7 @@ import { storeApiRequest, Store, type CallRecord } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { checkRequestInterventions, checksOfRun, parsePlants, refuseOverlaps, storedResult } from '../src/interventions.js';
+import { parseOverrides } from '../src/run-agent.js';
 
 /**
  * The replay flags that fail a tool, plant an instruction in what a tool read, and inject into a
@@ -252,6 +253,12 @@ describe('checks before a replay starts', () => {
     expect(() => parsePlants(['3=@/nonexistent/payload.txt'], recorded, storedResult(store))).toThrow(/--inject-result: cannot read \/nonexistent\/payload\.txt/);
     expect(() => refuseOverlaps([['--override', [3]], ['--fail-at', [3]]])).toThrow('--override 3 and --fail-at 3 both change call #3; use one');
     store.close();
+  });
+
+  it('keeps each number of a result --override gives as it was typed', () => {
+    const lookup: CallRecord = { runId: 'r', callNo: 4, kind: 'tool', name: 'lookup', fingerprint: 'f', occurrence: 1, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: 0, end: null, attempts: [] };
+    // An id past 2^53 by its digits, and a float written 20.0, as the agent will get them.
+    expect(JSON.stringify(parseOverrides(['4={"id":1234567890123456789,"price":20.0}'], [lookup]).get(4))).toBe('{"id":1234567890123456789,"price":20.0}');
   });
 
   it('finds the checks shadowlap.config.json gives the recording a run came from', () => {

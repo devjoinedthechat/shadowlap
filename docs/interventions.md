@@ -26,7 +26,7 @@ shadowlap replay <run> --override 9='{"results":[]}'
 shadowlap replay <run> --override 9=@fresh.json
 ```
 
-Tool call 9 is served with your result instead of the recorded one (origin `overridden`). The agent builds its next request from it, so the run forks at the first model call that sees the new result, and the divergence diff shows exactly that change inside the request. Only tool calls can be overridden; the CLI checks the call number against the recording.
+Tool call 9 is served with your result instead of the recorded one (origin `overridden`). The agent builds its next request from it, so the run forks at the first model call that sees the new result, and the divergence diff shows exactly that change inside the request. Only tool calls can be overridden; the CLI checks the call number against the recording. Each number in the result reaches the agent as you wrote it, an id past 2^53 by its digits and `20.0` as `20.0`.
 
 This is the cleanest "what if": nothing before call 9 changes, and no history is edited.
 
@@ -160,7 +160,7 @@ Bedrock requests are signed by the AWS SDK for their exact path and body (Signat
 
 ## Which model call is which
 
-A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one. This holds for every flag that names a model call: `--inject`, `--set`, `--model`, `--prompt-from`, and `--fail-at` and `--diverge-at` on a model call (on a tool call, `--diverge-at` names the call by its number).
+A flag that names a model call by its number names its place among the recording's model calls: if call 15 is the recording's sixth model call, the flag applies to the sixth model call the replay makes, whatever tool calls came in between. Both sides count the same way: every model call, whatever it sends (an embeddings call counts), and a retry as the call it retries, never as the next one. This holds for every flag that names a model call: `--inject`, `--set`, `--model`, `--prompt-from`, and `--fail-at` and `--diverge-at` on a model call (on a tool call, `--diverge-at` names the call by its number). A flag that changes a request, or plants text in a tool's result (`--inject-result`), changes only what it names: every number of the agent's goes on as it was written, an id past 2^53 by its digits.
 
 In a recording made with scopes (sub-agents, `scope()` in the SDKs), calls are counted per scope, the way a replay matches them: if call 15 is the fourth model call of the `researcher` scope, the flag applies to that scope's fourth request, whatever order sub-agents running at once send theirs in. `--set` and `--model` then apply from that call on in its scope, and in every other scope once it has been reached.
 

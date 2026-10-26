@@ -3,7 +3,7 @@ import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { links } from '@shadowlap/dashboard';
-import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta } from './activity.js';
@@ -380,7 +380,8 @@ export function parseOverrides(specs: string[], parentCalls: CallRecord[]): Map<
     // `@@…` is text starting with `@` (which is no JSON either), never a file name.
     const raw = m[2]!.startsWith('@@') ? m[2]!.slice(1) : m[2]!.startsWith('@') ? readFileSync(m[2]!.slice(1), 'utf8') : m[2]!;
     try {
-      out.set(callNo, JSON.parse(raw));
+      // Each number as it was typed: an id past 2^53 reaches the agent with its digits.
+      out.set(callNo, parseJsonExact(raw));
     } catch {
       throw new Error(`--override: the result for call #${callNo} is not valid JSON`);
     }

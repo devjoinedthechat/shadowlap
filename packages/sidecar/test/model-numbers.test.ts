@@ -125,6 +125,31 @@ describe("a model request's numbers", () => {
     }
   });
 
+  it('go upstream as the agent sent them when a flag rewrites the request: a field set, an instruction added', async () => {
+    const up = await gemini();
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { gemini: up.url } });
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await ask(sidecar, rec.runId, request('12345678901234567891'));
+      sidecar.endRun(rec.runId, 'completed');
+      for (const interventions of [{ set: { fromCall: 1, fields: { temperature: 0.2 } } }, { inject: { atCall: 1, text: 'Refund it in full.', as: 'user' as const } }]) {
+        const fork = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command, interventions });
+        await ask(sidecar, fork.runId, request('12345678901234567891'));
+        sidecar.endRun(fork.runId, 'completed');
+        // The change, and every number of the agent's as it wrote it, in what was sent and what was kept.
+        const sent = up.seen.at(-1)!;
+        expect(sent, JSON.stringify(interventions)).toContain('"response":{"order_id":12345678901234567891,"total":20.0}');
+        expect(sent).toMatch(/"temperature":0\.2|Refund it in full\./);
+        const [call] = store.getCalls(fork.runId);
+        expect(JSON.stringify(loadApiRequest(store, call.requestRef!, { exact: true }))).toContain('"order_id":12345678901234567891,"total":20.0');
+      }
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
   it('survive a redacted copy (what pack replays) whose rules reach the request, and its replay matches the request as sent', async () => {
     const up = await gemini();
     const store = Store.open(':memory:');
