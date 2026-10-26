@@ -370,7 +370,10 @@ async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[Bas
     """``fn(*args)`` on a worker thread, run to its end whatever the caller does meanwhile, with the
     cancel that came while it ran, if one did, for the caller to go on with once it has the answer.
     Under trio it runs in a shielded scope (a cancelled task can wait on nothing outside one), and a
-    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out."""
+    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out. Under anyio
+    on asyncio it runs in anyio's shielded scope too: a cancelled anyio scope cancels the task again
+    at every await, which waiting it out would turn into a loop that spins until the answer comes, so
+    that cancel shows at the caller's next checkpoint instead, as under trio."""
     library = _async_library()
     if library == "trio":
         import trio
@@ -379,6 +382,17 @@ async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[Bas
             return await _to_thread(fn, *args), None
     if library != "asyncio":
         return await _to_thread(fn, *args), None
+    if "anyio" in sys.modules:
+        import anyio
+
+        with anyio.CancelScope(shield=True):
+            return await _waited_out(fn, *args)
+    return await _waited_out(fn, *args)
+
+
+async def _waited_out(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[BaseException]]:
+    """``fn(*args)`` on a worker thread under asyncio, run to its end through every cancel, the first
+    of which comes back with the answer."""
     done = asyncio.ensure_future(_to_thread(fn, *args))
     cancel: Optional[BaseException] = None
     while True:
@@ -411,6 +425,14 @@ async def _resolve_shielded(resolve: Callable[[], Optional[Resolution]], complet
         try:
             await trio.lowlevel.checkpoint_if_cancelled()
         except trio.Cancelled as err:
+            cancel = err
+    elif cancel is None and "anyio" in sys.modules:
+        # A cancel of an anyio scope while the question was asked shows here, as trio's does above.
+        import anyio
+
+        try:
+            await anyio.lowlevel.checkpoint_if_cancelled()
+        except anyio.get_cancelled_exc_class() as err:
             cancel = err
     if cancel is not None:
         if r is not None and r.get("origin") in ("live", "stubbed"):

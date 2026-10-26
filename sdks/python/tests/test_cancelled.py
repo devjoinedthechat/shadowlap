@@ -19,6 +19,11 @@ try:
 except ImportError:  # the SDK needs neither; CI installs both for these tests
     trio = None
 
+try:
+    import anyio
+except ImportError:
+    anyio = None
+
 
 class Sidecar:
     def __init__(self, decision):
@@ -212,6 +217,36 @@ class CancelledWhileAsked(unittest.TestCase):
         self.assertEqual(ran, [])
         (body,) = completes(sidecar)
         self.assertEqual((body["outcome"], body["error"]["data"]), ("error", {"cancelled": True}))
+
+    @unittest.skipUnless(anyio, "anyio is not installed")
+    def test_under_anyio_on_asyncio_the_write_never_runs_and_the_wait_does_not_spin(self):
+        sidecar = SlowSidecar({"origin": "live", "callNo": 5})
+        shadowlap._post = sidecar
+        ran = []
+        send = self.write_tool(ran)
+        # Each time the shield is awaited again: a cancelled anyio scope cancels the task at every
+        # await, so waiting that out spun through it as fast as the loop could, until the answer came.
+        shields = []
+        real = asyncio.shield
+
+        def counting(arg):
+            shields.append(1)
+            return real(arg)
+
+        async def main():
+            with anyio.move_on_after(0.05) as deadline:
+                await send("ops")
+            return deadline.cancelled_caught
+
+        asyncio.shield = counting
+        try:
+            self.assertTrue(anyio.run(main, backend="asyncio"))
+        finally:
+            asyncio.shield = real
+        self.assertEqual(ran, [])
+        (body,) = completes(sidecar)
+        self.assertEqual((body["outcome"], body["error"]["data"]), ("error", {"cancelled": True}))
+        self.assertLess(len(shields), 10)
 
     @unittest.skipUnless(trio, "trio is not installed")
     def test_under_trio_a_stream_that_ends_in_a_cancelled_scope_is_still_ended(self):
