@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compareRuns, formatComparison } from '../src/compare.js';
+import { parseJsonExact } from '../src/json-exact.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { Store } from '../src/store.js';
 import type { CallKind, CallMeta, Origin, RunMeta, RunRecord } from '../src/types.js';
@@ -148,6 +149,31 @@ describe('calls paired across two runs', () => {
     expect(c.identicalPrefix).toBe(2);
     expect(c.firstRequestDifference).toMatchObject({ callNo: 3 });
     expect(c.firstRequestDifference!.diff!.map((e) => e.path)).toEqual(['headers.anthropic-version', '$.messages[0].content']);
+    store.close();
+  });
+
+  it('tells two ids a double rounds alike apart, and reads a run made before requests kept their numbers as matching reads it', () => {
+    const store = Store.open(':memory:');
+    const asked = (order: string) => `{"model":"claude-opus-5","max_tokens":64,"messages":[{"role":"user","content":"Refund it."}],"metadata":{"order":${order}}}`;
+    const model = (run: RunRecord, fingerprint: string, request: unknown) => put(store, run, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint, request, meta: { provider: 'anthropic', query: '' }, answer: '{"content":[]}' });
+    const tool = (run: RunRecord, fingerprint: string, order: string) => put(store, run, 1, { kind: 'tool', name: 'refund', fingerprint, request: parseJsonExact(`{"args":{"order":${order}}}`), answer: '{"result":"refunded"}' });
+    const exact = (): RunRecord => store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } });
+    const compared = (x: RunRecord, y: RunRecord) => compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
+
+    // Each request kept as it was sent: ids that differ past 2^53, in a model call and in a tool's arguments.
+    const [a, b, c, d] = [exact(), exact(), exact(), exact()];
+    model(a, '5'.repeat(64), parseJsonExact(asked('12345678901234567891')));
+    model(b, '6'.repeat(64), parseJsonExact(asked('12345678901234567892')));
+    expect(compared(a, b).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.metadata.order', op: 'changed', before: '12345678901234567891', after: '12345678901234567892' }] });
+    tool(c, '7'.repeat(64), '12345678901234567891');
+    tool(d, '8'.repeat(64), '12345678901234567892');
+    expect(compared(c, d).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.args.order', op: 'changed', before: '12345678901234567891', after: '12345678901234567892' }] });
+
+    // A recording made before requests kept their numbers stored the id rounded: the same id sent,
+    // read as matching reads that run, every number a double.
+    const older = store.createRun({ mode: 'record', command: cmd });
+    model(older, '9'.repeat(64), JSON.parse(asked('12345678901234567891')));
+    for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
 });
