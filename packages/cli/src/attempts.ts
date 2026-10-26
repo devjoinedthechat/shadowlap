@@ -388,7 +388,8 @@ export class AttemptRunner {
     telemetry().record({ type: 'replay', ...usageOf(ended, Date.now() - run.startedAt, code) });
 
     // Read once its rows are made, waited for on the writer's timer: another attempt's stream goes on.
-    await this.sidecar.settled(run.runId);
+    // What of it could not be written goes into its warnings.
+    ended.summary.warnings.push(...(await this.sidecar.endWritten(run.runId)));
     const calls = this.store.getCalls(run.runId);
     const bypassed = !calls.some((c) => c.kind === 'api' && !isJudgeCall(c)) && this.recordedModelCalls(parent.runId) > 0;
     if (bypassed) this.warnings.add(BYPASSED);

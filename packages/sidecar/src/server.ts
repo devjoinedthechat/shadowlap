@@ -267,6 +267,8 @@ class RunContext {
   providerState: ProviderState | null = null;
   /** Why the run itself could not be written to the store, when it couldn't: none of its calls can be then. */
   lost: string | null = null;
+  /** Its summary is made (endRun): store trouble said from here on is kept for endWritten. */
+  ended = false;
 
   constructor(
     readonly run: RunRecord,
@@ -313,10 +315,12 @@ class RunContext {
     readonly headerParameters = true,
   ) {}
 
-  warnOnce(tool: string, message: string): void {
-    if (this.warnedTools.has(tool)) return;
+  /** Says `message` in the run's warnings, once for `tool`; whether it said it now. */
+  warnOnce(tool: string, message: string): boolean {
+    if (this.warnedTools.has(tool)) return false;
     this.warnedTools.add(tool);
     this.warnings.push(message);
+    return true;
   }
 
   /** Keeps a call's start as the store will hold it (records), and gives it back: its write gives it its request's ref. */
@@ -391,6 +395,9 @@ function servedHeaders(headers: Readonly<Record<string, string>>): Record<string
 }
 
 /** A call's attempt that ended without an answer because the agent's connection closed first. */
+/** How many ended runs' late store trouble is kept for endWritten: a caller that never asks leaves no more than these. */
+const LATE_RUNS = 256;
+
 const clientLeft = (when: string): SerializedError => ({ name: 'ClientDisconnected', message: `the client closed the connection ${when}` });
 
 /**
@@ -599,6 +606,8 @@ export class Sidecar {
   private readonly trust: ToolTrust | undefined;
   private readonly log: (line: string) => void;
   private readonly runs = new Map<string, RunContext>();
+  /** Store trouble said of a run after its summary was made, for endWritten, by run: the newest LATE_RUNS runs'. */
+  private readonly lateTrouble = new Map<string, string[]>();
   private activeRunId: string | null = null;
   /** The run each slot's traffic belongs to. */
   private readonly slots = new Map<string, string>();
@@ -881,7 +890,7 @@ export class Sidecar {
       // A divergence's diff is worked out once its call is answered (explainWaiting), never on its path.
       deferExplain: true,
       ...(input.replay ? { replay: input.replay } : {}),
-      loadRequest: (rec) => this.loadRequest(rec),
+      loadRequest: (rec) => this.loadRequest(rec, roundedNumbers),
       matchName: (rec) => this.matchName(rec),
       // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
       matchQuery: (rec) => storedQuery(rec, redactions),
@@ -998,6 +1007,18 @@ export class Sidecar {
   }
 
   /**
+   * Waits for a run this sidecar ended to be written, its queued rows and its end, as settled waits,
+   * and gives what could not be: the store trouble its summary, made before, could not say. A command
+   * that prints the summary adds these lines to it.
+   */
+  async endWritten(runId: string): Promise<string[]> {
+    await this.writer.settled(runId);
+    const lines = this.lateTrouble.get(runId) ?? [];
+    this.lateTrouble.delete(runId);
+    return lines;
+  }
+
+  /**
    * Ends a run. Its summary is made from its calls as this process kept them while it queued their
    * rows (RunContext.records), never read back from the store: while another process holds the
    * store, the end waits for nothing, and another run's stream goes on. What the end keeps (its
@@ -1025,6 +1046,26 @@ export class Sidecar {
     if (ctx.slot !== null && this.slots.get(ctx.slot) === runId) this.slots.delete(ctx.slot);
     const run: RunRecord = ctx.run;
     const unguarded = [...ctx.unguarded.entries()].map(([target, v]) => ({ target, ...v })).sort((a, b) => b.count - a.count);
+    // WebSockets (OpenAI Realtime): what went over them is in no recording.
+    const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
+    // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
+    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}), ...(preloads.unguarded ? { unguarded: preloads.unguarded } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
+    const endedAt = Date.now();
+    if (ctx.lost === null) {
+      this.writer.write({
+        what: `run ${runId}'s end`,
+        of: { runId, part: 'run' },
+        run: () => {
+          this.store.endRun(runId, status, endedAt);
+          if (Object.keys(patch).length) this.store.updateRunMeta(runId, patch);
+          // Kept on the run as well as printed: its page says what a replay runs for real.
+          if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
+        },
+        // Tried until the store is free, however long another process holds it: without its end, the run reads as running.
+        retain: true,
+        failed: (reason) => this.storeTrouble(ctx, 'store:end', `That run ${runId} ended could not be written to the store (${reason}): it reads as running until a later command finds no process recording it.`),
+      });
+    }
     const warnings = [...ctx.warnings];
     if (preloads?.missing) warnings.push(preloads.missing);
     if (preloads?.unguarded) warnings.push(preloads.unguarded);
@@ -1043,8 +1084,6 @@ export class Sidecar {
     warnings.push(...ctx.session.unapplied(), ...(ctx.interventions?.unapplied() ?? []), ...(ctx.interventions?.warnings ?? []));
     // A model call --fail-at named, by its place among the recording's model calls, that the replay never made.
     warnings.push(...ctx.session.unappliedFailures());
-    // WebSockets (OpenAI Realtime): what went over them is in no recording.
-    const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
     warnings.push(...webSocketWarnings(websockets, run.mode));
     if (run.mode === 'record' && !calls.some((c) => c.kind === 'api') && !websockets.some((u) => u.action === 'tunnelled')) {
       warnings.push(
@@ -1053,24 +1092,10 @@ export class Sidecar {
           : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through Shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
       );
     }
-    // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
-    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}), ...(preloads.unguarded ? { unguarded: preloads.unguarded } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
-    const endedAt = Date.now();
-    if (ctx.lost === null) {
-      this.writer.write({
-        what: `run ${runId}'s end`,
-        of: { runId, part: 'run' },
-        run: () => {
-          this.store.endRun(runId, status, endedAt);
-          if (Object.keys(patch).length) this.store.updateRunMeta(runId, patch);
-          // Kept on the run as well as printed: its page says what a replay runs for real.
-          if (unguarded.length) recordNotRecorded(this.store, runId, { hosts: unguarded });
-        },
-        failed: (reason) => warnings.push(`That run ${runId} ended could not be written to the store (${reason}): it reads as running until a later command finds no process recording it.`),
-      });
-    }
     const ended: RunRecord = { ...run, status, endedAt, meta: { ...(run.meta ?? {}), ...patch } };
     const summary = summarizeRun(ended, calls, ctx.session.notReached(), warnings, { ...(this.prices ? { prices: this.prices } : {}), modelOf: storedModelResolver(this.store) });
+    // What goes wrong writing the run from here on, its summary made, is said apart (endWritten).
+    ctx.ended = true;
     this.log(`run ${runId} ended (${status})`);
     return { run: ended, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
   }
@@ -1229,10 +1254,15 @@ export class Sidecar {
     if (rest === 'v1/health' && method === 'GET') return json(res, 200, { ok: true, activeRun: this.activeRunId });
 
     if (rest === 'v1/runs' && method === 'POST') {
-      const body = (await readJson(req)) as Partial<StartRunInput> & {
+      type StartBody = Partial<StartRunInput> & {
         replay?: Partial<ReplayOptions> & { liveTools?: string[]; overrides?: Record<string, unknown>; failAt?: Record<string, number>; toolFailures?: Record<string, ToolFailure>; plants?: Record<string, string> };
         interventions?: Interventions;
       };
+      // Read as JSON.parse reads it, but for the results an override gives: each of their numbers as
+      // the SDK wrote it, an id past 2^53 by its digits, as the CLI's --override keeps them.
+      const exact = (await readJson(req, true)) as StartBody;
+      const body = asParsed(exact) as StartBody;
+      if (body.replay && exact.replay?.overrides) body.replay.overrides = exact.replay.overrides;
       if (body.mode !== 'record' && body.mode !== 'replay') throw new HttpError(400, 'mode must be record or replay');
       // Maps keyed by call number arrive as JSON objects.
       const byCall = <T>(o: Record<string, T> | undefined) => (o && typeof o === 'object' ? new Map(Object.entries(o).map(([k, v]) => [Number(k), v] as const)) : undefined);
@@ -1494,7 +1524,8 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
     const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+    // Shown as it was matched: against a parent read rounded (RunMeta.exactNumbers), every number as the double it reads as.
+    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: ctx.roundedNumbers ? asParsed(call.exact) : reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
     const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
@@ -2568,9 +2599,18 @@ export class Sidecar {
     }
   }
 
-  /** A write of the run's that could not be made, said once in its warnings; nothing more once the run itself could not be (RunContext.lost). */
+  /**
+   * A write of the run's that could not be made, said once in its warnings; nothing more once the run
+   * itself could not be (RunContext.lost). Said after the run's summary was made, it is kept for
+   * endWritten, for the newest runs.
+   */
   private storeTrouble(ctx: RunContext, key: string, message: string): void {
-    if (ctx.lost === null) ctx.warnOnce(key, message);
+    if (ctx.lost !== null || !ctx.warnOnce(key, message) || !ctx.ended) return;
+    const runId = ctx.run.runId;
+    const lines = this.lateTrouble.get(runId) ?? [];
+    if (!lines.length) this.lateTrouble.set(runId, lines);
+    lines.push(message);
+    if (this.lateTrouble.size > LATE_RUNS) this.lateTrouble.delete(this.lateTrouble.keys().next().value!);
   }
 
   /** Keeps a run's divergence on it, in memory and in the store, through the store writer. */
@@ -2644,9 +2684,14 @@ export class Sidecar {
     return rec.requestRef ? loadApiRequest(this.store, rec.requestRef, { exact: true }) : undefined;
   }
 
-  private loadRequest(rec: CallRecord): unknown {
+  /**
+   * A recorded call's request as a divergence report shows it: each number as it was stored, or, for a
+   * parent recorded before requests kept their numbers (`rounded`), every model request's number as
+   * the double it reads as, the way it was matched.
+   */
+  private loadRequest(rec: CallRecord, rounded = false): unknown {
     if (!rec.requestRef) return undefined;
-    if (rec.kind === 'api') return reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
+    if (rec.kind === 'api') return rounded ? loadApiRequest(this.store, rec.requestRef) : reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
     const req = reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;
     // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;

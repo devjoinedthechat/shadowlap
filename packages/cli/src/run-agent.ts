@@ -257,6 +257,8 @@ export async function testAttempt(
   // A signal heard while the judge was asked interrupted the attempt too: it is read after the judge.
   const ended = endRun(timedOut || interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   stop.stop();
+  // What of the run could not be written once its summary was made goes into the summary it reports.
+  ended.summary.warnings.push(...(await writtenEnd(sidecar, run.runId)));
   await sidecar.close();
   // Nothing waits for this attempt: the process ends as the signal meant it to, with the run ended.
   if (interrupted && o.onSignal !== 'return') exitBySignal(interrupted);
@@ -350,6 +352,20 @@ export function outputDrained(child: ReturnType<typeof spawn>, ms = 2_000): Prom
  * reads is masked as the replay was matched (`normalize`, and the dates near the run's start unless
  * `clock` is exact), so a clean replay asks what its recording asked.
  */
+/**
+ * A run this command ended, once it is written (Sidecar.endWritten): its rows and its end, waited for
+ * on the store writer's timer, and what of it could not be written, for its summary. Said once the
+ * store has been held a while, since another process's write can take that long.
+ */
+export async function writtenEnd(sidecar: Sidecar, runId: string): Promise<string[]> {
+  const held = setTimeout(() => process.stderr.write(p.dim(`[shadowlap] another process holds the store: run ${shortId(runId)} is written once it is free\n`)), 2_000);
+  try {
+    return await sidecar.endWritten(runId);
+  } finally {
+    clearTimeout(held);
+  }
+}
+
 export async function judgeAttempt(
   store: Store,
   sidecar: Sidecar,
@@ -657,6 +673,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   // A signal heard while the judge was asked interrupted the run too: it is read after the judge.
   const result = endRun(interrupted ? 'crashed' : code === 0 ? 'completed' : 'failed');
   stop.stop();
+  // What of the run could not be written once its summary was made goes into the summary it prints.
+  result.summary.warnings.push(...(await writtenEnd(sidecar, run.runId)));
   if (unasked) result.summary.warnings.push(AGENT_NODE_MAYBE_TOO_OLD);
   const why = notStarted;
   if (why) {
@@ -791,7 +809,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       // Streamed to the terminal, the Node's words can't be read here: that Node is asked again. One a
       // launcher or a script picked can't be: the attempt counts, and a line says what Node's words mean.
       let unasked = false;
-      if (!stopped && !stoppedBySignal && code === 9 && store.countCalls(run.runId) === 0) {
+      // Counted once its rows are made, waited for on the writer's timer: another attempt's stream goes on.
+      if (!stopped && !stoppedBySignal && code === 9 && (await sidecar.settled(run.runId), store.countCalls(run.runId) === 0)) {
         if (streaming && !tee ? nodeRefusesPreload(argv[0]!, { ...process.env, ...guardEnv(guard) }, process.cwd()) : refusedPreload(output)) {
           sidecar.endRun(run.runId, 'failed');
           refused.push(run.runId);
@@ -826,6 +845,8 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
   stop.stop();
+  // Every attempt written, its end too, however long another process holds the store.
+  await sidecar.settled();
   // Nothing ran in them, so they are not kept, and no report is made of the attempts.
   for (const runId of refused) store.deleteRun(runId);
   await sidecar.close();

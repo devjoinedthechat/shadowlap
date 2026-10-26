@@ -101,6 +101,32 @@ describe("a model request's numbers", () => {
     }
   });
 
+  it('show a recording made before requests kept them as it was matched: a changed prompt is the only change', async () => {
+    const up = await gemini();
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { gemini: up.url } });
+    const asked = (prompt: string) => `{"contents":[{"role":"user","parts":[{"text":"${prompt}"}]}],"generationConfig":{"seed":12345678901234567891},"labels":{"big":12345678901234567891,"total":20.0}}`;
+    try {
+      // As a recording made then holds the call: its request read by JSON.parse, and no exactNumbers.
+      const parent = store.createRun({ mode: 'record', command });
+      const identity = { kind: 'api' as const, name: `POST ${PATH}`, fingerprint: '0'.repeat(64), occurrence: 1 };
+      store.appendCallStart({ runId: parent.runId, callNo: 1, ...identity, origin: 'live', effect: null, requestRef: storeApiRequest(store, JSON.parse(asked('look up order'))), meta: { provider: 'gemini', query: '', fingerprintHeaders: {} }, at: 1 });
+      store.appendCallEnd(identity, { runId: parent.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(Buffer.from(ANSWER)), outcome: 'ok', meta: { status: 200, headers: { 'content-type': 'application/json' } }, at: 2 });
+      store.endRun(parent.runId, 'completed');
+
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: parent.runId, command });
+      await ask(sidecar, replay.runId, asked('look up the order'));
+      const { divergence } = sidecar.endRun(replay.runId, 'completed').summary;
+      // Its numbers matched as the doubles they read as, the seed's too: only the prompt changed.
+      expect(divergence).toMatchObject({ type: 'request_changed', callNo: 1 });
+      expect(divergence!.diff!.map((e) => e.path)).toEqual(['$.contents[0].parts[0].text']);
+      expect(store.getRun(replay.runId)!.divergence!.diff).toEqual(divergence!.diff);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  });
+
   it('go upstream as the agent sent them when the request is sent with what the recording left on the provider\'s side', async () => {
     const up = await gemini((path) => (path.endsWith('/cachedContents') ? JSON.stringify({ name: 'cachedContents/orders' }) : ANSWER));
     const store = Store.open(':memory:');
