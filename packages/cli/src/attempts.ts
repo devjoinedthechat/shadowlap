@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 import { UNAVAILABLE_RETRY, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
-import { stampAuthor } from './activity.js';
+import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
@@ -9,8 +9,8 @@ import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, st
 import { killTree } from './kill-tree.js';
 import { codeVersion, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
-import { stampKeyEnv } from './placeholder-keys.js';
-import { agentEnv, judgeAttempt, outputDrained, recordsInput, type GuardMode } from './run-agent.js';
+import { keyEnvPatch } from './placeholder-keys.js';
+import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
 import { openStore, telemetry, usageOf, type GlobalOpts } from './shared.js';
 import { pushIfQueued, teamEnv } from './team.js';
 import { palette as p } from './ui.js';
@@ -320,12 +320,12 @@ export class AttemptRunner {
       replay,
       ...(extra.interventions ? { interventions: extra.interventions } : {}),
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
+      // Kept with the run as it starts, through the sidecar's writer, so an attempt that starts while
+      // another process holds the store waits for nothing: what the caller marks it as (a probe, a
+      // verify attempt), who ran it, as every other run says, the keys its environment held, and that
+      // it records what a person types.
+      meta: { ...(extra.meta ?? {}), ...newRunMeta(), ...keyEnvPatch(this.store, parent.runId), inputs: true },
     });
-    if (extra.meta) this.store.updateRunMeta(run.runId, extra.meta);
-    // Who ran it, as every other run says: a blame's probes and the fork that rescued the run, verify's attempts.
-    stampAuthor(this.store, run.runId);
-    stampKeyEnv(this.store, run.runId);
-    recordsInput(this.store, run.runId);
     // Each Node and Python process of the agent says its preload loaded: an attempt that made calls
     // with none was never watched by the guard, and fails under --guard block.
     this.sidecar.expectPreloads(run.runId, s.guard);
@@ -368,6 +368,8 @@ export class AttemptRunner {
       await outputDrained(child);
       if (refusedPreload(output)) {
         this.sidecar.endRun(run.runId, 'failed');
+        // Every write of the run made, on the writer's timer, before the run goes.
+        await this.sidecar.settled(run.runId);
         this.store.deleteRun(run.runId);
         this.stopReason = AGENT_NODE_TOO_OLD;
         for (const other of this.running) killTree(other, 'SIGKILL', { group: GROUP });
