@@ -8,6 +8,9 @@ export default defineConfig({
     alias: {
       // Before the package itself: the browser-safe classification module the dashboard UI imports.
       '@shadowlap/engine/classify': fileURLToPath(new URL('./packages/engine/src/classify.ts', import.meta.url)),
+      // The two the telemetry collector loads alone.
+      '@shadowlap/engine/sqlite': fileURLToPath(new URL('./packages/engine/src/sqlite.ts', import.meta.url)),
+      '@shadowlap/engine/body': fileURLToPath(new URL('./packages/engine/src/body.ts', import.meta.url)),
       '@shadowlap/engine': src('engine'),
       '@shadowlap/sidecar': src('sidecar'),
       '@shadowlap/sdk': src('sdk'),

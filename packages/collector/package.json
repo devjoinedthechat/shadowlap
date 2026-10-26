@@ -25,6 +25,9 @@
   "engines": {
     "node": "^22.16.0 || >=24"
   },
+  "dependencies": {
+    "@shadowlap/engine": "0.1.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/devjoinedthechat/shadowlap.git",

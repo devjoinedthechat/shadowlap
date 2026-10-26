@@ -34,7 +34,7 @@ With a collector configured, the first run prints a one-line notice. `SHADOWLAP_
 
 ## The collector
 
-`@shadowlap/collector` is a dependency-free Node service with a strict validator, a SQLite store, aggregate stats and a dashboard: weekly active developers over twelve weeks, replays per day and how many were clean, tokens not re-spent, CI repositories, and why replays forked, by provider, SDK, OS and version. The dashboard runs no scripts. Source: `packages/collector` in the repository. It ships so that a team running Shadowlap can see its own numbers; whether the dashboard is public is up to whoever hosts it.
+`@shadowlap/collector` is a Node service with a strict validator, a SQLite store, aggregate stats and a dashboard: weekly active developers over twelve weeks, replays per day and how many were clean, tokens not re-spent, CI repositories, and why replays forked, by provider, SDK, OS and version. It installs nothing but Shadowlap's engine, which has no dependencies of its own. The dashboard runs no scripts. Source: `packages/collector` in the repository. It ships so that a team running Shadowlap can see its own numbers; whether the dashboard is public is up to whoever hosts it.
 
 ## Hosting your own
 

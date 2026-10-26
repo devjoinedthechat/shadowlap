@@ -9,6 +9,8 @@ import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive } from '@shadowlap/engine';
+// A request's body, whole or not at all (body.ts in the engine).
+import { BodyTooLarge, readBody } from '@shadowlap/engine';
 import { ancestorsOf, findRegistration, isLoopbackUrl, lookupDirs, lookupRegistration, parentRegistration, peerProcess, processAncestors, registeredRuns, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
@@ -1019,8 +1021,14 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
   }
 
   async function post(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const body = await readBody(req, MAX_BODY);
-    if (body === null) return void res.writeHead(413, { 'content-type': 'text/plain' }).end('the message is too large');
+    let body: Buffer;
+    try {
+      body = await readBody(req, { limit: MAX_BODY });
+    } catch (err) {
+      // Over the limit it is said; a client that left mid-message has no one to answer.
+      if (err instanceof BodyTooLarge) res.writeHead(413, { 'content-type': 'text/plain' }).end('the message is too large');
+      return;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(body.toString('utf8'));
@@ -1191,25 +1199,6 @@ class RawEventStream {
 function rpcAnswer(res: ServerResponse, status: number, message: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(message));
-}
-
-/** A request's whole body, or null past `max` bytes. */
-function readBody(req: IncomingMessage, max: number): Promise<Buffer | null> {
-  return new Promise((resolve) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > max) {
-        resolve(null);
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', () => resolve(Buffer.concat(chunks)));
-  });
 }
 
 function readAll(res: IncomingMessage): Promise<Buffer> {

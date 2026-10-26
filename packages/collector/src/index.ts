@@ -1,5 +1,7 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+// A request's body, whole or not at all, as Shadowlap's other servers read one: the engine's alone.
+import { BodyTooLarge, readBody } from '@shadowlap/engine/body';
 import { MAX_BODY_BYTES, ValidationError, validateBatch } from './schema.js';
 import { renderDashboard } from './dashboard.js';
 import { CollectorStore, type Stats } from './store.js';
@@ -47,28 +49,6 @@ class RateLimiter {
   }
 }
 
-/** Reads up to `limit` bytes. Over the limit the body is drained (so a 413 can still be answered) up to a hard cap, then the socket is dropped. */
-function readBody(req: IncomingMessage, limit: number): Promise<Buffer | null> {
-  const hardCap = limit * 16;
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let oversized = false;
-    req.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size > hardCap) {
-        req.destroy();
-        resolve(null);
-        return;
-      }
-      if (size > limit) oversized = true;
-      else chunks.push(c);
-    });
-    req.on('end', () => resolve(oversized ? null : Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
 function send(res: ServerResponse, status: number, body: string, type = 'application/json', headers: Record<string, string> = {}): void {
   res.writeHead(status, { 'content-type': type, 'content-length': String(Buffer.byteLength(body)), 'cache-control': 'no-store', ...headers });
   res.end(body);
@@ -107,8 +87,14 @@ export async function startCollector(opts: CollectorOptions): Promise<Collector>
         const client = req.socket.remoteAddress ?? 'unknown';
         if (!limiter.allow(client)) return send(res, 429, '{"error":"rate limited"}');
         if (!(req.headers['content-type'] ?? '').includes('application/json')) return send(res, 415, '{"error":"send application/json"}');
-        const body = await readBody(req, MAX_BODY_BYTES);
-        if (body === null) return send(res, 413, '{"error":"body too large"}');
+        // Over the limit, what is still sent is thrown away, up to 16 times the limit, so the 413 gets back.
+        let body: Buffer;
+        try {
+          body = await readBody(req, { limit: MAX_BODY_BYTES, drain: MAX_BODY_BYTES * 16 });
+        } catch (err) {
+          if (err instanceof BodyTooLarge) return send(res, 413, '{"error":"body too large"}');
+          throw err;
+        }
         let parsed: unknown;
         try {
           parsed = JSON.parse(body.toString('utf8'));

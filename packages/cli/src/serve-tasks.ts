@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { matchTask, type ReadPolicy, type Store } from '@shadowlap/engine';
+import { matchTask, readBody, type ReadPolicy, type Store } from '@shadowlap/engine';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { resolveTarget } from './takeover.js';
@@ -55,21 +55,6 @@ function send(res: ServerResponse, status: number, value: unknown): void {
   const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
   res.writeHead(status, { 'content-type': 'application/json', 'content-length': String(bytes.length), 'cache-control': 'no-store' });
   res.end(bytes);
-}
-
-function readBody(req: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (c: Buffer) => {
-      size += c.length;
-      if (size <= BODY_LIMIT) chunks.push(c);
-      else if (size - c.length <= BODY_LIMIT) reject(Object.assign(new Error(`the request is over ${BODY_LIMIT / 1024} KB`), { status: 413 }));
-      else if (size > DRAIN_LIMIT) req.destroy();
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
 }
 
 const sameOrigin = (a: string, b: string) => {
@@ -129,7 +114,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     if (req.method !== 'POST' || !m) return send(res, 404, { error: `no route ${req.method!} ${url.pathname}: POST /v1/tasks/<task>/attempts, GET /v1/tasks` });
     let body: Record<string, unknown>;
     try {
-      const parsed = JSON.parse((await readBody(req)).toString('utf8') || '{}') as unknown;
+      const parsed = JSON.parse((await readBody(req, { limit: BODY_LIMIT, drain: DRAIN_LIMIT })).toString('utf8') || '{}') as unknown;
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('the body must be a JSON object');
       body = parsed as Record<string, unknown>;
     } catch (err) {

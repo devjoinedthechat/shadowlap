@@ -4,35 +4,12 @@
  * holds the connection and those statements, and each part's methods (store/*.ts) read them as the
  * store's own.
  */
-import { createRequire } from 'node:module';
 import { ulid } from '../ids.js';
+import { rollBack, type SqliteDatabase, type SqliteStatement } from '../sqlite.js';
 
-/*
- * `node:sqlite` prints an ExperimentalWarning when loaded. Loading it through `require` (not a
- * hoisted `import`) lets us filter that one warning first; every other warning still surfaces.
- */
-const originalEmitWarning = process.emitWarning.bind(process);
-process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unknown[]): void {
-  const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
-  if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
-};
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };
-export { DatabaseSync };
-
-export interface SqliteStatement {
-  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
-  get(...params: unknown[]): Record<string, unknown> | undefined;
-  all(...params: unknown[]): Record<string, unknown>[];
-}
-export interface SqliteDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  close(): void;
-  /** Whether a transaction is open on this connection. */
-  readonly isTransaction?: boolean;
-}
+// node:sqlite as the store opens it, its types, and the rollback: the engine's sqlite.ts, which the
+// telemetry collector loads too.
+export { DatabaseSync, rollBack, type SqliteDatabase, type SqliteStatement } from '../sqlite.js';
 
 /** A value a read model's query binds. */
 export type SqlValue = null | number | bigint | string | Uint8Array;
@@ -103,22 +80,6 @@ export function inTransaction<T>(db: SqliteDatabase, fn: () => T, mode: 'deferre
     rollBack(db);
     throw err;
   }
-}
-
-/**
- * Undoes a failed write's transaction, or with `savepoint` what it did since that savepoint, unless
- * SQLite already undid the whole transaction itself: it does on some errors (a full disk, an I/O
- * error), and a ROLLBACK then fails with "no transaction is active" in place of the error that
- * ended it, which is the one to report.
- */
-export function rollBack(db: SqliteDatabase, savepoint?: string): void {
-  if (db.isTransaction === false) return;
-  if (savepoint === undefined) {
-    db.exec('ROLLBACK');
-    return;
-  }
-  db.exec(`ROLLBACK TO ${savepoint}`);
-  db.exec(`RELEASE ${savepoint}`);
 }
 
 export function parseJsonColumn<T>(raw: unknown, fallback: T): T {

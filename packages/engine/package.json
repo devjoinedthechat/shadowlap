@@ -14,12 +14,26 @@
     "./classify": {
       "types": "./dist/classify.d.ts",
       "default": "./dist/classify.js"
+    },
+    "./sqlite": {
+      "types": "./dist/sqlite.d.ts",
+      "default": "./dist/sqlite.js"
+    },
+    "./body": {
+      "types": "./dist/body.d.ts",
+      "default": "./dist/body.js"
     }
   },
   "typesVersions": {
     "*": {
       "classify": [
         "./dist/classify.d.ts"
+      ],
+      "sqlite": [
+        "./dist/sqlite.d.ts"
+      ],
+      "body": [
+        "./dist/body.d.ts"
       ]
     }
   },

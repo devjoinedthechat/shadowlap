@@ -61,6 +61,8 @@ import { recordNotRecorded, type OverrideSources } from '@shadowlap/engine';
 import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJudge } from '@shadowlap/engine';
 // The error type an AWS client reads for a status: one table, the engine's (translate.ts).
 import { awsErrorType } from '@shadowlap/engine';
+// A request's body, whole or not at all (body.ts in the engine).
+import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
@@ -3284,16 +3286,10 @@ function webSocketWarnings(used: readonly WebSocketUse[], mode: RunMode): string
   return out;
 }
 
+/** A request's whole body, at most MODEL_BODY_LIMIT: past it, a 413, and none of it read. */
 function readBody(req: IncomingMessage): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-    // A client that left part way through sending: the body never ends.
-    req.on('close', () => {
-      if (!req.complete) reject(new Error('the client closed the connection before its request was all sent'));
-    });
+  return readWholeBody(req, { limit: MODEL_BODY_LIMIT }).catch((err: unknown) => {
+    throw err instanceof BodyTooLarge ? new HttpError(413, err.message) : err;
   });
 }
 

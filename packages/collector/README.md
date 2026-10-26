@@ -1,6 +1,6 @@
 # @shadowlap/collector
 
-A telemetry collector for [Shadowlap](https://github.com/devjoinedthechat/shadowlap), for a team that wants to count its own use: one Node process, one SQLite file, no dependencies. The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector, and the project runs none.
+A telemetry collector for [Shadowlap](https://github.com/devjoinedthechat/shadowlap), for a team that wants to count its own use: one Node process, one SQLite file, and nothing installed but Shadowlap's engine, which has no dependencies of its own. The CLI sends nothing unless `SHADOWLAP_TELEMETRY_URL` names a collector, and the project runs none.
 
 ```sh
 npm install -g @shadowlap/collector

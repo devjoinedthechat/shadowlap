@@ -83,6 +83,9 @@ export { attemptKindOf, countAttempts, isAttempt, rescuedForks, type RoleContext
 // A run's kind in words, and the actions a run and a call offer as CLI commands: the terminal UI's
 // and the dashboard's, here so the dashboard needs nothing of the terminal UI.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-label.js';
+// A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
+export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
+export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
