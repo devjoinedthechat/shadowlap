@@ -1789,8 +1789,10 @@ export class Sidecar {
    * Serves a call as it was recorded. An answer that was cut part way (the provider's connection
    * broke, or the agent left) is cut where it was, so the agent sees what it saw then: what arrived,
    * then a connection that breaks; with no answer at all (a provider that couldn't be reached), a
-   * connection that closes before one. An answer of the sidecar's own that an earlier version
-   * recorded without its bytes or headers is served as that version sent it (earlierOwnAnswer).
+   * connection that closes before one. Where the agent left (its own timeout), the connection is held
+   * as long as it waited then before it breaks (breakAsRecorded). An answer of the sidecar's own that
+   * an earlier version recorded without its bytes or headers is served as that version sent it
+   * (earlierOwnAnswer).
    */
   private serveReplayed(ctx: RunContext, res: ServerResponse, callNo: number, tracked: TrackedCall): void {
     if (tracked.decision.origin !== 'replayed' && tracked.decision.origin !== 'overridden') return;
@@ -1800,16 +1802,17 @@ export class Sidecar {
     const bytes = end.responseRef ? (this.store.getBlob(end.responseRef) ?? Buffer.alloc(0)) : (earlier?.bytes ?? Buffer.alloc(0));
     const headers = servedHeaders(end.meta.headers ?? earlier?.headers ?? {});
     const status = end.meta.status ?? 200;
+    const started = Date.now();
     const attempt = this.beginAttempt(tracked);
     if (!cutShort(end)) {
       res.writeHead(status, { ...headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'replayed' });
       res.end(bytes);
     } else if (end.meta.status === undefined) {
-      breakConnection(res, end.meta.error?.message ?? 'no answer came');
+      breakAsRecorded(res, end.meta, started, end.meta.error?.message ?? 'no answer came');
     } else {
       res.writeHead(status, { ...headers, 'x-shadowlap-origin': 'replayed' });
       res.flushHeaders();
-      const broken = () => breakConnection(res, end.meta.error?.message ?? 'the answer was cut short');
+      const broken = () => breakAsRecorded(res, end.meta, started, end.meta.error?.message ?? 'the answer was cut short');
       if (bytes.length) res.write(bytes, broken);
       else setImmediate(broken);
     }
@@ -2226,7 +2229,7 @@ export class Sidecar {
     if (payload.result) return sendHttp(call.res, payload.result, from, storedResponseBytes(payload.result, blob));
     const answer = payload.answer ?? earlierHttpAnswer(recorded, payload.error);
     if (answer) return sendHttp(call.res, answer, from);
-    if (recorded.meta.status === undefined) return breakConnection(call.res, recorded.meta.error?.message ?? 'no answer came');
+    if (recorded.meta.status === undefined) return breakAsRecorded(call.res, recorded.meta, Date.now(), recorded.meta.error?.message ?? 'no answer came');
     json(call.res, 502, { type: 'error', error: { type: 'shadowlap_replayed_error', message: payload.error?.message ?? 'the recorded call failed' } });
   }
 
@@ -3092,6 +3095,19 @@ function cutShort(end: CallEndRow): boolean {
  */
 function breakConnection(res: ServerResponse, why: string): void {
   res.destroy(new Error(why));
+}
+
+/**
+ * Breaks the agent's connection as a recorded call's broke. Where its client left (its own timeout,
+ * say), the connection is held first for as long as the client waited then (`latencyMs`, counted
+ * from `since`), so the agent's client times out as it did, or, waiting longer now, sees the
+ * connection cut where it was; one the client leaves meanwhile has nothing left to break.
+ */
+function breakAsRecorded(res: ServerResponse, meta: CallMeta, since: number, why: string): void {
+  const wait = meta.error?.name === 'ClientDisconnected' && typeof meta.latencyMs === 'number' ? meta.latencyMs - (Date.now() - since) : 0;
+  if (wait <= 0) return breakConnection(res, why);
+  const timer = setTimeout(() => breakConnection(res, why), wait);
+  res.once('close', () => clearTimeout(timer));
 }
 
 /** An upstream as a run's summary names it: its origin, never a path or a password it may carry. */
