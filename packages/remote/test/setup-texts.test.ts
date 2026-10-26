@@ -233,6 +233,16 @@ describe('the CI step', () => {
     expect(r2.text).not.toContain('head.repo');
   });
 
+  it("checks the repository out keeping no token on the disk, and asks for no more than reading it where it needs no cloud token", () => {
+    for (const url of ['s3://northwind-agent-runs/support-agent', 'gs://b-1/x', 'az://acct1/agent-runs', 'r2://acct/agent-runs']) {
+      const text = ciStep('github', parseStoreUrl(url), { version: V }).text;
+      expect(text, url).toContain('  - uses: actions/checkout@v7\n    with:\n      persist-credentials: false\n  - uses: actions/setup-node@v7\n');
+      expect(text.startsWith('permissions:\n'), url).toBe(true);
+    }
+    // R2's keys are stored secrets: its job asks for the repository's contents alone, no OIDC token.
+    expect(ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V }).text.split('\n\nsteps:')[0]).toBe('permissions:\n  contents: read');
+  });
+
   it('keeps R2 keys from pull requests, which run the tests without pushing', () => {
     const r2 = ciStep('github', parseStoreUrl('r2://acct/agent-runs'), { version: V });
     expect(r2.oidc).toBe(false);
@@ -282,7 +292,7 @@ describe('the CI step', () => {
     // An unpinned npx ran whatever release was newest, with no Node set up and nothing of the agent's installed.
     for (const url of ['s3://northwind-agent-runs/support-agent', 'r2://acct/agent-runs']) {
       const text = ciStep('github', parseStoreUrl(url), { version: V }).text;
-      expect(text, url).toContain('steps:\n  - uses: actions/checkout@v7\n  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n  - run: npm ci && npm run build   # whatever your agent needs to run\n');
+      expect(text, url).toContain('steps:\n  - uses: actions/checkout@v7\n    with:\n      persist-credentials: false\n  - uses: actions/setup-node@v7\n    with:\n      node-version: 22\n  - run: npm ci && npm run build   # whatever your agent needs to run\n');
       expect([...text.matchAll(/npx shadowlap(@\S+)? /g)].map((m) => m[1]), url).toEqual(url.startsWith('r2') ? ['@9.9.9', '@9.9.9'] : ['@9.9.9']);
     }
     for (const url of ['s3://northwind-agent-runs/support-agent', 'r2://acct/agent-runs']) {

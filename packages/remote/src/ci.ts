@@ -91,9 +91,10 @@ function ownFolderNote(request: 'pull request' | 'merge request'): string {
 /**
  * The steps before the tests on GitHub: the repository, Node 22.16 or later and not 23 (the CLI
  * says so on another), and the agent's own dependencies, which only the project knows: a
- * placeholder to make its own.
+ * placeholder to make its own. The checkout keeps no token in the repository's git config, where
+ * the agent the tests run could read it: nothing after it needs one.
  */
-const GITHUB_SETUP = ['  - uses: actions/checkout@v7', '  - uses: actions/setup-node@v7', '    with:', '      node-version: 22', '  - run: npm ci && npm run build   # whatever your agent needs to run'];
+const GITHUB_SETUP = ['  - uses: actions/checkout@v7', '    with:', '      persist-credentials: false', '  - uses: actions/setup-node@v7', '    with:', '      node-version: 22', '  - run: npm ci && npm run build   # whatever your agent needs to run'];
 
 function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
   const provider = loc.provider;
@@ -107,6 +108,10 @@ function github(loc: StoreLocation, run: string, o: CiStepKeys): CiStep {
   const file = '.github/workflows/shadowlap.yml (in a job)';
   if (provider === 'r2') {
     const text = [
+      // The job's token reads the repository, and nothing more: the keys are the repository's secrets.
+      'permissions:',
+      '  contents: read',
+      '',
       'steps:',
       ...GITHUB_SETUP,
       `  - if: ${writerIf}`,
