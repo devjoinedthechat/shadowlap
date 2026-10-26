@@ -7,6 +7,8 @@ import { request as httpsRequest } from 'node:https';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
+// Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
+import { processAlive } from '@shadowlap/engine';
 import { ancestorsOf, findRegistration, isLoopbackUrl, lookupDirs, lookupRegistration, parentRegistration, peerProcess, processAncestors, registeredRuns, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
@@ -32,15 +34,6 @@ export { isLoopbackUrl, type SidecarTarget } from './agent-registry.js';
  * proxy was started under Shadowlap but can't record (its sidecar can't be found or asked), it
  * refuses writes rather than send them unrecorded: this could be a replay.
  */
-
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
 
 export type DiscoverySkip = (reason: string) => void;
 

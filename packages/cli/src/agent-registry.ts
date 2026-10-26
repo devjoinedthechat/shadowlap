@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { withLockFile } from '@shadowlap/engine';
+import { processAlive, withLockFile } from '@shadowlap/engine';
 import { startCommand } from './start-command.js';
 
 /**
@@ -97,15 +97,6 @@ function prepareDir(dir: string): boolean {
   }
 }
 
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /** How long a command waits for another changing the same folder: each holds the lock for a few file operations. */
 const LOCK_WAIT_MS = 2_000;
 
@@ -120,7 +111,7 @@ function prune(dir: string): void {
   try {
     for (const name of readdirSync(dir)) {
       const m = /^(\d+)\.json$/.exec(name);
-      if (m && !alive(Number(m[1]))) rmSync(join(dir, name), { force: true });
+      if (m && !processAlive(Number(m[1]))) rmSync(join(dir, name), { force: true });
     }
   } catch {
     // best effort
@@ -522,7 +513,7 @@ export function findRegistration(chain: readonly ProcessInfo[], dirs: readonly R
       }
       // Where the chain stops, the parent can't be compared: the Shadowlap command that wrote the
       // file must at least still be running, or the file outlived it.
-      if (parent === undefined && !alive(j.parent!)) {
+      if (parent === undefined && !processAlive(j.parent!)) {
         skip(`${file} was written by process ${j.parent!}, which has ended: left over from an earlier run, ignoring it`);
         continue;
       }
@@ -613,7 +604,7 @@ export function registeredRuns(o: { cwd?: string; home?: string | null; skip?: (
         if (untrusted(lstatSync(file), file, 'file')) continue;
         const j = JSON.parse(readFileSync(file, 'utf8')) as Partial<Registration>;
         if (j.v !== 1 || j.pid !== Number(m[1]) || typeof j.parent !== 'number' || typeof j.url !== 'string' || typeof j.runId !== 'string' || !isLoopbackUrl(j.url)) continue;
-        if (!alive(j.pid) || !alive(j.parent)) continue;
+        if (!processAlive(j.pid) || !processAlive(j.parent)) continue;
         out.push({ target: { url: j.url.replace(/\/$/, ''), runId: j.runId }, pid: j.pid, from: file });
       } catch {
         o.skip?.(`${file} is unreadable; ignoring it`);

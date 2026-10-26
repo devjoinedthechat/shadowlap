@@ -3,6 +3,8 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+// Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
+import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
 import { closestName, evaluateChecks, JUDGE_KEYS, judgeChecksOf, pathsNamed, storedCalls, storedCheckInput, toolsNamed, unreadPaths, type JudgeCheck, type JudgeVerdict, type NamedPath, type NamedTool, type RecordedCalls, type TestEntry } from './checks.js';
 import { CONFIG_FILE, configPath as configFile, defaultDbPath, loadConfig, loadTests, upstreamOverrides } from './config.js';
@@ -90,15 +92,6 @@ export function pythonCheck(probe: (command: string) => string | null): { found:
   if (three) return { found: true, detail: `${three} on PATH as python3 ${usable}; there is no python, so start agents with python3 agent.py` };
   if (plain) return { found: true, detail: `${plain} on PATH as python ${usable}; there is no python3, so start agents with python agent.py` };
   return { found: false, detail: 'no python3 or python on PATH' };
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 export function runDoctor(options: DoctorOptions): Check[] {
