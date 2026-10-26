@@ -63,6 +63,8 @@ import { isJudgeCall, JUDGE_SCOPE, judgeRules, RESERVED_SCOPE_PREFIX, summarizeJ
 import { awsErrorType } from '@shadowlap/engine';
 // A request's body, whole or not at all (body.ts in the engine).
 import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shadowlap/engine';
+// A model call's answer is kept with the credentials its headers carry masked, as a captured host's are.
+import { credentialFreeHeaders } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
@@ -2052,7 +2054,7 @@ export class Sidecar {
     const retryable = gone || streamError !== undefined || provider.isRetryableStatus(status);
     const outcome = status < 400 && !streamError && !gone ? 'ok' : 'error';
     attempt.settle(outcome === 'error' && retryable);
-    const meta: CallStartRow['meta'] = { status, headers: responseHeaders, latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
+    const meta: CallStartRow['meta'] = { status, headers: credentialFreeHeaders(responseHeaders), latencyMs: Date.now() - attempt.started, retryable, bytes: bytes.length, provider: recordedId(provider) };
     // An upstream that asks another model than the request names says which (`shadowlap tasks score`'s takeover).
     // Read after the answer is sent, as usage is: a path or body it can't read never costs the call its end.
     const requestedModel = responseHeaders['x-shadowlap-model'] || readQuietly(() => provider.extractModel(call.path, call.body));
