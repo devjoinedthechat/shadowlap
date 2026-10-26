@@ -150,6 +150,101 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
   return out.length ? out.join('') + text.slice(copied) : null;
 }
 
+/** The index just past the JSON string token that opens at `start`, or -1 when it doesn't end. */
+function endOfString(text: string, start: number): number {
+  for (let i = start + 1; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x5c) i++;
+    else if (c === 0x22) return i + 1;
+  }
+  return -1;
+}
+
+/**
+ * The index just past the JSON value that starts at `start` (after any whitespace), or -1 when no
+ * value starts there: brackets matched and the grammar between them followed, iteratively, so a value
+ * nested thousands deep is skipped like any other. Its strings' escapes aren't checked.
+ */
+export function skipJsonValue(text: string, start: number): number {
+  const closers: string[] = [];
+  let expect: 'value' | 'key' | 'colon' | 'comma' = 'value';
+  let first = false;
+  let i = start;
+  const n = text.length;
+  for (;;) {
+    while (i < n && (text[i] === ' ' || text[i] === '\t' || text[i] === '\n' || text[i] === '\r')) i++;
+    if (i >= n) return -1;
+    const c = text[i]!;
+    const top = closers[closers.length - 1];
+    if (expect === 'colon') {
+      if (c !== ':') return -1;
+      i++;
+      expect = 'value';
+      continue;
+    }
+    if (expect === 'comma' || (first && c === top)) {
+      if (c === ',' && expect === 'comma') {
+        i++;
+        expect = top === '}' ? 'key' : 'value';
+        first = false;
+        continue;
+      }
+      if (c !== top) return -1;
+      i++;
+      closers.pop();
+      if (!closers.length) return i;
+      expect = 'comma';
+      first = false;
+      continue;
+    }
+    if (expect === 'key') {
+      if (c !== '"') return -1;
+      i = endOfString(text, i);
+      if (i < 0) return -1;
+      expect = 'colon';
+      continue;
+    }
+    if (c === '"') {
+      i = endOfString(text, i);
+      if (i < 0) return -1;
+    } else if (c === '{' || c === '[') {
+      closers.push(c === '{' ? '}' : ']');
+      i++;
+      expect = c === '{' ? 'key' : 'value';
+      first = true;
+      continue;
+    } else {
+      NUMBER_OR_LITERAL.lastIndex = i;
+      const m = NUMBER_OR_LITERAL.exec(text);
+      if (!m) return -1;
+      i += m[0].length;
+    }
+    if (!closers.length) return i;
+    expect = 'comma';
+    first = false;
+  }
+}
+
+/**
+ * Whether JSON text nests deeper than `limit` (its objects and arrays, outside its strings), read
+ * once and stopping as soon as it does: a reader that holds a document as values walks it by
+ * recursion, which a document thousands deep would overflow.
+ */
+export function nestsDeeper(text: string, limit: number): boolean {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === 0x22) {
+      const end = endOfString(text, i);
+      if (end < 0) return false;
+      i = end - 1;
+    } else if (c === 0x7b || c === 0x5b) {
+      if (++depth > limit) return true;
+    } else if (c === 0x7d || c === 0x5d) depth--;
+  }
+  return false;
+}
+
 /** A JSON document's text (`json`) and what wraps it, kept as it was around the masked document. */
 export interface WrappedJson {
   prefix: string;

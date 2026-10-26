@@ -8,6 +8,7 @@ export { contextFree, isJsonText, pathReachesResults, reachesResultsOf, rewriteJ
 export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credentialFreeCall, credentialFreeCalls, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactQuery, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
 // Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
 // headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
+export { nestsDeeper } from './credential-shapes.js';
 export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';

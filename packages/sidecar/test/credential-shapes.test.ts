@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER, credentialFreeRequest, credentialFreeResult, packRun, Store, withoutStoredCredentials } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, credentialFreeRequest, credentialFreeResult, packRun, rawJsonMember, Store, withoutStoredCredentials } from '@shadowlap/engine';
 import { decodeBody, storedRequestBody, storedResponseBytes, storedResult, type HttpResult } from '../src/http.js';
 
 /**
@@ -122,8 +122,16 @@ describe('a response body by its shape', () => {
     expect(served(b.result, b.blob)).toBe(Buffer.concat([Buffer.from('{"blob":"'), Buffer.from([0xff, 0xfe]), Buffer.from(`","access_token":"${CREDENTIAL_PLACEHOLDER}"}`)]).toString('latin1'));
     const big = `{"n":${'7'.repeat(450)},"access_token":"SLSEC_SH_BIGNUM_q1w2e3"}`;
     expect(served(...(Object.values(storeResponse(Buffer.from(big), 'application/json')).reverse() as [HttpResult, string]))).toBe(`{"n":${'7'.repeat(450)},"access_token":"${CREDENTIAL_PLACEHOLDER}"}`);
+    // Nested 8,000 deep: masked, kept as its text, which every reader of a recording (a copy, a replay, an HTML report) can hold.
     const deep = `${'['.repeat(8000)}${tokens('DEEP')}${']'.repeat(8000)}`;
-    expect(storeResponse(Buffer.from(deep), 'application/json').blob).not.toMatch(/SLSEC_SH_/);
+    const d = storeResponse(Buffer.from(deep), 'application/json');
+    expect(d.blob).not.toMatch(/SLSEC_SH_/);
+    expect(d.result.encoding).toBe('text');
+    expect(served(d.result, d.blob)).toBe(`${'['.repeat(8000)}${JSON.stringify({ access_token: CREDENTIAL_PLACEHOLDER, refresh_token: CREDENTIAL_PLACEHOLDER, token_type: 'bearer', expires_in: 3600 })}${']'.repeat(8000)}`);
+    expect(credentialFreeResult(Buffer.from(d.blob))).toBeNull();
+    expect(() => JSON.stringify(d.result)).not.toThrow();
+    // A member nested as deep is read where it stands, as a copy and a replay read a stored body.
+    expect(rawJsonMember(`{"result":{"status":200,"body":${deep}}}`, ['result', 'body'])).toBe(deep);
   });
 
   it('leaves a body it can read no credential in as the service sent it', () => {

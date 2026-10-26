@@ -1,4 +1,4 @@
-import { credentialFreeBody, credentialFreeHeaders, formShaped, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
+import { credentialFreeBody, credentialFreeHeaders, formShaped, nestsDeeper, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
 
 /**
  * HTTP hosts recorded as tools. Retrieval, vector databases and internal APIs are usually called
@@ -65,11 +65,18 @@ export interface StoredBody {
   encoding?: 'json' | 'text' | 'base64';
 }
 
+/**
+ * How deep a JSON body may nest to be stored as JSON. One deeper (a probe nested thousands deep) is
+ * stored as its text, masked the same way, which every reader of a recording can hold: one that
+ * reads a document as values walks it by recursion.
+ */
+const JSON_NESTING_MAX = 512;
+
 export function decodeBody(bytes: Buffer, contentType: string | undefined): StoredBody {
   if (bytes.length === 0) return {};
   const text = bytes.toString('utf8');
   const isText = Buffer.from(text, 'utf8').equals(bytes);
-  if (isText && /json/i.test(contentType ?? '')) {
+  if (isText && /json/i.test(contentType ?? '') && !nestsDeeper(text, JSON_NESTING_MAX)) {
     try {
       return { body: JSON.parse(text), encoding: 'json' };
     } catch {

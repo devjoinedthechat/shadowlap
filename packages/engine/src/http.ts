@@ -1,5 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
+import { maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -572,8 +572,6 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
 }
 
 const WS = new Set([' ', '\t', '\n', '\r']);
-/** A JSON number or literal, matched where it stands. */
-const SCALAR = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
 
 /**
  * The text of the value at `path` in a JSON document, with the whitespace around it, as written; null
@@ -594,35 +592,11 @@ export function rawJsonMember(text: string, path: readonly string[]): string | n
     }
     return null;
   };
-  /** Moves past one value; false when it isn't JSON. */
+  /** Moves past one value, however deep, iteratively; false when it isn't JSON. */
   const value = (): boolean => {
-    ws();
-    const c = text[i];
-    if (c === '"') return string() !== null;
-    if (c === '{' || c === '[') {
-      const close = c === '{' ? '}' : ']';
-      i++;
-      ws();
-      if (text[i] === close) return ++i > 0;
-      for (;;) {
-        if (c === '{') {
-          ws();
-          if (string() === null) return false;
-          ws();
-          if (text[i++] !== ':') return false;
-        }
-        if (!value()) return false;
-        ws();
-        if (text[i] === ',') i++;
-        else if (text[i] === close) return ++i > 0;
-        else return false;
-      }
-    }
-    // A number of any length (a 450-digit one reads like any other), read where it stands.
-    SCALAR.lastIndex = i;
-    const m = SCALAR.exec(text);
-    if (!m) return false;
-    i += m[0].length;
+    const end = skipJsonValue(text, i);
+    if (end < 0) return false;
+    i = end;
     return true;
   };
   for (let depth = 0; depth < path.length; depth++) {
