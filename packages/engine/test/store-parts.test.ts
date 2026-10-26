@@ -1,5 +1,7 @@
+import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Store } from '../src/store.js';
+import { StorePart } from '../src/store/core.js';
 
 const cmd = { argv: ['node', 'agent.js'], cwd: '/tmp' };
 
@@ -73,5 +75,24 @@ describe('Store, made of parts', () => {
       const d = Object.getOwnPropertyDescriptor(Store.prototype, key)!;
       expect({ key, type: typeof d.value, enumerable: d.enumerable, writable: d.writable, configurable: d.configurable }).toEqual({ key, type: 'function', enumerable: false, writable: true, configurable: true });
     }
+  });
+
+  it('has the methods of every part in store/ and nothing else but its own, from the one list of parts', async () => {
+    const dir = new URL('../src/store/', import.meta.url);
+    const parts: Array<{ name: string; prototype: object }> = [];
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+      for (const value of Object.values((await import(new URL(file, dir).href)) as Record<string, unknown>)) {
+        if (typeof value === 'function' && Object.getPrototypeOf(value.prototype) === StorePart.prototype) parts.push(value);
+      }
+    }
+    expect(parts.length).toBeGreaterThan(10);
+    // A part left out of the list would have none of its methods here (and none in the interface,
+    // which the list makes too), and its file nothing to call it.
+    const fromParts = new Map<PropertyKey, unknown>();
+    for (const part of parts) for (const key of Reflect.ownKeys(part.prototype)) if (key !== 'constructor') fromParts.set(key, Reflect.get(part.prototype, key));
+    const own = ['constructor', 'schemaVersion', 'close', 'transaction'];
+    const onStore = Reflect.ownKeys(Store.prototype).filter((k) => !own.includes(String(k)));
+    expect(onStore.map(String).sort()).toEqual([...fromParts.keys()].map(String).sort());
+    for (const key of onStore) expect(Reflect.get(Store.prototype, key), String(key)).toBe(fromParts.get(key));
   });
 });

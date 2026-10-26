@@ -14,7 +14,7 @@
  *
  * store/schema.ts holds every table, each feature's in a block of its own, and opens a file at that
  * schema; store/core.ts holds what the parts share. A feature's methods go in its part, and a part in
- * the Store interface and the mixIn below.
+ * PARTS below, the one list both the Store interface and mixIn are made from.
  */
 import { Activity } from './store/activity.js';
 import { Chaos } from './store/chaos.js';
@@ -47,23 +47,19 @@ export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store/
 export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store/tests.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training.js';
 
-// Store's methods that are a part's (mixIn, below): their signatures and comments are the part's own,
+/**
+ * The store's parts, in the order mixIn (below) puts their methods on Store: the one list the Store
+ * interface is made from too, so a part named here is on both.
+ */
+const PARTS = [Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, Injection, Coverage, Decisions, Training, Team] as const;
+
+/** What a caller sees of the parts in `Parts`: each one's public methods, together. */
+type MethodsOf<Parts extends readonly unknown[]> = Parts extends readonly [abstract new (...args: never[]) => infer Part, ...infer Rest] ? Pick<Part, keyof Part> & MethodsOf<Rest> : unknown;
+
+// Store's methods that are a part's, from PARTS: their signatures and comments are the part's own,
 // where the methods are written.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- mixIn puts every part named here on Store's prototype when this file loads, and refuses a name defined twice
-export interface Store
-  extends Pick<Recording, keyof Recording>,
-    Pick<Search, keyof Search>,
-    Pick<Cleanup, keyof Cleanup>,
-    Pick<ReadModels, keyof ReadModels>,
-    Pick<Activity, keyof Activity>,
-    Pick<Fixes, keyof Fixes>,
-    Pick<Tests, keyof Tests>,
-    Pick<Chaos, keyof Chaos>,
-    Pick<Injection, keyof Injection>,
-    Pick<Coverage, keyof Coverage>,
-    Pick<Decisions, keyof Decisions>,
-    Pick<Training, keyof Training>,
-    Pick<Team, keyof Team> {}
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-object-type -- an interface merged with class Store, as mixIn puts every part in PARTS on Store's prototype when this file loads (and refuses a name defined twice)
+export interface Store extends MethodsOf<typeof PARTS> {}
 
 /**
  * The append-only local store: runs, call events and content-addressed blobs in one SQLite file.
@@ -124,7 +120,7 @@ export class Store {
   }
 }
 
-mixIn([Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, Injection, Coverage, Decisions, Training, Team]);
+mixIn(PARTS);
 
 /**
  * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call
