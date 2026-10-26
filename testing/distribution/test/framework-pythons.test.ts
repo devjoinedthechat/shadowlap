@@ -5,22 +5,26 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { findPython, importFailure } from '../../frameworks/python.mjs';
 
 /**
- * The Python framework suites find their interpreter with findPython: a framework that isn't
- * installed skips its suite, but one that is and fails to import fails it, saying why, as does any
- * failure in the interpreter SHADOWLAP_PYTHON names, as CI names it. They once skipped on both.
+ * The Python framework suites find their interpreter with findPython, as the suite's own Python
+ * tests find one with pythonWith: a framework that isn't installed skips its suite, but not under
+ * CI, which installs every one, and one that is installed but fails to import fails it anywhere,
+ * saying why. They once skipped on both.
  */
 
 let dir: string;
-const saved = { PATH: process.env.PATH, SHADOWLAP_PYTHON: process.env.SHADOWLAP_PYTHON };
+const saved = { PATH: process.env.PATH, SHADOWLAP_PYTHON: process.env.SHADOWLAP_PYTHON, CI: process.env.CI };
+const restore = (name: keyof typeof saved) => {
+  if (saved[name] === undefined) delete process.env[name];
+  else process.env[name] = saved[name];
+};
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'sl-pythons-'));
   process.env.PATH = dir;
   delete process.env.SHADOWLAP_PYTHON;
+  delete process.env.CI;
 });
 afterEach(() => {
-  process.env.PATH = saved.PATH;
-  if (saved.SHADOWLAP_PYTHON === undefined) delete process.env.SHADOWLAP_PYTHON;
-  else process.env.SHADOWLAP_PYTHON = saved.SHADOWLAP_PYTHON;
+  for (const name of ['PATH', 'SHADOWLAP_PYTHON', 'CI'] as const) restore(name);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -46,6 +50,14 @@ describe.skipIf(process.platform === 'win32')('the Python a framework suite runs
     expect(findPython('llama_index.core')).toBeNull();
   });
 
+  it('takes the interpreter SHADOWLAP_PYTHON names first, and the others where it lacks the framework', () => {
+    python('python3', null);
+    process.env.SHADOWLAP_PYTHON = python('named-python', null);
+    expect(findPython('crewai')).toBe(process.env.SHADOWLAP_PYTHON);
+    process.env.SHADOWLAP_PYTHON = python('named-python', "ModuleNotFoundError: No module named 'crewai'");
+    expect(findPython('crewai')).toBe('python3');
+  });
+
   it('fails a suite whose framework is installed but raises as it imports', () => {
     python('python3', "ImportError: cannot import name 'BaseModel' from 'pydantic'");
     expect(() => findPython('crewai')).toThrow("python3 has crewai but can't import it, so this suite can't run: ImportError: cannot import name 'BaseModel' from 'pydantic'");
@@ -54,11 +66,12 @@ describe.skipIf(process.platform === 'win32')('the Python a framework suite runs
     expect(() => findPython('crewai')).toThrow("python3 has crewai but can't import it");
   });
 
-  it('fails a suite whose framework the named interpreter can not import, installed or not', () => {
+  it('fails a suite under CI, which installs every framework, where no Python imports it', () => {
+    process.env.CI = 'true';
     process.env.SHADOWLAP_PYTHON = python('ci-python', "ModuleNotFoundError: No module named 'crewai'");
-    expect(() => findPython('crewai')).toThrow(`SHADOWLAP_PYTHON=${process.env.SHADOWLAP_PYTHON} can't import crewai, so this suite can't run: ModuleNotFoundError: No module named 'crewai'`);
+    expect(() => findPython('crewai')).toThrow(`no Python here imports crewai, which CI installs for this suite (.github/workflows/frameworks.yml): without it the suite would skip, and the run would pass with it left out (${process.env.SHADOWLAP_PYTHON}: ModuleNotFoundError: No module named 'crewai';`);
     process.env.SHADOWLAP_PYTHON = join(dir, 'not-there');
-    expect(() => findPython('crewai')).toThrow("can't import crewai");
+    expect(() => findPython('crewai')).toThrow('no Python here imports crewai');
     process.env.SHADOWLAP_PYTHON = python('ci-python', null);
     expect(findPython('crewai')).toBe(process.env.SHADOWLAP_PYTHON);
   });
