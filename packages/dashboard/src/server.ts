@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, normalize, resolve, sep } from 'node:path';
@@ -163,6 +163,8 @@ interface Served {
   listening: Array<() => void>;
   /** Modules that failed to register for this project, with why: their pages answer 404 here. */
   failed: string[];
+  /** How many times the project's store file was found replaced and opened again: a new one gets a new instance. */
+  generation: number;
 }
 
 export async function startDashboard(opts: DashboardOptions): Promise<Dashboard> {
@@ -217,8 +219,62 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
    * stops trying for a moment, and the threads keep what they worked out in memory meanwhile.
    */
   const pools = new Map<string, ReadPool>();
+
+  /**
+   * Each store file served, by its path: the device and inode it was when the dashboard first read it.
+   * A store deleted while served (its folder removed, the file replaced by another) went on being read
+   * through the connections open to the old file, each its own state: the status bar said 0 runs and
+   * Runs 10,000, and the search index's thread spun on the deleted file. Asked on every request, and
+   * every few seconds for the threads.
+   */
+  const files = new Map<string, string>();
+  const identity = (path: string): string | null => {
+    try {
+      const st = statSync(path);
+      return `${st.dev}:${st.ino}`;
+    } catch {
+      return null;
+    }
+  };
+  /** Whether the store at `path` is still the file the dashboard read: 'deleted', 'replaced' by another, or null. */
+  const moved = (path: string | null | undefined): 'deleted' | 'replaced' | null => {
+    if (!path || path === ':memory:') return null;
+    const now = identity(path);
+    const was = files.get(path);
+    if (was === undefined) {
+      if (now) files.set(path, now);
+      return null;
+    }
+    return now === null ? 'deleted' : now === was ? null : 'replaced';
+  };
+  /** How many times each store file was opened again after it was replaced. */
+  const generations = new Map<string, number>();
+  /** Lets go of the threads reading the store at `path`, which would go on reading the old file. */
+  const letGo = (path: string): void => {
+    const pool = pools.get(path);
+    if (pool) {
+      pools.delete(path);
+      void pool.close();
+    }
+    const indexer = indexers.get(path);
+    if (indexer) {
+      indexers.delete(path);
+      void indexer.close();
+    }
+  };
+  /** What the pages say of a store moved from under the dashboard. */
+  const movedWords = (how: 'deleted' | 'replaced', path: string, name: string | null): string =>
+    how === 'deleted'
+      ? `${name ? `${name}’s store` : 'The store'} (${tildePath(path, projects?.registry.realHome ?? '')}) was deleted while the dashboard served it: record a run to make a new one${projects ? '' : ', then start the dashboard again'}`
+      : `The store (${tildePath(path, projects?.registry.realHome ?? '')}) was replaced by another file while the dashboard served it: start the dashboard again to read it`;
+  // The threads of a store deleted or replaced stop reading it, requests or none.
+  const watch = setInterval(() => {
+    for (const path of new Set([...pools.keys(), ...indexers.keys()])) if (moved(path)) letGo(path);
+  }, 5000);
+  watch.unref();
   const locals = new Set<LocalReads>();
   const readsFor = (dbPath: string | null | undefined, store: () => Store): ReadModels => {
+    moved(dbPath);
     if (!dbPath || dbPath === ':memory:') {
       const local = new LocalReads(store);
       locals.add(local);
@@ -253,8 +309,21 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   /** What a project whose store can't be opened is served from: empty, in memory, shared by every such project. */
   let standIn: Store | null = null;
   const standInStore = (): Store => (standIn ??= Store.open(':memory:'));
-  /** Why a project's store can't be served now, or null: asked on every request, so a folder moved or deleted while it was served is seen at once. */
+  /**
+   * Why a project's store can't be served now, or null: asked on every request, so a folder moved or
+   * deleted while it was served is seen at once. A store file deleted is said to be; one replaced by
+   * another file (a new store made where it was) is let go of and opened anew, with threads of its own.
+   */
   const problemOf = (pc: ProjectContext<ProjectConfig>): string | null => {
+    // A folder gone with its store says so as it always did, and its store is the same file once it is back.
+    const how = existsSync(pc.path) ? moved(pc.dbPath) : null;
+    if (how) {
+      letGo(pc.dbPath);
+      pc.close();
+      if (how === 'deleted') return movedWords('deleted', pc.dbPath, pc.name);
+      files.set(pc.dbPath, identity(pc.dbPath)!);
+      generations.set(pc.dbPath, (generations.get(pc.dbPath) ?? 0) + 1);
+    }
     try {
       storeOf(pc);
       return null;
@@ -403,10 +472,11 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   /** The instance serving a project: made the first time it is current, again when its context changes or its store can (or can't) be opened. */
   const serve = (pc: ProjectContext<ProjectConfig>): Served => {
     const problem = problemOf(pc);
+    const generation = generations.get(pc.dbPath) ?? 0;
     const known = served.get(pc.id);
-    if (known && known.source === pc && known.problem === problem) return known;
+    if (known && known.source === pc && known.problem === problem && known.generation === generation) return known;
     if (known) retire(known);
-    const s: Served = { source: pc, router: new Router(), kinds: new Map(), problem, listening: [], failed: [] };
+    const s: Served = { source: pc, router: new Router(), kinds: new Map(), problem, listening: [], failed: [], generation };
     registerAll(s.router, contextOf(pc, s), opened ? { name: pc.name, failed: s.failed } : null);
     opened = true;
     served.set(pc.id, s);
@@ -469,7 +539,15 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   }
   /** What the dashboard serves now: its store's routes, or the current project's instance with its id and name. */
   const servingNow = (): { router: Router; current: { id: string; name: string } | null } => {
-    if (single) return { router: single, current: null };
+    if (single) {
+      // A store the caller opened can't be opened anew here: what reads it stops, and the pages say why.
+      const how = moved(opts.dbPath);
+      if (how) {
+        letGo(opts.dbPath!);
+        throw new HttpError(409, movedWords(how, opts.dbPath!, null));
+      }
+      return { router: single, current: null };
+    }
     prune();
     const pc = currentContext();
     return { router: serve(pc).router, current: { id: pc.id, name: pc.name } };
@@ -580,6 +658,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     close: (o = {}) => {
       if (o.now) jobs.kill();
       return (closing ??= (async () => {
+        clearInterval(watch);
         const closed = new Promise<void>((resolve) => server.close(() => resolve()));
         server.closeAllConnections?.();
         // Running jobs are stopped and waited for (killed after the grace time), so none outlives the
