@@ -890,7 +890,7 @@ export class Sidecar {
       // A divergence's diff is worked out once its call is answered (explainWaiting), never on its path.
       deferExplain: true,
       ...(input.replay ? { replay: input.replay } : {}),
-      loadRequest: (rec) => this.loadRequest(rec),
+      loadRequest: (rec) => this.loadRequest(rec, roundedNumbers),
       matchName: (rec) => this.matchName(rec),
       // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
       matchQuery: (rec) => storedQuery(rec, redactions),
@@ -1519,7 +1519,8 @@ export class Sidecar {
     const callNo = ctx.nextCallNo++;
     // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
     const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
-    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
+    // Shown as it was matched: against a parent read rounded (RunMeta.exactNumbers), every number as the double it reads as.
+    const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: ctx.roundedNumbers ? asParsed(call.exact) : reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
     const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
     ctx.calls.set(callNo, tracked);
     this.noteDivergence(ctx);
@@ -2678,9 +2679,14 @@ export class Sidecar {
     return rec.requestRef ? loadApiRequest(this.store, rec.requestRef, { exact: true }) : undefined;
   }
 
-  private loadRequest(rec: CallRecord): unknown {
+  /**
+   * A recorded call's request as a divergence report shows it: each number as it was stored, or, for a
+   * parent recorded before requests kept their numbers (`rounded`), every model request's number as
+   * the double it reads as, the way it was matched.
+   */
+  private loadRequest(rec: CallRecord, rounded = false): unknown {
     if (!rec.requestRef) return undefined;
-    if (rec.kind === 'api') return reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
+    if (rec.kind === 'api') return rounded ? loadApiRequest(this.store, rec.requestRef) : reportable(loadApiRequest(this.store, rec.requestRef, { exact: true }));
     const req = reportable(this.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;
     // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
     return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
