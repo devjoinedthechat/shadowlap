@@ -61,8 +61,9 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  * a captured HTTP call's with the credentials in its query and form body masked, as a recording
  * stores them now (an earlier version stored them as sent).
  */
-function storedRequest(src: Store, call: CallRecord): unknown {
-  if (call.kind === 'api') return loadApiRequest(src, call.requestRef!);
+function storedRequest(src: Store, call: CallRecord, exact = false): unknown {
+  // `exact`: each number as it was stored (parseJsonExact), for a copy that stores the request again.
+  if (call.kind === 'api') return loadApiRequest(src, call.requestRef!, { exact });
   const request = src.getJson(call.requestRef!);
   return capturedHttp(call) && isObject(request) && 'args' in request ? { ...request, args: withoutStoredCredentials(request.args) } : request;
 }
@@ -89,9 +90,9 @@ function readingOnce(store: Store): Store {
  * reasoning kept as recorded with `keepSigned` (a copy that can be replayed). `export dataset`, which
  * is only read, reads requests through this too.
  */
-export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false): unknown {
+export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false, exact = false): unknown {
   const r = requestRules(call, rules, observer);
-  const request = storedRequest(src, call);
+  const request = storedRequest(src, call, exact);
   return keepSigned && call.kind === 'api' ? keepingSigned(request, r.rules, call, r.observer) : applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
 }
 
@@ -232,7 +233,8 @@ function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: S
       return dst.putBlob(bytes);
     }
   }
-  const body = redactedRequest(src, call, rules, observer, keepSigned);
+  // Its numbers as stored, an id past 2^53 by its digits, as the copy's `exactNumbers` says (redactMeta).
+  const body = redactedRequest(src, call, rules, observer, keepSigned, true);
   return call.kind === 'api' ? storeApiRequest(dst, body) : dst.putJson(body);
 }
 
@@ -1229,7 +1231,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       here = { call, in: 'request' };
       redactedCallName(call, rules, observer);
       if (call.requestRef) {
-        const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call);
+        const request = call.kind === 'api' && skipSeen ? unseenParts(reader, call, seen) : storedRequest(reader, call, true);
         // A judge's request takes the rules a copy applies to it (requestRules), and no other.
         const r = requestRules(call, rules, observer);
         // As a pack applies them: a model call's signed reasoning kept as recorded.

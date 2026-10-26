@@ -1,7 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadApiRequest, storeApiRequest, Store } from '@shadowlap/engine';
+import { loadApiRequest, redactRun, storeApiRequest, Store } from '@shadowlap/engine';
 import { Sidecar } from '../src/server.js';
 
 /**
@@ -122,6 +122,40 @@ describe("a model request's numbers", () => {
     } finally {
       await sidecar.close();
       store.close();
+    }
+  });
+
+  it('survive a redacted copy (what pack replays) whose rules reach the request, and its replay matches the request as sent', async () => {
+    const up = await gemini();
+    const store = Store.open(':memory:');
+    const copy = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { gemini: up.url } });
+    // The rule reaches the request (an address in it), so the copy stores the request anew.
+    const sent = request('12345678901234567891', ',"systemInstruction":{"parts":[{"text":"mail dana@example.com"}]}');
+    try {
+      const rec = sidecar.startRun({ mode: 'record', command });
+      await ask(sidecar, rec.runId, sent);
+      sidecar.endRun(rec.runId, 'completed');
+      const copied = redactRun(store, rec.runId, [{ pattern: 'email', replace: '<EMAIL>' }], copy);
+      expect(copied.meta?.exactNumbers).toBe(true);
+      const [call] = copy.getCalls(rec.runId);
+      const kept = JSON.stringify(loadApiRequest(copy, call.requestRef!, { exact: true }));
+      expect(kept).toContain('"response":{"order_id":12345678901234567891,"total":20.0}');
+      expect(kept).toContain('mail <EMAIL>');
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+    // A replay of the copy, as `shadowlap test` replays a pack: offline, the same request served.
+    const replaying = await Sidecar.start({ store: copy, upstreams: { gemini: 'offline' } });
+    try {
+      const [parent] = copy.listRuns(1);
+      const replay = replaying.startRun({ mode: 'replay', parentRunId: parent.runId, command, offline: true });
+      await ask(replaying, replay.runId, sent);
+      expect(replaying.endRun(replay.runId, 'completed').summary).toMatchObject({ divergence: null, byOrigin: { replayed: 1 } });
+    } finally {
+      await replaying.close();
+      copy.close();
     }
   });
 });

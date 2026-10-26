@@ -47,6 +47,19 @@ export function matchable(value: unknown): unknown {
 }
 
 /**
+ * A deep copy of a value from `parseJsonExact`: a number kept as written stays the very value it is
+ * (it is frozen, and structuredClone would turn it into an object holding its text), and bytes stay
+ * as they are. What the rules a copy applies (normalize.ts) work on.
+ */
+export function cloneExact<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || isRawNumber(value) || ArrayBuffer.isView(value)) return value;
+  if (Array.isArray(value)) return value.map((v: unknown) => cloneExact(v)) as T;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) setOwn(out, k, cloneExact(v));
+  return out as T;
+}
+
+/**
  * A value from `parseJsonExact` as `JSON.parse` would have read it: every number the double it reads
  * as, an integer past 2^53 rounded. How a model request was matched before requests kept their
  * numbers, which a replay of a recording made then matches it by.
