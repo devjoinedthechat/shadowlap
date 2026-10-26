@@ -37,7 +37,7 @@ afterEach(async () => {
 });
 
 /** Another process holding the store's write lock: until it is told to let go, or `ms` at most. */
-async function holdLock(path: string, ms: number): Promise<{ release: () => Promise<void> }> {
+async function holdLock(path: string, ms: number): Promise<{ release: () => Promise<void>; held: () => boolean }> {
   const child = spawn(
     process.execPath,
     [
@@ -63,7 +63,10 @@ async function holdLock(path: string, ms: number): Promise<{ release: () => Prom
       child.stdout.on('data', seen);
     });
   await said('locked');
+  let held = true;
+  void said('released').then(() => (held = false));
   return {
+    held: () => held,
     release: async () => {
       const released = child.exitCode === null ? said('released') : Promise.resolve();
       child.stdin.end('let go\n');
@@ -94,22 +97,16 @@ async function streamingUpstream(n: number, ms: number): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
 
-/** A streamed model call for `runId`, and the longest wait between two of its chunks. */
-async function streamed(sidecar: Sidecar, runId: string): Promise<{ longestGap: number; chunks: number }> {
+/** A streamed model call for `runId`: when each of its chunks arrived, kept in `arrivals` as they do. */
+async function streamed(sidecar: Sidecar, runId: string, arrivals: number[]): Promise<number> {
   const res = await fetch(`${sidecar.envFor(runId).OPENAI_BASE_URL}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer k' }, body: JSON.stringify({ model: 'gpt-5', stream: true, messages: [{ role: 'user', content: 'count' }] }) });
   const reader = res.body!.getReader();
-  let last = performance.now();
-  let longestGap = 0;
-  let chunks = 0;
   for (;;) {
     const { done } = await reader.read();
     if (done) break;
-    const now = performance.now();
-    longestGap = Math.max(longestGap, now - last);
-    last = now;
-    chunks++;
+    arrivals.push(performance.now());
   }
-  return { longestGap, chunks };
+  return arrivals.length;
 }
 
 /** A clock read through the SDKs' resolution API, as `now()` makes one. */
@@ -139,28 +136,30 @@ describe('a run that starts or ends while another process holds the store', () =
       await clockRead(sidecar, b.runId);
       expect(beside.calls(b.runId)).toBe(2);
 
-      const lock = await holdLock(path, 4_000);
-      const stream = streamed(sidecar, a.runId);
-      await sleep(150);
+      // Held long past this test, so a start or an end that waited for it would wait until the end of
+      // the test: nothing below counts time, only what has been written and what has arrived.
+      const lock = await holdLock(path, 20_000);
+      const arrivals: number[] = [];
+      const stream = streamed(sidecar, a.runId, arrivals);
       // The run that ends next makes one more call with the store held: its rows wait their turn.
       await clockRead(sidecar, b.runId);
       // A run starts, and another ends, with the store held: each takes one short try at the lock.
-      let t = performance.now();
       const c = sidecar.startRun({ mode: 'record', command, meta: { author: 'dana@example.com' } });
-      const startMs = performance.now() - t;
-      t = performance.now();
       const ended = sidecar.endRun(b.runId, 'completed');
-      const endMs = performance.now() - t;
-      expect(startMs).toBeLessThan(300);
-      expect(endMs).toBeLessThan(300);
-      // The end waited for none of its call's rows, which are still to be written...
+      // Neither waited for the lock: the start, the call's rows and the end are all still to be written...
+      expect(lock.held()).toBe(true);
+      expect(beside.run(c.runId)).toBeUndefined();
       expect(beside.calls(b.runId)).toBe(2);
-      // ...and reads as it ended, with every call it made.
+      // ...and the run reads as it ended, with every call it made.
       expect(ended.run).toMatchObject({ runId: b.runId, status: 'completed' });
       expect(ended.summary).toMatchObject({ total: 2, byKind: { clock: 2 } });
       // Its new run's calls are answered meanwhile, as any agent's are.
       expect(typeof (await clockRead(sidecar, c.runId))).toBe('number');
-      await sleep(800);
+      // The other run's stream goes on while the store is held: chunks keep arriving through a second of it.
+      const from = performance.now();
+      await sleep(1_000);
+      expect(arrivals.filter((t) => t >= from).length).toBeGreaterThanOrEqual(3);
+      expect(lock.held()).toBe(true);
       // Nothing of it reached the store yet.
       expect(beside.run(c.runId)).toBeUndefined();
       expect(beside.run(b.runId)?.status).toBe('running');
@@ -173,10 +172,8 @@ describe('a run that starts or ends while another process holds the store', () =
       expect(beside.calls(c.runId)).toBe(2);
       expect(beside.calls(b.runId)).toBe(4);
       expect(beside.run(b.runId)).toMatchObject({ status: 'completed', ended_at: ended.run.endedAt });
-      // The stream went on while the store was held: one chunk every 50 ms, never one long wait.
-      const { longestGap, chunks } = await stream;
-      expect(chunks).toBeGreaterThanOrEqual(30);
-      expect(longestGap).toBeLessThan(500);
+      // The stream came whole.
+      expect(await stream).toBeGreaterThanOrEqual(30);
       sidecar.endRun(a.runId, 'completed');
       sidecar.endRun(c.runId, 'completed');
     } finally {
