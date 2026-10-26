@@ -158,7 +158,7 @@ export interface Client {
   /** `shadowlap show <run> --json` as the CLI prints it, or null when the server does not serve it. */
   showJson(id: string): Promise<unknown>;
   compare(a: string, b: string): Promise<RunComparison>;
-  /** What Compare shows while the whole comparison is worked out: the identical prefix and the first request that differs; null where there is none to ask for (an exported copy). */
+  /** What Compare shows while the whole comparison is worked out: the identical prefix and the first request that differs; null where there is none to ask for (an exported copy), or none the server can tell before the whole comparison. */
   compareHead(a: string, b: string): Promise<CompareHead | null>;
   /**
    * What runs recorded: hits from runs of their own first, each naming the run an attempt belongs to,
@@ -418,7 +418,7 @@ export function createClient(token: string): Client {
     },
     showJson: (runId) => request<unknown>(`runs/${id(runId)}/show`),
     compare: (a, b) => request<RunComparison>(`compare?a=${id(a)}&b=${id(b)}`),
-    compareHead: (a, b) => request<CompareHead>(`compare?a=${id(a)}&b=${id(b)}&part=head`),
+    compareHead: (a, b) => request<CompareHead | null>(`compare?a=${id(a)}&b=${id(b)}&part=head`),
     search: (q) => request<SearchAnswer>(`search?q=${id(q)}&limit=40`).then((r) => ({ hits: r.hits ?? [], ...(r.indexing ? { indexing: r.indexing } : {}) })),
     labels: (runId, add, remove = []) => request<{ labels: string[] }>(`runs/${id(runId)}/labels`, { method: 'POST', body: JSON.stringify({ add, remove }) }),
     note: (runId, callNo, text) => request<{ notes: RunNote[] }>(`runs/${id(runId)}/notes`, { method: 'POST', body: JSON.stringify({ callNo, text }) }),

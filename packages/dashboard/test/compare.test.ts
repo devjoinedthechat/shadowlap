@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compareRuns, Store, storeApiRequest, type RunRecord } from '@shadowlap/engine';
-import { codeChangeCache, compareHead, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
+import { codeChangeCache, compareHead, HEAD_READS, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { compareTarget } from '../ui/runs.js';
 
@@ -198,16 +198,21 @@ describe('GET /api/compare', () => {
 });
 
 describe('what Compare shows first', () => {
-  /** A run of model calls, each asking `ask[i]` (its fingerprint and request) and answered `got[i]`; a call in `judge` is a judge check's. */
-  function run(store: Store, o: { parent?: RunRecord; ask: string[]; got: string[]; judge?: number[] }): RunRecord {
+  /**
+   * A run of model calls, each asking `ask[i]` (its request, and its fingerprint after `keeps`, as
+   * another normalizer list would keep it) and answered `got[i]`; a call in `judge` is a judge
+   * check's, and one in `served` was served from its parent's call at the same place.
+   */
+  function run(store: Store, o: { parent?: RunRecord; ask: string[]; got: string[]; judge?: number[]; keeps?: string; served?: number[] }): RunRecord {
     const r = store.createRun({ mode: o.parent ? 'replay' : 'record', ...(o.parent ? { parentRunId: o.parent.runId } : {}), command: { argv: ['node', 'agent.mjs'], cwd: '/work' }, startedAt: 1_760_000_000_000 });
     o.ask.forEach((ask, i) => {
       const callNo = i + 1;
       const judge = o.judge?.includes(callNo) ?? false;
-      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `${judge ? 'judge-' : ''}${ask}`, occurrence: 1 };
+      const served = o.served?.includes(callNo) ?? false;
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: `${judge ? 'judge-' : ''}${o.keeps ?? ''}${ask}`, occurrence: 1 };
       const requestRef = storeApiRequest(store, { model: 'claude-sonnet-4-5', max_tokens: 512, system: ask === 'x' ? 'Be brief.' : 'Be thorough.', messages: [{ role: 'user', content: `Question ${ask}` }] });
-      store.appendCallStart({ runId: r.runId, callNo, ...identity, origin: 'live', effect: null, requestRef, meta: judge ? { scope: 'shadowlap:judge' } : {}, at: callNo });
-      store.appendCallEnd(identity, { runId: r.runId, callNo, attempt: 0, responseRef: store.putJson({ said: o.got[i] }), outcome: 'ok', meta: { latencyMs: 10 }, at: callNo + 1 });
+      store.appendCallStart({ runId: r.runId, callNo, ...identity, origin: served ? 'replayed' : 'live', effect: null, requestRef, meta: judge ? { scope: 'shadowlap:judge' } : {}, at: callNo });
+      store.appendCallEnd(identity, { runId: r.runId, callNo, attempt: 0, responseRef: store.putJson({ said: o.got[i] }), outcome: 'ok', meta: served ? { replayedFrom: callNo, latencyMs: 0 } : { latencyMs: 10 }, at: callNo + 1 });
     });
     store.endRun(r.runId, 'completed', 99);
     return store.getRun(r.runId)!;
@@ -241,6 +246,29 @@ describe('what Compare shows first', () => {
     const spy = Object.create(store, { getCalls: { value: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) } }) as Store;
     compareHead(spy, rec.runId, fork.runId);
     expect(reads).toEqual(['a:4', 'b:4']);
+    store.close();
+  });
+
+  it('takes two calls whose fingerprints differ for the same request when the whole comparison does', () => {
+    const store = Store.open(':memory:');
+    const rec = run(store, { ask: ['a', 'b', 'c', 'd'], got: ['1', '2', '3', '4'] });
+    // A replay made under another normalizer list: its calls keep other fingerprints, and the recorded call each was served from.
+    const replay = run(store, { parent: rec, ask: ['a', 'b', 'c', 'x'], got: ['1', '2', '3', '6'], keeps: 'v2:', served: [1, 2, 3] });
+    expect(same(store, rec, replay)).toMatchObject({ identicalPrefix: 3, firstRequestDifference: { callNo: 4 } });
+    // Served calls are the same request without reading any: only the call that wasn't is read whole.
+    const reads: string[] = [];
+    const spy = Object.create(store, { getCalls: { value: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) } }) as Store;
+    compareHead(spy, rec.runId, replay.runId);
+    expect(reads).toEqual(['a:4', 'b:4']);
+    // Two recordings of the same requests fingerprinted under other normalizers: read whole, they ask the same.
+    const again = run(store, { ask: ['a', 'b', 'c', 'd'], got: ['1', '2', '3', '5'], keeps: 'v2:' });
+    expect(same(store, rec, again)).toMatchObject({ identicalPrefix: 3, answersDiffer: 1, firstRequestDifference: null });
+    // More such calls than the head reads whole: it leaves them to the whole comparison, rather than read every request.
+    const asks = Array.from({ length: HEAD_READS + 1 }, (_, i) => `q${i}`);
+    const long = run(store, { ask: asks, got: asks });
+    const other = run(store, { ask: asks, got: asks, keeps: 'v2:' });
+    expect(compareHead(store, long.runId, other.runId)).toBeNull();
+    expect(whole(store, long, other)).toMatchObject({ identicalPrefix: HEAD_READS + 1, firstRequestDifference: null });
     store.close();
   });
 });

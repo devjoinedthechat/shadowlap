@@ -208,8 +208,8 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
           const no = noSuchRun(store, id);
           return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
         }
-        const h = compareHead(store, job.a, job.b);
-        return h ? answer(h, { tagged: true }) : failed(404, 'one of the runs does not exist');
+        // Null when the head can't be told without reading too many requests: the whole comparison says.
+        return answer(compareHead(store, job.a, job.b), { tagged: true });
       }
       case 'runs-page':
         return runsPage(store, job.options, job.team, whole);
