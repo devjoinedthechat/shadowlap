@@ -224,7 +224,7 @@ Exit status 0 when the change is accepted, 1 when it is rejected, 2 when a run's
 shadowlap repair --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
 ```
 
-Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree, and a good run against the same run under the code without the candidate, in another; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
+Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts twice, the second time with fresh attempts, on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree, and a good run against the same run under the code without the candidate, in another; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
 
 | Option | Effect |
 |---|---|

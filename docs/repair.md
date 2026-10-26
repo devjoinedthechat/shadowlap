@@ -1,6 +1,6 @@
 # Repair
 
-`shadowlap repair` fixes failing runs, and hands the fix over with the evidence that it holds. It finds where each run was lost with [blame](./blame.md), asks a model you choose to rewrite the agent's instructions, and keeps the smallest rewrite that the [verify](./verify.md) gate accepts: the failing runs fixed, runs it never saw fixed too, and the good runs no worse than before the rewrite.
+`shadowlap repair` fixes failing runs, and hands the fix over with the evidence that it holds. It finds where each run was lost with [blame](./blame.md), asks a model you choose to rewrite the agent's instructions, and keeps the smallest rewrite that the [verify](./verify.md) gate accepts twice: the failing runs fixed, runs it never saw fixed too, and the good runs no worse than before the rewrite.
 
 ```sh
 shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -25,7 +25,7 @@ shadowlap repair --fixes label:refund-bug --keeps label:good \
   Diagnosis (claude-opus-5-5)
     The system prompt says to follow the policy but not what the policy asks of large refunds, so the model reaches for the refund tool it was asked about.
 
-  Candidates (tried smallest first; the first the gate accepts is kept)
+  Candidates (tried smallest first; the first the gate accepts twice is kept)
      1  invalid   system prompt: You are a support agent. Follow the refund policy. For order A-1…
         it mentions A-1042, which only the failing runs contain: a fix has to hold for cases it has not seen
      2  rejected  tool issue_refund: Refund an order in full. Check the policy first.
@@ -50,12 +50,14 @@ The repairer is asked for candidates, and that is all it does. Everything that d
 | Localize | `shadowlap blame` | For each failing run, the model call where it was lost, and a fork from that call that passed |
 | Propose | the repairer | Rewrites of the system prompt or a tool description, each with a different strategy |
 | Screen | Shadowlap | Sets aside any rewrite that can't be applied safely or that names a detail of the failing runs |
-| Verify | `shadowlap verify` | Tries each remaining rewrite, smallest first, and keeps the first the gate accepts |
+| Verify | `shadowlap verify` | Tries each remaining rewrite, smallest first, and keeps the first the gate accepts twice, the second time with fresh attempts |
 | Hand over | Shadowlap | A patch and a report; on request the fix applied, a branch, a pull request |
 
 **The repairer sees the contrast, not just the failure.** Blame yields two versions of the same step: what the agent did in the failed run, and what it did from the same point in a run that passed. The repairer gets the conversation up to that call, both answers, and the check that failed. That tells it much more than "here is a failure, fix it". What it is shown of a run goes through the project's [redaction rules](./normalizers-and-redaction.md#where-the-rules-apply) first, as every export, pack and share link of a run does; the screening for case details below reads the run as recorded, on your machine.
 
 **Fixes that need no model come first.** If asking the recorded model again rescues nothing, but `--stronger <model>` does, the first candidate is to switch to that model: its name, found once as a string in the source, replaced. The repairer is only asked when that isn't enough, or doesn't apply.
+
+**The fix kept passed the gate twice.** One verify accepts a candidate that falls short, one that leaves a failing run at 70% or below or breaks a good run, at most 5% of the time. But the first of several to pass is likelier than any one of them to have passed by chance: of four candidates that each leave a failing run at 70%, one passes 16.1% of the time. So the first the gate accepts is verified once more, with fresh attempts in a worktree of its own, and kept only if it passes again; one that doesn't is rejected, and the next is tried. Of those four, one is then kept 0.74% of the time. However many are tried, the chance a repair keeps one that falls short stays within the gate's risk: such a candidate passes both verifies at most risk² of the time (0.25% at 5%), and a repair decides at most 1/risk candidates (20 at 5%), leaving any more untried and saying so. A good candidate pays for it with the attempts of a second verify, and a little power: one at 90% is kept 91.8% of the time rather than 95.8%.
 
 ## What a fix may change
 
