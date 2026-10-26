@@ -330,6 +330,10 @@ describe('shadowlap test with several gated goldens', () => {
         expect(result.gate.sentence).toBe(`passed · 12 of 12 · rate >= 0.73 (95%) · ${rule}`);
         expect(result.gate.bound).toEqual({ lo: expect.closeTo(0.7354, 4), confidence: 0.95, method: 'stagewise' });
       }
+      // Their attempts run in turns, one golden's then the other's, so a burst of failures lands on both once each.
+      const order = [...r.out.matchAll(/replaying run \w+ for (goldens\/reference-agent(?:-copy)?), attempt (\d+) of up to 82/g)].map((m) => `${m[1]} ${m[2]}`);
+      expect(order.slice(0, 4)).toEqual(['goldens/reference-agent 1', 'goldens/reference-agent-copy 1', 'goldens/reference-agent 2', 'goldens/reference-agent-copy 2']);
+      expect(order).toHaveLength(24);
       expect(r.report.suite).toMatchObject({ risk: 0.05, perGoldenRisk: 0.025, method: 'bonferroni', goldens: 2, inconclusive: 'fail', forecast: { most: 164 } });
       expect(r.report.suite.red).toBeLessThanOrEqual(0.05);
       expect(r.report.suite.forecast.attempts).toBeGreaterThan(24);

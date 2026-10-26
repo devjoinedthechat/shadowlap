@@ -349,7 +349,7 @@ if (tag === 'slow' && process.env.SLOW_MS) await new Promise((r) => setTimeout(r
       const r = await interrupted(signal, to);
       expect(r.code, r.out).toBe(code);
       expect(r.out).toContain('✓ a-first:');
-      expect(r.out).toContain('[shadowlap] interrupted: stopping goldens/b-slow, no golden after it runs');
+      expect(r.out).toContain('[shadowlap] interrupted: stopping goldens/b-slow, nothing more starts');
       expect(r.out).toContain('⏹ goldens/b-slow: interrupted, so it has no result this time');
       expect(r.out).toContain('1 passed, 0 failed, 2 not run: interrupted');
       expect(r.out).not.toContain('c-last:');

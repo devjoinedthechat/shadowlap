@@ -10,6 +10,7 @@ import { ProviderRetry } from './provider-retry.js';
 import { providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { withoutCommand } from './shared.js';
 import { type PackResult } from './test-report.js';
+import { type Turns } from './turns.js';
 import { NO_BASELINE_BRANCH } from './baseline-branch.js';
 
 /**
@@ -65,6 +66,8 @@ export interface RecordingTestContext {
   sleep?: (ms: number) => Promise<void>;
   /** The tools `--allow-unrecorded` lets a replay run again though the recording never recorded them and they write. */
   allowUnrecorded?: ReadonlySet<string>;
+  /** The session's turns (turns.ts): each attempt waits for this golden's, so the goldens' attempts interleave. */
+  turns?: Turns;
 }
 
 /** An inconclusive gate's attempts, carried over to a session that continues it. */
@@ -199,6 +202,12 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
     if (ctx.stopped?.()) break;
     const i = attempts.length;
     const meta = testMeta(i, i > 0 ? (attempts[0]?.ended.summary.runId ?? null) : null);
+    // Its turn among the session's goldens, given back once the attempt has ended.
+    const turn = ctx.turns ? await ctx.turns.take() : null;
+    if (ctx.stopped?.()) {
+      turn?.();
+      break;
+    }
     const attempt: GoldenAttempt = await testAttempt(ctx.store, parent, {
       cwd: ctx.cwd,
       upstreams,
@@ -217,7 +226,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
       ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
       ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
-    });
+    }).finally(() => turn?.());
     attempts.push(attempt);
     if (attempt.interrupted) break;
     // The agent failed while its provider was unavailable (ProviderRetry): before the model answered,
