@@ -31,6 +31,12 @@ export interface StoreWrite {
   failed?: (reason: string, replaced: boolean) => void;
   /** Dropped without a word when it fails: a fingerprint the cache can do without. */
   optional?: boolean;
+  /**
+   * Tried on the timer for as long as another process holds the store, past `deadlineMs`, until the
+   * writer stops: a write that must land once it is free (a run's end, without which the run reads as
+   * running). What makes writes on demand (settle, flush) still gives it up after the deadline.
+   */
+  retain?: boolean;
 }
 
 interface Queued extends StoreWrite {
@@ -159,7 +165,7 @@ export class StoreWriter implements QueuedWrites {
         this.backoff = 0;
         continue;
       }
-      if (isBusy(error) && Date.now() - head.since < this.deadlineMs) {
+      if (isBusy(error) && (head.retain || Date.now() - head.since < this.deadlineMs)) {
         // Locked out for now: tried again later, the writes behind it keeping their turn.
         this.backoff = Math.min(500, this.backoff ? this.backoff * 2 : 25);
         this.timer = setTimeout(() => this.drain(), this.backoff);

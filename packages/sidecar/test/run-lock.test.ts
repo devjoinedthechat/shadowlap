@@ -183,6 +183,37 @@ describe('a run that starts or ends while another process holds the store', () =
     }
   }, 30_000);
 
+  it('says what it could not write once it has ended, and is ended in the store once the store is free', async () => {
+    const path = join(dir, 'late.db');
+    const store = Store.open(path);
+    // A writer that gives a row up after 300 ms, where the lock below is held for a second.
+    const sidecar = await Sidecar.start({ store, storeWrites: { waitMs: 20, deadlineMs: 300 } });
+    const beside = readBeside(path);
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      await clockRead(sidecar, run.runId);
+      const lock = await holdLock(path, 20_000);
+      // Its last call's rows wait behind the lock, and are given up only once the run has ended.
+      await clockRead(sidecar, run.runId);
+      const ended = sidecar.endRun(run.runId, 'completed');
+      expect(ended.summary.warnings.filter((w) => /store/.test(w))).toEqual([]);
+      setTimeout(() => void lock.release(), 1_000);
+      // Said once the run is written, for the summary a command prints.
+      const late = await sidecar.endWritten(run.runId);
+      expect(late.join('\n')).toMatch(/Call 2 could not be written to the store .*: it is missing from the recording/);
+      // Ended in the store all the same, once it was free, with the call it could write: never left running.
+      expect(lock.held()).toBe(false);
+      expect(beside.run(run.runId)).toMatchObject({ status: 'completed', ended_at: ended.run.endedAt });
+      expect(beside.calls(run.runId)).toBe(2);
+      // Asked again, it has nothing more to say.
+      expect(await sidecar.endWritten(run.runId)).toEqual([]);
+    } finally {
+      beside.close();
+      await sidecar.close();
+      store.close();
+    }
+  }, 30_000);
+
   it('is found by a read of it in this process before the store is free, which waits for its writes', async () => {
     const path = join(dir, 'read-your-writes.db');
     const store = Store.open(path);
