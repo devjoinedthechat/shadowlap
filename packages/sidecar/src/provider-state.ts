@@ -24,8 +24,28 @@ type Json = Record<string, unknown>;
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? (v as unknown[]) : []);
 
-/** The most a call may carry inline in place of the files it names: Gemini's limit on a request's inline data, the strictest of the three. */
-export const INLINE_LIMIT = 20 * 1024 * 1024;
+const MB = 1024 * 1024;
+
+/**
+ * The most a live call may come to once the files it names are in it, base64 and all, by its wire
+ * format, within what each provider documents it takes: a request, its own text included, and one
+ * image (`image`). Anthropic: a request of 32 MB, and an image of 5 MB in base64 (Amazon Bedrock's,
+ * the strictest of the platforms that serve its models). OpenAI: 50 MB of files in a request. Gemini:
+ * 50 MB of inline data in a request that carries a PDF (100 MB without one). Azure OpenAI, which
+ * states none of its own: 20 MB.
+ */
+export const INLINE_LIMITS: Readonly<Record<string, { request: number; image?: number }>> = {
+  anthropic: { request: 32 * MB, image: 5 * MB },
+  openai: { request: 50 * MB },
+  azure: { request: 20 * MB },
+  gemini: { request: 50 * MB },
+};
+
+/** A file's size in base64, as a request carries it inline. */
+const base64Size = (bytes: Buffer): number => Math.ceil(bytes.length / 3) * 4;
+
+/** Megabytes, to a tenth: `21.3`, `20`. */
+const mb = (n: number): string => (n / MB).toFixed(1).replace(/\.0$/, '');
 
 interface RecordedCache {
   callNo: number;
@@ -190,7 +210,9 @@ export class ProviderState {
     }
 
     if (files.size || stores.size) {
-      let inline = 0;
+      const limit = INLINE_LIMITS[format] ?? { request: 20 * MB };
+      // What the request comes to as the agent sent it: each file sent in its place adds its base64.
+      let size = Buffer.byteLength(JSON.stringify(next), 'utf8');
       const refused: string[] = [];
       const swapped = mapObjects(next, (node) => {
         for (const named of byIdAlone(format, node)) this.noteById(out, format, callNo, named, files, stores);
@@ -198,9 +220,10 @@ export class ProviderState {
         const file = ref ? files.get(ref.id) : undefined;
         if (!ref || !file) return node;
         const keeper = KEEPER[format] ?? 'the provider keeps only for the account that uploaded it';
-        const encoded = file.bytes && inline + file.bytes.length <= INLINE_LIMIT ? ref.inline(file) : null;
+        const over = file.bytes ? oversize(limit, file.bytes, file.mimeType, size) : null;
+        const encoded = file.bytes && over === null ? ref.inline(file) : null;
         if (encoded) {
-          inline += file.bytes!.length;
+          size += base64Size(file.bytes!);
           changed = true;
           out.notes.push({ key: `file:${file.id}`, text: `call ${callNo} referred to file ${ref.id}, which the recorded run uploaded at call #${file.callNo} and ${keeper}: it was sent with the file's contents in its place, from that upload.` });
           return encoded;
@@ -209,7 +232,7 @@ export class ProviderState {
           refused.push(`it reads file ${ref.id}, which the recorded run uploaded at call #${file.callNo} and Google deleted at ${new Date(file.expiresAt).toISOString()} (it keeps an upload for 48 hours), and the recording holds no whole copy of it to send in its place. Fork from the upload (--diverge-at ${file.callNo}) so the fork uploads it again.`);
           return node;
         }
-        const why = !file.bytes ? 'holds no whole copy of it (it was uploaded in parts, or around Shadowlap)' : inline + file.bytes.length > INLINE_LIMIT ? `can't send it in the request (over ${INLINE_LIMIT / 1024 / 1024} MB inline)` : `can't send a ${file.mimeType ?? 'file of that type'} in the request`;
+        const why = !file.bytes ? 'holds no whole copy of it (it was uploaded in parts, or around Shadowlap)' : over !== null ? `can't send it in the request (${over})` : `can't send a ${file.mimeType ?? 'file of that type'} in the request`;
         out.notes.push({ key: `file:${file.id}`, text: `call ${callNo} refers to file ${ref.id}, which the recorded run uploaded at call #${file.callNo} and ${keeper}; the recording ${why}, so it was sent as it was, and it fails with another account's key. Fork from the upload (--diverge-at ${file.callNo}) to upload it again.` });
         return node;
       });
@@ -250,6 +273,17 @@ function byIdAlone(format: string, node: Json): ById[] {
   if (format === 'openai' || format === 'azure') return [...ids(node.file_ids).map((id) => ({ kind: 'file' as const, id, field: 'file_ids' })), ...ids(node.vector_store_ids).map((id) => ({ kind: 'vector store' as const, id, field: 'vector_store_ids' }))];
   if (format === 'anthropic' && node.type === 'container_upload' && typeof node.file_id === 'string') return [{ kind: 'file', id: node.file_id, field: 'a container_upload' }];
   return [];
+}
+
+/**
+ * Why a file of `bytes` can't go in a request that comes to `size` already, under `limit`, as a
+ * clause; null when it can. Counted in base64, as the request carries it.
+ */
+function oversize(limit: { request: number; image?: number }, bytes: Buffer, mimeType: string | null, size: number): string | null {
+  const inline = base64Size(bytes);
+  if (limit.image !== undefined && mimeType?.startsWith('image/') && inline > limit.image) return `in base64 it is ${mb(inline)} MB, over the ${mb(limit.image)} MB an image may be`;
+  if (size + inline > limit.request) return `in base64 it would bring the request to ${mb(size + inline)} MB, over the ${mb(limit.request)} MB a request may be`;
+  return null;
 }
 
 /** A request's reference to an uploaded file: the name it gives it, and the same content sent inline in its place (null when it can't be). */

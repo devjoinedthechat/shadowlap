@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { Store, type CallRecord } from '@shadowlap/engine';
+import { ProviderState } from '../src/provider-state.js';
 import { Sidecar } from '../src/server.js';
 
 /**
@@ -304,5 +305,55 @@ describe('a file the recorded run uploaded', () => {
         store.close();
       }
     });
+  });
+});
+
+describe('what a fork sends inline in place of a file', () => {
+  const MB = 1024 * 1024;
+  /** The recorded run's uploads through `format`'s Files API (a form, as the SDKs send one), as a fork's live call reads them. */
+  async function uploaded(format: 'azure' | 'anthropic', files: Array<{ id: string; bytes: Buffer; mime: string; name: string }>): Promise<ProviderState> {
+    const calls: CallRecord[] = [];
+    const forms = new Map<number, string>();
+    const answers = new Map<number, Buffer>();
+    for (const [i, f] of files.entries()) {
+      const form = new FormData();
+      form.append('file', new Blob([f.bytes], { type: f.mime }), f.name);
+      forms.set(i + 1, Buffer.from(await new Request('http://upload', { method: 'POST', body: form }).arrayBuffer()).toString('base64'));
+      answers.set(i + 1, Buffer.from(JSON.stringify(format === 'azure' ? { id: f.id, object: 'file', filename: f.name } : { id: f.id, type: 'file', filename: f.name, mime_type: f.mime })));
+      calls.push({ runId: 'r', callNo: i + 1, kind: 'api', name: format === 'azure' ? 'POST /openai/files' : 'POST /v1/files', fingerprint: 'f', occurrence: i + 1, origin: 'live', effect: null, requestRef: 'q', meta: { provider: format }, at: i, end: { runId: 'r', callNo: i + 1, attempt: 0, responseRef: 'a', outcome: 'ok', meta: {}, at: i }, attempts: [] });
+    }
+    return new ProviderState(calls, { request: (c) => forms.get(c.callNo), response: (c) => answers.get(c.callNo) ?? null });
+  }
+  const sent = (out: { body?: unknown }) => JSON.stringify(out.body ?? null);
+
+  it('counts each file as base64, as the request carries it, against what the provider takes in a request', async () => {
+    // Azure takes 20 MB: a 16 MB file comes to 21.3 MB in base64.
+    const big = await uploaded('azure', [{ id: 'file-big', bytes: Buffer.alloc(16 * MB, 7), mime: 'application/pdf', name: 'big.pdf' }]);
+    const out = big.rebuild('azure', 2, { model: 'gpt-5', input: [{ role: 'user', content: [{ type: 'input_file', file_id: 'file-big' }] }] });
+    expect(out.body).toBeUndefined();
+    expect(out.notes.map((n) => n.text).join('\n')).toMatch(/call 2 refers to file file-big, .*can't send it in the request \(in base64 it would bring the request to 21\.3 MB, over the 20 MB a request may be\), so it was sent as it was/);
+
+    // Three of 7 MB, each 9.3 MB in base64: two go in, the request then 18.7 MB, and the third would take it past 20.
+    const three = await uploaded('azure', ['a', 'b', 'c'].map((id) => ({ id: `file-${id}`, bytes: Buffer.alloc(7 * MB, 1), mime: 'application/pdf', name: `${id}.pdf` })));
+    const both = three.rebuild('azure', 4, { model: 'gpt-5', input: [{ role: 'user', content: ['a', 'b', 'c'].map((id) => ({ type: 'input_file', file_id: `file-${id}` })) }] });
+    expect(sent(both)).not.toContain('"file_id":"file-a"');
+    expect(sent(both)).not.toContain('"file_id":"file-b"');
+    expect(sent(both)).toContain('"file_id":"file-c"');
+    expect(both.notes.find((n) => n.key === 'file:file-c')?.text).toMatch(/in base64 it would bring the request to 28 MB, over the 20 MB a request may be/);
+  });
+
+  it("holds an image to Anthropic's 5 MB in base64", async () => {
+    const state = await uploaded('anthropic', [
+      { id: 'file_011large', bytes: Buffer.alloc(4 * MB, 3), mime: 'image/png', name: 'large.png' },
+      { id: 'file_011small', bytes: Buffer.alloc(3 * MB, 3), mime: 'image/png', name: 'small.png' },
+    ]);
+    const ask = (id: string) => ({ model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'file', file_id: id } }, { type: 'text', text: 'What is in it?' }] }] });
+    // 4 MB is 5.3 MB in base64: sent as it was, saying why.
+    const large = state.rebuild('anthropic', 3, ask('file_011large'));
+    expect(large.body).toBeUndefined();
+    expect(large.notes[0]?.text).toMatch(/can't send it in the request \(in base64 it is 5\.3 MB, over the 5 MB an image may be\)/);
+    // 3 MB is 4 MB in base64: sent in its place.
+    const small = state.rebuild('anthropic', 3, ask('file_011small'));
+    expect(small.body).toMatchObject({ messages: [{ content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png' } }, { type: 'text' }] }] });
   });
 });
