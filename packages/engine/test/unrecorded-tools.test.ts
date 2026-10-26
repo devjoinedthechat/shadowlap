@@ -84,16 +84,22 @@ describe('an unrecorded tool’s effect', () => {
     expect(toolNameEffect('lookupOrder')).toEqual({ effect: 'read', word: 'lookup' });
   });
 
-  it('lets a verb that changes something win wherever it stands, and a word that is often a noun only first', () => {
+  it('counts a verb where a name puts its verb: first, after and, or or then, or last after a noun', () => {
     const effect = (names: string[]) => names.map((n) => [n, toolNameEffect(n)?.effect ?? null]);
     // Each of these writes, though some lead with a word that only looks.
-    const writes = ['get_or_create_user', 'search_and_replace', 'edit_file', 'replace', 'checkout', 'purchase', 'python_repl', 'open_pull_request', 'browser_click', 'browser_navigate', 'fill_form', 'issue_refund', 'run_query', 'post_message'];
+    const writes = ['get_or_create_user', 'search_and_replace', 'search_and_book', 'fetch_and_store', 'get_and_set', 'lookup_and_order', 'read_and_archive', 'list_and_clear', 'check_then_deploy', 'edit_file', 'replace', 'checkout', 'purchase', 'python_repl', 'open_pull_request', 'browser_click', 'browser_navigate', 'fill_form', 'issue_refund', 'run_query', 'post_message', 'user_create', 'ticket_status_update', 'searchAndBook'];
     expect(effect(writes)).toEqual(writes.map((n) => [n, 'write']));
     expect(toolNameEffect('get_or_create_user')).toEqual({ effect: 'write', word: 'create' });
+    expect(toolNameEffect('search_and_book')).toEqual({ effect: 'write', word: 'book' });
     expect(toolNameEffect('python_repl')).toEqual({ effect: 'write', word: 'repl' });
-    // A noun after the verb is no write: the order, the run, the post a read looks at.
-    const reads = ['lookup_order', 'get_order_status', 'get_run_status', 'list_posts', 'read_email', 'browser_snapshot', 'get_weather'];
+    // A noun after the verb is no write: the merge request, the commit, the refund a read looks at.
+    const reads = ['get_merge_request', 'get_commit', 'get_refund_status', 'get_deploy_status', 'get_order_status', 'list_runs', 'read_file', 'lookup_order', 'get_run_status', 'list_posts', 'read_email', 'browser_snapshot', 'get_weather', 'sql_db_schema', 'sql_db_list_tables'];
     expect(effect(reads)).toEqual(reads.map((n) => [n, 'read']));
+    // A word that is as often a noun is none at a name's end: no hint, so unknown, which a replay refuses as it may write.
+    expect(toolNameEffect('sales_order')).toBeNull();
+    // A tool that runs SQL the model writes can change data, whatever its name's verb says.
+    for (const n of ['sql_db_query', 'run_sql', 'execute_sql', 'sql_query', 'graphql_query', 'run_cypher']) expect(toolNameEffect(n)?.effect, n).toBe('write');
+    expect(unrecordedEffect('sql_db_query')).toEqual({ effect: 'write', why: 'it runs SQL the model writes, which can change data' });
     expect(unrecordedEffect('frobnicate')).toEqual({ effect: 'unknown', why: 'its name says nothing of what it does' });
     expect(mcpToolName('mcp__my_server__send_email')).toBe('send_email');
     expect(mcpToolName('send_email')).toBeNull();

@@ -59,22 +59,39 @@ export function parseUnrecordedConfig(tools: unknown, file = 'shadowlap.config.j
 
 // ---- effects by name ----
 
-/** Verbs that change something wherever they stand in a name: `get_or_create_user` creates, `search_and_replace` replaces. */
+/** Verbs that change something: in a verb's place in a name, a write (`send_email`, `get_or_create_user`). */
 const WRITE_VERBS = new Set(['send', 'create', 'write', 'delete', 'remove', 'update', 'upsert', 'insert', 'save', 'submit', 'pay', 'charge', 'refund', 'transfer', 'publish', 'deploy', 'notify', 'execute', 'exec', 'commit', 'push', 'merge', 'approve', 'cancel', 'move', 'rename', 'upload', 'add', 'invite', 'assign', 'apply', 'install', 'uninstall', 'kill', 'restart', 'trigger', 'tweet', 'edit', 'replace', 'modify', 'patch', 'checkout', 'purchase', 'buy', 'sell', 'click', 'fill', 'press', 'drag', 'navigate', 'repl', 'eval', 'overwrite', 'append', 'erase', 'purge', 'destroy', 'terminate', 'revoke', 'grant', 'escalate', 'enable', 'disable', 'subscribe', 'unsubscribe', 'reboot', 'shutdown', 'rollback', 'revert', 'truncate', 'wipe']);
 /**
- * Words that change something as a name's verb, where names put it, first, but are as often nouns
- * after it: `run_query` runs, `get_run_status` reads; `open_pull_request` opens, `lookup_order` reads.
+ * Words that change something as a verb but are as often nouns: a write only where a name puts its
+ * verb, never at its end (`run_query` and `book_flight` write, `sales_order` and `user_record` don't).
  */
-const WRITE_FIRST = new Set(['post', 'set', 'put', 'book', 'order', 'run', 'email', 'mail', 'reply', 'schedule', 'archive', 'comment', 'close', 'open', 'type', 'select', 'start', 'stop', 'message', 'text', 'share', 'like', 'tag', 'label', 'mark', 'pin', 'star', 'follow', 'reset', 'clear', 'call', 'invoke', 'command', 'script', 'shell', 'bash', 'python', 'drop', 'sync', 'import', 'export', 'link', 'note', 'issue', 'file', 'log', 'record', 'store']);
-const READ_WORDS = new Set(['get', 'read', 'fetch', 'search', 'list', 'find', 'lookup', 'query', 'load', 'browse', 'retrieve', 'check', 'describe', 'view', 'show', 'count', 'download', 'inspect', 'weather', 'scrape', 'crawl', 'grep', 'ls', 'cat', 'tail', 'head', 'watch', 'poll', 'price', 'quote', 'snapshot', 'screenshot', 'status', 'info', 'exists', 'peek', 'preview', 'scan']);
+const WRITE_NOUN_VERBS = new Set(['post', 'set', 'put', 'book', 'order', 'run', 'email', 'mail', 'reply', 'schedule', 'archive', 'comment', 'close', 'open', 'type', 'select', 'start', 'stop', 'message', 'text', 'share', 'like', 'tag', 'label', 'mark', 'pin', 'star', 'follow', 'reset', 'clear', 'call', 'invoke', 'command', 'script', 'shell', 'bash', 'python', 'drop', 'sync', 'import', 'export', 'link', 'note', 'issue', 'file', 'log', 'record', 'store']);
+/** Verbs that only look. */
+const READ_VERBS = new Set(['get', 'read', 'fetch', 'search', 'list', 'find', 'lookup', 'query', 'load', 'browse', 'retrieve', 'check', 'describe', 'view', 'show', 'count', 'download', 'inspect', 'scrape', 'crawl', 'grep', 'ls', 'cat', 'tail', 'head', 'watch', 'poll', 'peek', 'preview', 'scan']);
+/** Nouns of what a read returns, which say a name only looks when no verb does (`weather`, `browser_snapshot`). */
+const READ_NOUNS = new Set(['weather', 'price', 'quote', 'snapshot', 'screenshot', 'status', 'info', 'exists', 'schema']);
 const PURE_WORDS = new Set(['calc', 'calculate', 'compute', 'parse', 'format', 'convert', 'validate', 'math', 'sum', 'multiply', 'divide', 'round', 'hash', 'encode', 'decode', 'tokenize', 'sort', 'diff', 'render']);
+/** The words that join two of a name's verbs, after which a verb's place comes again: `search_and_book`, `get_or_create`. */
+const JOINS = new Set(['and', 'or', 'then']);
+/**
+ * Languages of statements the model writes and a tool runs, any of which can change data: a tool
+ * that runs one (`sql_db_query`, `run_cypher`, `graphql_query`) can write, whatever its name's verb
+ * says, since its input decides what it does.
+ */
+const STATEMENT_LANGUAGES = new Set(['sql', 'cypher', 'sparql', 'graphql', 'gql']);
+const RUNS_A_STATEMENT = new Set(['query', 'run', 'execute', 'exec', 'statement', 'stmt']);
+
+const isVerb = (w: string) => WRITE_VERBS.has(w) || WRITE_NOUN_VERBS.has(w) || READ_VERBS.has(w) || PURE_WORDS.has(w);
 
 /**
- * A tool's effect as its name says it, or null when the name gives no hint. A verb that changes
- * something decides wherever it stands (`get_or_create_user`, `search_and_replace`); a word that is
- * as often a noun decides only as the name's first, where names put their verb (`send_email`,
- * `lookupOrder`); then the first word that only looks, or depends only on its input. `shadowlap init`
- * suggests an effect for an unwrapped tool the same way.
+ * A tool's effect as its name says it, or null when the name gives no hint. A verb counts where a
+ * name puts its verb: first, or after `and`, `or` or `then`, so `search_and_book` books and
+ * `get_or_create_user` creates, while the nouns of `get_merge_request` and `get_deploy_status` only
+ * name what a read looks at. A name that leads with a noun puts its verb last (`user_create`,
+ * `ticket_status_update`), where only a word that is never a noun counts. A tool that runs a
+ * statement the model writes in SQL or a language like it can write (`sql_db_query`). Otherwise the
+ * first word that only looks, or depends only on its input. `shadowlap init` suggests an effect for
+ * an unwrapped tool the same way.
  */
 export function toolNameEffect(name: string): { effect: 'write' | 'read' | 'pure'; word: string } | null {
   const words = name
@@ -82,10 +99,16 @@ export function toolNameEffect(name: string): { effect: 'write' | 'read' | 'pure
     .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
-  const changes = words.find((w) => WRITE_VERBS.has(w)) ?? (words[0] !== undefined && WRITE_FIRST.has(words[0]) ? words[0] : undefined);
-  if (changes) return { effect: 'write', word: changes };
+  if (!words.length) return null;
+  const places = words.filter((w, i) => i === 0 || JOINS.has(words[i - 1]!));
+  const last = words.length > 1 && !isVerb(words[0]!) ? words.at(-1)! : null;
+  const writes = [...places.filter((w) => WRITE_VERBS.has(w) || WRITE_NOUN_VERBS.has(w)), ...(last && WRITE_VERBS.has(last) ? [last] : [])];
+  // Named, for the reason a person reads, by the plainest verb in it that changes something (`python_repl`: "repl").
+  if (writes.length) return { effect: 'write', word: words.find((w) => WRITE_VERBS.has(w)) ?? writes[0]! };
+  const language = words.find((w) => STATEMENT_LANGUAGES.has(w));
+  if (language && words.some((w) => RUNS_A_STATEMENT.has(w))) return { effect: 'write', word: language };
   for (const word of words) {
-    if (READ_WORDS.has(word)) return { effect: 'read', word };
+    if (READ_VERBS.has(word) || READ_NOUNS.has(word)) return { effect: 'read', word };
     if (PURE_WORDS.has(word)) return { effect: 'pure', word };
   }
   return null;
@@ -118,7 +141,10 @@ export function unrecordedEffect(name: string, declared: Readonly<Record<string,
   if (BUILT_IN_WRITES.has(name) || name.startsWith('computer.')) return { effect: 'write', why: 'a built-in that writes' };
   if (BUILT_IN_READS.has(name)) return { effect: 'read', why: 'a built-in that only reads' };
   const byName = toolNameEffect(bare ?? name);
-  if (byName) return { effect: byName.effect === 'write' ? 'write' : 'read', why: byName.effect === 'write' ? `"${byName.word}" changes something` : byName.effect === 'read' ? `"${byName.word}" only looks` : `"${byName.word}" depends only on its input` };
+  if (byName) {
+    const why = byName.effect === 'write' ? (STATEMENT_LANGUAGES.has(byName.word) ? `it runs ${byName.word === 'gql' ? 'GraphQL' : byName.word.toUpperCase()} the model writes, which can change data` : `"${byName.word}" changes something`) : byName.effect === 'read' ? `"${byName.word}" only looks` : `"${byName.word}" depends only on its input`;
+    return { effect: byName.effect === 'write' ? 'write' : 'read', why };
+  }
   return { effect: 'unknown', why: 'its name says nothing of what it does' };
 }
 
