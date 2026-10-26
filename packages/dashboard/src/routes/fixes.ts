@@ -62,12 +62,9 @@ function configuredRepairer(ctx: RouteContext): string | null {
 }
 
 /**
- * Whether a verified fix's patch is in the project's working tree already, as git says it there,
- * asked beside the server before the read model looks the answer up; none without a project folder.
- */
-/**
  * A fix's page, worked out beside the server (read-jobs.ts `fix`): it reads the blamed run's calls,
- * every one of them. What git says of its patch is asked here first, and handed over as data.
+ * every one of them. Whether each patch it could apply is in the project's working tree already, as
+ * git says it there, is asked here first and handed over as data; none without a project folder.
  */
 async function fixAnswer(ctx: RouteContext, store: Store, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
