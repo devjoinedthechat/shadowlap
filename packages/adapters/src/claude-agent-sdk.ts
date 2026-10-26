@@ -500,19 +500,22 @@ interface QueryOptionsLike extends ReachOptions {
  * The query's options with the fence's hooks in them: `query({ prompt, options: withFence(options) })`.
  * The query's own PreToolUse and PostToolUse hooks run inside the fence's, first; its other hooks
  * stay where they are, beside the fence's. Under Shadowlap, the CLI runs with
- * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 unless the query's `env` sets it: its updates,
- * telemetry and error reports are connections the guard can't watch. Without Shadowlap the hooks
- * answer as the query's own would and the environment is the query's, so the same options serve
- * production.
+ * CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1, set in the query's `env` or else the process's, unless
+ * it is set there already: its updates, telemetry and error reports are connections the guard can't
+ * watch. Without Shadowlap the hooks answer as the query's own would and no environment is touched,
+ * so the same options serve production.
  */
 export function withFence<T extends object>(options: T, fence: FenceOptions = {}): T & { hooks: Record<string, unknown[]> } {
   const q = options as QueryOptionsLike;
   const own = q.hooks ?? {};
   const inner = { PreToolUse: [...((own.PreToolUse ?? []) as HookMatcherLike[]), ...(fence.hooks?.PreToolUse ?? [])], PostToolUse: [...((own.PostToolUse ?? []) as HookMatcherLike[]), ...(fence.hooks?.PostToolUse ?? [])] };
-  // The CLI's environment: the query's, which replaces the process's, or the process's.
+  // The CLI's environment: the query's, which replaces the process's, or the process's, which the
+  // CLI takes as it is when it starts. Without a query env the variable goes there, so nothing the
+  // agent sets later (a .env file it loads) is left out of a copy taken now.
   const given = q.env ?? process.env;
-  const quiet = process.env.SHADOWLAP_URL && given.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC === undefined;
-  const env = quiet ? { ...given, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } : q.env;
+  const quiet = !!process.env.SHADOWLAP_URL && given.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC === undefined;
+  if (quiet && !q.env) process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+  const env = quiet && q.env ? { ...q.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' } : q.env;
   const extra = q.extraArgs !== null && typeof q.extraArgs === 'object' ? (q.extraArgs as Record<string, unknown>) : {};
   const plugins = (Array.isArray(q.plugins) ? q.plugins : []).flatMap((p: unknown) => (p !== null && typeof p === 'object' && typeof (p as { path?: unknown }).path === 'string' ? [(p as { path: string }).path] : []));
   const settings: SettingsPlaces = {
@@ -530,7 +533,7 @@ export function withFence<T extends object>(options: T, fence: FenceOptions = {}
   const hooks: Record<string, unknown[]> = {};
   for (const [event, matchers] of Object.entries(own)) if (matchers && event !== 'PreToolUse' && event !== 'PostToolUse') hooks[event] = [...matchers];
   for (const [event, matchers] of Object.entries(fenceHooks({ ...fence, hooks: inner, settings, query }))) hooks[event] = [...(hooks[event] ?? []), ...matchers];
-  return { ...options, ...(quiet ? { env } : {}), hooks };
+  return { ...options, ...(env !== q.env ? { env } : {}), hooks };
 }
 
 /** A tool of an in-process MCP server, as the SDK's `tool()` makes it. */

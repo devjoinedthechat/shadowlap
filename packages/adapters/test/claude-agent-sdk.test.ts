@@ -315,11 +315,13 @@ describe('the Claude Agent SDK fence', () => {
   it('turns the CLI\'s nonessential traffic off under Shadowlap, unless the query\'s env sets it, and leaves the env alone outside it', () => {
     const run = sidecar.startRun({ mode: 'record', command });
     within(run);
-    // The process's environment, which the CLI would get, with the variable added.
-    const env = (withFence({}) as { env?: Record<string, string | undefined> }).env!;
-    expect(env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
-    expect(env.SHADOWLAP_URL).toBe(sidecar.url);
-    expect(env.PATH).toBe(process.env.PATH);
+    const before = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    // Without a query env the CLI takes the process's as it starts, so the variable goes there, not into a copy.
+    expect('env' in withFence({})).toBe(false);
+    expect(process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    if (before === undefined) delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    else process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = before;
     // The query's own env, which replaces the process's: kept whole, with the variable added.
     expect((withFence({ env: { A: '1' } }) as { env?: Record<string, string> }).env).toEqual({ A: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
     // A value the query sets stands, an empty one too.
@@ -327,7 +329,9 @@ describe('the Claude Agent SDK fence', () => {
     sidecar.endRun(run.runId, 'completed');
     delete process.env.SHADOWLAP_URL;
     delete process.env.SHADOWLAP_RUN_ID;
+    const outside = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
     expect('env' in withFence({})).toBe(false);
+    expect(process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe(outside);
     expect((withFence({ env: { A: '1' } }) as { env?: Record<string, string> }).env).toEqual({ A: '1' });
   });
 
