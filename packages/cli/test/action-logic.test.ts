@@ -38,15 +38,15 @@ interface Call {
   body: unknown;
 }
 
-/** A stand-in for fetch: `answer` gives each call's status and JSON; every call is kept. */
-function github(answer: (call: Call) => { status: number; json?: unknown } | Error) {
+/** A stand-in for fetch: `answer` gives each call's status, JSON and headers; every call is kept. */
+function github(answer: (call: Call) => { status: number; json?: unknown; headers?: Record<string, string> } | Error) {
   const calls: Call[] = [];
   const fetch: Fetch = async (url, init) => {
     const call = { method: init.method, url, headers: init.headers, body: init.body === undefined ? undefined : JSON.parse(init.body) };
     calls.push(call);
     const a = answer(call);
     if (a instanceof Error) throw a;
-    return { status: a.status, text: async () => (a.json === undefined ? '' : JSON.stringify(a.json)) };
+    return { status: a.status, text: async () => (a.json === undefined ? '' : JSON.stringify(a.json)), headers: { get: (name: string) => a.headers?.[name.toLowerCase()] ?? null } };
   };
   return { fetch, calls };
 }
@@ -199,7 +199,38 @@ describe('the pull request comment', () => {
     const page1 = Array.from({ length: 100 }, (_, i) => comment(100 + i, i === 3 ? `> ${marker} quoted` : 'chat'));
     const kept = github((c) => user(c) ?? (c.method === 'GET' ? { status: 200, json: c.url.endsWith('page=1') ? page1 : [comment(300, `${marker}\nold`, ACTIONS_BOT, 'github-actions')] } : { status: 200, json: comment(300, 'x', ACTIONS_BOT, 'github-actions') }));
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nnew`, fetch: kept.fetch })).toMatchObject({ state: 'updated', url: 'https://github.test/northwind/agent/pull/12#issuecomment-300' });
-    expect(kept.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /issues/12/comments?per_page=100&page=2', 'GET /user', 'PATCH /issues/comments/300']);
+    // Who the token is, asked at the first comment that holds the marker (the person's), before the next page.
+    expect(kept.calls.map(path)).toEqual(['GET /issues/12/comments?per_page=100&page=1', 'GET /user', 'GET /issues/12/comments?per_page=100&page=2', 'PATCH /issues/comments/300']);
+  });
+
+  it('finds its comment in a thread of any length: on the first page, else newest first, past fifty pages', async () => {
+    /** A thread of `pages` pages of 100 comments, as GitHub serves it, with its last page named in the Link header; `at` puts the action's comment there. */
+    const thread = (pages: number, at: { page: number; id: number } | null) =>
+      github((c) => {
+        const u = user(c);
+        if (u) return u;
+        if (c.method !== 'GET') return { status: 200, json: comment(at?.id ?? 1, 'x', ACTIONS_BOT, 'github-actions') };
+        const n = Number(/[?&]page=(\d+)/.exec(c.url)![1]);
+        const json = Array.from({ length: 100 }, (_, i) => (at && n === at.page && i === 42 ? comment(at.id, `${marker}\nold`, ACTIONS_BOT, 'github-actions') : comment(n * 1000 + i, 'chat')));
+        return { status: 200, json, headers: n === 1 ? { link: `<https://api.github.test/repositories/1/issues/12/comments?per_page=100&page=2>; rel="next", <https://api.github.test/repositories/1/issues/12/comments?per_page=100&page=${pages}>; rel="last"` } : {} };
+      });
+    const pages = (calls: Call[]) => calls.filter((c) => c.method === 'GET' && c.url.includes('/comments')).map((c) => Number(/[?&]page=(\d+)/.exec(c.url)![1]));
+
+    // On page 57 of 60, past the fifty pages read before: found from the newest end, and edited.
+    const late = thread(60, { page: 57, id: 57_042 });
+    expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nnew`, fetch: late.fetch })).toMatchObject({ state: 'updated' });
+    expect(late.calls.filter((c) => c.method !== 'GET').map(path)).toEqual(['PATCH /issues/comments/57042']);
+    expect(pages(late.calls)).toEqual([1, 60, 59, 58, 57]);
+
+    // On the first page of a long thread, where the first run put it: the first page alone is read.
+    const early = thread(400, { page: 1, id: 1_042 });
+    expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nnew`, fetch: early.fetch })).toMatchObject({ state: 'updated' });
+    expect(pages(early.calls)).toEqual([1]);
+
+    // None at all: the first page and the 300 newest are read, then one is made.
+    const none = thread(400, null);
+    expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: `${marker}\nnew`, fetch: none.fetch })).toMatchObject({ state: 'created' });
+    expect(pages(none.calls)).toEqual([1, ...Array.from({ length: 300 }, (_, i) => 400 - i)]);
   });
 
   it("never edits a comment the token didn't make, whatever it holds: a person's, or another App's bot's, that plants the marker", async () => {

@@ -100,7 +100,8 @@ async function call(fetchFn, { api, token }, method, path, body) {
   } catch {
     // no JSON: the status says enough
   }
-  return { status: res.status, ok: res.status >= 200 && res.status < 300, data };
+  // A list's pages: GitHub names the last one in the Link header.
+  return { status: res.status, ok: res.status >= 200 && res.status < 300, data, link: res.headers?.get?.('link') ?? null };
 }
 
 /** What GitHub said about a call that failed, in its words when it gave some. */
@@ -182,14 +183,28 @@ function madeBy(c, owner) {
   return user.type === 'Bot' && (login || c.performed_via_github_app?.slug === owner.app);
 }
 
+/** The number of pages a list has, from the `last` link GitHub names in its first page's Link header: 1 when it names none. */
+function lastPage(link) {
+  const m = /<[^>]*[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(link ?? '');
+  return m ? Number(m[1]) : 1;
+}
+
+/**
+ * The most pages of a thread's comments read past its first, newest first: 30,000 comments, which
+ * bounds what one thread can cost the job's API calls. A thread longer still is read at both ends.
+ */
+const COMMENT_PAGES = 300;
+
 /**
  * Keeps `body` on pull request `number` in one comment of the token's own: the one it made whose body
  * holds `marker` is edited in place, else a new one is made. The comments are read a page of 100 at a
- * time. A comment anyone else made never is edited, whatever it holds: one that quotes the marker, or
- * plants it, is left as it is. With a token whose owner GitHub won't name up front (a GitHub App's),
- * the comment is posted again, and the App's earlier ones, which the new one's author names, are
- * removed. Never throws: `{ state, url, why }`, state `updated`, `created`, `denied` (the token may
- * not comment) or `failed`.
+ * time: the first page, where the comment is when the action made it on the pull request's first run,
+ * then the rest newest first, where it is when the action came to a long thread late, or posts it
+ * again each run, however many pages the thread has, up to COMMENT_PAGES. A comment anyone else made
+ * never is edited, whatever it holds: one that quotes the marker, or plants it, is left as it is.
+ * With a token whose owner GitHub won't name up front (a GitHub App's), the comment is posted again,
+ * and the App's earlier ones, which the new one's author names, are removed. Never throws:
+ * `{ state, url, why }`, state `updated`, `created`, `denied` (the token may not comment) or `failed`.
  */
 export async function upsertComment({ env, auth, number, marker, body, fetch: fetchFn = globalThis.fetch }) {
   const { api, repo } = repositoryOf(env);
@@ -197,15 +212,44 @@ export async function upsertComment({ env, auth, number, marker, body, fetch: fe
   const by = { api, token: auth.token };
   try {
     const marked = [];
-    for (let page = 1; page <= 50; page++) {
-      const r = await call(fetchFn, by, 'GET', `/repos/${repo}/issues/${number}/comments?per_page=100&page=${page}`);
-      if (!r.ok) return refusal(r);
-      const list = Array.isArray(r.data) ? r.data : [];
-      marked.push(...list.filter((c) => c && typeof c.body === 'string' && c.body.includes(marker) && typeof c.id === 'number'));
-      if (list.length < 100) break;
+    // Who the token posts as, asked once a comment holds the marker; null for an App's, which reads every page.
+    let owner;
+    let found = null;
+    /** Takes a page's comments that hold the marker, newest first: whether one is the token's own. */
+    const take = async (r) => {
+      for (const c of (Array.isArray(r.data) ? r.data : []).toReversed()) {
+        if (!c || typeof c.body !== 'string' || !c.body.includes(marker) || typeof c.id !== 'number') continue;
+        marked.push(c);
+        if (owner === undefined) owner = await tokenOwner(fetchFn, by, auth);
+        if (owner && madeBy(c, owner)) {
+          found = c;
+          return true;
+        }
+      }
+      return false;
+    };
+    const page = (n) => call(fetchFn, by, 'GET', `/repos/${repo}/issues/${number}/comments?per_page=100&page=${n}`);
+    const full = (r) => Array.isArray(r.data) && r.data.length >= 100;
+    const first = await page(1);
+    if (!first.ok) return refusal(first);
+    const last = lastPage(first.link);
+    if (!(await take(first))) {
+      if (last > 1) {
+        for (let n = last; n > 1 && n > last - COMMENT_PAGES; n--) {
+          const r = await page(n);
+          if (!r.ok) return refusal(r);
+          if (await take(r)) break;
+        }
+      } else if (full(first)) {
+        // A server that names no last page (one that drops the Link header): on, a page at a time, while each is full.
+        for (let n = 2; n <= COMMENT_PAGES + 1; n++) {
+          const r = await page(n);
+          if (!r.ok) return refusal(r);
+          if ((await take(r)) || !full(r)) break;
+        }
+      }
     }
-    const owner = marked.length ? await tokenOwner(fetchFn, by, auth) : null;
-    const found = marked.find((c) => madeBy(c, owner)) ?? null;
+    owner ??= null;
     if (found) {
       const r = await call(fetchFn, by, 'PATCH', `/repos/${repo}/issues/comments/${found.id}`, { body });
       if (r.ok) return { state: 'updated', url: r.data?.html_url ?? found.html_url ?? null, why: null };
