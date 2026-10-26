@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
 import { HOSTILE } from '../../engine/test/markdown-cases.js';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
-import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
 import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
 import { dispatchWorkflow, githubToken, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
@@ -549,6 +549,12 @@ describe("what the Action posts, in the Markdown GitHub renders", () => {
     const safe = markdownText(planted);
     const pr = [goldenNote({ state: 'stale', golden: 'goldens/refund-flow', why: `the recording verify accepted does not replay clean on the branch (${safe})` }), branchNote({ goldens: [{ state: 'recorded', golden: 'goldens/a', why: null }], others: { diverging: [], failing: [], unreplayed: [], unchecked: ['goldens/c'], replayed: 0 }, checked: false, why: safe }), checksNote({ auth: githubToken(ACTIONS), dispatch: { dispatched: false, workflow: 'ci.yml', why: planted } })].join('\n');
     expect(live(pr)).toEqual([]);
+    // The note on a golden the fix was not verified for carries repair's why for the goldens together, as text.
+    const leftOut = goldenNote({ state: 'unfixed', golden: 'goldens/refund-vip', why: leftOutWhy(['goldens/refund-flow', 'goldens/refund-vip'], planted, ['goldens/refund-flow']) });
+    expect(leftOut).toContain(`no fix was accepted for \`goldens/refund-flow\` and \`goldens/refund-vip\` together (${safe}), and this one was verified for \`goldens/refund-flow\` alone.`);
+    expect(live(leftOut)).toEqual([]);
+    // A golden's name is a code span its own backtick can't end.
+    expect(leftOutWhy(['goldens/a`b', 'goldens/c'], 'the gate accepted none of the 2 candidates tried', ['goldens/a`b'])).toBe('no fix was accepted for ``goldens/a`b`` and `goldens/c` together (the gate accepted none of the 2 candidates tried), and this one was verified for ``goldens/a`b`` alone');
 
     // The summary's untrusted leaves: the repairer's title, a fix's why, which can hold a check's label, a run's message or
     // an error repair or GitHub gave, a golden's name, and an external store's or GitHub's error.

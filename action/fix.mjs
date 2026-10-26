@@ -717,6 +717,15 @@ function triedWhy(together, alone, members) {
   return [`together: ${together}`, ...alone.map((a) => `${a.golden} on its own: ${a.why}`)].join(' · ');
 }
 
+/**
+ * Why a fix's pull request leaves out the goldens it was not verified for, as its note on them says it:
+ * Markdown, with repair's why for the goldens together, which can carry what a provider or the
+ * repairer answered, as text, and each golden's name a code span its own backticks can't end.
+ */
+export function leftOutWhy(goldens, together, verified) {
+  return `no fix was accepted for ${listed(goldens.map((g) => markdownCode(g)))} together (${markdownText(String(together ?? ''))}), and this one was verified for ${listed(verified.map((g) => markdownCode(g)))} alone`;
+}
+
 /** Whether a repair that kept no fix leaves one for a repair of fewer goldens to find: it ran to its end, with a repairer to ask. */
 const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' || repair.outcome === 'no-diagnosis') && !repair.noRepairer;
 
@@ -810,7 +819,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
       if (chosen) {
         const branch = repair.output.branch;
         const leftOut = group.members.filter((m) => !chosen.members.includes(m));
-        const unfixedWhy = leftOut.length ? `no fix was accepted for ${listed(goldens.map((g) => `\`${g}\``))} together (${together.why}), and this one was verified for ${listed(chosen.members.map((m) => `\`${goldenOf(m)}\``))} alone` : null;
+        const unfixedWhy = leftOut.length ? leftOutWhy(goldens, together.why, chosen.members.map(goldenOf)) : null;
         const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, build, env: fixEnv, scratch });
         if (branchState.warning) log(`::warning title=Shadowlap::${commandText(`${names}: ${branchState.warning}`)}`);
         for (const g of branchState.goldens) {
