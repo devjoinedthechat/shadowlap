@@ -1,4 +1,4 @@
-import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun, provenance } from '../api.js';
+import { addNote, CALLS_PAGE, changeLabels, lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { ExportError, exportHtmlApart } from '../export-apart.js';
 import { HttpError } from '../http.js';
@@ -18,6 +18,9 @@ function count(r: { query: URLSearchParams }, name: string, what: string): numbe
   if (!(Number.isInteger(n) && n >= 0)) throw new HttpError(400, `${name} is ${what}: a whole number, 0 or more`);
   return n;
 }
+
+/** `whole=1`: an answer from the whole run's analysis, waited for, rather than one from a part of the run. */
+const wantsWhole = (r: { query: URLSearchParams }) => r.query.get('whole') === '1';
 
 /**
  * Runs: the list, one run, its calls, family and provenance, labels and notes, the HTML download,
@@ -51,7 +54,9 @@ export function register(router: Router, ctx: RouteContext): void {
     sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, ...(after === undefined ? {} : { after }) }, { affinity: run.runId }), { etag });
   });
 
-  // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at most).
+  // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at
+  // most). While a long run is analysed, a page deep in it is answered from the calls around it and
+  // says so (`around`); `whole=1` waits for the analysis instead.
   router.get('/runs/:id/calls', async (r) => {
     const run = lookupRun(ctx.store, r.params.id!);
     if (!run) {
@@ -60,7 +65,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
     const from = count(r, 'from', 'a call number') ?? 1;
     const limit = Math.min(CALLS_PAGE, Math.max(1, count(r, 'limit', 'how many calls') ?? CALLS_PAGE));
-    sendAnswer(r, await ctx.reads.run({ kind: 'calls', runId: run.runId, read: ctx.read, from, limit }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'calls', runId: run.runId, read: ctx.read, from, limit, ...(wantsWhole(r) ? { whole: true } : {}) }, { affinity: run.runId }));
   });
 
   // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
@@ -79,22 +84,22 @@ export function register(router: Router, ctx: RouteContext): void {
     const n = Number(r.params.n);
     const run = Number.isInteger(n) ? lookupRun(ctx.store, r.params.id!) : null;
     if (!run) throw new HttpError(404, `no call #${r.params.n!} in run ${r.params.id!}`);
-    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n, ...(wantsWhole(r) ? { whole: true } : {}) }, { affinity: run.runId }));
   });
 
   // The run's record for the Provenance tab, with what a copy made now would mask under the
   // project's redaction rules, read afresh as the download reads them. The count is the Redaction
   // tab's preview of the run, read on a thread of its own (run-mask.ts): a rule that takes minutes
   // on the run's text leaves it uncounted, with why, rather than holding the server up.
+  // The rest of the record reads every call of the run: worked out beside the server, by the thread
+  // that read the run last (it held the server's thread 0.9 s at 100,000 calls).
   router.get('/runs/:id/provenance', async (r) => {
     const store = ctx.store;
     const run = lookupRun(store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, run, rules: redact });
-    const p = provenance(store, run.runId, { ...ctx.read, ...(redact.length ? { redact } : {}), maskCount: () => mask });
-    if (!p) throw new HttpError(404, `no run ${r.params.id!}`);
-    r.tagged(p);
+    sendAnswer(r, await ctx.reads.run({ kind: 'provenance', runId: run.runId, read: ctx.read, mask }, { affinity: run.runId }));
   });
 
   router.get('/runs/:id/lineage', async (r) => {

@@ -6,6 +6,7 @@ import { startDashboard, type Dashboard } from '../src/index.js';
 import { runUnrecorded, runWebSockets } from '../src/run-unrecorded.js';
 import { shortReason } from '../src/tests.js';
 import { failureHint } from '../ui/goldens.js';
+import { UNGUARDED_FIX } from '../../cli/src/doctor.js';
 import { declareSnippet, noteText, preloadsOf, preloadWords, runNotes, viaWords } from '../ui/run/notes.js';
 
 /**
@@ -34,6 +35,20 @@ describe('the notes under a run’s banner', () => {
     expect(declareSnippet([{ name: 'frobnicate', effect: 'unknown' }])).toBe('"tools": { "unrecorded": { "frobnicate": "write" } }');
   });
 
+  it('says a tool whose effect nothing tells may write, and is refused as a write is, as the CLI says it', () => {
+    const FROB = { name: 'frobnicate', count: 2, firstCallNo: 5, effect: 'unknown' as const, why: 'its name says nothing of what it does' };
+    const [one] = runNotes({ unrecorded: { tools: [FROB, SEARCH], partial: false }, mode: 'record' });
+    expect(one.tone).toBe('err');
+    expect(noteText(one.parts)).toBe(
+      'The model called 2 tools Shadowlap did not record: they ran in your agent unseen, and a replay runs them for real. frobnicate may write, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.',
+    );
+    // The one to wrap is the one refused.
+    expect(noteText(one.hint!.parts)).toContain("tool('frobnicate', { effect: 'write' }, fn)");
+    // Beside one that writes: they write, or may; of unknown effect alone, they may write.
+    expect(noteText(runNotes({ unrecorded: { tools: [BASH, FROB], partial: false }, mode: 'record' })[0].parts)).toContain('Bash and frobnicate write, or may, so shadowlap replay and test refuse to run them again until they are recorded');
+    expect(noteText(runNotes({ unrecorded: { tools: [FROB, { ...FROB, name: 'zap' }], partial: false }, mode: 'record' })[0].parts)).toContain('frobnicate and zap may write, so');
+  });
+
   it('says a run that holds its model calls alone runs the tools they asked for live, refusing nothing', () => {
     const [n] = runNotes({ unrecorded: { tools: [BASH], partial: true }, mode: 'record' });
     expect(n).toMatchObject({ tone: 'n', label: 'not recorded' });
@@ -46,6 +61,24 @@ describe('the notes under a run’s banner', () => {
     expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: {}, missing }, mode: 'record' })).toEqual([{ kind: 'preload', tone: 'err', label: 'no preload', parts: [missing] }]);
     expect(runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …' }, mode: 'record' })[0].tone).toBe('warn');
     expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: { node: 2 } }, mode: 'record' })).toEqual([]);
+  });
+
+  it('says a process the guard could not watch, in the words the run kept, with what doctor says to do', () => {
+    const unguarded = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. A connection one of them made that bypassed Shadowlap went unseen.';
+    const [n] = runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: { node: 1, 'claude-code': 1 }, unguarded }, mode: 'record' });
+    expect(n).toMatchObject({ kind: 'preload', tone: 'warn', label: 'unguarded', parts: [unguarded] });
+    // What to do, in doctor's words: the same fix shadowlap doctor gives, with the page's apostrophes.
+    expect(noteText(n.hint!.parts).replace(/’/g, "'")).toBe(UNGUARDED_FIX);
+    expect(n.hint!.copy).toBeUndefined();
+    // Under --guard block the run failed for it: red.
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'block', hellos: { 'claude-code': 1 }, unguarded }, mode: 'record' })[0].tone).toBe('err');
+    // Beside a preload that never loaded, each says its own.
+    expect(runNotes({ unrecorded: null, preloads: { guard: 'warn', hellos: {}, missing: 'No Shadowlap preload loaded …', unguarded }, mode: 'record' }).map((x) => x.label)).toEqual(['no preload', 'unguarded']);
+    // Kept by the run, read back checked; and the guard's row says it on hover.
+    expect(preloadsOf({ preloads: { guard: 'warn', hellos: { 'claude-code': 1 }, unguarded } })).toEqual({ guard: 'warn', hellos: { 'claude-code': 1 }, missing: null, unguarded });
+    expect(preloadsOf({ preloads: { guard: 'warn', hellos: {}, unguarded: 7 } })?.unguarded).toBeNull();
+    // The Claude Code CLI loads no preload: it is not among those it loaded in.
+    expect(preloadWords({ guard: 'warn', hellos: { node: 1, 'claude-code': 1 } })).toBe('warn · loaded in 1 Node process · the Claude Code CLI unwatched');
   });
 
   it('names the WebSockets that went to a provider live, and those an offline replay refused, as the run’s summary does', () => {
@@ -74,7 +107,7 @@ describe('the notes under a run’s banner', () => {
     expect(preloadWords({ guard: 'warn', hellos: {}, missing: 'x' })).toBe('warn · no preload loaded');
     expect(preloadWords({ guard: 'off', hellos: {} })).toBe('off · no guard');
     // From someone else's pack: only what is well formed.
-    expect(preloadsOf({ preloads: { guard: 'block', hellos: { node: 2, 'Bad Name': 3, deno: -1 }, missing: 7 } })).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null });
+    expect(preloadsOf({ preloads: { guard: 'block', hellos: { node: 2, 'Bad Name': 3, deno: -1 }, missing: 7 } })).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null, unguarded: null });
     expect(preloadsOf({ preloads: { guard: 'loud' } })).toBeNull();
   });
 });
@@ -147,7 +180,7 @@ describe('what a run never recorded, from the server', () => {
       { provider: 'anthropic', calls: 1 },
       { provider: 'openai', calls: 1, via: 'openrouter.ai' },
     ]);
-    expect(p.preloads).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null });
+    expect(p.preloads).toEqual({ guard: 'block', hellos: { node: 2 }, missing: null, unguarded: null });
     // A run that keeps none, or keeps them malformed: none.
     expect(runWebSockets({ meta: {} })).toBeNull();
     expect(runWebSockets({ meta: { websockets: [{ target: 7, count: 1 }] } as unknown as RunMeta })).toBeNull();
@@ -162,5 +195,13 @@ describe('a golden the guard never watched, on Tests', () => {
     expect(hint).toContain('No Shadowlap preload loaded in the agent’s processes while the golden replayed');
     expect(hint).toContain('--guard warn');
     expect(hint).not.toBe('The golden could not be replayed.');
+  });
+
+  it('says a golden failed for a process the guard can’t watch, as that, with doctor’s fix, never as no preload', () => {
+    const reason = 'The network guard could not watch every process of the agent: the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the connections Claude Code makes itself (WebFetch, an HTTP MCP server) are not watched. Under --guard block nothing stops such a connection, so the run fails. Replay it with --guard warn to accept connections the guard can\'t watch.';
+    const r = { ok: false, failure: 'guard', reason, data: {} } as unknown as Parameters<typeof shortReason>[0];
+    expect(shortReason(r)).toBe('unguarded: a process the network guard can’t watch ran');
+    const hint = failureHint({ failure: 'guard', reason, blocked: null } as unknown as Parameters<typeof failureHint>[0]);
+    expect(hint.replace(/’/g, "'")).toBe(`A process the network guard can't watch ran while the golden replayed, and under --guard block that fails it, whatever else the replay did: the line above says which. ${UNGUARDED_FIX}`);
   });
 });

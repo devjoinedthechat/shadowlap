@@ -123,7 +123,8 @@ describe('the top bar', () => {
     expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: null })).toEqual({ word: 'read-only', title: RO });
     // Embedded without the CLI: nothing was started with --read-only, and the title says what was.
     expect(topPill({ exported: false, readOnly: true, actionsOff: EMBEDDED, store: null })).toEqual({ word: 'read-only', title: EMBEDDED });
-    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'team', title: 'team store s3://northwind-agent-runs/support-agent' });
+    // What it is, the store the project shares: never a word that reads as a plan tier.
+    expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'team store', title: 'Runs push to and pull from the team store s3://northwind-agent-runs/support-agent' });
     // Read-only wins the word; the title still names the team store.
     expect(topPill({ exported: false, readOnly: true, actionsOff: RO, store: 's3://northwind-agent-runs/support-agent' })).toEqual({ word: 'read-only', title: `${RO} · team store s3://northwind-agent-runs/support-agent` });
     expect(topPill({ exported: false, readOnly: false, actionsOff: null, store: null })).toEqual({ word: 'dashboard', title: null });

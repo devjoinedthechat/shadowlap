@@ -10,7 +10,7 @@ import { Icon } from './Icon.js';
  * of the one it holds taking it off, each change said in a toast with Undo. On a run's header with
  * their words; in a row of Runs as their marks, the words read to a screen reader.
  */
-export function RunKey({ runId, labels, onMark, off, compact = false }: { runId: string; labels: readonly string[]; onMark: (m: RunMark) => void; off: string | null; compact?: boolean }) {
+export function RunKey({ runId, labels, onMark, off, compact = false }: { runId: string; labels: readonly string[]; onMark: (m: RunMark, from?: HTMLElement) => void; off: string | null; compact?: boolean }) {
   return (
     <span className={`runkey${compact ? ' sm' : ''}`} role="group" aria-label={`Good or bad: ${shortId(runId)}`}>
       {MARKS.map((m) => {
@@ -25,7 +25,7 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
             title={off ?? markTitle(m, on)}
             onClick={(e) => {
               e.stopPropagation();
-              onMark(m);
+              onMark(m, e.currentTarget);
             }}
           >
             <Icon name={m === 'good' ? 'check' : 'x'} />
@@ -39,14 +39,17 @@ export function RunKey({ runId, labels, onMark, off, compact = false }: { runId:
 
 /**
  * Pressing the key: the run's labels change at once (`onLabels`), the server is told, and a toast
- * says what changed, with Undo, which puts back what the press changed. A change the server refuses
- * puts the labels back as they were, and says why.
+ * says what changed, with Undo (its button, or the undo key), which puts back what the press changed
+ * and hands the focus back to `from`, the key pressed (else what had the focus). A change the server
+ * refuses puts the labels back as they were, and says why.
  */
-export function useMarkRun(onLabels: (runId: string, labels: string[]) => void): (runId: string, labels: readonly string[], m: RunMark) => void {
+export function useMarkRun(onLabels: (runId: string, labels: string[]) => void): (runId: string, labels: readonly string[], m: RunMark, from?: HTMLElement | null) => void {
   const { client, toast, guard, refresh } = useApp();
   return useCallback(
-    (runId: string, labels: readonly string[], m: RunMark) =>
+    (runId: string, labels: readonly string[], m: RunMark, from?: HTMLElement | null) =>
       guard(() => {
+        const focused = document.activeElement;
+        const returnTo = from ?? (focused instanceof HTMLElement && focused !== document.body ? focused : null);
         const before = [...labels];
         const change = markChange(before, m);
         onLabels(runId, withChange(before, change));
@@ -57,6 +60,7 @@ export function useMarkRun(onLabels: (runId: string, labels: string[]) => void):
             const undo = undoChange(before, change);
             toast(markToast(runId, m, change.add.includes(m)), 'notice', {
               label: 'Undo',
+              returnTo,
               run: () =>
                 guard(() =>
                   void client.labels(runId, undo.add, undo.remove).then(

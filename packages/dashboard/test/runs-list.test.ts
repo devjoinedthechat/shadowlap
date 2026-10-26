@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
-import { countRuns, deleteRuns, labelRuns, listRunsPage, recentRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
+import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
 import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
 
@@ -155,6 +155,20 @@ describe('the Runs table', () => {
     expect(ids('nothing-like-this')).toEqual([]);
     // The chips count the date range, not the filter field.
     expect(all({ q: 'injection' }).chipCounts.all).toBe(14);
+  });
+
+  it('lists the runs with a label exactly, from label:<name>, as --keeps label:good takes them', () => {
+    const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    // A word matches anywhere: `refund` finds both labels and more; label:refund finds no run, none being labelled just that.
+    expect(ids('refund-flow')).toContain(id.rec);
+    expect(ids('label:refund')).toEqual([]);
+    expect(ids('label:refund-flow')).toEqual([id.rec]);
+    expect(ids('label:refund-bug')).toEqual([id.failed]);
+    // As typed, as the CLI takes it, and with the words beside it.
+    expect(ids('label:Refund-Bug')).toEqual([]);
+    expect(ids('agent.mjs label:refund-bug')).toEqual([id.failed]);
+    expect(ids('refund_agent.py label:refund-bug')).toEqual([]);
+    expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'] });
   });
 
   it('narrows to a date range, and the chip counts follow it', () => {

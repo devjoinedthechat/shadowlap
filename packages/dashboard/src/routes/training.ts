@@ -1,8 +1,9 @@
 import { listingInput, listModelChoices, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
-import { exportPairsJob, modelsView, readTraining, scoreModelJob, sourceFixes, taskUpdateJob, trainingView, type PairFilter } from '../training.js';
+import { exportPairsJob, modelsView, scoreModelJob, taskUpdateJob, type PairFilter } from '../training.js';
 
 /**
  * Training (`#/training`, `#/training/tasks`):
@@ -86,11 +87,12 @@ export function register(router: Router, ctx: RouteContext): void {
     return value;
   };
 
-  router.get('/training', (r) => {
+  // The pairs every run makes, read beside the server (read-jobs.ts `training`); the goldens and the config here.
+  router.get('/training', async (r) => {
     const filter = (r.query.get('filter') ?? 'all') as PairFilter;
     if (!FILTERS.includes(filter)) throw new HttpError(400, 'filter must be all, high or medium');
     const t = tasks();
-    r.tagged(trainingView(readTraining(ctx.store, { tasks: t.tasks, tasksError: t.error, fixOf: sourceFixes(ctx.store), normalizers: normalizers() }), { filter }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'training', tasks: t.tasks, tasksError: t.error, normalizers: normalizers(), filter }));
   });
 
   router.get('/models', async (r) => {

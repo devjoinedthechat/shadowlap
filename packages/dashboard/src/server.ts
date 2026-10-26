@@ -9,9 +9,11 @@ import type { ProjectConfig, RouteContext } from './context.js';
 import { exportsEnded } from './export-apart.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
+import { answeringRequest } from './idle.js';
 import { LocalReads, ReadPool, type ReadModels } from './read-pool.js';
 import { previewsEnded } from './redaction-preview.js';
 import { Router, routeRequest } from './router.js';
+import { LocalSearch, SearchIndexer, type SearchIndex } from './search-index.js';
 import { ROUTE_MODULES, type RouteModule } from './routes/index.js';
 import type { GoldenSource } from './tests.js';
 import type { TrainingOptions } from './training.js';
@@ -235,6 +237,19 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     return pool;
   };
 
+  /**
+   * Each store's search index, brought up to date beside the requests (search-index.ts): on a thread
+   * of its own per store file, shared by a project's route instances; a store in memory on this one,
+   * while it answers no request.
+   */
+  const indexers = new Map<string, SearchIndexer>();
+  const searchFor = (dbPath: string | null | undefined, store: () => Store): SearchIndex => {
+    if (!dbPath || dbPath === ':memory:') return new LocalSearch(store);
+    let indexer = indexers.get(dbPath);
+    if (!indexer) indexers.set(dbPath, (indexer = new SearchIndexer({ dbPath, log })));
+    return indexer;
+  };
+
   /** What a project whose store can't be opened is served from: empty, in memory, shared by every such project. */
   let standIn: Store | null = null;
   const standInStore = (): Store => (standIn ??= Store.open(':memory:'));
@@ -342,6 +357,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         return prices ? { prices } : {};
       },
       reads: problem ? readsFor(null, standInStore) : readsFor(pc.dbPath, () => storeOf(pc)),
+      search: problem ? searchFor(null, standInStore) : searchFor(pc.dbPath, () => storeOf(pc)),
       get project() {
         const notice = s.failed.length ? `Part of the dashboard couldn’t start for ${pc.name}: ${s.failed.join('; ')}. Its pages there say they aren’t found.` : null;
         return { ...projectView(pc), ...(problem ? { problem, ...(existsSync(pc.path) ? {} : { missing: true }) } : {}), ...(notice ? { notice } : {}) };
@@ -430,6 +446,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       uploads,
       read: opts.prices ? { prices: opts.prices } : {},
       reads: readsFor(opts.dbPath, () => opts.store!),
+      search: searchFor(opts.dbPath, () => opts.store!),
       project,
       config: singleConfig,
       readOnly,
@@ -505,6 +522,10 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   }
 
   const server: Server = createServer((req, res) => {
+    // Counted until its answer has gone: what a store in memory does while the server is idle waits meanwhile (idle.ts).
+    const answered = answeringRequest();
+    res.once('finish', answered);
+    res.once('close', answered);
     void (async () => {
       // DNS rebinding: a page on some other name that resolves to 127.0.0.1 must not read this.
       if (!allowedHosts().has(String(req.headers.host ?? ''))) throw new HttpError(403, 'this dashboard only answers requests to localhost');
@@ -566,7 +587,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         await jobs.close();
         uploads.close();
         // The read models' threads close their connections to the store before they end.
-        await Promise.all([...pools.values(), ...locals].map((r) => r.close()));
+        await Promise.all([...pools.values(), ...locals, ...indexers.values()].map((r) => r.close()));
         standIn?.close();
         await closed;
         // A redaction preview's thread, or one making an HTML download, holds the store's file until it has ended.

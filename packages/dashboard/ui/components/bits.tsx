@@ -218,7 +218,10 @@ export function CodeBlock({ file, code, copyLabel = 'the code' }: { file: string
         <span>{file}</span>
         <CopyButton text={code} label={copyLabel} />
       </div>
-      <pre className="codebox">{code}</pre>
+      {/* It scrolls sideways for a long line: by keyboard too. */}
+      <pre className="codebox" tabIndex={0}>
+        {code}
+      </pre>
     </div>
   );
 }

@@ -1,38 +1,66 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
+import { pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store, type RunRecord } from '@shadowlap/engine';
+import { ProjectHost, ProjectRegistry, recordBlame, Store, storeApiRequest, type RunRecord } from '@shadowlap/engine';
+import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
+import type { ProjectConfig } from '../src/context.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { runJob } from '../src/read-jobs.js';
 import { recordLoop } from './long-run.js';
 
 /**
- * The dashboard's own thread answers every request while the read models that read every call of a
- * run, or of every run, are worked out on threads beside it (read-pool.ts), and a long run comes a
- * page at a time. The budgets hold on a machine busy with other work, as the one they were written
- * on was: a time a browser waits is the median of several answers, and a bound on the slowest is
- * set against the work it would have waited for.
+ * The dashboard's own thread answers every request, while what reads every call of a run, or of
+ * every run, is worked out on threads beside it (read-pool.ts), the search index is brought up to
+ * date on a thread of its own (search-index.ts), and a long run comes a page at a time. The budgets
+ * hold on a machine busy with other work, as the ones they were written on were: each is held
+ * against the server's thread itself, how long its event loop was held up and how much of the time
+ * it was busy (`onServerThread`), or against the order answers came in, never against a time a
+ * browser waits, which a busy machine stretches with work of its own. The times waited are printed.
  *
- * - With 10,000 runs whose totals no dashboard has kept yet, /api/summary answers at once with how
- *   far the warm-up has got, and /api/meta, asked all the while the totals warm, answers in under
- *   100 ms (median), none of its answers waiting for the totals: the slowest takes under a second,
- *   or under a quarter of the time the totals took to warm, where it used to wait for all of it.
+ * - With 10,000 runs whose totals no dashboard has kept and whose recordings it never indexed,
+ *   /api/summary answers at once with how far the warm-up has got; all the while the totals warm and
+ *   the search index catches up, the server's event loop is held up under 60 ms at the 99th
+ *   percentile, and it is busy under half the time, the test's own asking among it.
+ * - While a run records into that store, the status bar's poll of /api/meta costs its thread a few
+ *   milliseconds: the run index counts the new calls into what it had (82 ms a poll, before).
+ * - Settings → Tools, which reads every tool call in that store, and the project switcher, the
+ *   setup and Training, which read every run of it, cost the server's thread a few milliseconds: the
+ *   store is read beside it.
  * - A run of 20,000 calls answers its first page under 1 MB, where it sent every call at once
- *   (15 MB), and works it out in under 500 ms of CPU, read through a connection of its own as a
- *   thread reads it (the median of five). CPU rather than the time the browser waits: a busy machine
- *   stretches that with work of its own, which says nothing of the page's. The wait is printed.
- *   Its other pages come from /calls?from=.
- * - Comparing two such runs holds no request up: /api/meta beside it answers in under 100 ms
- *   (median), the slowest in under a second, or under half the time the comparison took.
+ *   (15 MB), worked out in under 500 ms of CPU read through a connection of its own, as a thread
+ *   reads it (the median of five); its other pages come from /calls?from=.
+ * - Scrolling deep into it while the whole run is analysed: the page at #10,000 and a call's details
+ *   there come before the whole analysis does, from the calls around them.
+ * - Comparing it with its fork shows the identical prefix and the first difference before the whole
+ *   comparison comes, and holds the server's thread up no more than any other read.
+ * - Its Provenance, its untrusted reads, the tools' trust over every call and the page of the fix
+ *   that blamed it, each of which reads every call of the run, cost the server's thread a few
+ *   milliseconds each, a small share of the time each takes (`beside`).
  */
 
 const TIMEOUT = 300_000;
-const META_MS = 100;
-/** Far above any answer that didn't wait for the read models; a bound of its own when the work it might wait for is short. */
-const NEVER_WAITED_MS = 1000;
 const FIRST_PAGE_CPU_MS = 500;
 const FIRST_PAGE_BYTES = 1024 * 1024;
+/** How long the server's event loop may be held up at the 99th percentile while long work runs beside it. */
+const HELD_P99_MS = 60;
+/**
+ * The share of the time the server's thread may be busy while that work runs beside it, this test's
+ * own asking and reading of the answers among it (it runs on the same thread): the search index alone
+ * took 70% of it on the server's thread, in 50 ms slices every 20 ms.
+ */
+const BUSY_SHARE = 1 / 2;
+
+/**
+ * What a request worked out beside the server may cost its thread: under half the time the request
+ * took. Worked out on the thread, a read of every call or every run takes all of it; beside it, the
+ * thread moves the answer through its sockets, which a busy machine stretches as it stretches the
+ * rest (a fix's page of 20,000 calls, 2 MB: 17 ms of 240 here, 62 ms under the whole suite).
+ */
+const beside = (path: string, t: { busyMs: number; busy: number }) => expect(t.busy, `${path}: the share of the time the server's thread was busy (${t.busyMs.toFixed(0)} ms)`).toBeLessThan(BUSY_SHARE);
 
 async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: number; bytes: number; body: any }> {
   const t0 = performance.now();
@@ -43,6 +71,28 @@ async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: nu
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const median = (xs: readonly number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+
+/**
+ * The server's thread while `work` runs (the dashboard runs on this one): how late its event loop
+ * ran its timers (the 99th percentile and the most, in ms), and how long and how much of the time it
+ * was busy. A request answered beside the server leaves it idle; one worked out on it holds it.
+ */
+async function onServerThread<T>(work: () => Promise<T>): Promise<{ out: T; p99: number; max: number; busyMs: number; busy: number; ms: number }> {
+  const held = monitorEventLoopDelay({ resolution: 5 });
+  held.enable();
+  const before = performance.eventLoopUtilization();
+  const t0 = performance.now();
+  try {
+    const out = await work();
+    const used = performance.eventLoopUtilization(before);
+    return { out, p99: held.percentile(99) / 1e6, max: held.max / 1e6, busyMs: used.active, busy: used.utilization, ms: performance.now() - t0 };
+  } finally {
+    held.disable();
+  }
+}
+
+const said = (what: string, t: { p99: number; max: number; busyMs: number; busy: number; ms: number }) =>
+  process.stdout.write(`${what} (${(t.ms / 1000).toFixed(1)} s): the server's thread held up ${t.p99.toFixed(0)} ms at the 99th percentile, ${t.max.toFixed(0)} ms at most, busy ${t.busyMs.toFixed(0)} ms (${(t.busy * 100).toFixed(0)}%)\n`);
 
 /** Asks /api/meta every 20 ms while `work` runs: each answer's time. */
 async function metaBeside<T>(d: Dashboard, work: () => Promise<T>): Promise<{ out: T; metas: number[] }> {
@@ -62,14 +112,6 @@ async function metaBeside<T>(d: Dashboard, work: () => Promise<T>): Promise<{ ou
     busy = false;
     await pings;
   }
-}
-
-/** /api/meta's answers beside work that took `workMs`: the median under META_MS, and none of them waiting for the work (`share` of it at most, or a second). */
-function metaHeld(metas: readonly number[], what: string, workMs: number, share: number): void {
-  const slowest = Math.max(...metas);
-  process.stdout.write(`/api/meta ${what} (${(workMs / 1000).toFixed(1)} s): ${metas.length} answers, median ${median(metas).toFixed(0)} ms, the slowest ${slowest.toFixed(0)} ms\n`);
-  expect(median(metas), `/api/meta's median ${what}`).toBeLessThan(META_MS);
-  expect(slowest, `/api/meta's slowest answer ${what}, which took ${workMs.toFixed(0)} ms`).toBeLessThan(Math.max(NEVER_WAITED_MS, workMs * share));
 }
 
 /** The CPU `work` takes, in milliseconds: this process's, its threads' and its garbage collector's. */
@@ -92,7 +134,17 @@ async function untilWhole(d: Dashboard): Promise<{ warming: number; body: any }>
   }
 }
 
-describe('ten thousand runs, their totals not kept yet', () => {
+/** Asks a search until the index has every run: how many searches it took. */
+async function untilIndexed(d: Dashboard): Promise<number> {
+  for (let n = 1; ; n++) {
+    const s = await ask(d, 'search?q=refund&limit=5');
+    expect(s.status).toBe(200);
+    if (!s.body.indexing) return n;
+    await wait(250);
+  }
+}
+
+describe('ten thousand runs, their totals not kept yet, their recordings never indexed', () => {
   const RUNS = 10_000;
   let dir: string;
   let dbPath: string;
@@ -109,8 +161,11 @@ describe('ten thousand runs, their totals not kept yet', () => {
         for (let c = 1; c <= 20; c++) {
           const api = c % 2 === 1;
           const identity = { kind: api ? ('api' as const) : ('tool' as const), name: api ? 'POST /v1/messages' : 'lookup_order', fingerprint: `f${c}`, occurrence: 1 };
-          store.appendCallStart({ runId: run.runId, callNo: c, ...identity, origin: 'live', effect: api ? null : 'read', requestRef: null, meta: api ? { provider: 'anthropic' } : {}, at: startedAt + c * 100 });
-          store.appendCallEnd(identity, { runId: run.runId, callNo: c, attempt: 0, responseRef: null, outcome: 'ok', meta: api ? { status: 200, latencyMs: 900, model: 'claude-sonnet-4-5', usage: { inputTokens: 800, outputTokens: 60, cacheReadInputTokens: 400 } } : { latencyMs: 20 }, at: startedAt + c * 100 + 50 });
+          // What the user asked, and what the order lookup said: text for the about line and the search index.
+          const requestRef = c === 1 ? storeApiRequest(store, { model: 'claude-sonnet-4-5', max_tokens: 1024, messages: [{ role: 'user', content: `Refund order A-${10_000 + i}: it arrived damaged, ticket T-${i}.` }] }) : c === 2 ? store.putJson({ args: { order: `A-${10_000 + i}` } }) : null;
+          const responseRef = c === 2 ? store.putJson({ result: { order: `A-${10_000 + i}`, status: 'delivered', note: `damaged on arrival, ticket T-${i}` } }) : null;
+          store.appendCallStart({ runId: run.runId, callNo: c, ...identity, origin: 'live', effect: api ? null : 'read', requestRef, meta: api ? { provider: 'anthropic' } : {}, at: startedAt + c * 100 });
+          store.appendCallEnd(identity, { runId: run.runId, callNo: c, attempt: 0, responseRef, outcome: 'ok', meta: api ? { status: 200, latencyMs: 900, model: 'claude-sonnet-4-5', usage: { inputTokens: 800, outputTokens: 60, cacheReadInputTokens: 400 } } : { latencyMs: 20 }, at: startedAt + c * 100 + 50 });
         }
         store.endRun(run.runId, 'completed', startedAt + 2500);
       }
@@ -120,27 +175,139 @@ describe('ten thousand runs, their totals not kept yet', () => {
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it('answers the Overview at once with how far the totals are, and /api/meta in under 100 ms while they warm', async () => {
+  it('answers the Overview at once, and holds the server’s thread free while the totals warm and the search index catches up', async () => {
     const store = Store.open(dbPath);
     const d = await startDashboard({ store, dbPath, port: 0 });
     try {
-      const t0 = performance.now();
       const first = await ask(d, 'summary?tz=UTC');
       expect(first.status).toBe(200);
       // At once, with what is known: nothing yet, or the newest few.
       expect(first.body.warming).toMatchObject({ total: RUNS });
       expect(first.body.warming.done).toBeLessThan(RUNS);
-      const { out, metas } = await metaBeside(d, () => untilWhole(d));
-      const warmMs = performance.now() - t0;
-      expect(first.ms, 'the first look at the Overview waited for the totals').toBeLessThan(Math.max(NEVER_WAITED_MS * 2, warmMs / 4));
-      // The Overview was asked while the totals warmed, and meta beside it all along.
-      expect(out.warming).toBeGreaterThan(2);
+      const t = await onServerThread(() => metaBeside(d, async () => ({ whole: await untilWhole(d), searches: await untilIndexed(d) })));
+      const { whole, searches } = t.out.out;
+      const metas = t.out.metas;
+      said(`${RUNS} runs' totals warmed and their recordings indexed, ${metas.length} answers of /api/meta beside it (median ${median(metas).toFixed(0)} ms, the slowest ${Math.max(...metas).toFixed(0)} ms)`, t);
+      // The Overview was asked while the totals warmed, the search while the index caught up, and meta beside it all along.
+      expect(whole.warming).toBeGreaterThan(2);
+      expect(searches).toBeGreaterThan(1);
       expect(metas.length).toBeGreaterThan(10);
-      metaHeld(metas, `while ${RUNS} runs' totals warmed`, warmMs, 1 / 4);
-      // Then the whole of it, every run counted.
-      expect(out.body.sums.week.runs + out.body.sums.lastWeek.runs).toBe(RUNS);
+      expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
+      expect(t.busy, 'the share of the time the server’s thread was busy').toBeLessThan(BUSY_SHARE);
+      // Then the whole of it, every run counted, and found.
+      expect(whole.body.sums.week.runs + whole.body.sums.lastWeek.runs).toBe(RUNS);
+      expect((await ask(d, 'search?q=T-9999&limit=5')).body.hits.map((h: { field: string }) => h.field)).toEqual(expect.arrayContaining(['prompt']));
       // What was worked out beside the server is kept in the store, through its own connection.
       expect(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n).toBeGreaterThanOrEqual(RUNS - 100);
+      expect(store.query('SELECT COUNT(*) AS n FROM search_state')[0].n).toBe(RUNS);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  it('keeps the status bar’s poll a few milliseconds of the server’s thread while a run records', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    // A recording in a thread of its own, as the sidecar writes one from another process: a call every 50 ms.
+    const script = join(dir, 'recorder.mjs');
+    writeFileSync(
+      script,
+      [
+        `import { parentPort, workerData } from 'node:worker_threads';`,
+        `import { Store } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../../engine/dist/index.js')).href)};`,
+        'const store = Store.open(workerData.dbPath);',
+        "const run = store.createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: '/work' }, startedAt: Date.now() });",
+        'let n = 0;',
+        'const t = setInterval(() => {',
+        "  const identity = { kind: 'tool', name: 'lookup_order', fingerprint: 'r' + ++n, occurrence: 1 };",
+        "  store.appendCallStart({ runId: run.runId, callNo: n, ...identity, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: Date.now() });",
+        "  store.appendCallEnd(identity, { runId: run.runId, callNo: n, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 1 }, at: Date.now() });",
+        "  if (n === workerData.calls) { clearInterval(t); store.endRun(run.runId, 'completed', Date.now()); store.close(); parentPort.postMessage(n); }",
+        '}, 50);',
+      ].join('\n'),
+    );
+    try {
+      // As a browser finds it: the threads started, the run index read, the totals kept by the test before.
+      await ask(d, 'meta');
+      await untilWhole(d);
+      const CALLS = 60;
+      const recorder = new Worker(script, { workerData: { dbPath, calls: CALLS } });
+      const recorded = new Promise<number>((resolve, reject) => {
+        recorder.once('message', resolve);
+        recorder.once('error', reject);
+      });
+      const metas: number[] = [];
+      const busy: number[] = [];
+      const t = await onServerThread(async () => {
+        let done = false;
+        void recorded.then(() => (done = true));
+        while (!done) {
+          const before = performance.eventLoopUtilization();
+          const m = await ask(d, 'meta');
+          busy.push(performance.eventLoopUtilization(before).active);
+          metas.push(m.ms);
+          await wait(20);
+        }
+        return recorded;
+      });
+      expect(t.out).toBe(CALLS);
+      said(`/api/meta while a run made ${CALLS} calls into ${RUNS} runs: ${metas.length} polls, median ${median(metas).toFixed(1)} ms, each costing the server's thread ${median(busy).toFixed(1)} ms (median)`, t);
+      // Every poll saw the recording grow, and each cost a few milliseconds of the thread, not a read of every run.
+      expect(metas.length).toBeGreaterThan(20);
+      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
+      expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
+      expect((await ask(d, 'meta')).body.counts.runs).toBe(RUNS + 1);
+      await recorder.terminate();
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  it('lists the projects, and shows the setup and Training, from what the store says read beside the server', async () => {
+    // A dashboard over projects, as `shadowlap dashboard` serves them, this store the current one's.
+    const home = mkdtempSync(join(tmpdir(), 'sl-budget-home-'));
+    const folder = join(home, 'support-agent');
+    mkdirSync(folder);
+    const registry = new ProjectRegistry({ home, env: { SHADOWLAP_HOME: join(home, '.sl') }, actor: () => null });
+    const host = ProjectHost.open<ProjectConfig>(folder, { registry, loadConfig: () => ({ normalize: [], redact: [] }), dbPath });
+    const d = await startDashboard({ projects: host });
+    try {
+      await ask(d, 'meta');
+      await untilWhole(d);
+      for (const path of ['projects', 'setup', 'training']) {
+        // Asked once before, so what is measured is an answer, not the thread's first look at the project list and the folders.
+        expect((await ask(d, path)).status, path).toBe(200);
+        const t = await onServerThread(() => ask(d, path));
+        said(`${path} answered in ${t.out.ms.toFixed(0)} ms`, t);
+        expect(t.out.status, path).toBe(200);
+        // Each reads every run of the store (to count them, list its recordings, or find its pairs): none of it on the server's thread.
+        beside(path, t);
+      }
+      // Every run counted: the recording an earlier test made in the store among them, when it ran.
+      const current = (await ask(d, 'projects')).body.current;
+      expect(current.name).toBe('support-agent');
+      expect(current.runs).toBeGreaterThanOrEqual(RUNS);
+    } finally {
+      await d.close();
+      host.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  }, TIMEOUT);
+
+  it('reads Settings → Tools, a scan of every call in the store, beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, project: { path: dir } });
+    try {
+      await ask(d, 'meta');
+      await untilWhole(d);
+      const t = await onServerThread(() => ask(d, 'settings/tools'));
+      said(`settings/tools answered in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.live.map((tool: { name: string }) => tool.name)).toEqual(['lookup_order']);
+      // Every tool call of every run, and the MCP servers they came through: none of it read on the server's thread.
+      beside('settings/tools', t);
     } finally {
       await d.close();
       store.close();
@@ -154,6 +321,7 @@ describe('a run of twenty thousand calls', () => {
   let dbPath: string;
   let big: RunRecord;
   let fork: RunRecord;
+  let fixId: string;
 
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'sl-budget-calls-'));
@@ -166,10 +334,13 @@ describe('a run of twenty thousand calls', () => {
     fork = store.createRun({ mode: 'replay', parentRunId: big.runId, command, startedAt: Date.now() - 3_600_000 });
     recordLoop(store, fork, CALLS, { liveFrom: CALLS - 19 });
     store.setDivergence(fork.runId, { type: 'request_changed', callNo: CALLS - 19, kind: 'api', name: 'POST /v1/messages', replayedBefore: CALLS - 20 });
-    // A dashboard opened on it before: the runs' totals are kept, so a dashboard started now has no
-    // warm-up working beside the first page measured, only that page.
+    // A blame of the long run, whose fix's page reads every call of it.
+    fixId = recordBlame(store, { runId: big.runId, report: blameReport(big.runId), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' }).fix.fixId;
+    // A dashboard opened on it before: the runs' totals are kept and their recordings indexed, so a
+    // dashboard started now has no warm-up working beside what is measured, only that.
     const d = await startDashboard({ store, dbPath, port: 0 });
     await untilWhole(d);
+    await untilIndexed(d);
     await d.close();
     store.close();
   }, TIMEOUT);
@@ -244,19 +415,86 @@ describe('a run of twenty thousand calls', () => {
     process.stdout.write(`a run of ${CALLS} calls, its first page over HTTP: median ${ms.toFixed(0)} ms (${firsts.map((f) => f.ms.toFixed(0)).join(', ')}), ${(firsts[0].bytes / 1024).toFixed(0)} KB\n`);
   }, TIMEOUT);
 
-  it('compares two of them without holding up any other request', async () => {
+  it('answers a page deep in it, and a call there, while the whole run is analysed: before the analysis does', async () => {
     const store = Store.open(dbPath);
     const d = await startDashboard({ store, dbPath, port: 0 });
     try {
       await ask(d, 'meta');
       await wait(300);
-      const { out, metas } = await metaBeside(d, () => ask(d, `compare?a=${big.runId}&b=${fork.runId}`));
-      expect(out.status).toBe(200);
-      expect(out.body).toMatchObject({ a: { runId: big.runId, calls: CALLS }, b: { runId: fork.runId, calls: CALLS } });
-      expect(out.body.identicalPrefix).toBeGreaterThan(CALLS / 2);
-      process.stdout.write(`comparing two runs of ${CALLS} calls took ${out.ms.toFixed(0)} ms\n`);
+      // The first page sets the whole run's analysis going on the run's thread; then a scroll deep
+      // into it, and what asks for every fact, which waits for that analysis.
+      expect((await ask(d, `runs/${big.runId}`)).body.warming).toMatchObject({ total: CALLS });
+      const order: string[] = [];
+      const t = await onServerThread(() =>
+        Promise.all([
+          ask(d, `runs/${big.runId}/calls?from=10000&limit=500`).then((a) => (order.push('page'), a)),
+          ask(d, `runs/${big.runId}/calls/10006`).then((a) => (order.push('call'), a)),
+          ask(d, `runs/${big.runId}/calls?from=10000&limit=500&whole=1`).then((a) => (order.push('whole'), a)),
+        ]),
+      );
+      const [page, call, whole] = t.out;
+      said(`a page at #10,000 of ${CALLS} calls in ${page.ms.toFixed(0)} ms and a call there in ${call.ms.toFixed(0)} ms, the whole analysis's in ${whole.ms.toFixed(0)} ms`, t);
+      // From the calls around them, at once; the same calls with every fact once the run is analysed.
+      expect(page.body).toMatchObject({ around: { from: 9800 }, callsNext: 10500 });
+      expect(call.body.around).toBeDefined();
+      expect(whole.body.around).toBeUndefined();
+      expect(order.slice(0, 2).sort()).toEqual(['call', 'page']);
+      expect(order[2]).toBe('whole');
+      expect(page.body.calls.map((c: { callNo: number }) => c.callNo)).toEqual(whole.body.calls.map((c: { callNo: number }) => c.callNo));
+      expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  it('compares it with its fork showing where they part first, without holding up the server’s thread', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    try {
+      await ask(d, 'meta');
+      await wait(300);
+      const order: string[] = [];
+      const t = await onServerThread(() =>
+        metaBeside(d, () =>
+          Promise.all([
+            ask(d, `compare?a=${big.runId}&b=${fork.runId}&part=head`).then((a) => (order.push('head'), a)),
+            ask(d, `compare?a=${big.runId}&b=${fork.runId}`).then((a) => (order.push('whole'), a)),
+          ]),
+        ),
+      );
+      const [[head, whole], metas] = [t.out.out, t.out.metas];
+      said(`the head of comparing two runs of ${CALLS} calls in ${head.ms.toFixed(0)} ms, the whole in ${whole.ms.toFixed(0)} ms, /api/meta beside it in ${median(metas).toFixed(0)} ms (median)`, t);
+      expect(whole.status).toBe(200);
+      expect(whole.body).toMatchObject({ a: { runId: big.runId, calls: CALLS }, b: { runId: fork.runId, calls: CALLS } });
+      expect(whole.body.identicalPrefix).toBeGreaterThan(CALLS / 2);
+      // Where they part, first, as the whole comparison has it.
+      expect(order).toEqual(['head', 'whole']);
+      expect(head.body).toMatchObject({ identicalPrefix: whole.body.identicalPrefix, firstRequestDifference: { callNo: whole.body.firstRequestDifference.callNo } });
       expect(metas.length).toBeGreaterThan(3);
-      metaHeld(metas, 'while two long runs were compared', out.ms, 1 / 2);
+      expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
+      expect(t.busy, 'the share of the time the server’s thread was busy').toBeLessThan(BUSY_SHARE);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  it('reads its Provenance, its untrusted reads, the tools’ trust and the fix that blamed it beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    try {
+      await ask(d, 'meta');
+      await wait(300);
+      for (const path of [`runs/${big.runId}/provenance`, `injection/runs/${big.runId}`, 'injection/tools', `fixes/${fixId}`]) {
+        const t = await onServerThread(() => ask(d, path));
+        said(`${path.replace(big.runId, '<run>')} answered in ${t.out.ms.toFixed(0)} ms`, t);
+        expect(t.out.status, path).toBe(200);
+        // Each reads every call of the run, or of every run: none of it on the server's thread.
+        beside(path, t);
+      }
+      expect((await ask(d, `runs/${big.runId}/provenance`)).body).toMatchObject({ runId: big.runId, calls: { model: CALLS / 2, tool: CALLS / 2 } });
+      expect((await ask(d, `fixes/${fixId}`)).body.blame.callRow).toHaveLength(CALLS);
     } finally {
       await d.close();
       store.close();

@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import type { RunComparison, Store } from '@shadowlap/engine';
-import { compare } from './api.js';
+import { compareRuns, type RunComparison, type RunRecord, type Store } from '@shadowlap/engine';
+import { compare, lookupRun } from './api.js';
 
 /**
  * Compare's read model (`GET /api/compare?a=&b=`): the engine's comparison of two runs, call by call,
@@ -105,4 +105,100 @@ export async function compareView(store: Store, a: string, b: string, o: { cwd: 
   if (!c) return null;
   const code = await (o.code ?? readCodeChange)(o.cwd, c.changes.code.a, c.changes.code.b);
   return { ...c, code };
+}
+
+/**
+ * What Compare shows first while the whole comparison is worked out: the identical prefix and the
+ * first request that differs, read from the two runs' calls as the store lists them (their identity,
+ * the answer each got, and the recorded call a replay's was served from), and a request read whole
+ * only where that can't tell, so a long pair shows where it parted in a moment where the whole
+ * comparison reads every model call's request of both (5 s at 20,000 calls, 37 s at 100,000). The
+ * first difference is the engine's own, from those two calls. Calls with the same request and another
+ * answer are counted, not described: the whole comparison says what each got.
+ */
+export type CompareHead = Pick<RunComparison, 'a' | 'b' | 'identicalPrefix' | 'firstRequestDifference' | 'onlyInA' | 'onlyInB'> & {
+  /** Before the first request that differs (or the end), the calls that got another answer to the same request. */
+  answersDiffer: number;
+};
+
+/**
+ * The agent's calls of a run, in order (a judge check's left out, as the engine compares them), with
+ * the final answer each got and the parent's call it was served from (a replay's, or a flag's result).
+ */
+const HEAD_SQL = `
+SELECT s.call_no AS n, s.kind AS kind, s.name AS name, s.fingerprint AS fp, e.response_ref AS ref, e.outcome AS outcome,
+  e.meta ->> '$.replayedFrom' AS rf, e.meta ->> '$.overriddenFrom' AS ov
+FROM call_events s
+LEFT JOIN call_events e ON e.run_id = s.run_id AND e.call_no = s.call_no AND e.phase = 'end'
+  AND e.attempt = (SELECT MAX(x.attempt) FROM call_events x WHERE x.run_id = s.run_id AND x.call_no = s.call_no AND x.phase = 'end')
+WHERE s.run_id = ? AND s.phase = 'start' AND json_extract(s.meta, '$.scope') IS NOT 'shadowlap:judge'
+  AND s.attempt = (SELECT MAX(x.attempt) FROM call_events x WHERE x.run_id = s.run_id AND x.call_no = s.call_no AND x.phase = 'start')
+ORDER BY s.call_no`;
+
+/**
+ * How many pairs of calls the head reads whole, at most: two calls whose fingerprints differ, neither
+ * served from the other, ask the same when nothing they sent differs (runs fingerprinted under
+ * another normalizer list, or another fingerprint version), which only their requests tell. Past it
+ * the head is left to the whole comparison, which reads every request anyway.
+ */
+export const HEAD_READS = 16;
+
+/**
+ * Compare's head for runs `a` and `b`; null when a run is not in the store, or when telling it would
+ * mean reading more than HEAD_READS pairs of requests whole.
+ */
+export function compareHead(store: Store, a: string, b: string): CompareHead | null {
+  const ra = lookupRun(store, a);
+  const rb = lookupRun(store, b);
+  if (!ra || !rb) return null;
+  const xs = store.query(HEAD_SQL, ra.runId);
+  const ys = store.query(HEAD_SQL, rb.runId);
+  // A call of `child` served from `p`, the call of its parent at hand: the same request, as the engine has it.
+  const served = (child: RunRecord, c: (typeof xs)[number], parent: RunRecord, p: (typeof xs)[number]) =>
+    child.parentRunId === parent.runId && (Number(c.rf ?? NaN) === Number(p.n) || Number(c.ov ?? NaN) === Number(p.n));
+  // The engine's own account of how the two calls at `i` ask: read whole, and null when the same.
+  const whole = (i: number) => {
+    const [x] = store.getCalls(ra.runId, { only: [Number(xs[i]!.n)] });
+    const [y] = store.getCalls(rb.runId, { only: [Number(ys[i]!.n)] });
+    return x && y ? compareRuns(store, ra, [x], rb, [y]).firstRequestDifference : null;
+  };
+  const n = Math.min(xs.length, ys.length);
+  let identicalPrefix = 0;
+  let intact = true;
+  let answersDiffer = 0;
+  let reads = 0;
+  let differs = -1;
+  let firstRequestDifference: CompareHead['firstRequestDifference'] = null;
+  for (let i = 0; i < n; i++) {
+    const x = xs[i]!;
+    const y = ys[i]!;
+    if (x.kind !== y.kind || x.name !== y.name) {
+      differs = i;
+      firstRequestDifference = whole(i);
+      break;
+    }
+    if (x.fp !== y.fp && !served(rb, y, ra, x) && !served(ra, x, rb, y)) {
+      if (++reads > HEAD_READS) return null;
+      firstRequestDifference = whole(i);
+      if (firstRequestDifference) {
+        differs = i;
+        break;
+      }
+    }
+    if ((x.ref ?? null) === (y.ref ?? null) && (x.outcome ?? null) === (y.outcome ?? null)) {
+      if (intact) identicalPrefix++;
+    } else {
+      intact = false;
+      answersDiffer++;
+    }
+  }
+  return {
+    a: { runId: ra.runId, calls: xs.length },
+    b: { runId: rb.runId, calls: ys.length },
+    identicalPrefix,
+    firstRequestDifference,
+    onlyInA: differs >= 0 ? 0 : Math.max(0, xs.length - n),
+    onlyInB: differs >= 0 ? 0 : Math.max(0, ys.length - n),
+    answersDiffer,
+  };
 }

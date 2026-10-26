@@ -61,7 +61,7 @@ export function RunHeader({
   labels?: readonly string[];
   setLabels?: (labels: string[]) => void;
   /** A press of the good/bad key; without it, the header has no key. */
-  onMark?: ((m: RunMark) => void) | null;
+  onMark?: ((m: RunMark, from?: HTMLElement) => void) | null;
 }) {
   const app = useApp();
   const { exported, actionsOff, toast, client, guard, refresh, hasKind } = app;
@@ -281,7 +281,7 @@ function CompareLead({ from, to }: { from: string; to: string }) {
  * Labels: the good/bad key first (good and bad are its, so no chip says them again), then the other
  * labels as chips with ×, and + Label for a new one (Enter adds, Esc cancels).
  */
-function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark) => void) | null }) {
+function Labels({ run, labels: shown, setLabels, onMark }: { run: RunDetail; labels: readonly string[]; setLabels: (labels: string[]) => void; onMark: ((m: RunMark, from?: HTMLElement) => void) | null }) {
   const { client, actionsOff, exported, toast, refresh, guard } = useApp();
   const [adding, setAdding] = useState(false);
   const [value, setValue] = useState('');

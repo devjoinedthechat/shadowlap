@@ -210,7 +210,7 @@ test('every link the server writes opens a page the dashboard has', async ({ req
   const { origin, token } = dash();
   const get = async (path: string) => (await request.get(`${origin}/api/${path}`, { headers: { 'x-shadowlap-token': token } })).json();
   const fix = demoId('refundFix');
-  const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects'].map(get));
+  const answers = await Promise.all(['summary?tz=UTC', 'activity?limit=200', 'fixes', `fixes/${fix}`, `fixes/${fix}/groups`, 'training', 'tests', `runs/${demoId('override')}/differences`, 'setup', 'projects', 'decisions', `runs/${demoId('refundBug')}/decisions`].map(get));
   const links = new Set<string>();
   const walk = (v: unknown) => {
     if (typeof v === 'string' && v.startsWith('#/')) links.add(v);
@@ -281,4 +281,37 @@ test('what a run did that Shadowlap did not record shows under its banner, with 
   await page.waitForSelector('main#view .rnotes .rnote');
   await expect(page.locator('main#view .rnotes .rntools code').first()).toHaveText('check_policy');
   expect(await seriousViolations(page)).toEqual([]);
+});
+
+test('on a phone, what a run did that Shadowlap did not record wraps inside the page, its hint a sentence', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openPage(page, `/run/${demoId('eval')}`, 'run');
+  await page.waitForSelector('main#view .rnotes .rnhint');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+  const past = await page.evaluate(() => [...document.querySelectorAll('main#view .rnotes *')].filter((el) => el.getClientRects().length && el.getBoundingClientRect().right > document.documentElement.clientWidth + 1).map((el) => el.className));
+  expect(past).toEqual([]);
+  // No line of the hint starts with its own punctuation: ". Or declare…" follows the code before it.
+  const lineStart = await page.evaluate(() => {
+    const hint = document.querySelector('main#view .rnhint')!;
+    const walker = document.createTreeWalker(hint, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (!n.textContent?.startsWith('. Or')) continue;
+      const r = document.createRange();
+      r.setStart(n, 0);
+      r.setEnd(n, 1);
+      return r.getBoundingClientRect().left - hint.getBoundingClientRect().left;
+    }
+    return null;
+  });
+  expect(lineStart).not.toBeNull();
+  expect(lineStart!).toBeGreaterThan(2);
+});
+
+test('the Request tab’s fold marks are 24 px tall at least, as WCAG 2.5.8 asks of a target', async ({ page }) => {
+  await openPage(page, `/run/${demoId('override')}`, 'run');
+  await page.locator('.insp [role="tablist"] button', { hasText: 'Request' }).click();
+  await page.waitForSelector('.ibody details > summary');
+  const heights = await page.locator('.ibody details > summary').evaluateAll((els) => els.map((el) => el.getBoundingClientRect().height));
+  expect(heights.length).toBeGreaterThan(0);
+  for (const h of heights) expect(h).toBeGreaterThanOrEqual(24);
 });

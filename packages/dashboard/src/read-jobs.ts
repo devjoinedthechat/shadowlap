@@ -1,32 +1,41 @@
 import { createHash } from 'node:crypto';
-import type { Normalizer, Price, Store, ToolTrust } from '@shadowlap/engine';
+import { readStoreFacts, storeFacts, type Normalizer, type Price, type Store, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
-import { callDetail, lineage, listRuns, lookupRun, noSuchRun, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
+import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
-import { codeChangeCache, compareView } from './compare.js';
-import { patchesToCheck } from './fixes.js';
+import { codeChangeCache, compareHead, compareView } from './compare.js';
+import { fixDetail, patchesToCheck } from './fixes.js';
 import { forkDifferences } from './fork-differences.js';
+import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
+import { repairerProblem } from './repairer-check.js';
 import { localRunIds } from './routes/store.js';
+import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
 import { loadRunIndex } from './run-index.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
 import { listRunsPage, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
+import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.js';
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
 import type { GoldenSource } from './tests.js';
+import { toolReads } from './tool-reads.js';
+import { readTraining, sourceFixes, trainingView, type PairFilter } from './training.js';
 
 /**
  * The read models that read every call of a run, or of every run: the Overview, a run's page and
  * its calls, a call's details, a run's family, Compare, what a fork did differently, a fix's
- * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent among them),
- * the calendar and the sidebar's runs, and the warm-up that works run totals out ahead. Each is a job: plain data in, the answer out as JSON text, so it runs as well on a worker
- * thread of its own (read-worker.ts, for a store with a file) as here (a store in memory). What the
- * server needs to answer it (who asks, the project's config) is read before, on its own thread.
+ * attempts grouped, the activity feed, a run as JSON, the run list (its filter and its sort by spent
+ * among them), the calendar and the sidebar's runs, a search of what runs recorded, what Settings →
+ * Tools reads of every tool call, what projects' stores say for the switcher and the setup,
+ * Training's pairs, and the warm-up that works run totals out ahead. Each is a job: plain data in,
+ * the answer out as JSON text, so it runs as well on a worker thread of its own (read-worker.ts, for
+ * a store with a file) as here (a store in memory). What the server needs to answer it (who asks,
+ * the project's config) is read before, on its own thread.
  */
 
 /** The Overview: as `GET /api/summary` asks for it, with what the server read of the project. */
@@ -46,10 +55,13 @@ export interface SummaryWork {
 export type ReadJob =
   | { kind: 'summary'; work: SummaryWork }
   | { kind: 'run'; runId: string; read: ReadOptions; after?: number }
-  | { kind: 'calls'; runId: string; read: ReadOptions; from: number; limit: number }
-  | { kind: 'call'; runId: string; read: ReadOptions; callNo: number }
+  /** A page of a run's calls; `whole` waits for the whole run's analysis rather than answer from a part of the run. */
+  | { kind: 'calls'; runId: string; read: ReadOptions; from: number; limit: number; whole?: boolean }
+  | { kind: 'call'; runId: string; read: ReadOptions; callNo: number; whole?: boolean }
   | { kind: 'lineage'; runId: string; read: ReadOptions }
   | { kind: 'compare'; a: string; b: string; cwd: string | null }
+  /** What Compare shows first while the whole comparison is worked out: the identical prefix and the first request that differs (compare.ts `compareHead`). */
+  | { kind: 'compare-head'; a: string; b: string }
   | { kind: 'runs-page'; options: Omit<RunsPageOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'runs-days'; options: Omit<RunsByDayOptions, 'localRuns'>; team: TeamStoreInput | null }
   | { kind: 'recent'; read: ReadOptions }
@@ -66,7 +78,31 @@ export type ReadJob =
   /** The whole analysis of a long run whose first page was answered from its first calls. */
   | { kind: 'analyse'; runId: string }
   /** A slice of the warm-up (run-stats.ts `warmRunStats`), about `budgetMs` long. */
-  | { kind: 'warm'; budgetMs: number };
+  | { kind: 'warm'; budgetMs: number }
+  /** A search of what runs recorded, from what the search index holds, and how many runs it has yet to cover (search-hits.ts). */
+  | { kind: 'search'; q: string; limit: number }
+  /** A run's record for the Provenance tab, with what a copy would mask, counted before on a thread of its own (run-mask.ts). */
+  | { kind: 'provenance'; runId: string; read: ReadOptions; mask: MaskCount }
+  /** What `shadowlap injection` would plant in a run's untrusted reads, and its results (injection.ts). */
+  | { kind: 'injection-run'; runId: string; tools?: ToolTrust }
+  /** Every tool the store's recordings called, with its trust, for Settings → Tools (injection.ts). */
+  | { kind: 'tool-trust'; tools?: ToolTrust }
+  /** What Settings → Tools reads of the store, every tool call by its name and effect and the MCP servers calls came through (tool-reads.ts). */
+  | { kind: 'tool-reads' }
+  /**
+   * What projects' stores say, for the project switcher and a project's setup (engine `storeFacts`,
+   * which reads every run), by project id: the store this job reads for the one with no `dbPath`, the
+   * others read-only from their files. `keep`: the setup's recording, listed however old.
+   */
+  | { kind: 'store-facts'; stores: Array<{ id: string; dbPath: string | null; keep: string | null }> }
+  /** The Training screen (training.ts `trainingView`): the pairs every run makes, with the project's goldens as tasks and its normalizers, read on the server's thread. */
+  | { kind: 'training'; tasks: Task[]; tasksError: string | null; normalizers: Normalizer[]; filter: PairFilter }
+  /**
+   * A fix with its three steps (fixes.ts `fixDetail`), its blamed run's calls among them: the repairer
+   * the config names, and whether each patch the fix could apply is in the working tree, as git said
+   * on the server's thread.
+   */
+  | { kind: 'fix'; fixId: string; repairer: string | null; inTree?: Array<[string, boolean | null]> };
 
 export interface ReadAnswer {
   status: number;
@@ -158,13 +194,15 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         return { ...answer(d), ...(d.warming ? { then: { kind: 'analyse', runId: d.run.runId } } : {}) };
       }
       case 'calls': {
-        const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read);
+        const page = runCallsPage(store, job.runId, { from: job.from, limit: job.limit }, job.read, job.whole ? { whole: true } : {});
         if (!page) return noRun(store, job.runId);
         return { ...answer(page, { tagged: true }), ...(page.warming ? { then: { kind: 'analyse', runId: page.runId } } : {}) };
       }
       case 'call': {
-        const d = callDetail(store, job.runId, job.callNo, job.read);
-        return d ? answer(d, { tagged: true }) : failed(404, `no call #${job.callNo} in run ${job.runId}`);
+        const d = callDetail(store, job.runId, job.callNo, job.read, job.whole ? { whole: true } : {});
+        if (!d) return failed(404, `no call #${job.callNo} in run ${job.runId}`);
+        // Answered from the calls around it: the whole run is analysed beside the server, for the page to ask again.
+        return { ...answer(d, { tagged: true }), ...(d.around ? { then: { kind: 'analyse', runId: job.runId } as const } : {}) };
       }
       case 'lineage': {
         const nodes = lineage(store, job.runId, job.read);
@@ -178,6 +216,15 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         }
         const c = await compareView(store, job.a, job.b, { cwd: job.cwd, code });
         return c ? answer(c, { tagged: true }) : failed(404, 'one of the runs does not exist');
+      }
+      case 'compare-head': {
+        for (const id of [job.a, job.b]) {
+          if (lookupRun(store, id)) continue;
+          const no = noSuchRun(store, id);
+          return failed(no.status, no.status === 404 ? 'one of the runs does not exist' : no.message);
+        }
+        // Null when the head can't be told without reading too many requests: the whole comparison says.
+        return answer(compareHead(store, job.a, job.b), { tagged: true });
       }
       case 'runs-page':
         return runsPage(store, job.options, job.team, whole);
@@ -222,6 +269,40 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         const done = warmRunStats(store, { budgetMs: job.budgetMs });
         const at = warmProgress(store);
         return { ...answer(null), warm: { done, walked: at?.walked ?? 0, total: at?.total ?? 0 } };
+      }
+      case 'provenance': {
+        const p = provenance(store, job.runId, { ...job.read, maskCount: () => job.mask });
+        return p ? answer(p, { tagged: true }) : failed(404, `no run ${job.runId}`);
+      }
+      case 'injection-run':
+        return store.getRun(job.runId) ? answer(runInjection(store, job.runId, job.tools), { tagged: true }) : failed(404, `no run ${job.runId}`);
+      case 'tool-trust':
+        return answer(toolTrust(store, job.tools), { tagged: true });
+      case 'tool-reads':
+        return answer(toolReads(store));
+      case 'store-facts': {
+        const facts: Record<string, StoreFacts> = {};
+        for (const s of job.stores) {
+          try {
+            facts[s.id] = s.dbPath === null ? storeFacts(store, Date.now(), { keep: s.keep }) : readStoreFacts(s.dbPath, Date.now(), { keep: s.keep });
+          } catch {
+            // left out: the server's thread reads it again, and says why it can't
+          }
+        }
+        return answer(facts);
+      }
+      case 'training':
+        return answer(trainingView(readTraining(store, { tasks: job.tasks, tasksError: job.tasksError, fixOf: sourceFixes(store), normalizers: job.normalizers }), { filter: job.filter }), { tagged: true });
+      case 'fix': {
+        const inTree = job.inTree ? new Map(job.inTree) : null;
+        const d = fixDetail(store, job.fixId, { repairer: job.repairer, checkRepairer: repairerProblem, ...(inTree ? { patchInTree: (patch: string) => inTree.get(patch) ?? null } : {}) });
+        return d ? answer(d, { tagged: true }) : failed(404, `no fix ${job.fixId.slice(0, 40)}`);
+      }
+      case 'search': {
+        const index = loadRunIndex(store);
+        const behind = searchBehind(store, index);
+        const found: SearchAnswer = { hits: searchRecorded(store, job.q, job.limit, index), ...(behind ? { indexing: { runs: behind, of: index.runs.length } } : {}) };
+        return answer(found);
       }
     }
   } catch (err) {

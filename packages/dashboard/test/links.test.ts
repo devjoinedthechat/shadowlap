@@ -95,9 +95,9 @@ describe('the server’s links', () => {
     const src = fileURLToPath(new URL('../src/', import.meta.url));
     const own = sources(src).flatMap(({ file, code }) => {
       const at = file.slice(src.length);
-      // The builder itself; and the decision diff's sessions, whose pages the dashboard doesn't have.
+      // The builder itself.
       if (at === 'links.ts') return [];
-      return [...code.matchAll(/['"`]#\/[^'"`]*/g)].filter((m) => !(at === 'decisions.ts' && m[0].startsWith('`#/changes/'))).map((m) => `${at}: ${m[0]}`);
+      return [...code.matchAll(/['"`]#\/[^'"`]*/g)].map((m) => `${at}: ${m[0]}`);
     });
     expect(own).toEqual([]);
   });

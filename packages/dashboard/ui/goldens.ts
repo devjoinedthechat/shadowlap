@@ -1,6 +1,7 @@
 import { approx } from './format.js';
 import { rateBound } from '../../engine/src/stats.js';
 import { href } from './route.js';
+import { noteText, UNGUARDED_FIX } from './run/notes.js';
 import type { BisectMiss, BisectRevision, CiWorkflowOptions, DivergenceView, FailureView, FoundCommit, GoldenCheck, GoldenRow, HistoryCell, InconclusiveView, TestsView } from './types.js';
 
 /**
@@ -339,6 +340,8 @@ export function failureHint(f: FailureView): string {
     case 'no-calls':
       return 'The replay made no calls: does the agent still start, and does it use the Shadowlap environment?';
     case 'guard':
+      // A process ran that the guard can't watch (the Claude Code CLI): what shadowlap doctor says to do about it.
+      if (/^The network guard could not watch every process of the agent/.test(f.reason)) return `A process the network guard can’t watch ran while the golden replayed, and under --guard block that fails it, whatever else the replay did: the line above says which. ${noteText(UNGUARDED_FIX)}`;
       // Under --guard block, a replay no preload loaded in proves nothing, whatever else came out of it.
       return 'No Shadowlap preload loaded in the agent’s processes while the golden replayed, so the network guard never watched it, and under --guard block that fails it, whatever else the replay did: the line above says what the command shows of why. Run the agent on Node or Python with the environment shadowlap gives it (shadowlap doctor says what keeps a preload from loading), or test with --guard warn to let a replay the guard can’t watch through.';
     case 'injection':

@@ -332,7 +332,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
     [table.rows, marks],
   );
   const rowsNow = useLatest(new Map(rows.map((r) => [r.runId, r])));
-  const onMark = useCallback((r: TableRun, m: RunMark) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m), [markRun, rowsNow]);
+  const onMark = useCallback((r: TableRun, m: RunMark, from?: HTMLElement) => markRun(r.runId, rowsNow.current.get(r.runId)?.labels ?? r.labels, m, from), [markRun, rowsNow]);
   const counts: ChipCounts | null = table.loaded ? table.chipCounts : null;
   const warming = warmingLine(table.warming, { filtered: !!q.trim(), bySpent: sort === 'spent' });
 
@@ -435,7 +435,7 @@ function ServerRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         <Chips label="Kind of run" items={RUN_CHIPS.filter(([key]) => key !== 'local' || store || chip === 'local').map(([key, label]) => ({ key, label, ...(counts ? { count: counts[key] } : {}) }))} value={chip} onChange={setChip} />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, about or label" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       {warming ? (
@@ -491,7 +491,7 @@ function ExportedRuns({ filter }: { filter?: RunsFilterRead | undefined }) {
         <Chips label="Kind of run" items={RUN_CHIPS.map(([key, label]) => ({ key, label, count: counts[key] }))} value={chip} onChange={setChip} hideEmpty />
         <label className="tin">
           <span className="sr">Filter runs</span>
-          <input type="search" placeholder="Filter by id, about or label" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input type="search" placeholder="Filter by id, about or label" title="Every word must be in a run’s id, about line, labels, command or revision; label:good lists the runs labelled good" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
       </div>
       <section className="panel tscroll">

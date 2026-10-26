@@ -60,6 +60,14 @@ describe('what each colour may mean', () => {
   it('draws a write in teal, on the run page, in Compare and in Settings → Tools, never in the failure red', () => {
     expect(value('.eff.write', 'color')).toBe('var(--k-write)');
     expect(value('.tchip.w em', 'color')).toBe('var(--k-write)');
+    // What a fork did differently: the change of rank 1 is a write, its words and its tool teal.
+    expect(value('.fdiff li.r1 .rk', 'color')).toBe('var(--k-write)');
+    expect(value('.fdiff b.w', 'color')).toBe('var(--k-write)');
+  });
+
+  it('dims what Compare shows the same in the faint ink, which keeps AA’s contrast, never by fading it', () => {
+    expect(value('.pcall.same', 'color')).toBe('var(--faint)');
+    expect(value('.pcall.same', 'opacity')).toBeNull();
   });
 
   it('draws stubbed in the stubbed origin’s colour, never the failure red', () => {

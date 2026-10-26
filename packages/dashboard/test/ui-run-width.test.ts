@@ -142,3 +142,20 @@ describe('Compare on a phone', () => {
     expect(topRule('.stepempty p code')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });
+
+describe('what wraps rather than runs past its box', () => {
+  it('wraps a job’s output in its drawer, and the folders it names, every line read whole', () => {
+    expect(topRule('.drawer pre')).toMatch(/white-space:\s*pre-wrap/);
+    expect(topRule('.drawer pre')).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(topRule('.drawer .jfiles code')).not.toMatch(/nowrap|ellipsis/);
+  });
+
+  it('lets the note on what a run did not record take a phone’s whole width, its hint a sentence', () => {
+    // At a phone's width the note goes under its label, as wide as the page: no baseline alignment left to hold it at its text's width.
+    expect(css).toMatch(/@media \(max-width: 760px\) \{ \.rnote \{ flex-direction: column; align-items: stretch;/);
+    // The hint wraps as text does, never as boxes, one of which would start a line with ". Or declare".
+    expect(topRule('.rnhint')).not.toMatch(/display:\s*flex/);
+    // Its code too, the config line to copy among it: a code in a sentence otherwise keeps to one line.
+    expect(topRule('.rnhint code')).toMatch(/white-space:\s*normal/);
+  });
+});

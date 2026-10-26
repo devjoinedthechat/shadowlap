@@ -48,6 +48,7 @@ function Panel({ onRun, close }: { onRun: boolean; close: () => void }) {
         ...(exported ? [] : ([[k(isMac() ? '⌘' : 'Ctrl', 'K'), 'Search or jump to anything']] as Array<[ReactNode, string]>)),
         ...(exported ? [] : ([[k('/'), onRun ? 'Filter this run’s calls' : 'Search or jump to anything']] as Array<[ReactNode, string]>)),
         [k('?'), 'Show these shortcuts'],
+        [k('u'), 'Undo, while a toast offers it'],
         [k('Esc'), 'Close a menu, dialog or panel'],
       ],
     ],

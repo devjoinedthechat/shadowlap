@@ -1,10 +1,12 @@
+import { dropBound } from '@shadowlap/engine';
+
 /**
  * What a verdict's JSON may say beyond its tally, read for the Fixes pages when it says it: a gate's
  * bound with the method that computed it and the attempts the provider left unavailable (never
- * tallied), verify's baseline for a run and the margin it was kept within, and blame's range of
- * calls and the error bound its confidence comes from. Reports made before these fields carry none,
- * and a report from a pack or the team store can carry anything: each reader takes only a
- * well-formed value, and says nothing otherwise.
+ * tallied), verify's baseline for a run, the margin it was kept within and the bound on its drop
+ * from the baseline, and blame's range of calls and the error bound its confidence comes from.
+ * Reports made before these fields carry none, and a report from a pack or the team store can carry
+ * anything: each reader takes only a well-formed value, and says nothing otherwise.
  */
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -25,6 +27,11 @@ export interface VerifyEvidence extends GateEvidence {
   baseline: { passes: number; attempts: number; source: 'paired' | 'history'; revision: string | null } | null;
   /** How much worse than its baseline a kept run may be, as a share: 0.1 is ten points. */
   margin: number | null;
+  /**
+   * The bound on the drop from its baseline that bears on its verdict, in the words the CLI and a
+   * fix's PR say it: `drop <= 0.10 (95%)` for a run kept, `drop >= 0.12 (95%)` for one broken.
+   */
+  drop: string | null;
 }
 
 /** Blame's evidence: the calls it lost the run between, when no one call is pinned, and the error bound of its confidence. */
@@ -59,7 +66,20 @@ export function verifyEvidence(x: unknown): VerifyEvidence {
   const source: 'paired' | 'history' | null = b?.source === 'paired' ? 'paired' : b?.source === 'history' ? 'history' : null;
   const baseline = passes !== null && attempts !== null && passes <= attempts && source ? { passes, attempts, source, revision: typeof b?.revision === 'string' && /^[\w.+-]{1,64}$/.test(b.revision) ? b.revision : null } : null;
   const margin = finite(r?.margin) && r.margin >= 0 && r.margin <= 1 ? r.margin : null;
-  return { ...gateEvidence(x), baseline, margin };
+  return { ...gateEvidence(x), baseline, margin, drop: baseline ? dropWords(r?.drop, r?.decision) : null };
+}
+
+/** A drop bound as verify keeps it, `{ lo, hi, confidence, method }`, in words; null for anything else. */
+function dropWords(v: unknown, decision: unknown): string | null {
+  const d = record(v);
+  const end = (x: unknown) => (x === null || x === undefined ? null : finite(x) && x >= -1 && x <= 1 ? x : undefined);
+  const lo = end(d?.lo);
+  const hi = end(d?.hi);
+  const confidence = d?.confidence;
+  if (!d || lo === undefined || hi === undefined || !finite(confidence) || confidence <= 0 || confidence >= 1) return null;
+  const method = d.method === 'history' ? 'history' : 'betting';
+  const decided = decision === 'pass' || decision === 'fail' || decision === 'kept' || decision === 'broken' || decision === 'inconclusive' || decision === 'continue' ? decision : null;
+  return dropBound({ lo, hi, confidence, method }, decided);
 }
 
 export function blameEvidence(x: unknown): BlameEvidence {

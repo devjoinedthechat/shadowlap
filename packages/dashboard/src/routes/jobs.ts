@@ -22,7 +22,7 @@ export function register(router: Router, ctx: RouteContext): void {
       if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
       if (typeof req.key !== 'string' || !req.key) return { error: 'key is required' };
       const callNo = typeof req.callNo === 'number' ? req.callNo : null;
-      const built = actionArgs(store, req.runId, callNo, req.key, typeof req.value === 'string' ? req.value : undefined);
+      const built = actionArgs(store, req.runId, callNo, req.key, typeof req.value === 'string' ? req.value : undefined, { yes: req.yes === true });
       if ('error' in built) return built;
       return { args: built.args, runId: lookupRun(store, req.runId)?.runId ?? req.runId, opensRun: built.opensRun };
     },

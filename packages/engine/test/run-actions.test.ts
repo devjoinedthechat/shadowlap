@@ -186,8 +186,12 @@ describe('actions on a run imported from a pack', () => {
     const inject = actions.find((a) => a.key === 'i')!;
     expect(inject.prompt!.label).toContain('imported pack');
     expect(inject.prompt!.build('Be brief.')).toEqual(['replay', ID, '--inject', '3=Be brief.', '--inject-as', 'user', '--yes']);
+    // Each says so, for a client that asks for the yes apart: the replay asks only that, the fork its own question first.
+    expect([replay.imported, inject.imported]).toEqual(['confirm', 'value']);
     // Actions that do not replay are unchanged.
     expect(actions.find((a) => a.key === 'p')!.prompt!.build('./out')).toEqual(['pack', ID, './out']);
+    expect(actions.find((a) => a.key === 'p')!.imported).toBeUndefined();
+    expect(buildActions(run(), call).every((a) => a.imported === undefined)).toBe(true);
   });
 
   it('ask the same of a teammate’s run pulled from the team store, naming where it came from', () => {

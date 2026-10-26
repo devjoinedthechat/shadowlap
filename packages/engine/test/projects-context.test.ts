@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Store, packRun } from '../src/index.js';
+import { Store, packRun, storeFacts } from '../src/index.js';
 import { ProjectError, ProjectHost, ProjectRegistry, projectDbPath } from '../src/projects/index.js';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: new (path: string) => { exec(sql: string): void; prepare(sql: string): { get(): Record<string, unknown> | undefined }; close(): void } };
@@ -282,6 +282,34 @@ describe('ProjectHost', () => {
 
 
 describe('ProjectHost: what it reads and keeps', () => {
+  it('takes what a store said read elsewhere in place of reading it, and reads the others itself', () => {
+    const { registry, loadConfig, support, triage } = world();
+    // Every read of every run in the stores the host opens, counted.
+    let reads = 0;
+    const openStore = (path: string) => {
+      const opened = Store.open(path);
+      return Object.assign(Object.create(opened) as Store, { allRuns: () => (reads++, opened.allRuns()) });
+    };
+    const host = ProjectHost.open(support, { registry, loadConfig, openStore });
+    registry.add('~/triage-bot');
+    const store = host.context('support-agent').store();
+    const runId = recordInto(store, support);
+    const triageStore = Store.open(projectDbPath(triage));
+    recordInto(triageStore, triage);
+    triageStore.close();
+    // What a dashboard read of the support agent's store beside its server: the host reads none of it again.
+    const read = { ...storeFacts(store), runs: 7, attempts: 2 };
+    reads = 0;
+    expect(host.stats({ facts: { 'support-agent': read } })).toMatchObject({ 'support-agent': { runs: 7, attempts: 2 }, 'triage-bot': { runs: 1, attempts: 0 } });
+    expect(host.setup('support-agent', { facts: read })).toMatchObject({ run: { runId } });
+    expect(host.suggestGolden('support-agent', { facts: read })).toBe('goldens/support-agent');
+    expect(reads).toBe(0);
+    // Without them, it reads the store itself.
+    expect(host.stats()['support-agent']).toMatchObject({ runs: 1 });
+    expect(reads).toBe(1);
+    host.close();
+  });
+
   it('counts another project’s runs without migrating its store or adding to its folder', () => {
     const { registry, loadConfig, support, triage } = world();
     const host = ProjectHost.open(support, { registry, loadConfig });

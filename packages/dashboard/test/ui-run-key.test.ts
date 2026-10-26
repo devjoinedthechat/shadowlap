@@ -1,12 +1,13 @@
-import { createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallRow, Client, RunDetail } from '../ui/api.js';
 import { ToastHost } from '../ui/components/Toast.js';
+import { Keyboard } from '../ui/shell/Keyboard.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { markChange, markKey, markTitle, markToast, undoChange, withChange } from '../ui/runkey.js';
 import { RunsTable, type TableRun } from '../ui/runspage/RunsTable.js';
 import { AppContext, type AppState } from '../ui/state.js';
-import type { ToastAction } from '../ui/toast.js';
+import { ACTION_TOAST_MS, toastKey, UNDO_KEY, type ToastAction } from '../ui/toast.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -36,7 +37,7 @@ describe('the good/bad key', () => {
   });
 
   it('says what a press did and does, in the words a repair takes it in', () => {
-    expect(markToast('01M5GRX8K406H4KHQ7DEKYWTSZ', 'good', true)).toBe('01M5GRX8K4 is good: a repair keeps it working (--keeps label:good)');
+    expect(markToast('01M5GRX8K406H4KHQ7DEKYWTSZ', 'good', true)).toBe('01M5GRX8K4 is good: a fix must not make it worse than its own baseline (--keeps label:good)');
     expect(markToast('01M5GRX8K406H4KHQ7DEKYWTSZ', 'bad', true)).toBe('01M5GRX8K4 is bad: one to fix (--fixes label:bad)');
     expect(markToast('01M5GRX8K406H4KHQ7DEKYWTSZ', 'good', false)).toBe('01M5GRX8K4 is no longer marked good');
     expect(markTitle('good', false)).toContain('repair --keeps label:good');
@@ -151,7 +152,7 @@ describe('the key on a run’s header', () => {
     expect(asked).toEqual([{ runId: RUN, add: ['good'], remove: ['bad'] }]);
     expect(keyButton('good').getAttribute('aria-pressed')).toBe('true');
     expect(keyButton('bad').getAttribute('aria-pressed')).toBe('false');
-    expect(toasts[0].text).toBe('01M5GRX8K4 is good: a repair keeps it working (--keeps label:good)');
+    expect(toasts[0].text).toBe('01M5GRX8K4 is good: a fix must not make it worse than its own baseline (--keeps label:good)');
     expect(toasts[0].action?.label).toBe('Undo');
     // Undo: bad back, good off.
     toasts[0].action!.run();
@@ -210,6 +211,14 @@ describe('the key on a row of Runs', () => {
       ['bad', 'false'],
     ]);
     expect(r.all('table.runst tbody tr')[0].querySelectorAll('.labs .chip').map((c) => c.textContent)).toEqual(['nightly']);
+    // Its column says what the marks mean, where anyone sees it, each word listing the runs labelled so; a label lists its runs too.
+    const head = r.one('table.runst thead th.keycell');
+    expect(head.querySelectorAll('a').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['good', '#/runs?q=label%3Agood'],
+      ['bad', '#/runs?q=label%3Abad'],
+    ]);
+    expect(head.querySelectorAll('.sr')).toHaveLength(0);
+    expect(r.all('table.runst tbody tr')[0].querySelector('.labs a.chip')!.getAttribute('href')).toBe('#/runs?q=label%3Anightly');
     await r.click(r.all('table.runst tbody tr')[1].querySelectorAll('.runkey button')[1]);
     expect(marked).toEqual([[rows[1].runId, 'bad']]);
     // + on the row's checkbox: that row, good.
@@ -228,6 +237,87 @@ describe('the key on a row of Runs', () => {
 });
 
 describe('a toast with an action', () => {
+  /** A page with the key's button and the toast, which says what `set` gives it. */
+  function page() {
+    const set: { toast: ((t: AppState['toastText']) => void) | null } = { toast: null };
+    function Host() {
+      const [toastText, setToastText] = useState<AppState['toastText']>(null);
+      set.toast = setToastText;
+      return createElement(AppContext.Provider, { value: { toastText } as unknown as AppState }, createElement('main', { id: 'view', tabIndex: -1 }, createElement('button', { className: 'good', type: 'button' }, 'good')), createElement(ToastHost));
+    }
+    return { Host, set };
+  }
+
+  it('says each toast in a live region that is on the page before it comes', async () => {
+    const { Host, set } = page();
+    r = await render(createElement(Host));
+    const status = r.one('[role="status"]');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.textContent).toBe('');
+    expect(r.one('[role="alert"]').textContent).toBe('');
+    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice' }));
+    // The same region, its text arrived in it: what a screen reader hears change.
+    expect(r.one('[role="status"]')).toBe(status);
+    expect(status.textContent).toBe('01M5GRX8K4 is good');
+    await act(async () => set.toast!({ id: 2, text: 'The server refused it', kind: 'error' }));
+    expect(r.one('[role="alert"]').textContent).toContain('The server refused it');
+    expect(status.textContent).toBe('');
+  });
+
+  it('does its action from the undo key anywhere, and hands the focus back to the key that made the change', async () => {
+    const { Host, set } = page();
+    r = await render(createElement(Host));
+    const key = r.one('button.good');
+    let ran = 0;
+    await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++, returnTo: key as unknown as HTMLElement } }));
+    expect(r.byText('.toast button', 'Undo').getAttribute('aria-keyshortcuts')).toBe(UNDO_KEY);
+    // The focus elsewhere, as after a Tab or two.
+    (r.one('main#view') as unknown as HTMLElement).focus();
+    expect(toastKey.current).not.toBeNull();
+    await act(async () => void toastKey.current!());
+    expect(ran).toBe(1);
+    expect(r.all('.toast')).toHaveLength(0);
+    expect(r.focused()).toBe(key);
+    // Gone, the key does nothing.
+    expect(toastKey.current).toBeNull();
+  });
+
+  it('hears the undo key from the page, and not while a field is being typed in', async () => {
+    let ran = 0;
+    const toastText = { id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } };
+    const state = { toastText, conn: 'ok', exported: false, palette: false, help: false, sideOpen: false, setPalette: () => undefined, setHelp: () => undefined, setSideOpen: () => undefined, closeTopLayer: () => false, blockingLayer: () => false, runKeys: { current: null }, meta: null } as unknown as AppState;
+    r = await render(createElement(AppContext.Provider, { value: state }, createElement('input', { type: 'search' }), createElement(Keyboard), createElement(ToastHost)));
+    await r.until('the toast', () => r!.all('.toast').length === 1);
+    // Typed into a field, u is a letter.
+    const field = r.one('input');
+    (field as unknown as HTMLElement).focus();
+    await r.press('u', {}, field);
+    expect(ran).toBe(0);
+    (field as unknown as HTMLElement).blur?.();
+    const e = await r.press('u', {}, r.document.body);
+    expect(e.defaultPrevented).toBe(true);
+    expect(ran).toBe(1);
+  });
+
+  it('hands the focus back to the key when it goes while its Undo has the focus', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { Host, set } = page();
+      r = await render(createElement(Host));
+      const key = r.one('button.good');
+      await act(async () => set.toast!({ id: 1, text: '01M5GRX8K4 is good', kind: 'notice', action: { label: 'Undo', run: () => undefined, returnTo: key as unknown as HTMLElement } }));
+      const undo = r.byText('.toast button', 'Undo');
+      (undo as unknown as HTMLElement).focus();
+      expect(r.focused()).toBe(undo);
+      await act(async () => void vi.advanceTimersByTime(ACTION_TOAST_MS + 1));
+      expect(r.all('.toast')).toHaveLength(0);
+      // Not the page's body.
+      expect(r.focused()).toBe(key);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('has its button, which closes the toast and does it', async () => {
     let ran = 0;
     const state = { toastText: { id: 1, text: 'Labelled good', kind: 'notice', action: { label: 'Undo', run: () => void ran++ } } } as unknown as AppState;

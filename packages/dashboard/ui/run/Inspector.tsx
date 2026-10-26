@@ -81,6 +81,12 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
             summary
           )}
         </span>
+        {/* The fork menu's override with the result edited here, a tool's or what a person answered: on every tab. */}
+        {c && detail ? (
+          <span className="iedit">
+            <EditAndFork runId={runId} detail={detail} live={live} />
+          </span>
+        ) : null}
       </div>
       <div className="tabs" role="tablist" aria-label="Inspector">
         {TABS.map((t, i) => (
@@ -90,7 +96,7 @@ export function Inspector({ runId, call, calls, models, detail, error, tab, onTa
         ))}
       </div>
       <div className="ibody" key={`${runId}:${call.callNo}:${tab}`} tabIndex={-1}>
-        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab runId={runId} detail={detail} live={live} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
+        {error ? <div className="ibar err">{error}</div> : !c || !detail ? <div className="ibar">Loading #{call.callNo}…</div> : tab === 'conversation' ? <ConversationTab detail={detail} calls={calls} change={change} flag={flag ?? null} onSelect={onSelect} /> : tab === 'response' ? <ResponseTab detail={detail} /> : tab === 'request' ? <RequestTab detail={detail} /> : <DetailsTab runId={runId} detail={detail} models={models} />}
       </div>
     </section>
   );
@@ -307,7 +313,7 @@ function blocksText(blocks: Block[]): { think: string; text: string } {
 
 const SPEEDS = [1, 2, 4, 0] as const;
 
-function ResponseTab({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
+function ResponseTab({ detail }: { detail: CallDetail }) {
   const c = detail.call;
   const [raw, setRaw] = useState(false);
   if (c.kind !== 'api') {
@@ -317,9 +323,6 @@ function ResponseTab({ runId, detail, live }: { runId: string; detail: CallDetai
       <>
         <div className="ibar">
           <span>{head}</span>
-          <span className="sp" />
-          {/* The fork menu's override, with the result edited here: a tool's, or what a person answered. */}
-          <EditAndFork runId={runId} detail={detail} live={live} />
         </div>
         <div className="jbox">{result ? jsonText(result.error ?? result.result ?? null) : c.outcome === null ? 'no result yet' : 'no result'}</div>
       </>

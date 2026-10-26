@@ -6,9 +6,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Builds the demo store (or takes the one SHADOWLAP_DEMO_DIR names), starts `shadowlap dashboard` on
- * it as a user would, and hands the tests its address and session token, with the ids of the runs
- * and fixes the demo made (`runs.json`), through the file SHADOWLAP_BROWSER_STATE names.
+ * Builds the demo store whole, as `npm run demo` does (or takes the one SHADOWLAP_DEMO_DIR names),
+ * starts `shadowlap dashboard` on it as a user would, and hands the tests its address and session
+ * token, with the ids of the runs and fixes the demo made (`runs.json`), through the file
+ * SHADOWLAP_BROWSER_STATE names. The whole demo, not `--fast`: its fix has two verdicts to switch
+ * between, its runs every kind of note and view, and the axe sweep goes through every one of them.
  */
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -38,7 +40,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const given = process.env.SHADOWLAP_DEMO_DIR;
   const reuse = !!given && existsSync(join(given, 'runs.json'));
   const demo = reuse ? given : mkdtempSync(join(tmpdir(), 'shadowlap-browser-demo-'));
-  if (!reuse) execFileSync(process.execPath, [join(root, 'scripts', 'demo-store.mjs'), demo, '--fast'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  if (!reuse) execFileSync(process.execPath, [join(root, 'scripts', 'demo-store.mjs'), demo], { stdio: ['ignore', 'ignore', 'inherit'] });
 
   const port = await freePort();
   const env = { ...process.env, SHADOWLAP_HOME: join(demo, 'home'), SHADOWLAP_PROJECT_ROOTS: demo, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0' };

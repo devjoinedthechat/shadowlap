@@ -37,7 +37,7 @@ export interface RunFilter {
   /** Runs that started before this instant (epoch ms). */
   to?: number | null;
   types?: readonly RunType[];
-  /** The filter field: every word must appear in the run's id, about line, labels, command, source or revision. */
+  /** The filter field: every word must appear in the run's id, about line, labels, command, source or revision; `label:<name>` is that label exactly. */
   q?: string;
   /** List attempts as rows too. */
   includeAttempts?: boolean;
@@ -127,7 +127,18 @@ interface Matcher {
   matches: (r: IndexedRun) => boolean;
 }
 
-const filterWords = (filter: RunFilter): string[] => (filter.q ?? '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 20);
+/**
+ * The filter field's words, lowercased, and its `label:<name>` terms, kept as typed: a run matches
+ * one only with that label exactly, as `repair --keeps label:good` and `ls --label` take it, where a
+ * word matches anywhere in its id, about line, labels, command, source or revision.
+ */
+export function filterTerms(q: string | undefined): { words: string[]; labels: string[] } {
+  const parts = (q ?? '').split(/\s+/).filter(Boolean).slice(0, 20);
+  const label = (w: string) => /^label:./i.test(w);
+  return { words: parts.filter((w) => !label(w)).map((w) => w.toLowerCase()), labels: parts.filter(label).map((w) => w.slice('label:'.length)) };
+}
+
+const filterWords = (filter: RunFilter): string[] => filterTerms(filter.q).words;
 
 /**
  * The about line of each run the filter field may match, as far as it is known, worked out only
@@ -151,10 +162,11 @@ function matcher(filter: RunFilter, aboutText: (r: IndexedRun) => string = () =>
   const failedOnly = types.includes('failed');
   const localOnly = types.includes('local');
   const local = filter.localRuns ?? null;
-  const words = filterWords(filter);
+  const { words, labels } = filterTerms(filter.q);
   // A run's about line counts, and so does the kind Runs words it as (`clean replay`, `fork @17`), as
-  // an exported copy's filter reads them (ui/runs.ts `matchesText`).
+  // an exported copy's filter reads them (ui/runs.ts `matchesText`); a `label:` term, the label alone.
   const text = (r: IndexedRun) => {
+    if (!labels.every((l) => r.meta.labels.includes(l))) return false;
     if (!words.length) return true;
     const hay = [r.runId, aboutText(r), ...r.meta.labels, r.argv.join(' '), r.source ?? '', r.codeVersion ?? '', r.label].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));

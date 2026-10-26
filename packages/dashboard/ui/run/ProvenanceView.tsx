@@ -204,7 +204,8 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
     ],
     ['Calls', `${num(s.byKind.api)} model · ${num(s.byKind.tool)} tool${s.byKind.clock + s.byKind.random ? ` · ${num(s.byKind.clock + s.byKind.random)} clock and random` : ''}${scopes.length ? ` · ${scopes.length} scopes` : ''}`],
     // The network guard and in-process capture the agent's processes loaded, when the CLI started it with them.
-    ...(preloads ? ([['Guard', <span key="g" className={preloads.missing ? (preloads.guard === 'block' ? 'err' : 'warn') : undefined} title={preloads.missing ?? undefined}>{preloadWords(preloads)}</span>]] as Array<[string, React.ReactNode]>) : []),
+    // A preload that never loaded, or a process it couldn't watch (the Claude Code CLI): amber, red where --guard block failed the run, why on hover.
+    ...(preloads ? ([['Guard', <span key="g" className={preloads.missing || preloads.unguarded ? (preloads.guard === 'block' ? 'err' : 'warn') : undefined} title={[preloads.missing, preloads.unguarded].filter(Boolean).join(' ') || undefined}>{preloadWords(preloads)}</span>]] as Array<[string, React.ReactNode]>) : []),
     ['Upstream', <UpstreamValue key="u" {...upstreamParts(s.upstreamRequests, s.cost.spent, pulledSpender(r))} />],
     ['Origins', presentOrigins(origins).map((o) => `${num(origins[o])} ${ORIGIN_NAME[o]}`).join(' · ') || '—'],
   ];
@@ -288,8 +289,9 @@ export function ProvenanceView({ run, selected }: { run: RunDetail; selected?: n
       </div>
       {ledger ? (
         <section>
-          <h3>Calls</h3>
-          <div className="tscroll">
+          <h3 id="provCalls">Calls</h3>
+          {/* It scrolls sideways on a narrow window and holds no control: it takes the focus itself. */}
+          <div className="tscroll" tabIndex={0} role="region" aria-labelledby="provCalls">
             <table className="t ledger">
               <thead>
                 <tr>

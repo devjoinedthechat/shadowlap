@@ -77,6 +77,14 @@ afterEach(async () => {
   r = null;
 });
 
+describe('a job’s output in its drawer', () => {
+  it('scrolls by keyboard too, named for what it holds', async () => {
+    r = await render(createElement(AppContext.Provider, { value: app({ jobs: [watched(job())] }) }, createElement(JobDrawer)));
+    const out = r.one('.drawer pre');
+    expect([out.getAttribute('tabindex'), out.getAttribute('role'), out.getAttribute('aria-label')]).toEqual(['0', 'region', 'What the command printed']);
+  });
+});
+
 describe('Stop in the job drawer', () => {
   it('stops a job that only runs the agent at once, and says it is stopping until it has', async () => {
     const stopJob = vi.fn(async () => ({ stopped: true }));

@@ -1,6 +1,7 @@
 import { commandIsImported, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
+import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';
 
 /**
@@ -67,10 +68,32 @@ export interface RetirementsView {
   notices: Array<RetirementNotice & { goldens: string[] }>;
 }
 
-export const sessionHref = (kind: 'decisions' | 'migrate', id: string) => `#/changes/${kind}/${id}`;
+/**
+ * Where a session opens, as the dashboard has no page of its own for one: the run whose change it
+ * ranked most consequential, at the call of that change, as Needs a look opens a preview; Runs for a
+ * session that kept no run.
+ */
+function sessionHref(store: Store, sessionId: string): string {
+  const top = store.query(`SELECT run_id AS id, data FROM decision_runs WHERE session_id = ? ORDER BY rank IS NULL, rank, position LIMIT 1`, sessionId)[0];
+  if (!top) return links.runs();
+  return runHref(String(top.id), top.data);
+}
+
+/** A run's part of a session, opened at its most consequential change (`decisionRow`'s cells), else at its start. */
+function runHref(runId: string, data: unknown): string {
+  let run: DecisionRun | null;
+  try {
+    run = typeof data === 'string' ? (JSON.parse(data) as DecisionRun) : (data as DecisionRun);
+  } catch {
+    run = null;
+  }
+  const cells = run && Array.isArray(run.decisions) ? decisionRow(run).cells : [];
+  const ranked = cells.filter((c) => typeof c.rank === 'number' && c.rank > 0).sort((a, b) => a.rank! - b.rank! || a.callNo - b.callNo)[0];
+  return links.run(runId, ranked?.callNo ?? null);
+}
 
 export function decisionSessions(store: Store, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
-  return store.listDecisionSessions(o).map((s) => ({ ...s, href: sessionHref(s.kind, s.sessionId) }));
+  return store.listDecisionSessions(o).map((s) => ({ ...s, href: sessionHref(store, s.sessionId) }));
 }
 
 /** A run's row: its model calls in call order, each with its rank. */
@@ -105,7 +128,7 @@ export function runDecisions(store: Store, runId: string, limit = 10): { runId: 
     runId,
     sessions: store.decisionsOfRun(runId, limit).map((r) => {
       const run = r.data as unknown as DecisionRun;
-      return { sessionId: r.sessionId, kind: r.kind, at: r.at, change: r.change, rank: r.rank, changed: r.changed, href: sessionHref(r.kind, r.sessionId), row: decisionRow(run), run };
+      return { sessionId: r.sessionId, kind: r.kind, at: r.at, change: r.change, rank: r.rank, changed: r.changed, href: runHref(runId, run), row: decisionRow(run), run };
     }),
   };
 }

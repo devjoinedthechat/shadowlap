@@ -198,6 +198,20 @@ export function calibrationTarget(runId: string | null | undefined, runs: readon
 }
 
 /**
+ * A replay the CLI refused before anything ran, as every command that replays a run does when its
+ * model called a tool Shadowlap never recorded that writes, or may (its effect unknown): what the
+ * tool does, in the CLI's words (`an unrecorded tool may write`). A fix's rerun carries no
+ * --allow-unrecorded, so its job ends here, the CLI's lines after it saying how to run it.
+ */
+export function unrecordedRefused(lines: readonly string[]): string | null {
+  for (const l of lines) {
+    const m = /holds model calls of (a tool|tools) Shadowlap never recorded, which (writes|write, or may|may write|write):/.exec(l);
+    if (m) return `${m[1] === 'a tool' ? 'an unrecorded tool' : 'unrecorded tools'} ${m[2]!}`;
+  }
+  return null;
+}
+
+/**
  * How a job ended, in the drawer's status line: the outcome first, then the exit code. Worked out
  * from the CLI's own words when the server sends no structured result.
  */
@@ -234,6 +248,9 @@ export function jobStatus(job: JobLike, lines: readonly string[], lost = false):
     const failed = Number(totals[2]);
     return failed ? { text: `${failed} failed · ${exit}`, tone: 'err' } : { text: `${totals[1]!} passed · ${exit}`, tone: code === 0 ? 'ok' : 'err' };
   }
+  // Refused before it ran anything: why, never a bare exit code.
+  const refused = code !== 0 ? unrecordedRefused(lines) : null;
+  if (refused) return { text: `refused · ${refused} · ${exit}`, tone: 'err' };
   if (code === 0) {
     if (/check(s)? passed/i.test(all)) return { text: `check passed · ${exit}`, tone: 'ok' };
     if (/Replay clean|Reproduced exactly/.test(all)) return { text: `reproduced · ${exit}`, tone: 'ok' };

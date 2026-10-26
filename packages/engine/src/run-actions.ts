@@ -48,6 +48,13 @@ export interface Action {
   group?: 'call' | 'run';
   /** One line on what it does and why, for its dialog or a hover. */
   hint?: string;
+  /**
+   * Set on a replay of a run imported from a pack or pulled from the team store, which runs the
+   * command someone else recorded, with --yes for the CLI: `confirm` when its prompt asks only for
+   * that yes, `value` when the warning leads a question of its own, whose answer is the consent in a
+   * terminal. A client that can ask for the yes apart, as the dashboard does, asks for it itself.
+   */
+  imported?: 'confirm' | 'value';
 }
 
 /** What an action needs beyond the run and the call: the call's recorded result, for an override that starts from it. */
@@ -523,10 +530,10 @@ function guardImported(run: RunRecord, actions: Action[]): Action[] {
     if (a.args) {
       const args = a.args;
       const { args: _args, ...rest } = a;
-      return { ...rest, prompt: { label: `${warning}. Type yes to run it:`, placeholder: 'yes', build: (v) => (/^y(es)?$/i.test(v.trim()) ? withYes(args) : []) } };
+      return { ...rest, imported: 'confirm', prompt: { label: `${warning}. Type yes to run it:`, placeholder: 'yes', build: (v) => (/^y(es)?$/i.test(v.trim()) ? withYes(args) : []) } };
     }
     const prompt = a.prompt!;
-    return { ...a, prompt: { ...prompt, label: `${warning}. ${prompt.label}`, build: (v) => withYes(prompt.build(v)) } };
+    return { ...a, imported: 'value', prompt: { ...prompt, label: `${warning}. ${prompt.label}`, build: (v) => withYes(prompt.build(v)) } };
   });
 }
 

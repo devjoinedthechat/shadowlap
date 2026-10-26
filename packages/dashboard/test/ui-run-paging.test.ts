@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CallRow, CallsPage, Client, RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
 import { CallsTable } from '../ui/run/CallsView.js';
-import { PAGES_AFTER_MS, usePagedRun } from '../ui/run/paged-run.js';
+import { ASKING_PAUSE_MS, PAGES_AFTER_MS, usePagedRun } from '../ui/run/paged-run.js';
 import { followPages, listedCalls, nextRead, PAGE, rangeOf, withPage, withRange } from '../ui/run/paging.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
@@ -248,6 +248,121 @@ describe('a long run’s page', () => {
     expect(out.current!.run.calls.map((c) => c.callNo)).toEqual(range(1, 1200));
     expect(out.current!.run).toMatchObject({ callsNext: null });
     expect(out.current!.run.origins).toBeUndefined();
+  });
+
+  it('reads a jump into a long run and a scroll after it in a page each, none asked for twice', async () => {
+    // A server that takes its time, as one does while it works a long run out: 300 ms a page.
+    const asked: Array<{ from: number; limit: number; at: number; whole: boolean }> = [];
+    let flying = 0;
+    let most = 0;
+    const t0 = performance.now();
+    const slow = {
+      calls: (_id: string, from: number, limit = PAGE, o?: { whole?: boolean }): Promise<CallsPage> => {
+        asked.push({ from, limit, at: performance.now() - t0, whole: !!o?.whole });
+        most = Math.max(most, ++flying);
+        const to = Math.min(20_000, from + Math.min(limit, PAGE) - 1);
+        return new Promise((resolve) =>
+          setTimeout(() => {
+            flying--;
+            resolve({ runId: RUN, calls: range(from, to).map(call), callsTotal: 20_000, callsNext: to < 20_000 ? to + 1 : null });
+          }, 300),
+        );
+      },
+    };
+    const out: { current: ReturnType<typeof usePagedRun> | null } = { current: null };
+    function Host() {
+      out.current = usePagedRun(slow, answer(20_000, 200));
+      return null;
+    }
+    r = await render(createElement(Host));
+    // The jump: call 15,001, as a link opens it. Then a wheel scroll down from it, as the window asks
+    // for the first call not read in view at every step: 40 steps of 12 rows, 50 ms apart.
+    const needed: number[] = [performance.now() - t0];
+    out.current!.paging!.need(15_001);
+    for (let i = 0; i < 40; i++) {
+      await r.wait(50);
+      const top = 15_001 + i * 12;
+      const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
+      const pendingInView = range(top, top + 30).find((n) => !shown.has(n));
+      if (pendingInView === undefined) continue;
+      needed.push(performance.now() - t0);
+      out.current!.paging!.need(pendingInView);
+    }
+    await r.until('the rows in view', () => {
+      const shown = new Set(out.current!.run.calls.map((c) => c.callNo));
+      return range(15_469, 15_499).every((n) => shown.has(n));
+    });
+    // The jump's page and the one the scroll reached; no page asked for twice, none overlapping another.
+    const around = asked.filter((a) => a.from + a.limit - 1 >= 15_001 && a.from <= 15_499);
+    expect(around.map((a) => [a.from, a.limit])).toEqual([
+      [14_901, PAGE],
+      [15_401, PAGE],
+    ]);
+    const ranges = asked.map((a) => [a.from, a.from + a.limit - 1] as const).sort((x, y) => x[0] - y[0]);
+    ranges.reduce((last, [from, to]) => {
+      expect(from, `page ${from} after one that ends at ${last}`).toBeGreaterThan(last);
+      return to;
+    }, 0);
+    expect(most).toBeLessThanOrEqual(2);
+    // The pages read in order went one at a time beside them, each once the window had rested a moment.
+    expect(asked.length).toBeLessThanOrEqual(2 + Math.ceil((performance.now() - t0) / 300));
+    for (const a of asked.filter((x) => x.whole)) {
+      const last = Math.max(...needed.filter((t) => t <= a.at));
+      expect(a.at - last, `the page from ${a.from}, asked ${Math.round(a.at - last)} ms after a call not read was`).toBeGreaterThanOrEqual(ASKING_PAUSE_MS - 50);
+    }
+  });
+
+  it('reads a page deep in a run being analysed at once, then again with every fact in order', async () => {
+    // Deep in the run (past its first 2,000 calls) and asked without `whole`, a page comes from the
+    // calls around it: its conversations not numbered yet.
+    const asked: Array<{ from: number; limit: number; whole: boolean }> = [];
+    const client = {
+      calls: (_id: string, from: number, limit = PAGE, o?: { whole?: boolean }): Promise<CallsPage> => {
+        const whole = !!o?.whole;
+        asked.push({ from, limit, whole });
+        const to = Math.min(3000, from + Math.min(limit, PAGE) - 1);
+        const around = !whole && from + limit + 100 > 2000;
+        return Promise.resolve({ runId: RUN, calls: range(from, to).map((n) => ({ ...call(n), conversation: around ? null : 1 })), callsTotal: 3000, callsNext: to < 3000 ? to + 1 : null, ...(around ? { around: { from: from - 200, to: to + 100 } } : {}) });
+      },
+    };
+    const out: { current: ReturnType<typeof usePagedRun> | null } = { current: null };
+    function Host() {
+      out.current = usePagedRun(client, answer(3000, 200));
+      return null;
+    }
+    r = await render(createElement(Host));
+    out.current!.paging!.need(2500);
+    await r.until('every page with every fact', () => out.current!.paging === null);
+    // The page asked for at once, from the calls around it; then the rest in order, each with every
+    // fact, the page asked for among them again.
+    expect(asked[0]).toEqual({ from: 2400, limit: PAGE, whole: false });
+    expect(asked.slice(1)).toEqual([201, 701, 1201, 1701, 2201, 2701].map((from) => ({ from, limit: PAGE, whole: true })));
+    expect(out.current!.run.calls.map((c) => c.callNo)).toEqual(range(1, 3000));
+    expect(out.current!.run.calls.filter((c) => c.callNo > 200).every((c) => c.conversation === 1)).toBe(true);
+  });
+
+  it('shows a deep call’s details at once, then the same with its conversation’s number once the run is analysed', async () => {
+    addressBar(`#/run/${RUN}/2500`);
+    const { client } = server(3000, 200);
+    const asked: Array<[number, boolean]> = [];
+    const details = (n: number, part: boolean) => ({
+      call: { ...call(n), conversation: part ? null : 1, fingerprint: `f${n}`, occurrence: 1, startedAt: T, endedAt: T + 900, implHash: null, headers: {}, provider: null },
+      conversation: null,
+      request: null,
+      response: null,
+      result: { content: part ? 'from the calls around it' : 'with every fact' },
+      notes: [],
+      actions: [],
+      forkTitle: `At #${n}`,
+      ...(part ? { around: { from: n - 200, to: n + 100 } } : {}),
+    });
+    const deep = { ...client, call: (_id: string, n: number, o?: { whole?: boolean }) => (asked.push([n, !!o?.whole]), Promise.resolve(details(n, !o?.whole))) } as unknown as Client;
+    r = await render(createElement(AppContext.Provider, { value: app(deep) }, createElement(RunPage, { id: RUN, call: 2500, view: null })));
+    await r.until('the details with every fact', () => asked.length === 2);
+    expect(asked).toEqual([
+      [2500, false],
+      [2500, true],
+    ]);
   });
 
   it('asks for the page of a call not read yet when its row is drawn', async () => {

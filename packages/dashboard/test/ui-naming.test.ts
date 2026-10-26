@@ -158,7 +158,8 @@ describe('the lists name a run by its id, with its about line', () => {
     const html = renderToStaticMarkup(createElement(RunsTable, { rows: [forkRun, lostRun], picked: new Set<string>(), selectable: true, byColumn: false, sort: 'when', onSort: () => undefined, onPick: () => undefined, onPickAll: () => undefined, now: 2_000 }));
     expect(html).toContain('<th class="abcol">About</th>');
     const row = html.slice(html.indexOf('01M5GRX8K4'));
-    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><span class="chip">what-if<\/span><\/span><\/span><\/td>/);
+    // Each label a chip that lists the runs labelled so.
+    expect(row).toMatch(/<td class="abcell"><span class="abw"><span class="rab" data-about="override #16"[^>]*>override #16<\/span><span class="labs"><a class="chip" href="#\/runs\?q=label%3Awhat-if"[^>]*>what-if<\/a><\/span><\/span><\/td>/);
     // Under the id, where About gives way (a tablet, a phone), with what needs a look after it.
     expect(html).toContain('<span class="rso"><span class="dot">·</span><em>lost at #9</em></span>');
     // The id's hover has its kind, parent and command.

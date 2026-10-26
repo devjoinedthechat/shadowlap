@@ -589,6 +589,9 @@ function divergenceOf(r: TestResult): DivergenceReport | null {
 }
 
 /** Why a result failed, in a few words: `diverged at call 1`, `check failed: send_email called 0 times`, `inconclusive after 40 attempts`. */
+/** The reason a replay failed under --guard block for a process the guard can't watch (the sidecar's unguardedLine). */
+const UNGUARDED = /^The network guard could not watch every process of the agent/;
+
 export function shortReason(r: TestResult): string {
   if (r.ok) return 'passed';
   // Its gate ran out of attempts; else a check could not be judged (which stops a gate before it decides), or its injection gate showed too little.
@@ -601,8 +604,9 @@ export function shortReason(r: TestResult): string {
   if (r.failure === 'check') return reason.replace(/, but .*$/, '');
   if (r.failure === 'exit') return /exited with code \d+/.exec(reason)?.[0] ?? reason.replace(/^the agent /, '');
   if (r.failure === 'no-calls') return 'made no calls';
-  // Under --guard block, a replay no preload loaded in: the guard never watched it.
-  if (r.failure === 'guard') return 'no preload loaded: the network guard never watched it';
+  // Under --guard block, a replay no preload loaded in, so the guard never watched it; or one a
+  // process ran in that the guard can't watch, as the Claude Code CLI the Claude Agent SDK runs.
+  if (r.failure === 'guard') return UNGUARDED.test(reason) ? 'unguarded: a process the network guard can’t watch ran' : 'no preload loaded: the network guard never watched it';
   // Its injection gate: what obeyed, without the limit and the proof the reason goes on with.
   if (r.failure === 'injection') return reason.replace(/ \(at most[^)]*\).*$/, '');
   return `couldn't run: ${reason}`;

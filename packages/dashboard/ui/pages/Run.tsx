@@ -272,7 +272,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const [labels, setLabels] = useRunLabels(runId, run.run.meta?.labels);
   const markRun = useMarkRun(useCallback((_id: string, next: string[]) => setLabels(next), [setLabels]));
   const canMark = !exported && !actionsOff;
-  const mark = useCallback((m: RunMark) => markRun(runId, labels, m), [markRun, runId, labels]);
+  const mark = useCallback((m: RunMark, from?: HTMLElement) => markRun(runId, labels, m, from), [markRun, runId, labels]);
   // An error-path preset's attempt: the preset it played in and its verdict, from the presets of the session that decided it.
   const presets = useLoad(() => (run.run.meta?.chaos && !live ? client.runChaos(runId) : null), `${runId}:presets`, live ? 0 : runsTick).data ?? null;
   const preset = useMemo(() => presetAttempt(presets, run.run.runId), [presets, run.run.runId]);
@@ -283,7 +283,11 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
 
   const selectedRow = calls.find((c) => c.callNo === selected) ?? null;
   const detailKey = `${runId}:${String(selected)}:${selectedRow?.outcome ?? 'pending'}`;
-  const detail = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
+  const quick = useLoad<CallDetail>(() => (selected !== null && selectedRow ? client.call(runId, selected) : null), detailKey);
+  // Deep in a long run still analysed, the details come at once from the calls around the call, its
+  // conversation's number left out; asked again, they wait for the analysis and take their place.
+  const whole = useLoad<CallDetail>(() => (selected !== null && quick.data?.around ? client.call(runId, selected, { whole: true }) : null), `${detailKey}:whole:${quick.data?.around ? 'part' : ''}`);
+  const detail = whole.data ? whole : quick;
   const change = useChange(run, detail.data, forkAt);
   const chain = useAncestors(run);
   const ancestors = useMemo<CallIndex[]>(() => chain.map((d) => indexCalls(d.calls)), [chain]);
@@ -468,8 +472,9 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. */}
-          <div className="vbody" tabIndex={-1} key={v}>
+          {/* Each view starts at its top; Calls centres the selected call. The Timeline holds nothing
+              that takes the focus, so it takes it itself, to be scrolled by keyboard. */}
+          <div className="vbody" key={v} {...(v === 'timeline' ? { tabIndex: 0, role: 'region', 'aria-label': 'Timeline of the calls' } : { tabIndex: -1 })}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}

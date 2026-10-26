@@ -25,6 +25,11 @@ describe('the address of a view of Runs', () => {
     expect(route).toEqual({ page: 'runs', filter: { q: 'refund (A-1042) & more', types: 'failed', sort: 'spent', days: { from: '2026-10-20', to: '2026-10-22' } } });
     expect(routeHref(route)).toBe(link);
     expect(runsLinkQuery(link)).toEqual(route.page === 'runs' ? route.filter : null);
+    // The runs with a label, as the key's column and a label chip link to them.
+    const good = links.runs({ q: 'label:good' });
+    expect(good).toBe('#/runs?q=label%3Agood');
+    expect(parseRoute(good)).toEqual({ page: 'runs', filter: { q: 'label:good', types: 'all', sort: 'when', days: null } });
+    expect(routeHref(parseRoute(good))).toBe(good);
     // Every run is #/runs alone, its route with no filter.
     expect(links.runs({ q: '  ', types: 'all', sort: 'when' })).toBe('#/runs');
     expect(parseRoute('#/runs')).toEqual({ page: 'runs' });

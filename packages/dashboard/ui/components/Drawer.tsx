@@ -121,7 +121,8 @@ function Drawer({ watched }: { watched: WatchedJob }) {
           <Icon name="x" />
         </button>
       </header>
-      <pre ref={out}>
+      {/* Scrolled by keyboard too: focusable, and named for what it holds. */}
+      <pre ref={out} tabIndex={0} role="region" aria-label="What the command printed">
         <span className="p">$ {jobCommand(job.args)}</span>
         {'\n'}
         {lines.map((l, i) => {

@@ -35,6 +35,7 @@ import {
   type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/engine';
+import { runCalls } from './run-calls.js';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
 /**
@@ -70,6 +71,12 @@ export interface CallFacts {
 export const NO_FACTS: CallFacts = Object.freeze({ conversation: null, conversationStart: false, requestedBy: null, toolUseId: null, cacheMiss: null, recordedMs: null, asks: null });
 
 export interface RunAnalysis {
+  /**
+   * Whether its conversations are numbered as the run's are: false for the calls around a page
+   * deep in a long run (`windowAnalysis`), whose conversations started before them, so a call's
+   * facts leave its conversation's number out rather than give one that only counts from there.
+   */
+  numbered: boolean;
   conversations: RunConversations;
   cache: RunCache;
   recorded: Map<number, number>;
@@ -197,6 +204,71 @@ function callsThrough(calls: readonly CallRecord[], through: number): number {
 export const READ_PAST = LOOKAHEAD;
 
 /**
+ * How many calls before a page deep in a long run are read with it (`windowAnalysis`): enough that the
+ * model call each tool call answers, and the call each model call's prompt cache is judged against,
+ * come with it.
+ */
+export const READ_BEFORE = 200;
+/** Analyses of the calls around pages deep in long runs, per store, apart from the others so that none pushes another out. */
+const windows = new WeakMap<Store, Map<string, RunAnalysis>>();
+
+/**
+ * The analysis of the calls around a page deep in a long run that ended, `calls` (those from a few
+ * hundred before the page to a hundred after it, as read), kept for the few read lately: what the
+ * page is answered from while the whole run is analysed elsewhere, at a cost that grows with the page
+ * and not with how deep in the run it is (a page at #50,000 of 100,000 calls waited 13.8 s for the
+ * whole). Which model call asked for each tool call, what each model call asked for, where the prompt
+ * cache stopped hitting and how long the recording waited for a replayed call come from these calls;
+ * each conversation's number is left out (`numbered`), as it counts conversations from the run's start.
+ */
+export function windowAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
+  let byRun = windows.get(store);
+  if (!byRun) {
+    byRun = new Map();
+    windows.set(store, byRun);
+  }
+  const key = `${analysisKey(run, calls)}\n${calls[0]?.callNo ?? 0}`;
+  let analysis = byRun.get(key);
+  if (!analysis) {
+    analysis = buildAnalysis(store, run, calls, { numbered: false });
+    for (const k of byRun.keys()) if (byRun.size >= 8) byRun.delete(k);
+    byRun.set(key, analysis);
+  }
+  return analysis;
+}
+
+/**
+ * How long the recording waited for each of `calls` that was replayed, back through the runs each
+ * was replayed from, as the engine's `recordedDurations` finds it, reading of each run only the calls
+ * it is asked about: for the calls around a page, where the engine reads every call of each.
+ */
+function recordedOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
+  const out = new Map<number, number>();
+  const replayedFrom = (c: CallRecord) => (c.origin === 'replayed' && typeof c.end?.meta.replayedFrom === 'number' ? c.end.meta.replayedFrom : null);
+  let pending = new Map<number, number>();
+  for (const c of calls) {
+    const from = replayedFrom(c);
+    if (from !== null) pending.set(c.callNo, from);
+  }
+  const seen = new Set([run.runId]);
+  for (let at = run.parentRunId; pending.size && at && !seen.has(at); ) {
+    seen.add(at);
+    const theirs = new Map(store.getCalls(at, { only: [...new Set(pending.values())] }).map((c) => [c.callNo, c]));
+    const next = new Map<number, number>();
+    for (const [callNo, from] of pending) {
+      const c = theirs.get(from);
+      if (!c) continue;
+      const further = replayedFrom(c);
+      if (further !== null) next.set(callNo, further);
+      else if (typeof c.end?.meta.latencyMs === 'number') out.set(callNo, c.end.meta.latencyMs);
+    }
+    pending = next;
+    at = store.getRun(at)?.parentRunId ?? null;
+  }
+  return out;
+}
+
+/**
  * The analysis of a finished run's first calls alone, `part` (the run's calls from its first on, as
  * read), kept for the few runs read lately: what a page of a long run is drawn from while the whole
  * run is analysed beside the server (`analysisFor`).
@@ -217,12 +289,13 @@ export function partAnalysis(store: Store, run: RunRecord, part: readonly CallRe
   return analysis;
 }
 
-/** The analysis itself, of `calls` as given (the whole run, or its first calls). */
-function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunAnalysis {
+/** The analysis itself, of `calls` as given (the whole run, its first calls, or those around a page: not `numbered`). */
+function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[], o: { numbered?: boolean } = {}): RunAnalysis {
+  const numbered = o.numbered !== false;
   // Read already, while tool calls were matched to the model calls that asked for them: cached by blob.
   const { conversations, asks } = conversationsOf(store, run, calls);
   const cache = cacheMisses(calls, conversations);
-  const recorded = run.mode === 'replay' ? recordedDurations(store, run, calls) : new Map<number, number>();
+  const recorded = run.mode !== 'replay' ? new Map<number, number>() : numbered ? recordedDurations(store, run, calls) : recordedOf(store, run, calls);
   const misses = new Map<number, CacheMiss>(cache.misses.map((m) => [m.callNo, m]));
   const byNo = new Map(calls.map((c) => [c.callNo, c]));
   // Each conversation's requests in call order, for requestFor.
@@ -235,6 +308,7 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
     else requests.set(n, [c]);
   }
   const analysis: RunAnalysis = {
+    numbered,
     conversations,
     cache,
     recorded,
@@ -260,8 +334,8 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
       const c = conversations.byCall.get(callNo);
       const miss = misses.get(callNo);
       return {
-        conversation: c?.conversation ?? null,
-        conversationStart: c?.starts ?? false,
+        conversation: numbered ? (c?.conversation ?? null) : null,
+        conversationStart: numbered ? (c?.starts ?? false) : false,
         requestedBy: c?.requestedBy ?? null,
         toolUseId: c?.toolUseId ?? null,
         cacheMiss: miss ? { sentAgain: miss.sentAgain, previousCallNo: miss.previousCallNo } : null,
@@ -368,7 +442,7 @@ export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; re
 /** The model call whose request shows a call's conversation: its own, or its conversation's latest before it. */
 export function conversationSource(store: Store, run: RunRecord, calls: readonly CallRecord[], callNo: number, analysis: RunAnalysis = analyseRun(store, run, calls)): { call: CallRecord; n: number | null } | null {
   const from = analysis.requestFor(callNo);
-  return from ? { call: from, n: analysis.conversations.byCall.get(from.callNo)?.conversation ?? null } : null;
+  return from ? { call: from, n: analysis.numbered ? (analysis.conversations.byCall.get(from.callNo)?.conversation ?? null) : null } : null;
 }
 
 // ---- per run ---------------------------------------------------------------------------------------
@@ -568,7 +642,8 @@ function storedPreloads(run: RunRecord): RunProvenance['preloads'] {
   if (!guard) return null;
   const hellos: Record<string, number> = {};
   if (isObject(v.hellos)) for (const [runtime, n] of Object.entries(v.hellos)) if (/^[a-z][a-z0-9-]{0,19}$/.test(runtime) && Number.isInteger(n) && (n as number) > 0) hellos[runtime] = n as number;
-  return { guard, hellos, missing: typeof v.missing === 'string' && v.missing ? v.missing.slice(0, 2000) : null };
+  const text = (x: unknown) => (typeof x === 'string' && x ? x.slice(0, 2000) : null);
+  return { guard, hellos, missing: text(v.missing), unguarded: text(v.unguarded) };
 }
 
 /** A model id as the run page names it: the platform's prefixes and suffixes off, and no date stamp (`claude-opus-5`). */
@@ -643,9 +718,10 @@ export interface RunProvenance {
   /**
    * The preloads in the agent's processes, for a run whose agent the CLI started with them
    * (`RunMeta.preloads`): the guard they ran, the processes whose preload said it loaded, by runtime,
-   * and why none did when the run made calls with none loaded; null for any other run.
+   * and why none did when the run made calls with none loaded, or which processes ran with no guard
+   * (`unguarded`: the Claude Code CLI the Claude Agent SDK runs); null for any other run.
    */
-  preloads: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null } | null;
+  preloads: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null; unguarded: string | null } | null;
   calls: { model: number; tool: number; other: number; scopes: number };
   /** Requests that reached a provider, and what the live ones cost. */
   upstream: { requests: number; spent: number };
@@ -707,9 +783,11 @@ function maskHere(store: Store, runId: string, rules: Normalizer[]): { rules: nu
 }
 
 export function runProvenance(store: Store, run: RunRecord, options: ProvenanceOptions = {}): RunProvenance {
-  const calls = store.getCalls(run.runId);
+  // As the run's page read them, on the thread that read it last.
+  const calls = runCalls(store, run.runId);
   const modelOf = modelResolver(store);
-  const summary = summarizeRun(run, calls, [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
+  // summarizeRun reads the calls, and changes none of them.
+  const summary = summarizeRun(run, calls as CallRecord[], [], [], { modelOf, ...(options.prices ? { prices: options.prices } : {}) });
   const models = calls.filter((c) => c.kind === 'api');
   const lineage: RunProvenance['lineage'] = [];
   const seen = new Set<string>();

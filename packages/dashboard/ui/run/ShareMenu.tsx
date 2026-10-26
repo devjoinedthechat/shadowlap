@@ -102,7 +102,8 @@ export function ShareMenu({ anchor, run, offers, onClose, onAction }: { anchor: 
       <hr />
       <div className="pnote">
         {note.text}{' '}
-        <a className="more" href={href.settings('redaction')}>
+        {/* A menu holds menu items only: the way to the rules is one, as a screen reader moves through them. */}
+        <a className="more" role="menuitem" href={href.settings('redaction')}>
           {note.link}
         </a>
       </div>

@@ -280,7 +280,9 @@ describe('the Verify step', () => {
     expect(r!.one('.verdict').className).toBe('verdict warn');
     expect(r!.one('.verdict .badge').className).toBe('badge y');
     expect(text(r!.one('.verdict h2'))).toBe('Not every run settled');
-    expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-pressed') === 'true').map(text)).toEqual(['370712a+dirty · incomplete']);
+    // Links to each verdict's page: the one shown is the current one (a link pressed is no button: axe calls that critical).
+    expect(r!.all('.vpick a').filter((a) => a.getAttribute('aria-current') === 'page').map(text)).toEqual(['370712a+dirty · incomplete']);
+    expect(r!.all('.vpick a[aria-pressed]')).toEqual([]);
     // Tokens and cost per run are a quiet line, never figures bigger than the verdict; then what finding out spent.
     expect(r!.all('.deltas')).toEqual([]);
     expect(r!.all('.fxreceipt').map(text)).toEqual([expect.stringMatching(/^per run, as it would run live: 4,329 → 4,402 input tokens \(\+1\.7%\) · ≈\$[\d.]+ → ≈\$[\d.]+ \(\+1\.7%\)$/), expect.stringMatching(/^\d+ attempts · \d+ upstream requests · ≈\$[\d.]+ spent\. A run whose replay doesn’t fork/)]);

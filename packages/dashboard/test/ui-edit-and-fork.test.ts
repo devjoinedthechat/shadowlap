@@ -1,7 +1,8 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CallDetail, JobView } from '../ui/api.js';
+import { ApiError, type CallDetail, type CallRow, type JobView } from '../ui/api.js';
 import { EDIT_LIMIT, EditAndFork, editBody, editStart } from '../ui/run/EditAndFork.js';
+import { Inspector } from '../ui/run/Inspector.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
@@ -125,6 +126,53 @@ describe('Edit and fork in the inspector', () => {
     expect(model.all('button')).toEqual([]);
   });
 
+  it('asks to confirm someone else’s command when the server names it, and only then forks with the yes, from the same upload', async () => {
+    const sent: Sent = { uploads: [], jobs: [] };
+    const why = `01M5GRX8K4 came from an imported pack: this runs the command it was recorded with (node agent.mjs), under shadowlap replay ${RUN} --override '16=…'. Confirm it to run it`;
+    const asked: Array<Record<string, unknown>> = [];
+    const base = app(sent);
+    const client = {
+      ...(base.client as object),
+      startJob: async (kind: string, fields: Record<string, unknown>) => {
+        asked.push(fields);
+        if (fields.yes !== true) throw new ApiError(409, why);
+        sent.jobs.push({ kind, fields });
+        return { id: 'j1' } as JobView;
+      },
+    };
+    const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
+    await page.click(page.byText('button', 'Edit and fork…'));
+    await page.type(page.one('.editfork textarea'), '{"region": "EU", "limit": 40}');
+    await page.click(page.byText('.dlg-ok', 'Fork'));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from an imported pack?')));
+    // Nothing ran yet; the dialog shows the command the server named.
+    expect(sent.jobs).toEqual([]);
+    expect(page.one('[role="dialog"]').textContent).toContain(`${why}.`);
+    // Cancelled, nothing runs; confirmed, the same upload goes with the yes.
+    await page.click(page.byText('.dlg-ok', 'Run'));
+    await page.until('the fork to start', () => sent.jobs.length === 1);
+    expect(sent.uploads).toHaveLength(1);
+    expect(asked).toEqual([
+      { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000' },
+      { runId: RUN, callNo: 16, uploadId: '01M5UPLOAD0000000000000000', yes: true },
+    ]);
+    expect(page.all('[role="dialog"]')).toEqual([]);
+  });
+
+  it('sends nothing more when the question is cancelled', async () => {
+    const sent: Sent = { uploads: [], jobs: [] };
+    const asked: unknown[] = [];
+    const base = app(sent);
+    const client = { ...(base.client as object), startJob: async (_kind: string, fields: Record<string, unknown>) => (asked.push(fields), Promise.reject(new ApiError(409, '01M5GRX8K4 came from the team store: this runs the command it was recorded with (node agent.mjs), under shadowlap replay x. Confirm it to run it'))) };
+    const page = await open(detail(), sent, { client } as unknown as Partial<AppState>);
+    await page.click(page.byText('button', 'Edit and fork…'));
+    await page.click(page.byText('.dlg-ok', 'Fork'));
+    await page.until('the question', () => page.all('[role="dialog"]').some((d) => d.textContent.includes('Run a command from the team store?')));
+    await page.click(page.byText('.dlg-cancel', 'Cancel'));
+    expect(page.all('[role="dialog"]')).toEqual([]);
+    expect(asked).toHaveLength(1);
+  });
+
   it('is off, saying why, where the fork menu’s override is', async () => {
     const page = await open(detail({ disabled: 'A capture has no command: replay it with yours first' }), { uploads: [], jobs: [] });
     const button = page.byText('button', 'Edit and fork…');
@@ -136,5 +184,20 @@ describe('Edit and fork in the inspector', () => {
     const page = await open(detail({ label: 'This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. Result for #16 lookup_policy, as JSON:' }), { uploads: [], jobs: [] });
     await page.click(page.byText('button', 'Edit and fork…'));
     expect(page.one('.warnline').textContent).toBe('This run came from an imported pack (goldens/refund); replaying it runs: node agent.mjs. ');
+  });
+});
+
+describe('Edit and fork in the inspector', () => {
+  it('is under the call’s name on every tab, not only beside the result on Response', async () => {
+    const d = detail();
+    const call = { ...d.call, effect: 'read', scope: null, model: null, usage: null, latencyMs: 2, fingerprint: 'f16', occurrence: 1, startedAt: 1, endedAt: 2, implHash: null, headers: {}, provider: null } as unknown as CallRow;
+    for (const tab of ['conversation', 'response', 'request', 'details'] as const) {
+      r = await render(createElement(AppContext.Provider, { value: app({ uploads: [], jobs: [] }) }, createElement(Inspector, { runId: RUN, call, calls: [call], detail: { ...d, call: { ...d.call, ...call }, conversation: null, request: { args: { region: 'EU' } }, response: null, notes: [], forkTitle: 'At #16' } as unknown as CallDetail, error: null, tab, onTab: () => undefined, onStep: () => undefined, change: null, live: false })));
+      const buttons = r.all('.insp button').filter((b) => b.textContent === 'Edit and fork…');
+      expect(buttons, tab).toHaveLength(1);
+      expect(buttons[0].closest('.isumrow'), tab).not.toBeNull();
+      await r.unmount();
+      r = null;
+    }
   });
 });

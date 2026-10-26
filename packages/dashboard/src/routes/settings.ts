@@ -20,6 +20,7 @@ import { liveKeys } from '../ci-workflows.js';
 import type { RouteContext } from '../context.js';
 import { folderGoneText } from '../folder-gone.js';
 import { HttpError } from '../http.js';
+import { answerData } from '../read-pool.js';
 import type { Router } from '../router.js';
 import {
   CLEANUP_DAYS,
@@ -39,6 +40,7 @@ import {
   type SettingsContext,
 } from '../settings.js';
 import { readTeamStoreInput } from '../team-store.js';
+import type { ToolReads } from '../tool-reads.js';
 
 /**
  * Settings (`#/settings/<tab>`): one read per tab, the edits to shadowlap.config.json, and the two
@@ -171,7 +173,11 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/settings/agents', (r) => r.tagged(codingAgentsSettings(settings())));
 
-  router.get('/settings/tools', (r) => r.tagged(toolsSettings(settings())));
+  // Every tool call in the store and the MCP servers they came through, read beside the server; the config and the clients' files here.
+  router.get('/settings/tools', async (r) => {
+    const s = settings();
+    r.tagged(toolsSettings(s, { reads: answerData<ToolReads>(await ctx.reads.run({ kind: 'tool-reads' })) }));
+  });
 
   // "Add a server…": the line and the client entry for what the dialog has so far. Nothing is written.
   router.get('/settings/tools/mcp', (r) => {

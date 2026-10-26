@@ -70,8 +70,16 @@ describe('reading what a verdict says beyond its tally', () => {
     expect(gateEvidence({ gate: { bound: { lo: 0.78, confidence: 0.95, method: 'sprt-stagewise' }, unavailable: 2 } })).toEqual({ method: 'exact under the gate’s stopping rule', unavailable: 2 });
     expect(gateEvidence({ bound: { method: 'clopper-pearson' }, unavailable: -1 })).toEqual({ method: 'Clopper–Pearson', unavailable: 0 });
     expect(gateEvidence({})).toEqual({ method: null, unavailable: 0 });
-    expect(verifyEvidence({ baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1 })).toEqual({ method: null, unavailable: 0, baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1 });
-    expect(verifyEvidence({ baseline: { passes: 13, attempts: 12, source: 'paired' }, margin: 3 })).toMatchObject({ baseline: null, margin: null });
+    expect(verifyEvidence({ baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1 })).toEqual({ method: null, unavailable: 0, baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1, drop: null });
+    expect(verifyEvidence({ baseline: { passes: 13, attempts: 12, source: 'paired' }, margin: 3 })).toMatchObject({ baseline: null, margin: null, drop: null });
+    // The bound on its drop, as the CLI and a fix's PR say it: the end that bears on its verdict.
+    const kept = { baseline: { passes: 38, attempts: 38, source: 'paired' }, margin: 0.1, decision: 'pass', drop: { lo: -0.1, hi: 0.0962, confidence: 0.95, method: 'betting' } };
+    expect(verifyEvidence(kept).drop).toBe('drop <= 0.10 (95%)');
+    expect(verifyEvidence({ ...kept, decision: 'fail', drop: { lo: 0.123, hi: 0.5, confidence: 0.95, method: 'betting' } }).drop).toBe('drop >= 0.12 (95%)');
+    expect(verifyEvidence({ ...kept, decision: 'inconclusive', drop: { lo: -0.04, hi: 0.18, confidence: 0.9, method: 'history' } }).drop).toBe('drop -0.04 to 0.18 (90%)');
+    // A pack can carry anything: a bound that isn't one says nothing.
+    expect(verifyEvidence({ ...kept, drop: { lo: 'x', hi: 3, confidence: 2 } }).drop).toBeNull();
+    expect(verifyEvidence({ drop: kept.drop, decision: 'pass' }).drop).toBeNull();
     expect(verifyEvidence({ baseline: { passes: 47, attempts: 50, source: 'history', revision: '$(rm -rf)' } }).baseline).toEqual({ passes: 47, attempts: 50, source: 'history', revision: null });
     expect(blameEvidence({ range: { from: 3, to: 5 }, errorBound: 0.04 })).toEqual({ range: { from: 3, to: 5 }, errorBound: 0.04 });
     expect(blameEvidence({ range: { from: 5, to: 3 }, errorBound: 'low' })).toEqual({ range: null, errorBound: null });
@@ -94,23 +102,25 @@ describe('a fix’s page, with what its verdicts say beyond their tallies', () =
     expect(text(row)).toContain('· 2 unavailable');
   });
 
-  it('shows a run’s baseline and margin, its bound’s method on hover and its unavailable attempts', async () => {
+  it('shows a run’s baseline and the bound on its drop as the CLI says it, its bound’s method on hover and its unavailable attempts', async () => {
     const { fixId } = fix({
       verify: (v) => {
         const good = v.runs[1];
-        Object.assign(good, { baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1, gate: { decision: 'pass', sentence: 'passed', clean: false, attempts: 4, interval: { lo: 0.51, hi: 1, confidence: 0.95 }, bound: { lo: 0.53, confidence: 0.95, method: 'sprt-stagewise' }, unavailable: 1 } });
-        Object.assign(v.runs[0], { baseline: { passes: 40, attempts: 50, source: 'history' } });
+        Object.assign(good, { baseline: { passes: 12, attempts: 12, source: 'paired', revision: 'a7b3c2e' }, margin: 0.1, decision: 'pass', drop: { lo: -0.2, hi: 0.0962, confidence: 0.95, method: 'betting' }, gate: { decision: 'pass', sentence: 'passed', clean: false, attempts: 4, interval: { lo: 0.51, hi: 1, confidence: 0.95 }, bound: { lo: 0.53, confidence: 0.95, method: 'sprt-stagewise' }, unavailable: 1 } });
+        Object.assign(v.runs[0], { baseline: { passes: 40, attempts: 50, source: 'history' }, margin: 0.1 });
       },
     });
     const page = await open(fixId, 'verify');
     const rows = page.all('table.t tbody tr');
     const good = rows.find((x) => text(x).startsWith('good'))!;
-    expect(text(good.querySelector('.fxwhere')!)).toContain('baseline 12 of 12, paired at a7b3c2e · margin 0.1');
+    expect(text(good.querySelector('.fxwhere')!)).toContain('baseline 12 of 12, paired at a7b3c2e · drop <= 0.10 (95%)');
+    expect(good.querySelector('.fxbase')!.getAttribute('title')).toBe('Kept unless its pass rate drops 10 points or more below its baseline’s');
     expect(text(good)).toContain('· 1 unavailable');
     const bound = good.querySelectorAll('.fxof .fxdim').find((x) => /rate >=/.test(x.textContent))!;
     expect(bound.getAttribute('title')).toBe('the bound: exact under the gate’s stopping rule');
+    // A report kept before the bound was: its margin, as it said it.
     const target = rows.find((x) => text(x).startsWith('target'))!;
-    expect(text(target.querySelector('.fxwhere')!)).toContain('baseline 40 of 50, from history');
+    expect(text(target.querySelector('.fxwhere')!)).toContain('baseline 40 of 50, from history · margin 0.1');
   });
 
   it('reads a report without them as it always did', async () => {
