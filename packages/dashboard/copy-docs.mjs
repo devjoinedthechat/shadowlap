@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..', '..');
 const out = join(here, 'dist', 'docs');
+rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 for (const name of ['agents.md', 'mcp.md']) cpSync(join(repo, 'docs', name), join(out, name));
 

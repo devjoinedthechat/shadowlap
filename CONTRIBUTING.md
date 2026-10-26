@@ -14,7 +14,7 @@ Node ≥ 22.16, not 23. Python ≥ 3.9 only if you touch `sdks/python`.
 
 ```sh
 npm ci
-npm run build                     # tsc -b, then the dashboard's UI bundle
+npm run build                     # tsc -b (first removing its build of a source since deleted), the CommonJS copies, the dashboard's UI bundle
 npx vitest run                    # unit tests, the fidelity suite, the golden replay, the Python agent
 npm run typecheck:tests           # the test files, under the same strict settings as the source
 npm run lint                      # ESLint with typescript-eslint's typed rules, and ruff on the Python (through uvx)
