@@ -50,7 +50,8 @@ describe('Settings → CI', () => {
     // One code block on the tab: your workflow, Slack on and no fix by default.
     expect(r.all('.settab .codebox')).toHaveLength(1);
     const code = () => r!.one('#workflow .codebox').textContent;
-    expect(code()).toContain('- uses: actions/checkout@v7\n- uses: actions/setup-node@v7\n');
+    // Checked out without the job's token left in .git/config, which the agent's steps could read.
+    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    persist-credentials: false\n- uses: actions/setup-node@v7\n');
     expect(code()).toContain('  id: goldens\n  with:\n    version: 0.1.0\n    recordings: goldens/*\n    fail-on-divergence: false\n');
     expect(code()).toContain('- name: Tell Slack');
     expect(r.one('#fix-on-failure').className).toBe('panel set cip off');
@@ -63,7 +64,8 @@ describe('Settings → CI', () => {
     expect(toast).toHaveBeenCalledWith('Fix pull requests are on · your workflow has the step');
     // The action still runs once: the fix's branch checked out, its inputs beside fail-on-divergence.
     expect(code().match(/- uses: devjoinedthechat\/shadowlap@/g)).toHaveLength(1);
-    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.head_ref || github.ref }}\n');
+    // A fork's pull request has no branch here: its job checks out the merge ref, as without the fix.
+    expect(code()).toContain('- uses: actions/checkout@v7\n  with:\n    ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}\n    persist-credentials: false\n');
     expect(r.one('#fix-on-failure').className).toBe('panel set cip');
     await r.click(r.one('#workflow .switch[aria-label="Tell Slack"]'));
     await r.until('the workflow without Slack', () => !code().includes('Tell Slack'));

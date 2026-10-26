@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,6 +172,21 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(r.outputs).toMatchObject({ passed: '1', failed: '0', inconclusive: '1' });
   });
 
+  it('passes a recording folder named like a flag as a path, which shadowlap test reads as a folder', () => {
+    // At the root, `*` finds `-x` and `--online` as they are: on the command line, flags.
+    const project = mkdtempSync(join(tmpdir(), 'fp-flag-folders-'));
+    dirs.push(project);
+    for (const name of ['-x', '--online', 'refund']) {
+      mkdirSync(join(project, name));
+      writeFileSync(join(project, name, 'run.json'), '{}');
+    }
+    run({ RECORDINGS: '*', WORKING_DIRECTORY: project });
+    const args = given();
+    expect(args.slice(args.indexOf('test') + 1, args.indexOf('--json'))).toEqual(['./--online', './-x', 'refund']);
+    expect(args).not.toContain('--online');
+    expect(args).not.toContain('-x');
+  });
+
   it('says what is wrong with those inputs', () => {
     expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, not "maybe"');
     expect(run({ MAX_ATTEMPTS: 'lots' }).out).toContain('input max-attempts must be a whole number of attempts');
@@ -293,6 +308,16 @@ describe('test reports', () => {
     expect(md).not.toContain("the gate's stated risk");
   });
 
+  it('puts what the run did in the job summary as text GitHub links, mentions and renders nothing in', () => {
+    const planted = '![x](https://evil.example/t.png) @alice <img src=x> #1 [docs](https://evil.example)';
+    const hostile: PackResult = { ...failed, name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', failure: 'check', message: `check failed: send_email with {"to":"${planted}"}`, details: null, output: null, divergence: null, checks: [{ ok: false, status: 'failed', label: `send_email with {"to":"${planted}"} called 0 times`, detail: 'called 1 time' }] };
+    const md = markdownReport(testReport([hostile]));
+    // Outside fenced blocks and code spans, nothing is left that GitHub would render, link or mention.
+    const text = md.replace(/^(`{3,})[^\n]*\n[\s\S]*?\n\1$/gm, '').replace(/(`+)[^`]*?\1/g, '');
+    expect(text).not.toMatch(/!\[|\]\(|<img|@alice|https?:\/\/|(?<!&)#1\b/);
+    expect(md).toContain('<details open><summary><b>refund-flow</b>: check failed: send_email with {"to":"!&#91;x&#93;(https:<span></span>//evil.example/t.png) @<span></span>alice &lt;img src=x> #<span></span>1 &#91;docs&#93;(https:<span></span>//evil.example)"}</summary>');
+  });
+
   it('escapes GitHub annotation properties and data', () => {
     expect(githubAnnotations(testReport([clean, failed]))).toBe('::error file=goldens/summarize/run.json,title=Shadowlap%3A summarize|thread::diverged at call 3 (api POST /v1/messages)%0A%0Aa ``` fence%0A50%25 of it: here, there');
   });
@@ -300,7 +325,7 @@ describe('test reports', () => {
 
 describe('the pull request comment the GitHub Action keeps', () => {
   /** GitHub, as far as comments go: it keeps them, and every request. */
-  const comments: Array<{ id: number; body: string; user: { type: string }; html_url: string }> = [];
+  const comments: Array<{ id: number; body: string; user: { login: string; id: number; type: string }; performed_via_github_app: { slug: string } | null; html_url: string }> = [];
   const calls: Array<{ method: string; url: string; authorization: string | undefined }> = [];
   let api = '';
   let server: import('node:http').Server;
@@ -313,8 +338,10 @@ describe('the pull request comment the GitHub Action keeps', () => {
         calls.push({ method: req.method ?? '', url: req.url ?? '', authorization: req.headers.authorization });
         const json = (status: number, body: unknown) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
         if (req.method === 'GET' && /\/issues\/12\/comments\?/.test(req.url ?? '')) return json(200, comments);
+        // An installation's token, as the job's own is, has no user to name.
+        if (req.method === 'GET' && req.url === '/user') return json(403, { message: 'Resource not accessible by integration' });
         if (req.method === 'POST' && /\/issues\/12\/comments$/.test(req.url ?? '')) {
-          const c = { id: comments.length + 1, body: (JSON.parse(text) as { body: string }).body, user: { type: 'Bot' }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${comments.length + 1}` };
+          const c = { id: comments.length + 1, body: (JSON.parse(text) as { body: string }).body, user: { login: 'github-actions[bot]', id: 41898282, type: 'Bot' }, performed_via_github_app: { slug: 'github-actions' }, html_url: `https://github.test/northwind/agent/pull/12#issuecomment-${comments.length + 1}` };
           comments.push(c);
           return json(201, c);
         }
@@ -452,4 +479,80 @@ describe('the pull request comment the GitHub Action keeps', () => {
     // It commented with the token it was given.
     expect(calls.at(-1)?.authorization).toBe('Bearer github_pat_secret');
   }, 60_000);
+});
+
+describe("the GitHub Action, fix on failure and the job's tokens", () => {
+  /**
+   * A stand-in for the CLI that writes down, for each command it is run as, its arguments and its
+   * environment, then answers as shadowlap does: test with one golden that fails a check, repair with
+   * no fix (the gate accepted none).
+   */
+  function fakeCli(dir: string): { cli: string; seen: () => Array<{ args: string[]; env: Record<string, string> }> } {
+    const cli = join(dir, 'fake-cli.mjs');
+    const log = join(dir, 'seen.jsonl');
+    writeFileSync(
+      cli,
+      [
+        "import { appendFileSync, writeFileSync } from 'node:fs';",
+        'const args = process.argv.slice(2);',
+        'const at = (flag) => args[args.indexOf(flag) + 1];',
+        `appendFileSync(${JSON.stringify(log)}, JSON.stringify({ args, env: process.env }) + '\\n');`,
+        "if (args.includes('repair')) { process.stdout.write(JSON.stringify({ outcome: 'not-fixed', why: 'the gate accepted none of the 1 candidate tried', cost: { blame: 0.1, repairer: 0.01, verify: 0.2 }, candidates: [], output: {} })); process.exit(1); }",
+        "const result = { name: 'refund-flow', dir: 'goldens/refund-flow', golden: 'goldens/refund-flow', mode: 'replay', ok: false, verdict: 'failed', failure: 'check', message: 'check failed: issue_refund called 0 times, but called 1 time', expect: { tools: { issue_refund: 0 } }, checks: [{ ok: false, status: 'failed', label: 'issue_refund called 0 times', detail: 'called 1 time' }], runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', runs: [{ runId: '01K5CQ4V3H8M2XWQH6V3T9RB1D', ok: false, verdict: 'failed' }] };",
+        "writeFileSync(at('--json'), JSON.stringify({ version: 1, session: 'S', revision: null, passed: 0, failed: 1, inconclusive: 0, interrupted: false, results: [result] }));",
+        "writeFileSync(at('--markdown'), '### Shadowlap: 1 of 1 recording failed\\n');",
+        'process.exit(1);',
+      ].join('\n'),
+    );
+    return { cli, seen: () => readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { args: string[]; env: Record<string, string> }) };
+  }
+
+  /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name. */
+  function project(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-'));
+    dirs.push(dir);
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+    git('init', '-q', '-b', 'main');
+    cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'refund-flow'), { recursive: true });
+    git('add', '-A');
+    git('commit', '-qm', 'agent');
+    return dir;
+  }
+
+  it("runs repair under the step's guard and fix-build, and hands neither it nor the test any of GitHub's tokens", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
+    dirs.push(dir);
+    const fake = fakeCli(dir);
+    const job = 'ghs_job_token_for_the_test';
+    const pat = 'github_pat_for_the_test';
+    const oidc = 'oidc_request_token_for_the_test';
+    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${job}`).toString('base64')}`;
+    const r = action(
+      { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', FIX_BUILD: 'npm run build', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
+      { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
+    );
+    expect(r.code, r.out).toBe(0);
+    const seen = fake.seen();
+    expect(seen.map((s) => s.args.find((a) => a === 'test' || a === 'repair'))).toEqual(['test', 'repair']);
+    for (const { args, env } of seen) {
+      const text = JSON.stringify(env);
+      for (const secret of [job, pat, oidc, header]) expect(text, `${args[0]}: ${secret}`).not.toContain(secret);
+      for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'MY_COPY_OF_THE_TOKEN', 'GIT_CONFIG_COUNT']) expect(env, name).not.toHaveProperty(name);
+    }
+    // The test ran under the step's guard, and so did repair, with the step's build for the agent.
+    const repair = seen[1].args;
+    expect(seen[0].args.slice(seen[0].args.indexOf('--guard'), seen[0].args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
+    expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 4)).toEqual(['--guard', 'warn', '--build', 'npm run build']);
+    expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
+  });
+
+  it('refuses to run on pull_request_target, before anything runs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-target-'));
+    dirs.push(dir);
+    const fake = fakeCli(dir);
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: 'true' }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'pull_request_target' });
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("::error title=Shadowlap::the action does not run on pull_request_target, which runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request");
+    expect(() => fake.seen()).toThrow();
+  });
 });

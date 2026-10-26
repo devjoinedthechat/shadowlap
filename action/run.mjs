@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
-import { fixSummary, runFixes } from './fix.mjs';
+import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 
 /**
@@ -50,6 +50,9 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     process.exit(1);
   }
 
+  // pull_request_target runs a pull request's workflow with the base repository's secrets and a token
+  // that may write: an agent the pull request changed, run there, would have both.
+  if (env.GITHUB_EVENT_NAME === 'pull_request_target') fail('the action does not run on pull_request_target, which runs a pull request\'s workflow with the base repository\'s secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request');
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
@@ -62,6 +65,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (!Number.isFinite(budget) || budget <= 0) fail(`input fix-budget must be an amount in dollars, such as 2.00, not "${input('FIX_BUDGET')}"`);
   const repairer = input('REPAIRER');
   if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`input repairer must be claude-code, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
+  // What builds the agent once a fix changes its source, as shadowlap repair --build runs it.
+  const fixBuild = input('FIX_BUILD');
   // The test history, and the runs a fix starts from: the project's store unless one is named.
   const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
   // The team store: the test runs and the session's report (test --push), then any fix opened.
@@ -96,7 +101,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // A pattern that matches no pack fails the step, each one named, as shadowlap test refuses one.
   const unmatched = expanded.filter((x) => !x.packs.length).map((x) => x.pattern);
   if (unmatched.length) fail(`no recordings match ${unmatched.join(' ')} in ${workdir}. A recording is a directory written by shadowlap pack, with a run.json inside.`);
-  const packs = [...new Set(expanded.flatMap((x) => x.packs))];
+  // A folder named like a flag (`-x`, which `*` finds at the root as `-x`) goes as `./-x`.
+  const packs = [...new Set(expanded.flatMap((x) => x.packs).map(testPath))];
 
   const out = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-'));
   const json = join(out, 'shadowlap-report.json');
@@ -109,7 +115,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (bool('ANNOTATIONS', true)) args.push('--annotations');
   if (push) args.push('--push');
   // The token the action pushes, opens pull requests and comments with goes to git, gh and GitHub's
-  // API only: the CLI, and the agent it runs, never get it.
+  // API only: the CLI, and the agent it runs, never get it, nor any other of GitHub's tokens in the job.
   const auth = githubToken(env);
   const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
 
@@ -122,7 +128,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
   if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
   if (fixOnFailure && report.failed && !report.interrupted) {
-    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
+    fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuild, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
     for (const f of fixes) {
       if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${String(f.pr)}\n`);
       else process.stdout.write(`${f.name}: no fix pull request: ${String(f.why)}\n`);

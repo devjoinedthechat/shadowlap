@@ -12,7 +12,8 @@ const API_VERSION = '2022-11-28';
  * (`SHADOWLAP_JOB_TOKEN`, which action.yml passes from `github.token`), so a fix's pull request
  * opened with it would sit with its required checks never started. A `github-token` input (a GitHub
  * App's token or a personal access token) does start them; so does a GH_TOKEN the step was given that
- * is another token than the job's. `source` says which: `input`, `gh-token`, `github-token`, or `none`.
+ * is another token than the job's, as steps written before the input had it. `source` says which:
+ * `input`, `gh-token`, `github-token`, or `none`. Whichever it is, the CLI never gets it (withoutTokens).
  */
 export function githubToken(env) {
   const given = (env.INPUT_GITHUB_TOKEN ?? '').trim();
@@ -24,17 +25,19 @@ export function githubToken(env) {
   return token ? { token, source: 'github-token', startsWorkflows: false } : { token: null, source: 'none', startsWorkflows: false };
 }
 
+/** The Authorization header git sends a token in, as actions/checkout writes it: `AUTHORIZATION: basic <base64>`. */
+const basicHeader = (token) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+
 /**
- * The environment git and gh run with to push and open a fix's pull request with `auth`'s token. gh
- * reads GH_TOKEN. actions/checkout leaves the job's token in the repository's git config, as an
- * Authorization header for the server; a token of another kind replaces it, through git's
- * GIT_CONFIG_* variables (an empty value clears the header the config has, the next one sets the
- * token's), so it never appears in a command line.
+ * The environment git and gh run with to push and open a fix's pull request with `auth`'s token, for
+ * those two alone. gh reads GH_TOKEN. git gets the token as an Authorization header for the server
+ * through its GIT_CONFIG_* variables: an empty value clears any header the repository's config has
+ * (actions/checkout leaves the job's own there unless persist-credentials is false), the next sets
+ * the token's. So the push needs nothing on disk, and the token never appears in a command line.
  */
 export function tokenEnv(env, auth) {
   if (!auth?.token) return env;
   const out = { ...env, GH_TOKEN: auth.token };
-  if (auth.source !== 'input' && auth.source !== 'gh-token') return out;
   const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, '');
   const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
   const key = `http.${server}/.extraheader`;
@@ -42,15 +45,39 @@ export function tokenEnv(env, auth) {
   out[`GIT_CONFIG_KEY_${n}`] = key;
   out[`GIT_CONFIG_VALUE_${n}`] = '';
   out[`GIT_CONFIG_KEY_${n + 1}`] = key;
-  out[`GIT_CONFIG_VALUE_${n + 1}`] = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${auth.token}`).toString('base64')}`;
+  out[`GIT_CONFIG_VALUE_${n + 1}`] = basicHeader(auth.token);
   return out;
 }
 
-/** The environment without the tokens action.yml hands the action: what the CLI, and the agent it runs, get. */
+/**
+ * The variables a job holds GitHub's tokens in: the action's input and the job's own token, which
+ * action.yml passes; gh's (GH_TOKEN, GITHUB_TOKEN, and their names for a GitHub Enterprise Server);
+ * the one the job asks GitHub for an OIDC token with, which can sign in to any cloud role that trusts
+ * the repository; and the runner's own, for the cache and artifacts.
+ */
+export const TOKEN_VARIABLES = ['INPUT_GITHUB_TOKEN', 'SHADOWLAP_JOB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'ACTIONS_ID_TOKEN_REQUEST_URL', 'ACTIONS_RUNTIME_TOKEN'];
+
+/** A token shorter than this is no token GitHub issues: a variable equal to such a value is left alone. */
+const SHORTEST_TOKEN = 8;
+
+/**
+ * The environment without GitHub's tokens: what the CLI, and the agent it runs, get. Each variable in
+ * TOKEN_VARIABLES goes, and so does any other that holds one of their tokens, as it is or as the
+ * Authorization header git sends it in: a copy under another name (`MY_TOKEN: ${{ github.token }}`),
+ * a `Bearer` header, a git setting in GIT_CONFIG_*. A token in one of git's settings takes all of
+ * them with it, as git refuses a GIT_CONFIG_COUNT whose keys or values are missing.
+ */
 export function withoutTokens(env) {
-  const out = { ...env };
-  delete out.INPUT_GITHUB_TOKEN;
-  delete out.SHADOWLAP_JOB_TOKEN;
+  const tokens = [...new Set(TOKEN_VARIABLES.map((k) => (env[k] ?? '').trim()).filter((t) => t.length >= SHORTEST_TOKEN))];
+  const forms = tokens.flatMap((t) => [t, Buffer.from(`x-access-token:${t}`).toString('base64')]);
+  const holds = (v) => typeof v === 'string' && forms.some((f) => v.includes(f));
+  const out = {};
+  const gitConfig = /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/;
+  const gitHolds = Object.entries(env).some(([k, v]) => gitConfig.test(k) && holds(v));
+  for (const [k, v] of Object.entries(env)) {
+    if (TOKEN_VARIABLES.includes(k) || holds(v) || (gitHolds && gitConfig.test(k))) continue;
+    out[k] = v;
+  }
   return out;
 }
 
@@ -128,12 +155,41 @@ export function pullRequestOf(env, read = (path) => readFileSync(path, 'utf8')) 
 /** Why GitHub refused a comment: the token may not, which is said quietly; or anything else. */
 const refusal = (r) => (r.status === 401 || r.status === 403 || r.status === 404 ? { state: 'denied', url: null, why: `the job's token may not comment on the pull request: give the job pull-requests: write (${said(r)})` } : { state: 'failed', url: null, why: said(r) });
 
+/** The login GitHub gives what the job's own GITHUB_TOKEN posts, and the App it posts through. */
+const ACTIONS_BOT = { login: 'github-actions[bot]', app: 'github-actions' };
+
 /**
- * Keeps `body` on pull request `number` in one comment: the comment whose body holds `marker` is
- * edited in place, one by a bot first when there are several, else a new one is made. The comments
- * are read a page of 100 at a time. One with the marker the token may not edit (someone else's that
- * quotes it) gets a comment of the action's own instead. Never throws: `{ state, url, why }`, state
- * `updated`, `created`, `denied` (the token may not comment) or `failed`.
+ * Who posts with the token, as GitHub names the author of a comment: a person, or the bot of the
+ * App whose token it is. A personal access token's owner is the one `GET /user` answers with; the
+ * job's own GITHUB_TOKEN posts as GitHub Actions' bot, which `GET /user` doesn't answer for. Any other
+ * token (a GitHub App's installation token) is null: GitHub names its owner only once it has posted.
+ */
+async function tokenOwner(fetchFn, by, auth) {
+  const r = await call(fetchFn, by, 'GET', '/user');
+  if (r.ok && typeof r.data?.login === 'string') return { login: r.data.login, id: typeof r.data.id === 'number' ? r.data.id : null, app: null };
+  if (auth.source === 'github-token') return { login: ACTIONS_BOT.login, id: null, app: ACTIONS_BOT.app };
+  return null;
+}
+
+/** Whether `owner` made comment `c`: its author's login (and id, when both are known), and for an App's bot, through that App. */
+function madeBy(c, owner) {
+  const user = c?.user;
+  if (!owner || !user || typeof user.login !== 'string') return false;
+  if (owner.id !== null && typeof user.id === 'number' && user.id !== owner.id) return false;
+  const login = user.login.toLowerCase() === owner.login.toLowerCase();
+  if (!owner.app) return login;
+  // A person's login can't hold brackets, so `github-actions[bot]` is the bot's alone; or the App it was posted through says so.
+  return user.type === 'Bot' && (login || c.performed_via_github_app?.slug === owner.app);
+}
+
+/**
+ * Keeps `body` on pull request `number` in one comment of the token's own: the one it made whose body
+ * holds `marker` is edited in place, else a new one is made. The comments are read a page of 100 at a
+ * time. A comment anyone else made never is edited, whatever it holds: one that quotes the marker, or
+ * plants it, is left as it is. With a token whose owner GitHub won't name up front (a GitHub App's),
+ * the comment is posted again, and the App's earlier ones, which the new one's author names, are
+ * removed. Never throws: `{ state, url, why }`, state `updated`, `created`, `denied` (the token may
+ * not comment) or `failed`.
  */
 export async function upsertComment({ env, auth, number, marker, body, fetch: fetchFn = globalThis.fetch }) {
   const { api, repo } = repositoryOf(env);
@@ -148,14 +204,22 @@ export async function upsertComment({ env, auth, number, marker, body, fetch: fe
       marked.push(...list.filter((c) => c && typeof c.body === 'string' && c.body.includes(marker) && typeof c.id === 'number'));
       if (list.length < 100) break;
     }
-    const found = marked.find((c) => c.user?.type === 'Bot') ?? marked[0] ?? null;
+    const owner = marked.length ? await tokenOwner(fetchFn, by, auth) : null;
+    const found = marked.find((c) => madeBy(c, owner)) ?? null;
     if (found) {
       const r = await call(fetchFn, by, 'PATCH', `/repos/${repo}/issues/comments/${found.id}`, { body });
       if (r.ok) return { state: 'updated', url: r.data?.html_url ?? found.html_url ?? null, why: null };
       if (r.status !== 403 && r.status !== 404) return refusal(r);
     }
     const r = await call(fetchFn, by, 'POST', `/repos/${repo}/issues/${number}/comments`, { body });
-    return r.ok ? { state: 'created', url: r.data?.html_url ?? null, why: null } : refusal(r);
+    if (!r.ok) return refusal(r);
+    // Its owner unknown before, the new comment names it: an App's earlier ones go, so one is kept. A
+    // person's comment stays whatever it holds, even when the token is theirs.
+    if (!owner && marked.length && typeof r.data?.user?.login === 'string' && r.data.user.type === 'Bot') {
+      const made = { login: r.data.user.login, id: typeof r.data.user.id === 'number' ? r.data.user.id : null, app: r.data.performed_via_github_app?.slug ?? null };
+      for (const c of marked) if (c.id !== r.data.id && madeBy(c, made)) await call(fetchFn, by, 'DELETE', `/repos/${repo}/issues/comments/${c.id}`);
+    }
+    return { state: 'created', url: r.data?.html_url ?? null, why: null };
   } catch (err) {
     return { state: 'failed', url: null, why: `GitHub could not be reached: ${err instanceof Error ? err.message : String(err)}` };
   }

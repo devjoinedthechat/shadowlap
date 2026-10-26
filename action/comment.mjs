@@ -7,15 +7,20 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { forkPullRequest } from './fix.mjs';
 import { pullRequestOf, upsertComment } from './github.mjs';
+import { markdownCode, markdownText } from './markdown.mjs';
 
 /** How a result came out, whatever CI made of it; one from before results had a verdict reads as `ok` says. */
 const verdictOf = (r) => r?.verdict ?? (r?.ok ? 'passed' : 'failed');
 const MARK = { passed: '✅', failed: '❌', inconclusive: '🟡' };
 
-/** Text safe in a Markdown table cell: one line, no pipe, nothing GitHub would read as an HTML tag (`<=` stays as it is). */
-const cell = (s) => String(s ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\|/g, '\\|').replace(/<(?=[A-Za-z/!?])/g, '&lt;').trim();
-/** A golden's name as code: backticks in it can't end the span. */
-const code = (s) => `\`${String(s ?? '').replace(/`/g, "'")}\``;
+/**
+ * Text safe in a Markdown table cell, and anywhere else in the comment: one line, and nothing GitHub
+ * renders, links or mentions in it (markdown.mjs). A verdict line carries what a check found in the
+ * run, and the fix's title the repairer's words, either of which can be anyone's.
+ */
+const cell = (s) => markdownText(String(s ?? '')).trim();
+/** A golden's name, a branch or a revision as code: backticks in it can't end the span, nor, in a table's `cell`, a pipe the cell. */
+const code = (s, cell = false) => markdownCode(String(s ?? ''), { cell });
 
 /**
  * The hidden line the action's comment is found by: one per workflow, job, working directory and set
@@ -143,11 +148,11 @@ export function commentBody({ report, marker, base = null, baseRef = null, fixes
   const total = results.length;
   const recordings = `golden${total === 1 ? '' : 's'}`;
   const head = !failed && !inconclusive ? `${total} ${recordings} passed` : !failed ? `${inconclusive} of ${total} ${recordings} ${inconclusive === 1 ? 'is' : 'are'} inconclusive` : `${failed} of ${total} ${recordings} failed${inconclusive ? `, ${inconclusive} inconclusive` : ''}`;
-  const where = base ? `On ${code(baseRef ?? 'the base branch')}` : null;
+  const where = base ? `On ${code(baseRef ?? 'the base branch', true)}` : null;
   const top = [marker, `### Shadowlap: ${head}`, '', where ? `| | Golden | Verdict | ${where} |` : '| | Golden | Verdict |', where ? '|---|---|---|---|' : '|---|---|---|'];
   const rows = results.map((r) => {
     const name = r.golden ?? r.name;
-    const row = `| ${MARK[verdictOf(r)]} | ${code(name)} | ${cell(verdictLine(r))} |`;
+    const row = `| ${MARK[verdictOf(r)]} | ${code(name, true)} | ${cell(verdictLine(r))} |`;
     if (!base) return row;
     const was = base.results.get(name);
     return `${row} ${was ? `${MARK[storedVerdict(was)] ?? ''} ${storedVerdict(was)}` : 'not tested'} |`;
@@ -185,5 +190,5 @@ export async function postComment({ env, auth, report, fixes = [], store, record
 /** What the job summary says about the comment when it didn't go up; nothing when it did, or there was no pull request. */
 export function commentNote(posted) {
   if (!posted || posted.state === 'created' || posted.state === 'updated' || posted.state === 'none') return '';
-  return `\nThe pull request comment was not posted: ${posted.why}.\n`;
+  return `\nThe pull request comment was not posted: ${markdownText(String(posted.why ?? ''))}.\n`;
 }

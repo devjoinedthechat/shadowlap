@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { linkDependencies, mapArgv } from './bisect.js';
-import { physicalPath } from './real-path.js';
+import { physicalPath, realPath } from './real-path.js';
 
 /**
  * Where `shadowlap repair` verifies a candidate: a temporary git worktree of the project's
@@ -14,15 +14,23 @@ import { physicalPath } from './real-path.js';
  * The worktree is the working tree as it is, not HEAD: it is checked out at HEAD, then every tracked
  * file with uncommitted changes and every untracked file git doesn't ignore is copied in (a file
  * deleted in the working tree is deleted there too), so verify replays the code repair was started
- * on, with one change. What git ignores is brought along as the agent needs it: `node_modules` is
- * linked entry by entry as bisect links it (a package of the repository itself is the worktree's own
- * copy), a Python virtual environment is linked whole, caches a runtime makes again are left out,
- * and everything else (a `.env`, build output, data) is copied, cloned where the file system can,
- * up to COPY_LIMIT in all. Past that it is linked, and `linked` names it: a `--build` that writes
- * there writes the working tree's copy.
+ * on, with one change. A link among them is copied as a link, except that one naming a path in the
+ * repository by its absolute name names the worktree's copy instead. What git ignores is brought
+ * along as the agent needs it: `node_modules` is linked entry by entry as bisect links it (a package
+ * of the repository itself is the worktree's own copy), a Python virtual environment is linked whole,
+ * caches a runtime makes again are left out, and everything else (a `.env`, build output, data) is
+ * copied, cloned where the file system can. The working tree's own files and what git ignores are
+ * copied up to COPY_LIMIT in all; past that they are linked, and `linked` names them: a `--build`
+ * that writes there writes the working tree's copy.
+ *
+ * With `build` (repair's `--build`), which writes into what it builds with, nothing it builds with is
+ * linked from the repository: `node_modules` is copied whole (cloned where the file system can), a
+ * package of the repository itself still linked to the worktree's own copy, and a virtual environment
+ * is left for the build to make, as it can't be copied (its scripts name the original's interpreter).
+ * Packages installed above the repository are linked either way.
  */
 
-/** What is copied of the files git ignores, at most, before the rest is linked instead. */
+/** What is copied of the working tree's files and of those git ignores, at most, before the rest is linked instead. */
 export const COPY_LIMIT = 256 * 1024 * 1024;
 
 /** Caches Python and its tools make again: neither copied nor linked. */
@@ -76,18 +84,135 @@ function sizeOf(path: string, limit: number): number {
 
 const link = (target: string, path: string, dir: boolean) => symlinkSync(target, path, dir && process.platform === 'win32' ? 'junction' : undefined);
 
+/**
+ * Copies the working tree's link `from` as a link at `to`, as it is, except that one naming a path in
+ * the repository by its absolute name (`/home/me/agent/prompts/policy.md`) names the worktree's copy
+ * of it: the working tree's would be what the agent reads, and what a build writes into.
+ */
+function relink(realRoot: string, from: string, to: string, tree: string): void {
+  const target = readlinkSync(from);
+  mkdirSync(dirname(to), { recursive: true });
+  rmSync(to, { recursive: true, force: true });
+  const real = isAbsolute(target) ? physicalPath(target) : null;
+  if (real && within(realRoot, real)) symlinkSync(join(tree, relative(realRoot, real)), to);
+  else copy(from, to);
+}
+
 /** Copies a file or a folder as it is, links included, cloned where the file system can. */
 function copy(from: string, to: string): void {
   mkdirSync(dirname(to), { recursive: true });
   cpSync(from, to, { recursive: true, force: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
 }
 
+/** Whether `path` is `root` or inside it, both as the system names them. */
+const within = (root: string, path: string) => {
+  const rel = relative(root, path);
+  return !rel.startsWith('..') && !isAbsolute(rel);
+};
+
+/**
+ * The file a project path names, as repair may read and rewrite it: the path itself for a regular
+ * file, or for a link (or a path through one) the path of the regular file it ends at, relative to
+ * `root` with forward slashes, when that file is inside the repository. A link out of it, to a file
+ * of another project, a home folder or the system, names nothing repair may touch: null, as for
+ * anything that isn't a regular file or can't be read.
+ */
+export function fileInside(root: string, rel: string): string | null {
+  const realRoot = physicalPath(root);
+  let real: string;
+  try {
+    real = realPath(join(realRoot, rel));
+    if (!lstatSync(real).isFile()) return null;
+  } catch {
+    return null;
+  }
+  if (!within(realRoot, real) || real === realRoot) return null;
+  return relative(realRoot, real).split(sep).join('/');
+}
+
+/**
+ * Opens `rel` under `root` without following a link anywhere on the way: each folder from `root`
+ * down, and the file itself, must be what they are, never a link, and the file a regular one that is
+ * there already. Throws, with why, otherwise. `O_NOFOLLOW` keeps a link that took the file's place
+ * since from being followed where the system has it.
+ */
+function openInside(root: string, rel: string, flags: number): number {
+  const parts = rel.split('/');
+  if (isAbsolute(rel) || parts.some((p) => p === '' || p === '.' || p === '..')) throw new Error(`${rel} is not a path inside the repository`);
+  let at = root;
+  for (const [i, part] of parts.entries()) {
+    at = join(at, part);
+    const st = lstatSync(at);
+    if (st.isSymbolicLink()) throw new Error(`${parts.slice(0, i + 1).join('/')} is a link, which repair never writes through`);
+    if (i < parts.length - 1 ? !st.isDirectory() : !st.isFile()) throw new Error(`${parts.slice(0, i + 1).join('/')} is not a ${i < parts.length - 1 ? 'folder' : 'file'}`);
+  }
+  return openSync(join(root, rel), flags | (constants.O_NOFOLLOW ?? 0));
+}
+
+/** A file's text under `root`, read without following a link (openInside). */
+export function readInside(root: string, rel: string): string {
+  const fd = openInside(root, rel, constants.O_RDONLY);
+  try {
+    return readFileSync(fd, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Writes `text` over `rel` under `root`, a worktree's or the working tree's, without following a
+ * link (openInside): a candidate written through one would land wherever it points, outside the
+ * worktree. Throws, with why, when the path is a link, goes through one, or isn't a file there.
+ */
+export function writeInside(root: string, rel: string, text: string): void {
+  const fd = openInside(root, rel, constants.O_WRONLY | constants.O_TRUNC);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Gives a worktree a copy of the working tree's installed packages, for a build that writes into
+ * them: each entry of `from/node_modules` is copied into `to/node_modules` as it is, links and all,
+ * except a package linked from this repository itself (a workspace package), which is linked to the
+ * worktree's own copy, as linkDependencies links it.
+ */
+function copyDependencies(root: string, from: string, to: string, worktree: string): void {
+  const src = join(from, 'node_modules');
+  const dst = join(to, 'node_modules');
+  if (!existsSync(src) || existsSync(dst)) return;
+  const one = (entry: string, path: string) => {
+    try {
+      if (lstatSync(entry).isSymbolicLink()) {
+        const rel = relative(root, realPath(entry));
+        if (rel && !rel.startsWith('..') && !isAbsolute(rel) && !rel.split(/[\\/]/).includes('node_modules')) {
+          link(join(worktree, rel), path, true);
+          return;
+        }
+      }
+      copy(entry, path);
+    } catch {
+      // a dangling link, or one that can't be made: that package is missing in the worktree, as in bisect
+    }
+  };
+  mkdirSync(dst, { recursive: true });
+  for (const name of readdirSync(src)) {
+    if (name.startsWith('@') && statSync(join(src, name)).isDirectory() && !lstatSync(join(src, name)).isSymbolicLink()) {
+      mkdirSync(join(dst, name), { recursive: true });
+      for (const sub of readdirSync(join(src, name))) one(join(src, name, sub), join(dst, name, sub));
+    } else one(join(src, name), join(dst, name));
+  }
+}
+
 /**
  * A worktree for one candidate, as the working tree is now: see the module's comment. `root` is the
- * repository's root and `cwd` the folder repair runs in; `copyLimit` is what is copied of the files
- * git ignores, at most (COPY_LIMIT). Throws when git can't make it.
+ * repository's root and `cwd` the folder repair runs in; `copyLimit` is what is copied of the working
+ * tree's own files and of those git ignores, at most (COPY_LIMIT); `build`, that repair builds the
+ * agent there. Throws when git can't make it.
  */
-export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMIT }: { copyLimit?: number } = {}): CandidateTree {
+export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMIT, build = false }: { copyLimit?: number; build?: boolean } = {}): CandidateTree {
   const realRoot = physicalPath(root);
   const realCwd = physicalPath(cwd);
   const inRepo = relative(realRoot, realCwd);
@@ -108,6 +233,24 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       git(realRoot, ['-c', `core.hooksPath=${hooks}`, 'worktree', 'add', '--detach', '--force', tree, 'HEAD']);
       made = true;
     } else mkdirSync(tree);
+    const linked: string[] = [];
+    let copied = 0;
+    /** Copies a file or folder of the working tree's within the limit; past it, links it and names it. */
+    const bring = (p: string, from: string, to: string, size: number, dir: boolean) => {
+      if (copied + size <= copyLimit) {
+        copy(from, to);
+        copied += size;
+        return;
+      }
+      mkdirSync(dirname(to), { recursive: true });
+      try {
+        link(from, to, dir);
+        linked.push(p);
+      } catch {
+        // A file Windows won't link without privileges a runner may not have: copied after all.
+        copy(from, to);
+      }
+    };
     // The working tree's own files: the ones changed since HEAD (or, with no commit yet, every one)
     // and the untracked ones git doesn't ignore. A file deleted here is deleted there.
     const changed = head ? listed(realRoot, ['diff', '--name-only', '--no-renames', '-z', 'HEAD', '--']) : listed(realRoot, ['ls-files', '-z', '--cached']);
@@ -122,8 +265,12 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
         rmSync(to, { recursive: true, force: true });
         continue;
       }
-      if (st.isDirectory() && !st.isSymbolicLink()) continue;
-      copy(from, to);
+      if (st.isSymbolicLink()) {
+        relink(realRoot, from, to, tree);
+        continue;
+      }
+      if (st.isDirectory()) continue;
+      bring(p, from, to, st.size, false);
     }
     // A submodule is linked as it is checked out here: a worktree has its folder, empty.
     for (const line of git(realRoot, ['ls-files', '-z', '--stage']).split('\0')) {
@@ -134,8 +281,6 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       link(join(realRoot, m[1]!), join(tree, m[1]!), true);
     }
     // What git ignores, as the agent needs it.
-    const linked: string[] = [];
-    let copied = 0;
     for (const entry of listed(realRoot, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'])) {
       const p = entry.replace(/\/$/, '');
       const from = join(realRoot, p);
@@ -148,29 +293,20 @@ export function candidateTree(root: string, cwd: string, { copyLimit = COPY_LIMI
       } catch {
         continue;
       }
-      if (name === 'node_modules' && st.isDirectory()) {
-        linkDependencies(realRoot, dirname(from), dirname(to), tree);
+      // Under a build, a node_modules that is itself a link is copied too: what the build writes there would reach what it links to.
+      if (name === 'node_modules' && (st.isDirectory() || (build && st.isSymbolicLink() && statSync(from).isDirectory()))) {
+        if (build) copyDependencies(realRoot, dirname(from), dirname(to), tree);
+        else linkDependencies(realRoot, dirname(from), dirname(to), tree);
         continue;
       }
       if (st.isDirectory() && existsSync(join(from, 'pyvenv.cfg'))) {
+        // A build makes the environment it needs: one linked here is the working tree's, which it would write into.
+        if (build) continue;
         mkdirSync(dirname(to), { recursive: true });
         link(from, to, true);
         continue;
       }
-      const size = st.isDirectory() ? sizeOf(from, copyLimit) : st.size;
-      if (copied + size <= copyLimit) {
-        copy(from, to);
-        copied += size;
-      } else {
-        mkdirSync(dirname(to), { recursive: true });
-        try {
-          link(from, to, st.isDirectory());
-          linked.push(p);
-        } catch {
-          // A file Windows won't link without privileges a runner may not have: copied after all.
-          copy(from, to);
-        }
-      }
+      bring(p, from, to, st.isDirectory() ? sizeOf(from, copyLimit) : st.size, st.isDirectory());
     }
     linkModulesAbove(realRoot, tree);
     const treeCwd = join(tree, inRepo);

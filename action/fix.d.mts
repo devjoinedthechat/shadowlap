@@ -83,6 +83,8 @@ export interface BranchState {
   checked: boolean;
   /** Why the replay with the fix could not run, or null. */
   why?: string | null;
+  /** The fix-build that ran again once the fix was taken back out of the working tree failed, and how. */
+  warning?: string | null;
 }
 
 /**
@@ -142,12 +144,14 @@ export function branchName(result: ReportResult): string;
 export const KEEPS_AT_MOST: number;
 export function goldenGate(result: ReportResult & { gate?: unknown; attempts?: unknown }): GoldenGate | null;
 export function repairPlan(members: FixPlan[], results?: ReportResult[]): RepairPlan;
-export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null }): string[];
+export function repairArgs(plan: Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>, options: { db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null; guard?: string; build?: string }): string[];
 export function evidenceNote(plan: Pick<RepairPlan, 'goldens' | 'gate'>): string;
 export function checksNote(o: { auth: GitHubAuth; dispatch?: Dispatch | null }): string;
-export function cannotFix(workdir: string, env: NodeJS.ProcessEnv): string | null;
+export function cannotFix(workdir: string, env: NodeJS.ProcessEnv, read?: (path: string) => string): string | null;
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
-export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
+export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; build?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
+export function testPath(path: string): string;
+export function leftOutWhy(goldens: string[], together: string, verified: string[]): string;
 export function goldenNote(golden: GoldenState): string;
 export function otherOnBranch(before: ReportResult, now: ReportResult | undefined): 'diverging' | 'failing' | 'inconclusive' | 'unsettled' | null;
 export function branchNote(state: { goldens: GoldenState[]; others?: OtherGoldens; checked?: boolean; why?: string | null }): string;
@@ -155,5 +159,5 @@ export function cannotPush(workdir: string): string | null;
 export function forkPullRequest(env: NodeJS.ProcessEnv, read?: (path: string) => string): boolean;
 export function pushFix(options: { cli: string; db: string | null; workdir: string; env: NodeJS.ProcessEnv; fixIds?: string[]; sentInJob?: Set<string>; read?: (path: string) => string }): FixPush;
 export function pushLine(name: string, pushed: FixPush): string;
-export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; push?: boolean; env: NodeJS.ProcessEnv; auth?: GitHubAuth; fetch?: Fetch; log?: (line: string) => void }): Promise<FixOutcome[]>;
+export function runFixes(options: { cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; build?: string; push?: boolean; env: NodeJS.ProcessEnv; auth?: GitHubAuth; fetch?: Fetch; log?: (line: string) => void }): Promise<FixOutcome[]>;
 export function fixSummary(fixes: FixOutcome[], budget: number | string): string;

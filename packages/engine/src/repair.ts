@@ -1,4 +1,5 @@
 import { unrescuedWords } from './blame.js';
+import { markdownCode, markdownFence, markdownText } from './markdown.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
@@ -225,9 +226,25 @@ function outsidePlaceholders(text: string, found: readonly Placeholder[]): strin
   return out + text.slice(at);
 }
 
-/** Syntax that starts or ends a placeholder when it stands on its own: a brace, `<%`, `%>`, and in other code `#{` and `$(`. */
+/**
+ * The characters, outside a placeholder, that a rewrite may add no more of than the text it replaces
+ * already had, counted one at a time as `lacking` counts placeholders: a brace, `<%`, `%>`, and in
+ * other code `#{` and `$(`, each of which starts or ends a placeholder on its own; and, in anything
+ * but prose, each quote (`"`, `'`, `` ` ``) and the backslash, any of which could end or escape the
+ * string literal the span sits in. A prose file (a Markdown policy) is text, not a string, so its
+ * quotes and backslashes are left alone.
+ */
 function strays(text: string, syntax: TemplateSyntax): string[] {
-  return [...text.matchAll(syntax === 'code' ? /[{}]|<%|%>|#\{|\$\(/g : /[{}]|<%|%>/g)].map((m) => m[0]);
+  const re =
+    syntax === 'prose' ? /[{}]|<%|%>/g : syntax === 'code' ? /["'`\\{}]|<%|%>|#\{|\$\(/g : /["'`\\{}]|<%|%>/g;
+  return [...text.matchAll(re)].map((m) => m[0]);
+}
+
+/** Why a stray character the replacement adds is refused: a quote or backslash breaks the string, anything else starts a placeholder. */
+function strayReason(ch: string, file: string): string {
+  if (ch === '\\') return `it adds a backslash the text it replaces has none of, which could escape the string it goes into in ${file}`;
+  if (ch === '"' || ch === "'" || ch === '`') return `it adds a ${ch} quote the text it replaces has none of, which could end the string it goes into in ${file}`;
+  return `it has ${ch} outside a placeholder, which could start one in ${file}: a rewrite keeps the placeholders of the text it replaces and adds none`;
 }
 
 /** What `from` has that `to` lacks, counting repeats: the placeholders a rewrite dropped, or added. */
@@ -479,17 +496,20 @@ export function checkEdit(edit: ProposedEdit, anchors: readonly Anchor[], forbid
   const has = placeholders(replace, syntax);
   const own = outsidePlaceholders(replace, has);
   const was = outsidePlaceholders(anchor.text, had);
-  // A one-line span stays one line. In code it sits in a string, which quotes and backslashes would
-  // end or escape; in a prose file (a Markdown policy) they are just punctuation.
-  if (/[\n\r]/.test(replace) && !/[\n\r]/.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
-  if (!isProse(anchor.file) && /["'`\\]/.test(own) && !/["'`\\]/.test(was)) return { ok: false, reason: 'the replacement has quotes or backslashes, which could break the string in code it goes into' };
+  // A one-line span stays one line: CR and LF, and the Unicode line and paragraph separators, which
+  // break a line as much and show nothing. In code the span sits in a string literal, whose quotes
+  // and backslashes the stray check below counts; in a prose file they are just punctuation.
+  const newline = /[\n\r\u2028\u2029]/;
+  if (newline.test(replace) && !newline.test(anchor.text)) return { ok: false, reason: 'the replacement spans several lines, and the text it replaces is one' };
   if (replace.length > longestRewrite(anchor.text.length)) return { ok: false, reason: `the replacement is ${replace.length} characters, far longer than the ${anchor.text.length} it replaces` };
   const added = lacking(has.map((p) => p.text), had.map((p) => p.text));
   if (added.length) return { ok: false, reason: `it brings in ${safeLine(added.join(', ')).slice(0, 120)}, which ${anchor.file} could fill in when the agent builds its prompt, as code or as a value of the agent's: a rewrite keeps the placeholders of the text it replaces and adds none` };
   const dropped = lacking(had.map((p) => p.text), has.map((p) => p.text));
   if (dropped.length) return { ok: false, reason: `it leaves out ${safeLine(dropped.join(', ')).slice(0, 120)}, which the text it replaces has: a rewrite keeps each placeholder as it is written` };
+  // A quote, backslash or stray brace the replacement adds beyond what the span had: counted one at a
+  // time, so a span that already holds an apostrophe can't add its literal's delimiter or a backslash.
   const stray = lacking(strays(own, syntax), strays(was, syntax));
-  if (stray.length) return { ok: false, reason: `it has ${stray[0]!} outside a placeholder, which could start one in ${anchor.file}: a rewrite keeps the placeholders of the text it replaces and adds none` };
+  if (stray.length) return { ok: false, reason: strayReason(safeLine(stray[0]!), anchor.file) };
   // The characters on either side of the span stay: a rewrite that starts after a `$` with a `{`,
   // or ends in a `%` before a `(`, makes a placeholder with them.
   if (anchor.prev !== undefined && OPENS.test(anchor.prev) && replace[0] !== anchor.text[0]) return { ok: false, reason: `it starts differently from the text it replaces, right after the ${anchor.prev} in ${anchor.file}, and the two could make a placeholder` };
@@ -916,7 +936,7 @@ const one = (s: string, n = 90) => {
 
 /** What a fix's report says when verify replayed uncommitted changes that its branch doesn't hold. */
 function uncommittedNote(files: readonly string[]): string {
-  const named = files.slice(0, 5).map((f) => `\`${one(f, 120)}\``).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '');
+  const named = files.slice(0, 5).map((f) => markdownCode(one(f, 120))).join(', ') + (files.length > 5 ? ` and ${files.length - 5} more` : '');
   return `The runs were replayed on a working tree with uncommitted changes to ${named}. The branch holds HEAD with the fix, without them, so check that it passes as committed.`;
 }
 
@@ -1007,21 +1027,31 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
   return lines.join('\n');
 }
 
-const cell = (s: string) => one(s, 160).replace(/\|/g, '\\|');
+/**
+ * Text of a run's, a model's or the repairer's, on one line and cut to `n`, as the Markdown GitHub
+ * renders shows it and makes nothing of (markdownText): a pull request's body is posted by the bot,
+ * and what failing runs read can be anyone's words.
+ */
+const md = (s: string, n = 90) => markdownText(one(s, n));
+const cell = (s: string) => md(s, 160);
 
-/** The report as Markdown, for a pull request: the change, why it was needed, and the evidence that it holds. */
+/**
+ * The report as Markdown, for a pull request: the change, why it was needed, and the evidence that it
+ * holds. Whatever came from a run, the repairer or the agent's source is written as text GitHub links,
+ * mentions and renders nothing in (`md`, `cell`), as a code span (markdownCode) or in a fenced block.
+ */
 export function repairMarkdown(r: RepairReport): string {
   const accepted = r.candidates.find((c) => c.id === r.accepted) ?? null;
   const out: string[] = [];
   if (accepted) {
-    out.push(`## ${commitTitle(accepted)}`, '');
-    if (accepted.why.trim()) out.push(one(accepted.why, 600), '');
-    out.push(`A change to the ${accepted.surface} in \`${accepted.file}\`:`, '', '```diff', `- ${one(accepted.before, 400)}`, `+ ${one(accepted.after, 400)}`, '```', '');
+    out.push(`## ${markdownText(commitTitle(accepted))}`, '');
+    if (accepted.why.trim()) out.push(md(accepted.why, 600), '');
+    out.push(`A change to the ${md(accepted.surface, 200)} in ${markdownCode(one(accepted.file, 400))}:`, '', markdownFence(`- ${one(accepted.before, 400)}\n+ ${one(accepted.after, 400)}`, 'diff'), '');
   } else {
-    out.push(`## Not fixed${r.why ? `: ${one(r.why, 200)}` : ''}`, '');
+    out.push(`## Not fixed${r.why ? `: ${md(r.why, 200)}` : ''}`, '');
   }
 
-  out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => one(o, 120)).join('; ')}.`, '');
+  out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => md(o, 120)).join('; ')}.`, '');
   if (r.targets.length) {
     out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
@@ -1031,9 +1061,9 @@ export function repairMarkdown(r: RepairReport): string {
     }
   } else {
     // Found out before blame ran, as a repairer that can't sign in is.
-    out.push(`No failing run was blamed${r.noRepairer ? `: ${one(r.noRepairer, 200)}` : ''}.`);
+    out.push(`No failing run was blamed${r.noRepairer ? `: ${md(r.noRepairer, 200)}` : ''}.`);
   }
-  if (r.diagnosis) out.push('', `The repairer's diagnosis: ${one(r.diagnosis, 600)}`);
+  if (r.diagnosis) out.push('', `The repairer's diagnosis: ${md(r.diagnosis, 600)}`);
   out.push('');
 
   if (accepted?.verify) {
@@ -1055,7 +1085,7 @@ export function repairMarkdown(r: RepairReport): string {
     out.push('');
   }
 
-  const repairer = r.repairer ? `, the repairer (${r.repairer.served ?? r.repairer.model}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
+  const repairer = r.repairer ? `, the repairer (${md(r.repairer.served ?? r.repairer.model, 120)}) ${r.repairer.cost === null ? 'at no known price' : `≈${formatUsd(r.repairer.cost)}`}` : '';
   // The write policy the replays ran under, when the report kept it: an older report says nothing it can't know.
   const writes = r.writes === 'block' ? ' Writes were blocked in every replay.' : r.writes === 'stub' ? ' Writes were stubbed in every replay.' : '';
   const judged = r.cost.judge ? `, judge checks ≈${formatUsd(r.cost.judge)}` : '';

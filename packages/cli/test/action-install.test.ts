@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,34 +83,52 @@ describe.skipIf(process.platform === 'win32')("the Action's install step", () =>
 });
 
 describe.skipIf(process.platform === 'win32')("the Action's build from its own source", () => {
-  it('runs npm with none of the job\'s secrets, keys or tokens, only what npm and Node need', () => {
+  it("runs npm with no package's install script, none of the job's secrets, keys or tokens, and a home and temporary folder of its own", () => {
     const dir = mkdtempSync(join(tmpdir(), 'sl-action-build-'));
     dirs.push(dir);
     const bin = join(dir, 'bin');
     mkdirSync(bin);
-    // A stand-in for npm that writes down how it was called and the environment it got.
+    // A stand-in for npm that writes down how it was called, the environment it got, and what its home and temporary folder hold.
     const log = join(dir, 'npm-log');
-    writeFileSync(join(bin, 'npm'), `#!/bin/sh\n{ echo "npm $*"; env; echo ---; } >> "${log}"\n`);
+    writeFileSync(join(bin, 'npm'), `#!/bin/sh\n{ echo "npm $*"; env; echo "home holds: $(ls -A "$HOME" | tr '\\n' ' ')"; echo "tmp holds: $(ls -A "$TMPDIR" | tr '\\n' ' ')"; echo ---; } >> "${log}"\n`);
     chmodSync(join(bin, 'npm'), 0o755);
     const source = join(dir, 'action');
     mkdirSync(source);
     writeFileSync(join(dir, 'output'), '');
+    // The job's home and temporary folder, with what a job's steps leave there: gh's sign-in, git's credentials, checkout's.
+    const home = join(dir, 'home');
+    const runnerTemp = join(dir, 'runner-temp');
+    mkdirSync(join(home, '.config', 'gh'), { recursive: true });
+    writeFileSync(join(home, '.config', 'gh', 'hosts.yml'), 'github.com:\n  oauth_token: gho_secret\n');
+    writeFileSync(join(home, '.git-credentials'), 'https://x-access-token:ghs_secret@github.com\n');
+    mkdirSync(runnerTemp);
+    writeFileSync(join(runnerTemp, 'git-credentials-1234.config'), '[http "https://github.com/"]\n\textraheader = AUTHORIZATION: basic secret\n');
     const secrets = { ANTHROPIC_API_KEY: 'sk-ant-secret', OPENAI_API_KEY: 'sk-secret', GH_TOKEN: 'ghp_secret', GITHUB_TOKEN: 'ghs_secret', INPUT_GITHUB_TOKEN: 'github_pat_secret', SHADOWLAP_JOB_TOKEN: 'ghs_job_secret', AWS_SECRET_ACCESS_KEY: 'aws-secret', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'oidc-secret', MY_OWN_SECRET: 'mine' };
-    const env = { ...process.env, ...secrets, PATH: `${bin}${delimiter}${process.env.PATH}`, HOME: dir, RUNNER_TEMP: dir, GITHUB_OUTPUT: join(dir, 'output'), HTTPS_PROXY: 'http://proxy.example:3128' };
+    const env = { ...process.env, ...secrets, PATH: `${bin}${delimiter}${process.env.PATH}`, HOME: home, TMPDIR: runnerTemp, RUNNER_TEMP: runnerTemp, GITHUB_OUTPUT: join(dir, 'output'), HTTPS_PROXY: 'http://proxy.example:3128' };
     const r = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', '-c', stepScript('Build shadowlap from the action')], { cwd: source, env, encoding: 'utf8' });
     expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
     const runs = readFileSync(log, 'utf8').split('---\n').filter(Boolean);
-    expect(runs.map((x) => x.split('\n')[0])).toEqual(['npm ci --no-audit --no-fund', 'npm run build']);
+    // No lifecycle script of any package runs: the build needs none.
+    expect(runs.map((x) => x.split('\n')[0])).toEqual(['npm ci --ignore-scripts --no-audit --no-fund', 'npm run build']);
     for (const run of runs) {
       for (const [name, value] of Object.entries(secrets)) {
         expect(run, name).not.toContain(`${name}=`);
         expect(run, name).not.toContain(value);
       }
-      expect(run).toContain(`HOME=${dir}\n`);
+      // A home and a temporary folder of its own, empty, and nothing of the runner's temporary folder.
+      const own = /^HOME=(.+)$/m.exec(run)?.[1];
+      expect(own).toBeDefined();
+      expect(own).not.toBe(home);
+      expect(run).toContain('home holds: tmp \n');
+      expect(run).toContain('tmp holds: \n');
+      expect(run).toContain(`TMPDIR=${own!}/tmp\n`);
+      expect(run).not.toContain('RUNNER_TEMP=');
       expect(run).toMatch(/^PATH=/m);
       // What npm needs to reach the registry stays.
       expect(run).toContain('HTTPS_PROXY=http://proxy.example:3128\n');
     }
+    // The home it had is gone once the build ends.
+    expect(readdirSync(runnerTemp)).toEqual(['git-credentials-1234.config']);
     expect(readFileSync(join(dir, 'output'), 'utf8')).toBe(`cli=${realpathSync(source)}/packages/cli/bin/shadowlap.js\n`);
   });
 });

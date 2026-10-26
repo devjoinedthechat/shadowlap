@@ -539,7 +539,8 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.code, r.out).toBe(0);
     expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '0', 'fix-prs': '' });
     expect(r.out).toContain('refund-over-limit: no fix pull request: the budget of $0.05 is spent');
-    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the budget of \$0\.05 is spent \| \$\d+\.\d\d of \$0\.05 \|/);
+    // The why is text, its dollar sign split from what follows, so GitHub starts no math at it; the spent column is the summary's own.
+    expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit` \| no fix: the budget of \$<span><\/span>0\.05 is spent \| \$\d+\.\d\d of \$0\.05 \|/);
     expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
@@ -608,8 +609,10 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     sh(project, 'git', ['checkout', '-q', '--detach']);
     const r = await action({ FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic' });
     expect(r.outputs.fixes).toBe('0');
-    expect(r.out).toContain('HEAD is detached, so there is no branch to open a fix against');
-    expect(r.summary).toContain('ref: ${{ github.head_ref }}');
+    // The checkout that gives a pull request's job its branch, from this repository alone; in the summary's table, as
+    // text: its pipes escaped, its ampersands character references, its dollar sign split from what follows.
+    expect(r.out).toContain('HEAD is detached, so there is no branch to open a fix against: check out the branch itself (on pull requests, actions/checkout with ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }})');
+    expect(r.summary).toContain('ref: $<span></span>{{ github.event.pull_request.head.repo.full_name == github.repository &amp;&amp; github.head_ref \\|\\| github.ref }}');
   });
 });
 
@@ -646,7 +649,7 @@ describe('planning fixes from a test report', () => {
     // The branch is pushed and the pull request opened once the golden is re-recorded on it, not by repair.
     // One failing replay of the golden: verify replays it as often as its gate asks. Its other
     // replays are the same case, so neither held out nor kept.
-    expect(repairArgs(repairPlan([plans[0]]), { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
+    expect(repairArgs(repairPlan([plans[0]]), { db: '/tmp/ci.db', budget: 2, repairer: 'claude-code', expectFile: '/tmp/expect.json' })).toEqual(['--db', '/tmp/ci.db', 'repair', '--fixes', 'A', '--expect', '@/tmp/expect.json', '--budget', '2', '--repairer', 'claude-code', '--guard', 'block', '--branch', 'shadowlap/fix-refund-flow-t9rb1d', '--yes', '--json']);
   });
 
   it('leaves alone a golden with a check that can\'t be decided, whatever else it failed', () => {
@@ -730,7 +733,7 @@ describe('planning fixes from a test report', () => {
     expect(groups.map((g) => g.members.map((m) => m.result.name))).toEqual([['a', 'c'], ['b']]);
     expect(groups[0]).toMatchObject({ result: { name: 'a' }, skip: null, fixes: ['A1', 'C1'], keeps: ['A2', 'C2'] });
     // The first golden shown to the repairer, the other held out from it.
-    expect(repairArgs(repairPlan(groups[0].members), { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', '--holdout', 'C1', '--expect', '@/tmp/expect.json', '--budget', '4', '--branch', branchName(plans[0].result), '--yes', '--json']);
+    expect(repairArgs(repairPlan(groups[0].members), { db: null, budget: 4, repairer: '', expectFile: '/tmp/expect.json' })).toEqual(['repair', '--fixes', 'A1', '--holdout', 'C1', '--expect', '@/tmp/expect.json', '--budget', '4', '--guard', 'block', '--branch', branchName(plans[0].result), '--yes', '--json']);
     // The plans themselves are left as they were.
     expect(plans[0]).toMatchObject({ fixes: ['A1'], keeps: ['A2'] });
   });
@@ -747,6 +750,22 @@ describe('planning fixes from a test report', () => {
     const without = refreshGoldens({ ...base, members: [member({ name: 'x', dir: 'goldens/x', mode: 'fork', ok: false })], unfixed: [member({ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }), member({ name: 'z', dir: 'goldens/z', mode: 'fork', ok: false })], unfixedWhy: 'w', results: [{ name: 'y', dir: 'goldens/y', mode: 'replay', ok: false }], repair: { output: { goldens: ['g'], patch: 'p', branch: 'b' } } });
     expect(without.goldens).toEqual([{ state: 'fork', golden: 'goldens/x', why: null }, { state: 'unfixed', golden: 'goldens/y', why: 'w' }, { state: 'unfixed', golden: 'goldens/z', why: 'w', fork: true }]);
     expect(without.others).toMatchObject({ diverging: [], failing: [], unreplayed: [], replayed: 0 });
+  });
+
+  it('names a golden outside the repository as code in its note, and re-records nothing of it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'sl-golden-@alice-'));
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+      const member = { result: { name: 'x', dir: outside, mode: 'replay' as const, ok: false }, skip: null, fixes: ['01K5CQ4V3H8M2XWQH6V3T9RB1D'], keeps: [] };
+      const state = refreshGoldens({ cli: CLI, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'p', branch: 'b' } }, env: process.env, scratch: dir });
+      expect(state.goldens).toEqual([{ state: 'stale', golden: outside, why: `\`${outside}\` is not inside the repository` }]);
+      // In the pull request, the path is a code span: the @ in it mentions no one.
+      expect(goldenNote(state.goldens[0])).toContain(`It was not re-recorded automatically: \`${outside}\` is not inside the repository.`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('says every golden replays clean on the branch only when every one replayed there is', () => {
@@ -928,6 +947,73 @@ describe('pushing a fix CI opened to the team store', () => {
     expect(pushLine('refund-flow', { state: 'off', why: 'Push from CI is off', pr: null })).toBe('the fix was not sent to the team store: Push from CI is off');
     expect(pushLine('refund-flow', { state: 'failed', why: '100% gone\nfor now', pr: null })).toBe("::warning title=Shadowlap::refund-flow: the fix is not in the team store, so teammates won't see it on their Fixes page: 100%25 gone%0Afor now. Its pull request is open all the same.");
     expect(pushLine('refund-flow', { state: 'failed', why: 'No AWS credentials found.', pr: null })).toMatch(/: No AWS credentials found\. Its pull request is open all the same\.$/);
+  });
+});
+
+describe("the fix's branch, with fix-build", () => {
+  it.skipIf(process.platform === 'win32')("builds the agent with fix-build around the fix's test on its branch, and again once the fix is out", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-branch-build-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'prompt.txt'), 'Refund within policy.\n');
+      writeFileSync(join(dir, '.gitignore'), 'dist/\n');
+      mkdirSync(join(dir, 'goldens', 'refund-flow'), { recursive: true });
+      writeFileSync(join(dir, 'goldens', 'refund-flow', 'README'), 'golden\n');
+      git('add', '-A');
+      git('commit', '-qm', 'agent');
+      writeFileSync(join(dir, 'prompt.txt'), 'Check the policy, then refund.\n');
+      writeFileSync(join(dir, 'fix.patch'), git('diff'));
+      git('checkout', '--', 'prompt.txt');
+      mkdirSync(join(dir, 'recorded'));
+      // The agent runs from what its build makes, which the fix's test on the branch reads.
+      const build = `"${process.execPath}" -e "require('fs').mkdirSync('dist',{recursive:true});require('fs').copyFileSync('prompt.txt','dist/prompt.txt')"`;
+      execFileSync('sh', ['-c', build], { cwd: dir });
+      const cli = join(dir, 'cli.mjs');
+      writeFileSync(cli, ["import { readFileSync, writeFileSync } from 'node:fs';", "const args = process.argv.slice(2);", "writeFileSync('seen.txt', readFileSync('dist/prompt.txt', 'utf8'));", "writeFileSync(args[args.indexOf('--json') + 1], JSON.stringify({ results: [{ name: 'refund-flow', dir: 'goldens/refund-flow', mode: 'replay', ok: true, verdict: 'passed' }] }));"].join('\n'));
+      const member = { result: { name: 'refund-flow', dir: 'goldens/refund-flow', mode: 'replay' as const, ok: false }, skip: null };
+      const state = refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-refund-flow' } }, build, env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      // The test on the branch ran on the fix's build...
+      expect(readFileSync(join(dir, 'seen.txt'), 'utf8')).toBe('Check the policy, then refund.\n');
+      expect(state.warning).toBeNull();
+      // ...and the working tree is its own again, its build too.
+      expect(readFileSync(join(dir, 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+      expect(readFileSync(join(dir, 'dist', 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+      // A build that fails with the fix in place is why nothing was re-recorded.
+      const failing = refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-refund-flow' } }, build: 'exit 7', env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      expect(failing.goldens).toEqual([{ state: 'stale', golden: 'goldens/refund-flow', why: 'exit 7 failed with the fix in place: exit 7' }]);
+      expect(readFileSync(join(dir, 'prompt.txt'), 'utf8')).toBe('Refund within policy.\n');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the fix's test on its branch", () => {
+  it.skipIf(process.platform === 'win32')('replays a golden whose folder is named like a flag as a path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-branch-flag-'));
+    try {
+      const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd: dir, encoding: 'utf8' });
+      git('init', '-q', '-b', 'main');
+      writeFileSync(join(dir, 'prompt.txt'), 'Refund within policy.\n');
+      mkdirSync(join(dir, '-x'));
+      writeFileSync(join(dir, '-x', 'README'), 'golden\n');
+      git('add', '-A');
+      git('commit', '-qm', 'agent');
+      writeFileSync(join(dir, 'prompt.txt'), 'Check the policy, then refund.\n');
+      writeFileSync(join(dir, 'fix.patch'), git('diff'));
+      git('checkout', '--', 'prompt.txt');
+      mkdirSync(join(dir, 'recorded'));
+      // A stand-in for the CLI that keeps the arguments it was given.
+      const cli = join(dir, 'cli.mjs');
+      writeFileSync(cli, ["import { writeFileSync } from 'node:fs';", 'const args = process.argv.slice(2);', "writeFileSync('args.json', JSON.stringify(args));", "writeFileSync(args[args.indexOf('--json') + 1], JSON.stringify({ results: [] }));"].join('\n'));
+      const member = { result: { name: '-x', dir: '-x', mode: 'replay' as const, ok: false }, skip: null };
+      refreshGoldens({ cli, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'fix.patch', branch: 'shadowlap/fix-x' } }, env: process.env, scratch: mkdtempSync(join(dir, 'scratch-')) });
+      const args = JSON.parse(readFileSync(join(dir, 'args.json'), 'utf8')) as string[];
+      expect(args.slice(args.indexOf('test') + 1, args.indexOf('--json'))).toEqual(['./-x']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

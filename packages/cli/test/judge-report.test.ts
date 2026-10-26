@@ -26,9 +26,10 @@ describe('judge checks in the reports', () => {
     const md = markdownReport(report);
     expect(md.startsWith('### Shadowlap: 1 of 3 recordings is inconclusive\n')).toBe(true);
     expect(md).toContain(`| 🟡 | \`escalate\` | check inconclusive: ${label}`);
-    expect(md).toContain(`- \`refund\` ✅ ${label} · It names the $100 limit. (judged from the recording, free)`);
+    // A check's words are shown as text: a dollar sign split from what follows by an empty span, which starts no math.
+    expect(md).toContain(`- \`refund\` ✅ ${label} · It names the $<span></span>100 limit. (judged from the recording, free)`);
     expect(md).toContain('- `fork` ✅');
-    expect(md).toContain('(judged live, ≈$0.0025)');
+    expect(md).toContain('(judged live, ≈$<span></span>0.0025)');
     expect(md).toContain(`- 🟡 ${label}: inconclusive · not judged: no recorded verdict and the test runs offline`);
     expect(md).toContain("4 judge calls: 1 from the recordings, free; 2 live, ≈$0.0050, apart from the agents' calls above.");
     expect(md).toContain('Inconclusive means a check could not be decided');

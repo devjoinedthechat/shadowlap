@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -150,7 +150,7 @@ interface Report {
   holdout: string[];
   heldOutAutomatically: boolean;
   repairer: { served: string } | null;
-  candidates: Array<{ id: number; source: string; state: string; reason: string | null; after: string }>;
+  candidates: Array<{ id: number; source: string; state: string; reason: string | null; after: string; file: string }>;
   accepted: number | null;
   patch: string | null;
   output: { dir: string; patch: string | null; report: string; goldens: string[]; applied: boolean; branch: string | null; pr: string | null };
@@ -454,10 +454,30 @@ process.stdin.on('end', () => {
     expect(report.cost.blame).toBeGreaterThan(0.01);
     expect(report).toMatchObject({ outcome: 'stopped', why: 'the budget of $0.01 is spent', candidates: [], writes: 'block' });
     const md = readFileSync(join(project, report.output.report), 'utf8');
-    expect(md).toContain('## Not fixed: the budget of $0.01 is spent');
+    // Why, as text: its dollar sign split from what follows by an empty span, so GitHub starts no math at it.
+    expect(md).toContain('## Not fixed: the budget of $<span></span>0.01 is spent');
     // The pull request body names the write policy the replays ran under.
     expect(md).toContain('Writes were blocked in every replay.');
     expect(md).not.toContain('stubbed');
+  });
+
+  it('asks the repairer only when what is left of the budget covers the most asking it could cost', async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    const before = mock.requests.length;
+    // Blame costs nothing here (its model has no price); the repairer's answer alone could cost $0.32 at Opus 5.5's price.
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '0.20', '--json']);
+    expect(r.code, r.out).toBe(3);
+    const report = JSON.parse(r.stdout) as Report & { cost: { repairer: number | null } };
+    expect(report.outcome).toBe('stopped');
+    expect(report.why).toMatch(/^asking the repairer could cost up to \$0\.3\d\d \(its prompt, and an answer of up to 16,000 tokens\), more than the \$0\.200 left of the budget of \$0\.20, so it was not asked$/);
+    expect(report.targets.every((t) => t.outcome === 'blamed')).toBe(true);
+    expect(report.cost.repairer).toBeNull();
+    expect(mock.requests.slice(before).some((q) => JSON.stringify(q.body.system).includes('You improve AI agents'))).toBe(false);
+    // With enough left, it is asked as before.
+    const enough = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--budget', '5', '--json']);
+    expect(enough.code, enough.out).toBe(0);
+    expect((JSON.parse(enough.stdout) as Report).outcome).toBe('fixed');
   });
 
   it('finds out before it blames anything that an Anthropic repairer cannot sign in: no credentials, or a key refused', async () => {
@@ -781,6 +801,90 @@ describe('shadowlap repair, its candidates and its limits', { timeout: 120_000 }
     const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain('repair.timeout must be a whole number of seconds, such as 600');
+  });
+});
+
+// Links stand in for files on Windows only with privileges a runner may not have; a file's mode keeps no one out who runs as root.
+describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files it cannot write', { timeout: 120_000 }, () => {
+  /** The agent with its system prompt read from prompts/system.md, which the test makes a link or a file. */
+  function promptFromFile(): void {
+    const source = readFileSync(AGENT, 'utf8')
+      .replace("import { appendFileSync } from 'node:fs';", "import { appendFileSync, readFileSync as readPrompt } from 'node:fs';")
+      .replace("process.env.AGENT_SYSTEM ?? 'You are a support agent. Follow the refund policy.'", "process.env.AGENT_SYSTEM ?? readPrompt('prompts/system.md', 'utf8').trim()");
+    expect(source).toContain("readPrompt('prompts/system.md'");
+    writeFileSync(join(project, 'agent.mjs'), source);
+  }
+
+  it('never writes a candidate through a link to a prompt outside the repository, which it finds nothing to rewrite in', async () => {
+    promptFromFile();
+    const outside = mkdtempSync(join(tmpdir(), 'sl-repair-outside-'));
+    try {
+      writeFileSync(join(outside, 'system.md'), 'You are a support agent. Follow the refund policy.\n');
+      mkdirSync(join(project, 'prompts'));
+      symlinkSync(join(outside, 'system.md'), join(project, 'prompts', 'system.md'));
+      sh(project, 'git', ['add', '-A']);
+      sh(project, 'git', ['commit', '-qm', 'the prompt, kept outside the repository']);
+      const { failed } = await runs();
+      mode = 'alternate';
+      let shown = '';
+      // A rewrite of the linked prompt, whenever one is offered: written through the link, it would land outside.
+      proposals = (prompt) => {
+        shown = prompt;
+        const id = /\[(\d+)\] system prompt, in prompts\/system\.md:/.exec(prompt)?.[1];
+        return id ? [{ anchor: Number(id), replace: FIX, strategy: 'Escalate refunds above the policy limit', why: 'Say what to do above it.' }] : [];
+      };
+      const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+      const report = JSON.parse(r.stdout) as Report;
+      // The prompt's file is another project's: nothing in it is offered, and nothing is written there.
+      expect(shown).not.toContain('prompts/system.md');
+      expect(report.outcome, r.out).toBe('not-fixed');
+      expect(readFileSync(join(outside, 'system.md'), 'utf8')).toBe('You are a support agent. Follow the refund policy.\n');
+      expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rewrites the file a link in the repository names, under that file's own path", async () => {
+    promptFromFile();
+    mkdirSync(join(project, 'prompts'));
+    writeFileSync(join(project, 'prompts', 'policy.md'), 'You are a support agent. Follow the refund policy.\n');
+    symlinkSync('policy.md', join(project, 'prompts', 'system.md'));
+    sh(project, 'git', ['add', '-A']);
+    sh(project, 'git', ['commit', '-qm', 'the prompt, under two names']);
+    const { failed } = await runs();
+    mode = 'alternate';
+    const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+    expect(r.code, r.out).toBe(0);
+    const report = JSON.parse(r.stdout) as Report & { candidates: Array<{ file: string }> };
+    expect(report.outcome).toBe('fixed');
+    expect(report.candidates.find((c) => c.id === report.accepted)?.file).toBe('prompts/policy.md');
+    expect(report.patch).toContain('diff --git a/prompts/policy.md b/prompts/policy.md');
+    // The working tree is as it was, the link and the file it names both.
+    expect(readFileSync(join(project, 'prompts', 'policy.md'), 'utf8')).toBe('You are a support agent. Follow the refund policy.\n');
+    expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
+  });
+
+  it.skipIf(process.getuid?.() === 0)("says a candidate it can't write into its worktree is incomplete, and tries the next", async () => {
+    const { failed } = await runs();
+    mode = 'alternate';
+    // A change not committed to a file its owner may only read: its worktree's copy is read-only too.
+    writeFileSync(join(project, 'agent.mjs'), `${agentText()}// read-only, and changed\n`);
+    chmodSync(join(project, 'agent.mjs'), 0o444);
+    try {
+      const r = await shadowlap(['repair', '--fixes', ...failed, '--keeps', 'label:good', '--expect', ORACLE, '--repairer', 'anthropic', '--json']);
+      expect(r.code, r.out).toBe(1);
+      const report = JSON.parse(r.stdout) as Report;
+      expect(report.outcome).toBe('not-fixed');
+      const tried = report.candidates.filter((c) => c.state !== 'invalid');
+      expect(tried.length).toBeGreaterThan(1);
+      for (const c of tried) {
+        expect(c.state).toBe('incomplete');
+        expect(c.reason).toMatch(/^the candidate could not be written into its worktree: .*EACCES/);
+      }
+    } finally {
+      chmodSync(join(project, 'agent.mjs'), 0o644);
+    }
   });
 });
 

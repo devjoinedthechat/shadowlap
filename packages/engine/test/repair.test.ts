@@ -72,7 +72,7 @@ describe('checkEdit', () => {
     expect(edit('x', 9)).toEqual({ ok: false, reason: 'anchor 9 does not exist' });
     expect(edit('  ')).toEqual({ ok: false, reason: 'the replacement is empty' });
     expect(edit('You are a support agent. Follow the refund policy.')).toMatchObject({ ok: false });
-    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining('quotes') });
+    expect(edit("You are a support agent. Don't refund above the limit.")).toEqual({ ok: false, reason: expect.stringContaining("adds a ' quote the text it replaces has none of") });
     expect(edit('You are a support agent.\nFollow the refund policy.')).toEqual({ ok: false, reason: expect.stringContaining('several lines') });
     expect(edit('a'.repeat(700))).toEqual({ ok: false, reason: expect.stringContaining('far longer') });
   });
@@ -170,10 +170,11 @@ describe('repairMarkdown', () => {
     report.targets[1] = { ...report.targets[1], outcome: 'unrescuable', callNo: null, step: null, recorded: null, rescued: null };
     report.targets[2] = { ...report.targets[2], outcome: 'passes', callNo: null, step: null, recorded: null, rescued: null, note: '01M540RZZZ passes its oracle when replayed' };
     const rows = repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540'));
-    expect(rows.map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not rescued from any model call', 'passes when replayed']);
+    // #5 is a model call, not pull request 5: GitHub links no reference in it.
+    expect(rows.map((l) => l.split(' | ')[1])).toEqual(['model call #<span></span>5 (3 of 4)', 'not rescued from any model call', 'passes when replayed']);
     // One whose blame's first probe couldn't tell is not settled, in the pull request and the terminal.
     report.targets[1] = { ...report.targets[1], unsettled: true };
-    expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual(['model call #5 (3 of 4)', 'not settled from the first model call', 'passes when replayed']);
+    expect(repairMarkdown(report).split('\n').filter((l) => l.startsWith('| `01M540')).map((l) => l.split(' | ')[1])).toEqual(['model call #<span></span>5 (3 of 4)', 'not settled from the first model call', 'passes when replayed']);
     expect(formatRepair(report)).toMatch(/01M540RWR1 +not settled from the first model call/);
     expect(formatRepair(report)).not.toContain('not rescued');
   });
