@@ -25,9 +25,9 @@
 // action starts this workflow on the fix's branch itself, and the pull request says whether it could.
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { dispatchWorkflow, githubToken, tokenEnv } from './github.mjs';
+import { dispatchWorkflow, githubToken, openPullRequest, tokenEnv } from './github.mjs';
 import { annotation, logLine, logLines } from './log.mjs';
 import { markdownCode, markdownFence, markdownText } from './markdown.mjs';
 
@@ -592,19 +592,55 @@ export function branchNote({ goldens, others = { diverging: [], failing: [], inc
   return parts.join('\n');
 }
 
-/** Pushes a fix's branch to origin: `{ ok, why }`. */
-function pushBranch(root, branch, env) {
-  const push = run('git', ['push', 'origin', `refs/heads/${branch}:refs/heads/${branch}`], root, env);
-  return push.status === 0 ? { ok: true, why: null } : { ok: false, why: `git push origin ${branch} failed: ${(push.stderr || push.error?.message || '').trim()}` };
+/**
+ * Where a fix's branch goes: on GitHub Actions, the repository the workflow runs in, as the runner
+ * names it (GITHUB_SERVER_URL and GITHUB_REPOSITORY, which no step can change), once the checkout's
+ * origin names that repository too, so a job that checked out another one opens nothing; elsewhere,
+ * the checkout's origin. `{ url, why }`.
+ */
+export function pushTarget(root, env) {
+  const origin = run('git', ['remote', 'get-url', 'origin'], root, env);
+  const originUrl = origin.status === 0 ? origin.stdout.trim() : '';
+  const server = (env.GITHUB_SERVER_URL ?? '').replace(/\/+$/, '');
+  const repo = env.GITHUB_REPOSITORY ?? '';
+  if (!server || !repo) return originUrl ? { url: originUrl, why: null } : { url: null, why: 'the checkout has no origin to push the fix to' };
+  const named = /[/:]([^/:]+\/[^/]+?)(?:\.git)?\/*$/.exec(originUrl)?.[1] ?? '';
+  if (named.toLowerCase() !== repo.toLowerCase()) return { url: null, why: `the checkout's origin is not ${repo}, the repository this workflow runs in, so no fix is pushed from it` };
+  return { url: `${server}/${repo}.git`, why: null };
 }
 
-/** Opens the pushed branch's pull request into the branch checked out, titled by the fix commit. */
-function createPullRequest(root, branch, bodyFile, env) {
-  const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'], env).trim();
-  const title = git(root, ['log', '-1', '--format=%s', `refs/heads/${branch}`], env).trim();
-  const gh = run('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', bodyFile], root, env);
-  if (gh.error || gh.status !== 0) return { pr: null, why: `gh pr create failed: ${(gh.stderr || gh.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand` };
-  return { pr: gh.stdout.trim().split('\n').at(-1) ?? '', why: null };
+/** git's environment with its user and system config left out, and no prompt: nothing on this machine but what the call says. */
+const isolatedGit = (env) => ({ ...env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' });
+
+/**
+ * Pushes a fix's branch to `url` from a repository of its own, made for the push: bare, with no
+ * config and no hooks, git's user and system config left out, and the branch's commits fetched into
+ * it from the checkout. The checkout is where the agent ran, which could have left a hook that a push
+ * runs, with the token in its environment, or a rewrite of the remote's URL. `env` holds the token
+ * for the push (tokenEnv); `plain`, without it, is what the fetch gets. `{ ok, why, title }`, title
+ * the fix commit's subject.
+ */
+function pushBranch({ root, branch, url, env, plain, scratch }) {
+  const dir = mkdtempSync(join(scratch, 'push-'));
+  const noHooks = ['-c', `core.hooksPath=${devNull}`];
+  const ref = `refs/heads/${branch}`;
+  try {
+    const init = run('git', ['init', '-q', '--bare', dir], scratch, isolatedGit(plain));
+    const fetched = init.status === 0 ? run('git', ['-C', dir, ...noHooks, 'fetch', '-q', '--no-tags', root, `+${ref}:${ref}`], scratch, isolatedGit(plain)) : init;
+    if (fetched.status !== 0) return { ok: false, why: `the fix's branch ${branch} could not be taken from the checkout: ${(fetched.stderr || fetched.error?.message || '').trim()}`, title: null };
+    const title = run('git', ['-C', dir, 'log', '-1', '--format=%s', ref], scratch, isolatedGit(plain)).stdout.trim();
+    const push = run('git', ['-C', dir, ...noHooks, 'push', '--no-verify', url, `${ref}:${ref}`], scratch, isolatedGit(env));
+    return push.status === 0 ? { ok: true, why: null, title } : { ok: false, why: `git push of ${branch} failed: ${(push.stderr || push.error?.message || '').trim()}`, title };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Opens the pushed branch's pull request into the branch checked out, through GitHub's API, titled by the fix commit. */
+async function createPullRequest({ root, branch, title, bodyFile, env, plain, auth, fetch: fetchFn }) {
+  const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'], plain).trim();
+  const r = await openPullRequest({ env, auth, head: branch, base, title: title || branch, body: readFileSync(bodyFile, 'utf8'), fetch: fetchFn });
+  return r.pr ? r : { pr: null, why: `the pull request could not be opened: ${String(r.why)}; the branch ${branch} is pushed, so it can be opened by hand` };
 }
 
 /** Why a fix stays out of the team store when the team turned pushing from CI off: their choice, not a failure. */
@@ -843,8 +879,8 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         // GitHub starts no workflow for either, so this one is started on the branch in between,
         // and the body says which happened.
         const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim());
-        const ghEnv = tokenEnv(fixEnv, auth);
-        const onOrigin = pushBranch(root, branch, ghEnv);
+        const target = pushTarget(root, fixEnv);
+        const onOrigin = target.url ? pushBranch({ root, branch, url: target.url, env: tokenEnv(fixEnv, auth), plain: fixEnv, scratch }) : { ok: false, why: target.why, title: null };
         let opened = { pr: null, why: onOrigin.why };
         let checks = null;
         if (onOrigin.ok) {
@@ -852,7 +888,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
           checks = auth.startsWorkflows ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
           if (dispatch && !dispatch.dispatched) log(annotation('warning', `${names}: the fix's pull request has no check started: ${String(dispatch.why)}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`));
           writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}\n${evidenceNote(chosen.attempt.plan)}\n${checksNote({ auth, dispatch })}`);
-          opened = createPullRequest(root, branch, bodyFile, ghEnv);
+          opened = await createPullRequest({ root, branch, title: onOrigin.title, bodyFile, env, plain: fixEnv, auth, fetch: fetchFn });
         }
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
         if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);

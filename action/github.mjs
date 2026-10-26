@@ -29,15 +29,15 @@ export function githubToken(env) {
 const basicHeader = (token) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
 
 /**
- * The environment git and gh run with to push and open a fix's pull request with `auth`'s token, for
- * those two alone. gh reads GH_TOKEN. git gets the token as an Authorization header for the server
- * through its GIT_CONFIG_* variables: an empty value clears any header the repository's config has
- * (actions/checkout leaves the job's own there unless persist-credentials is false), the next sets
- * the token's. So the push needs nothing on disk, and the token never appears in a command line.
+ * The environment git pushes a fix's branch with `auth`'s token in, for that push alone. git gets the
+ * token as an Authorization header for the server, and for no other host, through its GIT_CONFIG_*
+ * variables: an empty value clears any header a repository's config has (actions/checkout leaves the
+ * job's own there unless persist-credentials is false), the next sets the token's. So the push needs
+ * nothing on disk, and the token never appears in a command line.
  */
 export function tokenEnv(env, auth) {
   if (!auth?.token) return env;
-  const out = { ...env, GH_TOKEN: auth.token };
+  const out = { ...env };
   const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/+$/, '');
   const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
   const key = `http.${server}/.extraheader`;
@@ -102,6 +102,22 @@ async function call(fetchFn, { api, token }, method, path, body) {
   }
   // A list's pages: GitHub names the last one in the Link header.
   return { status: res.status, ok: res.status >= 200 && res.status < 300, data, link: res.headers?.get?.('link') ?? null };
+}
+
+/**
+ * Opens a pull request of `head` into `base` on the repository the job runs for, through GitHub's
+ * REST API with `auth`'s token, from no checkout: `{ pr, why }`, pr its URL. Never throws.
+ */
+export async function openPullRequest({ env, auth, head, base, title, body, fetch: fetchFn = globalThis.fetch }) {
+  const { api, repo } = repositoryOf(env);
+  if (!repo || !auth?.token) return { pr: null, why: 'the job has no repository or token to open it with' };
+  try {
+    const r = await call(fetchFn, { api, token: auth.token }, 'POST', `/repos/${repo}/pulls`, { title, head, base, body });
+    if (r.ok && typeof r.data?.html_url === 'string') return { pr: r.data.html_url, why: null };
+    return { pr: null, why: r.ok ? 'GitHub named no pull request' : said(r) };
+  } catch (err) {
+    return { pr: null, why: `GitHub could not be reached: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 /** What GitHub said about a call that failed, in its words when it gave some. */

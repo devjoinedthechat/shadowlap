@@ -213,7 +213,7 @@ runs:
         INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}
         INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}
         INPUT_COMMENT: ${{ inputs.comment }}
-        # For git, gh and GitHub's API alone: run.mjs takes both, and every other GitHub token the job
+        # For git's push and GitHub's API alone: run.mjs takes both, and every other GitHub token the job
         # holds, out of what the CLI and the agent get.
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
         SHADOWLAP_JOB_TOKEN: ${{ github.token }}

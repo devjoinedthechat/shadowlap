@@ -10,10 +10,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
 import { HOSTILE } from '../../engine/test/markdown-cases.js';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
-import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
 import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
 import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
-import { dispatchWorkflow, githubToken, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
+import { dispatchWorkflow, githubToken, openPullRequest, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
 
 /**
@@ -120,14 +120,16 @@ describe('the token the action speaks to GitHub with', () => {
     expect(withoutTokens(pat)).toEqual({});
   });
 
-  it("gives git the token's own Authorization header in place of the job's that checkout left, through the environment, and gh the token", async () => {
+  it("gives git the token's own Authorization header in place of the job's that checkout left, through the environment, and nothing else the token", async () => {
     const auth = githubToken({ ...ACTIONS, INPUT_GITHUB_TOKEN: 'github_pat_1' });
     const env = tokenEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_VALUE_0: 'false', GITHUB_SERVER_URL: 'https://github.test' }, auth);
-    expect(env).toMatchObject({ GH_TOKEN: 'github_pat_1', GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_KEY_1: 'http.https://github.test/.extraheader', GIT_CONFIG_VALUE_1: '', GIT_CONFIG_KEY_2: 'http.https://github.test/.extraheader' });
+    // No GH_TOKEN: the pull request is opened through GitHub's API, not by gh in the checkout.
+    expect(env).not.toHaveProperty('GH_TOKEN');
+    expect(env).toMatchObject({ GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'core.autocrlf', GIT_CONFIG_KEY_1: 'http.https://github.test/.extraheader', GIT_CONFIG_VALUE_1: '', GIT_CONFIG_KEY_2: 'http.https://github.test/.extraheader' });
     expect(Buffer.from(env.GIT_CONFIG_VALUE_2!.replace('AUTHORIZATION: basic ', ''), 'base64').toString()).toBe('x-access-token:github_pat_1');
     // The job's own token goes the same way: the push needs nothing checkout left on the disk.
     const job = tokenEnv({}, githubToken(ACTIONS));
-    expect(job).toEqual({ GH_TOKEN: JOB, GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: '', GIT_CONFIG_KEY_1: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${JOB}`).toString('base64')}` });
+    expect(job).toEqual({ GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: '', GIT_CONFIG_KEY_1: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_1: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${JOB}`).toString('base64')}` });
 
     // As git sends it: one Authorization header, the token's, to a server whose header the repository's config sets.
     const seen: string[][] = [];
@@ -175,6 +177,32 @@ describe('starting the workflow on a fix\'s branch', () => {
     expect(await said(() => ({ status: 403, json: { message: 'Resource not accessible by integration' } }))).toBe("the job's token may not start it: give the job actions: write (GitHub answered 403 (Resource not accessible by integration))");
     expect(await said(() => new Error('getaddrinfo ENOTFOUND api.github.test'))).toBe('GitHub could not be reached: getaddrinfo ENOTFOUND api.github.test');
     expect(await said(() => ({ status: 204 }), { ...ACTIONS, GITHUB_WORKFLOW_REF: undefined })).toMatch(/^the job did not say which workflow it runs in/);
+  });
+});
+
+describe("a fix's branch and its pull request", () => {
+  it("goes to the repository the workflow runs in, as the runner names it, once the checkout's origin names it too", () => {
+    const repo = temp('sl-push-target-');
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:northwind/agent.git'], { cwd: repo });
+    const env = { ...process.env, GITHUB_SERVER_URL: 'https://github.test/', GITHUB_REPOSITORY: 'northwind/agent' };
+    // The runner's names, not the checkout's URL: a rewrite or a remote the agent changed doesn't move it.
+    expect(pushTarget(repo, env)).toEqual({ url: 'https://github.test/northwind/agent.git', why: null });
+    expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'Northwind/Agent' })).toEqual({ url: 'https://github.test/Northwind/Agent.git', why: null });
+    // A job that checked out another repository opens nothing in this one.
+    expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'northwind/other' })).toEqual({ url: null, why: "the checkout's origin is not northwind/other, the repository this workflow runs in, so no fix is pushed from it" });
+    // Outside GitHub Actions, the checkout's origin.
+    expect(pushTarget(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toEqual({ url: 'git@github.com:northwind/agent.git', why: null });
+  });
+
+  it("is opened through GitHub's API with the token, never by gh in the checkout, and says why when GitHub refuses", async () => {
+    const auth = githubToken(ACTIONS);
+    const ok = github(() => ({ status: 201, json: { number: 7, html_url: 'https://github.test/northwind/agent/pull/7' } }));
+    expect(await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title: 'Escalate refunds', body: 'body', fetch: ok.fetch })).toEqual({ pr: 'https://github.test/northwind/agent/pull/7', why: null });
+    expect(ok.calls).toEqual([expect.objectContaining({ method: 'POST', url: 'https://api.github.test/repos/northwind/agent/pulls', body: { title: 'Escalate refunds', head: 'shadowlap/fix-a', base: 'main', body: 'body' } })]);
+    expect(ok.calls[0].headers.authorization).toBe(`Bearer ${JOB}`);
+    const refused = github(() => ({ status: 422, json: { message: 'Validation Failed' } }));
+    expect(await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title: 't', body: 'b', fetch: refused.fetch })).toEqual({ pr: null, why: 'GitHub answered 422 (Validation Failed)' });
   });
 });
 
