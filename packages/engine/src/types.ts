@@ -238,6 +238,12 @@ export interface RunMeta {
    */
   exactNumbers?: true;
   /**
+   * The run's model calls kept the parameters their provider takes as headers (Bedrock's guardrail,
+   * trace, latency profile and service tier) among their fingerprint headers. A run without it, made
+   * before calls kept them or imported, holds none: a replay of it is matched, and kept, without them.
+   */
+  headerParameters?: true;
+  /**
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
    * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
    * `r2://…`), which marks a run pulled from it (`pulledRun`). `pr`: it came from a pull request's

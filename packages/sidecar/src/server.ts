@@ -65,7 +65,7 @@ import { identityQuery } from './query.js';
 import { ProviderState } from './provider-state.js';
 import { isResponsesCreate, ResponsesState } from './responses-state.js';
 import { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, placeholderRefusal } from './placeholders.js';
-import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, type FormatHost, type Provider } from './providers.js';
+import { activeProviders, formatHostProvider, hostedProviders, providers as defaultProviders, sdkBasesFromEnvironment, withoutHeaderParameters, type FormatHost, type Provider } from './providers.js';
 import { credentialsFromEnvironment, resignSigV4, signingKeyId, type CredentialsFor } from './sigv4.js';
 import { SseTimer } from './sse.js';
 import { isTelemetry } from './telemetry.js';
@@ -298,6 +298,12 @@ class RunContext {
      * recorded before requests kept their numbers (RunMeta.exactNumbers), is matched as it was stored.
      */
     readonly roundedNumbers = false,
+    /**
+     * Whether a model call is matched and kept with the parameters its provider takes as headers
+     * (Provider.headerParameters): not when the parent holds none (RunMeta.headerParameters), as one
+     * made before calls kept them, or imported, never does.
+     */
+    readonly headerParameters = true,
   ) {}
 
   warnOnce(tool: string, message: string): void {
@@ -765,6 +771,9 @@ export class Sidecar {
     let ownCommand: string[] | undefined;
     // A parent made before requests kept their numbers stored them rounded: matched so.
     let roundedNumbers = false;
+    // A parent that holds no header parameters (RunMeta.headerParameters) is matched without them,
+    // and this run keeps none either, so its own replays match the same way.
+    let headerParameters = true;
     if (input.mode === 'replay') {
       if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
       const parent = this.store.getRun(input.parentRunId);
@@ -776,7 +785,9 @@ export class Sidecar {
         redactions = parent.meta.redactions;
         normalizers = [...normalizers, ...redactions];
       }
-      const stored = this.store.getCalls(input.parentRunId);
+      headerParameters = parent.meta?.headerParameters === true;
+      const kept = this.store.getCalls(input.parentRunId);
+      const stored = headerParameters ? kept : kept.map((c) => this.withoutParameters(c));
       roundedNumbers = parent.meta?.exactNumbers !== true;
       // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
       parentStartedAt = parent.startedAt;
@@ -818,6 +829,7 @@ export class Sidecar {
       normalizersHash: normalizersHash(normalizers, this.clock, input.replay?.promptFrom !== undefined, roundedNumbers),
       // Its model requests are stored with each number as the agent sent it.
       exactNumbers: true,
+      ...(headerParameters ? { headerParameters: true } : {}),
       ...(input.commandFromImport ? { commandFromImport: true } : {}),
       ...(described ? { interventions: described } : {}),
     };
@@ -837,7 +849,7 @@ export class Sidecar {
       ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
       ...(parentRecordsInput ? { parentRecordsInput } : {}),
     });
-    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined, roundedNumbers);
+    const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? this.unversioned(parentCalls) : undefined, parentCalls ? this.unqueried(parentCalls) : undefined, roundedNumbers, headerParameters);
     this.writer.write({
       what: `run ${run.runId}'s start`,
       of: { runId: run.runId, part: 'run' },
@@ -1506,7 +1518,9 @@ export class Sidecar {
     // without the version this request names: the run names none either, as the one it replays, so
     // the two stay the same calls (Compare, coverage) and its own replays match whatever version.
     const version = !judge && ctx.unversioned.has(provider.id) ? provider.apiVersion?.header : undefined;
-    const kept = version !== undefined ? withoutHeader(call.headers, version) : call.headers;
+    const sent = version !== undefined ? withoutHeader(call.headers, version) : call.headers;
+    // So too a parent that holds no header parameters (made before calls kept them, or imported).
+    const kept = ctx.headerParameters ? sent : withoutHeaderParameters(provider, sent);
     // Matched without what only says how the call signed in (matchHeaders); kept as it was sent.
     const asked = matchedHeaders(provider, kept);
     const unqueried = !judge && ctx.unqueried.has(provider.id);
@@ -2604,6 +2618,17 @@ export class Sidecar {
       kept.set(id, kept.get(id) === true || typeof c.meta.query === 'string');
     }
     return new Set([...kept].filter(([, some]) => !some).map(([id]) => id));
+  }
+
+  /**
+   * A model call of a run that holds no header parameters (RunMeta.headerParameters) as it is
+   * matched: its fingerprint headers without them, should a producer have kept some all the same.
+   */
+  private withoutParameters(rec: CallRecord): CallRecord {
+    const provider = rec.kind === 'api' ? this.providerOf(rec) : undefined;
+    const headers = rec.meta.fingerprintHeaders as Record<string, string> | undefined;
+    if (!provider?.headerParameters?.some((h) => headers?.[h] !== undefined)) return rec;
+    return { ...rec, meta: { ...rec.meta, fingerprintHeaders: withoutHeaderParameters(provider, headers!) } };
   }
 
   /** A model call with its fingerprint headers as matching reads them (Provider.matchHeaders). */

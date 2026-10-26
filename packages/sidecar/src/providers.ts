@@ -34,6 +34,13 @@ export interface Provider {
   /** Lower-cased request headers that change model behavior and therefore fingerprint. */
   fingerprintHeaders: readonly string[];
   /**
+   * The fingerprint headers that are parameters of the call, sent as headers rather than in its
+   * body: Bedrock's guardrail, trace, latency profile and service tier. A run made before calls kept
+   * them (`RunMeta.headerParameters`), or imported, holds none: a replay of it is matched, and kept,
+   * without them.
+   */
+  headerParameters?: readonly string[];
+  /**
    * The fingerprint header every request to the API names its version in (`anthropic-version`), and
    * the version Shadowlap names when it sends a recorded request that names none. A recording whose
    * calls to this provider name none (one imported from a trace, which never keeps the version) is
@@ -98,6 +105,15 @@ export interface Provider {
    * `services.ai.azure.com` serves Claude under `/anthropic` (Microsoft Foundry).
    */
   forPath?: (path: string) => Provider | undefined;
+}
+
+/**
+ * Headers without the provider's header parameters (Provider.headerParameters), as a run that holds
+ * none is matched: one made before calls kept them, or imported.
+ */
+export function withoutHeaderParameters(provider: Provider, headers: Readonly<Record<string, string>>): Record<string, string> {
+  const left = provider.headerParameters;
+  return left?.length ? Object.fromEntries(Object.entries(headers).filter(([h]) => !left.includes(h))) : { ...headers };
 }
 
 function modelInBody(body: unknown): string | null {
@@ -432,6 +448,13 @@ function converseUsage(u: unknown): Usage | null {
   return usage;
 }
 
+/**
+ * What InvokeModel, streamed or not, takes as headers beside its body, each of which changes the
+ * answer: the guardrail and its version, the trace that shows what the guardrail did, the latency
+ * profile and the service tier. Bedrock's Chat Completions takes its guardrail the same way.
+ */
+const BEDROCK_PARAMETERS = ['x-amzn-bedrock-guardrailidentifier', 'x-amzn-bedrock-guardrailversion', 'x-amzn-bedrock-trace', 'x-amzn-bedrock-performanceconfig-latency', 'x-amzn-bedrock-service-tier'];
+
 export const bedrock: Provider = {
   id: 'bedrock',
   // bedrock-runtime.<region>.amazonaws.com: every request is signed for that host, so it is captured
@@ -439,7 +462,8 @@ export const bedrock: Provider = {
   upstream: '',
   // No environment: a base URL would break the request's signature.
   env: () => ({}),
-  fingerprintHeaders: [],
+  fingerprintHeaders: BEDROCK_PARAMETERS,
+  headerParameters: BEDROCK_PARAMETERS,
   credentialHeaders: ['x-amz-security-token', 'x-amz-content-sha256', 'x-amz-date', 'x-amzn-trace-id', ...COMMON_CREDENTIAL_HEADERS],
   // Every source of the AWS SDKs' default credential chain the environment can name (the CLI checks
   // the shared files too), and a Bedrock API key. An instance role the metadata service hands out
@@ -543,6 +567,9 @@ export const bedrockMantle: Provider = hostOf(openai, {
   id: 'bedrock-mantle',
   root: '/openai/v1',
   hosts: /^bedrock-mantle\.[a-z0-9-]+\.api\.aws$/,
+  // OpenAI's, and what Bedrock takes as headers: its Chat Completions' guardrail.
+  fingerprintHeaders: [...openai.fingerprintHeaders, ...BEDROCK_PARAMETERS],
+  headerParameters: BEDROCK_PARAMETERS,
   credentialHeaders: ['x-amz-security-token', 'x-amz-content-sha256', 'x-amz-date', 'x-amzn-trace-id', ...COMMON_CREDENTIAL_HEADERS],
   // The Bedrock API key the bearer clients read; one signing with SigV4 reads the AWS credentials.
   keys: { placeholders: { AWS_BEARER_TOKEN_BEDROCK: PLACEHOLDER_KEY }, credentials: ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], set: 'AWS_BEARER_TOKEN_BEDROCK', onlyWhereRecorded: true },
