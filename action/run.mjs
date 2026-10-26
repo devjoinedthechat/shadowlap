@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
 import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
+import { annotation, logLine } from './log.mjs';
 
 /**
  * The step's outputs from a test report and the fixes opened, each named once, as action.yml declares
@@ -38,6 +39,19 @@ export function outputsOf(report, fixes, paths) {
 }
 
 /** Runs the action as action.yml's step does, and returns its exit code. `fetch` is GitHub's REST API's, which tests replace. */
+/**
+ * The events the action refuses to run on, each with why and what to run it on instead. Each runs
+ * with the base repository's secrets (the provider keys the agent needs among them) and a token that
+ * may write, and is the usual way to run a pull request's code beside them, which is what the action
+ * would run as the agent: so the whole action is refused, not only fix on failure, as the test
+ * session alone runs the agent with those keys.
+ */
+const REFUSED_EVENTS = {
+  pull_request_target: "runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request",
+  workflow_run: "runs with the base repository's secrets and a token that may write once another workflow ends, one a pull request from a fork may have started, and is how that pull request's code gets checked out beside them: run the action in that workflow instead, on pull_request for a pull request's code, or on push for a branch of this repository",
+  issue_comment: "runs with the base repository's secrets and a token that may write on a comment anyone can post, and is how a comment gets a pull request's code tested beside them: run it on pull_request, or on workflow_dispatch for a branch of this repository",
+};
+
 export async function main(env = process.env, { fetch: fetchFn = globalThis.fetch } = {}) {
   const input = (name, fallback = '') => (env[`INPUT_${name}`] ?? fallback).trim();
   const bool = (name, fallback) => {
@@ -46,13 +60,16 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     return v === 'true';
   };
   function fail(message) {
-    process.stdout.write(`::error title=Shadowlap::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}\n`);
+    process.stdout.write(`${annotation('error', message)}\n`);
     process.exit(1);
   }
 
-  // pull_request_target runs a pull request's workflow with the base repository's secrets and a token
-  // that may write: an agent the pull request changed, run there, would have both.
-  if (env.GITHUB_EVENT_NAME === 'pull_request_target') fail('the action does not run on pull_request_target, which runs a pull request\'s workflow with the base repository\'s secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request');
+  // Events that give a job the base repository's secrets and a token that may write, and are how a
+  // pull request's code is run beside them: the agent the action runs is whatever the job checked
+  // out, and from the event alone it can't tell whose code that is. pull_request runs a pull
+  // request's code with what a fork may have; push, schedule and workflow_dispatch run a branch here.
+  const event = env.GITHUB_EVENT_NAME ?? '';
+  if (Object.hasOwn(REFUSED_EVENTS, event)) fail(`the action does not run on ${event}, which ${REFUSED_EVENTS[event]}`);
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
@@ -119,7 +136,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const auth = githubToken(env);
   const cliEnv = { ...withoutTokens(env), SHADOWLAP_TELEMETRY: env.SHADOWLAP_TELEMETRY ?? '0' };
 
-  process.stdout.write(`shadowlap test ${packs.join(' ')}\n`);
+  process.stdout.write(`${logLine(`shadowlap test ${packs.join(' ')}`)}\n`);
   const r = spawnSync(process.execPath, args, { cwd: workdir, stdio: 'inherit', env: cliEnv });
   if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${String(r.status ?? r.signal)}); its output is above`);
 
@@ -130,17 +147,18 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   if (fixOnFailure && report.failed && !report.interrupted) {
     fixes = await runFixes({ cli, db: store, workdir, report, budget, repairer, guard, build: fixBuild, push, env: cliEnv, auth, fetch: fetchFn, log: (line) => process.stdout.write(`${line}\n`) });
     for (const f of fixes) {
-      if (f.outcome === 'opened') process.stdout.write(`::notice title=Shadowlap::${f.name}: opened ${String(f.pr)}\n`);
-      else process.stdout.write(`${f.name}: no fix pull request: ${String(f.why)}\n`);
+      // A fix's why can quote a run (a write's recorded error) or git and GitHub: never a workflow command here.
+      if (f.outcome === 'opened') process.stdout.write(`${annotation('notice', `${f.name}: opened ${String(f.pr)}`)}\n`);
+      else process.stdout.write(`${logLine(`${f.name}: no fix pull request: ${String(f.why)}`)}\n`);
     }
   }
   // On a pull request, one comment with each golden's verdict, edited in place. Never fails the job.
   let posted = null;
   if (comment && !report.interrupted) {
     posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });
-    if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}\n`);
-    else if (posted.state === 'failed') process.stdout.write(`::warning title=Shadowlap::the pull request comment was not posted: ${String(posted.why)}\n`);
-    else if (posted.state !== 'none') process.stdout.write(`the pull request comment was not posted: ${String(posted.why)}\n`);
+    if (posted.state === 'created' || posted.state === 'updated') process.stdout.write(`${logLine(`the pull request comment is ${posted.state === 'created' ? 'posted' : 'updated'}: ${posted.url ?? ''}`)}\n`);
+    else if (posted.state === 'failed') process.stdout.write(`${annotation('warning', `the pull request comment was not posted: ${String(posted.why)}`)}\n`);
+    else if (posted.state !== 'none') process.stdout.write(`${logLine(`the pull request comment was not posted: ${String(posted.why)}`)}\n`);
   }
   const outputs = outputsOf(report, fixes, { json, markdown, junit });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''));
@@ -156,7 +174,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       process.exitCode = code;
     },
     (err) => {
-      process.stdout.write(`::error title=Shadowlap::${String(err instanceof Error ? err.message : err).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}\n`);
+      process.stdout.write(`${annotation('error', err instanceof Error ? err.message : err)}\n`);
       process.exitCode = 1;
     },
   );

@@ -6,6 +6,7 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { annotation, logLine } from './log.mjs';
 
 const env = process.env;
 const input = (name, fallback = '') => (env[`INPUT_${name}`] ?? fallback).trim();
@@ -65,10 +66,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       attempt: env.GITHUB_RUN_ATTEMPT,
     });
   } catch (err) {
-    process.stdout.write(`::error title=Shadowlap::${err.message}\n`);
+    // A config's error can quote the config, which a pull request may change.
+    process.stdout.write(`${annotation('error', err.message)}\n`);
     process.exit(1);
   }
   const outputs = { keep: String(plan.keep), path: plan.path, key: plan.key, 'restore-keys': plan.restoreKeys };
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, outputLines(outputs));
-  process.stdout.write(plan.keep ? `keeping the test history between jobs: ${String(plan.path[0])}\n` : 'not keeping the test history between jobs\n');
+  process.stdout.write(plan.keep ? `${logLine(`keeping the test history between jobs: ${String(plan.path[0])}`)}\n` : 'not keeping the test history between jobs\n');
 }

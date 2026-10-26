@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { closeSync, constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, cpSync, existsSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { linkDependencies, mapArgv } from './bisect.js';
@@ -131,27 +131,61 @@ export function fileInside(root: string, rel: string): string | null {
 }
 
 /**
- * Opens `rel` under `root` without following a link anywhere on the way: each folder from `root`
- * down, and the file itself, must be what they are, never a link, and the file a regular one that is
- * there already. Throws, with why, otherwise. `O_NOFOLLOW` keeps a link that took the file's place
- * since from being followed where the system has it.
+ * For a test that plays a process racing repair on the same files: `walked` is called once the path
+ * has been walked, before the file is opened, and `opened` once it is open, before it is checked.
  */
-function openInside(root: string, rel: string, flags: number): number {
-  const parts = rel.split('/');
-  if (isAbsolute(rel) || parts.some((p) => p === '' || p === '.' || p === '..')) throw new Error(`${rel} is not a path inside the repository`);
+export interface OpenRace {
+  walked?: () => void;
+  opened?: () => void;
+}
+
+/**
+ * Each folder from `root` down to the file `parts` name, and the file itself, as they are, a link
+ * never followed: a folder that is a link, or isn't a folder, or a file that is a link, or isn't a
+ * regular one, throws, with why. Returns the file's own stat.
+ */
+function walkInside(root: string, parts: readonly string[]): BigIntStats {
   let at = root;
+  let st: BigIntStats | null = null;
   for (const [i, part] of parts.entries()) {
     at = join(at, part);
-    const st = lstatSync(at);
+    st = lstatSync(at, { bigint: true });
     if (st.isSymbolicLink()) throw new Error(`${parts.slice(0, i + 1).join('/')} is a link, which repair never writes through`);
     if (i < parts.length - 1 ? !st.isDirectory() : !st.isFile()) throw new Error(`${parts.slice(0, i + 1).join('/')} is not a ${i < parts.length - 1 ? 'folder' : 'file'}`);
   }
-  return openSync(join(root, rel), flags | (constants.O_NOFOLLOW ?? 0));
+  return st!;
+}
+
+/**
+ * Opens `rel` under `root` without following a link anywhere on the way: each folder from `root`
+ * down, and the file itself, must be what they are, never a link, and the file a regular one that is
+ * there already. Throws, with why, otherwise. `O_NOFOLLOW` covers only the file itself, so a folder
+ * on the way swapped for a link between the walk and the open would have the open follow it, out
+ * of the root: the open changes nothing (no `O_TRUNC`, no `O_CREAT`, and `O_NONBLOCK`, so a pipe
+ * put there can't hold it), and the file it opened must be the one the path, walked again once it
+ * is open, names now, else it is closed untouched and this throws.
+ */
+function openInside(root: string, rel: string, flags: number, race: OpenRace = {}): number {
+  const parts = rel.split('/');
+  if (isAbsolute(rel) || parts.some((p) => p === '' || p === '.' || p === '..')) throw new Error(`${rel} is not a path inside the repository`);
+  walkInside(root, parts);
+  race.walked?.();
+  const fd = openSync(join(root, rel), flags | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    race.opened?.();
+    const opened = fstatSync(fd, { bigint: true });
+    const named = walkInside(root, parts);
+    if (!opened.isFile() || opened.dev !== named.dev || opened.ino !== named.ino) throw new Error(`${rel} changed while repair opened it, so repair left what it opened as it was`);
+    return fd;
+  } catch (err) {
+    closeSync(fd);
+    throw err;
+  }
 }
 
 /** A file's text under `root`, read without following a link (openInside). */
-export function readInside(root: string, rel: string): string {
-  const fd = openInside(root, rel, constants.O_RDONLY);
+export function readInside(root: string, rel: string, race: OpenRace = {}): string {
+  const fd = openInside(root, rel, constants.O_RDONLY, race);
   try {
     return readFileSync(fd, 'utf8');
   } finally {
@@ -162,11 +196,14 @@ export function readInside(root: string, rel: string): string {
 /**
  * Writes `text` over `rel` under `root`, a worktree's or the working tree's, without following a
  * link (openInside): a candidate written through one would land wherever it points, outside the
- * worktree. Throws, with why, when the path is a link, goes through one, or isn't a file there.
+ * worktree. The file is emptied only once it is known to be the one the path names, through what
+ * was opened, never the path. Throws, with why, when the path is a link, goes through one, isn't a
+ * file there, or changed while it was opened.
  */
-export function writeInside(root: string, rel: string, text: string): void {
-  const fd = openInside(root, rel, constants.O_WRONLY | constants.O_TRUNC);
+export function writeInside(root: string, rel: string, text: string, race: OpenRace = {}): void {
+  const fd = openInside(root, rel, constants.O_WRONLY, race);
   try {
+    ftruncateSync(fd, 0);
     writeFileSync(fd, text);
   } finally {
     closeSync(fd);

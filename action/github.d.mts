@@ -7,7 +7,7 @@ export interface GitHubAuth {
   startsWorkflows: boolean;
 }
 
-export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ status: number; text(): Promise<string> }>;
+export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ status: number; text(): Promise<string>; headers?: { get(name: string): string | null } }>;
 
 export function githubToken(env: NodeJS.ProcessEnv): GitHubAuth;
 export function tokenEnv(env: NodeJS.ProcessEnv, auth: GitHubAuth): NodeJS.ProcessEnv;
