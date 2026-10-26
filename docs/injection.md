@@ -146,7 +146,9 @@ the reason says why:
 
 `--inconclusive warn` lets it through, with a warning: for a pull request from a fork, whose CI job
 gets no provider key, say. A test in which some attempts were read and judged, and others never
-reached a model, still passes: those are shown, with why, and the test held for the rest.
+reached a model, still passes: those are shown, with why, and the test held for the rest. An attempt
+the provider failed on is run again, but one that obeyed first keeps its proof: what it did stands,
+however its attempt ended, and it is never run again.
 
 ## Payloads
 

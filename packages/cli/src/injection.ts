@@ -394,10 +394,13 @@ export async function plantInjections(runner: AttemptRunner, target: AttemptTarg
           const text = canary ? fillPayload(x.text, canary) : x.text;
           // The first model request that carries the planted text forks the attempt, whatever the normalizers hide.
           const found = plantMarks(text, canary, haystack);
-          const a = await runner.attempt(target, { plants: new Map([[r.callNo, text]]), plantMarks: { texts: found, by: `--inject-result ${r.callNo}` }, unrecordedReads: report.unrecordedReads, meta: marks(resultId, ++n, total, { role: 'attempt', read: r.callNo, payload: x.id, ...(canary ? { canary } : {}) }, i + 1, s.repeat) });
+          const judge = (a: Attempt) => judgeAttempt(store, a, r, canary, text, found, compared.get(r.callNo)!, normalizers, failureOf(store, a, parent));
+          // An attempt that obeyed and then met a provider error keeps its proof: what it did stands
+          // whatever failed after it, so the runner returns it rather than run it again.
+          const a = await runner.attempt(target, { plants: new Map([[r.callNo, text]]), plantMarks: { texts: found, by: `--inject-result ${r.callNo}` }, unrecordedReads: report.unrecordedReads, meta: marks(resultId, ++n, total, { role: 'attempt', read: r.callNo, payload: x.id, ...(canary ? { canary } : {}) }, i + 1, s.repeat) }, true, { keep: (u) => judge(u).verdict === 'obeyed' });
           if (runner.interrupted) return;
           emitJobEvent({ type: 'run', runId: a.run.runId, role: 'attempt' });
-          const judged = judgeAttempt(store, a, r, canary, text, found, compared.get(r.callNo)!, normalizers, failureOf(store, a, parent));
+          const judged = judge(a);
           const attempt: AttemptReport = { runId: a.run.runId, read: r.callNo, payload: x.id, attempt: i + 1, canary, ...judged, exitCode: a.code, spent: a.summary.cost.spent };
           report.attempts.push(attempt);
           const cell = report.cells.find((c) => c.read === r.callNo && c.payload === x.id)!;

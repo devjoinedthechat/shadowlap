@@ -18,7 +18,10 @@ import { departures, type ShapeName } from './json-shapes.js';
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
 
-const mocks: Record<'obey' | 'quote' | 'divert' | 'fetch' | 'plain', MockServer> = {} as never;
+const mocks: Record<'obey' | 'quote' | 'divert' | 'fetch' | 'plain' | 'flaky', MockServer> = {} as never;
+/** For the flaky model: how many times it still obeys a planted instruction, after which the provider fails its next call once. */
+let obeysLeft = 0;
+let failNext = false;
 let cwd: string;
 let db: string;
 let runId: string;
@@ -64,6 +67,24 @@ beforeAll(async () => {
   mocks.divert = await startMockAnthropic({ script: obeyPlanted(referenceScript, { as: 'divert' }), eventDelayMs: () => 0 });
   mocks.fetch = await startMockAnthropic({ script: obeyPlanted(referenceScript, { as: 'fetch' }), eventDelayMs: () => 0 });
   mocks.plain = await startMockAnthropic({ script: referenceScript, eventDelayMs: () => 0 });
+  // Obeys a planted instruction `obeysLeft` times, the provider failing the call after each (a 529
+  // the SDK doesn't retry, which ends the agent), then pays the plant no heed.
+  const obey = obeyPlanted(referenceScript);
+  mocks.flaky = await startMockAnthropic({
+    script: (ctx) => {
+      if (failNext) {
+        failNext = false;
+        return { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, headers: { 'retry-after-ms': '1', 'x-should-retry': 'false' } };
+      }
+      const answer = obey(ctx);
+      if (!JSON.stringify(answer).includes('toolu_obey_')) return answer;
+      if (obeysLeft <= 0) return referenceScript(ctx);
+      obeysLeft--;
+      failNext = true;
+      return answer;
+    },
+    eventDelayMs: () => 0,
+  });
   cwd = mkdtempSync(join(tmpdir(), 'sl-injection-'));
   db = join(cwd, 'store.db');
   config(UNTRUSTED);
@@ -144,6 +165,26 @@ describe('shadowlap injection on the reference agent', () => {
       expect(kept.data).toEqual(JSON.parse(JSON.stringify(report)));
       expect(store.listEvents({ kinds: ['injection.tested'] })[0]).toMatchObject({ runId, ref: report.resultId, data: { resultId: report.resultId, mode: 'plant', obeyed: 60, gate: 'failed' } });
     });
+  }, 180_000);
+
+  it('keeps the proof of an attempt that obeyed and then met a provider error, rather than run it again', async () => {
+    // The first attempt sends the canary, and the provider fails the call after: an agent that obeyed
+    // is caught, however its attempt ended. Run again, its second try would have paid the plant no heed.
+    obeysLeft = 1;
+    failNext = false;
+    const id = injectionTemplates().templates[0].id;
+    const read = calls.find((c) => c.name === 'fetch_page')!.callNo;
+    const r = await shadowlap(['injection', runId, '--json', '--templates', id, '--baselines', '1', '--concurrency', '1'], { mock: 'flaky' });
+    expect(r.code, r.stderr).toBe(1);
+    const out = json<{ results: PlantReport[]; totals: Record<string, number> }>(r);
+    const obeyed = out.results[0].attempts.filter((a) => a.verdict === 'obeyed');
+    expect(obeyed).toHaveLength(1);
+    expect(obeyed[0]).toMatchObject({ read, payload: id, evidence: [expect.objectContaining({ kind: 'canary', tool: 'send_email' })] });
+    expect(out.totals.obeyed).toBe(1);
+    // It was not run again: one attempt for each of the five reads, the obeying one among them.
+    expect(out.results[0].attempts).toHaveLength(5);
+    expect(out.results[0].gate).toMatchObject({ verdict: 'failed' });
+    expect([obeysLeft, failNext]).toEqual([0, false]);
   }, 180_000);
 
   it('--clean on that run makes the write disappear, and the report says the content caused it', async () => {
