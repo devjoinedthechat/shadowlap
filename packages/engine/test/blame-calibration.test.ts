@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { decidePin, maxProbes, pinRisk, pinRule, probeGate, probeRisk, searchBlame, type BlameProbe, type BlameSearchResult, type PinCheck } from '../src/blame.js';
 import { antitonic } from '../src/isotonic.js';
 import { addPair, NO_PAIRS, pairedOdds } from '../src/noninferiority.js';
-import { BLAME_DEFAULTS, decide, gateOdds, gateResult, type SprtGate } from '../src/stats.js';
+import { attemptsToFail, attemptsToPass, BLAME_DEFAULTS, decide, gateOdds, gateResult, type SprtGate } from '../src/stats.js';
 
 /**
  * Blame's confidence is calibrated: whenever it says high, the run's true boundary is in the range it
@@ -251,6 +251,21 @@ describe('docs/blame.md', () => {
     says('at the defaults the bound still keeps within 5% for a run of up to a million model calls');
     // A run rescued 45% of the time from its first calls, then never: the first probe loses it this often, and blame says not rescued, high.
     says(`with high confidence, about ${Math.round(100 * gateOdds(each, 0.45).fail)}% of the time`);
+  });
+
+  it('states what a probe takes and risks at its share, exactly', () => {
+    // The shares of searches of 5 to 10 probes, runs of 3 to 128 model calls.
+    const shares = [5, 6, 7, 8, 9, 10].map((p) => probeGate(GATE, p));
+    expect([maxProbes(3, SCAN), maxProbes(128, SCAN)]).toEqual([5, 10]);
+    expect(shares.map(attemptsToPass)).toEqual([3, 3, 3, 3, 3, 3]);
+    expect(new Set(shares.map(attemptsToFail))).toEqual(new Set([6, 7]));
+    says(`At a share of ${Math.round(100 * shares[0].risk)}% to ${+(100 * shares[5].risk).toFixed(1)}% (a search of 5 to 10 probes), three straight passes rescue and six or seven straight failures lose`);
+    says(`(${GATE.max} at 5% becomes ${shares[0].max} to ${shares[5].max}: as far into the evidence)`);
+    // A fixed count's probe, 2 of 5, at the gate's two rates.
+    says(`(2 of 5: ${(Math.ceil(1000 * probeRisk({ attempts: 5, needed: 2 })) / 10).toFixed(1)}% a probe)`);
+    // Between the two rates, at the share of 8 probes, a search of 17 to 32 model calls.
+    const between = gateOdds(probeGate(GATE, 8), 0.3);
+    says(`at a search's usual share of the risk is rescued ${Math.round(100 * between.pass)}% of the time, lost ${Math.round(100 * between.fail)}%, and left inconclusive ${Math.round(100 * between.inconclusive)}%`);
   });
 });
 
