@@ -60,6 +60,9 @@ const jobDone = async (id: string) => {
   throw new Error(`job ${id} never ended`);
 };
 /** Starts a job; one that started is waited for, so the next starts on goldens nothing else is using. */
+/** The goldens the dashboard is given: the project's one, and any a test adds for a moment. */
+const goldens: GoldenSource[] = [];
+
 const startJob = async (body: unknown, o: { wait?: boolean } = {}) => {
   const res = await api('jobs', { method: 'POST', body: JSON.stringify(body) });
   if (res.status === 202 && o.wait !== false) await jobDone(((await res.clone().json()) as { id: string }).id);
@@ -95,7 +98,7 @@ beforeAll(async () => {
   recordEvent(store, { kind: 'chaos.session', ref: 'X1', at: T0 + 6, data: { passed: 1, failed: 1, inconclusive: 0, notApplicable: 1, goldens: 1 } });
   recordEvent(store, { kind: 'chaos.session', ref: 'X2', runId: golden, at: T0 + 7, data: { passed: 2, failed: 0, inconclusive: 1, notApplicable: 0, goldens: 0, interrupted: true } });
 
-  const goldens: GoldenSource[] = [{ path: 'goldens/forecast', runId: golden, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] }];
+  goldens.push({ path: 'goldens/forecast', runId: golden, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
   const spawnCli = (args: string[]) => {
     spawned.push(args);
     return spawn(process.execPath, ['-e', slowMs ? `setTimeout(() => {}, ${slowMs})` : ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
@@ -257,6 +260,19 @@ describe('error-path presets', () => {
     expect((await api('chaos/runs/NOPE')).status).toBe(404);
     expect(chaosOfRun(store, golden)).toEqual(chaosOfGolden(store, 'goldens/forecast'));
     expect(chaosOfGolden(store, 'goldens/other')).toBeNull();
+  });
+
+  it('never gives the CLI a golden whose path would read as one of its options', async () => {
+    goldens.push({ path: '--update', runId: golden, packedAt: T0, mode: 'replay', repeat: 1, passes: 1, checks: [] });
+    try {
+      const before = spawned.length;
+      const res = await startJob({ kind: 'chaos', golden: '--update' });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/^--update: its path starts with "-", which the CLI would read as an option/);
+      expect(spawned.length).toBe(before);
+    } finally {
+      goldens.pop();
+    }
   });
 
   it('keeps an attempt as the session that decided it, once a golden’s presets ran again', () => {

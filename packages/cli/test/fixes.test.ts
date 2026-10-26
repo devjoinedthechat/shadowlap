@@ -389,14 +389,22 @@ describe('shadowlap fix', { timeout: 120_000 }, () => {
   it('names a change of request fields by the fields it set, and leaves making it to the agent once applied', async () => {
     const { failed } = await runs('refund-over-limit');
     mode = 'alternate';
-    const blamed = json(await shadowlap(['blame', failed[0], '--expect', ORACLE, '--json']));
+    const blamed = json(await shadowlap(['blame', failed[0], '--expect', ORACLE, '--timeout', '120', '--json']));
     const fixId = blamed.fix.fixId as string;
     // Titled by how its run failed: fix ls and fix show say what it must do, and leave what failed to the title.
     expect((await shadowlap(['fix', 'ls'])).stdout).toMatch(/\n +must: issue_refund never called with \{"amount":240\} · opened \d+[sm] ago\n/);
     expect((await shadowlap(['fix', 'show', fixId])).stdout).toMatch(/\n {2}open · refund-over-limit · 1 failing run · 0 good · opened \d+[sm] ago\n {2}must: issue_refund never called with \{"amount":240\}\n/);
     mode = 'refund';
-    const verified = await shadowlap(['verify', '--fixes', failed[0], '--set', 'temperature=1', '--expect', ORACLE]);
+    const verified = await shadowlap(['verify', '--fixes', failed[0], '--set', 'temperature=1', '--expect', ORACLE, '--timeout', '120']);
     expect(verified.code, verified.out).toBe(0);
+    // Each kept with the flags its report doesn't hold, apart from the command line it printed: what Fixes runs it again from.
+    const s = store();
+    try {
+      expect(s.listBlames().at(-1)!.rerun).toEqual({ flags: ['--timeout', '120'], command: null });
+      expect(s.listVerdicts().at(-1)!.rerun).toEqual({ flags: ['--timeout', '120'], command: null });
+    } finally {
+      s.close();
+    }
     const change = "temperature=1 from each run's first model call";
     const shown = json(await shadowlap(['fix', 'show', fixId, '--json']));
     expect(shown.status).toBe('verified');

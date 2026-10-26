@@ -60,6 +60,30 @@ function text(v: unknown, where: string, max = PACK_LIMITS.stringBytes, control 
   return v;
 }
 
+/**
+ * A normalizer or redaction rule from someone else's run, read as the config's are: `kind` one a
+ * rule takes, `name`, `path` and `replace` text without control characters (a terminal shows them),
+ * its path parsed, and its pattern checked before anything compiles it (safe-regex.ts).
+ */
+function rule(v: unknown, at: string): void {
+  if (!isObject(v)) fail(at, 'must be an object');
+  if (v.kind !== undefined) oneOf(v.kind, KINDS, `${at}.kind`);
+  if (v.name !== undefined) text(v.name, `${at}.name`, 2048);
+  if (v.path !== undefined) {
+    text(v.path, `${at}.path`, 2048);
+    try {
+      parsePath(v.path as string);
+    } catch (err) {
+      fail(`${at}.path`, err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (v.pattern !== undefined) {
+    const problem = patternProblem(text(v.pattern, `${at}.pattern`, PATTERN_MAX), namedPatterns());
+    if (problem) fail(`${at}.pattern`, problem);
+  }
+  text(v.replace, `${at}.replace`, 2048);
+}
+
 function int(v: unknown, where: string, min = 0): number {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < min) fail(where, `must be an integer ≥ ${min}`);
   return v;
@@ -117,10 +141,13 @@ export function validateRun(v: unknown, where: string): RunRecord {
       text(e.path, `${where}.divergence.diff[${i}].path`, 4096);
       oneOf(e.op, new Set(['changed', 'added', 'removed']), `${where}.divergence.diff[${i}].op`);
     }
-    if (d.hints !== undefined && !Array.isArray(d.hints)) fail(`${where}.divergence.hints`, 'must be an array');
+    if (d.hints !== undefined && (!Array.isArray(d.hints) || d.hints.length > 1000)) fail(`${where}.divergence.hints`, 'must be an array of at most 1000 hints');
     for (const [i, h] of ((d.hints as unknown[] | undefined) ?? []).entries()) {
       if (!isObject(h)) fail(`${where}.divergence.hints[${i}]`, 'must be an object');
       text(h.message, `${where}.divergence.hints[${i}].message`, 2048);
+      // The normalizer a hint suggests becomes a rule the TUI and the dashboard offer to add, and a
+      // `normalize add` command they show and run: read as the config's rules are, as a redaction is.
+      if (h.normalizer !== undefined) rule(h.normalizer, `${where}.divergence.hints[${i}].normalizer`);
     }
     if (d.reason !== undefined) text(d.reason, `${where}.divergence.reason`, 2048);
     if (d.recorded !== undefined) int(d.recorded, `${where}.divergence.recorded`);
@@ -155,23 +182,7 @@ export function validateRun(v: unknown, where: string): RunRecord {
   // config's are, its pattern checked before anything compiles it (safe-regex.ts) and its path parsed.
   if (m.redactions !== undefined) {
     if (!Array.isArray(m.redactions) || m.redactions.length > 1000) fail(`${where}.meta.redactions`, 'must be an array of at most 1000 rules');
-    for (const [i, rule] of m.redactions.entries()) {
-      const at = `${where}.meta.redactions[${i}]`;
-      if (!isObject(rule)) fail(at, 'must be an object');
-      for (const k of ['kind', 'name', 'path'] as const) if (rule[k] !== undefined) text(rule[k], `${at}.${k}`, 2048);
-      if (rule.pattern !== undefined) {
-        const problem = patternProblem(text(rule.pattern, `${at}.pattern`, PATTERN_MAX), namedPatterns());
-        if (problem) fail(`${at}.pattern`, problem);
-      }
-      if (rule.path !== undefined) {
-        try {
-          parsePath(rule.path as string);
-        } catch (err) {
-          fail(`${at}.path`, err instanceof Error ? err.message : String(err));
-        }
-      }
-      if (typeof rule.replace !== 'string' || rule.replace.length > 2048) fail(`${at}.replace`, 'must be a string');
-    }
+    for (const [i, r] of m.redactions.entries()) rule(r, `${where}.meta.redactions[${i}]`);
   }
   if (m.blame !== undefined) validateBlame(m.blame, `${where}.meta.blame`);
   return v as unknown as RunRecord;

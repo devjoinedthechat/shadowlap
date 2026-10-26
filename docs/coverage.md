@@ -77,7 +77,11 @@ with the agent's own command, and packs that replay.
      itself).
 
    The value reaches the agent as one argument, as it was: a placeholder in a shell's script, or
-   after an interpreter's `-c`, `-e` or `-m`, is refused, since the message would run as code.
+   after an interpreter's `-c`, `-e` or `-m`, is refused, since the message would run as code, and
+   so is one where the message would name what runs: the program, the script an interpreter runs
+   (`node {message}`) or one of its own flags (`--eval={message}`), or the command a runner such as
+   `env` or `npx` runs. A capture whose message would start an argument with a dash, which the
+   agent would read as one of its flags, is left out, saying why.
 2. **The tool results come from the capture itself.** Every model request carries the conversation
    so far, so the result of each tool the model asked for is in the next request. The replay serves
    each tool call that result, as a recording would, so nothing reaches your systems; a tool served

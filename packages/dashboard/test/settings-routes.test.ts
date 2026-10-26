@@ -335,14 +335,14 @@ describe('the redaction preview', () => {
     afterEach(() => void Object.assign(PREVIEW_LIMITS, saved));
 
     /**
-     * A run with a value a rule takes minutes on: a pattern the engine's pattern check takes (no
-     * exponential backtracking), whose time still grows with the cube of the text, on an x every
-     * other character and no y.
+     * A run with a value a rule takes most of a minute on: a pattern the engine's pattern check takes
+     * (no exponential backtracking), whose time still grows with the square of the text, on a long
+     * run of the one character it repeats and no x. The email rule ends on that text at once.
      */
     function slowRun() {
-      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/\\w*x\\w*y/', replace: '<A>' }] }));
+      writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/!*x/', replace: '<A>' }] }));
       const run = recording();
-      modelCall(run.runId, 1, 'ax'.repeat(3000));
+      modelCall(run.runId, 1, '!'.repeat(300_000));
       return run;
     }
 

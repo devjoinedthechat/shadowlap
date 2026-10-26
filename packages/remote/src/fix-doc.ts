@@ -15,7 +15,10 @@ import { LayoutError } from './layout.js';
  * Whatever comes from the bucket is someone else's data, checked as strictly as a run: every id in
  * its own form, every report in the shape the Fixes page reads, no string that could rewrite a
  * terminal (`shadowlap fix show` prints them), and a repair's patch, which a pull writes beside the
- * project for `git apply`, no more than the one rewrite its accepted candidate makes.
+ * project for `git apply`, no more than the one rewrite its accepted candidate makes. Every blame
+ * and verdict a pull brings is marked as pulled (`pulled`, kept on this machine only): the Fixes
+ * page runs one again only from its checked fields, never with a teammate's `--build`, `--base` or
+ * command after `--`, and only once the user says yes to the exact command line.
  */
 
 export const FIX_FORMAT = 'shadowlap-store-fix';
@@ -128,6 +131,8 @@ const record =
   };
 
 const footprint = obj({ inputTokens: amount, outputTokens: amount, cost: nullable(amount) });
+/** A blame's or a verdict's flags (`StepRerun`): lists of strings, which only the Fixes page's own list of flags turns into a command. */
+const rerun = optional(nullable(obj({ flags: arr(str, 400), command: optional(nullable(arr(str, 1000))) })));
 const block = obj({ type: oneOf('text', 'thinking', 'tool_call') });
 const blameAttempt = obj({ runId, passed: bool, exitCode: amount, failures: arr(str), spent: amount, upstreamRequests: amount });
 /** A gate's decision after an attempt (engine stats.ts). */
@@ -337,8 +342,8 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
   )(raw.links, `${where}.links`);
   const links = (raw.links as Array<Omit<FixLink, 'fixId'>>).map((l) => ({ kind: l.kind, ref: l.ref, at: l.at, data: l.data ?? null }));
   const named = (kind: FixLinkKind) => new Set(links.filter((l) => l.kind === kind).map((l) => l.ref));
-  arr(obj({ blameId: pattern(BLAME_ID, 'a blame id'), runId, at: num, outcome: oneOf('blamed', 'unrescuable', 'stopped'), report: blameReport, expect: any, scope: nullable(line), command: str }), MAX.records)(raw.blames, `${where}.blames`);
-  arr(obj({ verifyId: pattern(VERDICT_ID, 'a verdict id'), at: num, verdict: oneOf('accepted', 'rejected', 'incomplete'), repairId: nullable(pattern(REPAIR_ID, 'a repair id')), candidate: nullable(num), report: verifyReport, expect: any, command: str }), MAX.records)(raw.verdicts, `${where}.verdicts`);
+  arr(obj({ blameId: pattern(BLAME_ID, 'a blame id'), runId, at: num, outcome: oneOf('blamed', 'unrescuable', 'stopped'), report: blameReport, expect: any, scope: nullable(line), command: str, rerun }), MAX.records)(raw.blames, `${where}.blames`);
+  arr(obj({ verifyId: pattern(VERDICT_ID, 'a verdict id'), at: num, verdict: oneOf('accepted', 'rejected', 'incomplete'), repairId: nullable(pattern(REPAIR_ID, 'a repair id')), candidate: nullable(num), report: verifyReport, expect: any, command: str, rerun }), MAX.records)(raw.verdicts, `${where}.verdicts`);
   arr(
     (v, w) => {
       obj({ repairId: pattern(REPAIR_ID, 'a repair id'), at: num, dir: line, outcome: oneOf('fixed', 'not-fixed', 'no-diagnosis', 'stopped'), accepted: bool, report: repairReport, expect: any, command: str })(v, w);
@@ -358,13 +363,21 @@ export function parseFixDoc(bytes: Buffer, fixId: string): FixDoc {
     // A copy that says applied (an older Shadowlap sent it) is verified here.
     fix: sharedFix({ fixId: fix.fixId, title: fix.title, labels: [...fix.labels], check: fix.check, status: fix.status, openedAt: fix.openedAt, verifiedAt: fix.verifiedAt, appliedAt: fix.appliedAt, data: fix.data }),
     links,
-    blames: (raw.blames as StoredBlame[]).filter((b) => named('blame').has(b.blameId)),
-    verdicts: (raw.verdicts as StoredVerdict[]).filter((v) => named('verify').has(v.verifyId)),
+    // Where a record came from is this machine's to say: a document never says it for it.
+    blames: (raw.blames as StoredBlame[]).filter((b) => named('blame').has(b.blameId)).map(unmarked),
+    verdicts: (raw.verdicts as StoredVerdict[]).filter((v) => named('verify').has(v.verifyId)).map(unmarked),
     repairs: (raw.repairs as StoredRepair[]).filter((r) => named('repair').has(r.repairId)),
   };
 }
 
 // ---------------------------------------------------------------------------------------------- this machine's copy
+
+/** A blame or a verdict without the mark of where a pull brought it from, which stays on the machine that pulled it. */
+function unmarked<T extends { pulled?: unknown }>(r: T): T {
+  if (!('pulled' in r)) return r;
+  const { pulled: _here, ...shared } = r;
+  return shared as T;
+}
 
 /** A value with every string's control characters (but tabs and line breaks) as U+FFFD, keys included. */
 function clean<T>(v: T, depth = 0): T {
@@ -400,8 +413,8 @@ export function fixDocOf(store: Store, fixId: string): FixDoc | null {
     version: FIX_VERSION,
     fix: sharedFix(fix),
     links,
-    blames: found(refs('blame').map((id) => store.getBlame(id))),
-    verdicts: found(refs('verify').map((id) => store.getVerdict(id))),
+    blames: found(refs('blame').map((id) => store.getBlame(id))).map(unmarked),
+    verdicts: found(refs('verify').map((id) => store.getVerdict(id))).map(unmarked),
     repairs: found(refs('repair').map((id) => store.getRepair(id))),
   });
 }
@@ -502,7 +515,9 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
  * report kept that isn't here yet. Nothing here is taken away, and a fix applied here stays applied:
  * that is this working tree's. Returns the repairs it added, whose files the CLI writes beside the
  * project (`.shadowlap/repairs/<id>/`); with `from` (the store it came from), each is marked as made
- * on another machine, where its recordings stayed.
+ * on another machine, where its recordings stayed. Every blame and verdict it adds is marked as
+ * pulled (`pulled`, from `from`): someone else's, which the Fixes page runs again only from checked
+ * fields and with the user's yes.
  */
 export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: number } = {}): { created: boolean; repairs: string[] } {
   const fix = sharedFix(doc.fix);
@@ -516,8 +531,9 @@ export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: 
       store.mergeFixData(fix.fixId, Object.fromEntries(Object.keys(here.data).map((k) => [k, null])));
       store.mergeFixData(fix.fixId, { ...fix.data, ...(here.data.applied ? { applied: here.data.applied } : {}) });
     }
-    for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame(b);
-    for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict(v);
+    const pulled = { from: o.from ?? 'the team store', at: o.at ?? Date.now() };
+    for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame({ ...b, pulled });
+    for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict({ ...v, pulled });
     const repairs: string[] = [];
     for (const r of doc.repairs) {
       if (store.getRepair(r.repairId)) continue;

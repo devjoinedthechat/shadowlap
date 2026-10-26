@@ -1,7 +1,7 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { isJudgeCall } from './judge-scope.js';
-import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION } from './pack.js';
+import { hasRecordedCommand, PACK_FORMAT, PACK_VERSION, readPackFile } from './pack.js';
 import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema.js';
 import type { TestResult } from './store.js';
 import { safeLine } from './text.js';
@@ -87,13 +87,6 @@ export interface Golden {
   calls: CallRecord[];
 }
 
-function readPackFile(path: string, limit: number, what: string): Buffer {
-  const st = lstatSync(path);
-  if (st.isSymbolicLink() || !st.isFile()) throw new PackError(`${what} is not a regular file`);
-  if (st.size > limit) throw new PackError(`${what} is ${st.size} bytes, over the ${limit}-byte limit`);
-  return readFileSync(path);
-}
-
 /** Whether a directory holds a pack. */
 export function isPack(dir: string): boolean {
   try {
@@ -105,7 +98,9 @@ export function isPack(dir: string): boolean {
 
 /**
  * A golden's pack, read without importing it: what a task needs to know before anything runs. The
- * pack is untrusted like any other, so its records are validated as `unpack` validates them.
+ * pack is untrusted like any other, so its records are validated as `unpack` validates them, and
+ * its files read as unpack reads them (readPackFile): opened without following a link and checked
+ * on the descriptor they are read from, so nothing swapped in after a check is read.
  */
 export function readGolden(dir: string, path = dir): Golden {
   const root = resolve(dir);

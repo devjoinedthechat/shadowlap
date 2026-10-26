@@ -256,3 +256,18 @@ describe('the decision routes', () => {
     expect(commandTreeUse(['migrate', '--to', 'm'])).toMatchObject({ use: 'reads', verb: 'migrate' });
   });
 });
+
+describe('a golden whose path reads as an option', () => {
+  it('is never given to the CLI to ask again', async () => {
+    const own = await startDashboard({ store, spawnCli: (args: string[]) => (spawned.push(args), spawn(process.execPath, ['-e', ''], { stdio: ['ignore', 'pipe', 'pipe', 'pipe'] })), project: { path: project }, goldens: () => [{ path: '--yes', runId: golden, packedAt: 1, mode: 'replay' as const, repeat: 1, passes: 1, checks: [] }] });
+    try {
+      const before = spawned.length;
+      const res = await startJob(own, { kind: 'decisions', goldens: ['--yes'], model: 'claude-sonnet-5-5' });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/^--yes: its path starts with "-", which the CLI would read as an option/);
+      expect(spawned.length).toBe(before);
+    } finally {
+      await own.close();
+    }
+  });
+});

@@ -8,7 +8,7 @@ import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
 import { parseExpect } from '../checks.js';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
-import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand } from '../fixes.js';
+import { blameCommand, recordRepairFix, recordVerifyFix, repairCommand, verifyCommand, verifyRerun, type VerifyFlags } from '../fixes.js';
 import { emitJobEvent } from '../job-events.js';
 import { AGENT_NODE_TOO_OLD } from '../agent-node.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
@@ -474,11 +474,10 @@ export function register(program: Command): void {
       });
       // The verdict is kept whatever it is. It turns the fix of its failing runs verified when it accepts
       // and counts there: it checked the fix's own check, on a run that failed it as recorded.
-      const line = verifyCommand(
-        { fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps },
-        { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null },
-      );
-      const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line });
+      const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
+      const line = verifyCommand({ fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps }, step);
+      // Its flags kept apart from the line, which is only shown: Fixes runs it again from them.
+      const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line, rerun: verifyRerun(step) });
       const json = verifyJson(report, kept ? { verifyId: kept.verdict.verifyId, fixes: kept.fixes } : null);
       if (flags.json) process.stdout.write(JSON.stringify(json, null, 2) + '\n');
       else process.stdout.write('\n' + formatVerify(report, p) + '\n' + (kept?.fixes ?? []).map(({ fix: f, standing }) => fixLine(f, standingWords(report.verdict, standing, f.status))).join(''));

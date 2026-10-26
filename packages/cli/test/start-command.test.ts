@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { batchFile, cmdArgument, startCommand } from '../src/start-command.js';
+import { batchFile, cmdArgument, passesArgumentsOn, startCommand } from '../src/start-command.js';
 
 /**
  * Commands the user gives Shadowlap to start (an agent, an MCP server) that are batch files on
@@ -15,6 +15,8 @@ import { batchFile, cmdArgument, startCommand } from '../src/start-command.js';
  */
 
 const NODE_DIR = 'C:\\Program Files\\nodejs';
+/** Where npm installs a global bin, such as Claude Code's `claude`. */
+const GLOBAL = 'C:\\Users\\dev\\AppData\\Roaming\\npm';
 const PYTHON_DIR = 'C:\\Python312';
 const TOOLS = 'C:\\tools';
 const PROJECT = 'C:\\work\\agent';
@@ -24,6 +26,7 @@ const FILES = new Set([
   `${NODE_DIR}\\npm`,
   `${NODE_DIR}\\npm.cmd`,
   `${NODE_DIR}\\npx.cmd`,
+  `${GLOBAL}\\claude.cmd`,
   `${PYTHON_DIR}\\python.exe`,
   `${TOOLS}\\uv.cmd`,
   `C:\\later\\uv.exe`,
@@ -32,11 +35,25 @@ const FILES = new Set([
   `${PROJECT}\\run.bat`,
 ]);
 const exists = (file: string) => FILES.has(file);
-const ENV = { Path: `${NODE_DIR};"${PYTHON_DIR}";${TOOLS};C:\\later`, PATHEXT: '.COM;.EXE;.BAT;.CMD;.VBS;.JS', ComSpec: 'C:\\elsewhere\\shell.exe' };
+/** npm's launcher of npm-cli.js or npx-cli.js, as Node's installer puts it beside node.exe: it passes its arguments on with %*. */
+const npmLauncher = (cli: string) => `:: Created by npm, please don't edit manually.\r\n@ECHO OFF\r\nSETLOCAL\r\nSET "NODE_EXE=%~dp0\\node.exe"\r\nIF NOT EXIST "%NODE_EXE%" (\r\n  SET "NODE_EXE=node"\r\n)\r\nSET "CLI_JS=%~dp0\\node_modules\\npm\\bin\\${cli}"\r\n"%NODE_EXE%" "%CLI_JS%" %*\r\n`;
+/** The batch file npm writes for a bin it installs, globally or in node_modules\.bin: it passes its arguments on with %* too. */
+const npmBin = (script: string) => `@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${script}" %*\r\n`;
+const TEXTS = new Map([
+  [`${NODE_DIR}\\npm.cmd`, npmLauncher('npm-cli.js')],
+  [`${NODE_DIR}\\npx.cmd`, npmLauncher('npx-cli.js')],
+  [`${GLOBAL}\\claude.cmd`, npmBin('node_modules\\@anthropic-ai\\claude-code\\cli.js')],
+  [`${PROJECT}\\node_modules\\.bin\\tsx.cmd`, npmBin('..\\tsx\\dist\\cli.mjs')],
+  // One a project wrote itself, which takes one argument, in quotes, and passes nothing on.
+  [`${PROJECT}\\run.bat`, '@python "%~dp0agent.py" "%~1"\r\n'],
+]);
+const read = (file: string) => TEXTS.get(file) ?? null;
+const WINDOWS = { platform: 'win32', exists, read } as const;
+const ENV = { Path: `${NODE_DIR};"${PYTHON_DIR}";${TOOLS};C:\\later;${GLOBAL}`, PATHEXT: '.COM;.EXE;.BAT;.CMD;.VBS;.JS', ComSpec: 'C:\\elsewhere\\shell.exe' };
 /** The cmd.exe batch files run through: this process's own, as Node's `shell` option takes it, never one the child's environment names. */
 const CMD = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
 const OPTIONS = { cwd: PROJECT, env: ENV };
-const onWindows = (command: string, args: string[] = []) => startCommand(command, args, OPTIONS, { platform: 'win32', exists });
+const onWindows = (command: string, args: string[] = []) => startCommand(command, args, OPTIONS, WINDOWS);
 
 /** What cmd.exe makes of an escaped argument: each ^ taken off the character after it. */
 const uncaret = (s: string) => s.replace(/\^([\s\S])/g, '$1');
@@ -80,6 +97,33 @@ function windowsArgv(line: string): string[] {
   return out;
 }
 
+/**
+ * One pass of cmd.exe over a line, as it reads its own command line and then the line of a batch file
+ * that passes its arguments on (`%*`): outside quotes, ^ takes the next character as it is, and &, |,
+ * < or > ends the command, what follows it run as a command of its own; a quote not escaped starts or
+ * ends a quoted stretch, in which every character is as it is. What the line passes on, and what it
+ * would run besides (null for nothing).
+ */
+function cmdPass(line: string): { out: string; runs: string | null } {
+  let out = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quoted) {
+      if (ch === '"') quoted = false;
+      out += ch;
+    } else if (ch === '^') {
+      out += line[++i] ?? '';
+    } else if ('&|<>'.includes(ch)) {
+      return { out, runs: line.slice(i) };
+    } else {
+      if (ch === '"') quoted = true;
+      out += ch;
+    }
+  }
+  return { out, runs: null };
+}
+
 const TRICKY = ['start', 'two words', '', 'say "hi"', 'C:\\dir\\', 'a\\"b', 'a\\\\"b', 'tab\there', '50% off', '%PATH%', 'a&b|c<d>e^f', '!x!', '(paren)', 'semi;comma,', 'star*?', '`tick`', 'trailing\\\\', '"', '\\'];
 
 describe('a cmd.exe argument', () => {
@@ -104,9 +148,10 @@ describe('a cmd.exe argument', () => {
 describe('a command on Windows', () => {
   it('runs a batch file Node won\'t start through cmd.exe: npm by its bare name or its full one', () => {
     const npm = `"${NODE_DIR}\\npm.cmd"`;
-    expect(onWindows('npm', ['start'])).toEqual({ command: CMD, args: ['/d', '/s', '/c', `"${npm} ^"start^""`], options: { ...OPTIONS, windowsVerbatimArguments: true } });
-    expect(onWindows('npm.cmd', ['run', 'agent']).args).toEqual(['/d', '/s', '/c', `"${npm} ^"run^" ^"agent^""`]);
-    expect(onWindows('npx', ['-y', '@modelcontextprotocol/server-filesystem', '.']).args[3]).toBe(`""${NODE_DIR}\\npx.cmd" ^"-y^" ^"@modelcontextprotocol/server-filesystem^" ^".^""`);
+    // Both pass their arguments on with %*, which cmd.exe reads again, so they are escaped twice.
+    expect(onWindows('npm', ['start'])).toEqual({ command: CMD, args: ['/d', '/s', '/c', `"${npm} ^^^"start^^^""`], options: { ...OPTIONS, windowsVerbatimArguments: true } });
+    expect(onWindows('npm.cmd', ['run', 'agent']).args).toEqual(['/d', '/s', '/c', `"${npm} ^^^"run^^^" ^^^"agent^^^""`]);
+    expect(onWindows('npx', ['-y', '@modelcontextprotocol/server-filesystem', '.']).args[3]).toBe(`""${NODE_DIR}\\npx.cmd" ^^^"-y^^^" ^^^"@modelcontextprotocol/server-filesystem^^^" ^^^".^^^""`);
   });
 
   it('starts as before what Node starts itself, what it can\'t find, and every command elsewhere', () => {
@@ -115,8 +160,8 @@ describe('a command on Windows', () => {
     }
     // A program anywhere on PATH wins over a batch file earlier on it, as Node would pick it.
     expect(onWindows('uv', ['run', 'agent.py']).command).toBe('uv');
-    expect(startCommand('npm', ['start'], OPTIONS, { platform: 'darwin', exists })).toEqual({ command: 'npm', args: ['start'], options: OPTIONS });
-    expect(startCommand('npm', ['start'], OPTIONS, { platform: 'linux', exists }).command).toBe('npm');
+    expect(startCommand('npm', ['start'], OPTIONS, { platform: 'darwin', exists, read })).toEqual({ command: 'npm', args: ['start'], options: OPTIONS });
+    expect(startCommand('npm', ['start'], OPTIONS, { platform: 'linux', exists, read }).command).toBe('npm');
     // A line break would end cmd.exe's command line, so such an argument isn't passed through it.
     expect(onWindows('npm', ['run', 'say', 'one\ntwo']).command).toBe('npm');
   });
@@ -128,15 +173,35 @@ describe('a command on Windows', () => {
     expect(onWindows('run', ['x']).args[3]).toBe(`""${PROJECT}\\run.bat" ^"x^""`);
   });
 
+  it('escapes twice the arguments of every batch file that passes them on, so a quote in one never ends it and runs what follows', () => {
+    // Text from production, as `coverage --pack` puts a capture's message in `npx tsx agent.ts {message}`:
+    // escaped once, npx.cmd's %* would end the first at its quote, and cmd.exe would run `calc`.
+    const hostile = ['x" & calc & "', 'a"|b', '")&(calc', 'say "hi" > out.txt', JSON.stringify({ q: 'a" & calc & "b' }), ...TRICKY];
+    for (const [command, file] of [['npx', `${NODE_DIR}\\npx.cmd`], ['npm.cmd', `${NODE_DIR}\\npm.cmd`], ['claude', `${GLOBAL}\\claude.cmd`], ['node_modules/.bin/tsx', `${PROJECT}\\node_modules\\.bin\\tsx.cmd`]] as const) {
+      const line = onWindows(command, ['tsx', ...hostile]).args[3];
+      // What cmd.exe reads: its /s /c line inside the outer quotes, then the batch file's %*.
+      const first = cmdPass(line.slice(1, -1));
+      expect(first.runs, command).toBeNull();
+      expect(first.out.startsWith(`"${file}" `), first.out).toBe(true);
+      const second = cmdPass(first.out.slice(file.length + 3));
+      expect(second.runs, command).toBeNull();
+      expect(windowsArgv(second.out), command).toEqual(['tsx', ...hostile]);
+    }
+    // A batch file that passes nothing on is escaped once, as before, and one that can't be read twice.
+    expect(passesArgumentsOn(`${PROJECT}\\run.bat`, read)).toBe(false);
+    expect(onWindows('run.bat', ['two words']).args[3]).toBe(`""${PROJECT}\\run.bat" ^"two^ words^""`);
+    expect(startCommand('x', ['a b'], OPTIONS, { platform: 'win32', exists: (f) => f === `${TOOLS}\\x.cmd`, read: () => null }).args[3]).toBe(`""${TOOLS}\\x.cmd" ^^^"a^^^ b^^^""`);
+  });
+
   it('reads PATH and PATHEXT whatever the case of their names, from this process when the child has none', () => {
     for (const env of [{ PATH: NODE_DIR }, { path: NODE_DIR }, { Path: NODE_DIR }]) {
-      expect(startCommand('npm', ['start'], { cwd: PROJECT, env }, { platform: 'win32', exists }).args[3]).toBe(`""${NODE_DIR}\\npm.cmd" ^"start^""`);
+      expect(startCommand('npm', ['start'], { cwd: PROJECT, env }, WINDOWS).args[3]).toBe(`""${NODE_DIR}\\npm.cmd" ^^^"start^^^""`);
     }
     const path = process.env.PATH;
     process.env.PATH = NODE_DIR;
     try {
       // As Node looks a command up: on this process's PATH when the child's environment has none.
-      expect(startCommand('npx', ['-y', 'server'], { cwd: PROJECT, env: { FOO: '1' } }, { platform: 'win32', exists }).args[3]).toBe(`""${NODE_DIR}\\npx.cmd" ^"-y^" ^"server^""`);
+      expect(startCommand('npx', ['-y', 'server'], { cwd: PROJECT, env: { FOO: '1' } }, WINDOWS).args[3]).toBe(`""${NODE_DIR}\\npx.cmd" ^^^"-y^^^" ^^^"server^^^""`);
     } finally {
       if (path === undefined) delete process.env.PATH;
       else process.env.PATH = path;
@@ -157,7 +222,8 @@ describe.runIf(process.platform === 'win32')('shadowlap run, given a batch file 
     try {
       writeFileSync(join(dir, 'args.mjs'), 'console.log("args " + JSON.stringify(process.argv.slice(2)));\n');
       writeFileSync(join(dir, 'agent.cmd'), `@"${process.execPath}" "%~dp0args.mjs" %*\r\n`);
-      const given = ['plain', 'two words', 'a&b', '50% off', ''];
+      // The last would end at its quote, escaped once, and cmd.exe would run `echo injected`.
+      const given = ['plain', 'two words', 'a&b', '50% off', '', 'a" & echo injected & "b'];
       const r = await new Promise<{ code: number | null; out: string }>((resolve) => {
         const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), 'run', '--', 'agent.cmd', ...given], { cwd: dir, env: { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
         let out = '';

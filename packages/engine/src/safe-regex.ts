@@ -13,9 +13,10 @@
  *   it (`(a+)+`, `(\w+\s?)*`, `(.*,)+`), one that repeats a part that can match nothing (`(a?)*` as
  *   the part of a repeated group), or alternatives that can start with the same character
  *   (`(a|ab)*`, `(\w|\d)+`). Each such choice multiplies the ways at every repetition.
- * - Outside one, more than two parts that repeat, or more than ten choices in all, that the next
- *   character doesn't settle (`.*a.*b.*c`, or `a?` written out 25 times before `a{25}`): each one
- *   multiplies the ways too, by the length of the text or by two.
+ * - Outside one, more than one part that repeats, or more than ten choices in all, that the next
+ *   character doesn't settle (`.*a.*b`, `[a-z]*[a-z]*!`, or `a?` written out 25 times before
+ *   `a{25}`): each one multiplies the ways too, by the length of the text or by two, and two such
+ *   parts already take the cube of a line's length (10 seconds on 4 KB).
  * - A pattern longer than PATTERN_MAX characters.
  *
  * Whether the next character settles a choice is read from the characters each option can start
@@ -23,15 +24,18 @@
  * assertions and lookarounds are read as matching nothing, which can only make two options look
  * alike, never apart. A lookbehind is read right to left, as it runs.
  *
- * What passes takes time in proportion to the text at each place a match is tried, times at most a
- * small power of the text's length when it has repeated parts it can't settle: `.*x` reads a long
- * line once for each place it could start. Anchor such a pattern, or bound it (`[^\n]{0,200}x`).
+ * What passes takes time in proportion to the text at each place a match is tried, times at most the
+ * text's length when it has a repeated part it can't settle: `.*x` reads a long line once for each
+ * place it could start, and so does the plain `[\w.+-]+@`, whose part runs to the end of a long word
+ * at each place in it. Anchor such a pattern, or bound it (`[^\n]{0,200}x`). So that even a pattern
+ * this check takes can't stall a recording, a replay or a copy on a long text, every document's rules
+ * run within a time budget (withinPatternBudget): past it, they are stopped and named.
  */
 
 /** The longest pattern a rule may have, as written (`/…/flags`), wherever it comes from. */
 export const PATTERN_MAX = 10_000;
 /** At most this many parts that repeat, outside a repeated part, whose end the next character doesn't settle. */
-const AMBIGUOUS_LOOPS = 2;
+const AMBIGUOUS_LOOPS = 1;
 /** At most this many choices of any kind, outside a repeated part, that the next character doesn't settle. */
 const AMBIGUOUS_CHOICES = 10;
 
@@ -649,6 +653,50 @@ class Checker {
     }
   }
 
+  /**
+   * The repeated parts that multiply the time as an unsettled one does, though the next character
+   * settles them: one that follows, in the same sequence, a part that repeats unsettled and can take
+   * its characters, with something after it that can fail (`[a-z]*[a-z]*!`, `[^b]*a[^b]*b`). When
+   * that something fails, the earlier part tries every place to stop and this one every length after
+   * it: the cube of the text's length, as two unsettled parts take. A part the pattern ends with
+   * (`\w+\s*\w+`) has nothing after it to fail, and multiplies nothing. Groups are seen through;
+   * the inside of a repeated part and of a lookaround are read apart, as walk reads them.
+   */
+  chained(n: Node, after: Chars, unsettled: readonly Unsettled[], out: Unsettled[], rev = false): void {
+    const marked = new Set(unsettled.map((u) => u.node));
+    const flat = (x: Node): Node[] => (x.type === 'group' ? flat(x.body) : x.type === 'seq' ? x.items.flatMap(flat) : [x]);
+    const visit = (x: Node, follow: Chars): void => {
+      if (x.type === 'group') return visit(x.body, follow);
+      if (x.type === 'alt') {
+        for (const b of x.branches) visit(b, follow);
+        return;
+      }
+      // A repeated part's inside, and a lookaround's, are walked apart; their loops are refused there or not at all.
+      if (x.type !== 'seq') return;
+      const items = rev ? [...flat(x)].reverse() : flat(x);
+      // What can follow each item, right to left, as walk reads it.
+      const follows: Chars[] = new Array<Chars>(items.length);
+      let next = follow;
+      for (let k = items.length - 1; k >= 0; k--) {
+        follows[k] = next;
+        const i = this.info(items[k]!, rev);
+        next = i.nullable ? union(i.first, next) : i.first;
+      }
+      let earlier: Chars = EMPTY;
+      items.forEach((item, k) => {
+        if (item.type === 'alt') {
+          for (const b of item.branches) visit(b, follows[k]!);
+          return;
+        }
+        if (item.type !== 'quant' || item.max <= 1 || item.min === item.max) return;
+        const body = this.info(item.body, rev);
+        if (marked.has(item)) earlier = union(earlier, body.first);
+        else if (earlier.length && intersection(body.first, earlier).length && follows[k]!.length) out.push({ node: item, loop: true });
+      });
+    };
+    visit(n, after);
+  }
+
   /** Refuses more unsettled choices outside repeated parts than LIMIT allows. */
   limit(unsettled: Unsettled[]): void {
     const loops = unsettled.filter((u) => u.loop);
@@ -688,7 +736,10 @@ export function regexProblem(source: string, flags: string): string | null {
     const checker = new Checker(source);
     const unsettled: Unsettled[] = [];
     checker.walk(root, EMPTY, [], false, unsettled);
-    checker.limit(unsettled);
+    // Settled parts that follow an unsettled one they overlap multiply its time too (chained).
+    const chained: Unsettled[] = [];
+    checker.chained(root, EMPTY, unsettled, chained);
+    checker.limit([...unsettled, ...chained]);
     return null;
   } catch (err) {
     if (err instanceof Refused) return `matching it could take too long: ${err.message}`;
@@ -721,4 +772,87 @@ export function patternProblem(pattern: string, named: readonly string[]): strin
   if (checked.size > 10_000) checked.clear();
   checked.set(pattern, problem);
   return problem;
+}
+
+// ---- the time budget every document's rules run within ----
+
+/** How long one document's rules may run before they are stopped: far past what any rule this check takes needs on a real request. */
+export const PATTERN_BUDGET_MS = 5_000;
+/**
+ * A document this many characters long or shorter runs its rules without a budget: even a pattern
+ * whose time grows with the square of the text ends on it within a few milliseconds, and budgeting
+ * costs a tenth of a millisecond.
+ */
+const UNBUDGETED_CHARS = 8 * 1024;
+
+let budgetMs = PATTERN_BUDGET_MS;
+
+/**
+ * The budget, shorter for a test; Infinity for none, where something else stops the thread (the
+ * dashboard's redaction preview ends its own at its hard limit); null puts back PATTERN_BUDGET_MS.
+ */
+export function setPatternBudget(ms: number | null): void {
+  budgetMs = ms ?? PATTERN_BUDGET_MS;
+}
+
+/** Rules a document's text took longer than the budget to run, stopped: named, with what to change. */
+export class PatternBudgetError extends Error {
+  constructor(
+    readonly patterns: readonly string[],
+    readonly ms: number,
+  ) {
+    const named = patterns.slice(0, 3).map((p) => (p.length > 60 ? `${p.slice(0, 59)}…` : p)).join(', ');
+    super(`a rule's pattern ran longer than ${ms / 1000} s on one document and was stopped (${named || 'its rules'}): a pattern that reads a long text from every place it could start, such as .*x, takes time that grows with the square of the text; anchor it or bound it, such as [^\\n]{0,200}x`);
+    this.name = 'PatternBudgetError';
+  }
+}
+
+type Vm = typeof import('node:vm');
+let vm: Vm | null | undefined;
+let runner: { context: { run: (() => unknown) | null }; script: import('node:vm').Script } | null = null;
+let inside = false;
+
+/** Node's vm module, read when first needed: none in a browser, where these rules never run on a recording. */
+function vmModule(): Vm | null {
+  if (vm === undefined) vm = typeof process !== 'undefined' && typeof process.getBuiltinModule === 'function' ? process.getBuiltinModule('node:vm') : null;
+  return vm;
+}
+
+/**
+ * Runs `fn`, which applies rules to one document of `chars` characters, within the time budget:
+ * past it the script running it is stopped where it is, inside a match if need be, and a
+ * PatternBudgetError names `patterns()`. A short document, or one inside a budget already, runs as it
+ * is. JavaScript's regular expressions can't be stopped part way any other way, and a check of a
+ * pattern's shape can't bound every pattern's time on every text.
+ */
+export function withinPatternBudget<T>(chars: number, patterns: () => readonly string[], fn: () => T): T {
+  if (inside || chars <= UNBUDGETED_CHARS || budgetMs === Infinity) return fn();
+  const v = vmModule();
+  if (!v) return fn();
+  if (!runner) {
+    const context = v.createContext({ run: null }) as { run: (() => unknown) | null };
+    runner = { context, script: new v.Script('run()') };
+  }
+  const r = runner;
+  inside = true;
+  r.context.run = fn;
+  try {
+    return r.script.runInContext(r.context, { timeout: budgetMs }) as T;
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT') throw new PatternBudgetError(patterns(), budgetMs);
+    throw err;
+  } finally {
+    r.context.run = null;
+    inside = false;
+  }
+}
+
+/** The characters of every string in a JSON-like value, keys included: what its rules read. */
+export function textSize(value: unknown, depth = 0): number {
+  if (typeof value === 'string') return value.length;
+  if (value === null || typeof value !== 'object' || depth > 64 || ArrayBuffer.isView(value)) return 0;
+  let n = 0;
+  if (Array.isArray(value)) for (const x of value) n += textSize(x, depth + 1);
+  else for (const [k, x] of Object.entries(value)) n += k.length + textSize(x, depth + 1);
+  return n;
 }

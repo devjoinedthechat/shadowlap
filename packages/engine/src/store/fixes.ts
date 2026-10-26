@@ -65,6 +65,26 @@ export interface FixLink {
   data: VerdictStanding | null;
 }
 
+/**
+ * The flags a blame or a verify ran with that its report doesn't hold, kept beside it so Fixes can
+ * run it again (Blame again, Run more attempts, Verify again) from checked fields, never from its
+ * command line: flag and value pairs as the CLI took them (`--writes block`, `--from gpt-4o`), a
+ * flag with no value alone (`--fail-fast`), and the command given after `--`. The dashboard takes
+ * only the flags it allows, with values of their shape (rerun.ts); of a record pulled from the team
+ * store, never `--base`, `--build` or the command after `--`.
+ */
+export interface StepRerun {
+  flags: string[];
+  /** The command given after `--`, when it replaced each run's recorded one; null for none. */
+  command: string[] | null;
+}
+
+/** Where a blame or a verdict came from when a pull brought it: the store, and when. Kept on this machine only; it never syncs. */
+export interface PulledFrom {
+  from: string;
+  at: number;
+}
+
 /** One `shadowlap blame`, kept whole: a later blame of the same run doesn't overwrite it, as `meta.blame` is. */
 export interface StoredBlame {
   /** `bl-<ulid>`. */
@@ -78,8 +98,12 @@ export interface StoredBlame {
   expect: unknown;
   /** The scope whose model calls were probed, when blame was limited to one. */
   scope: string | null;
-  /** A command that blames the run the same way again. */
+  /** A command that blames the run the same way again, as the CLI printed it: shown, never split back into one to run. */
   command: string;
+  /** Its flags, to run it again from (`StepRerun`); absent from a blame kept before they were. */
+  rerun?: StepRerun | null;
+  /** The store a pull brought it from; absent for a blame made on this machine. */
+  pulled?: PulledFrom | null;
 }
 
 /** One verdict of `shadowlap verify`, or of the verify a repair ran on the candidate it accepted. */
@@ -93,7 +117,12 @@ export interface StoredVerdict {
   candidate: number | null;
   report: VerifyReport;
   expect: unknown;
+  /** The command it ran, as the CLI printed it: shown, never split back into one to run. */
   command: string;
+  /** Its flags, to run it again from (`StepRerun`); absent from a verdict kept before they were. */
+  rerun?: StepRerun | null;
+  /** The store a pull brought it from; absent for a verdict given on this machine. */
+  pulled?: PulledFrom | null;
 }
 
 /** One `shadowlap repair`: its report.json, and where its files are. */
@@ -194,7 +223,7 @@ export abstract class Fixes extends StorePart {
   putBlame(b: StoredBlame): void {
     this.db
       .prepare(`INSERT INTO blames (blame_id, run_id, at, outcome, record) VALUES (?, ?, ?, ?, ?)`)
-      .run(b.blameId, b.runId, b.at, b.outcome, JSON.stringify({ report: b.report, expect: b.expect ?? null, scope: b.scope, command: b.command }));
+      .run(b.blameId, b.runId, b.at, b.outcome, JSON.stringify({ report: b.report, expect: b.expect ?? null, scope: b.scope, command: b.command, ...extras(b) }));
   }
 
   getBlame(blameId: string): StoredBlame | null {
@@ -215,7 +244,7 @@ export abstract class Fixes extends StorePart {
   putVerdict(v: StoredVerdict): void {
     this.db
       .prepare(`INSERT INTO verdicts (verify_id, at, verdict, repair_id, record) VALUES (?, ?, ?, ?, ?)`)
-      .run(v.verifyId, v.at, v.verdict, v.repairId, JSON.stringify({ report: v.report, candidate: v.candidate, expect: v.expect ?? null, command: v.command }));
+      .run(v.verifyId, v.at, v.verdict, v.repairId, JSON.stringify({ report: v.report, candidate: v.candidate, expect: v.expect ?? null, command: v.command, ...extras(v) }));
   }
 
   getVerdict(verifyId: string): StoredVerdict | null {
@@ -258,6 +287,35 @@ const strings = (v: unknown): string[] => {
   return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
 };
 
+/** A blame's or a verdict's flags and where a pull brought it from, as its record keeps them: only those it has. */
+function extras(r: Pick<StoredBlame, 'rerun' | 'pulled'>): { rerun?: StepRerun; pulled?: PulledFrom } {
+  return { ...(r.rerun ? { rerun: r.rerun } : {}), ...(r.pulled ? { pulled: r.pulled } : {}) };
+}
+
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
+/** A record's flags, when they are a list of strings and a command (or none); anything else counts as none. */
+function rerunOf(v: unknown): StepRerun | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const r = v as { flags?: unknown; command?: unknown };
+  if (!isStrings(r.flags) || !(r.command === null || r.command === undefined || isStrings(r.command))) return null;
+  return { flags: [...r.flags], command: r.command ? [...r.command] : null };
+}
+
+/** Where a record came from, when it says so in the form `applyFixDoc` writes it. */
+function pulledOf(v: unknown): PulledFrom | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const p = v as { from?: unknown; at?: unknown };
+  return typeof p.from === 'string' && typeof p.at === 'number' ? { from: p.from, at: p.at } : null;
+}
+
+/** A kept record's flags and where it came from, read back: only those it has, so one kept before them reads as it did. */
+function extrasOf(r: Record<string, unknown>): { rerun?: StepRerun; pulled?: PulledFrom } {
+  const rerun = rerunOf(r.rerun);
+  const pulled = pulledOf(r.pulled);
+  return { ...(rerun ? { rerun } : {}), ...(pulled ? { pulled } : {}) };
+}
+
 function rowToFix(row: Record<string, unknown>): StoredFix {
   return {
     fixId: String(row.fix_id),
@@ -287,6 +345,7 @@ function rowToBlame(row: Record<string, unknown>): StoredBlame {
     expect: r.expect ?? null,
     scope: typeof r.scope === 'string' ? r.scope : null,
     command: typeof r.command === 'string' ? r.command : '',
+    ...extrasOf(r),
   };
 }
 
@@ -301,6 +360,7 @@ function rowToVerdict(row: Record<string, unknown>): StoredVerdict {
     report: r.report as VerifyReport,
     expect: r.expect ?? null,
     command: typeof r.command === 'string' ? r.command : '',
+    ...extrasOf(r),
   };
 }
 

@@ -196,7 +196,7 @@ describe('redactionSettings', () => {
     expect(tookTooLong([{ pattern: 'email', replace: '<EMAIL>' }], 15_000)).toBe(generic);
     // A repeated group that ends at a character it can't take is safe, and a pattern slow only in
     // proportion to a power of the text is taken: neither is named.
-    expect(tookTooLong([{ pattern: '/(?:[\\w-]+\\.)+/', replace: '<HOST>' }, { pattern: '/\\w*x\\w*y/', replace: '<A>' }], 15_000)).toBe(generic);
+    expect(tookTooLong([{ pattern: '/(?:[\\w-]+\\.)+/', replace: '<HOST>' }, { pattern: '/\\w*x/', replace: '<A>' }], 15_000)).toBe(generic);
   });
 
   it('explains why there is no preview to run', () => {

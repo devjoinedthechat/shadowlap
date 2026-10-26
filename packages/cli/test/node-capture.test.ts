@@ -105,6 +105,36 @@ console.log('streamed', streamed.headers.get('content-type'), events.includes('m
   });
 });
 
+describe("fetch, captured, given a Host header of the agent's own", () => {
+  it('names the sidecar by its loopback address, as fetch sends no Host of the caller’s, so the sidecar answers it', async () => {
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    try {
+      const r = sidecar.startRun({ mode: 'record', command: { argv: ['node'], cwd: dir } });
+      const env = { ...agentEnv(sidecar, r.runId, 'warn', { anthropic: mock.url }), MOCK: mock.url };
+      const { stdout } = await agent(
+        'own-host',
+        `
+// The headers of a request the agent was answering, passed on whole, its Host among them: fetch
+// itself sends the host of the URL instead.
+const headers = { host: 'agent.example:3000', 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-api-key': 'sk-test' };
+const body = JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 16, messages: [{ role: 'user', content: 'hello' }] });
+for (const [label, base] of [['captured', process.env.MOCK], ['based', process.env.ANTHROPIC_BASE_URL]]) {
+  const res = await fetch(base + '/v1/messages', { method: 'POST', headers, body });
+  console.log(label, res.status, res.ok ? (await res.json()).content[0].text : await res.text());
+}
+`,
+        env,
+      );
+      expect(stdout).toContain('captured 200 hi there');
+      expect(stdout).toContain('based 200 hi there');
+      expect(store.getCalls(r.runId).filter((c) => c.kind === 'api')).toHaveLength(2);
+      sidecar.endRun(r.runId, 'completed');
+    } finally {
+      await sidecar.close();
+    }
+  });
+});
+
 describe("the preload's own requests", () => {
   it("leave the agent's connections alone: a model call slower than a second is still waited for", async () => {
     // The hello and the guard's reports go on agents of their own; on the sidecar's pooled
@@ -139,7 +169,20 @@ describe('fetch, captured, answered as fetch answers', () => {
   let fake: Server;
   let base: string;
   const seen: string[] = [];
+  /** Where a redirect off the origin lands, and the headers each request there brought. */
+  let away: Server;
+  let awayUrl: string;
+  const landed: Array<Record<string, string | string[] | undefined>> = [];
+  /** The credentials the fake sidecar saw on a redirect that stayed on its origin. */
+  const sameOrigin: Array<string | undefined> = [];
   beforeAll(async () => {
+    away = createServer((req: IncomingMessage, res: ServerResponse) => {
+      landed.push(req.headers);
+      req.resume();
+      res.writeHead(200, { 'content-type': 'text/plain' }).end('landed');
+    });
+    await new Promise<void>((r) => away.listen(0, '127.0.0.1', () => r()));
+    awayUrl = `http://127.0.0.1:${(away.address() as AddressInfo).port}/landing`;
     // Stands in for the sidecar: the answers fetch must make of a gzip body, a redirect, a slow body and a reset.
     fake = createServer((req: IncomingMessage, res: ServerResponse) => {
       seen.push(`${req.method} ${req.url} ${String(req.headers['x-shadowlap-upstream'] ?? '')} ${req.headers['accept-encoding'] ?? ''} ${req.headers['user-agent'] ?? ''}`);
@@ -148,6 +191,13 @@ describe('fetch, captured, answered as fetch answers', () => {
       if (path === '/v1/gzip') res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }).end(gzipSync('{"ok":"unzipped"}'));
       else if (path === '/v1/moved') res.writeHead(307, { location: '/v1/here' }).end();
       else if (path === '/v1/here') res.writeHead(200, { 'content-type': 'text/plain' }).end('arrived');
+      else if (path === '/v1/away') res.writeHead(302, { location: awayUrl }).end();
+      else if (path === '/v1/stay') res.writeHead(307, { location: '/v1/stayed' }).end();
+      else if (path === '/v1/loop') res.writeHead(302, { location: '/v1/loop' }).end();
+      else if (path === '/v1/stayed') {
+        sameOrigin.push(`${String(req.headers.authorization)} ${String(req.headers.cookie)}`);
+        res.writeHead(200, { 'content-type': 'text/plain' }).end('stayed');
+      }
       else if (path === '/v1/slow') {
         res.writeHead(200, { 'content-type': 'text/plain' });
         res.write('first ');
@@ -157,8 +207,10 @@ describe('fetch, captured, answered as fetch answers', () => {
     await new Promise<void>((r) => fake.listen(0, '127.0.0.1', () => r()));
     base = `http://127.0.0.1:${(fake.address() as AddressInfo).port}/t/token`;
   });
-  afterAll(() => {
+  afterAll(async () => {
     fake.closeAllConnections();
+    away.closeAllConnections();
+    await new Promise<void>((r) => away.close(() => r()));
     return new Promise<void>((r) => fake.close(() => r()));
   });
 
@@ -190,6 +242,34 @@ try { await fetch(host + '/v1/reset'); } catch (e) { console.log('reset', e.name
     // The redirect went where the agent's request would have, on the host it named, again through the sidecar.
     expect(seen).toContainEqual(expect.stringMatching(/^GET \/t\/token\/r\/R1\/anthropic\/v1\/gzip http:\/\/models\.internal:8080 gzip, deflate node$/));
     expect(seen).toContainEqual(expect.stringMatching(/^POST \/t\/token\/r\/R1\/anthropic\/v1\/here http:\/\/models\.internal:8080 /));
+  });
+
+  it('follows a redirect off the origin without the authorization, cookie and proxy-authorization the request carried, as fetch does, and keeps them on the same origin', async () => {
+    const env = { ...process.env, ...guardEnv('off', {}, { anthropic: 'http://models.internal:8080' }), SHADOWLAP_URL: base, SHADOWLAP_RUN_ID: 'R1' };
+    const { stdout } = await agent(
+      'cross-origin',
+      `
+const host = 'http://models.internal:8080';
+const secret = { authorization: 'Bearer SECRET-AUTH', cookie: 'session=SECRET-COOKIE', 'proxy-authorization': 'Basic SECRET-PROXY', 'x-trace': 'kept' };
+const away = await fetch(host + '/v1/away', { headers: secret });
+console.log('away', away.status, away.redirected, await away.text());
+const stay = await fetch(host + '/v1/stay', { headers: secret });
+console.log('stay', stay.status, await stay.text());
+try { await fetch(host + '/v1/loop'); console.log('loop ended no'); } catch (e) { console.log('loop', e.name, e.cause?.message); }
+`,
+      env,
+    );
+    expect(stdout).toContain('away 200 true landed');
+    expect(stdout).toContain('stay 200 stayed');
+    expect(landed).toHaveLength(1);
+    expect(landed[0]).toMatchObject({ 'x-trace': 'kept' });
+    for (const name of ['authorization', 'cookie', 'proxy-authorization']) expect(landed[0], name).not.toHaveProperty(name);
+    expect(JSON.stringify(landed)).not.toContain('SECRET');
+    // On the origin it was sent to, the request keeps what it carried.
+    expect(sameOrigin).toEqual(['Bearer SECRET-AUTH session=SECRET-COOKIE']);
+    // A loop of redirects ends where fetch ends it: the twentieth is the last it follows.
+    expect(stdout).toContain('loop TypeError redirect count exceeded');
+    expect(seen.filter((l) => l.startsWith('GET /t/token/r/R1/anthropic/v1/loop '))).toHaveLength(21);
   });
 });
 

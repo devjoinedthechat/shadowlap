@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vitest';
-import { compilePattern, namedPatterns, rewriteText } from '../src/normalize.js';
+import { applyNormalizers, compilePattern, namedPatterns, rewriteStringsDeep, rewriteText } from '../src/normalize.js';
+import { rewriteJsonDocument } from '../src/json-doc.js';
 import { unpackRun } from '../src/pack.js';
 import { PackError } from '../src/pack-schema.js';
 import { previewRedaction } from '../src/redact.js';
-import { PATTERN_MAX, patternProblem, regexProblem } from '../src/safe-regex.js';
+import { PATTERN_BUDGET_MS, PATTERN_MAX, PatternBudgetError, patternProblem, regexProblem, setPatternBudget } from '../src/safe-regex.js';
 import { Store } from '../src/store.js';
 
 /**
@@ -45,6 +46,13 @@ describe('the pattern check', () => {
       // Written out with no repetition at all, the same blow-up: 2^25 ways.
       [`${'a?'.repeat(25)}${'a'.repeat(25)}`, '', /it holds 25 optional or alternative parts that the next character doesn't settle/],
       ['.*a.*b.*c.*d', '', /4 of its repeated parts \("\.\*", "\.\*", "\.\*", …\) can each stop or go on/],
+      // Two such parts take the cube of a line's length: the review's, about 10 s on 4 KB each.
+      ['.*a.*b', '', /2 of its repeated parts \("\.\*", "\.\*"\) can each stop or go on/],
+      ['[a-z]*[a-z]*!', '', /2 of its repeated parts \("\[a-z\]\*", "\[a-z\]\*"\) can each stop or go on/],
+      ['\\w*a\\w*b', '', /2 of its repeated parts \("\\w\*", "\\w\*"\) can each stop or go on/],
+      // A part the next character settles, after one it can take the characters of, multiplies the same, groups or not.
+      ['[^b]*a[^b]*b', '', /2 of its repeated parts \("\[\^b\]\*", "\[\^b\]\*"\)/],
+      ['([a-z]*)([a-z]*)!', '', /2 of its repeated parts \("\[a-z\]\*", "\[a-z\]\*"\)/],
       // Backreferences.
       ['(a)\\1', '', /"\\1" refers back to a group/],
       ['(?<n>a)\\k<n>', '', /"\\k<n>" refers back to a group/],
@@ -175,6 +183,8 @@ describe('a rule\'s pattern from someone else', () => {
   it('is refused in a pack before anything compiles it, the rule named by its place', () => {
     for (const [pattern, why] of [
       ['/^(\\w+\\s?)*$/', /run\.json runs\[0\]\.meta\.redactions\[1\]\.pattern: \/\^\(\\w\+\\s\?\)\*\$\/: matching it could take too long/],
+      // The review's pack: a rule that took a replay 10 s a 4 KB string, and stalled it.
+      ['/[a-z]*[a-z]*!/', /run\.json runs\[0\]\.meta\.redactions\[1\]\.pattern: \/\[a-z\]\*\[a-z\]\*!\/: matching it could take too long/],
       ['/(/', /run\.json runs\[0\]\.meta\.redactions\[1\]\.pattern: \/\(\/: it isn't a regular expression: unterminated group/],
       [`/${'a'.repeat(PATTERN_MAX + 1)}/`, /run\.json runs\[0\]\.meta\.redactions\[1\]\.pattern: is longer than 10000 characters/],
     ] as const) {
@@ -213,5 +223,36 @@ describe('a rule\'s pattern from someone else', () => {
     const [runId] = unpackRun(store, dir).imported;
     expect(() => previewRedaction(store, runId, [{ pattern: 'email', replace: '<EMAIL>' }, { pattern: '/(\\d+)*$/', replace: '<N>' }])).toThrow(/^redaction rule #2: \/\(\\d\+\)\*\$\/: matching it could take too long/);
     store.close();
+  });
+});
+
+describe('the time budget a document’s rules run within', () => {
+  afterEach(() => setPatternBudget(null));
+
+  it('stops a pattern the check takes, but that reads a long text from every place, and names it, where it would have run for minutes', () => {
+    setPatternBudget(200);
+    // Taken by the check (one repeated part it can't settle), and still the square of the text: the review's.
+    const taken = ['/(?:\\w|-)*x/', '/.*x/', 'email', '/[\\w.+-]+@[\\w-]+/'];
+    for (const pattern of taken) expect(patternProblem(pattern, namedPatterns()), pattern).toBeNull();
+    const long = 'a'.repeat(400_000);
+    for (const pattern of taken) {
+      const started = performance.now();
+      expect(() => applyNormalizers({ messages: [{ role: 'user', content: long }] }, [{ pattern, replace: '<X>' }], 'api', 'POST /v1/messages'), pattern).toThrow(PatternBudgetError);
+      expect(performance.now() - started, pattern).toBeLessThan(5_000);
+    }
+    // Every way a document is rewritten keeps to it: raw text, a JSON document, every string of a value.
+    expect(() => rewriteText(long, [{ pattern: '/.*x/', replace: '<X>' }])).toThrow(/ran longer than 0\.2 s on one document and was stopped \(\/\.\*x\/\)/);
+    expect(() => rewriteJsonDocument(JSON.stringify({ content: long }), [{ pattern: '/.*x/', replace: '<X>' }], null)).toThrow(PatternBudgetError);
+    expect(() => rewriteStringsDeep([long], compilePattern('/.*x/'), '<X>')).toThrow(PatternBudgetError);
+    // And what follows runs as before: nothing is left stopped.
+    expect(rewriteText('a secret here', [{ pattern: '/secret/', replace: '<X>' }])).toBe('a <X> here');
+  });
+
+  it('lets a pattern that ends in time run as it always did, on a short document without a budget at all', () => {
+    expect(PATTERN_BUDGET_MS).toBe(5_000);
+    const doc = { messages: [{ role: 'user', content: `key sk-${'A'.repeat(40)} and ${'a'.repeat(200_000)}` }] };
+    expect(JSON.stringify(applyNormalizers(doc, [{ pattern: '/sk-[A-Za-z0-9]{20,}/', replace: '<KEY>' }], 'api', 'POST /v1/messages'))).toContain('key <KEY> and');
+    // A short one: even the square of its length is nothing.
+    expect(rewriteText('aaaa', [{ pattern: '/.*x/', replace: '<X>' }])).toBe('aaaa');
   });
 });

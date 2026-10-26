@@ -3,12 +3,12 @@ export { canonicalize } from './canonical.js';
 export { ulid, sha256 } from './ids.js';
 export { applyNormalizers, compilePattern, namedPatterns, normalizerApplies, parsePath, rewriteStringsDeep, rewriteText, stripKeysDeep, type RewriteObserver, type UnmaskedAt } from './normalize.js';
 // The check every rule's pattern passes before it is compiled.
-export { PATTERN_MAX, patternProblem, regexProblem } from './safe-regex.js';
+export { PATTERN_BUDGET_MS, PATTERN_MAX, PatternBudgetError, patternProblem, regexProblem, setPatternBudget, withinPatternBudget } from './safe-regex.js';
 export { contextFree, isJsonText, pathReachesResults, reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credentialFreeCall, jsonPath, matchedAs, previewRedaction, redactArgv, redactBytes, redactQuery, redactRun, redactRunDetails, redactRunWithDetails, type PreviewLimits, type RedactRunOptions, type RedactionExport, type RedactionPreview, type RedactionRulePreview, type RedactionUnmasked, type UnmaskedReason, type UnmaskedSample } from './redact.js';
 // Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
 // headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
-export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialParam, credentialValue, decodedParam, formShaped, rawJsonMember, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
+export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, credentialValue, decodedParam, formShaped, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, withoutStoredCredentials } from './http.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartContents, multipartView, parseMultipart, type MultipartContent, type MultipartPart, type MultipartView } from './multipart.js';
@@ -21,7 +21,7 @@ export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.
 export type { QueuedWrites } from './store.js';
 export { ulidNow } from './store/core.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, StepRerun, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
 // The tests entry a run is judged by when it was given no --expect (the CLI's replays, the dashboard's Run blame).

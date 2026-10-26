@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type Store, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -237,20 +237,22 @@ export function gateFlags(gate: SprtGate | null, defaults: Omit<SprtGate, 'kind'
   return differs.length ? ['--gate', JSON.stringify(Object.fromEntries(differs.map((k) => [k, gate[k]])))] : [];
 }
 
+type BlameFlags = StepFlags & { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; gate: SprtGate | null; scan?: number };
+
+/** What a blame takes beyond its report and its kept scope and check: `--scan` and the step's flags. */
+const blameExtras = (s: BlameFlags): string[] => [...(s.scan !== undefined && s.scan !== 2 ? ['--scan', String(s.scan)] : []), ...stepArgs(s)];
+
 /** A blame command that blames the run the same way again. */
-export function blameCommand(runId: string, s: StepFlags & { expect?: unknown; scope?: string | null; fields: Record<string, unknown>; attempts: number; needed: number; gate: SprtGate | null; scan?: number }): string {
-  return quoteArgv([
-    'shadowlap',
-    'blame',
-    shortId(runId),
-    ...expectArgs(s.expect),
-    ...(s.scope ? ['--scope', s.scope] : []),
-    ...fieldArgs(s.fields),
-    ...gateFlags(s.gate, BLAME_DEFAULTS, { attempts: s.attempts, passes: s.needed }),
-    ...(s.scan !== undefined && s.scan !== 2 ? ['--scan', String(s.scan)] : []),
-    ...stepArgs(s),
-    ...commandArgs(s),
-  ]);
+export function blameCommand(runId: string, s: BlameFlags): string {
+  return quoteArgv(['shadowlap', 'blame', shortId(runId), ...expectArgs(s.expect), ...(s.scope ? ['--scope', s.scope] : []), ...fieldArgs(s.fields), ...gateFlags(s.gate, BLAME_DEFAULTS, { attempts: s.attempts, passes: s.needed }), ...blameExtras(s), ...commandArgs(s)]);
+}
+
+/**
+ * The flags a blame kept beside its report, which Blame again runs it with (`StepRerun`): the same
+ * as `blameCommand` writes beyond the run, its check, scope, rescue and gate, which the record holds.
+ */
+export function blameRerun(s: BlameFlags): StepRerun {
+  return { flags: blameExtras(s), command: s.argv?.length ? [...s.argv] : null };
 }
 
 /** The runs a verify or repair was given, as they were given: ids or `label:<name>`. */
@@ -264,28 +266,32 @@ const runArgs = (r: RunSpecs): string[] => [...(r.fixes?.length ? ['--fixes', ..
 
 const gateArgs = (gate: SprtGate | null, attempts: number, passes: number | undefined) => gateFlags(gate, SPRT_DEFAULTS, { attempts, passes });
 
-export function verifyCommand(
-  runs: RunSpecs,
-  f: StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined },
-): string {
-  return quoteArgv([
-    'shadowlap',
-    'verify',
-    ...runArgs(runs),
-    ...expectArgs(f.expect),
-    ...fieldArgs(f.fields),
-    ...(f.from ?? []).flatMap((m) => ['--from', m]),
-    ...f.liveTools.flatMap((t) => ['--live-tool', t]),
-    ...gateArgs(f.gate, f.attempts, f.passes),
-    // How good runs were kept, when given: against what, from which commit, by what margin.
-    ...(f.margin !== undefined ? ['--margin', String(f.margin)] : []),
-    ...(f.baseline ? ['--baseline', f.baseline] : []),
-    ...(f.base ? ['--base', f.base] : []),
-    ...(f.build ? ['--build', f.build] : []),
-    ...(f.failFast ? ['--fail-fast'] : []),
-    ...stepArgs(f),
-    ...commandArgs(f),
-  ]);
+export type VerifyFlags = StepFlags & { expect?: unknown; attempts: number; passes?: number | undefined; gate: SprtGate | null; fields: Record<string, unknown>; from?: readonly string[] | undefined; liveTools: string[]; failFast?: boolean; margin?: number | undefined; baseline?: 'paired' | 'history' | undefined; base?: string | undefined; build?: string | null | undefined };
+
+/** Which model calls the change's fields change, and the tools it runs live. */
+const changeArgs = (f: VerifyFlags): string[] => [...(f.from ?? []).flatMap((m) => ['--from', m]), ...f.liveTools.flatMap((t) => ['--live-tool', t])];
+
+/** How good runs were kept, when given (against what, from which commit, by what margin), and the step's flags. */
+const keptArgs = (f: VerifyFlags): string[] => [
+  ...(f.margin !== undefined ? ['--margin', String(f.margin)] : []),
+  ...(f.baseline ? ['--baseline', f.baseline] : []),
+  ...(f.base ? ['--base', f.base] : []),
+  ...(f.build ? ['--build', f.build] : []),
+  ...(f.failFast ? ['--fail-fast'] : []),
+  ...stepArgs(f),
+];
+
+export function verifyCommand(runs: RunSpecs, f: VerifyFlags): string {
+  return quoteArgv(['shadowlap', 'verify', ...runArgs(runs), ...expectArgs(f.expect), ...fieldArgs(f.fields), ...changeArgs(f), ...gateArgs(f.gate, f.attempts, f.passes), ...keptArgs(f), ...commandArgs(f)]);
+}
+
+/**
+ * The flags a verdict kept beside its report, which Run more attempts and Verify again run it with
+ * (`StepRerun`): the same as `verifyCommand` writes beyond its runs, check, fields and gate, which
+ * the report holds.
+ */
+export function verifyRerun(f: VerifyFlags): StepRerun {
+  return { flags: [...changeArgs(f), ...keptArgs(f)], command: f.argv?.length ? [...f.argv] : null };
 }
 
 /** A repair command that repairs the same way again; how it hands over (`--apply`, `--branch`, `--pr`) is left out. */
@@ -333,13 +339,15 @@ export function recordBlameFix(
   const s = input.settings;
   try {
     const who = actor();
+    // A repair's budget for its blames is what it had left, not something to type again.
+    const flags = input.command !== undefined ? s : { ...s, budget: null };
     const recorded = recordBlame(store, {
       runId: input.runId,
       report: input.report,
       expect: s.expect ?? null,
       scope: s.scope ?? null,
-      // A repair's budget for its blames is what it had left, not something to type again.
-      command: input.command ?? blameCommand(input.runId, { ...s, budget: null }),
+      command: input.command ?? blameCommand(input.runId, flags),
+      rerun: blameRerun(flags),
       title: failureTitle(s.spec, input.recording),
       checkText: checkText(s.spec),
       actor: who,
@@ -359,12 +367,12 @@ export function recordBlameFix(
   }
 }
 
-/** Keeps a verify's verdict, whatever it was, and links it to the fix of its runs. */
-export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string }): RecordedVerdict | null {
+/** Keeps a verify's verdict, whatever it was, and links it to the fix of its runs, with the flags it ran with (`verifyRerun`). */
+export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: { expect?: unknown; command: string; rerun?: StepRerun | null }): RecordedVerdict | null {
   let store: Store | null = null;
   try {
     store = openStore(opts);
-    const recorded = recordVerdict(store, { report, expect: input.expect ?? null, command: input.command });
+    const recorded = recordVerdict(store, { report, expect: input.expect ?? null, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) });
     if (report.verdict !== 'incomplete') {
       const counted = recorded.fixes.filter((x) => x.standing.counts).map((x) => x.fix.fixId);
       recordEvent(store, {

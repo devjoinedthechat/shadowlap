@@ -220,6 +220,22 @@ describe('a command for each capture', () => {
     expect(checkCommandTemplate(['node', '--require', '{message}', 'agent.mjs'])).toMatch(/after --require would run as code/);
     expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/(/}'])).toMatch(/^\{message:\/\(\/\}: Invalid regular expression/);
   });
+
+  it('never lets the message name what runs, nor start one of its flags', () => {
+    // Text from production as the program, the script an interpreter runs, one of its own flags, or the command a runner runs.
+    for (const argv of [['{message}'], ['node', '{message}'], ['python3', '-u', '{message}'], ['node', '--eval={message}', 'agent.mjs'], ['deno', '--allow-read={message}', 'run', 'a.ts'], ['npx', '{message}'], ['npx', '-y', '{message}'], ['env', 'A=1', '{message}'], ['sudo', '{message}'], ['npx', 'tsx', '{message}']]) {
+      expect(checkCommandTemplate(argv), argv.join(' ')).toMatch(/would name what runs|would run as code/);
+    }
+    // An argument of the agent's, behind a runner or not.
+    for (const argv of [['npx', '-y', 'triage-agent', '{message}'], ['env', 'A=1', 'node', 'agent.mjs', '{message}'], ['npx', 'tsx', 'agent.ts', '{message}'], ['node', 'agent.mjs', '--customer={message}']]) {
+      expect(checkCommandTemplate(argv), argv.join(' ')).toBeNull();
+    }
+    // A message that would start an argument with a dash is read as a flag: that capture is left out, saying why.
+    expect(fillCommand(['node', 'agent.mjs', '{message}'], '--inspect=0.0.0.0:9229')).toEqual({ why: 'its first message starts with "-", which the command would read as one of its flags' });
+    expect(fillCommand(['node', 'agent.mjs', '{message:/(\\S+)/}'], '-rf everything')).toMatchObject({ why: expect.stringContaining('starts with "-"') });
+    // Inside a flag of the agent's own, as given, a dash is the message's.
+    expect(fillCommand(['node', 'agent.mjs', '--note={message}'], '-1 star')).toEqual({ argv: ['node', 'agent.mjs', '--note=-1 star'] });
+  });
 });
 
 describe('the store', () => {

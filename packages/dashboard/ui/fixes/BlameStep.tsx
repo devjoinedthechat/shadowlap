@@ -195,6 +195,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
               Every call before a probe was replayed from the recording.
               {b.cost.unknownModels.length ? ` No price for ${b.cost.unknownModels.join(', ')}, so its calls count as $0.` : ''}
             </p>
+            {b.pulled ? <p className="fxnote">It ran on a teammate’s machine and came with a pull. The command here is made from its report, without what ran only there.</p> : null}
             <div className="fxcmd">
               <CmdLine>{b.command}</CmdLine>
             </div>

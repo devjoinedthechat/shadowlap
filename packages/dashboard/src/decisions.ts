@@ -1,7 +1,7 @@
 import { commandIsImported, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
-import type { GoldenSource } from './tests.js';
+import { optionLike, type GoldenSource } from './tests.js';
 
 /**
  * The decision diff as the dashboard reads it (`shadowlap decisions`, `migrate`): the sessions the
@@ -185,6 +185,8 @@ function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSourc
     for (const name of names) {
       const g = typeof name === 'string' ? known.get(name) : undefined;
       if (!g) return { error: `${String(name).slice(0, 80)} is not one of the project's goldens`, status: 404 };
+      // A path that starts with "-" would be read as one of the CLI's options, never as a golden.
+      if (optionLike(g.path)) return { error: `${g.path.slice(0, 80)}: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json` };
       args.push(g.path);
       if (g.runId) runIds.push(g.runId);
     }

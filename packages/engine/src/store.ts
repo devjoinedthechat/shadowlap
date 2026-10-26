@@ -37,7 +37,7 @@ export type { ChaosResult, ChaosResultData, ChaosSession, ChaosVerdict, NewChaos
 export type { QueuedWrites, SqlValue } from './store/core.js';
 export type { CoverageBehaviour, CoverageNotPacked, CoveragePackMode, CoverageScan, CoverageScanData, StoredCoverageGroup, StoredCoveragePack } from './store/coverage.js';
 export type { DecisionRunRow, DecisionSessionRow, NewDecisionSession } from './store/decisions.js';
-export type { FixData, FixLink, FixLinkKind, FixStatus, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
+export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, StepRerun, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store/fixes.js';
 export type { StoredInjectionResult } from './store/injection.js';
 export { RECORDING_RUNS_SQL, rowToRun, splitRecordingRuns } from './store/recording.js';
 export type { CreateRunInput } from './store/recording.js';

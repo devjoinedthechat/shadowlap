@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store, previewRedaction } from '@shadowlap/engine';
+import { Store, previewRedaction, setPatternBudget } from '@shadowlap/engine';
 import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.js';
 
 /**
@@ -10,6 +10,9 @@ import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.
  */
 
 const work = workerData as PreviewWork;
+// The server ends this thread when one call takes longer than the preview's hard limit, and says
+// which rule could: the engine's own budget would only end it sooner, with less to say.
+setPatternBudget(Infinity);
 const post = (m: PreviewAnswer) => parentPort?.postMessage(m);
 let store: Store | null = null;
 let answer: PreviewAnswer;

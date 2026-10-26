@@ -4,6 +4,7 @@ import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
+import { optionLike } from '../tests.js';
 import { links } from '../links.js';
 import type { Router } from '../router.js';
 import { sessionBusy, testsBusy } from './tests.js';
@@ -50,6 +51,8 @@ export function register(router: Router, ctx: RouteContext): void {
       if (typeof req.golden === 'string') {
         const goldens = ctx.options.goldens?.() ?? [];
         if (!goldens.some((g) => g.path === req.golden)) return { error: `no golden ${req.golden} on disk` };
+        // A path that starts with "-" would be read as one of the CLI's options, never as a golden.
+        if (optionLike(req.golden)) return { error: `${req.golden.slice(0, 80)}: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json` };
         const busy = testsBusy(ctx.jobs.list(), projectId, 'run its presets') ?? sessionBusy(store, 'run its presets');
         if (busy) return { error: busy, status: 409 };
         return { args: ['test', req.golden, '--chaos', ...flags] };
