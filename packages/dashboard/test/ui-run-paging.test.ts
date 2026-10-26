@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type CallRow, type CallsPage, type Client, type RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
@@ -426,5 +426,42 @@ describe('a long run’s page', () => {
     expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
     expect(pending()).toHaveLength(0);
     expect(r.all('.toolbar[role="status"]')).toHaveLength(0);
+  });
+
+  it('stays on a recording’s newest call when it ends, and reads none of its calls again', async () => {
+    const bar = addressBar(`#/run/${RUN}/1200`);
+    const { client, asked } = server(1200, 500, 'running');
+    let status = 'running';
+    // The run's page: whole while it records; after the calls a page has (`after`), what came since and how it stands.
+    const runs: Array<number | undefined> = [];
+    const recording = {
+      ...client,
+      run: (_id: string, after?: number) => {
+        runs.push(after);
+        const d = answer(1200, 500, status);
+        return Promise.resolve(after === undefined ? d : { ...d, calls: [], callsNext: null, after });
+      },
+    };
+    let end: () => void = () => undefined;
+    function Host() {
+      const [state, setState] = useState(() => ({ ...app(recording), live: [{ runId: RUN, calls: 1200 }] }));
+      end = () => setState((s) => ({ ...s, live: [], runsTick: s.runsTick + 1 }));
+      return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1200, view: null }));
+    }
+    r = await render(createElement(Host));
+    await r.until('every call', () => rows().length > 0 && pending().length === 0 && asked.length === 2);
+    // The recording ends.
+    status = 'completed';
+    const pages = asked.length;
+    await r.wait(0);
+    end();
+    await r.until('the end', () => r!.all('.rhead').some((h) => !/in progress/.test(h.textContent)) && runs.length > 1);
+    await r.wait(PAGES_AFTER_MS + 100);
+    // Still on its newest call, the end merged into what it read: no page read again.
+    expect(bar.hash).toBe(`#/run/${RUN}/1200`);
+    expect(runs.at(-1)).toBe(1200);
+    expect(asked).toHaveLength(pages);
+    expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
+    expect(pending()).toHaveLength(0);
   });
 });
