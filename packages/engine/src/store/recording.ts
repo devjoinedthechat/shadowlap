@@ -29,6 +29,11 @@ export abstract class Recording extends StorePart {
 
   // ---- runs ----
 
+  /**
+   * Starts a run: its record, its metadata and the process recording it (run_owners, which
+   * recordingRuns reads) are written together or not at all, in a transaction of their own unless the
+   * caller has one open (the sidecar writes a run's start in one of its StoreWriter's).
+   */
   createRun(input: CreateRunInput): RunRecord {
     const run: RunRecord = {
       runId: input.runId ?? ulidNow(),
@@ -42,11 +47,15 @@ export abstract class Recording extends StorePart {
       endedAt: null,
       ...(input.meta ? { meta: input.meta } : {}),
     };
-    this.stmts.insertRun.run(run.runId, run.parentRunId, run.mode, JSON.stringify(run.command), run.codeVersion, run.startedAt);
-    if (input.meta) this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify(input.meta), run.runId);
-    // settings: who records it, until it ends (recordingRuns).
-    const owner = currentOwner();
-    this.db.prepare(`INSERT OR REPLACE INTO run_owners (run_id, pid, host) VALUES (?, ?, ?)`).run(run.runId, owner.pid, owner.host);
+    const write = () => {
+      this.stmts.insertRun.run(run.runId, run.parentRunId, run.mode, JSON.stringify(run.command), run.codeVersion, run.startedAt);
+      if (input.meta) this.db.prepare(`UPDATE runs SET meta = ? WHERE run_id = ?`).run(JSON.stringify(input.meta), run.runId);
+      // settings: who records it, until it ends (recordingRuns).
+      const owner = currentOwner();
+      this.db.prepare(`INSERT OR REPLACE INTO run_owners (run_id, pid, host) VALUES (?, ?, ?)`).run(run.runId, owner.pid, owner.host);
+    };
+    if (this.db.isTransaction) write();
+    else this.transaction(write);
     return run;
   }
 

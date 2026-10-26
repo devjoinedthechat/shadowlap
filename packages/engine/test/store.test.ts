@@ -205,6 +205,30 @@ describe('Store', () => {
     expect(store.getRun(parent.runId)!.parentRunId).toBeNull();
     store.close();
   });
+
+  it('starts a run whole or not at all: its record, its metadata and the process recording it', () => {
+    const store = Store.open(':memory:');
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+    // The last of its writes refused, as a full disk refuses one.
+    db.exec(`CREATE TEMP TRIGGER refuse_owner BEFORE INSERT ON run_owners BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
+    expect(() => store.createRun({ mode: 'record', command: cmd, meta: { labels: ['first'] } })).toThrow('database or disk is full');
+    // No run is left recording with no process to end it.
+    expect(store.listRuns()).toEqual([]);
+    db.exec('DROP TRIGGER refuse_owner');
+    // In a transaction the caller has open, as the sidecar writes a run's start: a part of it.
+    const later = new Error('a later write failed');
+    expect(() =>
+      store.transaction(() => {
+        store.createRun({ mode: 'record', command: cmd });
+        throw later;
+      }),
+    ).toThrow(later);
+    expect(store.listRuns()).toEqual([]);
+    const run = store.createRun({ mode: 'record', command: cmd, meta: { labels: ['first'] } });
+    expect(store.getRun(run.runId)?.meta).toEqual({ labels: ['first'] });
+    expect(store.recordingRuns().live.map((r) => r.run.runId)).toEqual([run.runId]);
+    store.close();
+  });
 });
 
 describe('a judge check’s calls', () => {
