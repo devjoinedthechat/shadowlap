@@ -6,7 +6,8 @@ import { unrecordedTools, type RunRecord, type Store, type UnrecordedTool } from
  * with how often, from which model call and what it does, as the project's `tools.unrecorded`
  * declares it, or a built-in's or its name says; and the WebSockets the run's sidecar tunnelled to a
  * provider or refused, as the run keeps them. A replay serves the model's answers again, so it runs
- * those tools again for real, and `shadowlap replay` and `test` refuse one that writes.
+ * those tools again for real, and `shadowlap replay` and `test` refuse one that writes, or may: one
+ * whose effect nothing tells.
  */
 
 export interface UnrecordedView {

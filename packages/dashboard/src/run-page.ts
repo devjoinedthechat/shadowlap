@@ -642,7 +642,8 @@ function storedPreloads(run: RunRecord): RunProvenance['preloads'] {
   if (!guard) return null;
   const hellos: Record<string, number> = {};
   if (isObject(v.hellos)) for (const [runtime, n] of Object.entries(v.hellos)) if (/^[a-z][a-z0-9-]{0,19}$/.test(runtime) && Number.isInteger(n) && (n as number) > 0) hellos[runtime] = n as number;
-  return { guard, hellos, missing: typeof v.missing === 'string' && v.missing ? v.missing.slice(0, 2000) : null };
+  const text = (x: unknown) => (typeof x === 'string' && x ? x.slice(0, 2000) : null);
+  return { guard, hellos, missing: text(v.missing), unguarded: text(v.unguarded) };
 }
 
 /** A model id as the run page names it: the platform's prefixes and suffixes off, and no date stamp (`claude-opus-5`). */
@@ -717,9 +718,10 @@ export interface RunProvenance {
   /**
    * The preloads in the agent's processes, for a run whose agent the CLI started with them
    * (`RunMeta.preloads`): the guard they ran, the processes whose preload said it loaded, by runtime,
-   * and why none did when the run made calls with none loaded; null for any other run.
+   * and why none did when the run made calls with none loaded, or which processes ran with no guard
+   * (`unguarded`: the Claude Code CLI the Claude Agent SDK runs); null for any other run.
    */
-  preloads: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null } | null;
+  preloads: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing: string | null; unguarded: string | null } | null;
   calls: { model: number; tool: number; other: number; scopes: number };
   /** Requests that reached a provider, and what the live ones cost. */
   upstream: { requests: number; spent: number };
