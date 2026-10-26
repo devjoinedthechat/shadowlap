@@ -487,7 +487,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     const swaps = [];
     for (const c of candidates) {
       const inRoot = relative(root, realpathSync(resolve(workdir, c.golden))).split(sep).join('/');
-      if (!inRoot || inRoot.startsWith('..') || isAbsolute(inRoot)) c.state.why = `${c.golden} is not inside the repository`;
+      if (!inRoot || inRoot.startsWith('..') || isAbsolute(inRoot)) c.state.why = `${markdownCode(c.golden)} is not inside the repository`;
       else swaps.push({ ...c, inRoot, pack: resolve(workdir, c.recorded) });
     }
     const dirs = [...swaps.map((c) => c.golden), ...replayed.map(dirOf)];

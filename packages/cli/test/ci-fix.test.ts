@@ -752,6 +752,22 @@ describe('planning fixes from a test report', () => {
     expect(without.others).toMatchObject({ diverging: [], failing: [], unreplayed: [], replayed: 0 });
   });
 
+  it('names a golden outside the repository as code in its note, and re-records nothing of it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'sl-fix-outside-'));
+    const outside = mkdtempSync(join(tmpdir(), 'sl-golden-@alice-'));
+    try {
+      execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+      const member = { result: { name: 'x', dir: outside, mode: 'replay' as const, ok: false }, skip: null, fixes: ['01K5CQ4V3H8M2XWQH6V3T9RB1D'], keeps: [] };
+      const state = refreshGoldens({ cli: CLI, workdir: dir, members: [member], repair: { output: { goldens: ['recorded'], patch: 'p', branch: 'b' } }, env: process.env, scratch: dir });
+      expect(state.goldens).toEqual([{ state: 'stale', golden: outside, why: `\`${outside}\` is not inside the repository` }]);
+      // In the pull request, the path is a code span: the @ in it mentions no one.
+      expect(goldenNote(state.goldens[0])).toContain(`It was not re-recorded automatically: \`${outside}\` is not inside the repository.`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it('says every golden replays clean on the branch only when every one replayed there is', () => {
     const recorded = { state: 'recorded' as const, golden: 'goldens/a', why: null };
     const none = { diverging: [], failing: [], unreplayed: [], replayed: 0 };
