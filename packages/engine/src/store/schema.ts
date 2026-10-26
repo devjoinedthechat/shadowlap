@@ -93,6 +93,19 @@ CREATE TRIGGER IF NOT EXISTS change_counts_runs_delete AFTER DELETE ON runs BEGI
 CREATE TRIGGER IF NOT EXISTS change_counts_events_insert AFTER INSERT ON events BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'events'; END;
 CREATE TRIGGER IF NOT EXISTS change_counts_events_delete AFTER DELETE ON events BEGIN UPDATE change_counts SET n = n + 1 WHERE name = 'events'; END;
 
+-- Which runs each write to the runs table touched, in the order written, kept by triggers so every
+-- writer logs: a reader that keeps every run in memory (the dashboard's run index) reads again only
+-- the runs written since it last looked, where the runs counter alone says only that one was. The
+-- log keeps the last few thousand writes; a reader further behind reads every run.
+CREATE TABLE IF NOT EXISTS run_changes (
+  seq     INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id  TEXT    NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS run_changes_insert AFTER INSERT ON runs BEGIN INSERT INTO run_changes (run_id) VALUES (NEW.run_id); END;
+CREATE TRIGGER IF NOT EXISTS run_changes_update AFTER UPDATE ON runs BEGIN INSERT INTO run_changes (run_id) VALUES (NEW.run_id); END;
+CREATE TRIGGER IF NOT EXISTS run_changes_delete AFTER DELETE ON runs BEGIN INSERT INTO run_changes (run_id) VALUES (OLD.run_id); END;
+CREATE TRIGGER IF NOT EXISTS run_changes_trim AFTER INSERT ON run_changes WHEN NEW.seq % 1024 = 0 BEGIN DELETE FROM run_changes WHERE seq <= NEW.seq - 8192; END;
+
 -- v4: read models. What the dashboard worked out about a finished run's calls (where each answer
 -- came from, tokens per model, time not waited, prompt-cache misses), kept so the Overview and the
 -- run list read one row per run instead of every call, in this process and the next. \`key\` names

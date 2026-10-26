@@ -104,10 +104,18 @@ export interface RunIndex {
    * place, so what is worked out per look at the store (a recording's totals) is per this as well.
    */
   events: number;
+  /** Moves when runs come, go or are filed again in place: what goes through `runs` in order starts again. */
+  revision: number;
 }
 
-const INDEX_SQL = `
-SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS status, r.command AS command,
+/**
+ * A run's row in the index: its columns, the few fields of `meta` read, its call counts and the check
+ * of the fix that lists it among its failing runs. `bounded`: the counts take the call events up to
+ * the one numbered by the statement's parameter for each (`?`), as a patch counts them.
+ */
+function runColumns(bounded: boolean): string {
+  const upTo = (t: string) => (bounded ? ` AND ${t}.rowid <= ?` : '');
+  return `r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS status, r.command AS command,
        r.code_version AS code, r.started_at AS started, r.ended_at AS ended,
        r.divergence ->> '$.callNo' AS div_call, r.divergence ->> '$.type' AS div_type,
        r.meta -> '$.labels' AS labels, r.meta -> '$.imported' AS imported, r.meta -> '$.covers' AS covers,
@@ -115,29 +123,49 @@ SELECT r.run_id AS id, r.parent_run_id AS parent, r.mode AS mode, r.status AS st
        r.meta -> '$.test' AS test, r.meta -> '$.checks' AS checks, r.meta -> '$.blame' AS blame, r.meta -> '$.chaos' AS chaos,
        r.meta -> '$.interventions' AS interventions, r.meta -> '$.injection' AS injection, r.meta -> '$.task' AS task,
        r.meta ->> '$.author' AS author, r.meta ->> '$.ci' AS ci,
-       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start') AS calls,
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start'${upTo('c')}) AS calls,
        -- Through the store's index of judge calls alone (call_events_judge, whose condition this
        -- repeats word for word, json_extract and all), so leaving them out reads no call's metadata.
-       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND json_extract(c.meta, '$.scope') = 'shadowlap:judge') AS judge_calls,
+       (SELECT COUNT(*) FROM call_events c WHERE c.run_id = r.run_id AND c.phase = 'start' AND json_extract(c.meta, '$.scope') = 'shadowlap:judge'${upTo('c')}) AS judge_calls,
        CASE WHEN r.status = 'failed' THEN EXISTS (
-         SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1
+         SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error' AND x.meta ->> '$.injected' = 1${upTo('x')}
        ) ELSE 0 END AS injected,
        CASE WHEN r.divergence IS NOT NULL AND r.meta -> '$.test' IS NOT NULL THEN EXISTS (
          SELECT 1 FROM call_events x WHERE x.run_id = r.run_id AND x.phase = 'end' AND x.outcome = 'error'
-           AND (x.meta ->> '$.offline' = 1 OR x.meta ->> '$.error.name' = 'ShadowlapOffline')
+           AND (x.meta ->> '$.offline' = 1 OR x.meta ->> '$.error.name' = 'ShadowlapOffline')${upTo('x')}
        ) ELSE 0 END AS offline,
        (SELECT f.check_text FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id
          WHERE l.ref = r.run_id AND l.kind = 'failing'
-         ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check,
-       -- Where the store stood as these rows were read: one statement reads one state of the store.
+         ORDER BY f.status = 'applied', f.opened_at DESC LIMIT 1) AS fix_check`;
+}
+
+/** The newest entry of the store's log of runs written (`run_changes`), or NULL for a store that keeps none. */
+const seqOf = (log: boolean) => (log ? '(SELECT COALESCE(MAX(seq), 0) FROM run_changes)' : 'NULL');
+
+/** Every run, newest first, and where the store stood as they were read: one statement reads one state of the store. */
+const indexSql = (log: boolean) => `
+SELECT ${runColumns(false)},
        (SELECT n FROM change_counts WHERE name = 'runs') AS v_runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS v_fixes,
-       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS v_calls
+       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS v_calls, ${seqOf(log)} AS v_seq
 FROM runs r
 ORDER BY r.started_at DESC, r.run_id DESC`;
 
-/** The store's change counters for what the index reads (`Store.changeCounts`), in one statement. */
-const VERSION_SQL = `SELECT (SELECT n FROM change_counts WHERE name = 'runs') AS runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS fixes,
-       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS calls`;
+/** The store's change counters for what the index reads (`Store.changeCounts`), and the newest run written, in one statement. */
+const versionSql = (log: boolean) => `SELECT (SELECT n FROM change_counts WHERE name = 'runs') AS runs, (SELECT n FROM change_counts WHERE name = 'fixes') AS fixes,
+       (SELECT COALESCE(MAX(rowid), 0) FROM call_events) AS calls, ${seqOf(log)} AS seq`;
+
+/** The rows of the runs named (a JSON array), their calls counted up to the event numbered by each `?` before it. */
+const PATCH_SQL = `SELECT ${runColumns(true)} FROM runs r WHERE r.run_id IN (SELECT value FROM json_each(?))`;
+
+/** The runs written after the log entry numbered `?`, up to the one numbered `?`, in the order written. */
+const CHANGES_SQL = `SELECT seq, run_id AS id FROM run_changes WHERE seq > ? AND seq <= ? ORDER BY seq`;
+
+/** The check of each fix that lists a run among its failing runs: INDEX_SQL's `fix_check`, for every run at once. */
+const FIX_CHECKS_SQL = `SELECT l.ref AS id, f.check_text AS check_text, f.status = 'applied' AS applied, f.opened_at AS opened
+FROM fix_links l JOIN fixes f ON f.fix_id = l.fix_id WHERE l.kind = 'failing'`;
+
+/** More runs written than this since the index last looked: reading them all is as quick. */
+const PATCH_MAX = 512;
 
 /**
  * The call events written after the one numbered `?` up to the one numbered `?`, each with what it
@@ -249,28 +277,52 @@ export function classifiable(r: Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode
   };
 }
 
+/** A run's filing as an attempt as classification gives it, before the rule that sets some apart (`filedTestAttempt`). */
+type Filing = Pick<IndexedRun, 'attemptOf' | 'attemptKind'>;
+
 interface KeptIndex {
-  /** The runs and fixes counters when the index was read whole. */
-  version: string;
+  /** The runs and fixes counters as the index last stood. */
+  runs: string;
+  fixes: string;
+  /** The newest entry of the store's log of runs written that the index has read; null for a store that keeps none. */
+  seq: number | null;
   /** The newest call event the index has counted. */
   callsAt: number;
   index: RunIndex;
   /** The newest `run_asks` row read into the index. */
   asksAt: number;
+  /** Each run's filing as classification gave it: a patch files the runs again from it. */
+  filing: Map<string, Filing>;
 }
 
 const kept = new WeakMap<Store, KeptIndex>();
 
+/** Stores known to keep the log of runs written: one opened by a build from before it keeps none until a newer one opens it to write. */
+const logged = new WeakSet<Store>();
+function keepsLog(store: Store): boolean {
+  if (logged.has(store)) return true;
+  if (!store.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_changes'`).length) return false;
+  logged.add(store);
+  return true;
+}
+
+interface Version {
+  runs: string;
+  fixes: string;
+  calls: number;
+  seq: number | null;
+}
+
 /**
- * Where what the index reads stands: the runs (any run added, changed or deleted), the fixes and
- * their links, and the newest call event. Each moves with every write to what it counts, by this
- * connection or any other; a write the index doesn't read (run totals, the search index) moves none.
- * A run, a fix or a link changing reads the index whole; call events added, as while a run records,
- * count again only the runs they belong to (`grow`).
+ * Where what the index reads stands: the runs (any run added, changed or deleted, and the newest of
+ * them written), the fixes and their links, and the newest call event. Each moves with every write to
+ * what it counts, by this connection or any other; a write the index doesn't read (run totals, the
+ * search index) moves none.
  */
-function versionOf(store: Store): { version: string; calls: number } {
-  const v = store.query(VERSION_SQL)[0];
-  return { version: `${String(v?.runs)}|${String(v?.fixes)}`, calls: Number(v?.calls ?? 0) };
+function versionOf(store: Store): Version {
+  const log = keepsLog(store);
+  const v = store.query(versionSql(log))[0];
+  return { runs: String(v?.runs), fixes: String(v?.fixes), calls: Number(v?.calls ?? 0), seq: log && v?.seq !== null && v?.seq !== undefined ? Number(v.seq) : null };
 }
 
 /** Reads into the index what recordings' users asked that was kept since it last looked. */
@@ -298,18 +350,20 @@ export function parseAsk(v: unknown): RunAsk | null {
 }
 
 /**
- * Reads and classifies every run in the store, or returns the index read before when no run, call or
- * fix changed since. When only calls were added (a run recording, a replay making its calls), what
- * they add is counted into the runs they belong to, which are classified again with their children,
- * whose kind reads their parent's count, and the rest of the index stands: a status bar polling while
- * a run records costs a read of what was written since, where every run was read and classified again
- * (82 ms a poll at 10,000 runs, and more for every call a long recording had).
+ * Reads and classifies every run in the store, or returns the index read before when nothing it
+ * reads changed since. What changed is taken into it in place: calls added (a run recording, a replay
+ * making its calls) are counted into the runs they belong to; runs written (one started, ended,
+ * labelled, deleted) are read again, as the store's log of runs written names them, and a change to
+ * the fixes reads again which check lists each run failing. The runs read again are classified anew
+ * with their children, whose kind reads their parent's count, and the rest of the index stands: a
+ * status bar polling while a run records, or while a session writes a run a second, costs a read of
+ * what was written since, where every run was read and classified again (137 ms a poll at 10,000
+ * runs). A store with no log, or one written further than the log keeps, is read whole.
  */
 export function loadRunIndex(store: Store): RunIndex {
-  const { version, calls } = versionOf(store);
+  const v = versionOf(store);
   let entry = kept.get(store);
-  // Fewer events than were counted: some were taken out, which only a run's deletion does. Read whole.
-  if (!entry || entry.version !== version || calls < entry.callsAt || (calls > entry.callsAt && !grow(store, entry, calls))) {
+  if (!entry || !patch(store, entry, v)) {
     entry = { ...readRunIndex(store), asksAt: 0 };
     kept.set(store, entry);
   }
@@ -318,41 +372,183 @@ export function loadRunIndex(store: Store): RunIndex {
 }
 
 /**
- * Counts into the index the call events written since it last counted, up to the one numbered
- * `calls`, and classifies the runs they belong to and their children again, in place: their kind and
- * outcome read the counts, their filing as an attempt never does. False when an event belongs to a run
- * not in the index (a run added since, whose counter the next look sees too): the index is read whole.
+ * Takes into the index what was written since it last stood as `entry` says, up to `v`: false when
+ * it can't (the store keeps no log of runs written, or one gone past what the log keeps, or too many
+ * runs written to be worth it, or an event of a run it doesn't know), and the index is read whole.
  */
-function grow(store: Store, entry: KeptIndex, calls: number): boolean {
+function patch(store: Store, entry: KeptIndex, v: Version): boolean {
+  const runsMoved = v.runs !== entry.runs;
+  const fixesMoved = v.fixes !== entry.fixes;
+  let written: string[] = [];
+  if (runsMoved) {
+    if (v.seq === null || entry.seq === null || v.seq <= entry.seq) return false;
+    const rows = store.query(CHANGES_SQL, entry.seq, v.seq);
+    // The log keeps the last few thousand writes: one gone since the index looked, and it is read whole.
+    if (!rows.length || Number(rows[0]!.seq) !== entry.seq + 1) return false;
+    written = [...new Set(rows.map((r) => String(r.id)))];
+    if (written.length > PATCH_MAX) return false;
+  }
+  // Fewer events than were counted: a run's deletion took some out, and a call written since may have
+  // taken the number of one of them. Read whole.
+  const calls = v.calls;
+  if (calls < entry.callsAt) return false;
   const index = entry.index;
-  const rows = store.query(GROWN_SQL, entry.callsAt, calls);
-  if (rows.some((row) => !index.byId.has(String(row.id)))) return false;
-  const grown = new Set<string>();
-  for (const row of rows) {
+  // Read again: the runs written, and the children of each, whose kind reads their parent's count.
+  const again = new Set(written);
+  if (again.size) for (const r of index.runs) if (r.parentRunId !== null && again.has(r.parentRunId)) again.add(r.runId);
+  const fresh = new Map<string, ReturnType<typeof baseOf>>();
+  if (again.size) for (const row of store.query(PATCH_SQL, calls, calls, calls, calls, JSON.stringify([...again]))) fresh.set(String(row.id), baseOf(row));
+  // A run deleted: its calls' numbers may be taken by calls written since, which counting from the
+  // newest counted would miss. Read whole, as a delete is rare beside a run started or ended.
+  for (const id of again) if (!fresh.has(id) && index.byId.has(id)) return false;
+  // The other runs count the events written since; a run read again has its own counted to `calls`.
+  const grown = calls > entry.callsAt ? store.query(GROWN_SQL, entry.callsAt, calls).filter((row) => !again.has(String(row.id))) : [];
+  if (grown.some((row) => !index.byId.has(String(row.id)))) return false;
+  // From here on the index changes: nothing below gives up.
+  const changed = new Set<string>();
+  for (const row of grown) {
     const r = index.byId.get(String(row.id))!;
-    grown.add(r.runId);
     if (Number(row.start) === 1) {
       r.calls++;
       if (Number(row.judge) !== 1) r.agentCalls++;
     }
     if (Number(row.injected) === 1) r.injected = true;
     if (Number(row.offline) === 1) r.offline = true;
+    changed.add(r.runId);
   }
-  if (grown.size) {
-    for (const r of index.runs) {
-      if (!grown.has(r.runId) && !(r.parentRunId !== null && grown.has(r.parentRunId))) continue;
-      const { kind, outcome, failed, label } = classified(r, r.parentRunId ? index.byId.get(r.parentRunId) : undefined, r.rescues);
-      Object.assign(r, { kind, outcome, failed, label });
+  for (const id of again) {
+    const b = fresh.get(id);
+    const old = index.byId.get(id);
+    // Written and deleted between two looks: never in the index.
+    if (!b) continue;
+    if (old) {
+      // What the user asked is kept while what it was worked out from stands.
+      const ask = askKeyOf(old) === askKeyOf(b) ? old.ask : undefined;
+      Object.assign(old, b, { ask, source: captureSource({ command: { argv: b.argv }, meta: { imported: b.meta.imported } }) });
+    } else {
+      index.byId.set(id, { ...b, kind: 'recording', attemptOf: null, attemptKind: null, bundled: false, rescues: null, outcome: { kind: 'none' }, failed: false, label: '', source: captureSource({ command: { argv: b.argv }, meta: { imported: b.meta.imported } }), ask: undefined });
+    }
+    changed.add(id);
+  }
+  // The fixes changed: which check lists each run failing, read again for every run.
+  if (fixesMoved) {
+    const best = new Map<string, { check: string | null; applied: boolean; opened: number }>();
+    for (const row of store.query(FIX_CHECKS_SQL)) {
+      const id = String(row.id);
+      const cand = { check: str(row.check_text), applied: Number(row.applied) === 1, opened: Number(row.opened) };
+      const had = best.get(id);
+      // As INDEX_SQL orders them: a fix not applied first, then the newest opened.
+      if (!had || (had.applied && !cand.applied) || (had.applied === cand.applied && cand.opened > had.opened)) best.set(id, cand);
+    }
+    for (const r of index.byId.values()) {
+      const check = best.get(r.runId)?.check ?? null;
+      if (check === r.fixCheck) continue;
+      r.fixCheck = check;
+      changed.add(r.runId);
     }
   }
+  if (changed.size) settle(entry, changed, again.size > 0);
+  entry.runs = v.runs;
+  entry.fixes = v.fixes;
+  if (v.seq !== null) entry.seq = v.seq;
   entry.callsAt = calls;
   index.events = calls;
   return true;
 }
 
+/**
+ * Classifies again the runs `changed` touched, with their children and the probe each rescued fork
+ * names, and files every run as an attempt again; `listed`: runs came, went or were read again, so
+ * the list is put back in order. Classification and filing are what a whole read does for each.
+ */
+function settle(entry: KeptIndex, changed: Set<string>, listed: boolean): void {
+  const index = entry.index;
+  if (listed) {
+    index.runs = [...index.byId.values()].sort((a, b) => b.startedAt - a.startedAt || (a.runId < b.runId ? 1 : a.runId > b.runId ? -1 : 0));
+    index.revision++;
+  }
+  // The fork each blame rescued its run with, which shows as a fork of its own.
+  const rescued = new Map<string, string>();
+  for (const r of index.runs) if (r.meta.blame?.rescuedRunId) rescued.set(r.meta.blame.rescuedRunId, r.runId);
+  for (const r of index.runs) {
+    const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
+    if (rescues === r.rescues) continue;
+    r.rescues = rescues;
+    changed.add(r.runId);
+  }
+  let refile = listed;
+  for (const r of index.runs) {
+    if (!changed.has(r.runId) && !(r.parentRunId !== null && changed.has(r.parentRunId))) continue;
+    const c = classified(r, r.parentRunId ? index.byId.get(r.parentRunId) : undefined, r.rescues);
+    Object.assign(r, { kind: c.kind, outcome: c.outcome, failed: c.failed, label: c.label });
+    const was = entry.filing.get(r.runId);
+    if (was?.attemptOf !== c.attemptOf || was.attemptKind !== c.attemptKind) refile = true;
+    entry.filing.set(r.runId, { attemptOf: c.attemptOf, attemptKind: c.attemptKind });
+  }
+  // Calls counted in change no run's filing: a recording's poll files nothing again.
+  if (refile) {
+    file(index, entry.filing);
+    index.revision++;
+  }
+}
+
+/**
+ * Files each run under the run it is an attempt of, as classification has it (`filing`), oldest
+ * first so each run's attempts come in the order they were made, and counts the runs and attempts.
+ */
+function file(index: RunIndex, filing: Map<string, Filing>): void {
+  const attempts = new Map<string, IndexedRun[]>();
+  let bundled = 0;
+  for (let i = index.runs.length - 1; i >= 0; i--) {
+    const r = index.runs[i]!;
+    const f = filing.get(r.runId);
+    r.attemptOf = f?.attemptOf ?? null;
+    r.attemptKind = f?.attemptKind ?? null;
+    r.bundled = false;
+    if (!r.attemptKind || !r.attemptOf || !index.byId.has(r.attemptOf)) continue;
+    // A test's attempt is filed only under a test run of the same golden and session that replayed
+    // the same recording and is no attempt itself: one naming any other run (a pack can carry
+    // anything) must not hide under it, or be deleted with it, and is listed as a run of its own.
+    // The engine's rule, as `shadowlap rm` bundles attempts.
+    if (r.attemptKind === 'test' && !filedTestAttempt(classifiable(r), classifiable(index.byId.get(r.attemptOf)!))) {
+      r.attemptOf = null;
+      r.attemptKind = null;
+      continue;
+    }
+    r.bundled = true;
+    bundled++;
+    const list = attempts.get(r.attemptOf);
+    if (list) list.push(r);
+    else attempts.set(r.attemptOf, [r]);
+  }
+  index.attempts = attempts;
+  index.counts = { runs: index.runs.length - bundled, attempts: bundled };
+}
+
 /** A run's call counts as INDEX_SQL reads them. */
 function countsOf(row: Record<string, unknown>): Pick<IndexedRun, 'calls' | 'agentCalls' | 'injected' | 'offline'> {
   return { calls: Number(row.calls), agentCalls: Number(row.calls) - Number(row.judge_calls), injected: Number(row.injected) === 1, offline: Number(row.offline) === 1 };
+}
+
+/** A run's row as INDEX_SQL and PATCH_SQL read it: its columns, its counts and its metadata. */
+function baseOf(row: Record<string, unknown>) {
+  const command = json(row.command);
+  const argv = isObject(command) && Array.isArray(command.argv) ? command.argv.filter((a): a is string => typeof a === 'string') : [];
+  const divCall = num(row.div_call);
+  return {
+    runId: String(row.id),
+    parentRunId: str(row.parent),
+    mode: row.mode as RunMode,
+    status: row.status as RunStatus,
+    divergence: divCall !== null ? { callNo: divCall, type: str(row.div_type) ?? '' } : null,
+    argv,
+    codeVersion: str(row.code),
+    startedAt: Number(row.started),
+    endedAt: num(row.ended),
+    ...countsOf(row),
+    meta: readMeta(row),
+    fixCheck: str(row.fix_check),
+  };
 }
 
 type BaseRun = Pick<IndexedRun, 'runId' | 'parentRunId' | 'mode' | 'status' | 'divergence' | 'meta' | 'agentCalls' | 'injected' | 'offline' | 'fixCheck'>;
@@ -376,69 +572,35 @@ export function keepingIndex<T>(_store: Store, write: () => T): T {
   return write();
 }
 
-/** Every run read and classified, and where the store stood as they were read: its runs and fixes counters, and its newest call event. */
-function readRunIndex(store: Store): { index: RunIndex; version: string; callsAt: number } {
-  const rows = store.query(INDEX_SQL);
+/** Every run read and classified, and where the store stood as they were read: its counters, its newest run written and its newest call event. */
+function readRunIndex(store: Store): Omit<KeptIndex, 'asksAt'> {
+  const log = keepsLog(store);
+  const rows = store.query(indexSql(log));
   // No runs, no version read with them: the counters as they are now (no run, so no call event to count).
-  const at = rows[0] ? { version: `${String(rows[0].v_runs)}|${String(rows[0].v_fixes)}`, calls: Number(rows[0].v_calls) } : versionOf(store);
-  const base = rows.map((row) => {
-    const command = json(row.command);
-    const argv = isObject(command) && Array.isArray(command.argv) ? command.argv.filter((a): a is string => typeof a === 'string') : [];
-    const divCall = num(row.div_call);
-    return {
-      runId: String(row.id),
-      parentRunId: str(row.parent),
-      mode: row.mode as RunMode,
-      status: row.status as RunStatus,
-      divergence: divCall !== null ? { callNo: divCall, type: str(row.div_type) ?? '' } : null,
-      argv,
-      codeVersion: str(row.code),
-      startedAt: Number(row.started),
-      endedAt: num(row.ended),
-      ...countsOf(row),
-      meta: readMeta(row),
-      fixCheck: str(row.fix_check),
-    };
-  });
+  const at: Version = rows[0] ? { runs: String(rows[0].v_runs), fixes: String(rows[0].v_fixes), calls: Number(rows[0].v_calls), seq: log && rows[0].v_seq !== null ? Number(rows[0].v_seq) : null } : versionOf(store);
+  const base = rows.map(baseOf);
   const baseById = new Map(base.map((r) => [r.runId, r]));
   // The fork each blame rescued its run with: a probe that shows as a fork of its own.
   const rescued = new Map<string, string>();
   for (const r of base) if (r.meta.blame?.rescuedRunId) rescued.set(r.meta.blame.rescuedRunId, r.runId);
 
+  const filing = new Map<string, Filing>();
   const runs: IndexedRun[] = base.map((r) => {
     const rescues = r.meta.probe ? (rescued.get(r.runId) ?? null) : null;
+    const c = classified(r, r.parentRunId ? baseById.get(r.parentRunId) : undefined, rescues);
+    filing.set(r.runId, { attemptOf: c.attemptOf, attemptKind: c.attemptKind });
     return {
       ...r,
-      ...classified(r, r.parentRunId ? baseById.get(r.parentRunId) : undefined, rescues),
+      ...c,
       bundled: false,
       rescues,
       source: captureSource({ command: { argv: r.argv }, meta: { imported: r.meta.imported } }),
       ask: undefined,
     };
   });
-  const byId = new Map(runs.map((r) => [r.runId, r]));
-  const attempts = new Map<string, IndexedRun[]>();
-  let bundled = 0;
-  // Oldest first, so each run's attempts come in the order they were made.
-  for (let i = runs.length - 1; i >= 0; i--) {
-    const r = runs[i]!;
-    if (!r.attemptKind || !r.attemptOf || !byId.has(r.attemptOf)) continue;
-    // A test's attempt is filed only under a test run of the same golden and session that replayed
-    // the same recording and is no attempt itself: one naming any other run (a pack can carry
-    // anything) must not hide under it, or be deleted with it, and is listed as a run of its own.
-    // The engine's rule, as `shadowlap rm` bundles attempts.
-    if (r.attemptKind === 'test' && !filedTestAttempt(classifiable(r), classifiable(byId.get(r.attemptOf)!))) {
-      r.attemptOf = null;
-      r.attemptKind = null;
-      continue;
-    }
-    r.bundled = true;
-    bundled++;
-    const list = attempts.get(r.attemptOf);
-    if (list) list.push(r);
-    else attempts.set(r.attemptOf, [r]);
-  }
-  return { index: { runs, byId, attempts, counts: { runs: runs.length - bundled, attempts: bundled }, events: at.calls }, version: at.version, callsAt: at.calls };
+  const index: RunIndex = { runs, byId: new Map(runs.map((r) => [r.runId, r])), attempts: new Map(), counts: { runs: runs.length, attempts: 0 }, events: at.calls, revision: 0 };
+  file(index, filing);
+  return { index, runs: at.runs, fixes: at.fixes, seq: at.seq, callsAt: at.calls, filing };
 }
 
 /** How many ancestors a run has in the store (0 for a recording, 1 for its fork, …). */

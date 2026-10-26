@@ -63,6 +63,29 @@ describe('write counters', () => {
     expect(store.changeCounts().events).toBe(1);
     store.close();
   });
+
+  it('log which run each write to the runs table touched, in order, keeping the last few thousand', () => {
+    const store = Store.open(':memory:');
+    const log = () => store.query('SELECT seq, run_id AS id FROM run_changes ORDER BY seq').map((r) => ({ seq: Number(r.seq), id: String(r.id) }));
+    const one = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } }).runId;
+    const two = store.createRun({ mode: 'replay', parentRunId: one, command: { argv: ['node', 'agent.js'], cwd: '.' } }).runId;
+    store.updateRunMeta(one, { labels: ['bug'] });
+    store.endRun(two, 'completed');
+    store.deleteRun(one);
+    // Its creation, its label, the replay's creation and end; then the run deleted, and the replay it left without a parent.
+    const ids = log().map((e) => e.id);
+    expect(ids.slice(0, 4)).toEqual([one, two, one, two]);
+    expect(ids.slice(4)).toEqual(expect.arrayContaining([one, two]));
+    // In the order written, each numbered after the one before.
+    const seqs = log().map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    // A store written for long keeps the last few thousand: a reader further behind reads every run.
+    for (let i = 0; i < 10_000; i++) store.updateRunMeta(two, { labels: [`l${i % 3}`] });
+    const kept = log();
+    expect(kept.length).toBeLessThanOrEqual(8192 + 1024);
+    expect(kept.at(-1)!.seq - kept[0].seq).toBe(kept.length - 1);
+    store.close();
+  });
 });
 
 describe('packs', () => {

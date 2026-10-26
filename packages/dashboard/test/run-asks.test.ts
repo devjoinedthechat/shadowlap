@@ -35,9 +35,10 @@ describe('what recordings’ users asked, with the run index', () => {
     expect(after.byId.get(ids[0])!.ask).toEqual({ text: 'A customer asks for a refund of order A-1131', agent: false, batch: false });
     // Another process's store opened afresh reads it with the index, and reads no request for it.
     expect(store.query('SELECT COUNT(*) AS n FROM run_asks')).toEqual([{ n: 1 }]);
-    // Any change to a run still has the index read again.
+    // A change to a run is taken into the index in place: what the others asked stays.
     store.updateRunMeta(ids[1], { labels: ['refunds'] });
-    expect(loadRunIndex(store)).not.toBe(index);
+    expect(loadRunIndex(store)).toBe(index);
+    expect(index.byId.get(ids[1])!.meta.labels).toEqual(['refunds']);
     expect(loadRunIndex(store).byId.get(ids[0])!.ask?.text).toBe('A customer asks for a refund of order A-1131');
     store.close();
   });

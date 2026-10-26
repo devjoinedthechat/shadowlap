@@ -537,10 +537,10 @@ describe('the run index', () => {
       const rec = addRun(here, { startedAt: NOW - DAY, calls: 'll' });
       const first = loadRunIndex(here);
       expect(loadRunIndex(here)).toBe(first);
-      // Another process records a run: this one sees it on its next read.
+      // Another process records a run: this one sees it on its next read, taken into the index it has.
       const theirs = addRun(other, { startedAt: NOW, calls: 'l' });
       const second = loadRunIndex(here);
-      expect(second).not.toBe(first);
+      expect(second).toBe(first);
       expect(second.byId.has(theirs)).toBe(true);
       expect(loadRunIndex(here)).toBe(second);
       // So does a write of its own.

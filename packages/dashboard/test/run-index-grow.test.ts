@@ -1,20 +1,25 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Store, type CallKind } from '@shadowlap/engine';
+import { recordBlame, Store, type CallKind } from '@shadowlap/engine';
+import { blameReport, EXPECT } from '../../engine/test/fix-fixtures.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { addRun, HOUR } from './read-model-store.js';
 
 /**
- * The run index is read whole when a run, a fix or a link changes, and when only calls are added
- * (a run recording, a replay making its calls) what they add is counted into the runs they belong
- * to, which are classified again with their children: the status bar asks for the counts every two
- * seconds while a run records, and reading every run of a big store again for each call held the
- * server's thread for 82 ms a poll at 10,000 runs. What it counts must be what a whole read finds.
+ * The run index takes what was written into the index it has: calls added (a run recording, a
+ * replay making its calls) are counted into the runs they belong to, runs written (started, ended,
+ * labelled, filed) are read again as the store's log of runs written names them, and a fix changed
+ * reads again which check lists each run failing; the runs touched are classified again with their
+ * children. The status bar asks for the counts every two seconds, and reading every run of a big
+ * store again held the server's thread 82 ms a poll while a run recorded, and 137 ms while a session
+ * wrote a run a second, at 10,000 runs. What it holds must be what a whole read finds.
  */
 
 const T = Date.parse('2026-10-20T12:00:00Z');
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: new (path: string) => { exec(sql: string): void; close(): void } };
 
 let dir: string;
 let writer: Store;
@@ -40,6 +45,16 @@ function call(runId: string, o: { kind?: CallKind; scope?: string; outcome?: 'ok
   writer.appendCallStart({ runId, callNo, ...identity, origin: 'live', effect: kind === 'tool' ? 'read' : null, requestRef: null, meta: o.scope ? { scope: o.scope } : {}, at: T + callNo * 10 });
   if (!o.open) writer.appendCallEnd(identity, { runId, callNo, attempt: 0, responseRef: null, outcome: o.outcome ?? 'ok', meta: { latencyMs: 5, ...(o.endMeta ?? {}) }, at: T + callNo * 10 + 5 });
   return callNo;
+}
+
+/** Works on the store's file through SQLite itself, as another program could. */
+function raw(work: (db: { exec(sql: string): void }) => void): void {
+  const db = new DatabaseSync(join(dir, 'shadowlap.db'));
+  try {
+    work(db);
+  } finally {
+    db.close();
+  }
 }
 
 /** The index as a connection that never read it reads it: whole. */
@@ -108,22 +123,77 @@ describe('the run index while calls are added', () => {
     expect(index.runs).toEqual(fresh().runs);
   });
 
-  it('reads the index whole when a run is added, changes or goes, or a fix changes', () => {
-    const one = addRun(writer, { startedAt: T - 2 * HOUR, calls: 'll' });
+  it('takes runs started, ended, relabelled and filed, and a fix linked, into the index it has, reading only those runs', () => {
+    const lost = addRun(writer, { startedAt: T - 3 * HOUR, calls: 'lll', status: 'failed' });
     const first = loadRunIndex(reader);
+    // Every statement the index reads with from here: none reads every run again.
+    const read: string[] = [];
+    const query = reader.query.bind(reader);
+    reader.query = ((sql: string, ...params: Parameters<Store['query']>[1][]) => (read.push(sql), query(sql, ...params)));
+    const wholeReads = () => read.filter((sql) => /ORDER BY r\.started_at DESC/.test(sql)).length;
+
+    // A run starts and records, and ends.
     const two = addRun(writer, { startedAt: T - HOUR, calls: 'lll', status: 'running' });
+    expect(loadRunIndex(reader)).toBe(first);
+    expect(first.byId.get(two)).toMatchObject({ calls: 3, status: 'running' });
+    expect(first.runs.map((r) => r.runId)).toEqual([two, lost]);
+    writer.endRun(two, 'completed', T);
+    expect(loadRunIndex(reader)).toBe(first);
+    expect(first.byId.get(two)?.status).toBe('completed');
+    // A label, then blame's probes: one filed under the run it probes, then the fork it rescued the run with.
+    writer.updateRunMeta(two, { labels: ['good'] });
+    const probe = addRun(writer, { parent: lost, startedAt: T - 2 * HOUR, divergence: 2, calls: 'rrl', meta: { probe: { of: lost, callNo: 2, passed: true }, repeat: { group: 'b1-2', attempt: 1, of: 2 } } });
+    expect(loadRunIndex(reader)).toBe(first);
+    expect(first.byId.get(two)?.meta.labels).toEqual(['good']);
+    expect(first.attempts.get(lost)?.map((r) => r.runId)).toEqual([probe]);
+    writer.updateRunMeta(lost, { blame: { at: T, outcome: 'blamed', callNo: 2, confidence: 'high', rescuedRunId: probe, fields: {}, oracle: [], probes: [], spent: 0.1 } as never });
+    loadRunIndex(reader);
+    expect(first.byId.get(probe)?.rescues).toBe(lost);
+    // A fix that lists the run among its failing runs: its check is what it failed.
+    recordBlame(writer, { runId: lost, report: blameReport(lost), expect: EXPECT, scope: null, command: 'shadowlap blame x', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}' });
+    expect(loadRunIndex(reader)).toBe(first);
+    expect(first.byId.get(lost)?.fixCheck).toBe('issue_refund never called with {"amount":240}');
+
+    // All of it as a whole read finds it, and not one whole read made.
+    const whole = fresh();
+    expect(first.runs).toEqual(whole.runs);
+    expect(first.attempts).toEqual(whole.attempts);
+    expect(first.counts).toEqual(whole.counts);
+    expect(wholeReads()).toBe(0);
+  });
+
+  it('reads the index whole when a run goes, when the store keeps no log of runs written, or the log has gone past what it read', () => {
+    const one = addRun(writer, { startedAt: T - 2 * HOUR, calls: 'll' });
+    const two = addRun(writer, { startedAt: T - HOUR, calls: 'lll' });
+    const first = loadRunIndex(reader);
+    writer.deleteRun(one);
     const second = loadRunIndex(reader);
     expect(second).not.toBe(first);
-    expect(second.byId.get(two)?.calls).toBe(3);
-    writer.endRun(two, 'completed', T);
+    expect(second.byId.has(one)).toBe(false);
+    expect(second.runs).toEqual(fresh().runs);
+    // The log has gone past what the index read: the oldest writes since it looked trimmed, as the log
+    // trims itself to the last few thousand.
+    for (const label of ['a', 'b', 'c']) writer.updateRunMeta(two, { labels: [label] });
+    raw((db) => db.exec(`DELETE FROM run_changes WHERE seq < (SELECT MAX(seq) FROM run_changes)`));
     const third = loadRunIndex(reader);
     expect(third).not.toBe(second);
-    expect(third.byId.get(two)?.status).toBe('completed');
-    writer.deleteRun(one);
-    const fourth = loadRunIndex(reader);
-    expect(fourth).not.toBe(third);
-    expect(fourth.byId.has(one)).toBe(false);
-    expect(fourth.runs).toEqual(fresh().runs);
+    expect(third.byId.get(two)?.meta.labels).toEqual(['c']);
+    expect(third.runs).toEqual(fresh().runs);
+  });
+
+  it('reads the index whole on a store that keeps no log of runs written, as a build from before it leaves one', () => {
+    const one = addRun(writer, { startedAt: T - 2 * HOUR, calls: 'll' });
+    raw((db) => db.exec(`DROP TRIGGER run_changes_insert; DROP TRIGGER run_changes_update; DROP TRIGGER run_changes_delete; DROP TRIGGER run_changes_trim; DROP TABLE run_changes`));
+    const old = Store.openReadOnly(join(dir, 'shadowlap.db'));
+    try {
+      const first = loadRunIndex(old);
+      writer.updateRunMeta(one, { labels: ['good'] });
+      const second = loadRunIndex(old);
+      expect(second).not.toBe(first);
+      expect(second.byId.get(one)?.meta.labels).toEqual(['good']);
+    } finally {
+      old.close();
+    }
   });
 
   it('counts the calls of a run added while it read the index once the next look reads it whole', () => {

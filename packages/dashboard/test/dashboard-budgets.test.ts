@@ -214,6 +214,66 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
     }
   }, TIMEOUT);
 
+  it('keeps the status bar’s poll a few milliseconds of the server’s thread while a session writes runs, and labels them', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    // A session in a thread of its own, as a test session or a verify writes from another process:
+    // a run started, a call, the run ended, then a label on the run before it, every 50 ms.
+    const script = join(dir, 'session.mjs');
+    writeFileSync(
+      script,
+      [
+        `import { parentPort, workerData } from 'node:worker_threads';`,
+        `import { Store } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../../engine/dist/index.js')).href)};`,
+        'const store = Store.open(workerData.dbPath);',
+        'let n = 0, last = null;',
+        'const t = setInterval(() => {',
+        "  const run = store.createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: '/work' }, startedAt: Date.now() });",
+        "  const identity = { kind: 'tool', name: 'lookup_order', fingerprint: 's' + n, occurrence: 1 };",
+        "  store.appendCallStart({ runId: run.runId, callNo: 1, ...identity, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: Date.now() });",
+        "  store.appendCallEnd(identity, { runId: run.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 1 }, at: Date.now() });",
+        "  store.endRun(run.runId, 'completed', Date.now());",
+        "  if (last) store.updateRunMeta(last, { labels: ['session'] });",
+        '  last = run.runId;',
+        "  if (++n === workerData.runs) { clearInterval(t); store.close(); parentPort.postMessage(n); }",
+        '}, 50);',
+      ].join('\n'),
+    );
+    try {
+      await ask(d, 'meta');
+      await untilWhole(d);
+      const runsBefore = Number((await ask(d, 'meta')).body.counts.runs);
+      const RUNS_WRITTEN = 40;
+      const session = new Worker(script, { workerData: { dbPath, runs: RUNS_WRITTEN } });
+      const written = new Promise<number>((resolve, reject) => {
+        session.once('message', resolve);
+        session.once('error', reject);
+      });
+      const busy: number[] = [];
+      let done = false;
+      void written.then(() => (done = true));
+      const t = await onServerThread(async () => {
+        while (!done) {
+          const before = performance.eventLoopUtilization();
+          expect((await ask(d, 'meta')).status).toBe(200);
+          busy.push(performance.eventLoopUtilization(before).active);
+          await wait(20);
+        }
+        return written;
+      });
+      expect(t.out).toBe(RUNS_WRITTEN);
+      said(`/api/meta while a session wrote ${RUNS_WRITTEN} runs into ${RUNS} runs: ${busy.length} polls, each costing the server's thread ${median(busy).toFixed(1)} ms (median)`, t);
+      // Each poll took in the runs written since: a few milliseconds, not a read of every run (80 ms here, 137 in the review).
+      expect(busy.length).toBeGreaterThan(10);
+      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
+      expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + RUNS_WRITTEN);
+      await session.terminate();
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
   it('keeps the status bar’s poll a few milliseconds of the server’s thread while a run records', async () => {
     const store = Store.open(dbPath);
     const d = await startDashboard({ store, dbPath, port: 0 });
@@ -239,6 +299,8 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       // As a browser finds it: the threads started, the run index read, the totals kept by the test before.
       await ask(d, 'meta');
       await untilWhole(d);
+      // The runs before it: those the tests before this one wrote into the store too.
+      const runsBefore = Number((await ask(d, 'meta')).body.counts.runs);
       const CALLS = 60;
       const recorder = new Worker(script, { workerData: { dbPath, calls: CALLS } });
       const recorded = new Promise<number>((resolve, reject) => {
@@ -265,7 +327,7 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       expect(metas.length).toBeGreaterThan(20);
       expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
       expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
-      expect((await ask(d, 'meta')).body.counts.runs).toBe(RUNS + 1);
+      expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + 1);
       await recorder.terminate();
     } finally {
       await d.close();

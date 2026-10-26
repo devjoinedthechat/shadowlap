@@ -268,9 +268,10 @@ describe('kept totals', () => {
     runStats(store, index, [index.byId.get(rec)!]);
     expect(store.query(`SELECT COUNT(*) AS n FROM run_stats`)).toEqual([{ n: 1 }]);
     expect(loadRunIndex(store)).toBe(index);
-    // Any other write still makes the next read classify the runs again.
+    // Any other write to a run is taken into the index in place.
     store.updateRunMeta(rec, { labels: ['bug'] });
-    expect(loadRunIndex(store)).not.toBe(index);
+    expect(loadRunIndex(store)).toBe(index);
+    expect(index.byId.get(rec)!.meta.labels).toEqual(['bug']);
   });
 
   it('read the index again when another process wrote while they were kept', () => {
@@ -285,8 +286,8 @@ describe('kept totals', () => {
         theirs = addRun(other, { startedAt: NOW, calls: 'l' });
         return here.saveRunStats([]);
       });
-      expect(loadRunIndex(here)).not.toBe(index);
-      expect(loadRunIndex(here).byId.has(theirs)).toBe(true);
+      expect(loadRunIndex(here)).toBe(index);
+      expect(index.byId.has(theirs)).toBe(true);
     } finally {
       here.close();
       other.close();
