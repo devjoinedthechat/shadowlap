@@ -245,7 +245,8 @@ describe('read models on threads beside the server', () => {
       const late = stuck.run({ kind: 'calls', runId: 'R', read: {}, from: 1, limit: 500 }, { affinity: 'R' });
       // Asked while the thread is stuck: answered once it has been ended, by the next one.
       const after = stuck.run({ kind: 'recent', read: {} });
-      await expect(late).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/^a calls job took more than 0\.3 s, so it was stopped/) });
+      // What happened, and no advice the page can't follow ("ask for less"): each page says what it can do instead.
+      await expect(late).rejects.toMatchObject({ status: 503, message: 'a calls job took more than 0.3 s, so it was stopped' });
       expect(Date.now() - t0).toBeLessThan(5000);
       const next = JSON.parse((await after).body) as { thread: number };
       expect(next.thread).not.toBe(first.thread);

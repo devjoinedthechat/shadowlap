@@ -349,7 +349,7 @@ export class ReadPool implements ReadModels {
     this.o.log?.(`a read-model thread stopped: ${why}`);
     // A thread that can't open the store fails each job given to it, one at a time, and the warm-up
     // stops at its first: what waits drains, and nothing starts threads for good.
-    busy?.reject(late ? new HttpError(503, `${why}, so it was stopped: try again, or ask for less`) : new Error(`the read model's thread stopped: ${why}`));
+    busy?.reject(late ? new HttpError(503, `${why}, so it was stopped`) : new Error(`the read model's thread stopped: ${why}`));
     this.dispatch();
   }
 

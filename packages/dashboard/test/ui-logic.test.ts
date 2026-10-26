@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatTokens } from '../../engine/src/tokens.js';
+import { labelTerm } from '../src/links.js';
 import { forkMenu, forkMenuTitle, menuFlag, menuLabel, type ActionLike } from '../ui/actions.js';
 import { backoffSeconds, isUnreachable } from '../ui/backoff.js';
 import { cacheMisses, cacheNote, cacheReadShare, missStat, type UsageCall } from '../ui/cache.js';
@@ -485,6 +486,19 @@ describe('runs', () => {
     expect(matchesText(labelled, 'label:refund')).toBe(false);
     expect(matchesText(labelled, 'clean label:refund-flow')).toBe(true);
     expect(matchesText(labelled, 'label:Good')).toBe(false);
+    // A label with a space in it: its chip quotes it, and the link it writes lists the runs labelled so.
+    const spaced = { ...clean, labels: ['needs review'] };
+    expect(labelTerm('needs review')).toBe('label:"needs review"');
+    expect(labelTerm('refund-flow')).toBe('label:refund-flow');
+    const link = href.runs({ q: labelTerm('needs review') });
+    const route = parseRoute(link);
+    const q = route.page === 'runs' ? (route.filter?.q ?? '') : '';
+    expect(q).toBe('label:"needs review"');
+    expect(matchesText(spaced, q)).toBe(true);
+    expect(matchesText(spaced, 'label:"needs review" clean')).toBe(true);
+    expect(matchesText({ ...clean, labels: ['needs'] }, q)).toBe(false);
+    // Unquoted, it is the label `needs` and the word `review`, as typed.
+    expect(matchesText(spaced, 'label:needs review')).toBe(false);
   });
 
   it('says attempts are bundled only when the run list tells them apart', () => {

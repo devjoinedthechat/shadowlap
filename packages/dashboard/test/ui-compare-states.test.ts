@@ -157,6 +157,21 @@ describe('two runs named', () => {
     await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.changes').length > 0);
   });
 
+  it('keeps the head when the rest can’t be worked out in the time a request has, and says how to work it out', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    const head: CompareHead = { a: { runId: REC, calls: 100_000 }, b: { runId: FORK, calls: 100_000 }, identicalPrefix: 99_976, firstRequestDifference: { callNo: 99_977, kind: 'api', name: 'POST /v1/messages', diff: [{ path: '$.system', op: 'changed', before: 'Be thorough.', after: 'Be brief.', what: 'system prompt' }] }, onlyInA: 0, onlyInB: 0, answersDiffer: 0 };
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compareHead: () => Promise.resolve(head), compare: () => Promise.reject(new ApiError(503, 'a compare job took more than 2 minutes, so it was stopped')) };
+    page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
+    await page.until('the answer', () => page!.all('.cmpwait').some((w) => w.textContent.includes('could not')));
+    expect(page.one('.prefix').textContent).toBe('#1–#99,976 identical. The first request that differs is #99977.');
+    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#99977 in 01M5GRVTKS', '#99977 in 01M5GRXFM1']);
+    expect(page.one('.cmpwait[role="status"] p').textContent).toBe(
+      'The rest, what changed between the two runs and where each went from #99977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
+    );
+    expect(page.one('.cmpwait .cmdline').textContent).toBe('$shadowlap diff 01M5GRVTKS 01M5GRXFM1');
+    expect(page.all('.empty')).toEqual([]);
+  });
+
   it('names the run the store doesn’t hold, and the side to pick again', async () => {
     addressBar(`#/compare/${REC}/${GONE}`);
     const client = { run: (id: string) => (id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(404, 'one of the runs does not exist')) };

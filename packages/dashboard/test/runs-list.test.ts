@@ -171,6 +171,20 @@ describe('the Runs table', () => {
     expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'] });
   });
 
+  it('lists the runs with a label that has a space in it, quoted as its chip writes it', () => {
+    const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'] });
+    labelRuns(store, [id.clean], ['needs review'], []);
+    try {
+      expect(ids('label:"needs review"')).toEqual([id.clean]);
+      expect(ids('label:"needs review" refund')).toEqual([id.clean]);
+      // Unquoted: the label `needs`, which no run has, and the word `review`.
+      expect(ids('label:needs review')).toEqual([]);
+    } finally {
+      labelRuns(store, [id.clean], [], ['needs review']);
+    }
+  });
+
   it('narrows to a date range, and the chip counts follow it', () => {
     const today = localDay(NOW, 'Europe/Berlin');
     const page = all({ from: today.start, to: today.end });
