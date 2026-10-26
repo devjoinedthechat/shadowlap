@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -94,6 +94,15 @@ export function pythonCheck(probe: (command: string) => string | null): { found:
   return { found: false, detail: 'no python3 or python on PATH' };
 }
 
+/**
+ * A URL as doctor's report names it, none of its secrets in a report someone may paste into an issue:
+ * the password in its user info and a credential in its query (maskLocation), and a sidecar's
+ * session token (`/t/<token>` on a loopback address).
+ */
+export function shownUrl(url: string): string {
+  return maskLocation(url).replace(/^(https?:\/\/(?:127(?:\.\d{1,3}){3}|localhost|\[::1\])(?::\d+)?\/t\/)[^/?#]+/i, `$1${CREDENTIAL_PLACEHOLDER}`);
+}
+
 export function runDoctor(options: DoctorOptions): Check[] {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
@@ -163,7 +172,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
       if (typeof j.runId !== 'string' || typeof j.pid !== 'number' || typeof j.url !== 'string') push('active run', 'warn', `${active} is incomplete`, 'Delete it.');
       else {
         const stale = !alive(j.pid);
-        push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId.slice(0, 10)} from a process that is gone` : `run ${j.runId.slice(0, 10)} at ${j.url} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
+        push('active run', stale ? 'warn' : 'ok', stale ? `${active} points at run ${j.runId.slice(0, 10)} from a process that is gone` : `run ${j.runId.slice(0, 10)} at ${shownUrl(j.url)} (pid ${j.pid})`, stale ? 'Delete .shadowlap/active.json; shadowlap mcp would otherwise try that sidecar first.' : undefined);
       }
     } catch {
       push('active run', 'warn', `${active} is unreadable`, 'Delete it.');
@@ -230,12 +239,12 @@ export function runDoctor(options: DoctorOptions): Check[] {
 
   // Environment that changes routing
   const upstreams = Object.entries(env).filter(([k, v]) => k.startsWith('SHADOWLAP_UPSTREAM_') && v);
-  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${v!}`).join(' '));
+  if (upstreams.length) push('upstream overrides', 'ok', upstreams.map(([k, v]) => `${k}=${shownUrl(v!)}`).join(' '));
   const baseUrls = ['ANTHROPIC_BASE_URL', 'OPENAI_BASE_URL', 'GOOGLE_GEMINI_BASE_URL'].filter((k) => env[k]);
-  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${env[k]!}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
-  if (env.SHADOWLAP_URL) push('SHADOWLAP_URL', 'warn', `${env.SHADOWLAP_URL} (run ${env.SHADOWLAP_RUN_ID ?? '?'})`, 'Set by shadowlap run for the agent; SDK calls made from this shell would go to that sidecar.');
+  if (baseUrls.length && !env.SHADOWLAP_URL) push('provider base URLs', 'warn', baseUrls.map((k) => `${k}=${shownUrl(env[k]!)}`).join(' '), 'shadowlap run points the agent at its sidecar and forwards these providers\' calls to the URLs set here (SHADOWLAP_UPSTREAM_<PROVIDER> takes precedence). Check they are what you expect.');
+  if (env.SHADOWLAP_URL) push('SHADOWLAP_URL', 'warn', `${shownUrl(env.SHADOWLAP_URL)} (run ${env.SHADOWLAP_RUN_ID ?? '?'})`, 'Set by shadowlap run for the agent; SDK calls made from this shell would go to that sidecar.');
   const offTelemetry = env.SHADOWLAP_TELEMETRY === '0' || env.DO_NOT_TRACK === '1';
-  push('telemetry', 'ok', offTelemetry ? 'off (SHADOWLAP_TELEMETRY=0 or DO_NOT_TRACK=1)' : env.SHADOWLAP_TELEMETRY_URL ? `on, anonymous counts only → ${env.SHADOWLAP_TELEMETRY_URL}; SHADOWLAP_TELEMETRY=0 turns it off` : 'off: no collector configured (SHADOWLAP_TELEMETRY_URL), so nothing is sent');
+  push('telemetry', 'ok', offTelemetry ? 'off (SHADOWLAP_TELEMETRY=0 or DO_NOT_TRACK=1)' : env.SHADOWLAP_TELEMETRY_URL ? `on, anonymous counts only → ${shownUrl(env.SHADOWLAP_TELEMETRY_URL)}; SHADOWLAP_TELEMETRY=0 turns it off` : 'off: no collector configured (SHADOWLAP_TELEMETRY_URL), so nothing is sent');
   if (/node-(guard|preload)\.mjs/.test(env.NODE_OPTIONS ?? '')) push('NODE_OPTIONS', 'warn', 'contains the Shadowlap preload', 'That is the agent process configuration leaking into your shell; unset NODE_OPTIONS.');
   if ((env.PYTHONPATH ?? '').split(delimiter).some((p) => p.endsWith('guard'))) push('PYTHONPATH', 'warn', 'contains the Shadowlap guard directory', 'Unset it outside agent processes.');
 

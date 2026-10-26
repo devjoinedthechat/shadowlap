@@ -45,6 +45,30 @@ describe('shadowlap doctor', () => {
     expect(whole).toMatchObject({ verdict: 'ok', detail: `run 01ACTIVE00 at http://127.0.0.1:1/t (pid ${process.pid})` });
   });
 
+  it('names the URLs it reports without a password, a credential in a query, or a sidecar’s session token', () => {
+    dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
+    mkdirSync(join(dir, '.shadowlap'));
+    writeFileSync(join(dir, '.shadowlap', 'active.json'), JSON.stringify({ url: 'http://127.0.0.1:4100/t/SL-SESSION-TOKEN-1', runId: '01ACTIVE000000000000000000', pid: process.pid }));
+    const env = {
+      ANTHROPIC_BASE_URL: 'https://svc:SL-GATEWAY-PASSWORD@gateway.example.com/anthropic',
+      OPENAI_BASE_URL: 'https://gateway.example.com/openai?api_key=SL-QUERY-KEY',
+      SHADOWLAP_UPSTREAM_ANTHROPIC: 'https://u:SL-UPSTREAM-PASSWORD@proxy.example.com',
+      SHADOWLAP_TELEMETRY_URL: 'https://collector.example.com/v1?token=SL-TELEMETRY-TOKEN',
+    };
+    const leaked = (checks: ReturnType<typeof runDoctor>) => JSON.stringify(checks) + formatDoctor(checks, plain);
+    const checks = runDoctor({ cwd: dir, env, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });
+    expect(leaked(checks)).not.toMatch(/SL-(?:GATEWAY-PASSWORD|QUERY-KEY|UPSTREAM-PASSWORD|TELEMETRY-TOKEN|SESSION-TOKEN)/);
+    // Each still says where it points.
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName['provider base URLs']?.detail).toBe('ANTHROPIC_BASE_URL=https://svc:<CREDENTIAL>@gateway.example.com/anthropic OPENAI_BASE_URL=https://gateway.example.com/openai?api_key=<CREDENTIAL>');
+    expect(byName['upstream overrides']?.detail).toBe('SHADOWLAP_UPSTREAM_ANTHROPIC=https://u:<CREDENTIAL>@proxy.example.com');
+    expect(byName['active run']?.detail).toBe(`run 01ACTIVE00 at http://127.0.0.1:4100/t/<CREDENTIAL> (pid ${process.pid})`);
+    // A shell an agent's environment leaked into names its sidecar without the token.
+    const leakedRun = runDoctor({ cwd: dir, env: { SHADOWLAP_URL: 'http://127.0.0.1:4100/t/SL-SESSION-TOKEN-2', SHADOWLAP_RUN_ID: '01R' }, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' });
+    expect(leaked(leakedRun)).not.toContain('SL-SESSION-TOKEN-2');
+    expect(leakedRun.find((c) => c.name === 'SHADOWLAP_URL')?.detail).toBe('http://127.0.0.1:4100/t/<CREDENTIAL> (run 01R)');
+  });
+
   it('flags old Node, a broken config, a stale active run and leaked agent environment', () => {
     dir = mkdtempSync(join(tmpdir(), 'fp-doctor-'));
     mkdirSync(join(dir, '.shadowlap'));
