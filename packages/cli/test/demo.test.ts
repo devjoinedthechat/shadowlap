@@ -8,7 +8,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 /**
  * `shadowlap demo`, as `npx shadowlap demo` runs it: no key, no clone, a folder of its own, a
  * scripted model it says is scripted, and the CLI's own commands telling the refund story, from the
- * recording to the fix applied, in under a minute.
+ * recording to the fix applied. It takes about half a minute on a machine doing nothing else; the
+ * test holds it to the requests it makes, which no load stretches, not to the time it took.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const dirs: string[] = [];
@@ -34,7 +35,7 @@ function demo(args: string[]): Promise<{ code: number | null; out: string; err: 
 }
 
 describe('shadowlap demo', () => {
-  it('records the refund bug, replays it with nothing sent, blames it, repairs it and applies the fix it proved, in under a minute', async () => {
+  it('records the refund bug, replays it with nothing sent, blames it, repairs it and applies the fix it proved, asking its model fewer than 2,000 times', async () => {
     const r = await demo([]);
     expect(r.code, r.out).toBe(0);
     expect(r.out).toContain("The model is scripted, not a real one: a small server on 127.0.0.1:");
@@ -57,7 +58,9 @@ describe('shadowlap demo', () => {
     expect(r.out).toMatch(/✓ fx-\w{10} applied: the patch is in the working tree,/);
     const done = /✓ Done in (\d+) s, (\d+) requests to the scripted model, none to a real one\./.exec(r.out);
     expect(done, r.out).not.toBeNull();
-    expect(Number(done![1])).toBeLessThan(60);
+    // About 1,770 requests, which take some 30 s alone and over a minute beside a full test run: the
+    // work, not the time, is what a change to the demo would grow.
+    expect(Number(done![2])).toBeLessThan(2_000);
     // Away from a terminal every attempt keeps its line.
     expect(r.err).toMatch(/^ {4}attempt 1 {2}[✓✗]/m);
     // What a probe's line says, and where the requests went, each in a line: blame's count is its own report's.
