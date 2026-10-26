@@ -7,6 +7,7 @@ import { fixDetail, fixList } from '../src/fixes.js';
 import type { Client } from '../ui/api.js';
 import { FixPage } from '../ui/fixes/FixPage.js';
 import { FixesPage } from '../ui/pages/Fixes.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import { render, type FakeElement, type Rendered } from './ui-render.js';
 
@@ -400,5 +401,45 @@ describe('Mark applied for a change of request fields', () => {
     markFixApplied(store, fix.fixId, { patch: 'none', repairId: null, goldens: [], tests: 'skipped', via: 'fix apply' });
     await open(fix.fixId);
     expect(r!.byText('.ph .actions button', 'Marked applied').props.title).toBe('Verified on your working tree as it was, and marked applied');
+  });
+});
+
+describe('opening a fix', () => {
+  const g = globalThis as Record<string, unknown>;
+  const saved = { location: g.location, history: g.history };
+  afterEach(() => void Object.assign(g, saved));
+
+  it('hands the focus to the fix’s page, where the link it was opened with went', async () => {
+    const run = newRun({ labels: ['refund-bug'] });
+    const { fix } = blame(run);
+    // The address bar as a browser has it: a link followed sets it, and the router hears it (hashchange).
+    let hash = '#/fixes';
+    const location = {
+      pathname: '/',
+      search: '',
+      get hash() {
+        return hash;
+      },
+      set hash(to: string) {
+        hash = to;
+        window.dispatchEvent(new Event('hashchange'));
+      },
+    };
+    Object.assign(g, { location, history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => (hash = url.slice(url.indexOf('#'))) } });
+    function Routed() {
+      const route = useRoute();
+      return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'fixes' ? createElement(FixesPage, { id: route.id, step: route.step, sub: route.sub }) : null);
+    }
+    r = await render(createElement(AppContext.Provider, { value: app() }, createElement(Routed)));
+    await r.until('the list to load', () => r!.all('.pslist a').length === 1);
+    const link = r.one('.pslist a');
+    // Clicked (or Enter on it): the link has the focus, and the browser follows it.
+    await r.click(link);
+    location.hash = link.getAttribute('href')!;
+    await r.until('the fix', () => r!.all('h1').some((h) => text(h) === 'issue_refund called with amount 240'));
+    expect(hash).toBe(`#/fixes/${fix.fixId}`);
+    expect(link.isConnected).toBe(false);
+    // Not the document's body, from where Tab would start again at the top bar: the page.
+    expect(r.focused().getAttribute('id')).toBe('view');
   });
 });

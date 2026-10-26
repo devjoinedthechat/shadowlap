@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { asksConsent, consentTitle } from '../actions.js';
+import { asksConsent } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
-import { ConfirmDialog, Dialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { Icon } from '../components/Icon.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -65,9 +65,8 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
         />
       ) : null}
       {asking?.kind === 'consent' ? (
-        <ConfirmDialog
-          title={consentTitle(asking.why)}
-          text={`${asking.why}.`}
+        <ConsentDialog
+          why={asking.why}
           ok="Run blame"
           onClose={() => setAsking(null)}
           onOk={() => {

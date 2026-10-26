@@ -47,7 +47,9 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
       </Page>
     );
   if (!a || !b) return <Page>{null}</Page>;
-  return <Comparison key={`${a}:${b}`} a={a} b={b} runs={listed} />;
+  // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
+  // while what the comparison reads starts anew for the new pair (useLoad's keys).
+  return <Comparison a={a} b={b} runs={listed} />;
 }
 
 const INTRO = 'What changed first, then call by call: the identical prefix, the first request that differs, and where the paths went from there.';

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { asksConsent, consentTitle } from '../actions.js';
+import { asksConsent } from '../actions.js';
 import { ApiError, JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { CmdLine, Seg } from '../components/bits.js';
-import { ConfirmDialog, Dialog } from '../components/Dialog.js';
+import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
 import { useApp } from '../state.js';
 
@@ -76,9 +76,8 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
       </button>
       {open ? <EditDialog runId={runId} detail={detail} action={action} onFork={start} onClose={() => setOpen(false)} /> : null}
       {consent ? (
-        <ConfirmDialog
-          title={consentTitle(consent.why)}
-          text={`${consent.why}.`}
+        <ConsentDialog
+          why={consent.why}
           ok="Run"
           onClose={() => setConsent(null)}
           onOk={() => {

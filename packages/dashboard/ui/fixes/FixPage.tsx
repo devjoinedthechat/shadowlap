@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { asksConsent, consentTitle } from '../actions.js';
+import { asksConsent } from '../actions.js';
 import { JOB_KINDS, ApiError, type JobView } from '../api.js';
 import { Badge, CmdLine } from '../components/bits.js';
-import { ConfirmDialog, Dialog, PromptDialog } from '../components/Dialog.js';
+import { ConfirmDialog, ConsentDialog, Dialog, PromptDialog } from '../components/Dialog.js';
 import { Page } from '../components/Page.js';
 import { NotFoundPage } from '../pages/NotFound.js';
 import { copyText } from '../dom.js';
@@ -251,9 +251,8 @@ export function FixActions({ fix, leads = false }: { fix: FixDetail; leads?: boo
       {asking === 'repair' ? <RepairDialog fix={fix} onClose={() => setAsking(null)} onRun={(repairer) => app.guard(() => void start(JOB_KINDS.repair, { fixId: fix.fixId, repairer }))} /> : null}
       {asking === 'apply' && action.kind === 'apply' ? <ApplyDialog fix={fix} label={action.label} onClose={() => setAsking(null)} onRun={() => app.guard(() => void start(JOB_KINDS.applyFix, { fixId: fix.fixId }))} /> : null}
       {consent ? (
-        <ConfirmDialog
-          title={consentTitle(consent.why)}
-          text={`${consent.why}.`}
+        <ConsentDialog
+          why={consent.why}
           ok={consent.kind === JOB_KINDS.repair ? 'Repair' : 'Run'}
           onClose={() => setConsent(null)}
           onOk={() => {

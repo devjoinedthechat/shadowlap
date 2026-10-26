@@ -1,9 +1,10 @@
 import { createElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CompareHead } from '../src/compare.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { oneRunPair, replayCommand } from '../ui/compare/model.js';
 import { ComparePage } from '../ui/pages/Compare.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -187,5 +188,45 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: SEVERAL })));
     await page.until('the answer', () => page!.all('.stepempty h3').some((h) => h.textContent === 'More than one run'));
     expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
+  });
+});
+
+describe('picking another run', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the focus on the picker used, as the page compares the new pair', async () => {
+    // The address bar as a browser has it: set, it tells the page (hashchange), which the router follows.
+    let hash = `#/compare/${REC}/${FORK}`;
+    const location = {
+      pathname: '/',
+      search: '',
+      get hash() {
+        return hash;
+      },
+      set hash(to: string) {
+        hash = to;
+        window.dispatchEvent(new Event('hashchange'));
+      },
+    };
+    Object.assign(g, { location, history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => (hash = url.slice(url.indexOf('#'))) } });
+    // What the list of runs reads to place itself under its button.
+    vi.stubGlobal('innerWidth', 1440);
+    vi.stubGlobal('innerHeight', 900);
+    vi.stubGlobal('addEventListener', () => undefined);
+    vi.stubGlobal('removeEventListener', () => undefined);
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compare: () => new Promise<CompareView>(() => undefined) };
+    function Routed() {
+      const route = useRoute();
+      return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'compare' ? createElement(ComparePage, { a: route.a, b: route.b }) : null);
+    }
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK), listed(ALONE)]) }, createElement(Routed)));
+    const pickerA = () => page!.all('.rpick').find((b) => b.getAttribute('aria-label')?.startsWith('Run A:'))!;
+    await page.click(pickerA());
+    await page.until('the list of runs', () => page!.all('[role="listbox"] [role="option"]').length > 0);
+    await page.click(page.all('[role="listbox"] [role="option"]').find((o) => o.textContent.includes(ALONE.slice(0, 10)))!);
+    await page.until('the new pair', () => pickerA().getAttribute('aria-label')!.startsWith(`Run A: ${ALONE.slice(0, 10)}`));
+    expect(hash).toBe(`#/compare/${ALONE}/${FORK}`);
+    // The button picked with keeps the focus, where the next Tab or Enter goes on from.
+    expect(page.focused()).toBe(pickerA());
   });
 });

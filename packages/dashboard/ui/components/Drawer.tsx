@@ -99,7 +99,6 @@ function Drawer({ watched }: { watched: WatchedJob }) {
       className="drawer"
       role="dialog"
       aria-label={title}
-      aria-live="polite"
       ref={panel}
       onFocus={(e) => {
         const from = e.relatedTarget;
@@ -111,6 +110,9 @@ function Drawer({ watched }: { watched: WatchedJob }) {
         <b>{title}</b>
         {elsewhere ? <span className="st2 jin">in {elsewhere.name}</span> : null}
         <span className={`st2${status.tone ? ` ${status.tone}` : ''}`}>{status.text}</span>
+        {/* What a screen reader hears of the job: how it stands, as that changes (running, stopping, how
+            it ended), never each line it prints, which the output holds to be read at will. */}
+        <span className="sr" role="status">{`${title}: ${status.text}`}</span>
         <span className="sp" />
         {running ? (
           <button className="btn sm" type="button" disabled={stopping} title={stopping ? 'Asked to stop: it ends once its command has' : `Stops ${jobCommand(job.args)} as Ctrl-C would`} onClick={() => (ask ? setAsking(true) : stop())}>

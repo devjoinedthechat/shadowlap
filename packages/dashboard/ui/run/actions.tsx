@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ApiError, JOB_KINDS, type ActionItem, type BisectOffer, type CallDetail, type RunDetail, type RunOffers } from '../api.js';
-import { asksConsent, consentTitle, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
-import { ConfirmDialog, PromptDialog } from '../components/Dialog.js';
+import { asksConsent, dialogCopy, forkMenu, forkMenuTitle } from '../actions.js';
+import { ConsentDialog, PromptDialog } from '../components/Dialog.js';
 import { Popover } from '../components/Popover.js';
 import { callName, shortId } from '../format.js';
 import { useApp } from '../state.js';
@@ -75,9 +75,8 @@ export function useActionRunner(runId: string, capture = false, offers: RunOffer
       }}
     />
   ) : consent ? (
-    <ConfirmDialog
-      title={consentTitle(consent.why)}
-      text={`${consent.why}.`}
+    <ConsentDialog
+      why={consent.why}
       ok="Run"
       onClose={() => setConsent(null)}
       onOk={() => {
