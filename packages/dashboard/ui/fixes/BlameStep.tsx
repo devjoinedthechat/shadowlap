@@ -34,7 +34,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
               {shortId(b.runId)}
             </a>
             {` · confidence ${b.confidence}${errorBound !== null ? ` (error ≤ ${errorBound})` : ''}`}
-            {range && range.from !== range.to ? ` · lost between #${range.from} and #${range.to}` : null}
+            {range && range.from !== range.to ? ` · lost ${range.gradual ? 'gradually around' : 'between'} #${range.from} and #${range.to}` : null}
             <span className="pline" title={b.confidenceWhy}>
               {b.boundary}
             </span>

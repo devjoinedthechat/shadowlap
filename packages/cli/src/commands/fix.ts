@@ -154,8 +154,11 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
     confidence: r.confidence,
     // The calls the run was lost between (one when pinned), and the most that, or a finding that no call
     // rescues it, may be wrong: the risks of the probes that decided, summed. Null when nothing bounds it.
-    range: r.range ? { from: r.range.from, to: r.range.to } : null,
+    // Two calls, gradual, when the check of the call the probes pinned found no drop there beyond chance.
+    range: r.range ? { from: r.range.from, to: r.range.to, ...(r.range.gradual ? { gradual: true } : {}) } : null,
     errorBound: r.errorBound ?? null,
+    // That check: its verdict, the pairs it ran and what passed at each call, its rule and the most its verdict may be wrong.
+    pin: r.pin ? { callNo: r.pin.callNo, next: r.pin.next, verdict: r.pin.verdict, pairs: r.pin.dropped + r.pin.rose + r.pin.same, passes: r.pin.passes, nextPasses: r.pin.nextPasses, dropped: r.pin.dropped, rose: r.pin.rose, rule: r.pin.rule, risk: r.pin.risk, undecided: r.pin.undecided ?? null, cutShort: r.pin.cutShort ?? 0, runs: r.pin.pairs } : null,
     blamed: r.blamed ? probe(r.blamed) : null,
     lost: r.lost ? probe(r.lost) : null,
     modelCalls: r.steps,
@@ -360,7 +363,7 @@ export function register(program: Command): void {
       const spent = rule.gate ? `, the ${riskPercent(rule.gate.risk)} risk spent across them` : '';
       log(
         p.dim(
-          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts; every call before a probe replays from the recording for free`,
+          `  each probe: ${describeRescue(fields)}, ${each} · writes ${flags.writes === 'stub' ? 'stubbed' : 'blocked'}${flags.budget ? ` · budget ${formatBudget(flags.budget)}` : ''}\n  at most ${most} probe${most === 1 ? '' : 's'}${spent} and ${most * (rule.gate ? probeGate(rule.gate, most).max : rule.attempts)} attempts${steps > 1 ? `, and ${2 * 2 * probeGate(rule.gate ?? { kind: 'sprt', ...BLAME_DEFAULTS }, most).max} more to check a call they pin` : ''}; every call before a probe replays from the recording for free`,
         ),
       );
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { confidenceWhy, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport } from '../src/blame.js';
+import { blameSpan, confidenceWhy, decidePin, describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, pinRisk, pinRule, pinWords, probeBound, probeFinding, probeGate, probeRisk, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedHead, unrescuedWhy, unsettledFirst, type BlameProbe, type BlameReport, type PinCheck } from '../src/blame.js';
+import { addPair, NO_PAIRS, pairedOdds, pairedWorstCase } from '../src/noninferiority.js';
 import { BLAME_DEFAULTS, decide, gateResult, type SprtGate } from '../src/stats.js';
 
 /**
@@ -264,6 +265,92 @@ describe('formatBlame', () => {
     // In the report, under the rule, broken where it would pass 80 columns.
     const text = formatBlame(base({ blamed: probe(3, 1, 3, 3, true), probes: [probe(3, 1, 3, 3, true)], rescue: { fields } }));
     expect(text).toContain('\n          resample from the probed call on with\n          model=claude-opus-5-5, temperature=1)\n');
+  });
+});
+
+describe('the check of a pinned call', () => {
+  const steps = calls(10);
+  // Rescued up to the sixth call, lost from the seventh: the probes pin #23, and the check runs on #23 and #27.
+  const sharp = (i: number) => (i <= 5 ? 5 : 0);
+  const rule = pinRule(probeGate({ kind: 'sprt', ...BLAME_DEFAULTS }, maxProbes(10, 2)), maxProbes(10, 2));
+  const check = (verdict: PinCheck['verdict'], at = 23, next = 27): PinCheck => ({ callNo: at, next, verdict, dropped: 9, rose: 0, same: 3, passes: 10, nextPasses: 1, pairs: [], rule, risk: pinRisk(rule, verdict) });
+
+  it('runs on the call the probes pinned and the next, and keeps the pin when rescue drops there, its risk in the bound', async () => {
+    const { probe } = probes(steps, sharp);
+    const asked: Array<[number, number]> = [];
+    const r = await searchBlame({ steps, probe, scan: 2, pin: (at, next) => (asked.push([at.callNo, next.callNo]), Promise.resolve(check('pinned'))) });
+    expect(asked).toEqual([[23, 27]]);
+    expect(r.range).toEqual({ from: 23, to: 23, fromStep: 6, toStep: 6 });
+    expect(r.pin?.verdict).toBe('pinned');
+    const unchecked = await searchBlame({ steps, probe: probes(steps, sharp).probe, scan: 2 });
+    expect(r.errorBound).toBeCloseTo(unchecked.errorBound! + pinRisk(rule, 'pinned'), 12);
+    expect(r.confidence).toBe('high');
+  });
+
+  it('gives the two calls when it finds no drop, or can’t tell, and stops the search when it can’t finish', async () => {
+    for (const verdict of ['gradual', 'inconclusive'] as const) {
+      const r = await searchBlame({ steps, probe: probes(steps, sharp).probe, scan: 2, pin: () => Promise.resolve(check(verdict)) });
+      expect(r.outcome).toBe('blamed');
+      expect(r.blamed?.callNo).toBe(23);
+      expect(r.range).toEqual({ from: 23, to: 27, fromStep: 6, toStep: 7, gradual: true });
+      // Inconclusive claims nothing: only the probes' risks are in the bound.
+      const unchecked = await searchBlame({ steps, probe: probes(steps, sharp).probe, scan: 2 });
+      expect(r.errorBound).toBeCloseTo(unchecked.errorBound! + (verdict === 'gradual' ? pinRisk(rule, 'gradual') : 0), 12);
+    }
+    const stopped = await searchBlame({ steps, probe: probes(steps, sharp).probe, scan: 2, pin: () => Promise.resolve(null) });
+    expect(stopped.outcome).toBe('stopped');
+    expect(stopped.pin).toBeUndefined();
+    expect(stopped.errorBound).toBeNull();
+  });
+
+  it('checks nothing when the probes pinned no call: the last call, a range, or no rescue', async () => {
+    let asked = 0;
+    const pin = () => (asked++, Promise.resolve(check('pinned')));
+    // Rescued at every call: the last one is blamed, and the recording itself, which kept its answer, is the next.
+    await searchBlame({ steps, probe: probes(steps, () => 5).probe, scan: 2, pin });
+    // Rescued from no call.
+    await searchBlame({ steps, probe: probes(steps, () => 0).probe, scan: 2, pin });
+    expect(asked).toBe(0);
+  });
+
+  it('decides by the paired test, each verdict wrong at most its share of the risk over every way the pairs can come', () => {
+    expect(rule).toEqual({ margin: 0.5, risk: 0.05 / maxProbes(10, 2), max: 2 * probeGate({ kind: 'sprt', ...BLAME_DEFAULTS }, maxProbes(10, 2)).max });
+    expect(pairedWorstCase(rule, 'broken')).toBeLessThanOrEqual(rule.risk);
+    expect(pairedWorstCase(rule, 'kept')).toBeLessThanOrEqual(rule.risk);
+    expect(pinRisk(rule, 'pinned')).toBe(pairedWorstCase(rule, 'broken'));
+    expect(pinRisk(rule, 'gradual')).toBe(pairedWorstCase(rule, 'kept'));
+    expect(pinRisk(rule, 'inconclusive')).toBe(0);
+    // The next call's attempt is the change's, the pinned call's the baseline's: rescue that drops is broken, i.e. pinned.
+    let c = NO_PAIRS;
+    let d: ReturnType<typeof decidePin> = 'continue';
+    while (d === 'continue') d = decidePin((c = addPair(c, false, true)), c, rule);
+    expect(d).toBe('pinned');
+    c = NO_PAIRS;
+    d = 'continue';
+    while (d === 'continue') d = decidePin((c = addPair(c, true, true)), c, rule);
+    expect(d).toBe('gradual');
+    // A sharp drop is pinned nearly always; two neighbours both near 40% almost never.
+    expect(pairedOdds(rule, 0, 0.95).broken).toBeGreaterThan(0.999);
+    expect(pairedOdds(rule, 0.37, 0.41).broken).toBeLessThan(0.01);
+  });
+
+  it('says what it found, and the report words a range it left as lost gradually around the two calls', () => {
+    expect(pinWords(check('pinned'))).toBe('Checked with 12 fresh pairs: #23 rescued 10 of 12, #27 1 of 12; rescue drops at #23 beyond chance.');
+    expect(pinWords(check('gradual'))).toBe('Checked with 12 fresh pairs: #23 rescued 10 of 12, #27 1 of 12; rescue falls by less than 50 points from one to the next, so no one call lost the run.');
+    expect(pinWords(check('inconclusive'))).toBe('Checked with 12 fresh pairs: #23 rescued 10 of 12, #27 1 of 12; not enough to tell whether rescue drops at #23 alone.');
+    expect(pinWords({ ...check('inconclusive'), undecided: 'the judge could not answer' })).toBe('Checked with 12 fresh pairs: #23 rescued 10 of 12, #27 1 of 12; an attempt could not be judged (the judge could not answer), so whether rescue drops at #23 alone is not settled.');
+    const ran = (callNo: number, passes: number) => Array.from({ length: 5 }, (_, i) => ({ runId: `r${callNo}-${i}`, passed: i < passes, exitCode: 0, failures: [], spent: 0, upstreamRequests: 1 }));
+    const at: BlameProbe = { callNo: 23, step: 6, passes: 3, rescued: true, attempts: ran(23, 3), risk: 0.003 };
+    const next: BlameProbe = { callNo: 27, step: 7, passes: 0, rescued: false, attempts: ran(27, 0), risk: 0.003 };
+    const r: BlameReport = { outcome: 'blamed', blamed: at, lost: next, probes: [at, next], nonMonotone: [], confidence: 'high', range: { from: 23, to: 27, fromStep: 6, toStep: 7, gradual: true }, errorBound: 0.02, pin: check('gradual'), runId: '01K5CQ4N7G8M2XWQH6V3T9RB1D', steps: 10, attemptsPerProbe: 5, needed: 2, rescue: { fields: {} }, oracle: ['exit code 0'], recordedFailures: ['exit code 1'], contrast: null, attempts: 9, spent: 0, upstreamRequests: 9, unknownModels: [], stopReason: null, warnings: [] };
+    expect(blameSpan(r)).toEqual({ end: { callNo: 27, step: 7 }, closing: next, between: [] });
+    const text = formatBlame(r);
+    expect(text).toContain('The run was lost gradually, around model calls #23 and #27 (6 to 7 of 10)');
+    expect(text).toContain('Resampling #23 rescued 3 of 5 attempts; #27, the next model call: rescued 0 of 5.');
+    expect(text).toContain('so no one call lost the run.');
+    expect(text).not.toContain('between them');
+    const share = (x: number) => `${+(Math.ceil(+(x * 1000).toPrecision(12)) / 10).toFixed(1)}%`;
+    expect(confidenceWhy(r)).toBe(`<= 2% risk that the range is wrong: 2 probes decided, at <= 0.3% risk each, and the check of #23, at <= ${share(pinRisk(rule, 'gradual'))}`);
   });
 });
 

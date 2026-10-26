@@ -1,6 +1,7 @@
 import type { Block } from './deltas.js';
 import { fisherGreater } from './exact-tests.js';
 import { antitonic } from './isotonic.js';
+import { KEPT_MAX, decidePairedAround, pairedWorstCase, type BaselineRule, type PairCounts } from './noninferiority.js';
 import { formatUsd } from './prices.js';
 import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, countOdds, gateOdds, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
@@ -33,9 +34,11 @@ import { safeLine } from './text.js';
  * rescued it and the call before the first lost after it (`range`), which holds a call of the
  * boundary whenever every claim does: the rescued call's rate is above `bad`, so it comes before the
  * first call at `bad` or less; the lost call's rate is below `good`, so it comes after the last call
- * at `good` or more. A range of one call is pinned. Its `errorBound` is the sum of the risks of the
- * probes that claimed something, each computed exactly at the gate's two rates (`probeRisk`), and the
- * confidence is read from it: high when it is within the search's risk.
+ * at `good` or more. A range of one call is pinned once its check says so (`PinCheck`): the claims
+ * alone hold as well for two calls in the middle of a gradual decay as for a sharp drop. Its
+ * `errorBound` is the sum of the risks of the probes that claimed something, each computed exactly at
+ * the gate's two rates (`probeRisk`), and of the check's, and the confidence is read from it: high
+ * when it is within the search's risk.
  *
  * Nothing guarantees rescue falls monotonely: a run can be rescuable at 10, not at 12, and again at
  * 14. The scan past the boundary sees a rise just after it; a rescue there moves the search on,
@@ -141,6 +144,90 @@ export function probeGate(gate: SprtGate, probes: number): SprtGate {
   return { ...each, max: Math.max(Math.ceil(gate.max * deeper - 1e-9), attemptsToPass(each)) };
 }
 
+/**
+ * The check of a pinned call. The search pins the run to call k when k rescued it and k + 1 was found
+ * lost; but those claims only say that k passes more than `bad` of the time and k + 1 less than
+ * `good`, which two calls in the middle of a gradual decay meet as well as a sharp drop does: two
+ * calls that both pass 40% of the time meet both. So before the run is said to be lost at k, fresh
+ * pairs of attempts, one at k and one at k + 1 in each, ask whether rescue drops there. The paired
+ * test of noninferiority.ts, on the outcome at k + 1 less the one at k, tells "rescue is lower at k +
+ * 1 than at k" (pinned: its broken e-process, at no drop) from "it is less than the gate's two rates
+ * apart lower" (gradual: its kept e-process, at that margin); each verdict is wrong at most the
+ * check's risk, a probe's share, over every way the pairs can come (Ville's inequality). The pairs are
+ * fresh because the probes' own tallies are what chose k: read off them, a pass and a loss look apart
+ * by selection alone. Pinned keeps the run lost at k; gradual, or neither after `max` pairs, gives the
+ * two calls as the range: the run was lost gradually around them.
+ */
+export interface PinCheck {
+  /** The call the search pinned, and the next one, by call number. */
+  callNo: number;
+  next: number;
+  /**
+   * `pinned`: rescue drops from the call to the next beyond chance. `gradual`: it falls by less than
+   * the gate's two rates are apart. `inconclusive`: neither, after `rule.max` pairs, or an attempt that
+   * could not be judged (`undecided`).
+   */
+  verdict: 'pinned' | 'gradual' | 'inconclusive';
+  /** The pairs it decided on: `dropped` passed at the call and failed at the next, `rose` the other way round, `same` the rest. */
+  dropped: number;
+  rose: number;
+  same: number;
+  /** Over the same pairs, the passes at the call and at the next. */
+  passes: number;
+  nextPasses: number;
+  /** Each pair's two attempts, in order: at the call, and at the next. */
+  pairs: Array<{ at: BlameAttempt; next: BlameAttempt }>;
+  /** The drop it tells from none (`margin`, the gate's good − bad), at a probe's share of the risk, up to `max` pairs (`pinRule`). */
+  rule: BaselineRule;
+  /** The most its verdict can be wrong, exactly, over every way the pairs can come (`pinRisk`); 0 when it claimed nothing. */
+  risk: number;
+  /** Why an attempt of it could not be judged, when one stopped it. */
+  undecided?: string | null;
+  /** Attempts the provider cut short after the model had answered: counted against either verdict. Absent when there were none. */
+  cutShort?: number;
+}
+
+/**
+ * The rule a pinned call's check runs by: the drop it tells from none is the gate's two rates apart
+ * (0.5 at the defaults), at a probe's share of the risk (`each`, or the default gate's share for a
+ * fixed count), up to twice a probe's attempts in pairs.
+ */
+export function pinRule(each: SprtGate | null, budget: number): BaselineRule {
+  const g = each ?? probeGate({ kind: 'sprt', ...BLAME_DEFAULTS }, budget);
+  return { margin: g.good - g.bad, risk: g.risk, max: Math.min(KEPT_MAX, 2 * g.max) };
+}
+
+/**
+ * What a check says after its pairs, `kept` and `broken` the two tallies of decidePairedAround (the
+ * next call's attempt as the change's, the pinned call's as the baseline's): pinned once rescue is
+ * shown lower at the next call, gradual once it is shown less than `margin` lower, inconclusive at
+ * `max` pairs with neither.
+ */
+export function decidePin(kept: Pick<PairCounts, 'better' | 'worse' | 'same'>, broken: Pick<PairCounts, 'better' | 'worse' | 'same'>, rule: BaselineRule): PinCheck['verdict'] | 'continue' {
+  const d = decidePairedAround(kept, broken, rule);
+  return d === 'broken' ? 'pinned' : d === 'kept' ? 'gradual' : d;
+}
+
+const pinRisks = new Map<string, number>();
+
+/** The most a check's verdict can be wrong, exactly, over every law of the pairs its null allows (pairedWorstCase); 0 for inconclusive, which claims nothing. */
+export function pinRisk(rule: BaselineRule, verdict: PinCheck['verdict']): number {
+  if (verdict === 'inconclusive') return 0;
+  const key = `${rule.margin} ${rule.risk} ${rule.max} ${verdict}`;
+  let r = pinRisks.get(key);
+  if (r === undefined) pinRisks.set(key, (r = pairedWorstCase(rule, verdict === 'pinned' ? 'broken' : 'kept')));
+  return r;
+}
+
+/** A check's finding in a sentence: its pairs, and what they show. */
+export function pinWords(c: PinCheck): string {
+  const n = c.dropped + c.rose + c.same;
+  const counts = `${n} fresh pair${n === 1 ? '' : 's'}: #${c.callNo} rescued ${c.passes} of ${n}, #${c.next} ${c.nextPasses} of ${n}`;
+  if (c.verdict === 'pinned') return `Checked with ${counts}; rescue drops at #${c.callNo} beyond chance.`;
+  if (c.verdict === 'gradual') return `Checked with ${counts}; rescue falls by less than ${Math.round(100 * c.rule.margin)} points from one to the next, so no one call lost the run.`;
+  return `Checked with ${counts}; ${c.undecided ? `an attempt could not be judged (${safeLine(c.undecided)}), so` : 'not enough to tell'} whether rescue drops at #${c.callNo} alone${c.undecided ? ' is not settled' : ''}.`;
+}
+
 /** A probe's verdict in a word: rescued, lost, or inconclusive. */
 export const probeWord = (x: Pick<BlameProbe, 'rescued' | 'decision'> & { undecided?: string | null | undefined }): 'rescued' | 'lost' | 'inconclusive' => (x.rescued ? 'rescued' : x.decision === 'inconclusive' || x.undecided ? 'inconclusive' : 'lost');
 
@@ -242,6 +329,12 @@ export interface BlameSearchOptions {
   scan: number;
   /** The most the reported range may be wrong for a high confidence: the gate's risk (blame's default 5%). */
   risk?: number;
+  /**
+   * Checks a pinned call against the next (`PinCheck`). Resolves null when the check has to stop (a
+   * budget, an interrupt), which stops the search. Without it a range of one call is pinned on the
+   * probes' claims alone.
+   */
+  pin?: (at: BlameProbe, next: BlameProbe) => Promise<PinCheck | null>;
 }
 
 export type BlameOutcome = 'blamed' | 'unrescuable' | 'stopped';
@@ -261,10 +354,11 @@ export interface BlameSearchResult {
   /**
    * The calls the run was lost between, by call number: from the last call that rescued it to the
    * call before the first one found lost after it (the run's last model call when none was). One call
-   * (`from` = `to`) when the boundary is pinned. Null when no call rescued the run. Absent from
-   * reports made before ranges.
+   * (`from` = `to`) when the boundary is pinned. Two calls, `gradual`, when the check of a pinned call
+   * found no drop there beyond chance: the call and the next, which was found lost, the run lost
+   * gradually around them. Null when no call rescued the run. Absent from reports made before ranges.
    */
-  range?: { from: number; to: number; fromStep?: number; toStep?: number } | null;
+  range?: { from: number; to: number; fromStep?: number; toStep?: number; gradual?: true } | null;
   /**
    * The most the range (or, for a run no call rescued, that finding) may be wrong: the sum of the
    * risks of the probes that claimed something (`probeRisk`), under the premise that rescue never
@@ -274,6 +368,8 @@ export interface BlameSearchResult {
   errorBound?: number | null;
   /** The probes' rescue rates fitted non-increasing (isotonic regression), in call order: null for a probe with no attempt judged. */
   fit?: Array<{ callNo: number; rate: number | null }>;
+  /** The check of the call the probes pinned, when they pinned one and the next was found lost. Absent otherwise, and from reports made before checks. */
+  pin?: PinCheck | null;
 }
 
 export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchResult> {
@@ -283,6 +379,8 @@ export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchRes
   const risk = o.risk ?? BLAME_DEFAULTS.risk;
   const probed = new Map<number, BlameProbe>();
   const nonMonotone: BlameSearchResult['nonMonotone'] = [];
+  // The check of the call the probes pinned, once it has run.
+  let check: PinCheck | null = null;
   const at = async (i: number): Promise<BlameProbe | null> => {
     const known = probed.get(i);
     if (known) return known;
@@ -297,11 +395,13 @@ export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchRes
     const last = rescued.length ? rescued[rescued.length - 1]! : null;
     const closing = last === null ? null : (probes.find(([i, p]) => i > last && probeClaim(p) === 'lost')?.[0] ?? null);
     const toIndex = closing === null ? n - 1 : closing - 1;
-    const range = outcome === 'unrescuable' || last === null ? null : { from: steps[last]!, to: steps[toIndex]!, fromStep: last + 1, toStep: toIndex + 1 };
+    // A pinned call its check found no drop at: the call and the next, the run lost gradually around them.
+    const around = check && check.verdict !== 'pinned' && last !== null && closing === last + 1;
+    const range = outcome === 'unrescuable' || last === null ? null : around ? { from: steps[last]!, to: steps[closing]!, fromStep: last + 1, toStep: closing + 1, gradual: true as const } : { from: steps[last]!, to: steps[toIndex]!, fromStep: last + 1, toStep: toIndex + 1 };
     const first = probed.get(0);
     // Every claim made adds its risk; one with none leaves the bound unknown. So does a rise in rescue
     // more than chance explains: the bound rests on rescue never rising as the calls go on.
-    const claims = probes.filter(([, p]) => probeClaim(p) !== null).map(([, p]) => p.risk);
+    const claims = [...probes.filter(([, p]) => probeClaim(p) !== null).map(([, p]) => p.risk), ...(check && check.verdict !== 'inconclusive' ? [check.risk] : [])];
     const unsettled = outcome === 'unrescuable' && (!first || probeClaim(first) !== 'lost');
     const errorBound = outcome === 'stopped' || unsettled || roseBeyondChance(nonMonotone, probed, steps, risk) || claims.some((r) => r === undefined || !Number.isFinite(r)) ? null : Math.min(1, claims.reduce<number>((s, r) => s + r!, 0));
     const blamed = outcome === 'unrescuable' || last === null ? null : probed.get(last)!;
@@ -320,6 +420,7 @@ export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchRes
       range,
       errorBound,
       fit: probes.map(([, p], k) => ({ callNo: p.callNo, rate: fitted.values[k] ?? null })),
+      ...(check ? { pin: check } : {}),
     };
   };
 
@@ -349,7 +450,13 @@ export async function searchBlame(o: BlameSearchOptions): Promise<BlameSearchRes
         break;
       }
     }
-    if (again < 0) return finish('blamed');
+    if (again < 0) {
+      const found = finish('blamed');
+      // Pinned on the probes' claims: checked against the next call before the run is said to be lost there.
+      if (!o.pin || !found.blamed || !found.lost || !found.range || found.range.from !== found.range.to || probeClaim(found.lost) !== 'lost') return found;
+      check = await o.pin(found.blamed, found.lost);
+      return finish(check ? 'blamed' : 'stopped');
+    }
     // A rescue past a call found lost: rescue rose again. Past one that couldn't tell, it only moves on.
     const before = probed.get(hi);
     if (before && probeClaim(before) === 'lost') nonMonotone.push({ lost: steps[hi]!, rescued: steps[again]! });
@@ -607,13 +714,15 @@ const share = (x: number): string => (x > 0 && x < 0.001 ? '<0.1%' : `${+(Math.c
 
 /**
  * The range a blame reports, as its calls: where it ends (null when pinned to one call), the probe
- * that closes it (the first call after it found lost), and the probes inside it, which claimed
- * nothing. Null when it blamed no call, and for a report made before ranges.
+ * that closes it (the first call after it found lost; for a gradual range, the next call, found lost
+ * itself), and the probes inside it, which claimed nothing. Null when it blamed no call, and for a
+ * report made before ranges.
  */
 export function blameSpan(r: Pick<BlameReport, 'blamed' | 'probes'> & { range?: BlameSearchResult['range'] }): { end: { callNo: number; step: number } | null; closing: BlameProbe | null; between: BlameProbe[] } | null {
   const range = r.range;
   if (!r.blamed || !range) return null;
   const toStep = range.toStep ?? r.probes.find((x) => x.callNo === range.to)?.step ?? null;
+  if (range.gradual && toStep !== null) return { end: { callNo: range.to, step: toStep }, closing: r.probes.find((x) => x.callNo === range.to) ?? null, between: [] };
   const closing = toStep === null ? null : (r.probes.find((x) => x.step === toStep + 1 && probeClaim(x) === 'lost') ?? null);
   if (range.to === range.from || toStep === null) return { end: null, closing, between: [] };
   return { end: { callNo: range.to, step: toStep }, closing, between: r.probes.filter((x) => x.callNo > range.from && x.callNo <= range.to) };
@@ -637,7 +746,7 @@ export function unrescuedHead(r: Pick<BlameReport, 'outcome' | 'probes' | 'sameA
  * rescues the run) is wrong, the probes that decided and what each may get wrong; or why nothing
  * bounds it.
  */
-export function confidenceWhy(r: Pick<BlameReport, 'outcome' | 'probes' | 'nonMonotone'> & { errorBound?: number | null; range?: BlameSearchResult['range'] }): string {
+export function confidenceWhy(r: Pick<BlameReport, 'outcome' | 'probes' | 'nonMonotone'> & { errorBound?: number | null; range?: BlameSearchResult['range']; pin?: PinCheck | null }): string {
   if (r.outcome === 'stopped') return 'the search did not finish';
   const first = r.probes[0];
   // A report made before blame bounded its error keeps the label it had.
@@ -651,7 +760,8 @@ export function confidenceWhy(r: Pick<BlameReport, 'outcome' | 'probes' | 'nonMo
   const each = claims.length > 1 && claims.every((x) => x.risk === claims[0]!.risk) ? `, at <= ${share(claims[0]!.risk!)} risk each` : '';
   const what = r.outcome === 'unrescuable' ? 'this' : r.range && r.range.to !== r.range.from ? 'the range' : 'the call';
   const rose = r.nonMonotone.length ? `; rescue rose again at ${r.nonMonotone.map((x) => `#${x.rescued} after #${x.lost} was lost`).join(', ')}` : '';
-  return `<= ${share(r.errorBound)} risk that ${what} is wrong: ${claims.length} probe${claims.length === 1 ? '' : 's'} decided${each}${rose}`;
+  const checked = r.pin && r.pin.verdict !== 'inconclusive' ? `, and the check of #${r.pin.callNo}, at <= ${share(r.pin.risk)}` : '';
+  return `<= ${share(r.errorBound)} risk that ${what} is wrong: ${claims.length} probe${claims.length === 1 ? '' : 's'} decided${each}${checked}${rose}`;
 }
 
 export function formatBlame(r: BlameReport, p: Palette = plain): string {
@@ -663,7 +773,8 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
   if (r.outcome === 'blamed' && r.blamed) {
     const b = r.blamed;
     const end = span?.end ?? null;
-    lines.push(`${p.yellow('⑂')} ${p.bold(end ? `The run was lost between model calls ${call(b)} and ${call(end)} (${b.step} to ${end.step} of ${r.steps})` : `The run was lost at ${where(b)}`)}`);
+    const gradual = r.range?.gradual === true;
+    lines.push(`${p.yellow('⑂')} ${p.bold(end ? `The run was lost ${gradual ? 'gradually, around' : 'between'} model calls ${call(b)} and ${call(end)} (${b.step} to ${end.step} of ${r.steps})` : `The run was lost at ${where(b)}`)}`);
     // What closes the range: the next model call when it was probed, else the first call after it found lost.
     const closing = span ? span.closing : r.lost;
     const tail = (finding: (x: BlameProbe) => string) =>
@@ -672,7 +783,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
           ? `${call(r.lost)}, the next model call: ${finding(r.lost)}.`
           : 'it is the last model call, and the recording, which kept its answer, fails.'
         : closing
-          ? `${call(closing)}, the first call after it found lost: ${finding(closing)}.`
+          ? `${call(closing)}, ${gradual ? 'the next model call' : 'the first call after it found lost'}: ${finding(closing)}.`
           : 'no call after it was found lost, and the recording, which kept every answer, fails.';
     if (r.gate && b.decision) {
       // Decided by a gate: each side's verdict and tally; the rule is said once, over the probes.
@@ -683,6 +794,7 @@ export function formatBlame(r: BlameReport, p: Palette = plain): string {
       lines.push(`  Resampling ${call(b)} rescued ${probeTally(b, ' attempts')}; ${after}`);
     }
     if (span?.between.length) lines.push(`  ${span.between.map(call).join(', ')} between them ${span.between.length === 1 ? 'was' : 'were'} inconclusive: the run may have been lost at any call from ${call(b)} to ${call(end ?? b)}.`);
+    if (r.pin) lines.push(`  ${safeLine(pinWords(r.pin))}`);
   } else if (r.outcome === 'unrescuable') {
     const why = unrescuedWhy(r);
     lines.push(unrescuedHead(r, p));

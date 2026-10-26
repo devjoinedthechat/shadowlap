@@ -1,4 +1,4 @@
-import { agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCount, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, normalizeResponse, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, type BlameAttempt, type BlameProbe, type BlameReport, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCount, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -225,6 +225,17 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const settle = (passes: number, done: number, cut: number): GateDecision => (each ? decideUnavailable(passes, done, cut, each) : decideCount(passes, done, s.attempts, s.needed));
     // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
     const risk = probeRisk(each ? { gate: each } : { attempts: s.attempts, needed: s.needed });
+    // Every attempt must fork exactly at the model call it re-asks. One that forked elsewhere ran a
+    // prefix the recording doesn't hold, and its outcome says nothing about that call.
+    const forkProblem = (a: Attempt, callNo: number): string | null => {
+      const d = a.summary.divergence;
+      if (d && d.type === 'forced' && d.callNo === callNo && d.kind === 'api') return null;
+      return d?.type === 'ended_early'
+        ? `An attempt at model call #${callNo} never reached it: the agent stopped first, after ${endedEarlyCount(d)}. The calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
+        : d
+          ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
+          : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
+    };
     const probe = async (callNo: number, step: number): Promise<BlameProbe | null> => {
       if (!runner.canStart()) return null;
       log(`  ${p.bold(`model call #${callNo}`)} ${p.dim(`(${step} of ${steps.length})`)}`);
@@ -248,16 +259,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
           const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks }, true, { late: each ? 'count' : 'retry' });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) return;
-          const d = a.summary.divergence;
-          // Every attempt must fork exactly at the probed model call. One that forked elsewhere ran a
-          // prefix the recording doesn't hold, and its outcome says nothing about call #callNo.
-          if (!d || d.type !== 'forced' || d.callNo !== callNo || d.kind !== 'api') {
-            prefixBroken = d?.type === 'ended_early'
-              ? `An attempt at model call #${callNo} never reached it: the agent stopped first, after ${endedEarlyCount(d)}. The calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
-              : d
-              ? `An attempt at model call #${callNo} forked at call ${d.callNo} instead:\n\n${formatDivergence(d)}\n\nThe calls before #${callNo} don't replay the same way twice, so no probe can be trusted. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`
-              : `An attempt at model call #${callNo} never reached it: the agent took another path through calls the recording holds. Make replays clean first: shadowlap calibrate ${shortId(parent.runId)}`;
-          }
+          prefixBroken ??= forkProblem(a, callNo);
           unavailable += (a.unavailableBefore ?? 0) + (a.unavailable && !a.cutShort ? 1 : 0);
           store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.unavailable ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
           // The provider was unavailable for it and the attempts before it in a row: it says nothing
@@ -303,7 +305,70 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       return found;
     };
 
-    const searched = await searchBlame({ steps, probe, scan: s.scan, risk: s.gate?.risk ?? BLAME_DEFAULTS.risk });
+    // The check of a pinned call (PinCheck in the engine): fresh pairs, an attempt at the call and one
+    // at the next in each, the two at once when --concurrency allows, decided after each pair. It
+    // stops the search as a probe does: Ctrl-C, the budget, a provider that stays unavailable. An
+    // attempt the provider cut short after the model answered is counted against either verdict.
+    const rule = pinRule(each, budget);
+    const pin = async (at: BlameProbe, next: BlameProbe): Promise<PinCheck | null> => {
+      log(`  ${p.bold(`check of #${at.callNo}`)} ${p.dim(`(fresh pairs at #${at.callNo} and #${next.callNo}: does rescue drop at #${at.callNo}, or fall gradually?)`)}`);
+      const pairs: PinCheck['pairs'] = [];
+      // Two tallies of the same pairs: a cut-short attempt counted against gradual (kept), then against pinned (broken).
+      let kept = NO_PAIRS;
+      let broken = NO_PAIRS;
+      let cutShort = 0;
+      const one = async (callNo: number, n: number): Promise<BlameAttempt | null> => {
+        const marks = { repeat: { group: `${group}-check-${at.callNo}-${callNo}`, attempt: n, of: rule.max }, probe: { of: parent.runId, callNo, passed: false, check: true as const } };
+        const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
+        const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks }, true, { late: 'count' });
+        if (runner.interrupted) return null;
+        const broke = forkProblem(a, callNo);
+        if (broke) throw new BlameError(broke, 'prefix');
+        store.updateRunMeta(a.run.runId, { probe: { ...marks.probe, passed: a.passed, verdict: a.unavailable && !a.cutShort ? 'unavailable' : a.verdict }, ...(a.checks.length ? { checks: a.checks } : {}) });
+        log(`    ${p.dim(`pair ${n}, #${callNo}`)}  ${describeAttempt(a)}`);
+        // The provider stayed unavailable attempt after attempt: the runner stopped, and so does the check.
+        if (a.unavailable && !a.cutShort) return null;
+        return { runId: a.run.runId, passed: a.passed, verdict: a.verdict, ...(a.cutShort ? { cutShort: true as const } : {}), exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
+      };
+      const done = (verdict: PinCheck['verdict'], undecided?: string): PinCheck => {
+        const check: PinCheck = {
+          callNo: at.callNo,
+          next: next.callNo,
+          verdict,
+          dropped: pairs.filter((x) => x.at.passed && !x.next.passed).length,
+          rose: pairs.filter((x) => !x.at.passed && x.next.passed).length,
+          same: pairs.filter((x) => x.at.passed === x.next.passed).length,
+          passes: pairs.filter((x) => x.at.passed).length,
+          nextPasses: pairs.filter((x) => x.next.passed).length,
+          pairs,
+          rule,
+          risk: pinRisk(rule, verdict),
+          ...(undecided ? { undecided } : {}),
+          ...(cutShort ? { cutShort } : {}),
+        };
+        const words = pinWords(check);
+        log(`    ${verdict === 'pinned' ? p.green(words) : p.yellow(words)}`);
+        return check;
+      };
+      for (let n = 1; n <= rule.max; n++) {
+        if (!runner.canStart()) return null;
+        const [x, y] = s.concurrency >= 2 ? await Promise.all([one(at.callNo, n), one(next.callNo, n)]) : [await one(at.callNo, n), await one(next.callNo, n)];
+        if (!x || !y) return null;
+        pairs.push({ at: x, next: y });
+        // An attempt that all it fell short on is a check that could not be decided says nothing of either call.
+        const unjudged = [x, y].find((z) => z.verdict === 'inconclusive' && !z.cutShort);
+        if (unjudged) return done('inconclusive', unjudged.failures[0] ?? 'a check could not be decided');
+        cutShort += (x.cutShort ? 1 : 0) + (y.cutShort ? 1 : 0);
+        // The next call's attempt is the change's, the pinned call's the baseline's (decidePin).
+        kept = addPair(kept, y.cutShort ? false : y.passed, x.cutShort ? true : x.passed);
+        broken = addPair(broken, y.cutShort ? true : y.passed, x.cutShort ? false : x.passed);
+        const d = decidePin(kept, broken, rule);
+        if (d !== 'continue') return done(d);
+      }
+      return done('inconclusive');
+    };
+
+    const searched = await searchBlame({ steps, probe, pin, scan: s.scan, risk: s.gate?.risk ?? BLAME_DEFAULTS.risk });
 
     // The fork that rescued the run, and what the model answered there: an attempt that passed and
     // answered the blamed call otherwise than the recording, and that no stub carried past a write

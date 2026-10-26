@@ -36,7 +36,8 @@ export interface VerifyEvidence extends GateEvidence {
 
 /** Blame's evidence: the calls it lost the run between, when no one call is pinned, and the error bound of its confidence. */
 export interface BlameEvidence {
-  range: { from: number; to: number } | null;
+  /** `gradual` when the check of the call the probes pinned found no drop there: lost gradually around the two. */
+  range: { from: number; to: number; gradual?: true } | null;
   errorBound: number | null;
 }
 
@@ -87,7 +88,7 @@ export function blameEvidence(x: unknown): BlameEvidence {
   const g = record(r?.range);
   const from = count(g?.from);
   const to = count(g?.to);
-  const range = from !== null && to !== null && from >= 1 && to >= from ? { from, to } : null;
+  const range = from !== null && to !== null && from >= 1 && to >= from ? { from, to, ...(g?.gradual === true ? { gradual: true as const } : {}) } : null;
   const errorBound = finite(r?.errorBound) && r.errorBound >= 0 && r.errorBound <= 1 ? r.errorBound : null;
   return { range, errorBound };
 }

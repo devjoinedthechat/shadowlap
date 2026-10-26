@@ -123,7 +123,9 @@ describe('shadowlap blame', () => {
     // less, its 5% risk spent across the search's five probes, 1% each: six straight failures lose a
     // probe. Each says its verdict, its tally and the Wilson bound at its own confidence, the rule once.
     expect(r.stdout).toMatch(new RegExp(`The re-asked call #${decision}: rescued · \\d+ of \\d+ · rate >= 0\\.\\d\\d \\(99%\\); #${last}, the next model call: lost · 0 of 6 · rate <= 0\\.59 \\(99%\\)\\.`));
-    expect(r.stdout).toMatch(/Confidence: high \(<= \d\.\d% risk that the call is wrong: 3 probes decided, at <= 0\.\d% risk each\)/);
+    // The call the probes pinned, checked against the next with fresh pairs before the run is said to be lost there.
+    expect(r.stdout).toMatch(new RegExp(`Checked with \\d+ fresh pairs: #${decision} rescued \\d+ of \\d+, #${last} 0 of \\d+; rescue drops at #${decision} beyond chance\\.`));
+    expect(r.stdout).toMatch(new RegExp(`Confidence: high \\(<= \\d\\.\\d% risk that the call is wrong: 3 probes decided, at <= 0\\.\\d% risk each, and the check of #${decision}, at <= 0\\.\\d%\\)`));
     // The rule, and under it what a probe changes: each line fits an 80-column terminal.
     // The rule names the search's risk and a probe's cap: 20 attempts at 5%, deepened to 31 at its 1% share.
     expect(r.stdout).toContain('  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 31 attempts;\n          resample the probed call)');
@@ -147,9 +149,12 @@ describe('shadowlap blame', () => {
       expect(rescued.divergence).toMatchObject({ type: 'forced', callNo: decision });
       const fenced = after.getCalls(rescued.runId).filter((c) => c.name === 'escalate');
       expect(fenced.map((c) => c.origin)).toEqual(['stubbed']);
-      // Probe attempts are bundled per probed call, as repeated attempts are.
+      // Probe attempts are bundled per probed call, as repeated attempts are, and the check's per call it re-asks.
       const attempts = after.allRuns().filter((x) => x.meta?.probe?.of === runId);
-      expect(new Set(attempts.map((x) => x.meta!.repeat!.group)).size).toBe(blame.probes.length);
+      expect(new Set(attempts.filter((x) => !x.meta!.probe!.check).map((x) => x.meta!.repeat!.group)).size).toBe(blame.probes.length);
+      const checked = attempts.filter((x) => x.meta!.probe!.check);
+      expect(new Set(checked.map((x) => x.meta!.probe!.callNo))).toEqual(new Set([decision, last]));
+      expect(new Set(checked.map((x) => x.meta!.repeat!.group)).size).toBe(2);
       // The baseline replay made to confirm the failure is not kept.
       expect(after.allRuns().filter((x) => x.parentRunId === runId && !x.meta?.probe)).toEqual([]);
     } finally {

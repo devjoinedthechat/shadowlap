@@ -281,8 +281,9 @@ export interface RunMeta {
   /**
    * One attempt of a `shadowlap blame` probe: the run blamed, the model call forced live, and whether the attempt passed.
    * Its verdict is `unavailable` when the agent failed while its provider was (unavailable.ts): retried, never counted.
+   * `check` for an attempt of the check of a pinned call (blame.ts `PinCheck`), at that call or the next.
    */
-  probe?: { of: string; callNo: number; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable' };
+  probe?: { of: string; callNo: number; passed: boolean; verdict?: 'passed' | 'failed' | 'inconclusive' | 'unavailable'; check?: true };
   /** The last `shadowlap blame` of this run. */
   blame?: BlameRecord;
   /**
@@ -407,8 +408,8 @@ export interface BlameRecord {
   /** The model call whose recorded answer lost the run, or null. */
   callNo: number | null;
   confidence: 'high' | 'medium' | 'low';
-  /** The calls the run was lost between (blame.ts `range`): one call when pinned. Absent from blames kept before ranges. */
-  range?: { from: number; to: number; fromStep?: number; toStep?: number } | null;
+  /** The calls the run was lost between (blame.ts `range`): one call when pinned, two `gradual` ones when its check found no drop. Absent from blames kept before ranges. */
+  range?: { from: number; to: number; fromStep?: number; toStep?: number; gradual?: true } | null;
   /** The most that range, or the finding that no call rescues the run, may be wrong; null when nothing bounds it. Absent from blames kept before it. */
   errorBound?: number | null;
   /** A fork that passed from the blamed call on. */
