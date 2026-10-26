@@ -108,6 +108,18 @@ describe('Session in replay mode', () => {
     expect(s.replayed).toBe(4);
   });
 
+  it("never serves a read of one name from another's, whatever fingerprint its caller gives both", () => {
+    no = 0;
+    // As fingerprints made without the read's name hold them (a caller's own, an earlier version's): one for both.
+    const calls = [rec('random', 'uuid', 'R1'), rec('api', 'POST /v1/messages', 'A1')];
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: calls, loadRequest });
+    // The agent now draws a number where it made a uuid: a live read, never the recording's uuid.
+    expect(s.resolve({ callNo: 1, kind: 'random', name: 'random', fingerprint: 'R1' })).toEqual({ origin: 'live', occurrence: 1, extra: true });
+    // And the run goes on replaying.
+    expect(s.resolve({ callNo: 2, kind: 'api', name: 'POST /v1/messages', fingerprint: 'A1', request: {} }).origin).toBe('replayed');
+    expect(s.divergence).toBeNull();
+  });
+
   it('forks on an extra write, and on a plain read a flag forces or changed', () => {
     no = 0;
     const calls = [rec('clock', 'now', 'C1'), rec('api', 'POST /v1/messages', 'A1')];

@@ -133,6 +133,29 @@ describe('calls paired across two runs', () => {
     store.close();
   });
 
+  it("takes a replay's call for the recorded call it was served from, though what each sent differs where matching masked it", () => {
+    const store = Store.open(':memory:');
+    const dated = (day: string) => ({ ...ask, system: `Today is 2026-10-${day}.` });
+    const a = store.createRun({ mode: 'record', command: cmd });
+    put(store, a, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'a'.repeat(64), request: dated('25'), meta: { provider: 'anthropic' }, answer: '{"content":[]}' });
+    put(store, a, 2, { kind: 'tool', name: 'lookup_order', fingerprint: 'b'.repeat(64), request: { args: { id: 'A-1042', asOf: '2026-10-25' } }, answer: '{"result":"shipped"}' });
+    // A day later: each date masked against its own run's start, so each call was served from the
+    // recording's, the tool's with a result a flag gave; the fingerprints each run keeps differ.
+    const b = store.createRun({ mode: 'replay', parentRunId: a.runId, command: cmd });
+    put(store, b, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'c'.repeat(64), request: dated('26'), meta: { provider: 'anthropic' }, answer: '{"content":[]}', origin: 'replayed', end: { replayedFrom: 1 } });
+    put(store, b, 2, { kind: 'tool', name: 'lookup_order', fingerprint: 'd'.repeat(64), request: { args: { id: 'A-1042', asOf: '2026-10-26' } }, answer: '{"result":"lost"}', origin: 'overridden', end: { overriddenFrom: 2 } });
+    for (const [x, y] of [[a, b], [b, a]] as const) expect(compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId))).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null, responseDifferences: [{ callNo: 2 }] });
+    // A run that is no replay of the other is compared by what each sent: the date is the change.
+    const c = store.createRun({ mode: 'record', command: cmd });
+    put(store, c, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'c'.repeat(64), request: dated('26'), meta: { provider: 'anthropic' }, answer: '{"content":[]}' });
+    expect(compareRuns(store, a, store.getCalls(a.runId), c, store.getCalls(c.runId)).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.system', op: 'changed' }] });
+    // Nor is a replay of that run, served from its call #1, ever taken for one served from the first run's.
+    const d = store.createRun({ mode: 'replay', parentRunId: c.runId, command: cmd });
+    put(store, d, 1, { kind: 'api', name: 'POST /v1/messages', fingerprint: 'e'.repeat(64), request: dated('27'), meta: { provider: 'anthropic' }, answer: '{"content":[]}', origin: 'replayed', end: { replayedFrom: 1 } });
+    expect(compareRuns(store, a, store.getCalls(a.runId), d, store.getCalls(d.runId)).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.system', op: 'changed' }] });
+    store.close();
+  });
+
   it('pairs calls whose fingerprints differ when what each sent is the same, and finds the one that changed', () => {
     const store = Store.open(':memory:');
     const a = store.createRun({ mode: 'record', command: cmd });

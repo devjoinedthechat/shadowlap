@@ -12,6 +12,7 @@ import OpenAI from 'openai';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type CallRecord } from '@shadowlap/engine';
 import { message, sseEvents, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { providers as defaultProviders } from '../src/providers.js';
 import { Sidecar } from '../src/server.js';
 import { resignSigV4 } from '../src/sigv4.js';
 
@@ -254,6 +255,35 @@ describe('an agent that leaves before its answer came', () => {
       expect(calls[0].end).toMatchObject({ attempt: 1, outcome: 'ok' });
     } finally {
       await sidecar.close();
+      store.close();
+    }
+  });
+});
+
+describe('an answer its provider module cannot read', () => {
+  it('is passed on and recorded whole, without the model, usage or stop reason it could not read', async () => {
+    const mock = await startMockAnthropic({ script: () => ({ message: message([text('Refund issued.')]) }) });
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    // A module that throws on what it reads, as one meeting a shape it never saw would.
+    const module = defaultProviders.find((p) => p.id === 'anthropic')!;
+    const read = { model: module.extractModel, usage: module.extractUsage, stop: module.extractStopReason };
+    const fail = () => {
+      throw new Error('unreadable');
+    };
+    Object.assign(module, { extractModel: fail, extractUsage: fail, extractStopReason: fail });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command });
+      expect(textOf(await anthropic(sidecar, run.runId).messages.create(params))).toBe('Refund issued.');
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call.end).toMatchObject({ outcome: 'ok', meta: { status: 200 } });
+      expect(call.end!.meta).not.toHaveProperty('usage');
+      expect(recordedText(store, call)).toBe('Refund issued.');
+    } finally {
+      Object.assign(module, { extractModel: read.model, extractUsage: read.usage, extractStopReason: read.stop });
+      await sidecar.close();
+      await mock.close();
       store.close();
     }
   });
