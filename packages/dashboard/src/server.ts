@@ -215,9 +215,10 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
   /**
    * The read models of each store served, worked out beside the server's thread (read-pool.ts): one
    * set of threads per store file, shared by a project's route instances; a store in memory works
-   * them out here. What the threads work out to keep (run totals, what users asked), this thread's
-   * connection writes (keeper.ts); while another command holds the store's write lock (a batch of the
-   * search index, gc's VACUUM, a pull) the rows wait, and are written once it lets go.
+   * them out here. What the threads work out to keep (run totals, what users asked), a thread of its
+   * own writes, with a connection of its own (keeper.ts): this one only hands the rows over. While
+   * another command holds the store's write lock (a batch of the search index, gc's VACUUM, a pull)
+   * the rows wait there, and are written once it lets go.
    */
   const pools = new Map<string, ReadPool>();
   const keepers = new Map<string, ReturnType<typeof storeKeeper>>();
@@ -258,7 +259,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       pools.delete(path);
       void pool.close();
     }
-    keepers.get(path)?.close();
+    void keepers.get(path)?.close();
     keepers.delete(path);
     const indexer = indexers.get(path);
     if (indexer) {
@@ -286,8 +287,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     }
     let pool = pools.get(dbPath);
     if (!pool) {
-      const keep = storeKeeper(store);
-      keepers.get(dbPath)?.close();
+      const keep = storeKeeper(dbPath, { log });
+      void keepers.get(dbPath)?.close();
       keepers.set(dbPath, keep);
       pool = new ReadPool({ dbPath, keep, log });
       pools.set(dbPath, pool);
@@ -669,7 +670,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         uploads.close();
         // The read models' threads close their connections to the store before they end.
         await Promise.all([...pools.values(), ...locals, ...indexers.values()].map((r) => r.close()));
-        for (const keep of keepers.values()) keep.close();
+        // What the keepers' threads hold is written, as far as the store lets it, before they end.
+        await Promise.all([...keepers.values()].map((keep) => keep.close()));
         standIn?.close();
         await closed;
         // A redaction preview's thread, or one making an HTML download, holds the store's file until it has ended.
