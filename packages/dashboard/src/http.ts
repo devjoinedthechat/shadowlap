@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { BodyTooLarge, readBody } from '@shadowlap/engine';
 
 /** HTTP helpers every route shares: JSON answers, ETags, bodies with limits, and errors with a status. */
 
@@ -56,37 +57,27 @@ export function refuseOversized(req: IncomingMessage, limit: number, what = 'bod
   if (Number.isFinite(declared) && declared > limit) throw tooLarge(limit, what);
 }
 
-/** The request body as JSON, refused past `limit` bytes. An empty body is `{}`. */
-export function readJson(req: IncomingMessage, limit = JSON_LIMIT): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    try {
-      refuseOversized(req, limit);
-    } catch (err) {
-      return reject(err);
-    }
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let failed = false;
-    req.on('data', (c: Buffer) => {
-      if (failed) return;
-      size += c.length;
-      if (size > limit) {
-        failed = true;
-        chunks.length = 0;
-        reject(tooLarge(limit));
-      } else chunks.push(c);
-    });
-    req.on('end', () => {
-      if (failed) return;
-      if (!chunks.length) return resolve({});
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-      } catch {
-        reject(new HttpError(400, 'invalid JSON'));
-      }
-    });
-    req.on('error', reject);
-  });
+/**
+ * The request body as JSON, refused past `limit` bytes. An empty body is `{}`. Read whole or not at
+ * all by the engine's reader (body.ts), as every other server here reads one: past the limit the
+ * rest is read and dropped, so the 413 reaches the client, and this far past it the connection is
+ * cut; a client that leaves part way through is no body either.
+ */
+export async function readJson(req: IncomingMessage, limit = JSON_LIMIT): Promise<unknown> {
+  refuseOversized(req, limit);
+  let body: Buffer;
+  try {
+    body = await readBody(req, { limit, drain: 16 * limit });
+  } catch (err) {
+    if (err instanceof BodyTooLarge) throw tooLarge(limit);
+    throw err;
+  }
+  if (!body.length) return {};
+  try {
+    return JSON.parse(body.toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'invalid JSON');
+  }
 }
 
 /** A JSON body that must be an object: what every write endpoint takes. */
