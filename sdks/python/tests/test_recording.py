@@ -388,10 +388,21 @@ class RecordingRules(unittest.TestCase):
             open("/nonexistent/orders/A-17")
         except FileNotFoundError as err:
             not_found = err
+        # An OSError keeps its files apart from its args: a rename names two, a call on a descriptor its number.
+        try:
+            os.rename("/nonexistent/orders/A-17", "/nonexistent/orders/A-18")
+        except FileNotFoundError as err:
+            not_renamed = err
+        try:
+            os.stat(987654)
+        except OSError as err:
+            bad_descriptor = err
         originals = [
             ValueError("order A-17 not found"),
             KeyError("A-17"),
             not_found,
+            not_renamed,
+            bad_descriptor,
             RuntimeError(),
             ValueError("a", "b"),
             OrderMissing("gone"),
@@ -424,6 +435,8 @@ class RecordingRules(unittest.TestCase):
                 for again in (copy.copy(err), pickle.loads(pickle.dumps(err))):
                     self.assertIs(type(again), type(err))
                     self.assertEqual((str(again), repr(again), again.args), (str(err), repr(err), err.args))
+                    if isinstance(original, OSError):
+                        self.assertEqual((again.filename, again.filename2), (original.filename, original.filename2))
 
                 # A builtin's is that builtin too, so the agent's own except clause catches it again.
                 if type(original).__module__ == "builtins":
@@ -431,7 +444,7 @@ class RecordingRules(unittest.TestCase):
                     for base in type(original).__mro__:
                         self.assertIsInstance(err, base)
                     if isinstance(original, OSError):
-                        self.assertEqual((err.errno, err.strerror), (original.errno, original.strerror))
+                        self.assertEqual((err.errno, err.strerror, err.filename, err.filename2), (original.errno, original.strerror, original.filename, original.filename2))
 
         # One class per recorded name, so `except` clauses and `type(e) is` checks agree across calls.
         first = shadowlap.ReplayedError({"name": "ValueError", "message": "once"})

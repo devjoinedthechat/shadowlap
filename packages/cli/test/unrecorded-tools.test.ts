@@ -23,18 +23,21 @@ const fresh = (): string => {
 };
 
 /**
- * An agent on the Anthropic wire format whose tools run unwrapped: lookup_kb answers, and Bash
- * leaves a line in ran.txt each time it runs, so a replay that runs it again shows. Its first call is
- * a clock read through the sidecar, so the model calls are #2 to #4.
+ * An agent on the Anthropic wire format whose tools run unwrapped, sending Claude Code's session
+ * identifier as Claude Code does: lookup_kb answers, and Bash leaves a line in ran.txt each time it
+ * runs, so a replay that runs it again shows. Its first call is a clock read through the sidecar, so
+ * the model calls are #2 to #4.
  */
 const AGENT = `
 import { appendFileSync } from 'node:fs';
 const sidecar = process.env.SHADOWLAP_URL;
 if (sidecar) await fetch(sidecar + '/v1/calls/resolve', { method: 'POST', headers: { 'content-type': 'application/json', 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID ?? '' }, body: JSON.stringify({ kind: 'clock', name: 'now', label: '' }) });
 const tools = [{ name: 'lookup_kb', input_schema: { type: 'object' } }, { name: 'Bash', input_schema: { type: 'object' } }];
+// It is Claude Code, whose Bash this is: it names its session in every request, as Claude Code does.
+const SESSION = JSON.stringify({ device_id: 'ab'.repeat(32), account_uuid: '', session_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7' });
 const messages = [{ role: 'user', content: 'Clean up the build.' }];
 for (let turn = 0; turn < 5; turn++) {
-  const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 512, tools, messages }) });
+  const res = await fetch(process.env.ANTHROPIC_BASE_URL + '/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'test', 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: 'claude-sonnet-5', max_tokens: 512, tools, messages, metadata: { user_id: SESSION } }) });
   const reply = await res.json();
   messages.push({ role: 'assistant', content: reply.content });
   const uses = reply.content.filter((b) => b.type === 'tool_use');

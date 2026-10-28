@@ -264,43 +264,79 @@ def _list_dir(folder: str) -> list[str]:
 
 def settings_documents(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
     """The settings documents Claude Code reads for the query, in its order, each ``{"source", "data",
-    "managed"}``: the user's file (in ``CLAUDE_CONFIG_DIR``, else ``~/.claude``), the project's and the
-    local one in its working folder (the Agent SDK reads both there, with no folder above it), the
-    managed settings file and every ``*.json`` in ``managed-settings.d/`` beside it in alphabetical
-    order, and the query's ``settings`` (a file or JSON text, as the CLI's ``--settings`` takes, or a
-    list of them). A file that isn't there is left out; one that can't be parsed holds None."""
+    "managed"}``: the user's file (in ``CLAUDE_CONFIG_DIR``, else ``~/.claude``), the project's in its
+    working folder, the local one there and at the root of the repository the folder is in, and of the
+    main checkout for a linked worktree, the managed settings file and every ``*.json`` in
+    ``managed-settings.d/`` beside it in alphabetical order, and the query's ``settings`` (a file or
+    JSON text, as the CLI's ``--settings`` takes, or a list of them). A file that isn't there is left
+    out; one that can't be parsed holds None."""
     env = env_of(places)
     sources = _sources(places)
     docs: list[dict[str, Any]] = []
 
-    def add(path: str, managed: bool = False) -> None:
+    def add(path: str, scope: str) -> None:
         if os.path.exists(path):
-            docs.append({"source": path, "data": _read(path), "managed": managed})
+            docs.append({"source": path, "data": _read(path), "managed": scope == "managed", "scope": scope})
 
     if "user" in sources:
-        add(os.path.join(config_dir_of(env), "settings.json"))
+        add(os.path.join(config_dir_of(env), "settings.json"), "user")
     if "project" in sources:
-        add(os.path.join(cwd, ".claude", "settings.json"))
+        add(os.path.join(cwd, ".claude", "settings.json"), "project")
     if "local" in sources:
-        add(os.path.join(cwd, ".claude", "settings.local.json"))
+        # The session folder's, as the Agent SDK documents it; and, as Claude Code itself reads it from
+        # a folder inside a repository, the repository root's, and for a linked worktree the main
+        # checkout's (the settings page's "Where Claude Code keeps the local file in a git repository").
+        root, main = repository_roots(cwd)
+        for folder in dict.fromkeys([cwd, *([root] if root else []), *([main] if main else [])]):
+            add(os.path.join(folder, ".claude", "settings.local.json"), "local")
     managed = managed_file_of(places)
     if managed:
-        add(managed, True)
+        add(managed, "managed")
         # Claude Code merges the drop-ins after the file, in alphabetical order, skipping hidden files and any not ending in .json.
         dropins = os.path.join(os.path.dirname(managed), "managed-settings.d")
         for name in sorted(n for n in _list_dir(dropins) if n.endswith(".json") and not n.startswith(".")):
-            add(os.path.join(dropins, name), True)
+            add(os.path.join(dropins, name), "managed")
     given = places.get("settings")
     for one in given if isinstance(given, (list, tuple)) else [given]:
         if isinstance(one, dict):
-            docs.append({"source": QUERY_SETTINGS, "data": one, "managed": False})
+            docs.append({"source": QUERY_SETTINGS, "data": one, "managed": False, "scope": "query"})
         elif isinstance(one, str) and one.strip():
             try:
-                docs.append({"source": QUERY_SETTINGS, "data": json.loads(one), "managed": False})
+                docs.append({"source": QUERY_SETTINGS, "data": json.loads(one), "managed": False, "scope": "query"})
             except ValueError:
                 path = os.path.join(cwd, one)
-                docs.append({"source": path, "data": _read(path), "managed": False})
+                docs.append({"source": path, "data": _read(path), "managed": False, "scope": "query"})
     return docs
+
+
+def repository_roots(cwd: str) -> tuple[Optional[str], Optional[str]]:
+    """The repository the session's folder is in: its root, the first folder up from it with a
+    ``.git`` (a folder, or the file a linked worktree has), and for a linked worktree the main
+    checkout's root, which its ``.git`` file names through the git folder's ``commondir``. Nones
+    outside a repository, and for a main checkout there is none other than the root."""
+    folder = cwd
+    while not os.path.exists(os.path.join(folder, ".git")):
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return None, None
+        folder = parent
+    root = folder
+    dot_git = os.path.join(root, ".git")
+    try:
+        if not os.path.isfile(dot_git):
+            return root, None
+        with open(dot_git, encoding="utf-8") as f:
+            found = re.search(r"^gitdir:\s*(.+?)\s*$", f.read(), re.MULTILINE)
+        if not found:
+            return root, None
+        own = os.path.normpath(os.path.join(root, found.group(1)))
+        # A linked worktree's git folder names the repository's own (``commondir``); a submodule's names none.
+        with open(os.path.join(own, "commondir"), encoding="utf-8") as f:
+            common = os.path.normpath(os.path.join(own, f.read().strip()))
+        main = os.path.dirname(common)
+        return root, main if os.path.basename(common) == ".git" and main != root else None
+    except (OSError, ValueError):
+        return root, None
 
 
 def project_dirs(cwd: str) -> list[str]:
@@ -333,15 +369,25 @@ def component_files(places: Mapping[str, Any], cwd: str) -> dict[str, list[str]]
     plugins = [os.path.join(cwd, str(p)) for p in places.get("plugins") or []]
     added = [os.path.join(cwd, str(d)) for d in places.get("add_dirs") or []]
     project = [*project_dirs(cwd), *added] if "project" in sources else []
+    # In a linked worktree with none of its own, the main checkout's, as Claude Code loads its skills.
+    root, main = repository_roots(cwd)
+
+    def from_main(kind: str) -> list[str]:
+        if "project" in sources and main and root and not os.path.exists(os.path.join(root, ".claude", kind)):
+            return [os.path.join(main, ".claude", kind)]
+        return []
+
     skill_dirs = [
         *([os.path.join(config, "skills")] if "user" in sources else []),
         *(os.path.join(d, ".claude", "skills") for d in project),
+        *from_main("skills"),
         *([os.path.join(os.path.dirname(managed), ".claude", "skills")] if managed else []),
         *(os.path.join(p, "skills") for p in plugins),
     ]
     agent_dirs = [
         *([os.path.join(config, "agents")] if "user" in sources else []),
         *(os.path.join(d, ".claude", "agents") for d in project),
+        *from_main("agents"),
         *(os.path.join(p, "agents") for p in plugins),
     ]
     budget = [MAX_COMPONENT_FILES]
@@ -414,6 +460,68 @@ def component_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str
             out.append({"source": f"{path}, which Shadowlap could not read", "matcher": None})
             continue
         out.extend(_pre_tool_use(data, path))
+    return out
+
+
+def _hook_items_of(settings: Any, source: str) -> list[dict[str, Any]]:
+    """Every hook of every event in one settings document (or a frontmatter's ``hooks``, or a plugin's
+    hooks.json), each ``{"source", "type", "command"?, "url"?}``."""
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    if not isinstance(hooks, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for entries in hooks.values():
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if not isinstance(e, dict) or not isinstance(e.get("hooks"), list):
+                continue
+            for h in e["hooks"]:
+                if not isinstance(h, dict):
+                    continue
+                item: dict[str, Any] = {"source": source, "type": h["type"] if isinstance(h.get("type"), str) else "command"}
+                if isinstance(h.get("command"), str):
+                    item["command"] = h["command"]
+                if isinstance(h.get("url"), str):
+                    item["url"] = h["url"]
+                out.append(item)
+    return out
+
+
+def hook_items(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
+    """Every hook Claude Code runs for the query, of every event, as settings_pre_tool_use finds the
+    PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
+    frontmatter or a hooks file it can't read is one of type ``unreadable``. ``disableAllHooks`` in a
+    managed document turns them all off, and in any other only the ones outside managed settings, as
+    Claude Code's hooks reference says."""
+    docs = settings_documents(places, cwd)
+
+    def off(managed: bool) -> bool:
+        return any(d["managed"] == managed and isinstance(d["data"], dict) and d["data"].get("disableAllHooks") is True for d in docs)
+
+    if off(True):
+        return []
+    managed_only = off(False)
+    out = [h for d in docs if d["managed"] or not managed_only for h in _hook_items_of(d["data"], d["source"])]
+    if managed_only:
+        return out
+    files = component_files(places, cwd)
+    for path in [*files["skills"], *files["agents"]]:
+        text = _read_text(path)
+        keys = frontmatter(text) if text is not None else None
+        if not keys or "hooks" not in keys:
+            continue
+        if keys["hooks"] is UNREADABLE:
+            out.append({"source": path, "type": "unreadable"})
+        else:
+            out.extend(_hook_items_of({"hooks": keys["hooks"]}, path))
+    for path in files["plugin_hooks"]:
+        try:
+            data = json.loads(_read_text(path) or "")
+        except ValueError:
+            out.append({"source": path, "type": "unreadable"})
+            continue
+        out.extend(_hook_items_of(data, path))
     return out
 
 

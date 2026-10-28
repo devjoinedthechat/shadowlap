@@ -338,6 +338,8 @@ export interface RunMeta {
    * they run with no guard while the run has one (the Claude Code CLI the Claude Agent SDK runs).
    */
   preloads?: { guard: 'warn' | 'block' | 'off'; hellos: Record<string, number>; missing?: string; unguarded?: string };
+  /** A model call of the run came from Claude Code, as its user agent named it (`claude-cli/…`): its built-in tools are told apart by name (fromClaudeCode). */
+  claudeCode?: true;
   /** The WebSockets the run opened through the sidecar (OpenAI Realtime and the like), each target with how many went to the provider live or were refused offline; nothing that went over them is recorded. */
   websockets?: Array<{ target: string; count: number; action: 'tunnelled' | 'refused' }>;
   /**

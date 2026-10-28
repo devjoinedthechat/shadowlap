@@ -10,6 +10,8 @@ export type Block = { type: 'text'; text: string } | { type: 'tool_use'; id: str
 export const text = (t: string): Block => ({ type: 'text', text: t });
 export const toolUse = (name: string, input: Record<string, unknown>, id: string): Block => ({ type: 'tool_use', id, name, input });
 export const user = (content: unknown) => ({ role: 'user', content });
+/** The session identifier Claude Code names in every model request's metadata, which tells a run from Claude Code (fromClaudeCode). */
+export const CLAUDE_CODE_USER = JSON.stringify({ device_id: 'ab'.repeat(32), account_uuid: '', session_id: '7c9e6679-7425-40de-944b-e07fc1f90ae7' });
 export const assistant = (content: Block[]) => ({ role: 'assistant', content });
 export const toolResult = (id: string, content: unknown) => ({ type: 'tool_result', tool_use_id: id, content: typeof content === 'string' ? content : JSON.stringify(content) });
 

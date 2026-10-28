@@ -20,6 +20,9 @@ const SCRIPT = fileURLToPath(new URL('./claude_agent_sdk_agent.py', import.meta.
 
 describe('Claude Agent SDK (Python) with shadowlap.adapters.claude_agent_sdk', { skip: PYTHON ? false : 'no Python with claude-agent-sdk (set SHADOWLAP_PYTHON)' }, () => {
   const base = mkdtempSync(join(tmpdir(), 'shadowlap-claude-code-'));
+  // A home and a config folder that exist, as a person's do: Claude Code reads some settings (the
+  // local file at a repository's root) only when its home folder is there.
+  for (const dir of ['home', 'config']) mkdirSync(join(base, dir));
   const project = join(base, 'project');
   const notes = join(project, 'notes.txt');
   let h;

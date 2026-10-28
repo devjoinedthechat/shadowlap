@@ -17,7 +17,7 @@ A store is created by the first command that records into it. Commands that only
 | `2` | Usage or configuration: a flag, argument or command it doesn't take, a run or fix it can't find or can't use yet (one still recording), a file it can't read, an invalid `shadowlap.config.json`, a live command with no key, a recorded command it needs `--yes` to run, a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again |
 | `3` | Inconclusive: a gate or check that could not decide (`0` when `--inconclusive warn` lets it through), a budget spent before a verdict, the provider unavailable |
 | `70` | Internal error: a bug in Shadowlap. The message says so: run the command again with `SHADOWLAP_DEBUG=1` to see where it happened, and report it |
-| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too) |
+| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too), and when the signal came as it finished (repair removing its worktree after its last verify) |
 
 `run` and `replay` end with the agent's own status where none of these applies, as the agent would have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a signal stopped. Each command's section says which statuses it ends with. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
 
@@ -163,7 +163,7 @@ With `--concurrency`, attempts run at the same time through one sidecar; each at
 shadowlap blame <run> [options] [-- <command> [args...]]
 ```
 
-Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of; with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
+Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of, and the pairs of a pinned call's check into one that counts each call's attempts (`3 pairs: #5 3 passed · #6 1 passed, 2 failed`); with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
 
 | Option | Effect |
 |---|---|
@@ -1359,7 +1359,7 @@ whether pull requests' jobs push to their `own-folder` or not at all (`no-push`,
 | Variable | Meaning |
 |---|---|
 | `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream (a mock, or an OpenAI-compatible server such as Ollama). Without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL` are used when they are set |
-| `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does |
+| `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does. Any other value ends a command that runs an agent with 2 as it starts, before anything runs |
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) |
 | `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run. Without it nothing is sent |

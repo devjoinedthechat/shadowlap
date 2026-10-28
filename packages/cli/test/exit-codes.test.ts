@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -174,6 +174,19 @@ describe('the built CLI', () => {
     expect(debug.stderr).toMatch(/TypeError: Cannot read properties of null[\s\S]*\n\s+at /);
     expect(debug.stderr).toContain('please report it, with the stack above');
   });
+
+  it('ends with 2, before anything runs, every command that runs an agent with a SHADOWLAP_GUARD_ACCEPT it can\'t take', () => {
+    const golden = join(project, 'goldens', 'hello');
+    if (!existsSync(golden)) expect(shadowlap(project, ['pack', runId, 'goldens/hello']).code).toBe(0);
+    for (const args of [['test', 'goldens/hello'], ['replay', runId], ['run', '--', process.execPath, 'agent.mjs'], ['blame', runId, '--attempts', '1', '--passes', '1'], ['test', 'goldens/hello', '--chaos']]) {
+      // One that hangs ignores a polite signal: killed outright, so the test fails rather than waits.
+      const r = spawnSync(process.execPath, [CLI, ...args], { cwd: project, encoding: 'utf8', env: { ...ENV, SHADOWLAP_GUARD_ACCEPT: 'bogus' }, timeout: 30_000, killSignal: 'SIGKILL' });
+      expect(r.signal, `${args.join(' ')} still ran after 30 s`).toBeNull();
+      expect(r.status, `${args.join(' ')}: ${r.stderr}`).toBe(2);
+      expect(r.stderr).toContain('SHADOWLAP_GUARD_ACCEPT takes "claude-code" alone, not "bogus"');
+      expect(r.stderr).not.toContain('replaying run');
+    }
+  }, 120_000);
 
   it.skipIf(process.platform === 'win32')('128 + n: a signal that comes once the command has set its status, as it winds down', async () => {
     // A command that set its verdict's status and is still closing (verify after its verdict, repair

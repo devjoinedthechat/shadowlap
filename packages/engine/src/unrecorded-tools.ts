@@ -1,4 +1,6 @@
+import { isClaudeCodeSession } from './fingerprint.js';
 import { isReservedScope } from './judge-scope.js';
+import { loadApiRequest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
 import type { Store } from './store.js';
 import type { CallRecord } from './types.js';
@@ -33,6 +35,8 @@ export interface UnrecordedTool {
 export interface UnrecordedOptions {
   /** `tools.unrecorded` in shadowlap.config.json: the effect of a tool Shadowlap doesn't record, by name. */
   declared?: Readonly<Record<string, 'read' | 'write'>>;
+  /** Whether the run's agent is Claude Code, whose built-ins are told apart by name; worked out from the run when absent (fromClaudeCode). */
+  claudeCode?: boolean;
 }
 
 // ---- the config: tools.unrecorded ----
@@ -168,12 +172,39 @@ const CLIENT_WRITES = new Set(['bash', 'computer', 'str_replace_editor', 'str_re
  */
 export type UnrecordedFix = 'fence' | 'fence-effects' | 'mcp' | 'none' | 'wrap';
 
-export function unrecordedFix(name: string): UnrecordedFix {
-  if (FENCED_BUILT_INS.has(name)) return 'fence';
-  const builtIn = CLAUDE_CODE_TOOLS[name];
-  if (builtIn) return builtIn.effect === 'write' ? 'fence-effects' : 'none';
+export function unrecordedFix(name: string, options: { claudeCode?: boolean } = {}): UnrecordedFix {
+  if (options.claudeCode) {
+    if (FENCED_BUILT_INS.has(name)) return 'fence';
+    const builtIn = Object.hasOwn(CLAUDE_CODE_TOOLS, name) ? CLAUDE_CODE_TOOLS[name] : undefined;
+    if (builtIn) return builtIn.effect === 'write' ? 'fence-effects' : 'none';
+  }
   if (mcpToolName(name) !== null) return 'mcp';
   return 'wrap';
+}
+
+/**
+ * Whether a run's agent is Claude Code, which the Claude Agent SDK runs: a model call came with its
+ * user agent (`meta.claudeCode`), its fence said hello for the CLI (`preloads.hellos['claude-code']`),
+ * or a model request carries the session identifier only Claude Code sends (`metadata.user_id`,
+ * isClaudeCodeSession), which a recording made before the user agent was kept holds too. Claude
+ * Code's built-in tools are told apart by name in such a run only: in another agent's, a tool named
+ * `Skill` or `TaskCreate` is the agent's own, read by its name like any other.
+ */
+export function fromClaudeCode(store: Store, runId: string, calls: readonly CallRecord[] = store.getCalls(runId)): boolean {
+  const meta = store.getRun(runId)?.meta;
+  if (meta?.claudeCode === true) return true;
+  const hellos = meta?.preloads?.hellos;
+  if (hellos && typeof hellos === 'object' && Number((hellos as Record<string, unknown>)['claude-code'] ?? 0) > 0) return true;
+  // Every request of a session carries it: the first few say.
+  for (const c of calls.filter((x) => x.kind === 'api' && x.requestRef).slice(0, 3)) {
+    try {
+      const body = loadApiRequest(store, c.requestRef!) as { metadata?: { user_id?: unknown } } | null;
+      if (isClaudeCodeSession(body?.metadata?.user_id)) return true;
+    } catch {
+      // a request it can't read says nothing of who sent it
+    }
+  }
+  return false;
 }
 
 /** A built-in the provider runs itself and answers within the same response (web search, code execution, an MCP connector): nothing runs in the agent. */
@@ -187,12 +218,16 @@ export function mcpToolName(name: string): string | null {
   return MCP_PREFIXED.exec(name)?.[1] ?? null;
 }
 
-/** A tool's effect, and why: declared in the config, a built-in's, its name's, or unknown. An MCP tool's prefix is set aside. */
-export function unrecordedEffect(name: string, declared: Readonly<Record<string, 'read' | 'write'>> = {}): { effect: UnrecordedEffect; why: string } {
+/**
+ * A tool's effect, and why: declared in the config, a built-in's, its name's, or unknown. An MCP
+ * tool's prefix is set aside. Claude Code's built-ins are named so only in a run from Claude Code
+ * (`claudeCode`, fromClaudeCode).
+ */
+export function unrecordedEffect(name: string, declared: Readonly<Record<string, 'read' | 'write'>> = {}, options: { claudeCode?: boolean } = {}): { effect: UnrecordedEffect; why: string } {
   const bare = mcpToolName(name);
   const said = Object.hasOwn(declared, name) ? declared[name] : bare !== null && Object.hasOwn(declared, bare) ? declared[bare] : undefined;
   if (said === 'read' || said === 'write') return { effect: said, why: `declared ${said} in shadowlap.config.json` };
-  const builtIn = Object.hasOwn(CLAUDE_CODE_TOOLS, name) ? CLAUDE_CODE_TOOLS[name] : undefined;
+  const builtIn = options.claudeCode && Object.hasOwn(CLAUDE_CODE_TOOLS, name) ? CLAUDE_CODE_TOOLS[name] : undefined;
   if (builtIn) return builtIn;
   if (CLIENT_WRITES.has(name) || name.startsWith('computer.')) return { effect: 'write', why: 'a built-in that writes' };
   const byName = toolNameEffect(bare ?? name);
@@ -241,5 +276,7 @@ export function unrecordedTools(store: Store, runId: string, options: Unrecorded
       else found.set(name, { count: 1, firstCallNo: c.callNo });
     }
   }
-  return [...found].map(([name, { count, firstCallNo }]) => ({ name, count, firstCallNo, ...unrecordedEffect(name, options.declared), fix: unrecordedFix(name) }));
+  // Claude Code's built-ins are its own only in a run from Claude Code.
+  const claudeCode = found.size > 0 && (options.claudeCode ?? fromClaudeCode(store, runId, calls));
+  return [...found].map(([name, { count, firstCallNo }]) => ({ name, count, firstCallNo, ...unrecordedEffect(name, options.declared, { claudeCode }), fix: unrecordedFix(name, { claudeCode }) }));
 }

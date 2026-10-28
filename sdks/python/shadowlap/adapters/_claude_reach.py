@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import unicodedata
 from collections.abc import Mapping
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, managed_file_of, project_dirs, settings_documents
+from shadowlap.adapters._claude_hooks import QUERY_SETTINGS, component_files, hook_items, managed_file_of, project_dirs, settings_documents
 from shadowlap.adapters._frontmatter import UNREADABLE, frontmatter
 
 _MISSING = object()
@@ -45,10 +46,41 @@ def _quote(name: str) -> str:
     return json.dumps("".join(" " if unicodedata.category(c) in ("Cc", "Cf") else c for c in short), ensure_ascii=False)
 
 
-def network_servers(servers: Any) -> list[tuple[str, str]]:
-    """The servers of an MCP config (``{name: config}``) that Claude Code connects to over the network,
-    as ``(name, type)``: any but a ``stdio`` one (a ``command`` with no ``type``) and the SDK's in-process
-    ones (``sdk``). One with neither a command nor a URL connects nowhere."""
+def program_of(command: str) -> Optional[str]:
+    """The program a command line runs: its first word past any ``VAR=value``, by its file's name."""
+    first = next((w for w in command.strip().split() if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", w)), None)
+    if first is None:
+        return None
+    name = re.split(r"[\\/]", first.strip("\"'"))[-1]
+    return name[:40] or None
+
+
+def watched_program(program: str) -> bool:
+    """A program whose own connections the guard watches when the Claude Code CLI starts it: Python,
+    which loads Shadowlap's preload from the PYTHONPATH the CLI passes on. The CLI passes no
+    NODE_OPTIONS, so a Node program it starts (node, npx) loads no preload, and a native one never does."""
+    return re.match(r"^(python[0-9.]*|py)(\.exe)?$", program, re.IGNORECASE) is not None
+
+
+def _shadowlap_mcp(command: str, args: Any) -> bool:
+    """A stdio server that is Shadowlap's own MCP proxy, which records and fences what it reaches."""
+    words = [*command.strip().split(), *(a for a in (args if isinstance(args, list) else []) if isinstance(a, str))]
+    program = program_of(command)
+    if program is not None and re.match(r"^shadowlap(\.cmd)?$", program):
+        return "mcp" in words
+    return program is not None and re.match(r"^(npx|pnpx|bunx|pnpm|yarn)(\.cmd)?$", program) is not None and any(re.match(r"^(@shadowlap/cli|shadowlap)(@\S*)?$", w) for w in words) and "mcp" in words
+
+
+def _plain(text: str) -> str:
+    return "".join(" " if unicodedata.category(c) in ("Cc", "Cf") else c for c in text)
+
+
+def unwatched_servers(servers: Any) -> list[tuple[str, str]]:
+    """The servers of an MCP config (``{name: config}``) whose connections the guard can't watch, as
+    ``(name, type)``: one over the network (``http``, ``sse``, any type but ``stdio`` and the SDK's
+    in-process ``sdk``), and a ``stdio`` one unless it is Python, which loads the preload, or
+    Shadowlap's own MCP proxy. One with neither a command nor a URL connects nowhere. A stdio server's
+    type says its program: ``stdio, npx``."""
     if not isinstance(servers, dict):
         return []
     out: list[tuple[str, str]] = []
@@ -56,9 +88,21 @@ def network_servers(servers: Any) -> list[tuple[str, str]]:
         if not isinstance(c, dict):
             continue
         kind = c.get("type") if isinstance(c.get("type"), str) else "stdio" if isinstance(c.get("command"), str) else "http" if isinstance(c.get("url"), str) else None
-        if kind is not None and kind not in ("stdio", "sdk"):
+        if kind is None or kind == "sdk":
+            continue
+        if kind != "stdio":
             out.append((str(name), kind[:20]))
+            continue
+        command = c["command"] if isinstance(c.get("command"), str) else ""
+        program = program_of(command)
+        if program is None or watched_program(program) or _shadowlap_mcp(command, c.get("args")):
+            continue
+        out.append((str(name), f"stdio, {_plain(program)}"))
     return out
+
+
+#: The settings keys whose value is a command Claude Code runs itself, for a key, a token or a header.
+HELPERS = ("apiKeyHelper", "awsAuthRefresh", "awsCredentialExport", "gcpAuthRefresh", "otelHeadersHelper")
 
 
 def _read_json(path: str) -> Any:
@@ -147,12 +191,12 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
         if not isinstance(managed_mcp, dict):
             unreadable(f"the MCP servers in {short(managed_mcp_file or '')}")
         else:
-            for s in network_servers(managed_mcp.get("mcpServers")):
+            for s in unwatched_servers(managed_mcp.get("mcpServers")):
                 server(s, "managed-mcp.json")
     else:
         given = query.get("mcp_servers")
         if isinstance(given, dict):
-            for s in network_servers(given):
+            for s in unwatched_servers(given):
                 server(s)
         elif isinstance(given, (str, os.PathLike)) and str(given).strip():
             # A path to a config file or inline JSON, passed to --mcp-config as it is.
@@ -160,14 +204,14 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
             if servers is None:
                 unreadable("the MCP servers of mcp_servers")
             else:
-                for s in network_servers(servers):
+                for s in unwatched_servers(servers):
                     server(s)
         if extra.get("mcp-config") is not None:
             servers = mcp_config(extra["mcp-config"])
             if servers is None:
                 unreadable("the MCP servers of --mcp-config")
             else:
-                for s in network_servers(servers):
+                for s in unwatched_servers(servers):
                     server(s, "--mcp-config")
         # A subagent of the query's own may bring a server with it.
         agents = query.get("agents")
@@ -175,13 +219,13 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
             for agent, definition in agents.items():
                 specs = definition.get("mcpServers") if isinstance(definition, dict) else getattr(definition, "mcpServers", None)
                 for spec in specs if isinstance(specs, list) else []:
-                    for s in network_servers(spec):
+                    for s in unwatched_servers(spec):
                         server(s, f"subagent {_quote(str(agent))}")
     # Servers the organization provides in its managed settings files; --strict-mcp-config leaves them out, unless managed-mcp.json is there.
     if not strict or taken_over:
         for d in docs:
             if d["managed"] and isinstance(d["data"], dict):
-                for s in network_servers(d["data"].get("managedMcpServers")):
+                for s in unwatched_servers(d["data"].get("managedMcpServers")):
                     server(s, "managed settings")
     if not strict and not taken_over:
         # A project's .mcp.json, which an SDK session loads without asking.
@@ -195,7 +239,7 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
                 if servers is None:
                     unreadable(f"the MCP servers in {short(path)}")
                 else:
-                    for s in network_servers(servers):
+                    for s in unwatched_servers(servers):
                         server(s, short(path))
         # The user's and the local scope's servers, in .claude.json: read whatever setting_sources says.
         user_file = os.path.join(cli_env.get("CLAUDE_CONFIG_DIR") or home, ".claude.json")
@@ -203,7 +247,7 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
         if user is None:
             unreadable(f"the MCP servers in {short(user_file)}")
         elif isinstance(user, dict):
-            for s in network_servers(user.get("mcpServers")):
+            for s in unwatched_servers(user.get("mcpServers")):
                 server(s, short(user_file))
             # The local scope's, kept under the folder they were added in: this one or one above it.
             raw_projects = user.get("projects")
@@ -212,7 +256,7 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
             while True:
                 p = projects.get(folder)
                 if isinstance(p, dict):
-                    for s in network_servers(p.get("mcpServers")):
+                    for s in unwatched_servers(p.get("mcpServers")):
                         server(s, f"local scope in {short(user_file)}")
                 parent = os.path.dirname(folder)
                 if parent == folder:
@@ -229,7 +273,7 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
             if servers is None:
                 unreadable(f"the MCP servers of the {label}")
             else:
-                for s in network_servers(servers):
+                for s in unwatched_servers(servers):
                     server(s, label)
             manifest = _read_json(os.path.join(root, ".claude-plugin", "plugin.json"))
             if manifest is None:
@@ -245,7 +289,7 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
                     if servers is None:
                         unreadable(f"the MCP servers of the {label}")
                     else:
-                        for s in network_servers(servers):
+                        for s in unwatched_servers(servers):
                             server(s, label)
         # The plugins a settings file enables: their servers come from where Claude Code installed them.
         for d in docs:
@@ -268,8 +312,35 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
                 unreadable(f"the MCP servers in {short(path)}")
                 continue
             for spec in value if isinstance(value, list) else [value]:
-                for s in network_servers(spec):
+                for s in unwatched_servers(spec):
                     server(s, short(path))
+    # Hooks Claude Code runs itself: an http one posts to its URL from the CLI, a command one runs a
+    # program the CLI starts, which loads no preload but Python's.
+    def named(source: str) -> str:
+        return source if source.startswith("the query") else short(source)
+
+    for h in hook_items(places, cwd):
+        if h["type"] == "unreadable":
+            unreadable(f"the hooks in {named(h['source'])}")
+        elif h["type"] == "http" and "url" in h:
+            try:
+                host = urlsplit(h["url"]).netloc[:60] or "its URL"
+            except ValueError:
+                host = "its URL"
+            out.append(f"the HTTP hook in {named(h['source'])} ({_plain(host)})")
+        elif h["type"] == "command" and "command" in h:
+            program = program_of(h["command"])
+            if program is not None and not watched_program(program):
+                out.append(f"the command hook {_plain(program)} in {named(h['source'])}")
+    # The commands a settings file names for a key, a token or a header, which the CLI runs itself.
+    for d in docs:
+        if not isinstance(d["data"], dict):
+            continue
+        for key in HELPERS:
+            command = d["data"].get(key)
+            program = program_of(command) if isinstance(command, str) else None
+            if program is not None and not watched_program(program):
+                out.append(f"the {key} command {_plain(program)} in {named(d['source'])}")
     # The claude.ai connectors: Claude Code fetches them only for a claude.ai login.
     connectors_off = (
         strict
@@ -285,6 +356,21 @@ def claude_reach(query: Mapping[str, Any], places: Mapping[str, Any], cli_env: M
     )
     if not connectors_off:
         out.append("claude.ai connectors, which a claude.ai login brings")
+    # Its OpenTelemetry export, which no nonessential-traffic switch turns off: on with
+    # CLAUDE_CODE_ENABLE_TELEMETRY, in the environment or the env of a settings file that may set it (a
+    # repository's may not), to a collector an otlp exporter sends to.
+    otel_docs = [d for d in docs if d.get("scope") in ("user", "managed", "query")]
+
+    def values(name: str) -> list[str]:
+        found = [cli_env.get(name)] + [d["data"]["env"].get(name) if isinstance(d["data"], dict) and isinstance(d["data"].get("env"), dict) else None for d in otel_docs]
+        return [v for v in found if isinstance(v, str)]
+
+    def otlp(name: str) -> bool:
+        return any("otlp" in [e.strip().lower() for e in v.split(",")] for v in values(name))
+
+    traces = any(_on(v) for v in [*values("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"), *values("ENABLE_ENHANCED_TELEMETRY_BETA")])
+    if any(_on(v) for v in values("CLAUDE_CODE_ENABLE_TELEMETRY")) and (otlp("OTEL_METRICS_EXPORTER") or otlp("OTEL_LOGS_EXPORTER") or (traces and otlp("OTEL_TRACES_EXPORTER"))):
+        out.append("its OpenTelemetry export (CLAUDE_CODE_ENABLE_TELEMETRY, to an otlp collector)")
     # Its own traffic: any value at all turns it off, 0 and false among them.
     if not _filled(cli_env.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")):
         out.append("its nonessential traffic (updates, telemetry, error reports)")

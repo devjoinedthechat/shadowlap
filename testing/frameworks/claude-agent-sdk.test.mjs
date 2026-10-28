@@ -15,6 +15,9 @@ import { startHarness, toolTrace } from './harness.mjs';
 
 describe('Claude Agent SDK (TypeScript) with @shadowlap/adapters/claude-agent-sdk', () => {
   const base = mkdtempSync(join(tmpdir(), 'shadowlap-claude-code-ts-'));
+  // A home and a config folder that exist, as a person's do: Claude Code reads some settings (the
+  // local file at a repository's root) only when its home folder is there.
+  for (const dir of ['home', 'config']) mkdirSync(join(base, dir));
   const project = join(base, 'project');
   const notes = join(project, 'notes.txt');
   let h;

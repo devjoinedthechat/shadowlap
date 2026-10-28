@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
+import { usageError } from './exit-codes.js';
 
 // The file itself (reading it, and every edit to it) is the engine's, shared with the dashboard.
 export { CONFIG_FILE };
@@ -168,11 +169,11 @@ function parseGuardAccept(raw: unknown, file: string): string[] {
   return acceptList(accept, `${file}: guard.accept`);
 }
 
-/** A list of runtimes to accept, each one `--guard block` can accept, or the error that names the one it can't. */
+/** A list of runtimes to accept, each one `--guard block` can accept, or the usage error (2) that names the one it can't. */
 function acceptList(items: readonly unknown[], where: string): string[] {
   for (const item of items) {
     if (!(ACCEPTABLE_RUNTIMES as readonly unknown[]).includes(item)) {
-      throw new Error(`${where} takes "claude-code" alone, not ${JSON.stringify(item)}: a Node or Python process whose guard is off still fails --guard block`);
+      throw usageError(`${where} takes "claude-code" alone, not ${JSON.stringify(item)}: a Node or Python process whose guard is off still fails --guard block`);
     }
   }
   return [...new Set(items as string[])];

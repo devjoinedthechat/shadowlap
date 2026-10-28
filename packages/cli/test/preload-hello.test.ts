@@ -157,6 +157,25 @@ describe('the preloads, as the sidecar counts them', () => {
     expect(f.exitedOk).toBeUndefined();
   });
 
+  it("keeps what each query's fence in one process says its CLI reaches: a second hello adds to the first's, never erases it", async () => {
+    const r = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(r.runId, 'block');
+    // Two queries in the same process: the first leaves WebFetch open, the second nothing.
+    await cli(r.runId, 340, [OPEN[0]]);
+    await cli(r.runId, 340, []);
+    await tool(r.runId);
+    const first = sidecar.endRun(r.runId, 'completed');
+    expect(first.preloads).toMatchObject({ hellos: { 'claude-code': 1 }, failed: true });
+    expect(first.preloads!.unguarded).toContain(`so the guard can't watch ${OPEN[0]}.`);
+    // A query whose fence said nothing of it leaves what the process reaches unknown.
+    const u = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
+    sidecar.expectPreloads(u.runId, 'block');
+    await cli(u.runId, 341, []);
+    await cli(u.runId, 341);
+    await tool(u.runId);
+    expect(sidecar.endRun(u.runId, 'completed').preloads!.unguarded).toContain('which its fence did not say');
+  });
+
   it('accepts the Claude Code CLI alone under guard.accept: its paths named, nothing failed, and a Node process with no guard still fails', async () => {
     const accepted = sidecar.startRun({ mode: 'record', command: { argv: ['node', 'agent.mjs'], cwd: dir } });
     sidecar.expectPreloads(accepted.runId, 'block', ['claude-code']);

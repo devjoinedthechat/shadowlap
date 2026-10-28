@@ -179,22 +179,31 @@ export async function testAttempt(
   // A tool the model called that the recording never recorded runs again for real: one that writes
   // is refused before anything starts, whichever command asked for the replay.
   refuseUnrecorded(store, parent, o.allowUnrecorded);
+  // What the guard accepts unwatched, read before anything starts: a value it can't take ends the command.
+  const accept = guardAccept();
   const started = Date.now();
   let output = '';
   const argv = o.argv ?? parent.command.argv;
   const sidecar = await Sidecar.start({ store, normalizers: o.normalizers, upstreams: o.upstreams, ...(o.prices ? { prices: o.prices } : {}), ...(o.clock ? { clock: o.clock } : {}), ...(o.http ? { http: o.http } : {}) });
-  const run = sidecar.startRun({
-    mode: 'replay',
-    parentRunId: parent.runId,
-    command: { argv, cwd: o.cwd },
-    codeVersion: codeVersion(o.cwd),
-    // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
-    replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
-  });
-  // Who replayed it (`shadowlap test`'s runs show by whom on Runs, as every other run does), the keys
-  // its environment held, and that it records what a person types: through the sidecar, which writes
-  // them after the run's start and never waits on the thread for another process's lock.
-  sidecar.updateRunMeta(run.runId, { ...(o.meta ?? {}), ...newRunMeta(), ...keyEnvPatch(store, parent.runId), inputs: true });
+  let run: RunRecord;
+  try {
+    run = sidecar.startRun({
+      mode: 'replay',
+      parentRunId: parent.runId,
+      command: { argv, cwd: o.cwd },
+      codeVersion: codeVersion(o.cwd),
+      // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
+      replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
+    });
+    // Who replayed it (`shadowlap test`'s runs show by whom on Runs, as every other run does), the keys
+    // its environment held, and that it records what a person types: through the sidecar, which writes
+    // them after the run's start and never waits on the thread for another process's lock.
+    sidecar.updateRunMeta(run.runId, { ...(o.meta ?? {}), ...newRunMeta(), ...keyEnvPatch(store, parent.runId), inputs: true });
+  } catch (err) {
+    // Nothing is left running for what can't start: the sidecar holds the process open otherwise.
+    await sidecar.close();
+    throw err;
+  }
   o.onRun?.(run.runId);
   // The agent gets a process group of its own, so stopping it also stops what it started (`npm run`,
   // `sh -c`): at the time limit, on a signal, and once it exits. It no longer hears the terminal's
@@ -209,7 +218,7 @@ export async function testAttempt(
   const stop = new AgentStop({ group, onSignal: (sig) => void (interrupted ??= sig), abandon: () => endRun('crashed') }).start();
   // Each Node and Python process of the agent says its preload loaded: one that made calls with none
   // was never watched by the guard, which fails it under block.
-  sidecar.expectPreloads(run.runId, o.guard, guardAccept());
+  sidecar.expectPreloads(run.runId, o.guard, accept);
   const child = spawnAgent(argv[0]!, argv.slice(1), { cwd: o.cwd, env: { ...agentEnv(sidecar, run.runId, o.guard, o.upstreams), ...o.extraEnv }, stdio: ['ignore', 'pipe', 'pipe'], detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -599,6 +608,8 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   if (argv.length === 0) throw new Error('no command given: shadowlap run -- <command> [args...]');
   const store = openStore(opts);
   const config = loadConfig(process.cwd());
+  // What the guard accepts unwatched, read before anything starts: a value it can't take ends the command.
+  const accept = guardAccept();
   const sidecar = await Sidecar.start({
     store,
     normalizers: config.normalize,
@@ -607,7 +618,13 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
     ...(config.tools ? { trust: config.tools } : {}),
     ...(opts.verbose ? { log: (line: string) => void process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) } : {}),
   });
-  const run = start(sidecar);
+  let run: RunRecord;
+  try {
+    run = start(sidecar);
+  } catch (err) {
+    await sidecar.close();
+    throw err;
+  }
   // Who made it, the keys its environment held, and that it records what a person types.
   sidecar.updateRunMeta(run.runId, { ...newRunMeta(), ...keyEnvPatch(store, run.parentRunId), inputs: true });
   process.stderr.write(p.dim(`[shadowlap] ${run.mode === 'record' ? 'recording' : 'replaying'} run ${run.runId}\n`));
@@ -637,7 +654,7 @@ export async function runUnderSidecar(opts: GlobalOpts, argv: string[], start: (
   const shared = sharedGroup(true);
   const group = GROUPS && !shared;
   const stop = new AgentStop({ group, shared, onSignal: () => void (interrupted = true), abandon: () => (endRun('crashed'), clearActive()) }).start();
-  sidecar.expectPreloads(run.runId, guard, guardAccept());
+  sidecar.expectPreloads(run.runId, guard, accept);
   const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: extra.capture ? ['inherit', 'pipe', 'pipe'] : 'inherit', env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: group }, { url: sidecar.url, runId: run.runId });
   trackAgent(child, group);
   stop.add(child);
@@ -728,6 +745,14 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
     throw err;
   }
   const config = loadConfig(process.cwd());
+  // What the guard accepts unwatched, read before anything starts: a value it can't take ends the command.
+  let accept: string[];
+  try {
+    accept = guardAccept();
+  } catch (err) {
+    store.close();
+    throw err;
+  }
   const sidecar = await Sidecar.start({
     store,
     normalizers: config.normalize,
@@ -775,7 +800,7 @@ export async function repeatUnderSidecar(opts: GlobalOpts, argv: string[], count
       const header = p.dim(`── attempt ${i + 1} of ${count} · run ${run.runId} ──`);
       if (streaming) process.stderr.write(`${header}\n`);
       const tee = streaming && extra.capture;
-      sidecar.expectPreloads(run.runId, guard, guardAccept());
+      sidecar.expectPreloads(run.runId, guard, accept);
       const child = spawnAgent(argv[0]!, argv.slice(1), { stdio: streaming ? (tee ? ['inherit', 'pipe', 'pipe'] : 'inherit') : ['ignore', 'pipe', 'pipe'], env: { ...agentEnv(sidecar, run.runId, guard, upstreamOverrides(process.env)), ...extra.env }, detached: agentGroup }, { url: sidecar.url, runId: run.runId });
       trackAgent(child, agentGroup);
       stop.add(child);

@@ -473,6 +473,23 @@ describe('the fence beside other hooks', () => {
     }
   });
 
+  it("refuses a recorded write a hook in the repository root's local settings file could rewrite, from a folder inside it", async () => {
+    // Claude Code reads that file at the root from a subfolder, and the main checkout's from a linked worktree.
+    const { dir } = project({ '.git/HEAD': 'ref: refs/heads/main\n', 'sub/.keep': '', '.claude/settings.local.json': JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: './mark.sh' }] }] } }) }, [], () => {});
+    try {
+      const { run } = await recorded(fenced());
+      const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      within(replay);
+      const cc = session(fenced({ cwd: join(dir, 'sub'), settingSources: ['local'] }), { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+      const { results } = await agent(cc, SCRIPT_BASH);
+      sidecar.endRun(replay.runId, 'completed');
+      expect(cc.ran).toEqual([]);
+      expect(results[0].content).toContain(`a PreToolUse hook in ${join(dir, '.claude', 'settings.local.json')} (matcher "Bash") runs beside Shadowlap's`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("refuses a recorded write a subagent's own hook could rewrite, in that subagent's calls alone", async () => {
     const said: string[] = [];
     const { dir, hooks } = project({ '.claude/agents/review.md': `---\nname: reviewer\ndescription: d\n${BASH_HOOK}---\nReview.\n` }, ['project'], (l) => said.push(l));

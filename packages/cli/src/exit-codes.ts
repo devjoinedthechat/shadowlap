@@ -98,6 +98,37 @@ export function watchStopSignals(): void {
     };
     process.on(signal, note);
   }
+  // A process whose loop has nothing left to do ends without reading a signal still waiting to be
+  // read: one more turn reads it, and the signal ends the process (or its status does).
+  process.once('beforeExit', () => afterPendingSignals(() => undefined));
+}
+
+/**
+ * Calls `then` once the event loop has polled for I/O again. A stop signal that comes while the
+ * process is busy with synchronous work (git removing repair's worktree after its last verify, a
+ * store closing) waits for the loop to read it, and a process that ended first would end with its
+ * own status, the signal never read. An immediate queued from an immediate runs on the loop's next
+ * turn, after that turn's poll has read the signal: one alone could run in the very turn whose poll
+ * had run before the signal came.
+ */
+export function afterPendingSignals(then: () => void): void {
+  setImmediate(() => setImmediate(then));
+}
+
+/**
+ * Runs the CLI's command to its end, as the entry point does: a stop signal ends the process with
+ * 128 + n however the command wound down, and what the command throws is reported with the status
+ * the contract gives it, once a signal that came meanwhile has been read (afterPendingSignals), so
+ * a signal ends it with 128 + n there too.
+ */
+export function runToEnd(command: () => Promise<unknown>): void {
+  new Promise<unknown>((resolve) => resolve(command())).then(
+    () => {
+      const signal = stoppedBy();
+      if (signal) process.exitCode = signalExit(signal);
+    },
+    (err: unknown) => afterPendingSignals(() => process.exit(reportError(err))),
+  );
 }
 
 /** The first stop signal this process got, or null. */

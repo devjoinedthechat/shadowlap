@@ -3,11 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord, type UnrecordedFix } from '@shadowlap/engine';
-import { RunBuilder, toolUse, user } from '../../engine/test/run-fixtures.js';
+import { CLAUDE_CODE_USER, RunBuilder, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { AttemptRunner } from '../src/attempts.js';
 import { CliError, EXIT } from '../src/exit-codes.js';
 import { repeatUnderSidecar, testAttempt } from '../src/run-agent.js';
-import { formatUnrecorded, unrecordedRefusal, unrecordedRunAnyway } from '../src/unrecorded.js';
+import { formatUnrecorded, unrecordedOf, unrecordedRefusal, unrecordedRunAnyway } from '../src/unrecorded.js';
 
 /**
  * The runners every command that replays a recording shares (`testAttempt` for test, bisect and
@@ -25,9 +25,9 @@ let parent: RunRecord;
 
 beforeAll(() => {
   const store = Store.open(db);
-  // Its model asked for Bash, which the agent ran unwrapped: the run recorded no call of it.
+  // Its model, Claude Code's, asked for Bash, which the agent ran unwrapped: the run recorded no call of it.
   const b = RunBuilder.start(store, { argv });
-  b.model({ messages: [user('Clean up the build.')] }, [toolUse('Bash', { command: 'rm -rf build' }, 't1')]);
+  b.model({ messages: [user('Clean up the build.')], metadata: { user_id: CLAUDE_CODE_USER } }, [toolUse('Bash', { command: 'rm -rf build' }, 't1')]);
   parent = store.getRun(b.end())!;
   store.close();
 });
@@ -104,6 +104,37 @@ describe('the runners every replaying command shares', () => {
   }, 30_000);
 });
 
+describe("a plain agent's tools of Claude Code's built-in names", () => {
+  it("are refused, and the agent is told to wrap them, not to fence them: they are its own, not Claude Code's", async () => {
+    const store = Store.open(db);
+    try {
+      // A Node agent of its own, with no Claude Code in it: its model asked for its own TaskCreate, CronCreate and Skill.
+      const b = RunBuilder.start(store, { argv });
+      b.model({ messages: [user('Plan the release.')] }, [toolUse('TaskCreate', { subject: 'tag' }, 't1'), toolUse('CronCreate', { cron: '0 9 * * *' }, 't2'), toolUse('Skill', { skill: 'release' }, 't3')]);
+      const plain = store.getRun(b.end())!;
+      const tools = unrecordedOf(store, plain.runId, {});
+      expect(tools.map((t) => [t.name, t.effect, t.fix])).toEqual([
+        ['TaskCreate', 'write', 'wrap'],
+        ['CronCreate', 'write', 'wrap'],
+        ['Skill', 'unknown', 'wrap'],
+      ]);
+      const refusal = unrecordedRefusal(plain, tools, new Set(), null)!;
+      expect(refusal).toContain('holds model calls of tools Shadowlap never recorded, which write, or may');
+      expect(refusal).toContain("wrap it where your agent runs it: tool('TaskCreate', { effect: 'write' }, fn) with @shadowlap/sdk");
+      expect(refusal).not.toMatch(/withFence|with_fence|Claude Code/);
+      // And so the runners never start it.
+      const err = await testAttempt(store, plain, attemptOptions).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect((err as CliError).exitCode).toBe(EXIT.usage);
+      expect(existsSync(marker), 'the agent never started').toBe(false);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('a tool of unknown effect', () => {
   const run = { runId: '01K0UNKNOWN0000000000000000', meta: {} } as unknown as RunRecord;
   const tool = (name: string, effect: 'write' | 'read' | 'unknown', why: string, fix: UnrecordedFix = 'wrap') => ({ name, count: 1, firstCallNo: 2, effect, why, fix });
@@ -123,7 +154,7 @@ describe('a tool of unknown effect', () => {
   it('says at the end of a run that it may write, so a replay refuses it', () => {
     const said = formatUnrecorded([tool('frobnicate', 'unknown', 'its name says nothing of what it does')], 'recording');
     expect(said).toContain('  frobnicate may write, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.');
-    expect(said).toContain("To have it recorded and replayed, wrap it where your agent runs it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk;");
+    expect(said).toContain("To have it recorded and replayed, wrap it where your agent runs it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk (@tool(\"frobnicate\", effect=\"write\") from shadowlap in Python);");
   });
 
   it('points a Claude Code built-in at the fence, an MCP tool at shadowlap mcp, and leaves a session tool alone', () => {
@@ -134,6 +165,6 @@ describe('a tool of unknown effect', () => {
     const shell = tool('PowerShell', 'write', 'a Claude Code built-in that runs a command', 'fence-effects');
     expect(unrecordedRefusal(run, [shell], new Set(), null)).toContain("  So Shadowlap records it and a replay serves it: name it in withFence's effects, withFence(options, { effects: { 'PowerShell': 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay.");
     const close = tool('mcp__issues__close_issue', 'write', '"close" changes something', 'mcp');
-    expect(unrecordedRefusal(run, [close], new Set(), null)).toContain('connect Claude Code to its MCP server through shadowlap mcp, which records and fences its calls');
+    expect(unrecordedRefusal(run, [close], new Set(), null)).toContain('connect your agent to its MCP server through shadowlap mcp, which records and fences its calls');
   });
 });

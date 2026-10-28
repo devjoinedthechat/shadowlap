@@ -1,4 +1,5 @@
 import { Command, CommanderError, Option } from 'commander';
+import { guardAccept } from './config.js';
 import { CliError, EXIT } from './exit-codes.js';
 import { register as registerCheck } from './commands/check.js';
 import { register as registerChanges } from './commands/changes.js';
@@ -21,7 +22,7 @@ export { captureConfig, guardEnv, type GuardMode } from './run-agent.js';
 export { hasCredentials, keyEnvOf, placeholderKeys } from './placeholder-keys.js';
 export { quoteArgv } from './ui.js';
 // The exit status contract, for the entry point (bin/shadowlap.js) and for tools that run the CLI.
-export { CliError, EXIT, exitCodeOf, reportError, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
+export { afterPendingSignals, CliError, EXIT, exitCodeOf, reportError, runToEnd, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command()
@@ -105,5 +106,9 @@ function acceptGlobalOptionsAfterCommands(program: Command): void {
     }
     if (db !== undefined) program.setOptionValue('db', db);
     if (verbose) program.setOptionValue('verbose', true);
+    // A command that runs an agent under the guard checks what the guard accepts unwatched as it
+    // starts (guard.accept, SHADOWLAP_GUARD_ACCEPT): a value it can't take ends it with 2, before
+    // anything runs.
+    if (action.options.some((o) => o.long === '--guard')) guardAccept();
   });
 }
