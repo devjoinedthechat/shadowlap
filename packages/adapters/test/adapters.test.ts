@@ -228,6 +228,22 @@ describe('framework adapters', () => {
     deactivate();
   });
 
+  it('name an OpenAI Agents tool as tool() names it to the model, from its name or its function', async () => {
+    const spaced = withOpenAIAgentsEffect({ name: 'lookup order', execute: async (input: unknown) => input }, 'read');
+    const unnamed = withOpenAIAgentsEffect({ execute: async function refund_order(input: unknown) { return input; } }, 'write');
+    // tool() takes the name from the definition: the wrapper's function has none to fall back on.
+    expect([spaced.name, unnamed.name]).toEqual(['lookup_order', 'refund_order']);
+    const [anonymous] = [async () => 1]; // a function with no name, which tool() refuses too
+    expect(() => withOpenAIAgentsEffect({ execute: anonymous }, 'read')).toThrow(/has no name/);
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    await spaced.execute({ order_id: 'A-1' });
+    await unnamed.execute({ order_id: 'A-1' });
+    sidecar.endRun(rec.runId, 'completed');
+    deactivate();
+    expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['lookup_order', 'refund_order']);
+  });
+
   it('refuse something that is not a LangChain tool', () => {
     expect(() => withLangChainEffect({ name: 'x', invoke: async () => 1 } as never, 'read')).toThrow(/not a LangChain tool/);
   });

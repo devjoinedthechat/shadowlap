@@ -38,6 +38,8 @@ import { withEffect } from '@shadowlap/adapters/openai-agents';
 const searchWeb = tool(withEffect({ name: 'search_web', description: 'Search', parameters, execute: async ({ query }) => search(query) }, 'read'));
 ```
 
+A call is recorded under the name the model calls the tool by. `tool()` makes it from `name`, or from the `execute` function's own name when there is none, turning every character but a letter or a digit into `_`: `'lookup order'` is `lookup_order`, to the model and in the recording. A write blocked after a fork reaches the model as the tool's output, in the words the SDK gives any tool that failed, and `run()` goes on to the agent's answer, streamed (`{ stream: true }`) or not. The SDK's trace export goes to `api.openai.com` while recording, as it does without Shadowlap; a replay answers it itself and stays clean.
+
 ## Mastra
 
 ```ts
