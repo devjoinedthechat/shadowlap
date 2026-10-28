@@ -54,6 +54,15 @@ export interface BaseUrlWarning {
   client: 'anthropic' | 'openai' | 'gemini' | null;
 }
 
+/** A model a framework's router names (`groq/llama-3.3-70b` in a Mastra agent) and sends to a host Shadowlap doesn't record. */
+export interface UnrecordedModel {
+  file: string;
+  line: number;
+  model: string;
+  /** The framework whose router builds its client. */
+  via: 'mastra';
+}
+
 export interface InitReport {
   cwd: string;
   languages: Language[];
@@ -65,6 +74,8 @@ export interface InitReport {
   tools: FoundTool[];
   /** Model clients whose base URL is a literal: their calls bypass Shadowlap. */
   hardcodedBaseUrls: BaseUrlWarning[];
+  /** Models named through a framework's router whose calls go where Shadowlap neither redirects nor captures. */
+  unrecordedModels: UnrecordedModel[];
   /** A local or OpenAI-compatible server the project already points at. */
   modelServer: { url: string; upstream: string; from: string } | null;
   scannedFiles: number;
@@ -331,6 +342,30 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
     const before = text.slice(Math.max(0, m.index - 300), m.index);
     const client = /Anthropic/.test(before) ? 'anthropic' : /OpenAI/.test(before) ? 'openai' : /GoogleGenAI|genai/.test(before) ? 'gemini' : null;
     out.push({ file, line: lineOf(text, m.index), url: m[1]!, client });
+  }
+  return out;
+}
+
+/**
+ * The providers of Mastra's model router whose calls Shadowlap records, by the router's name for them:
+ * it builds their clients with the base URL in ANTHROPIC_BASE_URL and OPENAI_BASE_URL, and Google's
+ * host is captured in the process. Any other (`groq/…`, `openrouter/…`) goes to a host of its own.
+ */
+const MASTRA_ROUTED: Readonly<Record<string, Provider['id']>> = { anthropic: 'anthropic', openai: 'openai', google: 'gemini' };
+
+/**
+ * Models a Mastra agent names by router id, `model: 'anthropic/claude-sonnet-4-5'` (or behind a
+ * fallback, `process.env.MODEL ?? 'openai/gpt-5'`), in a file that imports Mastra: the router builds
+ * the model client, so no provider SDK is a dependency.
+ */
+function scanRouterModels(text: string, file: string): Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> {
+  if (file.endsWith('.py') || !text.includes('@mastra/core')) return [];
+  const out: Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> = [];
+  for (const m of text.matchAll(/\bmodel\s*:\s*(?:[^'"`\n,}]*?(?:\?\?|\|\|)\s*)?['"`]([a-z][a-z0-9-]*)\/([^'"`\s]+)['"`]/g)) {
+    const lineStart = text.lastIndexOf('\n', m.index - 1) + 1;
+    if (/\/\/|^\s*\*|^\s*\/\*/.test(text.slice(lineStart, m.index))) continue;
+    const model = `${m[1]!}/${m[2]!}`;
+    if (!out.some((x) => x.model === model)) out.push({ file, line: lineOf(text, m.index), model, provider: MASTRA_ROUTED[m[1]!] ?? null });
   }
   return out;
 }
@@ -644,8 +679,9 @@ function detectCommand(cwd: string, pkg: Record<string, unknown> | null, manager
   const runner = manager === 'pnpm' ? ['pnpm'] : manager === 'yarn' ? ['yarn'] : manager === 'bun' ? ['bun', 'run'] : ['npm', 'run'];
   for (const name of ['agent', 'start', 'dev', 'run']) {
     const script = scripts[name];
-    // A script that starts a web dev server or a watcher is not the agent itself.
-    if (typeof script === 'string' && !/\b(next|vite|nodemon|webpack|--watch|tsc -w)\b/.test(script)) return { argv: name === 'start' && runner[0] === 'npm' ? ['npm', 'start'] : [...runner, name], from: `package.json scripts.${name}: ${script}` };
+    // A script that starts a web dev server or a watcher is not the agent itself, nor one that serves
+    // agents and waits for requests (`mastra dev`, `mastra start`).
+    if (typeof script === 'string' && !/\b(next|vite|nodemon|webpack|--watch|tsc -w|mastra\s+(?:dev|start|build))\b/.test(script)) return { argv: name === 'start' && runner[0] === 'npm' ? ['npm', 'start'] : [...runner, name], from: `package.json scripts.${name}: ${script}` };
   }
   // The file the package says it runs from, before guessing one by its name: a bin, then main.
   const entry = nodeEntry(cwd, pkg);
@@ -723,6 +759,10 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   ];
   for (const [re, id, via] of IMPORTS) if (texts.some(([, t]) => re.test(t))) addProvider(id, `${via}, imported`);
   if (py.has('openai-agents')) addProvider('openai', 'openai-agents');
+  // Mastra's model router builds the client from a model's router id: no provider SDK is a dependency.
+  const routed = texts.flatMap(([f, t]) => scanRouterModels(t, rel(cwd, f)));
+  for (const m of routed) if (m.provider) addProvider(m.provider, `Mastra model router: ${m.model}`);
+  const unrecordedModels: UnrecordedModel[] = routed.filter((m) => !m.provider).map((m) => ({ file: m.file, line: m.line, model: m.model, via: 'mastra' }));
 
   const frameworks: Framework[] = [];
   const js = (id: Framework['id'], name: string, pkgName: string, adapter: string | null) => {
@@ -756,6 +796,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     command: detectCommand(cwd, pkg, packageManager, python, languages, texts),
     tools,
     hardcodedBaseUrls,
+    unrecordedModels,
     modelServer: findModelServer(cwd, env, texts, providers, frameworks),
     scannedFiles: files.length,
     config: { path: configPath, existed: existsSync(configPath) },
@@ -848,6 +889,11 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
     out(`  ${p.dim(`Run with SHADOWLAP_UPSTREAM_${id.toUpperCase()}=${w.url.replace(/\/v1\/?$/, '')}, or read the base URL from ${w.client ? PROVIDER_NAMES[w.client][1] : 'the environment'}.`)}`);
   }
   if (unknownHosts.length) out();
+  for (const m of r.unrecordedModels) {
+    out(`${p.yellow('!')} ${m.file}:${m.line} names the model ${m.model} through Mastra's model router, which sends it to a host Shadowlap doesn't know, so its calls would not be recorded.`);
+    out(`  ${p.dim("Shadowlap records the router's anthropic/…, openai/… and google/… models.")}`);
+  }
+  if (r.unrecordedModels.length) out();
   if (!r.providers.length) {
     out(`${p.yellow('!')} No model SDK found (Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI, Bedrock). An HTTP client of your own is recorded when it calls one of those APIs from Node or Python, or when it reads ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL.`);
     out();
@@ -902,6 +948,8 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   const upstream = r.modelServer ? `SHADOWLAP_UPSTREAM_OPENAI=${secret ? '<your model server>' : r.modelServer.upstream} ` : '';
   const cli = ts && !globalCli ? 'npx shadowlap' : 'shadowlap';
   out(`     ${p.cyan(`${upstream}${cli} run -- ${r.command ? quoteArgv(r.command.argv) : '<the command that starts your agent>'}`)}`);
+  // `mastra dev` and `mastra start` serve agents and wait for requests: a run is a script that asks one.
+  if (!r.command && r.frameworks.some((f) => f.id === 'mastra')) out(`     ${p.dim("Mastra's dev server waits for requests: record a script that calls an agent, await mastra.getAgent('…').generate('…'), or a test with @shadowlap/test.")}`);
   if (r.modelServer) out(`     ${p.dim(secret ? 'SHADOWLAP_UPSTREAM_OPENAI is the model server’s address without /v1, credentials included; init doesn’t print them.' : 'SHADOWLAP_UPSTREAM_OPENAI keeps your model server as the upstream; the agent talks to Shadowlap.')}`);
   out();
   head('Replay it, then change something and replay again');
@@ -934,6 +982,7 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
   for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
   for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
+  for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: Mastra sends it to a host Shadowlap doesn't know, so its calls aren't recorded`, true);
   lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
   return lines.join('\n');
 }

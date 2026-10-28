@@ -117,6 +117,42 @@ await generateText({ model, tools: { searchDocs, reply_to_customer: sendReply, .
     expect(text).toContain("withEffects({ searchDocs: tool({ … }) }, { searchDocs: 'read' })");
   });
 
+  it("reads a Mastra project as create-mastra lays it out: the router's models, its tools, and no server for a command", () => {
+    const dir = project({
+      'package.json': JSON.stringify({ name: 'weather', type: 'module', scripts: { dev: 'mastra dev', build: 'mastra build', start: 'mastra start' }, dependencies: { '@mastra/core': '^1.67.0', zod: '^4.0.0' }, devDependencies: { mastra: '^1.0.0' } }),
+      'tsconfig.json': '{}',
+      'src/mastra/tools/weather-tool.ts': `import { createTool } from '@mastra/core/tools';
+export const weatherTool = createTool({ id: 'get-weather', description: 'Weather', inputSchema, execute: async ({ location }) => getWeather(location) });
+`,
+      'src/mastra/agents/weather-agent.ts': `import { Agent } from '@mastra/core/agent';
+import { weatherTool } from '../tools/weather-tool';
+// model: 'xai/grok-4' in a comment names nothing.
+export const weatherAgent = new Agent({ id: 'weather-agent', name: 'Weather', instructions: '…', model: process.env.MODEL ?? 'anthropic/claude-sonnet-4-5', tools: { weatherTool } });
+export const backup = new Agent({ id: 'backup', name: 'Backup', instructions: '…', model: 'google/gemini-2.5-flash' });
+export const fast = new Agent({ id: 'fast', name: 'Fast', instructions: '…', model: 'groq/llama-3.3-70b-versatile' });
+`,
+      'src/mastra/index.ts': "import { Mastra } from '@mastra/core/mastra';\nexport const mastra = new Mastra({});\n",
+    });
+    const r = inspectProject(dir, {});
+    // No provider SDK is a dependency: the router builds the clients from the models' router ids.
+    expect(r.providers).toEqual([
+      { id: 'anthropic', via: 'Mastra model router: anthropic/claude-sonnet-4-5' },
+      { id: 'gemini', via: 'Mastra model router: google/gemini-2.5-flash' },
+    ]);
+    expect(r.unrecordedModels).toEqual([{ file: 'src/mastra/agents/weather-agent.ts', line: 6, model: 'groq/llama-3.3-70b-versatile', via: 'mastra' }]);
+    // `mastra dev` and `mastra start` serve the agents and wait for requests: neither is a run.
+    expect(r.command).toBeNull();
+    expect(r.tools.map((t) => [t.name, t.via, t.suggested])).toEqual([['get-weather', 'mastra', 'read']]);
+    const text = formatInit(r, palette, false);
+    expect(text).toContain('Model SDKs: Anthropic (Mastra model router: anthropic/claude-sonnet-4-5), Gemini (Mastra model router: google/gemini-2.5-flash)');
+    expect(text).not.toContain('No model SDK found');
+    expect(text).toContain("src/mastra/agents/weather-agent.ts:6 names the model groq/llama-3.3-70b-versatile through Mastra's model router");
+    expect(text).toContain("record a script that calls an agent, await mastra.getAgent('…').generate('…')");
+    // A script that runs the agent is the command, though its path names Mastra.
+    const scripted = project({ 'package.json': JSON.stringify({ scripts: { agent: 'tsx src/mastra/run.ts', dev: 'mastra dev' }, dependencies: { '@mastra/core': '^1.67.0' } }) });
+    expect(inspectProject(scripted, {}).command?.argv).toEqual(['npm', 'run', 'agent']);
+  });
+
   it('writes an empty configuration once and never overwrites one', () => {
     const r = inspectProject(ts, {});
     expect(writeInitialConfig(r)).toBe(true);
