@@ -8,9 +8,9 @@ name: Frameworks
 on:
   push:
     branches: [main]
-    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', '.github/workflows/frameworks.yml']
+    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', '.github/workflows/frameworks.yml']
   pull_request:
-    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', '.github/workflows/frameworks.yml']
+    paths: ['packages/adapters/**', 'packages/sdk/**', 'packages/test/**', 'packages/sidecar/**', 'packages/engine/**', 'packages/cli/**', 'sdks/python/**', 'testing/frameworks/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', '.github/workflows/frameworks.yml']
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
