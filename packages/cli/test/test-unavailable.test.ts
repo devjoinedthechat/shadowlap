@@ -60,12 +60,12 @@ interface Ran {
   report: { passed: number; failed: number; inconclusive: number; results: Array<Record<string, any>> };
 }
 
-function shadowlapTest(tests: unknown, db: string): Promise<Ran> {
+function shadowlapTest(tests: unknown, db: string, packs: string[] = ['goldens/reference-agent']): Promise<Ran> {
   writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ normalize: [], redact: [], tests }));
   const report = join(work, 'report.json');
   rmSync(report, { force: true });
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, '--db', db, 'test', 'goldens/reference-agent', '--cwd', ROOT, '--json', report], {
+    const child = spawn(process.execPath, [CLI, '--db', db, 'test', ...packs, '--cwd', ROOT, '--json', report], {
       cwd: work,
       env: { ...process.env, ...FIX, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_GUARD: 'off', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -133,6 +133,48 @@ describe('shadowlap test while the provider is unavailable', () => {
       }
     } finally {
       cutShort = 0;
+    }
+  }, 180_000);
+
+  it('counts one against either verdict under a fixed count too: 3 of 3 needed, one cut short, leaves the count unsettled rather than run it again', async () => {
+    cutShort = 1;
+    try {
+      const counted = { 'goldens/reference-agent': { fork: true, repeat: 3, passes: 3, expect: CHECKS } };
+      const r = await shadowlapTest(counted, join(work, 'count-cut-short.db'));
+      expect(r.code, r.out).toBe(3);
+      const result = r.report.results[0];
+      // 2 passed and 1 cut short: as a failure the count is lost, as a pass it is met.
+      expect(result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive', attempts: { total: 3, passed: 2, cutShort: 1 } });
+      expect(result.message).toBe('inconclusive: 2 of 3 attempts passed, 1 of them cut short by the provider, 3 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended');
+      // Needing 2 of 3, the same attempts pass it: the attempt cut short counted as a failure.
+      cutShort = 1;
+      const two = await shadowlapTest({ 'goldens/reference-agent': { fork: true, repeat: 3, passes: 2, expect: CHECKS } }, join(work, 'count-cut-short-2.db'));
+      expect(two.code, two.out).toBe(0);
+      expect(two.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 3, passed: 2, cutShort: 1 } });
+    } finally {
+      cutShort = 0;
+    }
+  }, 180_000);
+
+  it('stops a session of five goldens once the provider fails 4 attempts in a row across them, each left inconclusive, never failed', async () => {
+    const copies = [2, 3, 4, 5].map((i) => `goldens/reference-agent-${i}`);
+    for (const c of copies) cpSync(join(work, 'goldens', 'reference-agent'), join(work, c), { recursive: true });
+    overloaded = 1000;
+    try {
+      const entry = { fork: true, gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, expect: CHECKS };
+      const all = Object.fromEntries(['goldens/reference-agent', ...copies].map((g) => [g, entry]));
+      const r = await shadowlapTest(all, join(work, 'session-down.db'), ['goldens/reference-agent', ...copies]);
+      expect(r.code, r.out).toBe(3);
+      const results = r.report.results;
+      expect(results).toHaveLength(5);
+      expect(results.every((x) => x.verdict === 'inconclusive')).toBe(true);
+      // The first four ran an attempt each, in turn, and the provider failed all four: the session stopped there.
+      expect(results.slice(0, 4).map((x) => x.message)).toEqual(Array(4).fill(expect.stringMatching(/^provider unavailable: 4 attempts in a row ended on HTTP 529 from anthropic at call #\d+, so none of them says anything about the agent/)));
+      expect(results[4].message).toMatch(/^provider unavailable: 4 attempts in a row across the session ended on HTTP 529 from anthropic at call #\d+, so the session stopped before this golden ran/);
+      expect(results.reduce((n, x) => n + (x.runs?.length ?? 0), 0)).toBe(4);
+    } finally {
+      overloaded = 0;
+      for (const c of copies) rmSync(join(work, c), { recursive: true, force: true });
     }
   }, 180_000);
 

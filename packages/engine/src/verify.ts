@@ -2,7 +2,7 @@ import { probeVerdict } from './blame.js';
 import { agentCallsOf } from './judge-scope.js';
 import { baselineShort, describeBaselineRule, dropBound, type BaselineDecision, type BaselineRule, type BaselineSource, type DropBound } from './noninferiority.js';
 import { formatUsd } from './prices.js';
-import { atLeast, atMost, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
+import { atLeast, atMost, decideCountUnavailable, decideUnavailable, describeGate, rateBound, riskPercent, type GateDecision, type GateResult, type SprtGate } from './stats.js';
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
@@ -139,8 +139,13 @@ export interface VerifiedRun {
 }
 
 /** A run's verdict after `done` attempts. A deterministic run is settled by its first. */
-export function runVerdict(passes: number, done: number, attempts: number, needed: number, deterministic: boolean): RunVerdict {
+export function runVerdict(passes: number, done: number, attempts: number, needed: number, deterministic: boolean, cut = 0): RunVerdict {
   if (deterministic && done > 0) return passes > 0 ? 'pass' : 'fail';
+  // Attempts the provider cut short are among `done`: against either verdict (decideCountUnavailable).
+  if (cut) {
+    const d = decideCountUnavailable(passes, done, cut, attempts, needed);
+    return d === 'pass' ? 'pass' : d === 'fail' ? 'fail' : 'open';
+  }
   const v = probeVerdict(passes, done, attempts, needed);
   return v === 'rescued' ? 'pass' : v === 'lost' ? 'fail' : 'open';
 }

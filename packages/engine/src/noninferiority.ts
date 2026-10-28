@@ -198,16 +198,29 @@ function crossing(f: (drop: number) => number, bar: number, rising: boolean): nu
   return rising ? hi : lo;
 }
 
-/** A confidence interval for the drop p_b - p_c, each end at 1 - risk, valid whenever the test stopped. */
+/**
+ * A confidence interval for the drop p_b - p_c, valid whenever the test stopped. A run kept or broken
+ * states one end, the one that bears on its verdict, built at the whole risk; one left undecided
+ * states both, each built at half of it (`dropEndsRisk`), so the two hold together at `confidence`.
+ */
 export interface DropBound {
   /** The drop is at least this (the broken e-process inverted); null when nothing bounds it from below. */
   lo: number | null;
   /** The drop is at most this (the kept e-process inverted); null when nothing bounds it from above. */
   hi: number | null;
-  /** 1 - risk, each end. */
+  /** 1 - risk: the end a verdict states, or both ends of an undecided run's together. */
   confidence: number;
   /** How it was made: `betting`, the paired e-processes inverted; `history`, Clopper-Pearson on the history and the one-sample e-processes. */
   method: 'betting' | 'history';
+}
+
+/**
+ * The risk each end of a drop's interval is built at, for a run's decision: the whole risk for the
+ * one end a run kept or broken states, half of it for each of the two an undecided run states, which
+ * Bonferroni then keeps within the risk together.
+ */
+export function dropEndsRisk(decision: BaselineDecision | 'pass' | 'fail' | null | undefined, risk: number): number {
+  return decision === 'kept' || decision === 'broken' || decision === 'pass' || decision === 'fail' ? risk : risk / 2;
 }
 
 /** The paired drop's confidence interval from the pairs so far, each end at 1 - risk. */
@@ -539,18 +552,25 @@ export function baselineShort(r: Pick<BaselineRule, 'margin' | 'risk'>): string 
   return `tells no drop from one of ${points(r.margin)}+ points at <= ${riskPercent(r.risk)} risk`;
 }
 
-/** A drop to two places, signed: `0.07`, `-0.03`. */
-const signed = (x: number) => (Math.abs(x) < 0.005 ? '0.00' : x.toFixed(2));
+/**
+ * A drop's end to two places, signed, rounded away from what it bounds so it never says more than was
+ * worked out: an upper end up, a lower end down (`0.07`, `-0.03`). Within a hair of a hundredth, it is
+ * that hundredth: the ends are found by bisection, and x · 100 carries floating point's own error.
+ */
+function dropEnd(x: number, way: 'up' | 'down'): string {
+  const v = (way === 'up' ? Math.ceil(x * 100 - 1e-12) : Math.floor(x * 100 + 1e-12)) / 100;
+  return (v === 0 ? 0 : v).toFixed(2);
+}
 
 /**
  * The bound that bears on a baseline verdict: `drop <= 0.07 (95%)` for a run kept, `drop >= 0.12
- * (95%)` for one broken, both ends otherwise (`drop -0.04 to 0.18 (95%)`), each end valid whenever the
- * test stopped. Null with nothing to bound.
+ * (95%)` for one broken, both ends otherwise (`drop -0.04 to 0.18 (95%)`, each end built at half the
+ * risk so the two hold together), each valid whenever the test stopped. Null with nothing to bound.
  */
 export function dropBound(d: DropBound, decision: BaselineDecision | 'pass' | 'fail' | null | undefined): string | null {
   const at = `(${confidencePercent(d.confidence)})`;
-  if ((decision === 'kept' || decision === 'pass') && d.hi !== null) return `drop <= ${signed(d.hi)} ${at}`;
-  if ((decision === 'broken' || decision === 'fail') && d.lo !== null) return `drop >= ${signed(d.lo)} ${at}`;
+  if ((decision === 'kept' || decision === 'pass') && d.hi !== null) return `drop <= ${dropEnd(d.hi, 'up')} ${at}`;
+  if ((decision === 'broken' || decision === 'fail') && d.lo !== null) return `drop >= ${dropEnd(d.lo, 'down')} ${at}`;
   if (d.lo === null && d.hi === null) return null;
-  return `drop ${d.lo === null ? '?' : signed(d.lo)} to ${d.hi === null ? '?' : signed(d.hi)} ${at}`;
+  return `drop ${d.lo === null ? '?' : dropEnd(d.lo, 'down')} to ${d.hi === null ? '?' : dropEnd(d.hi, 'up')} ${at}`;
 }

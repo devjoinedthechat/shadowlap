@@ -838,14 +838,17 @@ function stepOf(plan: Planned, prices: Record<string, Price> | undefined, stopRe
   const controlled = plan.controlAnswers.flatMap((a, i) => (a.decision ? [{ a, i }] : []));
   const controlRanks = controlled.map(({ a, i }) => promoteByJudge(compareDecisions(plan.recorded, a.decision!, plan.effectOf), plan.controlJudged.get(i) ?? []).rank ?? 0);
   const controlError = plan.controlAnswers.find((a) => a.answer.error)?.answer.error ?? null;
-  const control = plan.controlAnswers.length ? { asked: plan.controlAnswers.length, answered: controlled.length, changed: controlRanks.filter((r) => r > 0).length, ranks: controlRanks, error: controlled.length || !controlError ? null : m.text(controlError) } : null;
+  const control = plan.controlAnswers.length ? { asked: plan.controlAnswers.length, answered: controlled.length, changed: controlRanks.filter((r) => r > 0).length, ranks: controlRanks, error: controlled.length >= CONTROL_MIN_SAMPLES || !controlError ? null : m.text(controlError) } : null;
   const beyond = control && controlled.length && answered.length ? rankBeyondNoise(ranks, controlRanks) : null;
-  // No control sample answered. A request the provider will never answer again (a model that retired,
+  // Fewer than CONTROL_MIN_SAMPLES answers on either side: no split of the scores can reach the
+  // control's risk, so nothing tells the change from the model's own variation, and the step ranks
+  // nothing (controlOpen). Only a control the provider will never answer again (a model that retired,
   // a request it now turns away: a 4xx other than a timeout, a conflict or a rate limit, or one that
-  // can't be built) leaves the change's own samples to rank the step, as the warnings say. One it
-  // failed for now ranks nothing: nothing told the change from the model's own variation (controlOpen).
+  // can't be built), none of it answered, leaves the change's own samples to rank the step, as the
+  // warnings say.
   const gone = (x: ModelAnswer) => (x.status === 0 ? x.attempts === 0 : x.status >= 400 && x.status < 500 && !unavailableStatus(x.status));
-  const waits = !!control && !controlled.length && answered.length > 0 && !plan.controlAnswers.every((a) => gone(a.answer));
+  const forGood = !controlled.length && plan.controlAnswers.every((a) => gone(a.answer));
+  const waits = !!control && answered.length > 0 && (controlled.length < CONTROL_MIN_SAMPLES || answered.length < CONTROL_MIN_SAMPLES) && !forGood;
   const before = tokensOf(plan.recordedUsage);
   // In a run like the recorded one: the first answer's whole input, split as the recorded call's was, and the samples' mean output.
   const measured = answered.map(({ a }) => tokensOf(a.answer.usage)).filter((t): t is TokenCount => t !== null);
@@ -1220,9 +1223,9 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       // The control arm: what the change decides differently, told from what the model does on its own.
       notes.push(`Each step was asked ${s.samples} times under the change and ${s.samples} times as recorded: a change is ranked only when its decisions run more consequential than the recorded request's own, by an exact permutation test at ${CONTROL_RISK * 100}% a step.`);
       if (counts.noise) notes.push(`${counts.noise} step${counts.noise === 1 ? '' : 's'} decided otherwise no more often than ${counts.noise === 1 ? 'it' : 'they'} did as recorded: listed with both counts, not ranked, as the model's own variation.`);
-      const why = (steps: DecisionStep[]) => [...new Set(steps.map((x) => x.control!.error).filter(Boolean))].slice(0, 2).join('; ') || 'no answer';
+      const why = (steps: DecisionStep[]) => [...new Set(steps.map((x) => x.control!.error).filter(Boolean))].slice(0, 2).join('; ') || 'too few answers';
       const open = allSteps.filter((x) => controlOpen(x));
-      if (open.length) warnings.push(`${open.length} step${open.length === 1 ? '' : 's'} got no answer as recorded (${why(open)}): not ranked, since nothing told ${open.length === 1 ? 'its' : 'their'} change from the model's own variation; ask again to settle ${open.length === 1 ? 'it' : 'them'}`);
+      if (open.length) warnings.push(`${open.length} step${open.length === 1 ? '' : 's'} got fewer than ${CONTROL_MIN_SAMPLES} answers under the change or as recorded (${why(open)}): not ranked, since nothing told ${open.length === 1 ? 'its' : 'their'} change from the model's own variation; ask again to settle ${open.length === 1 ? 'it' : 'them'}`);
       const unasked = allSteps.filter((x) => x.control && !x.control.answered && x.samples.answered && !controlOpen(x) && x.sampled !== null);
       if (unasked.length) warnings.push(`${unasked.length} step${unasked.length === 1 ? '' : 's'} could not be asked as recorded any more (${why(unasked)}): ranked by the change's samples alone, not told from the model's own variation`);
     } else if (counts[1] || counts[2] || counts[3] || counts[4]) {

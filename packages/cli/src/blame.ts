@@ -1,4 +1,4 @@
-import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCount, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -223,7 +223,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
     const each: SprtGate | null = s.gate ? probeGate(s.gate, budget) : null;
     const limit = each ? each.max : s.attempts;
     // A gate counts an attempt the provider cut short after the model answered against either verdict; a fixed count runs it again.
-    const settle = (passes: number, done: number, cut: number): GateDecision => (each ? decideUnavailable(passes, done, cut, each) : decideCount(passes, done, s.attempts, s.needed));
+    const settle = (passes: number, done: number, cut: number): GateDecision => (each ? decideUnavailable(passes, done, cut, each) : decideCountUnavailable(passes, done, cut, s.attempts, s.needed));
     // The most a probe's claim can be wrong, exactly, at the gate's two rates (the blame gate's for a count).
     const risk = probeRisk(each ? { gate: each } : { attempts: s.attempts, needed: s.needed });
     // Every attempt must fork exactly at the model call it re-asks. One that forked elsewhere ran a
@@ -252,12 +252,14 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       await probeAttempts({
         concurrency: s.concurrency,
-        limit,
+        // A gate's max counts the attempts the provider didn't cut short (decideUnavailable): the tally
+        // decides it at max of those, and up to twice it may start in all.
+        limit: each ? 2 * limit : limit,
         tally,
         more: () => !prefixBroken && !tally.decided && runner.canStart(),
         attempt: async (n) => {
           const marks = { repeat: { group: `${group}-${callNo}`, attempt: n, of: limit }, probe: { of: parent.runId, callNo, passed: false } };
-          const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks }, true, { late: each ? 'count' : 'retry' });
+          const a = await runner.attempt(target, { divergeAt: callNo, recordedWrites: true, ...(interventions ? { interventions } : {}), meta: marks }, true, { late: 'count' });
           // Stopped by Ctrl-C part way: what it did is no evidence either way.
           if (runner.interrupted) return;
           prefixBroken ??= forkProblem(a, callNo);

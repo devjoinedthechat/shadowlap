@@ -3,7 +3,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, sessionInARow, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, newRunMeta } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
@@ -15,7 +15,7 @@ import { EXIT, interruptedStatus, signalExit, usageError } from '../exit-codes.j
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
 import { unrecordedInGoldens } from '../unrecorded-goldens.js';
 import { sessionSource } from '../baseline-branch.js';
-import { unavailableWords } from '../provider-retry.js';
+import { ProviderStreak, unavailableWords } from '../provider-retry.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
@@ -336,6 +336,9 @@ export function register(program: Command): void {
       // other goldens still open, so failures that come in a burst land on many goldens once each, not
       // on one golden's attempts in a row (gating.md, "Attempts are independent").
       const turns = packs.length > 1 ? new Turns() : null;
+      // The provider is the session's: unavailable attempts in a row are counted across its goldens, and
+      // enough of them stop the session (sessionInARow: 3 for one golden, one more for each tenfold).
+      const streak = new ProviderStreak(sessionInARow(packs.length));
       const onSignal = (sig: NodeJS.Signals) => {
         if (signal) return;
         signal = sig;
@@ -372,6 +375,7 @@ export function register(program: Command): void {
           // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
           onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
           stopped,
+          streak,
           ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
           ...(flags.continue ? { continue: true } : {}),
           allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),

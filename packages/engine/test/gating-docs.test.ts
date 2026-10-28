@@ -247,6 +247,11 @@ describe('docs/gating.md, figure by figure', () => {
     says('its baseline could still be anywhere from about 60% up, so it fails a golden now at 50% only half the time, and one at 20% nearly always');
     // No history: one at 20% mostly ends inconclusive.
     expect(gateOdds(g, 0.2, null).inconclusive).toBeGreaterThan(0.5);
+    // No history: one at 60% or 50% is all but never failed (0.0% in the table), and left inconclusive 6% and a quarter of the time.
+    const none = (p: number) => gateOdds(g, p, null);
+    expect(none(0.6).fail + none(0.5).fail).toBeLessThan(1e-4);
+    expect([Math.round(100 * none(0.6).inconclusive), Math.round(4 * none(0.5).inconclusive)]).toEqual([6, 1]);
+    says(`in its ${g.max} attempts, one at 60% 6% of the time, and one at 50% a quarter of it`);
     // 5 to 6 attempts for an unchanged agent.
     expect([gateOdds(g, 1, H47).attempts, Math.ceil(healthy.attempts)]).toEqual([5, 6]);
     says('costs 5 to 6 attempts for an unchanged agent');

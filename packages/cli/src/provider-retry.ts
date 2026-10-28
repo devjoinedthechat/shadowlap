@@ -10,6 +10,18 @@ import { retryDelay, type Unavailable } from '@shadowlap/engine';
  * course the attempt took, so where a gate decides (`count`) it is counted, against either verdict
  * (the engine's `decideUnavailable`); a fixed count runs it again.
  */
+/**
+ * Unavailable attempts in a row across a test session, whichever goldens ran them: shared by their
+ * ProviderRetry, so one golden's success resets it, and `limit` of them stop the session
+ * (`sessionInARow`): the provider is down for all of them alike.
+ */
+export class ProviderStreak {
+  inARow = 0;
+  /** The provider's failure that stopped the session, once `limit` came in a row. */
+  gaveUp: Unavailable | null = null;
+  constructor(readonly limit: number) {}
+}
+
 export class ProviderRetry {
   /** Attempts the provider was unavailable for that are never counted, the one that stopped the run included. */
   unavailable = 0;
@@ -20,7 +32,7 @@ export class ProviderRetry {
   /** The provider's failure that stopped the run, once `inARow` came in a row. */
   gaveUp: Unavailable | null = null;
 
-  constructor(private readonly o: { retry: { inARow: number; firstDelayMs: number; maxDelayMs: number }; sleep: (ms: number) => Promise<void>; onUnavailable?: ((u: Unavailable, waitMs: number, counted: boolean) => void) | undefined; count: boolean }) {}
+  constructor(private readonly o: { retry: { inARow: number; firstDelayMs: number; maxDelayMs: number }; sleep: (ms: number) => Promise<void>; onUnavailable?: ((u: Unavailable, waitMs: number, counted: boolean) => void) | undefined; count: boolean; streak?: ProviderStreak | null | undefined }) {}
 
   /**
    * What to do with an attempt that just ended, given what the provider did in it (`down`: null when
@@ -28,17 +40,22 @@ export class ProviderRetry {
    * place (`retry`), or stop (`stop`). Every outcome but `counted` and `stop` comes after the pause.
    */
   async after(down: Unavailable | null): Promise<'counted' | 'cut' | 'retry' | 'stop'> {
+    const streak = this.o.streak;
     if (!down) {
       this.inARow = 0;
+      if (streak) streak.inARow = 0;
       return 'counted';
     }
     this.inARow++;
-    if (this.inARow >= this.o.retry.inARow) {
+    // In a row across the session when a streak is shared, else this run's own.
+    const run = streak ? ++streak.inARow : this.inARow;
+    if (run >= (streak ? streak.limit : this.o.retry.inARow)) {
       this.unavailable++;
       this.gaveUp = down;
+      if (streak) streak.gaveUp = down;
       return 'stop';
     }
-    const wait = retryDelay(this.inARow, down.retryAfterMs, Math.random, this.o.retry);
+    const wait = retryDelay(run, down.retryAfterMs, Math.random, this.o.retry);
     this.o.onUnavailable?.(down, wait, this.o.count && !down.early);
     await this.o.sleep(wait);
     if (this.o.count && !down.early) {

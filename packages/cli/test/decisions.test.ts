@@ -20,8 +20,8 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
 /** Runs the agent, failing every third time (flaky-agent.mjs). */
 const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
-/** Five of seven passed on each side of seven pairs: the drop's interval, each end at 95%. */
-const DROP_5_OF_7 = 'drop -0.66 to 0.71 (95%)';
+/** Five of seven passed on each side of seven pairs: the drop's interval, each end at 97.5% so the two hold together at 95%. */
+const DROP_5_OF_7 = 'drop -0.72 to 0.76 (95%)';
 
 let mock: MockServer;
 let cwd: string;
@@ -462,7 +462,7 @@ describe('shadowlap decisions', () => {
           // One changed sample of three, and nothing as recorded to tell it from the model's own variation: not ranked, not settled.
           expect(step).toMatchObject({ rank: null, majority: null });
           expect(report.runs[0].counts.notAsked).toBeGreaterThanOrEqual(1);
-          expect(report.warnings.some((w) => /got no answer as recorded \(.*overloaded_error.*\): not ranked, since nothing told/.test(w)), report.warnings.join('\n')).toBe(true);
+          expect(report.warnings.some((w) => /got fewer than 3 answers under the change or as recorded \(.*overloaded_error.*\): not ranked, since nothing told/.test(w)), report.warnings.join('\n')).toBe(true);
           // It settles nothing: decisions exits 3 for it.
           expect(r.code, r.out).toBe(3);
           const text = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
@@ -476,6 +476,40 @@ describe('shadowlap decisions', () => {
       } finally {
         await down.close();
       }
+    }
+  }, 120_000);
+
+  it('ranks no step whose request as recorded got fewer than 3 answers, which no split can rank, and leaves its run unsettled', async () => {
+    const runId = await record();
+    const emailStep = callOf(runId, 'send_email');
+    const turnedAway = { status: 400, body: { type: 'error', error: { type: 'invalid_request_error', message: 'the judge model is not available' } } };
+    // At each step, the request as recorded is answered twice; every later ask of it is overloaded, its retries too.
+    const asked = new Map<number, number>();
+    const down = await startMockAnthropic({
+      script: withJudge(
+        () => turnedAway,
+        (ctx) => {
+          if (ctx.request.model !== 'claude-opus-5') return referenceScript(ctx);
+          const n = (asked.get(ctx.assistantTurns) ?? 0) + 1;
+          asked.set(ctx.assistantTurns, n);
+          return n <= 2 ? referenceScript(ctx) : { status: 529, body: { type: 'error', error: { type: 'overloaded_error', message: 'overloaded for the test' } }, headers: { 'retry-after': '0' } };
+        },
+      ),
+      eventDelayMs: () => 0,
+    });
+    try {
+      const r = await shadowlap(['decisions', runId, '--model', 'mock-coin', '--samples', '3', '--json'], { SHADOWLAP_UPSTREAM_ANTHROPIC: down.url });
+      const report = json<DecisionsReport>(r);
+      const step = report.runs[0].decisions.find((s) => s.callNo === emailStep)!;
+      // 1 changed sample of 3 against 2 answers as recorded: the least any split comes out is 1 in 10, so it could never rank.
+      expect(step).toMatchObject({ rank: null, majority: null, sampled: 1, samples: { asked: 3, answered: 3, changed: 1 }, control: { asked: 3, answered: 2 } });
+      expect(step.control!.error).toMatch(/overloaded/);
+      expect(report.runs[0].counts.noise ?? 0).toBe(0);
+      expect(report.warnings.some((w) => /got fewer than 3 answers under the change or as recorded \(.*overloaded.*\): not ranked/.test(w)), report.warnings.join('\n')).toBe(true);
+      // It settles nothing: decisions exits 3 for it.
+      expect(r.code, r.out).toBe(3);
+    } finally {
+      await down.close();
     }
   }, 120_000);
 

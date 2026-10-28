@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -213,7 +213,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         if (a.cutShort) result.cutShort = (result.cutShort ?? 0) + 1;
       };
       // Under a gate, an attempt the provider cut short after the model answered is counted against either verdict; a fixed count runs it again.
-      const late = s.gate ? ('count' as const) : ('retry' as const);
+      // A gate and a fixed count alike count an attempt cut short after the model answered, against either verdict.
+      const late = 'count' as const;
       /** The change's attempts the gate counted, and which of them the provider cut short. */
       const counted = () => {
         const judged = result.attempts.filter((x) => x.verdict !== 'inconclusive' || x.cutShort);
@@ -239,10 +240,12 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const byGate = async (): Promise<void> => {
         const settle = () => {
           if (s.gate) Object.assign(result, gateVerdict(result.passes, result.attempts.length, s.gate, result.deterministic, result.cutShort ?? 0));
-          else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic);
+          else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic, result.cutShort ?? 0);
         };
         if (result.attempts.length) settle();
-        while (result.verdict === 'open' && result.decision !== 'inconclusive' && result.attempts.length < limit && !(s.failFast && failed) && canStart()) {
+        // A gate's max counts the attempts the provider didn't cut short (decideUnavailable), up to twice it in all.
+        const room = () => (s.gate ? result.attempts.length - (result.cutShort ?? 0) < limit && result.attempts.length < 2 * limit : result.attempts.length < limit);
+        while (result.verdict === 'open' && result.decision !== 'inconclusive' && room() && !(s.failFast && failed) && canStart()) {
           const n = result.attempts.length + 1;
           const a = await changed(n);
           if (!a) break;
@@ -348,8 +351,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           Object.assign(result, keptVerdict(decision));
           result.baseline = { passes: answered.basePasses, attempts: baseRuns.filter((x) => !x.unavailable).length, source: 'paired', revision: at };
           result.margin = rule.margin;
-          // Each end of the drop's interval from the tally against its own verdict.
-          result.drop = pairsOf(keeping) === pairsOf(answered) ? pairedDrop(answered, rule.risk) : { ...pairedDrop(keeping, rule.risk), lo: pairedDrop(breaking, rule.risk).lo };
+          // Each end of the drop's interval from the tally against its own verdict: a verdict's end at the
+          // whole risk, both ends of an undecided run at half each, so the two hold together.
+          const ends = dropEndsRisk(decision, rule.risk);
+          result.drop = { ...(pairsOf(keeping) === pairsOf(answered) ? pairedDrop(answered, ends) : { ...pairedDrop(keeping, ends), lo: pairedDrop(breaking, ends).lo }), confidence: 1 - rule.risk };
           if (decision !== 'continue') break;
         }
         // An attempt it could not judge stopped it: inconclusive, as no attempt after it would say more.
@@ -361,7 +366,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const againstHistory = async (): Promise<boolean> => {
         // Named from the project's folder, as `shadowlap test` names it, wherever verify runs the change.
         const golden = goldenOf(store, parent, process.cwd());
-        const history: GateHistory | null = golden ? gateHistory(store, golden, { window: BASELINE_DEFAULTS.window, checks: runner.oracle().slice(1), mode: 'fork' }) : null;
+        // Pooled as a gate against history pools it: under the same recording and checks, each session
+        // by its first `min` attempts, the ones every session runs whatever they show.
+        const history: GateHistory | null = golden ? gateHistory(store, golden, { window: BASELINE_DEFAULTS.window, first: BASELINE_DEFAULTS.min, goldenRunId: parent.runId, checks: runner.oracle().slice(1), mode: 'fork' }) : null;
         if (!golden || !history?.attempts) {
           result.noBaseline = golden ? `${golden} has no test history under these checks yet` : `${shortId(parent.runId)} is no golden's run, so it has no test history`;
           return false;
@@ -386,7 +393,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           const cut = result.cutShort ?? 0;
           const decision = decideAgainstHistoryAround(judged, cut, history, rule);
           Object.assign(result, keptVerdict(decision));
-          result.drop = cut ? { ...historyDrop(judged, history, rule.risk), lo: historyDrop({ passes: judged.passes + cut, attempts: judged.attempts }, history, rule.risk).lo } : historyDrop(judged, history, rule.risk);
+          const ends = dropEndsRisk(decision, rule.risk);
+          result.drop = { ...(cut ? { ...historyDrop(judged, history, ends), lo: historyDrop({ passes: judged.passes + cut, attempts: judged.attempts }, history, ends).lo } : historyDrop(judged, history, ends)), confidence: 1 - rule.risk };
           if (decision !== 'continue') break;
         }
         return true;

@@ -173,7 +173,7 @@ describe('shadowlap migrate', () => {
       const short = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--json', ...flaky]);
       expect(short.code, short.out).toBe(3);
       const unsettled = json<MigrateReport>(short);
-      expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'drop -0.66 to 0.71 (95%)', rule: kept(7), undecided: null, baseline: { passes: 5, attempts: 7 } } }] });
+      expect(unsettled.passes).toEqual({ verdict: 'incomplete', runs: [{ runId, golden: 'goldens/research', verdict: 'inconclusive', outcome: 'inconclusive', verified: true, tally: { passes: 5, attempts: 7, bound: 'drop -0.72 to 0.76 (95%)', rule: kept(7), undecided: null, baseline: { passes: 5, attempts: 7 } } }] });
       expect(unsettled.decisions.verify?.rule).toBe(kept(7));
       expect(unsettled.command).toContain(`--gate '{"bad":0.5,"max":7}'`);
       const warned = await shadowlap(['migrate', '--to', 'claude-haiku-4-5', '-y', '--gate', '{"bad":0.5,"max":7}', '--inconclusive', 'warn', ...flaky]);

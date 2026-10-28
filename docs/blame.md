@@ -9,7 +9,8 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
 ```
 ⑂ The run was lost at model call #5 (3 of 4)
   The re-asked call #5: rescued · 5 of 10 · rate >= 0.10 (99%); #7, the next model call: lost · 0 of 6 · rate <= 0.59 (99%).
-  Confidence: high (<= 2.3% risk that the call is wrong: 3 probes decided, at <= 0.8% risk each)
+  Checked with 20 fresh pairs: #5 rescued 10 of 20, #7 0 of 20; rescue drops at #5 beyond chance.
+  Confidence: high (<= 2.9% risk that the call is wrong: 3 probes decided, at <= 0.8% risk each, and the check of #5, at <= 0.6%)
 
   At #5  the recording   issue_refund({"order_id":"A-1042","amount":240})
          a rescued fork  "Above the limit.", escalate({"reason":"refund of $240 is above $100"})
@@ -20,13 +21,13 @@ shadowlap blame <run> --expect '{"tools":{"issue_refund":0}}'
     #5  3 of 4  5 of 10 passed · rate >= 0.10 (99%)  rescued  ◂ blamed
     #7  4 of 4  0 of 6 passed · rate <= 0.59 (99%)   lost
 
-  23 attempts · 54 upstream requests · ≈$0 spent (no price for small-model) · every call before a probe replayed from the recording
+  63 attempts · 114 upstream requests · ≈$0 spent (no price for small-model) · every call before a probe replayed from the recording
   oracle: the agent exits 0; issue_refund called 0 times
   rescued fork: shadowlap diff 01M3R1YKHF 01M3R1YMHF    shadowlap ui 01M3R1YMHF --call 5
 …
 ```
 
-It found the call by forking the run, not by reading it: every call before a probe came from the recording for free, and only the rest ran live, with writes fenced.
+It found the call by forking the run, not by reading it: every call before a probe came from the recording for free, and only the rest ran live, with writes fenced. Before saying the run was lost at #5, it checked #5 against #7 with fresh pairs of attempts: rescue drops there, so the one call is named ([the check](#how-it-works)).
 
 ## How it works
 

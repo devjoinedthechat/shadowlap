@@ -40,6 +40,12 @@ export interface HistoryFilter {
   /** Only results kept before this time. */
   before?: number;
   /**
+   * `any`: a session whose golden failed or was inconclusive counts too, if it could otherwise be
+   * part of a baseline: what the agent's sessions show of it, whatever they came to, which a session's
+   * plan sizes a gate against history for (suite.ts). Absent: only those that passed.
+   */
+  verdicts?: 'passed' | 'any';
+  /**
    * Of each session, only its first this many attempts, in the order they ran: a gate against
    * history's `min`. A result kept before results kept their order counts whole. Absent: every attempt.
    */
@@ -85,11 +91,12 @@ export function attemptsOf(r: Pick<TestResult, 'ok' | 'failure' | 'data'>): Tall
 
 /**
  * Whether a result may be part of a baseline taken from `branch` (absent: the branch the result's
- * session took baselines from): its golden passed, in a session on that branch that ran for no pull
- * request, on a committed revision (none with `+dirty`). Null when it may, else why not.
+ * session took baselines from): its golden passed (with `anyVerdict`, whatever it came to), in a
+ * session on that branch that ran for no pull request, on a committed revision (none with
+ * `+dirty`). Null when it may, else why not.
  */
-export function notBaseline(r: Pick<TestResult, 'ok' | 'failure' | 'data' | 'revision'>, branch?: string | null): string | null {
-  if (testResultVerdict(r) !== 'passed') return 'its golden did not pass';
+export function notBaseline(r: Pick<TestResult, 'ok' | 'failure' | 'data' | 'revision'>, branch?: string | null, anyVerdict = false): string | null {
+  if (!anyVerdict && testResultVerdict(r) !== 'passed') return 'its golden did not pass';
   const d = r.data;
   if (!d || typeof d.branch !== 'string' || !d.branch) return 'its session recorded no branch';
   if (d.pullRequest !== false) return d.pullRequest === true ? 'its session ran for a pull request' : 'its session recorded no pull request either way';
@@ -161,18 +168,30 @@ export function sessionAttempts(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, 
   return own.length ? { passes: own.filter(Boolean).length, attempts: own.length } : null;
 }
 
-/** The baseline a gate against history compares with: the golden's last `window` sessions that qualify, pooled. */
+/**
+ * The baseline a gate against history compares with: the golden's last `window` sessions that
+ * qualify, pooled. A session a signal stopped is none of them: with its goldens' attempts in turns,
+ * those whose gates had decided by then were the quickest to, a sample tilted towards the attempts
+ * that pass.
+ */
 export function gateHistory(store: Store, golden: string, f: HistoryFilter): PooledHistory {
   const pooled: HistorySession[] = [];
   const excluded = new Set(typeof f.excludeSession === 'string' ? [f.excludeSession] : (f.excludeSession ?? []));
+  const stopped = new Map<string, boolean>();
+  const interrupted = (sessionId: string): boolean => {
+    let v = stopped.get(sessionId);
+    if (v === undefined) stopped.set(sessionId, (v = store.getTestSession(sessionId)?.interrupted === true));
+    return v;
+  };
   for (const r of store.listTestResults({ golden, limit: READ_LIMIT })) {
     if (pooled.length >= f.window) break;
     if (excluded.has(r.sessionId)) continue;
+    if (interrupted(r.sessionId)) continue;
     if (f.before !== undefined && r.at >= f.before) continue;
     if (f.goldenRunId && r.goldenRunId && r.goldenRunId !== f.goldenRunId) continue;
     if (f.mode && r.data?.mode && r.data.mode !== f.mode) continue;
     if (f.checks && !judgedUnder(r, f.checks)) continue;
-    if (notBaseline(r, f.branch) !== null) continue;
+    if (notBaseline(r, f.branch, f.verdicts === 'any') !== null) continue;
     const t = sessionAttempts(r, f.first);
     if (!t) continue;
     pooled.push({ sessionId: r.sessionId, at: r.at, revision: r.revision, ...t });

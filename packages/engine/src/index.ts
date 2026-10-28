@@ -103,13 +103,13 @@ export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateS
 // verify's test of a good run against its own baseline, and the isotonic fit both read rates with.
 export { blameSpan, confidenceOf, confidenceWhy, decidePin, pinRisk, pinRule, pinWords, pooledRates, probeClaim, probeGate, probeRisk, unrescuedHead } from './blame.js';
 export { antitonic, type Fitted } from './isotonic.js';
-export { addPair, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
+export { addPair, baselineShort, clopperPearsonBound, decideAgainstHistory, decideAgainstHistoryAround, decidePaired, decidePairedAround, describeBaselineRule, dropBound, dropEndsRisk, historyBounds, historyDrop, historyOdds, KEPT_DEFAULTS, KEPT_MAX, NO_PAIRS, pairedBrokenLog, pairedDrop, pairedKeptLog, pairedOdds, pairedWorstCase, pairsOf } from './noninferiority.js';
 export type { BaselineDecision, BaselineOdds, BaselineRule, BaselineSource, DropBound, PairCounts } from './noninferiority.js';
 // decisions' control arm: a change ranked only beyond the model's own variation, by exact tests.
 export { consequence, CONTROL_MIN_SAMPLES, CONTROL_RISK, rankBeyondNoise } from './control-arm.js';
 export { fisherGreater, permutationGreater } from './exact-tests.js';
 // Statistical gating: verdicts with stated error rates on attempts that vary (test's gate, verify, blame).
-export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideUnavailable, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson } from './stats.js';
+export { BASELINE_DEFAULTS, BASELINE_PASS_AT, BLAME_DEFAULTS, GATE_MAX_ATTEMPTS, PASS_K_SHOWN, RECORDING_BASELINE, SPRT_DEFAULTS, atLeast, atMost, attemptsToFail, attemptsToPass, baselineOf, betaCdf, betaPdf, binomialTail, countOdds, decide, decideCount, decideCountUnavailable, decideUnavailable, decisionWord, describeGate, dropProbability, formatPassK, formatTally, gateLimit, gateOdds, gateOddsAt, gateOf, gateResult, gateSentence, lnGamma, normalQuantile, parseGate, passesPerFailure, passHatK, percent, runsRed, sprtBounds, sprtScore, sprtStep, verdictLine, wilson } from './stats.js';
 // eslint-disable-next-line @typescript-eslint/no-deprecated -- the bound's old name, kept for code written against it (docs/engine.md)
 export { wilsonBound } from './stats.js';
 export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, GateOdds, GateOutcome, GateResult, SprtBounds, SprtEvidence, SprtGate, Tally } from './stats.js';
@@ -117,11 +117,11 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { boundOf, clopperPearson, confidencePercent, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
 // A provider that can't answer says nothing about the agent: retried, never counted (rv-gates).
-export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
+export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
-export { HISTORY_SIZED_AT, INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
+export { INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).

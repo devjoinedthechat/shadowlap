@@ -1,5 +1,6 @@
 import { canonicalize } from './canonical.js';
 import { maskClock, maskClockText, type ClockReference } from './clock.js';
+import { CONTROL_MIN_SAMPLES } from './control-arm.js';
 import type { Block } from './deltas.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
 import { isReservedScope } from './judge-scope.js';
@@ -577,14 +578,17 @@ export function judgeOpen(step: Pick<DecisionStep, 'majority' | 'samples'>): boo
 }
 
 /**
- * Whether a step waits on its control: its samples decided otherwise, and the request as recorded,
- * asked as often, got no answer for now (an overload, a rate limit, a 5xx, a dropped connection), so
- * nothing told the change from the model's own variation and the step is not ranked. A run nothing
- * else flags settles nothing while one of its steps waits. One the provider will never answer again (a
- * model that retired) is ranked by the change's samples alone instead, and the warnings say so.
+ * Whether a step waits on its control: its samples decided otherwise, and either side got fewer than
+ * CONTROL_MIN_SAMPLES answers, for now (an overload, a rate limit, a 5xx, a dropped connection), so
+ * no split of their scores can reach the control's risk (3 against 2 comes out no rarer than 1 in
+ * 10), nothing told the change from the model's own variation, and the step is not ranked. A run
+ * nothing else flags settles nothing while one of its steps waits. A control the provider will never
+ * answer again (a model that retired) leaves the change's samples to rank the step instead, and the
+ * warnings say so.
  */
-export function controlOpen(step: Pick<DecisionStep, 'rank' | 'control' | 'sampled'>): boolean {
-  return !!step.control && step.control.asked > 0 && step.control.answered === 0 && step.rank === null && step.sampled !== null && step.sampled !== undefined;
+export function controlOpen(step: Pick<DecisionStep, 'rank' | 'control' | 'sampled' | 'samples'>): boolean {
+  if (!step.control || step.control.asked === 0 || step.rank !== null || step.sampled === null || step.sampled === undefined) return false;
+  return step.control.answered < CONTROL_MIN_SAMPLES || step.samples.answered < CONTROL_MIN_SAMPLES;
 }
 
 /**
@@ -856,7 +860,8 @@ export function formatDecisions(r: DecisionsReport, p: Palette = plain): string 
     for (const s of run.decisions) {
       // A change the request as recorded got no answer to tell from the model's own variation: not ranked, not settled.
       if (controlOpen(s)) {
-        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples; as recorded, no answer${s.control!.error ? ` (${safeLine(s.control!.error)})` : ''}`)}`);
+        const asRecorded = s.control!.answered ? `${s.control!.answered} of ${s.control!.asked} answered as recorded` : 'as recorded, no answer';
+        lines.push(`  #${String(s.callNo).padEnd(4)} ${p.dim(`step ${s.step}`)}  ${p.yellow('not settled')}  ${safeLine(s.changes[0]?.detail ?? RANK_LABELS[s.sampled!])}${p.dim(` · in ${s.samples.changed} of ${s.samples.answered} samples; ${asRecorded}${s.control!.error ? ` (${safeLine(s.control!.error)})` : ''}: too few to tell from the model's own variation`)}`);
         continue;
       }
       // A change no more frequent than the control's: listed with both arms' counts, not ranked.

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { gateOdds, SPRT_DEFAULTS, type SprtGate } from '@shadowlap/engine';
+import { decideAgainstHistory, gateOdds, KEPT_DEFAULTS, SPRT_DEFAULTS, type BaselineRule, type SprtGate, type Tally } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
 import { CandidatePicker, mostDecided } from '../src/repair-pick.js';
 
@@ -183,5 +183,69 @@ describe('the candidate a repair keeps', { timeout: 120_000 }, () => {
     const cost = `one at 90% is kept ${pct(Math.floor(1000 * good * good) / 1000, 1)} of the time rather than ${pct(Math.floor(1000 * good) / 1000, 1)}`;
     expect(page.includes(cost), `docs/repair.md says: ${cost}`).toBe(true);
     console.log(table.join('\n'));
+  });
+});
+
+/**
+ * Under `verify.baseline: history`, a good run's two verifies compare it with the same history, so a
+ * candidate that broke it is kept twice more often than two independent verifies would allow. Worked
+ * out exactly: every history of `size` attempts the baseline could have left, and for each, every way
+ * the change's attempts can come, decided by the engine's test against history (a black box).
+ */
+describe('the fix kept twice, when both verifies share a good run’s history', () => {
+  const rule: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
+  const lnChoose = (n: number, k: number) => {
+    let s = 0;
+    for (let i = 1; i <= k; i++) s += Math.log((n - k + i) / i);
+    return s;
+  };
+  /** The chance the change is kept against history `h` when it passes `pc` of the time. */
+  const keptGiven = (h: Tally, pc: number): number => {
+    let walking = new Map<number, number>([[0, 1]]);
+    let kept = 0;
+    for (let n = 1; n <= rule.max; n++) {
+      const next = new Map<number, number>();
+      for (const [s, m] of walking)
+        for (const [s2, q] of [
+          [s + 1, pc],
+          [s, 1 - pc],
+        ] as const) {
+          const d = decideAgainstHistory({ passes: s2, attempts: n }, h, rule);
+          if (d === 'continue') next.set(s2, (next.get(s2) ?? 0) + m * q);
+          else if (d === 'kept') kept += m * q;
+        }
+      walking = next;
+    }
+    return kept;
+  };
+
+  it('is kept by both at most 0.0184% of the time, one of four such candidates at most 0.060%, as docs/repair.md states it', () => {
+    let twice = 0;
+    let ratio = 0;
+    let four = 0;
+    for (const pb of [0.95, 0.9, 0.8]) {
+      const size = 50;
+      const pc = pb - rule.margin;
+      let once = 0;
+      let same = 0;
+      let any = 0;
+      for (let s = 0; s <= size; s++) {
+        const w = Math.exp(lnChoose(size, s) + s * Math.log(pb) + (size - s) * Math.log(1 - pb));
+        if (w < 1e-14) continue;
+        const k = keptGiven({ passes: s, attempts: size }, pc);
+        once += w * k;
+        same += w * k * k;
+        any += w * (1 - (1 - k * k) ** 4);
+      }
+      // Kept once within the test's own risk; twice, more than independent verifies would give.
+      expect(once).toBeLessThanOrEqual(rule.risk);
+      expect(same).toBeGreaterThan(once * once);
+      twice = Math.max(twice, same);
+      ratio = Math.max(ratio, same / (once * once));
+      four = Math.max(four, any);
+    }
+    const page = readFileSync(fileURLToPath(new URL('../../../docs/repair.md', import.meta.url)), 'utf8');
+    const text = `is kept by both at most ${(Math.ceil(1e6 * twice) / 1e4).toFixed(4)}% of the time, up to ${Math.ceil(ratio)} times what two independent verifies allow, and one of four such candidates at most ${(Math.ceil(1e5 * four) / 1e3).toFixed(3)}%: still far within the 5%`;
+    expect(page.includes(text), `docs/repair.md says: ${text}`).toBe(true);
   });
 });

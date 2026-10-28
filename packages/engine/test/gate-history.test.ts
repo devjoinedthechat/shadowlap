@@ -117,6 +117,25 @@ describe('gateHistory', () => {
     expect(gateHistory(s, 'goldens/refund', { window: 10, branch: null }).sessions).toBe(0);
     // A pull request into a release branch takes that branch's sessions.
     expect(gateHistory(s, 'goldens/refund', { window: 10, branch: 'fix-refunds' }).pooled.map((x) => x.sessionId)).toEqual([sessions[4]]);
+    // What the agent's sessions show of it, for a session's plan: those that failed or were inconclusive too, the rest as before.
+    const any = gateHistory(s, 'goldens/refund', { window: 10, branch: 'main', verdicts: 'any' });
+    expect(any.pooled.map((x) => x.sessionId)).toEqual([sessions[7], sessions[2], sessions[1], sessions[0]]);
+    expect(any).toMatchObject({ passes: 40, attempts: 55, sessions: 4 });
+    expect(notBaseline({ ok: false, failure: 'check', revision: 'abc', data: fork(1, 5, { verdict: 'failed' }) }, 'main', true)).toBeNull();
+    s.close();
+  });
+
+  it('pools no session a signal stopped, whose goldens decided by then were the quickest to', () => {
+    const { store: s, sessions } = store([
+      { ok: true, at: T0, data: fork(4, 5) },
+      { ok: true, at: T0 + 1, data: fork(5, 5) },
+      { ok: true, at: T0 + 2, data: fork(3, 5) },
+    ]);
+    s.finishTestSession(sessions[1], { passed: 1, failed: 0, upstreamRequests: 0, interrupted: true });
+    s.finishTestSession(sessions[2], { passed: 1, failed: 0, upstreamRequests: 0 });
+    const h = gateHistory(s, 'goldens/refund', { window: 10, mode: 'fork', checks: ['issue_refund called 0 times'], goldenRunId: 'REC' });
+    expect(h).toMatchObject({ passes: 7, attempts: 10, sessions: 2 });
+    expect(h.pooled.map((x) => x.sessionId)).toEqual([sessions[2], sessions[0]]);
     s.close();
   });
 

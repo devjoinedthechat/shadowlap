@@ -98,15 +98,17 @@ export interface TestReport {
 
 /**
  * What the plan says a healthy suite does, after its split: `so a healthy suite goes red for nothing
- * in 5% of runs or fewer`, or, when a golden can't keep within its share (a max the config set),
- * the chance the plan works out, rounded up: `but 1 golden can't keep within its share, so a healthy
- * suite goes red for nothing in 56% of runs or fewer`.
+ * in 5% of runs or fewer, with the provider answering`, or, when a golden can't keep within its share
+ * (a max the config set, or a gate against history with too little behind it), the chance the plan
+ * works out, rounded up: `but 1 golden can't keep within its share, so a healthy suite goes red for
+ * nothing in 56% of runs or fewer, with the provider answering`. A provider that stays unavailable
+ * leaves goldens inconclusive whatever the plan says.
  */
 export function suiteRed(plan: { risk: number; red: number; over?: number }, red = 'goes red for nothing'): string {
-  if (!(plan.red > plan.risk)) return `so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer`;
+  if (!(plan.red > plan.risk)) return `so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer, with the provider answering`;
   const over = plan.over ?? 0;
   const who = over ? `${over === 1 ? '1 golden' : `${over} goldens`} can't keep within ${over === 1 ? 'its' : 'their'} share` : "its goldens can't keep within their shares";
-  return `but ${who}, so a healthy suite ${red} in ${riskPercent(plan.red)} of runs or fewer`;
+  return `but ${who}, so a healthy suite ${red} in ${riskPercent(plan.red)} of runs or fewer, with the provider answering`;
 }
 
 export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
