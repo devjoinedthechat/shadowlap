@@ -119,6 +119,24 @@ describe('an attempt of blame or verify while the provider is unavailable', () =
     }
   }, 60_000);
 
+  it('takes one more in a row to stop once its first 10 attempts have started', async () => {
+    const { r, recorded, waits } = await runner('tenfold');
+    const target = { parent: recorded, argv: [process.execPath, '-e', agent()], commandFromImport: false };
+    try {
+      for (let i = 0; i < 10; i++) expect((await r.attempt(target)).passed).toBe(true);
+      overloaded = 100;
+      const a = await r.attempt(target);
+      expect(a.verdict).toBe('inconclusive');
+      expect(a.failures[0]).toMatch(/^provider unavailable: 4 attempts in a row ended on HTTP 529 from anthropic/);
+      expect([r.attempts, r.unavailable, a.unavailableBefore]).toEqual([10, 4, 3]);
+      expect(waits).toHaveLength(3);
+      expect(r.canStart()).toBe(false);
+    } finally {
+      overloaded = 0;
+      await r.close();
+    }
+  }, 120_000);
+
   it('counts a failure of the agent\'s own, and a request the provider refused, as failures', async () => {
     const { r, recorded, waits } = await runner('own');
     try {

@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { UNAVAILABLE_RETRY, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
@@ -145,7 +145,7 @@ export class AttemptRunner {
   unavailable = 0;
   /** Attempts the provider cut short after the model answered, returned to be counted against either verdict. */
   cutShort = 0;
-  /** Attempts in a row the provider was unavailable for, across calls of `attempt`: `retry.inARow` of them stop the runner. */
+  /** Attempts in a row the provider was unavailable for, across calls of `attempt`: `retry.inARow` of them stop the runner, one more for each tenfold of attempts started past 10 (`attemptsInARow`). */
   private inARow = 0;
   /** How unavailable attempts are retried, and the pause itself: tests pass their own. */
   retry: { inARow: number; firstDelayMs: number; maxDelayMs: number } = UNAVAILABLE_RETRY;
@@ -254,8 +254,9 @@ export class AttemptRunner {
    * have gone. One it cut short after the model answered may have failed with the course it took,
    * so a gate counts it (`o.late: 'count'`): it is returned after the pause, `cutShort`, and tallied.
    * After `retry.inARow` unavailable in a row, counting from any earlier call that returned one cut
-   * short, the last of them is returned, `inconclusive` with `unavailable` set, and no more attempts
-   * start (`stopReason`). The attempt returned says how many unavailable ones it was run in place of
+   * short, and one more for each tenfold of attempts started past the first 10 (`attemptsInARow`), so
+   * a long run stops no more often by chance than a short one, the last of them is returned,
+   * `inconclusive` with `unavailable` set, and no more attempts start (`stopReason`). The attempt returned says how many unavailable ones it was run in place of
    * (`unavailableBefore`).
    */
   async attempt(target: AttemptTarget, extra: AttemptExtra = {}, tally = true, o: AttemptOptions = {}): Promise<Attempt> {
@@ -274,7 +275,9 @@ export class AttemptRunner {
         return before(a, retried);
       }
       this.inARow++;
-      if (this.inARow >= this.retry.inARow) {
+      // A run that has gone on long has met more errors by chance: it takes more in a row to stop it.
+      const stopAt = this.retry.inARow + attemptsInARow(this.attempts + this.unavailable + 1) - UNAVAILABLE_RETRY.inARow;
+      if (this.inARow >= stopAt) {
         this.unavailable++;
         const why = unavailableReason(this.inARow, a.unavailable);
         this.stopReason ??= why;

@@ -146,9 +146,21 @@ export function sessionInARow(goldens: number): number {
   return UNAVAILABLE_RETRY.inARow + Math.max(0, Math.ceil(Math.log10(Math.max(1, goldens)) - 1e-12));
 }
 
-/** Why a golden was not tested: the session's provider stayed unavailable `n` attempts in a row, across its goldens, before its turn. */
-export function sessionUnavailableReason(n: number, last: Unavailable): string {
-  return `${UNAVAILABLE_PREFIX}${n} attempts in a row across the session ended on ${last.reason}, so the session stopped before this golden ran; run it again once the provider answers`;
+/**
+ * How many unavailable attempts in a row stop a run of attempts once `attempts` of them have started
+ * (verify's, blame's, repair's, migrate's and injection's runner): 3 within the first 10, one more for
+ * each tenfold beyond (4 to 100, 5 to 1,000), as `sessionInARow` grows a test session's with its
+ * goldens at 10 attempts a golden. A run that has gone on long has had more chances to meet a few
+ * errors in a row by chance: with 5% and 10% of attempts failing, a fixed 3 stopped 300 attempts 3.5%
+ * and 24% of the time, and 600, 6.9% and 42% (provider-session.test.ts).
+ */
+export function attemptsInARow(attempts: number): number {
+  return sessionInARow(Math.ceil(Math.max(1, attempts) / 10));
+}
+
+/** Why a golden (or a preset, `what`) was not tested: the session's provider stayed unavailable `n` attempts in a row, across it, before its turn. */
+export function sessionUnavailableReason(n: number, last: Unavailable, what: 'golden' | 'preset' = 'golden'): string {
+  return `${UNAVAILABLE_PREFIX}${n} attempts in a row across the session ended on ${last.reason}, so the session stopped before this ${what} ran; run it again once the provider answers`;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { formatDuration, hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { formatDuration, hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, sessionInARow, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
@@ -13,7 +13,7 @@ import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './golde
 import { EXIT, inconclusiveStatus, signalExit } from './exit-codes.js';
 import { emitJobEvent } from './job-events.js';
 import { junitXml } from './junit.js';
-import { unavailableWords } from './provider-retry.js';
+import { ProviderStreak, unavailableWords } from './provider-retry.js';
 import { type GuardMode } from './run-agent.js';
 import { telemetry, type GlobalOpts } from './shared.js';
 import { palette as p, safe, shortId } from './ui.js';
@@ -135,6 +135,18 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
   const store = opts.db ? Store.open(opts.db) : Store.open(defaultDbPath(projectDir));
   const session = startSession(store, command, asked, cwd);
   const results: ChaosRecordingResult[] = [];
+  // Unavailable attempts in a row are counted across the session's presets, every recording's, and
+  // enough of them stop it (sessionInARow: 3 for one preset, one more for each tenfold). A recording
+  // its tests entry can't be read for, or turns off, runs none.
+  const presets = packs.reduce((n, packDir) => {
+    try {
+      const chaos = chaosFor(projectDir, testsKeyFor(tests, resolve(packDir), projectDir), parseExpect);
+      return n + (chaos === false ? 0 : withFlags(chaos, flags).presets.length);
+    } catch {
+      return n;
+    }
+  }, 0);
+  const streak = new ProviderStreak(sessionInARow(presets));
   try {
     for (const packDir of packs) {
       if (session.stopped()) break;
@@ -184,6 +196,7 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, golden, preset, attempt)),
         onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
         stopped: session.stopped,
+        streak,
         ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
       });
       if (outcomes.length) process.stdout.write(`${formatPresets(golden, outcomes, p, judge)}\n`);
@@ -211,6 +224,7 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
   const store = opts.db ? Store.open(opts.db) : Store.open(defaultDbPath(projectDir));
   const session = startSession(store, command, spec.presets, projectDir);
   const results: ChaosRecordingResult[] = [];
+  const streak = new ProviderStreak(sessionInARow(spec.presets.length));
   try {
     const { outcomes, judge } = await runPresets(parent, checks?.source === '--expect' ? null : (checks?.spec ?? null), spec, {
       store,
@@ -223,6 +237,7 @@ export async function replayChaos(opts: GlobalOpts, parent: RunRecord, checks: {
       onRun: (runId, preset, attempt) => process.stderr.write(ATTEMPT_LINE(runId, shortId(parent.runId), preset, attempt)),
       onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] run ${shortId(parent.runId)}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
       stopped: session.stopped,
+      streak,
       ...(flags.allowUnrecorded ? { allowUnrecorded: flags.allowUnrecorded } : {}),
     });
     if (outcomes.length) process.stdout.write(`${formatPresets(`run ${shortId(parent.runId)}`, outcomes, p, judge)}\n`);

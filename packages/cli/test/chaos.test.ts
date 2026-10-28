@@ -314,6 +314,25 @@ describe('test --chaos while the provider fails for real', () => {
       overloaded = 0;
     }
   }, 180_000);
+
+  it('counts errors in a row across the session, whichever preset met them: 4 stop a session of two, and the preset after runs nothing', async () => {
+    config({ 'goldens/forecast': { chaos: { presets: ['timeout', 'malformed'], gate } } });
+    overloaded = 100;
+    try {
+      const r = await shadowlap(['test', 'goldens/forecast', '--chaos', '--json', 'streak.json'], strict);
+      expect(r.code, r.out).toBe(3);
+      const out = report('streak.json');
+      expect(out).toMatchObject({ passed: 0, failed: 0, inconclusive: 2 });
+      const p = byPreset(out);
+      // One more in a row than a preset alone takes, as a session of two goldens does.
+      expect(p.timeout).toMatchObject({ verdict: 'inconclusive', attempts: 0, unavailable: 4 });
+      expect(p.timeout.reason).toMatch(/^provider unavailable: 4 attempts in a row ended on HTTP 529 from anthropic at call #4, so none of them says anything about the agent/);
+      expect(p.malformed).toMatchObject({ verdict: 'inconclusive', attempts: 0, runs: [] });
+      expect(p.malformed.reason).toMatch(/^provider unavailable: 4 attempts in a row across the session ended on HTTP 529 from anthropic at call #4, so the session stopped before this preset ran; run it again once the provider answers$/);
+    } finally {
+      overloaded = 0;
+    }
+  }, 180_000);
 });
 
 // Stopped with SIGINT, which the command handles. Windows has no signal one process can send another:
