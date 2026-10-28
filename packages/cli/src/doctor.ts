@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, isObject, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, isObject, messageOf, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -49,13 +49,13 @@ function defaultSqlite(): string | null {
     const { DatabaseSync } = (globalThis as { process: { getBuiltinModule?: (id: string) => unknown } }).process.getBuiltinModule?.('node:sqlite') as { DatabaseSync: new (p: string) => { exec(sql: string): void; close(): void } };
     db = new DatabaseSync(':memory:');
   } catch (err) {
-    return `node:sqlite unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    return `node:sqlite unavailable: ${messageOf(err)}`;
   }
   try {
     db.exec('CREATE VIRTUAL TABLE probe USING fts5(text)');
     return null;
   } catch (err) {
-    return `built-in SQLite has no full-text search: ${err instanceof Error ? err.message : String(err)}`;
+    return `built-in SQLite has no full-text search: ${messageOf(err)}`;
   } finally {
     db.close();
   }
@@ -157,7 +157,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const preload = preloadCheck(runs);
       if (preload) checks.push(preload);
     } catch (err) {
-      push('store', 'fail', `${dbPath}: ${err instanceof Error ? err.message : String(err)}`, 'The file is not a Shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');
+      push('store', 'fail', `${dbPath}: ${messageOf(err)}`, 'The file is not a Shadowlap store or is damaged; move it aside and record again, or point --db elsewhere.');
     }
     const ignore = join(resolve(dbPath, '..'), '.gitignore');
     if (!existsSync(ignore)) push('store .gitignore', 'warn', `${ignore} missing`, 'Recordings hold prompts and tool I/O; keep the store directory out of git (shadowlap creates this file when it makes the directory).');
@@ -219,21 +219,21 @@ export function runDoctor(options: DoctorOptions): Check[] {
           try {
             checks.push(...checkRules(cwd, tests, dbPath, packs));
           } catch (err) {
-            push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${err instanceof Error ? err.message : String(err)}`);
+            push('check rules', 'warn', `the tools the checks name could not be held against their recordings: ${messageOf(err)}`);
           }
           checks.push(...judgeRetirements(tests));
           checks.push(...judgeKeys(tests, env));
           try {
             checks.push(...judgeVerdicts(cwd, tests, env, packs));
           } catch (err) {
-            push('judge verdicts', 'warn', `the goldens' recorded judge verdicts could not be read: ${err instanceof Error ? err.message : String(err)}`);
+            push('judge verdicts', 'warn', `the goldens' recorded judge verdicts could not be read: ${messageOf(err)}`);
           }
         } finally {
           closePacks(packs);
         }
       }
     } catch (err) {
-      push('config', 'fail', `${configPath}: ${err instanceof Error ? err.message : String(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
+      push('config', 'fail', `${configPath}: ${messageOf(err)}`, 'Fix the JSON; shadowlap normalize ls / redact ls print what is loaded.');
     }
   }
 

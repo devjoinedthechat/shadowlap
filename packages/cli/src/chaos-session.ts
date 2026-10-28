@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { formatDuration, hasRecordedCommand, parsePresets, recordEvent, resolveAuthor, sessionInARow, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
+import { formatDuration, hasRecordedCommand, messageOf, parsePresets, recordEvent, resolveAuthor, sessionInARow, Store, withoutCommand, type ChaosPreset, type RunRecord, type WritePolicy } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
@@ -94,7 +94,7 @@ async function endSession(s: Session, results: ChaosRecordingResult[], flags: Ch
   try {
     s.store.finishChaosSession(s.id, { passed: report.passed, failed: report.failed, inconclusive: report.inconclusive, upstreamRequests: upstream, interrupted });
   } catch (err) {
-    process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept: ${(err as Error).message}\n`));
+    process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept: ${messageOf(err)}\n`));
   }
   // The activity feed's line: on one run, that run; on goldens, how many.
   const ran = results.filter((r) => r.runId);
@@ -157,8 +157,8 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         spec = specFor(tests, packDir, projectDir);
         chaos = chaosFor(projectDir, testsKeyFor(tests, resolve(packDir), projectDir), parseExpect);
       } catch (err) {
-        process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
-        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null });
+        process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe(messageOf(err))}\n`);
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: messageOf(err), skipped: null });
         continue;
       }
       if (chaos === false) {
@@ -178,8 +178,8 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
           throw new Error(notRunMessage(packDir, again));
         }
       } catch (err) {
-        process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
-        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null, ...(unvouched ? { unvouched: true as const } : {}) });
+        process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe(messageOf(err))}\n`);
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: messageOf(err), skipped: null, ...(unvouched ? { unvouched: true as const } : {}) });
         continue;
       }
       // A redacted pack replays with its rules as normalizers, as `test` replays it.

@@ -4,7 +4,7 @@
  * request itself when one runs live, and only to a declared host.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { fingerprintTool, maskPathCredentials, matchedAs, plantInToolResult, refused, toolFailureError, type CallEndRow, type CallStartRow, type Decision, type Effect, type SerializedError } from '@shadowlap/engine';
+import { fingerprintTool, maskPathCredentials, matchedAs, messageOf, plantInToolResult, refused, toolFailureError, type CallEndRow, type CallStartRow, type Decision, type Effect, type SerializedError } from '@shadowlap/engine';
 import { breakAsRecorded, breakConnection, clientLeft, ClientWatch, HttpError, json, jsonBytes, sendOwn, type OwnAnswer } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, withoutCredentials, type HttpResult, type StoredBody } from './http.js';
@@ -318,7 +318,7 @@ async function forwardHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttp
     // Its agent has gone and the sidecar has closed: it records and reports nothing (closed).
     if (core.closed) return;
     if (client.gone) return left();
-    const message = `${name}: ${err instanceof Error ? err.message : String(err)}`;
+    const message = `${name}: ${messageOf(err)}`;
     const error: SerializedError = { name: upstream ? 'UpstreamStreamError' : 'UpstreamConnectionError', message };
     breakConnection(res, message);
     endHttpCall(core, call, placed, jsonBytes({ error }), 'error', { error, latencyMs: Date.now() - started });

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as createHttp2Server, type Http2Server, type ServerHttp2Session } from 'node:http2';
 import type { Duplex } from 'node:stream';
 import type { AddressInfo } from 'node:net';
-import type { JudgeSummary, RunMeta, RunRecord, RunStatus } from '@shadowlap/engine';
+import { messageOf, type JudgeSummary, type RunMeta, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { breakConnection, HttpError } from './answers.js';
 import { handleApi } from './api.js';
 import { proxyHttp } from './capture.js';
@@ -103,7 +103,7 @@ export class Sidecar {
         .handle(req, res)
         .catch((err: unknown) => {
           const status = err instanceof HttpError ? err.status : 500;
-          const message = err instanceof Error ? err.message : String(err);
+          const message = messageOf(err);
           if (!res.headersSent) {
             res.writeHead(status, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ type: 'error', error: { type: 'shadowlap_error', message } }));
@@ -309,7 +309,7 @@ export class Sidecar {
       socket.once('close', () => this.tunnels.delete(socket));
       tunnelWebSocket(socket, early, new URL(`${upstream}${this.core.upstreamPath(provider, upstream, path)}${url.search}`), forward);
     } catch (err) {
-      refuseUpgrade(socket, err instanceof HttpError ? err.status : 500, err instanceof Error ? err.message : String(err));
+      refuseUpgrade(socket, err instanceof HttpError ? err.status : 500, messageOf(err));
     }
   }
 }

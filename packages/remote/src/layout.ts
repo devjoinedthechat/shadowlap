@@ -1,4 +1,4 @@
-import { isObject, ulid, validateCall, validateRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { isObject, messageOf, ulid, validateCall, validateRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
 
 /**
  * How runs are laid out in the bucket, under the store's folder:
@@ -167,7 +167,7 @@ export function checkStoredRun(raw: unknown, where: string): RunRecord {
   try {
     validateRun(raw, where);
   } catch (err) {
-    throw new LayoutError((err as Error).message);
+    throw new LayoutError(messageOf(err));
   }
   checkMeta((raw as Record<string, unknown>).meta, `${where}.meta`);
   return raw as RunRecord;
@@ -184,12 +184,12 @@ export function storeProblem(run: RunRecord, calls: readonly CallRecord[]): stri
       try {
         validateCall(c, `call #${c.callNo}`);
       } catch (err) {
-        throw new LayoutError((err as Error).message);
+        throw new LayoutError(messageOf(err));
       }
     }
     return null;
   } catch (err) {
-    return (err as Error).message;
+    return messageOf(err);
   }
 }
 

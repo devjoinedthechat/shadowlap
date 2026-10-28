@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CmdLine, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
+import { messageOf } from '../message-of.js';
 import { expectProject, type AddProjectView } from '../projects-api.js';
 import { codeParts } from '../projects.js';
 import { href } from '../route.js';
@@ -49,7 +50,7 @@ export function NewProjectPage() {
           if (n !== asked.current) return;
           const status = (err as { status?: number }).status;
           if (status === 404 || status === 405) setUnsupported(true);
-          else setError(err instanceof Error ? err.message : String(err));
+          else setError(messageOf(err));
         },
       );
     }, wait.current);
@@ -87,7 +88,7 @@ export function NewProjectPage() {
         },
         (err: unknown) => {
           setBusy(false);
-          setError(err instanceof Error ? err.message : String(err));
+          setError(messageOf(err));
         },
       );
     });

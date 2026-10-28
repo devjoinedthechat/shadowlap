@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { setPatternBudget, Store } from '@shadowlap/engine';
+import { messageOf, setPatternBudget, Store } from '@shadowlap/engine';
 import type { ExportAnswer, ExportWork } from './export-apart.js';
 import { BUSY } from './redaction-preview.js';
 import { exportHtml } from './static.js';
@@ -25,7 +25,7 @@ try {
   const result = exportHtml({ store, runIds: work.runIds, redact: work.redact, version: work.version, ...(work.prices ? { prices: work.prices } : {}), ...(work.uiDir ? { uiDir: work.uiDir } : {}) });
   answer = { type: 'answer', ok: true, result };
 } catch (err) {
-  const error = err instanceof Error ? err.message : String(err);
+  const error = messageOf(err);
   answer = { type: 'answer', ok: false, error, busy: BUSY.test(error) };
 } finally {
   // Closed before the answer goes: the server ends the thread once it has it, which can stop it

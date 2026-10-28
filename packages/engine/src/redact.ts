@@ -3,6 +3,7 @@ import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from
 import { capturedHttp, credentialFreeArgv, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
@@ -1227,7 +1228,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (rule.pattern !== undefined) compilePattern(rule.pattern);
       if (rule.path !== undefined) parsePath(rule.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      throw new Error(`redaction rule #${i + 1}: ${messageOf(err)}`, { cause: err });
     }
   });
   const per = rules.map(() => ({

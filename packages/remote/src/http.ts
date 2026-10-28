@@ -1,3 +1,4 @@
+import { messageOf } from '@shadowlap/engine';
 import { proxyFetch, proxyFor } from './proxy.js';
 
 /**
@@ -124,7 +125,7 @@ export async function send(request: HttpRequest | (() => HttpRequest | Promise<H
       });
     } catch (err) {
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-      last = new HttpError(controller.signal.aborted ? `${host} didn't answer in time` : `couldn't reach ${host}: ${cause?.code ?? cause?.message ?? (err as Error).message}`, true);
+      last = new HttpError(controller.signal.aborted ? `${host} didn't answer in time` : `couldn't reach ${host}: ${cause?.code ?? cause?.message ?? messageOf(err)}`, true);
       continue;
     } finally {
       clearTimeout(startBy);
@@ -139,7 +140,7 @@ export async function send(request: HttpRequest | (() => HttpRequest | Promise<H
       body = req.method === 'HEAD' ? Buffer.alloc(0) : await readCapped(res, maxBytes, idleMs, controller);
     } catch (err) {
       if (err instanceof HttpError) throw err; // too large: another attempt would be too
-      last = new HttpError(controller.signal.aborted ? `${host} stopped sending its answer` : `the answer from ${host} was cut off: ${(err as Error).message}`, true);
+      last = new HttpError(controller.signal.aborted ? `${host} stopped sending its answer` : `the answer from ${host} was cut off: ${messageOf(err)}`, true);
       continue;
     }
     return { status: res.status, headers: res.headers, body };

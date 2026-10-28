@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, isObject, type Gate, type Normalizer } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, isObject, messageOf, type Gate, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
@@ -129,7 +129,7 @@ export function readPackHead(dir: string): PackHead | { error: string } {
       redactions: rules.filter((r): r is Normalizer => typeof r === 'object' && r !== null && typeof (r as { replace?: unknown }).replace === 'string'),
     };
   } catch (err) {
-    return { error: existsSync(path) ? `run.json can't be read: ${(err as Error).message}` : 'no run.json: not a pack' };
+    return { error: existsSync(path) ? `run.json can't be read: ${messageOf(err)}` : 'no run.json: not a pack' };
   }
 }
 

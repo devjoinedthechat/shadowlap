@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
-import type { Store } from '@shadowlap/engine';
+import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { isLink } from './links.js';
 import type { JobFile, JobLink, JobListItem, JobView, ProjectView } from './views.js';
@@ -415,7 +415,7 @@ export class JobManager {
       try {
         listener(full);
       } catch (err) {
-        this.o.log?.(`a job listener failed on job ${job.id}: ${err instanceof Error ? err.message : String(err)}`);
+        this.o.log?.(`a job listener failed on job ${job.id}: ${messageOf(err)}`);
       }
     }
   }
@@ -468,7 +468,7 @@ export class JobManager {
     try {
       place = this.here();
     } catch (err) {
-      throw err instanceof HttpError ? err : new HttpError(409, err instanceof Error ? err.message : String(err));
+      throw err instanceof HttpError ? err : new HttpError(409, messageOf(err));
     }
     let built: JobBuildResult;
     try {
@@ -481,7 +481,7 @@ export class JobManager {
     } catch (err) {
       uploads?.release(id);
       if (err instanceof HttpError) throw err;
-      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+      throw new HttpError(400, messageOf(err));
     }
     if ('error' in built) {
       uploads?.release(id);
@@ -512,7 +512,7 @@ export class JobManager {
       }
     } catch (err) {
       uploads?.release(id);
-      throw err instanceof HttpError ? err : new HttpError(500, err instanceof Error ? err.message : String(err));
+      throw err instanceof HttpError ? err : new HttpError(500, messageOf(err));
     }
 
     let markEnded: () => void = () => undefined;
@@ -559,7 +559,7 @@ export class JobManager {
       try {
         built.started();
       } catch (err) {
-        this.o.log?.(`job ${id} (${kind}): what its kind does once it starts failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.o.log?.(`job ${id} (${kind}): what its kind does once it starts failed: ${messageOf(err)}`);
       }
     }
     return this.view(job);
@@ -576,7 +576,7 @@ export class JobManager {
     try {
       child = spawnCli(args, { events: true, ...(job.cwd ? { cwd: job.cwd } : {}), ...(job.place.dbPath ? { dbPath: job.place.dbPath } : {}), ...(Object.keys(job.env).length ? { env: job.env } : {}) });
     } catch (err) {
-      this.push(job, `failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      this.push(job, `failed to start: ${messageOf(err)}`);
       this.finish(job, 127);
       return;
     }

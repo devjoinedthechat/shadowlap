@@ -13,6 +13,7 @@ import {
   configClock,
   hasRecordedCommand,
   isObject,
+  messageOf,
   namedPatterns,
   parseRules,
   readConfigFile,
@@ -319,7 +320,7 @@ function loadConfigFile(cwd: string, list?: RuleList): { info: ConfigInfo; file:
     const error = raw !== undefined && raw !== null && !Array.isArray(raw) ? `${CONFIG_FILE}: ${list!} must be a list of rules` : null;
     return { info: { file: CONFIG_FILE, path: file.path, exists: file.exists, version: file.version, error }, file };
   } catch (err) {
-    return { info: { file: CONFIG_FILE, path, exists: existsSync(path), version: null, error: err instanceof Error ? err.message : String(err) }, file: null };
+    return { info: { file: CONFIG_FILE, path, exists: existsSync(path), version: null, error: messageOf(err) }, file: null };
   }
 }
 
@@ -442,7 +443,7 @@ export function redactionSettings(ctx: SettingsContext, options: { runId?: strin
     try {
       run = ctx.store.findRun(options.runId);
     } catch (err) {
-      previewError = err instanceof Error ? err.message : String(err);
+      previewError = messageOf(err);
     }
     if (!run) previewError ??= `no run matches ${options.runId}`;
     else if (recording.has(run.runId)) previewError = `${shortRun(run.runId)} is still recording; preview it once it has ended`;
@@ -1213,7 +1214,7 @@ export function mcpServers(cwd: string): { servers: Array<Omit<McpServerRow, 're
     try {
       parsed = parseJsonc(readFileSync(full, 'utf8'));
     } catch (err) {
-      return { path, found: true, error: `not valid JSON (${err instanceof Error ? err.message : String(err)})` };
+      return { path, found: true, error: `not valid JSON (${messageOf(err)})` };
     }
     const list = isObject(parsed) && isObject(parsed[key]) ? parsed[key] : {};
     for (const [name, entry] of Object.entries(list)) {
@@ -1336,7 +1337,7 @@ function findRun(store: StoreOf<'recording'>, ref: string): RunRecord {
   try {
     run = store.findRun(ref);
   } catch (err) {
-    throw new SettingsRefusal(400, err instanceof Error ? err.message : String(err));
+    throw new SettingsRefusal(400, messageOf(err));
   }
   if (!run) throw new SettingsRefusal(404, `no run matches ${ref}`);
   return run;
@@ -1402,7 +1403,7 @@ export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd
   try {
     rules = parseRules(readConfigFile(ctx.cwd).data.redact, 'redact');
   } catch (err) {
-    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+    throw new SettingsRefusal(422, messageOf(err));
   }
   const limits = options.limits ?? PREVIEW_LIMITS;
   let preview: RedactionPreview;
@@ -1410,7 +1411,7 @@ export async function redactionPreview(ctx: Pick<SettingsContext, 'store' | 'cwd
     preview = ctx.dbPath && ctx.dbPath !== ':memory:' ? await previewApart({ dbPath: ctx.dbPath, runId: run.runId, rules }, { limits, ...(options.signal ? { signal: options.signal } : {}) }) : previewHere(ctx.store, run.runId, rules, limits);
   } catch (err) {
     if (err instanceof PreviewError) throw new SettingsRefusal(err.status, err.message);
-    throw new SettingsRefusal(422, err instanceof Error ? err.message : String(err));
+    throw new SettingsRefusal(422, messageOf(err));
   }
   return { run: { runId: run.runId, label: runLabel(run) }, preview, command: `shadowlap redact preview ${shortRun(run.runId)}` };
 }
@@ -1450,7 +1451,7 @@ export function storeSettings(ctx: Pick<SettingsContext, 'store' | 'cwd'>, input
   try {
     loc = parseStoreUrl(configured);
   } catch (err) {
-    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${err instanceof Error ? err.message : String(err)}`, status: null, ciStep: null, redactRules };
+    return { config: info, configured, error: `${CONFIG_FILE} names a store that can't be used: ${messageOf(err)}`, status: null, ciStep: null, redactRules };
   }
   const step = ciStep('github', loc, { version: VERSION, ...keys });
   return { config: info, configured, error: info.error, status: teamStoreStatus(ctx.store, input), ciStep: { file: step.file, text: step.text, oidc: step.oidc }, redactRules };

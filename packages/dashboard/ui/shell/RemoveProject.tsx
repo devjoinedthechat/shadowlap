@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../components/Dialog.js';
+import { messageOf } from '../message-of.js';
 import { expectProject, type RemoveDialogView } from '../projects-api.js';
 import { nameMatches } from '../projects.js';
 import { href } from '../route.js';
@@ -29,7 +30,7 @@ export function RemoveProjectDialog({ id, onClose, onRemoved }: { id: string; on
     let alive = true;
     client.projects.removal(id).then(
       (v) => alive && setView(v),
-      (err: unknown) => alive && setFailed(err instanceof Error ? err.message : String(err)),
+      (err: unknown) => alive && setFailed(messageOf(err)),
     );
     return () => {
       alive = false;

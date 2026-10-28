@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, unavailableStop, unsettledFirst, describeBaselineRule, dropBound, KEPT_DEFAULTS, riskPercent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type StoreOf, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, messageOf, unavailableStop, unsettledFirst, describeBaselineRule, dropBound, KEPT_DEFAULTS, riskPercent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type StoreOf, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -70,7 +70,7 @@ export function readExpectJson(raw: string): { spec: ReturnType<typeof parseExpe
     try {
       text = readFileSync(raw.slice(1), 'utf8');
     } catch (err) {
-      throw new InvalidArgumentError(`--expect: cannot read ${raw.slice(1)}: ${(err as Error).message}`);
+      throw new InvalidArgumentError(`--expect: cannot read ${raw.slice(1)}: ${messageOf(err)}`);
     }
   }
   let parsed: unknown;
@@ -89,7 +89,7 @@ export function readGate(raw: string, defaults: Omit<SprtGate, 'kind'>): SprtGat
     try {
       text = readFileSync(raw.slice(1), 'utf8');
     } catch (err) {
-      throw new InvalidArgumentError(`--gate: cannot read ${raw.slice(1)}: ${(err as Error).message}`);
+      throw new InvalidArgumentError(`--gate: cannot read ${raw.slice(1)}: ${messageOf(err)}`);
     }
   }
   let parsed: unknown;
@@ -102,7 +102,7 @@ export function readGate(raw: string, defaults: Omit<SprtGate, 'kind'>): SprtGat
   try {
     gate = parseGate(parsed, '--gate', defaults);
   } catch (err) {
-    throw new InvalidArgumentError((err as Error).message);
+    throw new InvalidArgumentError(messageOf(err));
   }
   if (gate.kind !== 'sprt') throw new InvalidArgumentError('--gate takes a gate between two pass rates here ({ "good", "bad", "risk", "max" }); a gate against history belongs to a golden, under "tests" in shadowlap.config.json');
   return gate;
@@ -567,7 +567,7 @@ export function register(program: Command): void {
       try {
         repairer = repairerSpec ? parseRepairer(repairerSpec) : null;
       } catch (err) {
-        throw new InvalidArgumentError((err as Error).message);
+        throw new InvalidArgumentError(messageOf(err));
       }
 
       const store = readStore(opts);

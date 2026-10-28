@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { canonicalize } from './canonical.js';
+import { messageOf } from './message-of.js';
 import { looksGenerated } from './volatile.js';
 import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } from './stats.js';
 import type { Refusal } from './interventions.js';
@@ -214,7 +215,7 @@ export function parsePayloads(text: string, file: string): Payload[] {
     try {
       parsed = JSON.parse(text);
     } catch (err) {
-      throw new Error(`${name} is not JSON: ${(err as Error).message}`, { cause: err });
+      throw new Error(`${name} is not JSON: ${messageOf(err)}`, { cause: err });
     }
     const list = Array.isArray(parsed) ? parsed : isObject(parsed) && Array.isArray(parsed.payloads) ? parsed.payloads : null;
     if (!list) throw new Error(`${name}: a JSON file of payloads is a list, or an object with a "payloads" list`);
@@ -226,7 +227,7 @@ export function parsePayloads(text: string, file: string): Payload[] {
       try {
         v = JSON.parse(line);
       } catch (err) {
-        throw new Error(`${name}: line ${i + 1} is not JSON: ${(err as Error).message}`, { cause: err });
+        throw new Error(`${name}: line ${i + 1} is not JSON: ${messageOf(err)}`, { cause: err });
       }
       fromValue(v, `line ${i + 1}`);
     });

@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
@@ -309,7 +309,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     target = loadTarget(input, projectDir, store);
   } catch (err) {
     store.close();
-    throw err instanceof BisectError ? err : new BisectError((err as Error).message);
+    throw err instanceof BisectError ? err : new BisectError(messageOf(err));
   }
   const own = input.argv?.length ? input.argv : null;
   if (!own && !hasRecordedCommand(target.run)) {
@@ -321,7 +321,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
     refuseUnrecorded(store, target.run, input.allowUnrecorded);
   } catch (err) {
     store.close();
-    throw new BisectError((err as Error).message);
+    throw new BisectError(messageOf(err));
   }
   // A run from someone else's pack, or pulled from the team store, carries a command someone else
   // chose, and it would run at every commit: it needs consent, as a replay of it does.
@@ -384,7 +384,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
       try {
         git(root, ['worktree', 'add', '--detach', '--force', worktree, rev]);
       } catch (err) {
-        return done(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`);
+        return done(false, true, `could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || messageOf(err)}`);
       }
       const worktreeCwd = join(worktree, inRepo);
       // Without a build step, the working tree's packages serve every commit, this repository's own
@@ -406,7 +406,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
         outcome = await testRecording(target.run, spec, { store, config, cwd: worktreeCwd, writes: 'block', guard: input.guard, online: false, argv, timeoutMs: input.timeoutMs, stopped: () => stopped, ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) });
       } catch (err) {
         if (err instanceof ReplayInterrupted) return done(false, true, 'interrupted');
-        throw new BisectError(`the replay at ${info.short} could not run: ${(err as Error).message}`);
+        throw new BisectError(`the replay at ${info.short} could not run: ${messageOf(err)}`);
       }
       report.replays += outcome.attempts.length;
       for (const a of outcome.attempts) {

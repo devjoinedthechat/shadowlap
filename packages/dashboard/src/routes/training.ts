@@ -1,4 +1,4 @@
-import { listingInput, listModelChoices, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
+import { listingInput, listModelChoices, messageOf, type ModelListing, type Normalizer, type Price, type Task } from '@shadowlap/engine';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
@@ -31,7 +31,7 @@ const TASKS_TTL_MS = 1500;
 const LISTING_TTL_MS = 15_000;
 const NO_LOADER = 'This dashboard doesn’t read the project’s goldens: start it with shadowlap dashboard in the project folder.';
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const message = (err: unknown) => messageOf(err);
 
 export function register(router: Router, ctx: RouteContext): void {
   const o = ctx.options.training ?? {};

@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, readdirSync, realpathSync, type Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { DATASET_FORMATS, REDACTION_EXPORTS, type Normalizer, type RedactionExport, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { DATASET_FORMATS, REDACTION_EXPORTS, messageOf, type Normalizer, type RedactionExport, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, ProjectInfo } from './jobs.js';
 
@@ -156,7 +156,7 @@ function exportsDir(root: string): string | { error: string; status: number } {
   try {
     mkdirSync(dir, { recursive: true });
   } catch (err) {
-    return { error: `could not make ${EXPORTS_DIR}: ${err instanceof Error ? err.message : String(err)}`, status: 500 };
+    return { error: `could not make ${EXPORTS_DIR}: ${messageOf(err)}`, status: 500 };
   }
   return dir;
 }

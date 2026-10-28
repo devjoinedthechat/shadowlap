@@ -10,6 +10,7 @@ import {
   firstMessage,
   isObject,
   loadApiRequest,
+  messageOf,
   normalizeConversation,
   packRun,
   unpackRun,
@@ -403,7 +404,7 @@ export async function packGroup(group: CoverageGroup, members: ReadonlyMap<strin
     const kept: StoredCoveragePack = { key: made.key, at: (o.now ?? Date.now)(), golden: made.golden, runId: made.runId, from: made.from, mode: made.mode, reason: made.reason, why: made.why, command: made.command };
     o.store.saveCoveragePack(kept);
   } catch (err) {
-    o.log?.(`[shadowlap] what --pack made of ${group.key} was not kept: ${(err as Error).message}`);
+    o.log?.(`[shadowlap] what --pack made of ${group.key} was not kept: ${messageOf(err)}`);
   }
   return made;
 }

@@ -1,5 +1,6 @@
 import { statSync, watch } from 'node:fs';
 import { join, normalize, relative, resolve, sep } from 'node:path';
+import { messageOf } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 
@@ -110,7 +111,7 @@ export function watchAndRerun(opts: WatchOptions): Promise<void> {
   } catch (err) {
     // Recursive watching is unavailable on some platforms and filesystems; say so rather than
     // silently watching nothing.
-    return Promise.reject(new Error(`--watch: cannot watch ${opts.cwd}: ${err instanceof Error ? err.message : String(err)}`));
+    return Promise.reject(new Error(`--watch: cannot watch ${opts.cwd}: ${messageOf(err)}`));
   }
 
   return new Promise<void>((resolveWatch, reject) => {

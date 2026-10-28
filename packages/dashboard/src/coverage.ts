@@ -1,4 +1,4 @@
-import { checkCommandTemplate, describeBehaviour, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { checkCommandTemplate, describeBehaviour, messageOf, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
 
@@ -193,7 +193,7 @@ export function coveragePackArgs(store: StoreOf<'coverage'>, req: Record<string,
     try {
       command = splitCommandLine(req.command);
     } catch (err) {
-      return { error: `command: ${(err as Error).message}` };
+      return { error: `command: ${messageOf(err)}` };
     }
     const template = checkCommandTemplate(command);
     if (template) return { error: `command: ${template}` };

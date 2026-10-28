@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, messageOf, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -21,7 +21,7 @@ export function textOrFile(raw: string, flag: string): string {
   try {
     return readFileSync(raw.slice(1), 'utf8').replace(/\r?\n$/, '');
   } catch (err) {
-    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${(err as Error).message}`, { cause: err });
+    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${messageOf(err)}`, { cause: err });
   }
 }
 

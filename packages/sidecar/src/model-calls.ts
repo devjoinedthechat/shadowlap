@@ -8,7 +8,7 @@
  * never holds an answer up.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { apiCallName, asParsed, credentialFreeHeaders, credentialFreeQuery, multipartView, apiNumbers, parseJsonExact, redactApiPath, redactHeaderValues, reportable, storeApiRequest, type CallStartRow, type SerializedError } from '@shadowlap/engine';
+import { apiCallName, asParsed, credentialFreeHeaders, credentialFreeQuery, messageOf, multipartView, apiNumbers, parseJsonExact, redactApiPath, redactHeaderValues, reportable, storeApiRequest, type CallStartRow, type SerializedError } from '@shadowlap/engine';
 import { breakConnection, clientLeft, ClientWatch, RESPONSE_DROP, sendOwn } from './answers.js';
 import { recordedId, upstreamVariable, type AttemptEnd, type JudgeAccess, type SidecarCore } from './core.js';
 import { allowedHeaders, clockMarks, encodeMarks, fingerprintKey } from './fingerprint-cache.js';
@@ -462,7 +462,7 @@ async function forwardLive(core: SidecarCore, call: ModelCall, placed: PlacedCal
     // connection breaks too, as the provider's would have without Shadowlap, so its client reports
     // a connection error and retries as it would. Recorded as cut short with no answer, which a
     // replay serves the same way; the run's summary says why.
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     breakConnection(res, message);
     attempt.settle(true);
     attempt.end({ responseRef: null, outcome: 'error', meta: { latencyMs: Date.now() - attempt.started, retryable: true, provider: recordedId(provider), error: { name: 'UpstreamConnectionError', message } } });
@@ -550,7 +550,7 @@ async function relayAnswer(core: SidecarCore, call: ModelCall, answer: Response,
     }
   } catch (err) {
     // Headers no response can carry: the provider's answer can't be passed on, so it is none.
-    streamError = { name: 'UpstreamResponseError', message: err instanceof Error ? err.message : String(err) };
+    streamError = { name: 'UpstreamResponseError', message: messageOf(err) };
   }
   if (reader && !streamError) {
     try {
@@ -564,7 +564,7 @@ async function relayAnswer(core: SidecarCore, call: ModelCall, answer: Response,
       }
     } catch (err) {
       // A read that fails because the agent left is the agent leaving, not the provider failing.
-      if (!client.gone) streamError = { name: 'UpstreamStreamError', message: err instanceof Error ? err.message : String(err) };
+      if (!client.gone) streamError = { name: 'UpstreamStreamError', message: messageOf(err) };
     }
   }
   if (client.gone) {

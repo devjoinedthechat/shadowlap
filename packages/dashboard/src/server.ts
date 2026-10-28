@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ProjectError, Store, tildePath, type Normalizer, type Price, type ProjectContext, type ProjectHost } from '@shadowlap/engine';
+import { ProjectError, Store, messageOf, tildePath, type Normalizer, type Price, type ProjectContext, type ProjectHost } from '@shadowlap/engine';
 import type { ProjectConfig, RouteContext } from './context.js';
 import { exportsEnded } from './export-apart.js';
 import { HttpError, json, sameToken } from './http.js';
@@ -126,7 +126,7 @@ function readConfig(load: () => ProjectConfig): ProjectConfig {
   try {
     return load();
   } catch (err) {
-    throw new HttpError(500, `could not read the project's shadowlap.config.json: ${err instanceof Error ? err.message : String(err)}`);
+    throw new HttpError(500, `could not read the project's shadowlap.config.json: ${messageOf(err)}`);
   }
 }
 
@@ -203,7 +203,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     try {
       return pc.store();
     } catch (err) {
-      const why = err instanceof ProjectError ? err.message : `Shadowlap can’t open ${pc.name}’s store: ${err instanceof Error ? err.message : String(err)}`;
+      const why = err instanceof ProjectError ? err.message : `Shadowlap can’t open ${pc.name}’s store: ${messageOf(err)}`;
       throw new HttpError(err instanceof ProjectError ? err.status : 409, why.split(pc.path).join(tildePath(pc.path, projects!.registry.realHome)));
     }
   };
@@ -331,7 +331,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       storeOf(pc);
       return null;
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return messageOf(err);
     }
   };
 
@@ -460,7 +460,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       try {
         m.register(router, ctx);
       } catch (err) {
-        const why = err instanceof Error ? err.message : String(err);
+        const why = messageOf(err);
         later.failed.push(why);
         log(`a route module could not register for ${later.name}: ${why}`);
       }
@@ -619,7 +619,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       const status = err instanceof HttpError || err instanceof ProjectError ? err.status : 500;
       if (status === 500) log(`error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`);
       if (res.headersSent) return res.destroy();
-      const error = err instanceof Error ? err.message : String(err);
+      const error = messageOf(err);
       // A read of something the store doesn't hold (a run or a fix a link names) from the page, which
       // says so itself: asked that way (`x-shadowlap-not-found: answer`), it is answered 200 with
       // `notFound`, so the browser logs no failed load for it. Any other client gets the 404.

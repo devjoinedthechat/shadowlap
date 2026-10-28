@@ -4,6 +4,7 @@ import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { CmdLine, Seg } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
+import { messageOf } from '../message-of.js';
 import { useApp } from '../state.js';
 
 /**
@@ -47,7 +48,7 @@ export function editBody(mode: 'json' | 'text', text: string, answer: boolean): 
     try {
       JSON.parse(text);
     } catch (err) {
-      return { error: `Not JSON: ${err instanceof Error ? err.message : String(err)}` };
+      return { error: `Not JSON: ${messageOf(err)}` };
     }
   } else body = JSON.stringify(text);
   return new TextEncoder().encode(body).length > EDIT_LIMIT ? { error: 'At most 2 MB.' } : { body };

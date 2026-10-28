@@ -1,3 +1,4 @@
+import { messageOf } from './message-of.js';
 import { namedPatterns, parsePath } from './normalize.js';
 import { PATTERN_MAX, patternProblem } from './safe-regex.js';
 import type { CallEndRow, CallRecord, RunRecord } from './types.js';
@@ -80,7 +81,7 @@ function rule(v: unknown, at: string): void {
     try {
       parsePath(v.path as string);
     } catch (err) {
-      fail(`${at}.path`, err instanceof Error ? err.message : String(err));
+      fail(`${at}.path`, messageOf(err));
     }
   }
   if (v.pattern !== undefined) {

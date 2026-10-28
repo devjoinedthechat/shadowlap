@@ -1,6 +1,6 @@
 import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store, type StoreOf } from '@shadowlap/engine';
+import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, messageOf, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store, type StoreOf } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
@@ -278,7 +278,7 @@ export function repackGolden(store: Store, runId: string, dir: string, projectDi
     } catch {
       // nothing more to tidy
     }
-    return `${(err as Error).message}${kept}`;
+    return `${messageOf(err)}${kept}`;
   }
   rmSync(stage, { recursive: true, force: true });
   // A golden packed before packs carried their .gitattributes gets one, so a checkout that converts

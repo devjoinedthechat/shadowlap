@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, messageOf, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -144,7 +144,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
     try {
       checkout = baseline.open ? baseline.open() : BaseCheckout.open(baseline.base, cwd, process.cwd());
     } catch (err) {
-      return (arm = { why: (err as Error).message });
+      return (arm = { why: messageOf(err) });
     }
     try {
       // The same settings, in the base's checkout; the budget is counted over both arms, here.
@@ -154,7 +154,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       return (arm = { runner: baseRunner, checkout });
     } catch (err) {
       checkout.close();
-      return (arm = { why: (err as Error).message });
+      return (arm = { why: messageOf(err) });
     }
   };
   const baseRunner = () => (arm && 'runner' in arm ? arm.runner : null);

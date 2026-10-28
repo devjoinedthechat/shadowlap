@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, messageOf, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -306,7 +306,7 @@ export function chaosFlags(req: Record<string, unknown>): string[] | { error: st
     try {
       out.push('--presets', parsePresets(list, 'presets').join(','));
     } catch (err) {
-      return { error: (err as Error).message };
+      return { error: messageOf(err) };
     }
   }
   if (req.tool !== undefined) {

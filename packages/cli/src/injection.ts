@@ -1,4 +1,4 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -305,7 +305,7 @@ export async function plantInjections(runner: AttemptRunner, target: AttemptTarg
     } catch (err) {
       // --inject-result's words, without the call it names (the read's own line names it) or its advice to --override.
       const named = new RegExp(`^#${r.callNo} ${r.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:?\\s*`);
-      return { ...base, planted: false, why: (err as Error).message.replace(/^--inject-result: /, '').replace(named, '').replace(/;\s*give [^;]*--override(?: instead)?$/, '') };
+      return { ...base, planted: false, why: messageOf(err).replace(/^--inject-result: /, '').replace(named, '').replace(/;\s*give [^;]*--override(?: instead)?$/, '') };
     }
   });
   const planted = reads.filter((r) => r.planted);

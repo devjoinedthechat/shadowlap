@@ -5,6 +5,7 @@ import {
   byConsequence,
   CONTROL_MIN_SAMPLES,
   CONTROL_RISK,
+  messageOf,
   rankBeyondNoise,
   commandIsImported,
   compareDecisions,
@@ -180,7 +181,7 @@ export function resolveTargets(store: Store, specs: readonly string[], cwd: stri
       try {
         run = importGolden(store, abs);
       } catch (err) {
-        throw new DecisionsError(`${dir}: ${(err as Error).message}`);
+        throw new DecisionsError(`${dir}: ${messageOf(err)}`);
       }
       if (!out.has(run.runId)) out.set(run.runId, { run, golden: goldenName(dir, cwd), spec: specFor(tests, abs, cwd), expect: rawExpectFor(tests, abs, cwd) });
     }
@@ -743,7 +744,7 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
     try {
       body = plan.buildControl();
     } catch (err) {
-      plan.controlAnswers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: (err as Error).message, attempts: 0 }, decision: null });
+      plan.controlAnswers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: messageOf(err), attempts: 0 }, decision: null });
       return;
     }
     const answer = await sender.send({ provider: plan.provider, method: plan.method, path: plan.recordedPath, ...(plan.query ? { query: plan.query } : {}), headers: plan.headers, body });
@@ -758,7 +759,7 @@ async function askAll(planned: Planned[], s: DecisionsSettings, sender: ModelSen
     try {
       body = plan.build();
     } catch (err) {
-      plan.answers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: (err as Error).message, attempts: 0 }, decision: null });
+      plan.answers.push({ answer: { status: 0, contentType: undefined, bytes: Buffer.alloc(0), usage: null, stopReason: null, model: null, latencyMs: 0, error: messageOf(err), attempts: 0 }, decision: null });
       return;
     }
     for (const l of learned.get(keyOf(plan))?.values() ?? []) body = apply(plan, body, l.fix, l.why)?.body ?? body;
@@ -1088,7 +1089,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
   try {
     rules = config.redact;
   } catch (err) {
-    throw new DecisionsError(`the redaction rules in shadowlap.config.json: ${(err as Error).message}`);
+    throw new DecisionsError(`the redaction rules in shadowlap.config.json: ${messageOf(err)}`);
   }
   const mask = masking(rules);
   const store = openStore(input.opts);
@@ -1335,7 +1336,7 @@ export function keepDecisions(store: StoreOf<'activity' | 'decisions'>, report: 
     }
     return sessionId;
   } catch (err) {
-    (report as DecisionsReport).warnings?.push(`the result could not be kept in the store: ${(err as Error).message}`);
+    (report as DecisionsReport).warnings?.push(`the result could not be kept in the store: ${messageOf(err)}`);
     return null;
   }
 }

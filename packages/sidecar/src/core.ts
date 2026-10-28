@@ -11,7 +11,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import { connect as connectHttp2, type ClientHttp2Session } from 'node:http2';
-import { JUDGE_SCOPE, parseJsonExact, RESERVED_SCOPE_PREFIX, unmaskedHints, type CallEndRow, type CallMeta, type CallStartRow, type ClockMode, type DivergenceReport, type Normalizer, type Price, type Store, type ToolTrust } from '@shadowlap/engine';
+import { JUDGE_SCOPE, messageOf, parseJsonExact, RESERVED_SCOPE_PREFIX, unmaskedHints, type CallEndRow, type CallMeta, type CallStartRow, type ClockMode, type DivergenceReport, type Normalizer, type Price, type Store, type ToolTrust } from '@shadowlap/engine';
 import { HttpError } from './answers.js';
 import { BodyThreads } from './body-threads.js';
 import type { HttpRule } from './http.js';
@@ -385,7 +385,7 @@ export class SidecarCore {
         const d = ctx.session.explainPending();
         if (d) this.keepDivergence(ctx, d);
       } catch (err) {
-        this.log(`run ${ctx.run.runId}: its divergence was kept without a diff: ${err instanceof Error ? err.message : String(err)}`);
+        this.log(`run ${ctx.run.runId}: its divergence was kept without a diff: ${messageOf(err)}`);
       }
     }
   }

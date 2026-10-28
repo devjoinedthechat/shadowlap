@@ -1,4 +1,4 @@
-import { isObject } from '@shadowlap/engine';
+import { isObject, messageOf } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import {
   accessPolicy,
@@ -232,7 +232,7 @@ export function checkSetupUrl(provider: Provider, raw: string, options: { env?: 
   try {
     loc = parseStoreUrl(raw, provider);
   } catch (err) {
-    return { ok: false, provider, error: err instanceof Error ? err.message : String(err), policy: policyFor(provider, null) };
+    return { ok: false, provider, error: messageOf(err), policy: policyFor(provider, null) };
   }
   const configured = formatStoreUrl(loc);
   const env = { ...(options.env ? { env: options.env } : {}), ...(options.home ? { home: options.home } : {}) };

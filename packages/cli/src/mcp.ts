@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
-import { isObject, processAlive } from '@shadowlap/engine';
+import { isObject, messageOf, processAlive } from '@shadowlap/engine';
 // A request's body, whole or not at all (body.ts in the engine).
 import { BodyTooLarge, readBody } from '@shadowlap/engine';
 import { ancestorsOf, findRegistration, isLoopbackUrl, lookupDirs, lookupRegistration, parentRegistration, peerProcess, processAncestors, registeredRuns, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
@@ -298,7 +298,7 @@ class ToolCalls {
       r = await post<ResolveResponse>(sidecar, '/v1/calls/resolve', { kind: 'tool', name, effect, args, ...(known ? { implHash: known.implHash } : {}), ...(this.untrusted(name) ? { trust: 'untrusted' } : {}), mcp: mcp.meta });
       mcp.sent();
     } catch (err) {
-      return this.unrecorded(m, name, effect, `Shadowlap's sidecar could not be asked (${err instanceof Error ? err.message : String(err)})`);
+      return this.unrecorded(m, name, effect, `Shadowlap's sidecar could not be asked (${messageOf(err)})`);
     }
     switch (r.origin) {
       case 'replayed':
@@ -311,7 +311,7 @@ class ToolCalls {
         return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
       case 'stubbed': {
         const result = { content: [{ type: 'text', text: `${name} was not executed: write tools are stubbed after the fork (shadowlap replay --writes stub).` }], isError: false };
-        await post(sidecar, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result, latencyMs: 0 }).catch((err: unknown) => this.log?.(`could not record the stub for ${name}: ${err instanceof Error ? err.message : String(err)}`));
+        await post(sidecar, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result, latencyMs: 0 }).catch((err: unknown) => this.log?.(`could not record the stub for ${name}: ${messageOf(err)}`));
         return { answer: { jsonrpc: '2.0', id: m.id, result } };
       }
       case 'live':
@@ -346,7 +346,7 @@ class ToolCalls {
     try {
       await post(this.sidecar, `/v1/calls/${call.callNo}/complete`, body);
     } catch (err) {
-      this.log?.(`could not record the result of ${call.name}: ${err instanceof Error ? err.message : String(err)}`);
+      this.log?.(`could not record the result of ${call.name}: ${messageOf(err)}`);
     }
   }
 }
@@ -920,7 +920,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
 
   const server: Server = createServer((req, res) => {
     void serve(req, res).catch((err: unknown) => {
-      o.log?.(`could not serve a request: ${err instanceof Error ? err.message : String(err)}`);
+      o.log?.(`could not serve a request: ${messageOf(err)}`);
       if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' });
       res.end();
     });

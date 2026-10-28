@@ -1,4 +1,4 @@
-import { ulid } from '@shadowlap/engine';
+import { messageOf, ulid } from '@shadowlap/engine';
 import { keys } from './layout.js';
 import { StoreError, type ObjectLock, type ObjectStore, type PutResult, type StoreErrorCode, type Versioning } from './object-store.js';
 import type { StoreLocation } from './url.js';
@@ -70,7 +70,7 @@ export function objectLockHint(loc: StoreLocation): string {
 }
 
 function message(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return messageOf(err);
 }
 
 function codeOf(err: unknown): StoreErrorCode | null {

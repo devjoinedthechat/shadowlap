@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
 import { JUDGE_KEYS, judgeChecksOf, notJudgedWhy, type EvaluateOptions, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
@@ -178,7 +178,7 @@ export function prepareJudge(store: Store, j: JudgeCheck, material: JudgeMateria
     m = materialFor(store, j, material, o);
   } catch (err) {
     // A redaction rule that can't be applied: nothing is sent unmasked.
-    return { why: `what it reads could not be made: ${(err as Error).message}` };
+    return { why: `what it reads could not be made: ${messageOf(err)}` };
   }
   if ('missing' in m) return { why: m.missing };
   return { target, request: judgeRequest(target, j, m), material: m };
@@ -232,7 +232,7 @@ export async function askPreparedJudge(j: JudgeCheck, prepared: PreparedJudge, c
         await pause(attempt);
         continue;
       }
-      return { why: `the judge's call failed: ${(err as Error).message}` };
+      return { why: `the judge's call failed: ${messageOf(err)}` };
     }
     if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: whyNotAnswered(ctx.store, ctx.runId, j, request, 'why' in live ? live.why : 'the test runs offline') };
     if (attempt < RETRIES && (res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500)) {

@@ -5,6 +5,7 @@ import { sameCommandLine } from './http.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { carriesCredentials, redactRun } from './redact.js';
 import { Store, type StoreOf } from './store.js';
@@ -256,7 +257,7 @@ function writePack(dir: string, write: (into: string) => void): void {
           keep = true;
         }
       }
-      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`, { cause: err });
+      if (keep) throw new Error(`${messageOf(err)}; the old pack's files are in ${aside}`, { cause: err });
       throw err;
     }
   } finally {
@@ -546,7 +547,7 @@ export function unpackRun(store: StoreOf<'recording' | 'readModels'>, dir: strin
         try {
           loadApiRequest(store, c.requestRef);
         } catch (err) {
-          throw new PackError(`calls.jsonl: the request of call #${c.callNo} cannot be read: ${err instanceof Error ? err.message : String(err)}`);
+          throw new PackError(`calls.jsonl: the request of call #${c.callNo} cannot be read: ${messageOf(err)}`);
         }
       }
     }

@@ -1,4 +1,4 @@
-import type { Normalizer, StoreOf } from '@shadowlap/engine';
+import { messageOf, type Normalizer, type StoreOf } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
@@ -160,7 +160,7 @@ export function register(router: Router, ctx: RouteContext): void {
     try {
       preview = gatePreview(r.query);
     } catch (err) {
-      throw new HttpError(400, (err as Error).message);
+      throw new HttpError(400, messageOf(err));
     }
     r.tagged(preview);
   });

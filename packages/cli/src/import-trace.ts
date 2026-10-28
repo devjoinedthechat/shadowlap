@@ -306,7 +306,7 @@ function partsOfContent(content: unknown, role: Role): Part[] {
 }
 
 /** One message in any of the shapes sources log, or null when it is not one. */
-export function messageOf(raw: unknown): TraceMessage | null {
+export function traceMessageOf(raw: unknown): TraceMessage | null {
   if (typeof raw === 'string') return { role: 'user', parts: [{ type: 'text', text: raw }] };
   if (!isObject(raw)) return null;
   const m = unwrapLangchain(raw);
@@ -358,7 +358,7 @@ export function messagesOf(raw: unknown): TraceMessage[] | null {
     out.push({ role: 'system', parts: [{ type: 'text', text: textOf(raw.system) }] });
   }
   for (const m of list) {
-    const msg = messageOf(m);
+    const msg = traceMessageOf(m);
     if (msg) out.push(msg);
   }
   return out.length ? out : null;
@@ -379,7 +379,7 @@ export function outputOf(raw: unknown): TraceModelCall['output'] {
   // OpenAI Chat Completions.
   if (Array.isArray(raw.choices) && isObject(raw.choices[0])) {
     const choice = raw.choices[0];
-    const msg = messageOf({ role: 'assistant', ...(isObject(choice.message) ? choice.message : { content: choice.text ?? '' }) });
+    const msg = traceMessageOf({ role: 'assistant', ...(isObject(choice.message) ? choice.message : { content: choice.text ?? '' }) });
     return { parts: msg?.parts ?? [], finishReason: str(choice.finish_reason) };
   }
   // Anthropic Messages.
@@ -395,14 +395,14 @@ export function outputOf(raw: unknown): TraceModelCall['output'] {
     const first: unknown = Array.isArray(generations[0]) ? (generations[0] as unknown[])[0] : generations[0];
     if (!isObject(first)) return null;
     const info = isObject(first.generation_info) ? first.generation_info : {};
-    const msg = isObject(first.message) ? messageOf({ type: 'ai', ...unwrapLangchain(first.message) }) : null;
+    const msg = isObject(first.message) ? traceMessageOf({ type: 'ai', ...unwrapLangchain(first.message) }) : null;
     const meta = msg && isObject(first.message) && isObject(unwrapLangchain(first.message).response_metadata) ? (unwrapLangchain(first.message).response_metadata as Record<string, unknown>) : {};
     return { parts: msg?.parts.length ? msg.parts : typeof first.text === 'string' && first.text ? [{ type: 'text', text: first.text }] : [], finishReason: str(info.finish_reason ?? meta.finish_reason ?? meta.stop_reason) };
   }
   // A wrapped output: `{ output: … }`, as some tracers log it.
   if ('output' in raw && Object.keys(raw).length === 1) return outputOf(raw.output);
   // A message: OpenAI's, LangChain's, OpenTelemetry's.
-  const msg = messageOf({ role: 'assistant', ...unwrapLangchain(raw) });
+  const msg = traceMessageOf({ role: 'assistant', ...unwrapLangchain(raw) });
   if (msg && (msg.role === 'assistant' || msg.role === 'user')) return { parts: msg.parts, finishReason: str(raw.finish_reason ?? raw.stop_reason) };
   return null;
 }

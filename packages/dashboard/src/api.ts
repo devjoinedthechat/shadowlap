@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type StoreOf, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, messageOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type StoreOf, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
@@ -596,7 +596,7 @@ export function callDetailFrom(store: Store, run: RunRecord, calls: readonly Cal
     try {
       request = c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
     } catch (err) {
-      request = { error: `could not load the stored request: ${err instanceof Error ? err.message : String(err)}` };
+      request = { error: `could not load the stored request: ${messageOf(err)}` };
     }
   }
   // The conversation at this call: its own request for a model call, else its conversation's
@@ -719,7 +719,7 @@ export function changeLabels(store: StoreOf<'recording'>, idOrPrefix: string, ad
     store.updateRunMeta(run.runId, { labels });
     return { labels };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), status: 400 };
+    return { error: messageOf(err), status: 400 };
   }
 }
 
@@ -735,7 +735,7 @@ export function addNote(store: StoreOf<'recording'>, idOrPrefix: string, callNo:
     store.updateRunMeta(run.runId, { notes });
     return { notes: notes.filter((x) => x.callNo === n) };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), status: 400 };
+    return { error: messageOf(err), status: 400 };
   }
 }
 

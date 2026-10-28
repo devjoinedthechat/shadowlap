@@ -1,3 +1,4 @@
+import { messageOf } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import type { StoreLocation } from './url.js';
 
@@ -100,7 +101,7 @@ export class StoreError extends Error {
  * (`too-large`), anything else the network's.
  */
 export function transportError(service: string, err: unknown): StoreError {
-  return new StoreError(err instanceof HttpError && !err.network ? 'too-large' : 'network', `${service}: ${(err as Error).message}`);
+  return new StoreError(err instanceof HttpError && !err.network ? 'too-large' : 'network', `${service}: ${messageOf(err)}`);
 }
 
 /** A conditional write that lost the race: someone else wrote the object first. */

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, isObject, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, isObject, judgeTarget, messageOf, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { parseChaosFields } from './chaos-config.js';
 
 /**
@@ -531,7 +531,7 @@ function referenceIn(value: unknown, where: string): Reference | null {
   try {
     path = parsePath(`$${m[3]!}`);
   } catch (err) {
-    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
+    throw new Error(`${where}: the reference ${value} has a path that can't be read (${messageOf(err).replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
   }
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
 }

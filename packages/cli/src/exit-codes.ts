@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module';
 import { constants } from 'node:os';
+import { messageOf } from '@shadowlap/engine';
 import { CommanderError } from 'commander';
 
 /**
@@ -211,7 +212,7 @@ export function reportError(err: unknown, write: (text: string) => void = (text)
   const status = received ? signalExit(received) : exitCodeOf(err);
   if (err instanceof CliError && err.reported) return status;
   const debug = !!process.env.SHADOWLAP_DEBUG;
-  const message = err instanceof Error ? err.message : String(err);
+  const message = messageOf(err);
   const stack = debug && err instanceof Error && err.stack ? err.stack : null;
   if (stack) write(`${stack}\n`);
   if (status === EXIT.internal) {

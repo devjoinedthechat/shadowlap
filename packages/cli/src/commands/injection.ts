@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, messageOf, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
@@ -66,7 +66,7 @@ export function cleanGate(json: string | undefined, repeat: number | undefined):
     try {
       gate = parseGate(parsed, '--gate', defaults);
     } catch (err) {
-      throw new InvalidArgumentError((err as Error).message);
+      throw new InvalidArgumentError(messageOf(err));
     }
     if (gate.kind !== 'sprt') throw new InvalidArgumentError('--gate: --clean decides on its own attempts, with good, bad, risk and max; a baseline gate needs a golden\'s history');
   }
@@ -117,7 +117,7 @@ function payloadsFor(flags: { templates?: string; payloads?: string }, entry: In
     try {
       text = readFileSync(file, 'utf8');
     } catch (err) {
-      throw new InvalidArgumentError(`${where}: cannot read ${file}: ${(err as Error).message}`);
+      throw new InvalidArgumentError(`${where}: cannot read ${file}: ${messageOf(err)}`);
     }
     return parsePayloads(text, file);
   };

@@ -1,4 +1,4 @@
-import { PACK_LIMITS } from '@shadowlap/engine';
+import { PACK_LIMITS, messageOf } from '@shadowlap/engine';
 import { applyFixDoc, fixDocBytes, fixDocHash, fixDocOf, fixKey, FIXES_PREFIX, isFixId, mergeFixDocs, parseFixDoc, type FixDoc } from './fix-doc.js';
 import { LayoutError } from './layout.js';
 import { isPrecondition, StoreError, type GetResult, type ObjectStore } from './object-store.js';
@@ -87,7 +87,7 @@ async function sendFix(ctx: FixSyncContext, rid: string, doc: FixDoc, hash: stri
         try {
           there = parseFixDoc(got.body, doc.fix.fixId);
         } catch (err) {
-          throw new LayoutError(`the store's copy can't be read: ${(err as Error).message}`);
+          throw new LayoutError(`the store's copy can't be read: ${messageOf(err)}`);
         }
         next = mergeFixDocs(doc, there);
         const merged = fixDocHash(next);
@@ -133,7 +133,7 @@ export async function pushFixes(ctx: FixSyncContext): Promise<FixPushResult> {
     try {
       if ((await sendFix(ctx, rid, doc, hash, result.repairs)) === 'sent') result.sent.push(fix.fixId);
     } catch (err) {
-      result.failed.push({ fixId: fix.fixId, reason: (err as Error).message });
+      result.failed.push({ fixId: fix.fixId, reason: messageOf(err) });
       if (!isFixProblem(err)) break;
     }
   }
@@ -165,7 +165,7 @@ export async function pullFixes(ctx: FixSyncContext): Promise<FixPullResult> {
       there = parseFixDoc(got.body, fixId);
     } catch (err) {
       if (!isFixProblem(err)) throw err;
-      result.failed.push({ fixId, reason: (err as Error).message });
+      result.failed.push({ fixId, reason: messageOf(err) });
       continue;
     }
     const here = fixDocOf(ctx.store, fixId);

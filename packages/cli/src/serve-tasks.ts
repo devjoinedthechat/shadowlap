@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { goldensNeedingConsent, matchTask, readBody, type ReadPolicy, type Store } from '@shadowlap/engine';
+import { goldensNeedingConsent, matchTask, messageOf, readBody, type ReadPolicy, type Store } from '@shadowlap/engine';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { resolveTarget } from './takeover.js';
@@ -135,7 +135,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
       const status = (err as { status?: number }).status ?? 400;
       // Over the limit: said, and the connection closed once the rest of the body is dropped.
       if (status === 413) res.setHeader('connection', 'close');
-      return send(res, status, { error: err instanceof SyntaxError ? 'the body is not JSON' : (err as Error).message });
+      return send(res, status, { error: err instanceof SyntaxError ? 'the body is not JSON' : messageOf(err) });
     }
     let name: string;
     try {
@@ -164,7 +164,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     try {
       target = resolveTarget({ model: body.model, baseUrl, keyEnv: s.keyEnv && s.baseUrl && baseUrl && sameOrigin(baseUrl, s.baseUrl) ? s.keyEnv : undefined });
     } catch (err) {
-      return send(res, 400, { error: (err as Error).message });
+      return send(res, 400, { error: messageOf(err) });
     }
     const takeover = body.from;
     const refused = cannotScore(task, target, takeover);
@@ -179,7 +179,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
       try {
         score = await scoreTask(opts, task, target, { attempts: 1, reads: (body.reads) ?? s.reads, concurrency: 1, budget: null, timeoutMs: s.timeoutMs, guard: s.guard, first: n, of: n, ...(takeover !== undefined ? { takeover } : {}) }, { id: session, spentBefore: 0 });
       } catch (err) {
-        return send(res, 502, { error: err instanceof Error ? err.message : String(err), task: task.name });
+        return send(res, 502, { error: messageOf(err), task: task.name });
       }
       const a = score.attempts[0];
       if (!a) return send(res, 502, { error: score.stopped ?? 'the attempt did not finish', task: task.name });
@@ -205,7 +205,7 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
 
   const server = createServer((req, res) => {
     handle(req, res).catch((err: unknown) => {
-      if (!res.headersSent) send(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      if (!res.headersSent) send(res, 500, { error: messageOf(err) });
       else res.destroy();
     });
   });

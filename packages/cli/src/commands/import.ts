@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveAuthor, type StoreOf } from '@shadowlap/engine';
+import { messageOf, resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { append, importCaptured, type Captured, type ImportResult, type Skip } from '../import-capture.js';
 import { EXIT } from '../exit-codes.js';
 import { readHar } from '../import-har.js';
@@ -53,7 +53,7 @@ function readJson(file: string): unknown {
   try {
     return JSON.parse(readFileSync(resolve(file), 'utf8'));
   } catch (err) {
-    throw new InvalidArgumentError(`${file} is not readable JSON: ${(err as Error).message}`);
+    throw new InvalidArgumentError(`${file} is not readable JSON: ${messageOf(err)}`);
   }
 }
 
@@ -177,7 +177,7 @@ function hostFor(address: Address, what: string, allowHttp: boolean, secret?: st
   try {
     return traceStoreHost(address.raw, what, { from: address.from, allowHttp, ...(secret ? { secret } : {}) });
   } catch (err) {
-    throw new InvalidArgumentError((err as Error).message);
+    throw new InvalidArgumentError(messageOf(err));
   }
 }
 
@@ -289,7 +289,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       try {
         trace = { ...(await m.read(t)), id: t.id };
       } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
+        const reason = messageOf(err);
         if (err instanceof TraceStoreError && err.ofTrace) {
           Object.assign(entry, { outcome: 'skipped', reason });
           line(p.yellow(`skipped: ${reason}`));
@@ -402,13 +402,13 @@ export function register(program: Command): void {
           try {
             contents = readFileSync(path, 'utf8');
           } catch (err) {
-            throw new InvalidArgumentError(`${file} is not readable: ${(err as Error).message}`);
+            throw new InvalidArgumentError(`${file} is not readable: ${messageOf(err)}`);
           }
           let groups: LitellmGroup[];
           try {
             groups = readLitellmGroups(contents);
           } catch (err) {
-            throw new InvalidArgumentError(`${file}: ${(err as Error).message}`);
+            throw new InvalidArgumentError(`${file}: ${messageOf(err)}`);
           }
           for (const group of groups) {
             entries += group.calls.length + group.skipped.length;
@@ -474,7 +474,7 @@ export function register(program: Command): void {
           try {
             captured = f.read(parsed);
           } catch (err) {
-            throw new InvalidArgumentError((err as Error).message);
+            throw new InvalidArgumentError(messageOf(err));
           }
           const who = author();
           const result = importCaptured(store, captured, { source: name ?? fileSource([resolve(file)]), author: who });
@@ -502,12 +502,12 @@ export function register(program: Command): void {
           try {
             return parseOtlpFile(readFileSync(path, 'utf8'));
           } catch (err) {
-            throw new Error(`${files[i]!}: ${(err as Error).message}`, { cause: err });
+            throw new Error(`${files[i]!}: ${messageOf(err)}`, { cause: err });
           }
         });
         read = readOtel(payloads);
       } catch (err) {
-        const message = (err as Error).message;
+        const message = messageOf(err);
         throw new InvalidArgumentError(files.some((f) => message.startsWith(`${f}: `)) ? message : `${files.join(', ')}: ${message}`);
       }
       const source = name ?? fileSource(paths);

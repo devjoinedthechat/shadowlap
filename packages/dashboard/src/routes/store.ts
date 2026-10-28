@@ -1,4 +1,4 @@
-import { resolveAuthor, type StoreOf } from '@shadowlap/engine';
+import { messageOf, resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import { liveKeys } from '../ci-workflows.js';
@@ -129,7 +129,7 @@ export function register(router: Router, ctx: RouteContext): void {
       try {
         configured = formatStoreUrl(parseStoreUrl(req.url, req.provider));
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: messageOf(err) };
       }
       return { args: ['store', 'set', configured, '--provider', req.provider, '--check'] };
     },

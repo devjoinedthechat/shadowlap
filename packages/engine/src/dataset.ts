@@ -9,6 +9,7 @@ import { normalizeConversation, type Turn, type TurnBlock } from './conversation
 import { credentialFreeArgv } from './http.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { compilePattern, parsePath } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse } from './responses.js';
@@ -150,7 +151,7 @@ export function datasetRows(store: StoreOf<'recording'>, runs: RunRecord[], opts
       if (r.pattern !== undefined) compilePattern(r.pattern);
       if (r.path !== undefined) parsePath(r.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      throw new Error(`redaction rule #${i + 1}: ${messageOf(err)}`, { cause: err });
     }
   });
   const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));

@@ -1,3 +1,4 @@
+import { messageOf } from './message-of.js';
 /**
  * Toasts, one at a time at the bottom of the window. A notice has the lime dot and goes after 2.6
  * seconds, as the design's do. An error (a job the server refused, a change that failed, a job that
@@ -46,5 +47,5 @@ export function sentence(text: string): string {
 
 /** What an error toast says for an error: its message, as a sentence. */
 export function errorText(err: unknown): string {
-  return sentence(err instanceof Error ? err.message : String(err));
+  return sentence(messageOf(err));
 }

@@ -5,7 +5,7 @@
  * (refingerprint); its model calls are read as matching reads them (asMatched, withoutParameters,
  * matchName), and its requests as a divergence report shows them (loadRequest).
  */
-import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, type CallRecord, type Normalizer } from '@shadowlap/engine';
+import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, messageOf, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, type CallRecord, type Normalizer } from '@shadowlap/engine';
 import type { SidecarCore } from './core.js';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { identityQuery } from './query.js';
@@ -78,7 +78,7 @@ export function refingerprint(core: SidecarCore, calls: CallRecord[], matching: 
           fingerprint = made.fingerprint;
           if (plan.key !== null) fresh.push({ key: plan.key, requestRef: plan.requestRef, fingerprint, clock: encodeMarks(made.marks) });
         } catch (err) {
-          core.log(`could not re-fingerprint call #${rec.callNo}: ${err instanceof Error ? err.message : String(err)}`);
+          core.log(`could not re-fingerprint call #${rec.callNo}: ${messageOf(err)}`);
         }
       }
     }

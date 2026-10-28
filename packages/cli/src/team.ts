@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { links, liveKeys } from '@shadowlap/dashboard';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, type StoreOf, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, messageOf, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, type StoreOf, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -126,7 +126,7 @@ export function configuredStore(t: TeamEnv): StoreLocation | null {
   try {
     return parseStoreUrl(url);
   } catch (err) {
-    throw new TeamError(`${CONFIG_FILE}: ${(err as Error).message}`);
+    throw new TeamError(`${CONFIG_FILE}: ${messageOf(err)}`);
   }
 }
 
@@ -205,7 +205,7 @@ function setLocation(url: string, provider: Provider | undefined): StoreLocation
   try {
     return parseStoreUrl(url, provider);
   } catch (err) {
-    throw new TeamError((err as Error).message);
+    throw new TeamError(messageOf(err));
   }
 }
 
@@ -765,7 +765,7 @@ function writeRepairFiles(t: TeamEnv, store: StoreOf<'fixes'>, repairIds: readon
       writeFileSync(join(dir, 'report.md'), repairMarkdown(r.report));
       written.push(r.dir);
     } catch (err) {
-      note(t, p.yellow(`! couldn't write ${r.dir}: ${safe((err as Error).message)}`));
+      note(t, p.yellow(`! couldn't write ${r.dir}: ${safe(messageOf(err))}`));
     }
   }
   return written;
@@ -866,7 +866,7 @@ export async function pushIfQueued(t: TeamEnv): Promise<void> {
       store.close();
     }
   } catch (err) {
-    note(t, p.yellow(`! ${which} queued for the store, but pushing failed: ${safe((err as Error).message)}. shadowlap push ${ready.map((id) => shortId(id)).join(' ')} sends ${ready.length === 1 ? 'it' : 'them'}.`));
+    note(t, p.yellow(`! ${which} queued for the store, but pushing failed: ${safe(messageOf(err))}. shadowlap push ${ready.map((id) => shortId(id)).join(' ')} sends ${ready.length === 1 ? 'it' : 'them'}.`));
   }
 }
 
@@ -888,7 +888,7 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
   try {
     loc = configuredStore(t);
   } catch (err) {
-    warn((err as Error).message);
+    warn(messageOf(err));
     return null;
   }
   if (!loc) {
@@ -904,14 +904,14 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
   try {
     target = writeTarget(t, loc);
   } catch (err) {
-    warn(`${(err as Error).message} The tests run; their runs stay here.`);
+    warn(`${messageOf(err)} The tests run; their runs stay here.`);
     return null;
   }
   const remote = openRemote(t, target.loc);
   try {
     await remote.credentials();
   } catch (err) {
-    warn(`no credentials for ${target.loc.url}: ${(err as Error).message} The tests run; their runs stay here.`);
+    warn(`no credentials for ${target.loc.url}: ${messageOf(err)} The tests run; their runs stay here.`);
     return null;
   }
   if (target.pr) note(t, p.dim(`--push: ${pullRequestLine(target)}`));
@@ -924,7 +924,7 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
         tally.pushed += result.pushed.length + result.updated.length;
       } catch (err) {
         tally.failed++;
-        warn(`couldn't push ${runIds.map((id) => shortId(id)).join(', ')}: ${(err as Error).message}`);
+        warn(`couldn't push ${runIds.map((id) => shortId(id)).join(', ')}: ${messageOf(err)}`);
       }
     },
     async finish(report) {
@@ -937,7 +937,7 @@ export async function prepareTestPush(t: TeamEnv, options: { annotations?: boole
         });
         note(t, p.dim(`pushed ${plural(tally.pushed, 'run')} and the report to ${target.loc.url}${tally.failed ? ` (${tally.failed} push${tally.failed === 1 ? '' : 'es'} failed)` : ''}`));
       } catch (err) {
-        warn(`couldn't upload the report: ${(err as Error).message}`);
+        warn(`couldn't upload the report: ${messageOf(err)}`);
       }
     },
   };

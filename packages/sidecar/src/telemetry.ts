@@ -6,6 +6,7 @@
  * it, and a replay answers it with 204 itself (serveTelemetry, below).
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { messageOf } from '@shadowlap/engine';
 import { breakConnection, RESPONSE_DROP, type ClientWatch } from './answers.js';
 import type { SidecarCore } from './core.js';
 import type { Provider } from './providers.js';
@@ -58,7 +59,7 @@ export async function serveTelemetry(core: SidecarCore, ctx: RunContext, req: In
   } catch (err) {
     if (client.gone || core.closed) return;
     // Its connection breaks as the host's did, as for a model call.
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     core.log(`run ${ctx.run.runId}: telemetry to ${originOf(upstream)} failed: ${message}`);
     breakConnection(res, message);
     return;

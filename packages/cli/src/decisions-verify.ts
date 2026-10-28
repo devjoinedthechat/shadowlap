@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commandIsImported, goldenNeedsConsent, importedCommandSource, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
@@ -95,7 +95,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
         try {
           return { run: importGolden(store, abs), golden, spec: specFor(tests, abs, cwd), expect: rawExpectFor(tests, abs, cwd) };
         } catch (err) {
-          throw new DecisionsError(`${golden}: ${(err as Error).message}`);
+          throw new DecisionsError(`${golden}: ${messageOf(err)}`);
         }
       }
       const run = store.getRun(runId);

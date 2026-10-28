@@ -1,4 +1,4 @@
-import type { Normalizer, RedactionPreview, RunRecord, Store } from '@shadowlap/engine';
+import { messageOf, type Normalizer, type RedactionPreview, type RunRecord, type Store } from '@shadowlap/engine';
 import { PREVIEW_LIMITS, PreviewError, previewApart, previewHere, type PreviewLimitsConfig } from './redaction-preview.js';
 import { recordingNow } from './run-exports.js';
 
@@ -80,4 +80,4 @@ function fromPreview(rules: Normalizer[], preview: RedactionPreview): MaskCount 
   return { rules: rules.length, values: preview.total, ...(preview.returned ? { returned: preview.returned } : {}), ...(preview.unmasked ? { unmasked: preview.unmasked } : {}) };
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const message = (err: unknown) => messageOf(err);

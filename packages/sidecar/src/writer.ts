@@ -1,4 +1,4 @@
-import type { QueuedWrites, StoreOf } from '@shadowlap/engine';
+import { messageOf, type QueuedWrites, type StoreOf } from '@shadowlap/engine';
 
 /**
  * How the sidecar's writes wait for the store. `waitMs`: the longest one attempt holds the thread for
@@ -218,6 +218,6 @@ export class StoreWriter implements QueuedWrites {
 }
 
 function describe(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = messageOf(err);
   return (message.split('\n')[0] ?? '').slice(0, 200);
 }

@@ -4,7 +4,7 @@ import {
   calledToolNames,
   clean,
   maybeJson,
-  messageOf,
+  traceMessageOf,
   messagesOf,
   num,
   outputOf,
@@ -166,13 +166,13 @@ function inputMessages(s: Span): TraceMessage[] | null {
   const promptEvent = s.events.find((e) => e.name === 'gen_ai.content.prompt');
   if (promptEvent && promptEvent.attrs['gen_ai.prompt'] !== undefined) return withSystem(messagesOf(promptEvent.attrs['gen_ai.prompt']));
   const rows = indexed(a, 'gen_ai.prompt');
-  if (rows.length) return withSystem(rows.map(messageOf).filter((m): m is TraceMessage => m !== null));
+  if (rows.length) return withSystem(rows.map(traceMessageOf).filter((m): m is TraceMessage => m !== null));
   const roles: Record<string, string> = { 'gen_ai.system.message': 'system', 'gen_ai.user.message': 'user', 'gen_ai.assistant.message': 'assistant', 'gen_ai.tool.message': 'tool' };
   const fromEvents = s.events
     .filter((e) => roles[e.name])
     .map((e) => {
       const body = eventBody(e);
-      return messageOf({ ...body, role: roles[e.name], tool_calls: maybeJson(body.tool_calls), ...(roles[e.name] === 'tool' ? { tool_call_id: body.tool_call_id ?? body.id } : {}) });
+      return traceMessageOf({ ...body, role: roles[e.name], tool_calls: maybeJson(body.tool_calls), ...(roles[e.name] === 'tool' ? { tool_call_id: body.tool_call_id ?? body.id } : {}) });
     })
     .filter((m): m is TraceMessage => m !== null);
   return fromEvents.length ? withSystem(fromEvents) : null;
@@ -304,7 +304,7 @@ function toolCall(s: Span, name = toolNameOf(s)): TraceToolCall {
 /** OpenInference instrumentations whose `input.value` and `output.value` are the provider SDK's own request and response. */
 const PROVIDER_SCOPES = /^openinference\.instrumentation\.(openai|anthropic)$/;
 
-/** An OpenInference message (`message.role`, `message.content` or `message.contents`, `message.tool_calls`) in a shape messageOf reads. */
+/** An OpenInference message (`message.role`, `message.content` or `message.contents`, `message.tool_calls`) in a shape traceMessageOf reads. */
 function openInferenceMessage(row: Record<string, unknown>): Record<string, unknown> {
   const m = isObject(row.message) ? row.message : {};
   const contents = (Array.isArray(m.contents) ? m.contents : []).flatMap((c) => {
@@ -343,7 +343,7 @@ function openInferenceModelCall(s: Span): TraceModelCall {
     // newer instrumentations name the one asked for apart.
     model: (raw && str(raw.model)) ?? (isObject(params) ? str(params.model) : null) ?? str(a['llm.request.model_name']) ?? str(a['llm.model_name']),
     messages: indexed(a, 'llm.input_messages')
-      .map((row) => messageOf(openInferenceMessage(row)))
+      .map((row) => traceMessageOf(openInferenceMessage(row)))
       .filter((m): m is TraceMessage => m !== null),
     tools: toolRows.length ? toolDefinitionsOf(toolRows.map((r) => maybeJson(isObject(r.tool) ? r.tool.json_schema : undefined))) : raw ? toolDefinitionsOf(raw.tools) : null,
     settings: settingsOf(params, raw),

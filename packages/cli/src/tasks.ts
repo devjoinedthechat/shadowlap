@@ -16,6 +16,7 @@ import {
   inconclusiveWhy,
   isJudgeCall,
   isModelRequest,
+  messageOf,
   oneSided,
   parseTaskFields,
   projectPath,
@@ -157,7 +158,7 @@ export function loadTasks(root: string, store: Store | null): TaskList {
       try {
         pack = readGolden(dir, golden);
       } catch (err) {
-        unreadable = err instanceof Error ? err.message : String(err);
+        unreadable = messageOf(err);
       }
     }
     const last = pack ? lastTest(results.get(golden), spec) : null;

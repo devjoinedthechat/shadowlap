@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
-import { buildActions, actionContext } from '@shadowlap/engine';
+import { buildActions, actionContext, messageOf } from '@shadowlap/engine';
 import type { Normalizer } from '@shadowlap/engine';
 import { importedConsent, lookupRun, noSuchRun } from '../api.js';
 import type { RouteContext } from '../context.js';
@@ -107,7 +107,7 @@ export function register(router: Router, ctx: RouteContext): void {
       try {
         value = JSON.parse(text);
       } catch (err) {
-        return { error: `the edited result is not JSON: ${err instanceof Error ? err.message : String(err)}` };
+        return { error: `the edited result is not JSON: ${messageOf(err)}` };
       }
       const json = JSON.stringify(value);
       if (json.length <= OVERRIDE_INLINE) return { args: action.prompt.build(json), runId: run.runId, opensRun: true };

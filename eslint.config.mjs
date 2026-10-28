@@ -51,6 +51,18 @@ const BANS = {
       message: "Import isObject from '@shadowlap/engine' (or the package's own is-object.ts) instead of defining another.",
     },
   ],
+  // messageOf(err) reads a caught value: `(err as Error).message` is undefined for a thrown string, and
+  // the test spelled out is messageOf written again.
+  messageOf: [
+    {
+      selector: "MemberExpression[property.name='message'][object.type='TSAsExpression'][object.typeAnnotation.typeName.name='Error']",
+      message: "Read a caught value with messageOf(err) from '@shadowlap/engine': (err as Error).message is undefined when what was thrown is not an Error.",
+    },
+    {
+      selector: "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'][consequent.property.name='message'][alternate.callee.name='String']",
+      message: "Read a caught value with messageOf(err) from '@shadowlap/engine' (or the browser code's message-of.ts).",
+    },
+  ],
 };
 /** no-restricted-syntax with the bans named. */
 const bans = (...names) => ['error', ...names.flatMap((name) => BANS[name])];
@@ -185,10 +197,23 @@ export default defineConfig(
     },
   },
 
-  // The test for a plain object, and its copies where the engine can't be loaded: the adapters and the
+  // The packages' code that loads the engine, and the browser code with its copy, read a caught value
+  // with messageOf. Held out until the passes changing them merge: the terminal UI, the dashboard's
+  // read pool and runs list, and the CLI's chaos runs and golden tests.
+  {
+    files: ['packages/{cli,collector,dashboard,engine,remote,sidecar,tui}/src/**/*.{ts,tsx}', 'packages/dashboard/ui/**/*.{ts,tsx}'],
+    ignores: ['packages/tui/**', 'packages/dashboard/src/{read-pool,runs-list}.ts', 'packages/cli/src/{chaos,golden-test}.ts'],
+    rules: { 'no-restricted-syntax': bans('isObject', 'messageOf') },
+  },
+  // The helpers themselves, and their copies where the engine can't be loaded: the adapters and the
   // browser code, and @shadowlap/test's recording.ts, whose CommonJS copy loads only its own files.
   {
-    files: ['packages/engine/src/is-object.ts', 'packages/adapters/src/is-object.ts', 'packages/dashboard/ui/is-object.ts', 'packages/test/src/recording.ts'],
+    files: [
+      'packages/engine/src/{is-object,message-of}.ts',
+      'packages/adapters/src/is-object.ts',
+      'packages/dashboard/ui/{is-object,message-of}.ts',
+      'packages/test/src/recording.ts',
+    ],
     rules: { 'no-restricted-syntax': 'off' },
   },
 

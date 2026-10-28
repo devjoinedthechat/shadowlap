@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { folderGoneText } from '../../../src/folder-gone.js';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
+import { messageOf } from '../../message-of.js';
 import { useApp, type AppState } from '../../state.js';
 import { sentence } from '../../toast.js';
 import { onSettingsChanged } from './events.js';
@@ -156,7 +157,7 @@ export function useEditor(
 /** An edit's refusal in the page's words. */
 export function editErrorText(err: unknown): string {
   if (err instanceof ApiError && err.status === 409 && /changed since it was read/.test(err.message)) return `${CONFIG_FILE} changed on disk since this page read it. It shows the file as it is now; nothing was changed.`;
-  return err instanceof Error ? err.message : String(err);
+  return messageOf(err);
 }
 
 /** The config can't be read: what the loader says, and that Settings shows it again once it is fixed. */

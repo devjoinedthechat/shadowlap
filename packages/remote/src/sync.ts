@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, credentialFreeArgv, credentialFreeCallName, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type StoreOf, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeArgv, credentialFreeCallName, credentialFreeCalls, loadApiRequest, manifestRefs, messageOf, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type StoreOf, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -622,8 +622,8 @@ async function readIndex(ctx: SyncContext): Promise<{ segments: number; skipped:
       done.push(key);
     } catch (err) {
       // Not marked as read: a segment a newer Shadowlap wrote is read once this one is updated.
-      skipped.push({ key, reason: (err as Error).message });
-      ctx.log?.(`skipped ${key}: ${(err as Error).message}`);
+      skipped.push({ key, reason: messageOf(err) });
+      ctx.log?.(`skipped ${key}: ${messageOf(err)}`);
     }
   });
   const latest = new Map<string, IndexEntry>();
@@ -644,7 +644,7 @@ function gunzipCapped(bytes: Buffer, max: number, what: string): Buffer {
   try {
     return gunzipSync(bytes, { maxOutputLength: max });
   } catch (err) {
-    throw new LayoutError(`${what} can't be read: ${(err as Error).message}`);
+    throw new LayoutError(`${what} can't be read: ${messageOf(err)}`);
   }
 }
 
@@ -683,7 +683,7 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
     try {
       call = validateCall(parsed, `runs/${runId}/calls.jsonl.gz line ${i + 1}`);
     } catch (err) {
-      throw new LayoutError((err as Error).message);
+      throw new LayoutError(messageOf(err));
     }
     if (call.runId !== runId) throw new LayoutError(`runs/${runId}/calls.jsonl.gz line ${i + 1} belongs to another run`);
     if (seen.has(call.callNo)) throw new LayoutError(`runs/${runId}/calls.jsonl.gz has call #${call.callNo} twice`);
@@ -709,7 +709,7 @@ async function pullRun(ctx: SyncContext, runId: string, tally: PullResult['blobs
       try {
         loadApiRequest(ctx.store, c.requestRef);
       } catch (err) {
-        throw new LayoutError(`the request of call #${c.callNo} of ${runId} can't be read: ${(err as Error).message}`);
+        throw new LayoutError(`the request of call #${c.callNo} of ${runId} can't be read: ${messageOf(err)}`);
       }
     }
   }
@@ -854,8 +854,8 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
     } catch (err) {
       if (!isRunProblem(err)) throw err;
       failed.add(id);
-      result.failed.push({ runId: id, reason: (err as Error).message });
-      ctx.log?.(`couldn't pull ${id}: ${(err as Error).message}`);
+      result.failed.push({ runId: id, reason: messageOf(err) });
+      ctx.log?.(`couldn't pull ${id}: ${messageOf(err)}`);
       continue;
     }
     if (!doc) {
@@ -884,7 +884,7 @@ export async function pull(ctx: SyncContext, options: PullOptions = {}): Promise
       outcome = await mergeRun(ctx, row);
     } catch (err) {
       if (!isRunProblem(err)) throw err;
-      result.failed.push({ runId: row.runId, reason: (err as Error).message });
+      result.failed.push({ runId: row.runId, reason: messageOf(err) });
       continue;
     }
     if (outcome === 'merged') result.merged.push(row.runId);

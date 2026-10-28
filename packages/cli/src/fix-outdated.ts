@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { goldensNeedingConsent, maskedChange, Store, type DiffEntry, type DivergenceReport } from '@shadowlap/engine';
+import { goldensNeedingConsent, maskedChange, messageOf, Store, type DiffEntry, type DivergenceReport } from '@shadowlap/engine';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
 import { testGolden } from './golden-test.js';
@@ -60,7 +60,7 @@ export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: s
         d = outcome.result?.shown.ended.summary.divergence ?? null;
         rules = outcome.normalizers;
       } catch (err) {
-        o.log(`  ! ${g.path} could not be replayed: ${(err as Error).message}`);
+        o.log(`  ! ${g.path} could not be replayed: ${messageOf(err)}`);
         continue;
       }
       if (!d || d.type !== 'request_changed') continue;

@@ -3,7 +3,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, sessionInARow, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
+import { describeRule, EXTERNAL_COMMAND, endedEarlyCount, formatDuration, formatPassK, formatTokens, GATE_MAX_ATTEMPTS, messageOf, SUITE_RISK, judgeLine, judgeParts, noVerdicts, packRun, proofLine, recordEvent, resolveAuthor, settleAppliedFixes, sessionInARow, statusTally, Store, unpackRun, volatileValues, wholeInput, type InjectionGateData, type RunRecord, type StoredFix, type WritePolicy } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { logActivity, newRunMeta } from '../activity.js';
 import { STOP_SIGNALS } from '../agent-signals.js';
@@ -90,7 +90,7 @@ function judgesOfPack(dir: string): JudgeCheck[] {
   try {
     return judgesOf(specFor(loadTests(process.cwd()), resolve(dir), process.cwd()));
   } catch (err) {
-    process.stderr.write(p.yellow(`[shadowlap] the checks for ${dir} could not be read, so no judge was asked: ${(err as Error).message}\n`));
+    process.stderr.write(p.yellow(`[shadowlap] the checks for ${dir} could not be read, so no judge was asked: ${messageOf(err)}\n`));
     return [];
   }
 }
@@ -151,7 +151,7 @@ function openTestStore(opts: GlobalOpts, projectDir: string): Store {
   try {
     return Store.open(path);
   } catch (err) {
-    process.stderr.write(p.yellow(`[shadowlap] ${path} could not be opened (${(err as Error).message}); this session's history is not kept\n`));
+    process.stderr.write(p.yellow(`[shadowlap] ${path} could not be opened (${messageOf(err)}); this session's history is not kept\n`));
     return Store.open(':memory:');
   }
 }
@@ -469,7 +469,7 @@ export function register(program: Command): void {
               proof = obeyed ? proofLine(obeyed) : null;
             } catch (err) {
               // A gate that can't run (a payload file gone) fails the golden: nothing let it through.
-              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: 'failed', reason: `the injection gate could not run: ${(err as Error).message}`, skipped: null };
+              data = { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: 'failed', reason: `the injection gate could not run: ${messageOf(err)}`, skipped: null };
             }
             if (data.verdict === 'passed') return { outcome: o, injection: data };
             // The golden's verdict is the gate's: failed, or inconclusive, which --inconclusive warn lets
@@ -607,7 +607,7 @@ export function register(program: Command): void {
         try {
           settled = settleAppliedFixes(store, new Set([...tested].filter(([, t]) => t.ok).map(([g]) => g)));
         } catch (err) {
-          process.stderr.write(p.yellow(`[shadowlap] applied fixes whose goldens passed were not marked: ${(err as Error).message}\n`));
+          process.stderr.write(p.yellow(`[shadowlap] applied fixes whose goldens passed were not marked: ${messageOf(err)}\n`));
         }
         // Housekeeping never fails a session whose goldens all ran: the reports below still get written.
         if (!signal) {
@@ -625,7 +625,7 @@ export function register(program: Command): void {
         try {
           store.finishTestSession(session.sessionId, { passed, failed, upstreamRequests, interrupted: signal !== null });
         } catch (err) {
-          process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${(err as Error).message}\n`));
+          process.stderr.write(p.yellow(`[shadowlap] the session's totals were not kept in the test history: ${messageOf(err)}\n`));
         }
         recordEvent(store, { kind: 'test.session', actor, ref: session.sessionId, data: { passed, failed, ...(inconclusive ? { inconclusive } : {}), goldens: results.length, revision, upstreamRequests, ...(updates ? { updated: updates } : {}), ...(signal ? { interrupted: true, notRun: packs.length - results.length } : {}) } });
         try {

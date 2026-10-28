@@ -6,6 +6,7 @@ import {
   effectsFor,
   groupCoverage,
   hasRecordedCommand,
+  messageOf,
   NO_COMMAND,
   OUTCOME_WORDS,
   runBehaviour,
@@ -128,7 +129,7 @@ export function scanCoverage(
     try {
       return { info, dir, read: readGoldenRecording(dir, info.runId), error: null };
     } catch (err) {
-      return { info, dir, read: null, error: (err as Error).message };
+      return { info, dir, read: null, error: messageOf(err) };
     }
   });
   try {
