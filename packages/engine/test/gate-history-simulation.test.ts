@@ -11,8 +11,11 @@ import { Store, type TestResultData } from '../src/store.js';
  * store by `gateHistory`, as `shadowlap test` reads it. When every session joined the baseline,
  * whatever it found, the regressed sessions soon made up the baseline and the gate stopped catching
  * the drop it was there for. With only sessions that passed on the baseline branch, the baseline
- * stays the agent before the regression, and the drop is caught on every run, at the rate the exact
- * odds give for the first. Seeded: every run of this test sees the same coin flips.
+ * stays mostly the agent before the regression: only the regressed sessions that pass by chance join
+ * it, and the drop is caught on every run, a little less often each time. Each history has a
+ * baseline of its own, 10 sessions of the agent before, so the power is averaged over the baselines
+ * such an agent leaves, as well as worked out exactly against each. Seeded: every run of this test
+ * sees the same coin flips.
  */
 
 /** mulberry32: a small, seeded generator with a period of 2^32. */
@@ -75,30 +78,36 @@ function everySession(store: Store, golden: string): Tally {
 const passedOnMain = (store: Store, golden: string): Tally => gateHistory(store, golden, { window: GATE.window, first: GATE.min, branch: 'main', mode: 'fork', checks: CHECKS.map((c) => c.label), goldenRunId: 'REC' });
 
 describe('a regression from 95% to 60% on the default branch, re-run in CI', () => {
-  // The agent before the regression: 10 sessions at 95% that passed, the same for every replica.
-  const before: Session[] = [];
-  const warm = seeded(11);
-  while (before.length < GATE.window) {
-    const s = session(warm, HEALTHY, null);
-    if (s.decision === 'pass') before.push(s);
-  }
-  // Each pooled by its first `min` attempts, as passedOnMain reads them back.
-  const start: Tally = { passes: before.reduce((n, s) => n + s.outcomes.slice(0, GATE.min).filter(Boolean).length, 0), attempts: before.reduce((n, s) => n + Math.min(GATE.min, s.attempts), 0) };
-  // The power stated for the first run: exactly, every look counted, against that baseline.
-  const first = gateOdds(GATE, REGRESSED, start);
-  const stated = first.fail + first.inconclusive;
+  // Each history's agent before the regression: 10 sessions at 95% that passed, its own, the same under either pooling.
+  const before = Array.from({ length: REPLICAS }, (_, r) => {
+    const warm = seeded(1000 + r);
+    const sessions: Session[] = [];
+    while (sessions.length < GATE.window) {
+      const s = session(warm, HEALTHY, null);
+      if (s.decision === 'pass') sessions.push(s);
+    }
+    return sessions;
+  });
+  // The baseline each history starts from, pooled by each session's first `min` attempts, as passedOnMain reads them back.
+  const starts: Tally[] = before.map((sessions) => ({ passes: sessions.reduce((n, s) => n + s.outcomes.slice(0, GATE.min).filter(Boolean).length, 0), attempts: sessions.reduce((n, s) => n + Math.min(GATE.min, s.attempts), 0) }));
+  // One history's baseline alone, as this was stated before: the power against it, exactly, every look counted.
+  const one = gateOdds(GATE, REGRESSED, starts[0]);
 
   const run = (pool: (store: Store, golden: string) => Tally, seed: number, rate: number) => {
     const store = Store.open(':memory:');
     const random = seeded(seed);
     const red = Array<number>(RERUNS).fill(0);
     const failed = Array<number>(RERUNS).fill(0);
+    // Each run's chance of going red, exactly, against the baseline each history had then, averaged.
+    const exact = Array<number>(RERUNS).fill(0);
     let at = Date.UTC(2026, 9, 1);
     for (let r = 0; r < REPLICAS; r++) {
       const golden = `goldens/refund-${r}`;
-      for (const s of before) keep(store, golden, s, at++);
+      for (const s of before[r]) keep(store, golden, s, at++);
       for (let k = 0; k < RERUNS; k++) {
         const history = pool(store, golden);
+        const o = gateOdds(GATE, rate, history.attempts ? history : null);
+        exact[k] += (o.fail + o.inconclusive) / REPLICAS;
         const s = session(random, rate, history.attempts ? history : null);
         if (s.decision !== 'pass') red[k]++;
         if (s.decision === 'fail') failed[k]++;
@@ -106,39 +115,49 @@ describe('a regression from 95% to 60% on the default branch, re-run in CI', () 
       }
     }
     store.close();
-    return { red: red.map((n) => n / REPLICAS), failed: failed.map((n) => n / REPLICAS) };
+    return { red: red.map((n) => n / REPLICAS), failed: failed.map((n) => n / REPLICAS), exact };
   };
   const now = run(passedOnMain, 12, REGRESSED);
   const then = run(everySession, 12, REGRESSED);
   const healthy = run(passedOnMain, 13, HEALTHY);
+  /** The power stated for the first run: exactly against each history's baseline, averaged over them. */
+  const stated = now.exact[0];
   /** The sampling error of a share of the replicas near `stated`. */
   const sigma = Math.sqrt((stated * (1 - stated)) / REPLICAS);
 
   it('prints the share of CI runs that catch it, run by run, before and after', () => {
     const row = (name: string, xs: number[]) => `${name.padEnd(38)} ${xs.map((x) => `${Math.round(100 * x)}%`.padStart(5)).join('')}`;
     const lines = [
-      `${REPLICAS} histories of 10 sessions at ${HEALTHY * 100}% that passed (${start.passes} of ${start.attempts}); then the agent passes ${REGRESSED * 100}% of the time (seeded).`,
-      `Stated for the first run, exactly: caught (red under --inconclusive fail) ${(100 * stated).toFixed(1)}%, failed ${(100 * first.fail).toFixed(1)}%.`,
+      `${REPLICAS} histories, each of 10 sessions at ${HEALTHY * 100}% that passed; then the agent passes ${REGRESSED * 100}% of the time (seeded).`,
+      `Against one history's baseline alone (${starts[0].passes} of ${starts[0].attempts}), the first run catches it ${(100 * (one.fail + one.inconclusive)).toFixed(1)}% of the time; over all of theirs, ${(100 * stated).toFixed(1)}%.`,
       `${'CI run after the regression'.padEnd(38)} ${Array.from({ length: RERUNS }, (_, k) => `#${k + 1}`.padStart(5)).join('')}`,
+      row('caught, exactly, passed on main only', now.exact),
       row('caught, passed sessions on main only', now.red),
+      row('caught, exactly, every session (before)', then.exact),
       row('caught, every session (before)', then.red),
       row('a healthy agent red, passed on main', healthy.red),
     ];
     console.log(lines.join('\n'));
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(8);
   });
 
-  it('is caught on every run at the power stated for the first, with no decay', () => {
-    for (const [k, x] of now.red.entries()) expect(x, `run ${k + 1}`).toBeGreaterThanOrEqual(stated - 4 * sigma);
-    // The last runs catch it as often as the first: the baseline is still the agent before the regression.
-    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-    expect(mean(now.red.slice(-3))).toBeGreaterThanOrEqual(mean(now.red.slice(0, 3)) - 3 * sigma);
-    expect(stated).toBeGreaterThan(0.8);
+  it('is caught on every run, a little less often each time, as the regressed sessions that pass by chance join the baseline', () => {
+    // The coin flips agree with the exact odds, run by run.
+    for (const [k, x] of now.red.entries()) expect(Math.abs(x - now.exact[k]), `run ${k + 1}`).toBeLessThan(4 * sigma);
+    // It creeps down, never up, and by the tenth run has lost a tenth of its power or so: far from the decay of pooling every session.
+    for (let k = 1; k < RERUNS; k++) expect(now.exact[k]).toBeLessThanOrEqual(now.exact[k - 1] + 1e-12);
+    expect(now.exact[RERUNS - 1]).toBeGreaterThan(stated - 0.15);
+    expect(now.exact[RERUNS - 1]).toBeGreaterThan(0.6);
+    // One baseline alone overstated it: the baselines 10 healthy sessions leave are spread around it.
+    expect(stated).toBeGreaterThan(0.7);
+    expect(stated).toBeLessThan(0.8);
   });
 
   it('decayed when every session joined the baseline: caught a third as often by the fourth run, almost never by the tenth', () => {
     expect(then.red[0]).toBeGreaterThan(stated - 4 * sigma);
+    expect(then.exact[3]).toBeLessThan(0.45);
     expect(then.red[3]).toBeLessThan(0.45);
+    expect(then.exact[RERUNS - 1]).toBeLessThan(0.1);
     expect(then.red[RERUNS - 1]).toBeLessThan(0.1);
   });
 
@@ -149,7 +168,9 @@ describe('a regression from 95% to 60% on the default branch, re-run in CI', () 
   it('as docs/gating.md states it, from these coin flips', () => {
     const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
     const whole = (x: number) => `${Math.round(100 * x)}%`;
-    const text = `In a seeded simulation of ${REPLICAS} histories (in the engine's tests), a drop from 95% to 60% was caught on each of the ${RERUNS} runs after it ${whole(Math.min(...now.red))} to ${whole(Math.max(...now.red))} of the time, against ${(100 * stated).toFixed(1)}% the exact odds give for the first; when every session joined the baseline, it was caught ${whole(then.red[0])} of the time on the first run, ${whole(then.red[3])} on the fourth and ${whole(then.red[RERUNS - 1])} on the tenth`;
+    // The first run is the same under either pooling: the same baselines, before any regressed session joined one.
+    expect(whole(then.exact[0])).toBe(whole(stated));
+    const text = `In a seeded simulation of ${REPLICAS} histories (in the engine's tests), each with a baseline of its own from 10 sessions at 95%, a drop to 60% was caught on the first run after it ${whole(stated)} of the time and on the tenth ${whole(now.exact[RERUNS - 1])}, worked out exactly against each history's baseline and averaged over them; when every session joined the baseline, it was caught as often on the first run, ${whole(then.exact[3])} on the fourth and ${whole(then.exact[RERUNS - 1])} on the tenth`;
     expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
   });
 });
