@@ -6,29 +6,42 @@
 /** The runner's own reading of a line: past its leading spaces (as .NET trims them, NEL among them), a command's mark. */
 const COMMAND_AT_START = /^([\s\u0085]*)::/;
 
-/** A line read as no workflow command: a `::` that would start one escaped `%3A:`, and each `##[` in it `%23#[`. */
-const unmarked = (line) => line.replace(COMMAND_AT_START, (_m, space) => `${space}%3A:`).replace(/##\[/g, '%23#[');
+/**
+ * A line read as no workflow command: a `::` that would start one escaped `%3A:`, and each `##[` in it `%23#[`.
+ * @param {string} line
+ * @returns {string}
+ */
+const unmarked = (line) => line.replace(COMMAND_AT_START, (_m, /** @type {string} */ space) => `${space}%3A:`).replace(/##\[/g, '%23#[');
 
 /**
  * Text as a workflow command's data, or on a plain line: `%` and line breaks escaped as GitHub reads
  * a command's data, so what it holds stays on the one line and starts none of its own.
+ * @param {unknown} s
+ * @returns {string}
  */
 export const commandText = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 
 /**
  * A plain line for the log that carries what a run, a model, git or GitHub wrote: on one line
  * (commandText), and escaped where it would make a workflow command, so the runner reads none in it.
+ * @param {unknown} s
+ * @returns {string}
  */
 export const logLine = (s) => unmarked(commandText(s));
 
 /**
  * An annotation of the action's own (`notice`, `warning`, `error`), its title Shadowlap's, with what
  * it says as the command's data.
+ * @param {'notice' | 'warning' | 'error'} kind
+ * @param {unknown} s
+ * @returns {string}
  */
 export const annotation = (kind, s) => `::${kind} title=Shadowlap::${commandText(s)}`;
 
 /**
  * What another program printed, passed on to the log as it is, line for line, but each line that
  * would make a workflow command escaped as logLine escapes one.
+ * @param {unknown} text
+ * @returns {string}
  */
 export const logLines = (text) => String(text).split(/(\r\n|\r|\n)/).map((part, i) => (i % 2 ? part : unmarked(part))).join('');

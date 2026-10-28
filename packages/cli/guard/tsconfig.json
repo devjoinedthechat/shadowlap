@@ -1,0 +1,17 @@
+{
+  // The preloads Shadowlap puts in a Node agent's processes (NODE_OPTIONS=--import), type-checked
+  // from their JSDoc. They run in the agent's Node, as old as 18.18, so they are checked against
+  // ES2022 and Node's own modules alone: they import nothing else.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "inlineSources": false
+  },
+  "include": ["*.mjs"]
+}

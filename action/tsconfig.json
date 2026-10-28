@@ -1,0 +1,19 @@
+{
+  // The GitHub Action, which runs as plain JavaScript in a workflow (on Node 22.16 or later, as
+  // action.yml requires), type-checked from its JSDoc. The shapes it works with are in types.d.mts,
+  // and `@import` brings in what it shares with the packages: the `test --json` report it reads is
+  // the CLI's own type (PackResult), so the two can't drift.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "inlineSources": false
+  },
+  "include": ["*.mjs", "*.d.mts"]
+}

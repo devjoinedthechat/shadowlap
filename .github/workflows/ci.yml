@@ -123,6 +123,9 @@ jobs:
       # their own strict pass. Without it a type error in a test only ever shows up at runtime.
       - run: npm run typecheck:tests
         if: ${{ !matrix.minimum }}
+      # The GitHub Action and the Node preloads are JavaScript, type-checked from their JSDoc.
+      - run: npm run typecheck:js
+        if: ${{ !matrix.minimum }}
       - run: npm test
       - name: Python SDK tests
         if: ${{ !matrix.minimum }}

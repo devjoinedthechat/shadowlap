@@ -13,14 +13,20 @@ import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 import { annotation, logLine } from './log.mjs';
 
+/** @import { Fetch, FixOutcome, Posted, Report, ReportResult } from './types.mjs' */
+
 /**
  * The step's outputs from a test report and the fixes opened, each named once, as action.yml declares
  * them: `failed` counts what fails the step, `inconclusive` every recording whose verdict is
  * inconclusive whatever the inconclusive input made of it, and `checks-failed` definite check
  * failures only.
+ * @param {{ passed: number; failed: number; session?: string | null; results: ReportResult[] }} report
+ * @param {FixOutcome[]} fixes
+ * @param {{ json: string; markdown: string; junit: string }} paths
+ * @returns {Record<string, string | number>}
  */
 export function outputsOf(report, fixes, paths) {
-  const failedAs = (kind) => report.results.filter((x) => !x.ok && x.failure === kind).length;
+  const failedAs = (/** @type {string} */ kind) => report.results.filter((x) => !x.ok && x.failure === kind).length;
   const opened = fixes.filter((f) => f.outcome === 'opened');
   return {
     passed: report.passed,
@@ -38,13 +44,13 @@ export function outputsOf(report, fixes, paths) {
   };
 }
 
-/** Runs the action as action.yml's step does, and returns its exit code. `fetch` is GitHub's REST API's, which tests replace. */
 /**
  * The events the action refuses to run on, each with why and what to run it on instead. Each runs
  * with the base repository's secrets (the provider keys the agent needs among them) and a token that
  * may write, and is the usual way to run a pull request's code beside them, which is what the action
  * would run as the agent: so the whole action is refused, not only fix on failure, as the test
  * session alone runs the agent with those keys.
+ * @type {Readonly<Record<string, string>>}
  */
 const REFUSED_EVENTS = {
   pull_request_target: "runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request",
@@ -52,13 +58,24 @@ const REFUSED_EVENTS = {
   issue_comment: "runs with the base repository's secrets and a token that may write on a comment anyone can post, and is how a comment gets a pull request's code tested beside them: run it on pull_request, or on workflow_dispatch for a branch of this repository",
 };
 
+/**
+ * Runs the action as action.yml's step does, and returns its exit code. `fetch` is GitHub's REST API's, which tests replace.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ fetch?: Fetch }} [deps]
+ * @returns {Promise<number>}
+ */
 export async function main(env = process.env, { fetch: fetchFn = globalThis.fetch } = {}) {
-  const input = (name, fallback = '') => (env[`INPUT_${name}`] ?? fallback).trim();
-  const bool = (name, fallback) => {
+  const input = (/** @type {string} */ name, fallback = '') => (env[`INPUT_${name}`] ?? fallback).trim();
+  const bool = (/** @type {string} */ name, /** @type {boolean} */ fallback) => {
     const v = input(name, String(fallback)).toLowerCase();
     if (!['true', 'false'].includes(v)) fail(`input ${name.toLowerCase().replace(/_/g, '-')} must be true or false, not "${v}"`);
     return v === 'true';
   };
+  /**
+   * Ends the step with `message` as an error.
+   * @param {string} message
+   * @returns {never}
+   */
   function fail(message) {
     process.stdout.write(`${annotation('error', message)}\n`);
     process.exit(1);
@@ -69,7 +86,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // out, and from the event alone it can't tell whose code that is. pull_request runs a pull
   // request's code with what a fork may have; push, schedule and workflow_dispatch run a branch here.
   const event = env.GITHUB_EVENT_NAME ?? '';
-  if (Object.hasOwn(REFUSED_EVENTS, event)) fail(`the action does not run on ${event}, which ${REFUSED_EVENTS[event]}`);
+  if (Object.hasOwn(REFUSED_EVENTS, event)) fail(`the action does not run on ${event}, which ${String(REFUSED_EVENTS[event])}`);
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
@@ -103,6 +120,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
    * that exists, a `*` in its name and all) goes to the test whatever is there, so a path that names
    * no pack fails there, as it does on the command line, rather than drop out of the test. A pattern
    * with `*` or `?` in its last part matches the packs in that directory; hidden folders never match.
+   * @param {string} pattern
+   * @returns {string[]}
    */
   function expand(pattern) {
     if (existsSync(resolve(workdir, pattern))) return [pattern];
@@ -143,7 +162,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const r = spawnSync(process.execPath, args, { cwd: workdir, stdio: 'inherit', env: cliEnv });
   if (!existsSync(json)) fail(`shadowlap test did not finish (exit ${String(r.status ?? r.signal)}); its output is above`);
 
-  const report = JSON.parse(readFileSync(json, 'utf8'));
+  const report = /** @type {Report} */ (JSON.parse(readFileSync(json, 'utf8')));
+  /** @type {FixOutcome[]} */
   let fixes = [];
   // A session a signal stopped (the job is being cancelled) starts nothing that spends money.
   if (report.interrupted) process.stdout.write('shadowlap test was interrupted: the report has the recordings that finished\n');
@@ -156,6 +176,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     }
   }
   // On a pull request, one comment with each golden's verdict, edited in place. Never fails the job.
+  /** @type {Posted | null} */
   let posted = null;
   if (comment && !report.interrupted) {
     posted = await postComment({ env, auth, report, fixes, store: store ?? join(workdir, '.shadowlap', 'shadowlap.db'), recordings: patterns.join(' '), workdir: input('WORKING_DIRECTORY', '.') || '.', fetch: fetchFn });

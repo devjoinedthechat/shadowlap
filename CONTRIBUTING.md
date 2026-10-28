@@ -17,6 +17,7 @@ npm ci
 npm run build                     # tsc -b (first removing its build of a source since deleted), the CommonJS copies, the dashboard's UI bundle
 npx vitest run                    # unit tests, the fidelity suite, the golden replay, the Python agent
 npm run typecheck:tests           # the test files, under the same strict settings as the source
+npm run typecheck:js              # the GitHub Action and the Node preloads, JavaScript checked from its JSDoc
 npm run lint                      # ESLint with typescript-eslint's typed rules, and ruff on the Python (through uvx)
 node --test testing/conformance/conformance.test.mjs   # the SDK wire protocol, for both SDKs
 cd sdks/python && uv run --no-project --with pytest --with-editable . python -m pytest -q

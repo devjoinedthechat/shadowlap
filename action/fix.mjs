@@ -31,7 +31,12 @@ import { dispatchWorkflow, githubToken, openPullRequest, tokenEnv } from './gith
 import { annotation, logLine, logLines } from './log.mjs';
 import { markdownCode, markdownFence, markdownText } from './markdown.mjs';
 
-/** Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports. */
+/** @import { BranchState, Dispatch, Fetch, FixGroup, FixOutcome, FixPlan, FixPush, GitHubAuth, GoldenGate, GoldenState, OtherGoldens, RepairJson, RepairPlan, ReportResult } from './types.mjs' */
+
+/**
+ * Why a failed golden gets no fix attempt, by the kind of failure `shadowlap test --json` reports.
+ * @type {Readonly<Record<string, string>>}
+ */
 const NOT_FIXED = {
   diverged: 'diverged: never fixed automatically, because most divergences are intended. Update the golden or add a normalizer',
   exit: 'the agent exited with an error, which is not an outcome check',
@@ -47,18 +52,22 @@ const INJECTION_INCONCLUSIVE = 'its injection gate is inconclusive, neither pass
 /**
  * The models with no price, when a cost check that couldn't be judged for want of one is the only
  * check that failed (`shadowlap test` words it "no price for <models>; add it under "prices" …").
+ * @param {ReportResult['checks']} checks
+ * @returns {string[] | null}
  */
 function unpricedOnly(checks) {
   const failed = (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok);
   const models = failed.map((c) => /^no price for (.+?); add it under "prices"/.exec(String(c.detail ?? ''))?.[1]);
   if (!failed.length || !models.every(Boolean)) return null;
-  return [...new Set(models.flatMap((m) => m.split(', ')))];
+  return [...new Set(/** @type {string[]} */ (models).flatMap((m) => m.split(', ')))];
 }
 
 /**
  * The checks of a golden that could not be decided (a judge check with no verdict, a condition that
  * can't be read). A prompt fix decides none of them, and while one stays so no replay of the golden
  * passes, so its verify could never accept a fix. A result kept before results had a status has none.
+ * @param {ReportResult['checks']} checks
+ * @returns {NonNullable<ReportResult['checks']>}
  */
 function inconclusiveChecks(checks) {
   return (Array.isArray(checks) ? checks : []).filter((c) => c && !c.ok && c.status === 'inconclusive');
@@ -67,18 +76,25 @@ function inconclusiveChecks(checks) {
 /**
  * Why a golden with checks that could not be decided gets no fix: a judge check that was not judged
  * gets its verdict recorded, and any other is given what decides it.
+ * @param {ReportResult} r
+ * @param {NonNullable<ReportResult['checks']>} undecided
+ * @returns {string}
  */
 function undecidedSkip(r, undecided) {
   if (undecided.every((c) => c.judge)) {
-    const names = undecided.map((c) => String(c.judge.name ?? c.label));
+    const names = undecided.map((c) => String(c.judge?.name ?? c.label));
     const one = names.length === 1;
-    return `its judge check${one ? '' : 's'} ${names.join(', ')} ${one ? 'was' : 'were'} not judged, which no prompt fix changes: record ${one ? 'its verdict' : 'their verdicts'} with shadowlap test ${r.dir ?? r.golden} --update`;
+    return `its judge check${one ? '' : 's'} ${names.join(', ')} ${one ? 'was' : 'were'} not judged, which no prompt fix changes: record ${one ? 'its verdict' : 'their verdicts'} with shadowlap test ${String(r.dir ?? r.golden)} --update`;
   }
   const one = undecided.length === 1;
   return `${one ? 'a check is' : `${undecided.length} checks are`} inconclusive (${undecided.map((c) => String(c.label)).join('; ')}), which no prompt fix decides, and no replay passes while ${one ? 'it is' : 'they are'}: give ${one ? 'it' : 'them'} what decides ${one ? 'it' : 'them'} (a verdict for a judge, a value a condition can read)`;
 }
 
-/** The failed goldens of a test report, each with the fix it gets or why it gets none. */
+/**
+ * The failed goldens of a test report, each with the fix it gets or why it gets none.
+ * @param {{ results: ReportResult[] }} report
+ * @returns {FixPlan[]}
+ */
 export function planFixes(report) {
   return report.results
     .filter((r) => !r.ok)
@@ -88,7 +104,7 @@ export function planFixes(report) {
       if (undecided.length && (r.failure === 'check' || r.failure === 'inconclusive')) return { result: r, skip: undecidedSkip(r, undecided) };
       // An injection gate that showed too little to say is inconclusive, never one the agent failed.
       if (r.failure === 'injection' && verdictOf(r) === 'inconclusive') return { result: r, skip: INJECTION_INCONCLUSIVE };
-      if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[r.failure] ?? 'not an outcome check' };
+      if (r.failure !== 'check') return { result: r, skip: NOT_FIXED[String(r.failure)] ?? 'not an outcome check' };
       if (!r.expect) return { result: r, skip: 'its checks are not under "tests" in shadowlap.config.json' };
       const unpriced = unpricedOnly(r.checks);
       if (unpriced) return { result: r, skip: `it fails only because ${unpriced.join(', ')} ${unpriced.length === 1 ? 'has' : 'have'} no price, which no prompt fix changes: add ${unpriced.length === 1 ? 'it' : 'them'} under "prices" in shadowlap.config.json` };
@@ -99,10 +115,17 @@ export function planFixes(report) {
     });
 }
 
-/** Canonical JSON: keys sorted, so the same check written in another order is the same check. */
+/**
+ * Canonical JSON: keys sorted, so the same check written in another order is the same check.
+ * @param {unknown} v
+ * @returns {string}
+ */
 function canonical(v) {
   if (Array.isArray(v)) return `[${v.map((x) => (x === undefined ? 'null' : canonical(x))).join(',')}]`;
-  if (v && typeof v === 'object') return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  if (v && typeof v === 'object') {
+    const o = /** @type {Record<string, unknown>} */ (v);
+    return `{${Object.keys(o).filter((k) => o[k] !== undefined).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
+  }
   return JSON.stringify(v ?? null);
 }
 
@@ -113,24 +136,34 @@ function canonical(v) {
  * together, with every failing replay a target and every passing one kept, so one patch has to fix
  * them all, and they get one pull request. Each group is a plan of its own (the first golden names
  * its branch), with `members` the goldens in it, in the report's order.
+ * @param {FixPlan[]} plans
+ * @returns {FixGroup[]}
  */
 export function groupFixes(plans) {
+  /** @type {Map<string, FixGroup>} */
   const groups = new Map();
   for (const p of plans) {
     if (p.skip) continue;
     const key = canonical(p.result.expect);
     const g = groups.get(key);
-    if (!g) groups.set(key, { result: p.result, skip: null, fixes: [...p.fixes], keeps: [...p.keeps], members: [p] });
+    // A plan with no skip has its fixes and keeps (planFixes).
+    const fixes = /** @type {string[]} */ (p.fixes);
+    const keeps = /** @type {string[]} */ (p.keeps);
+    if (!g) groups.set(key, { result: p.result, skip: null, fixes: [...fixes], keeps: [...keeps], members: [p] });
     else {
       g.members.push(p);
-      g.fixes.push(...p.fixes);
-      g.keeps.push(...p.keeps);
+      g.fixes.push(...fixes);
+      g.keeps.push(...keeps);
     }
   }
   return [...groups.values()];
 }
 
-/** A branch name for a golden's fix that no other run of the workflow uses: `shadowlap/fix-refund-flow-7k2q1x`. */
+/**
+ * A branch name for a golden's fix that no other run of the workflow uses: `shadowlap/fix-refund-flow-7k2q1x`.
+ * @param {ReportResult} result
+ * @returns {string}
+ */
 export function branchName(result) {
   const slug = (result.golden ?? result.name).toLowerCase().replace(/^goldens\//, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'golden';
   return `shadowlap/fix-${slug}-${(result.runId ?? '').slice(-6).toLowerCase() || Date.now().toString(36)}`;
@@ -140,6 +173,7 @@ export function branchName(result) {
  * Goldens that passed under the same check that a repair keeps, at most. Each runs live under every
  * candidate, as many attempts as the gate asks (12 at the least for the default gate), within the
  * failing goldens' budget, so two say a fix breaks no good run without trebling what verify costs.
+ * @type {number}
  */
 export const KEEPS_AT_MOST = 2;
 
@@ -147,6 +181,8 @@ export const KEEPS_AT_MOST = 2;
  * A golden's own gate, as repair takes it: an SPRT gate's figures (`--gate`), a fixed count's attempts
  * and passes (`--attempts`, `--passes`), `history` for a gate against history, which verify doesn't
  * take, or null for a golden one replay decides, whose candidates verify's default gate decides.
+ * @param {ReportResult | null | undefined} r
+ * @returns {GoldenGate | null}
  */
 export function goldenGate(r) {
   const g = r?.gate;
@@ -158,7 +194,7 @@ export function goldenGate(r) {
 }
 
 /** A passing replay of a golden the session passed: one its result names as passed. */
-const passingRun = (r) => (r.runs ?? []).find((x) => verdictOf(x) === 'passed')?.runId ?? (r.ok && r.runId ? r.runId : null);
+const passingRun = (/** @type {ReportResult} */ r) => (r.runs ?? []).find((x) => verdictOf(x) === 'passed')?.runId ?? (r.ok && r.runId ? r.runId : null);
 
 /**
  * What one repair of goldens that fail the same check is given (`members`, in the report's order),
@@ -168,20 +204,24 @@ const passingRun = (r) => (r.runs ?? []).find((x) => verdictOf(x) === 'passed')?
  * held out), so the fix must hold for goldens it was not written against; and up to KEEPS_AT_MOST
  * goldens the session passed under the same check, which must keep passing. Each run is decided by
  * the gate of the first golden. A golden alone has nothing held out, which the pull request says.
+ * @param {FixPlan[]} members
+ * @param {ReportResult[]} [results]
+ * @returns {RepairPlan}
  */
 export function repairPlan(members, results = []) {
-  const first = members[0].result;
-  const failing = (m) => (m.fixes ?? [])[0];
+  const first = /** @type {FixPlan} */ (members[0]).result;
+  const failing = (/** @type {FixPlan} */ m) => (m.fixes ?? [])[0];
   const shown = members.filter((m, i) => i % 2 === 0 && failing(m));
   const held = members.filter((m, i) => i % 2 === 1 && failing(m));
   const key = canonical(first.expect);
   const own = new Set(members.map((m) => dirOf(m.result)));
   const kept = results.filter((r) => r && verdictOf(r) === 'passed' && r.expect && canonical(r.expect) === key && !own.has(dirOf(r)) && passingRun(r)).slice(0, KEEPS_AT_MOST);
+  // Each shown and held-out golden has a failing replay, and each kept one a passing replay: filtered so above.
   return {
     result: first,
-    fixes: shown.map(failing),
-    holdout: held.map(failing),
-    keeps: kept.map(passingRun),
+    fixes: /** @type {string[]} */ (shown.map(failing)),
+    holdout: /** @type {string[]} */ (held.map(failing)),
+    keeps: /** @type {string[]} */ (kept.map(passingRun)),
     gate: goldenGate(first),
     goldens: { shown: shown.map((m) => dirOf(m.result)), heldOut: held.map((m) => dirOf(m.result)), kept: kept.map(dirOf) },
   };
@@ -194,6 +234,9 @@ export function repairPlan(members, results = []) {
  * fix-build input) each candidate's worktree is built once the candidate is in it. It commits the
  * fix it keeps to a new branch; the branch is pushed and the pull request opened here, once the
  * golden is re-recorded on it.
+ * @param {Pick<RepairPlan, 'result' | 'fixes' | 'keeps'> & Partial<Pick<RepairPlan, 'holdout' | 'gate'>>} plan
+ * @param {{ db: string | null; budget: number | string; repairer: string; expectFile: string; gateFile?: string | null; guard?: string; build?: string }} options
+ * @returns {string[]}
  */
 export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = null, guard = 'block', build = '' }) {
   const gate = plan.gate ?? null;
@@ -224,9 +267,11 @@ export function repairArgs(plan, { db, budget, repairer, expectFile, gateFile = 
  * What the pull request says the fix was verified on: the goldens shown to the repairer, those held
  * out from it, those kept, and the gate each was decided by; or, verified on the failing golden
  * alone, exactly that.
+ * @param {Pick<RepairPlan, 'goldens' | 'gate'>} plan
+ * @returns {string}
  */
 export function evidenceNote({ goldens, gate }) {
-  const code = (dirs) => listed(dirs.map((d) => markdownCode(d)));
+  const code = (/** @type {string[]} */ dirs) => listed(dirs.map((d) => markdownCode(d)));
   const parts = ['### What the fix was verified on\n'];
   const one = goldens.shown.length === 1;
   if (!goldens.heldOut.length && !goldens.kept.length) {
@@ -238,7 +283,7 @@ export function evidenceNote({ goldens, gate }) {
     if (goldens.kept.length) parts.push(`Kept: ${code(goldens.kept)}, which passed the same check, and still pass${goldens.kept.length === 1 ? 'es' : ''} it under the fix.`);
     parts.push('');
   }
-  const pct = (x) => `${+(x * 100).toFixed(2)}%`;
+  const pct = (/** @type {number} */ x) => `${+(x * 100).toFixed(2)}%`;
   if (gate?.kind === 'sprt') parts.push(`Each was decided by the golden's own gate: it tells ${pct(gate.good)}+ from ${pct(gate.bad)}- at <= ${pct(gate.risk)} risk, up to ${gate.max} attempts.\n`);
   else if (gate?.kind === 'count') parts.push(`Each was decided by the golden's own count: ${gate.passes} of ${gate.attempts} attempts must pass.\n`);
   else if (gate?.kind === 'history') parts.push("The golden's gate is against its history, which verify doesn't take, so each was decided by verify's default gate.\n");
@@ -249,21 +294,38 @@ export function evidenceNote({ goldens, gate }) {
  * What the pull request says about its own checks, never that they pass: GitHub starts them for a
  * pull request the action opened with a github-token; for one the job's GITHUB_TOKEN opened it starts
  * none, so the action started this workflow on the branch, or says it could not and what to do.
+ * @param {{ auth: GitHubAuth; dispatch?: Dispatch | null }} o
+ * @returns {string}
  */
 export function checksNote({ auth, dispatch = null }) {
   if (auth?.startsWorkflows) return `### Its checks\n\nThis pull request was opened with the token the action was given${auth.source === 'input' ? ' (`github-token`)' : ' (`GH_TOKEN`)'}, so GitHub starts its workflows as for any pull request.\n`;
   const start = 'give the action a `github-token` (a GitHub App\'s token or a personal access token), and the next fix pull request starts them itself';
-  if (dispatch?.dispatched) return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, so the job started ${markdownCode(dispatch.workflow)} on its branch (\`workflow_dispatch\`); that run checks this branch. Other workflows that run on pull requests have not started: ${start}.\n`;
+  if (dispatch?.dispatched) return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, so the job started ${markdownCode(String(dispatch.workflow))} on its branch (\`workflow_dispatch\`); that run checks this branch. Other workflows that run on pull requests have not started: ${start}.\n`;
   // Why it could not, in GitHub's own words, as text: none of it renders.
   return `### Its checks\n\nThis pull request was opened with the job's \`GITHUB_TOKEN\`, for which GitHub starts no workflow, and the job could not start ${dispatch?.workflow ? markdownCode(dispatch.workflow) : 'its workflow'} on its branch: ${markdownText(dispatch?.why ?? 'it was not asked to')}. No check has run on this branch: push a commit to it, or close and reopen this pull request, to start them; or ${start}.\n`;
 }
 
+/**
+ * A command run to its end, its output as text.
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} [input]
+ */
 const run = (cmd, args, cwd, env, input) => spawnSync(cmd, args, { cwd, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...(input !== undefined ? { input } : {}) });
 
-/** git, failing loudly: its stdout, or an error in git's own words. */
+/**
+ * git, failing loudly: its stdout, or an error in git's own words.
+ * @param {string} cwd
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} [input]
+ * @returns {string}
+ */
 function git(cwd, args, env, input) {
   const r = run('git', args, cwd, env, input);
-  if (r.status !== 0) throw new Error(`git ${args[0]} failed: ${(r.stderr || r.error?.message || '').trim()}`);
+  if (r.status !== 0) throw new Error(`git ${String(args[0])} failed: ${(r.stderr || r.error?.message || '').trim()}`);
   return r.stdout;
 }
 
@@ -275,6 +337,10 @@ const BRANCH_REF = '${{ github.event.pull_request.head.repo.full_name == github.
  * a pull request's own workflow checks out a detached merge commit unless told otherwise. A pull
  * request from a fork gets a token from GitHub that may not push a branch, and its branch is the
  * fork's, so it gets no fix whatever is checked out.
+ * @param {string} workdir
+ * @param {NodeJS.ProcessEnv} env
+ * @param {(path: string) => string} [read]
+ * @returns {string | null}
  */
 export function cannotFix(workdir, env, read) {
   if (forkPullRequest(env, read)) return "a pull request from a fork gets a token from GitHub that may not push a branch, and its branch is the fork's, so no fix is opened from its job";
@@ -291,6 +357,9 @@ export function cannotFix(workdir, env, read) {
 /**
  * The environment for repair: GitHub's own bot as the committer when git has no identity, as on a
  * fresh runner, so the fix commit can be made.
+ * @param {string} workdir
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
  */
 export function repairEnv(workdir, env) {
   const email = run('git', ['config', 'user.email'], workdir, env).stdout.trim();
@@ -303,7 +372,8 @@ export function repairEnv(workdir, env) {
 /** What a pack is made of, as `shadowlap pack` writes it; anything else in a golden's folder is the user's. */
 const PACK_ENTRIES = ['blobs', 'calls.jsonl', 'run.json'];
 
-const present = (path) => {
+/** Whether anything is at `path`, a broken link included. */
+const present = (/** @type {string} */ path) => {
   try {
     lstatSync(path);
     return true;
@@ -312,18 +382,27 @@ const present = (path) => {
   }
 };
 
-/** A rename, or across filesystems a copy and a removal. */
+/**
+ * A rename, or across filesystems a copy and a removal.
+ * @param {string} from
+ * @param {string} to
+ */
 function move(from, to) {
   try {
     renameSync(from, to);
   } catch (err) {
-    if (err.code !== 'EXDEV') throw err;
+    if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'EXDEV') throw err;
     cpSync(from, to, { recursive: true, verbatimSymlinks: true });
     rmSync(from, { recursive: true, force: true });
   }
 }
 
-/** Every file under a directory, as paths relative to it with forward slashes. */
+/**
+ * Every file under a directory, as paths relative to it with forward slashes.
+ * @param {string} dir
+ * @param {string} [prefix]
+ * @returns {string[]}
+ */
 function filesUnder(dir, prefix = '') {
   return readdirSync(join(dir, prefix), { withFileTypes: true }).flatMap((e) => {
     const rel = prefix ? `${prefix}/${e.name}` : e.name;
@@ -332,19 +411,27 @@ function filesUnder(dir, prefix = '') {
 }
 
 /** A golden's folder as the reports name it: forward slashes, no trailing one. */
-const dirOf = (r) => String(r?.dir ?? r?.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+const dirOf = (/** @type {ReportResult | null | undefined} */ r) => String(r?.dir ?? r?.golden ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
 
 /**
  * A recording's folder as an argument of `shadowlap test`: one whose name starts with a dash, as a
  * folder `-x` at the repository's root does when `*` finds it, goes as `./-x`, so the test reads it
  * as the folder it is, never as one of its flags.
+ * @param {string} path
+ * @returns {string}
  */
 export const testPath = (path) => (String(path).startsWith('-') ? `./${path}` : String(path));
 
 /** Names in a sentence: `a`, `a and b`, `a, b and c`. */
-const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+const listed = (/** @type {string[]} */ names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${String(names.at(-1))}`);
 
-/** Runs the fix-build command in `cwd`: whether it passed, and the last lines it printed. */
+/**
+ * Runs the fix-build command in `cwd`: whether it passed, and the last lines it printed.
+ * @param {string} build
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{ ok: boolean; tail: string }}
+ */
 function runBuild(build, cwd, env) {
   const r = spawnSync(build, { cwd, env, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-3).join(' · ');
@@ -358,12 +445,16 @@ function runBuild(build, cwd, env) {
  * replays `dirs` (their checks included), and everything is put back, the build run again so what it
  * makes is the working tree's own. Returns each folder's result, or why the test could not run, and
  * a warning when the build after the fix came out failed.
+ * @param {{ cli: string; workdir: string; root: string; swaps: Array<{ golden: string; pack: string }>; dirs: string[]; patch: string; guard: string; build?: string; env: NodeJS.ProcessEnv; scratch: string }} o
+ * @returns {{ why: string | null; results: Map<string, ReportResult>; warning: string | null }}
  */
 function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build = '', env, scratch }) {
   const aside = join(scratch, 'golden-aside');
+  /** @type {Array<{ dir: string; keep: string; e: string }>} */
   const moved = [];
   let applied = false;
   // What it found: the finally below can still add the warning to it once it has been returned.
+  /** @type {{ why: string | null; results: Map<string, ReportResult>; warning: string | null }} */
   const out = { why: null, results: new Map(), warning: null };
   try {
     swaps.forEach((swap, i) => {
@@ -387,13 +478,14 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build =
     const json = join(scratch, 'branch-test.json');
     rmSync(json, { force: true });
     const t = run(process.execPath, [cli, '--db', ':memory:', 'test', ...dirs.map(testPath), '--json', json, '--guard', guard], workdir, env);
+    /** @type {{ results?: ReportResult[] } | null} */
     let report = null;
     try {
       report = JSON.parse(readFileSync(json, 'utf8'));
     } catch {
       // no report: its output says why
     }
-    if (!Array.isArray(report?.results)) return Object.assign(out, { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}` });
+    if (!report || !Array.isArray(report.results)) return Object.assign(out, { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}` });
     return Object.assign(out, { results: new Map(report.results.map((r) => [dirOf(r), r])) });
   } finally {
     // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
@@ -415,6 +507,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build =
  * The branch's fix commit made again with each golden's pack replaced by the recording in `packs`
  * (a golden's other files stay), so the pull request is one commit: the fix and the recordings that
  * prove it. HEAD and the working tree stay as they are.
+ * @param {{ root: string; branch: string; packs: Array<{ golden: string; pack: string }>; env: NodeJS.ProcessEnv; scratch: string }} o
  */
 function commitGoldens({ root, branch, packs, env, scratch }) {
   const head = git(root, ['rev-parse', '--verify', `refs/heads/${branch}`], env).trim();
@@ -433,7 +526,7 @@ function commitGoldens({ root, branch, packs, env, scratch }) {
   const tree = git(root, ['write-tree'], ienv).trim();
   const body = rest.join('\n').trim();
   const names = packs.map((p) => p.golden);
-  const what = names.length === 1 ? `${names[0]} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.` : `${listed(names)} are re-recorded under the fix, from the runs verify accepted: the prompt they send changed, so the recordings made before the fix would diverge here.`;
+  const what = names.length === 1 ? `${String(names[0])} is re-recorded under the fix, from the run verify accepted: the prompt it sends changed, so the recording made before the fix would diverge here.` : `${listed(names)} are re-recorded under the fix, from the runs verify accepted: the prompt they send changed, so the recordings made before the fix would diverge here.`;
   const message = `${String(subject)}\n\n${body ? `${body}\n\n` : ''}${what}\n`;
   const commit = git(root, ['commit-tree', tree, '-p', `${head}^`, '-F', '-'], { ...env, GIT_AUTHOR_NAME: an, GIT_AUTHOR_EMAIL: ae, GIT_AUTHOR_DATE: ad }, message).trim();
   git(root, ['update-ref', `refs/heads/${branch}`, commit, head], env);
@@ -454,9 +547,13 @@ function commitGoldens({ root, branch, packs, env, scratch }) {
  * fail the same check, and the fix was verified without them (`unfixedWhy` says how it came to
  * that): each is `unfixed`, as it was, and the pull request says how to see whether the fix repairs
  * it too.
+ * @param {{ cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; build?: string; env: NodeJS.ProcessEnv; scratch: string }} o
+ * @returns {BranchState}
  */
 export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy = null, results = [], repair, guard = 'block', build = '', env, scratch }) {
+  /** @type {GoldenState[]} */
   const goldens = [];
+  /** @type {Array<{ golden: string; recorded: string; state: GoldenState }>} */
   const candidates = [];
   const recordings = repair.output?.goldens ?? [];
   const usable = !!repair.output?.patch && !!repair.output?.branch;
@@ -469,6 +566,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     // The recording of one of this golden's failing replays: repair names each by its run's short id.
     const mine = recordings.find((g) => (m.fixes ?? []).some((id) => String(g).replace(/\\/g, '/').endsWith(`/${String(id).slice(0, 10)}`)));
     const recorded = mine ?? (members.length === 1 ? recordings[0] : undefined);
+    /** @type {GoldenState} */
     const state = { state: 'stale', golden, why: recorded && usable ? null : 'repair kept no recording of the fixed run' };
     goldens.push(state);
     if (recorded && usable) candidates.push({ golden, recorded, state });
@@ -478,13 +576,14 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
   const own = new Set([...members, ...unfixed].map((m) => dirOf(m.result)));
   const others = results.filter((r) => dirOf(r) && !own.has(dirOf(r)));
   const replayed = others.filter((r) => r.mode !== 'fork');
+  /** @type {BranchState & { others: Required<OtherGoldens> }} */
   const out = { goldens, others: { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: others.filter((r) => r.mode === 'fork').map(dirOf), unchecked: [], replayed: 0 }, checked: false, why: null, warning: null };
   if (!usable || (!candidates.length && !replayed.length)) {
     out.checked = usable;
     return out;
   }
   // Nothing was re-recorded, and when the replay itself never ran, nothing is known of the others either.
-  const cannot = (why) => {
+  const cannot = (/** @type {string} */ why) => {
     for (const c of candidates) if (c.state.state !== 'recorded') c.state.why ??= why;
     if (out.checked) return;
     out.why = why;
@@ -492,6 +591,7 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
   };
   try {
     const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], env).trim());
+    /** @type {Array<{ golden: string; recorded: string; state: GoldenState; inRoot: string; pack: string }>} */
     const swaps = [];
     for (const c of candidates) {
       const inRoot = relative(root, realpathSync(resolve(workdir, c.golden))).split(sep).join('/');
@@ -500,13 +600,16 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     }
     const dirs = [...swaps.map((c) => c.golden), ...replayed.map(dirOf)];
     if (!dirs.length) return out;
-    const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, repair.output.patch), guard, build, env, scratch });
+    // A usable repair has a patch and a branch (above).
+    const output = /** @type {{ patch: string; branch: string }} */ (repair.output);
+    const tried = replayOnBranch({ cli, workdir, root, swaps, dirs, patch: resolve(workdir, output.patch), guard, build, env, scratch });
     out.warning = tried.warning;
     if (tried.why) {
       // tried.why can carry the agent's output: escaped here, so branchNote shows it as it is.
       cannot(markdownText(tried.why));
       return out;
     }
+    /** @type {typeof swaps} */
     const clean = [];
     for (const c of swaps) {
       const t = tried.results.get(c.golden);
@@ -522,23 +625,26 @@ export function refreshGoldens({ cli, workdir, members, unfixed = [], unfixedWhy
     out.others.replayed = replayed.length;
     out.checked = true;
     if (clean.length) {
-      commitGoldens({ root, branch: repair.output.branch, packs: clean.map((c) => ({ golden: c.inRoot, pack: c.pack })), env, scratch });
+      commitGoldens({ root, branch: output.branch, packs: clean.map((c) => ({ golden: c.inRoot, pack: c.pack })), env, scratch });
       for (const c of clean) Object.assign(c.state, { state: 'recorded', why: null });
     }
   } catch (err) {
-    cannot(markdownText(err.message.split('\n')[0]));
+    cannot(markdownText(/** @type {string} */ (/** @type {Error} */ (err).message.split('\n')[0])));
   }
   return out;
 }
 
 /** How a test report's result came out, whatever CI made of it; a result from before results had a verdict reads as `ok` says. */
-const verdictOf = (r) => r.verdict ?? (r.ok ? 'passed' : 'failed');
+const verdictOf = (/** @type {{ verdict?: string; ok: boolean }} */ r) => r.verdict ?? (r.ok ? 'passed' : 'failed');
 
 /**
  * How another golden the session tested fares on a fix's branch, from its result in the session
  * (`before`) and on the branch (`now`): null when it passes there; `inconclusive` when it is neither
  * passed nor failed there, which says nothing of the fix; else, failing there, `diverging` when it
  * passed before, `failing` when it failed before too, and `unsettled` when it was inconclusive before.
+ * @param {ReportResult} before
+ * @param {ReportResult | undefined} now
+ * @returns {'diverging' | 'failing' | 'inconclusive' | 'unsettled' | null}
  */
 export function otherOnBranch(before, now) {
   const is = now ? verdictOf(now) : 'failed';
@@ -551,6 +657,8 @@ export function otherOnBranch(before, now) {
 /**
  * What the pull request says about one of the fix's goldens. Why it is as it is can hold what a check
  * found in a run, or a command's output: it is text, in which nothing renders (markdown.mjs).
+ * @param {GoldenState} g
+ * @returns {string}
  */
 export function goldenNote(g) {
   const name = markdownCode(g.golden);
@@ -569,9 +677,11 @@ export function goldenNote(g) {
  * What the pull request says, after repair's report, about the goldens on its branch: each of the
  * fix's own, the other goldens the fix leaves diverging (with the command that re-records them), and
  * that its own checks pass only when every golden replayed there replays clean.
+ * @param {{ goldens: GoldenState[]; others?: OtherGoldens; checked?: boolean; why?: string | null }} state
+ * @returns {string}
  */
 export function branchNote({ goldens, others = { diverging: [], failing: [], inconclusive: [], unsettled: [], unreplayed: [], unchecked: [], replayed: 0 }, checked = false, why = null }) {
-  const code = (dirs) => listed(dirs.map((d) => markdownCode(d)));
+  const code = (/** @type {string[]} */ dirs) => listed(dirs.map((d) => markdownCode(d)));
   const parts = [`### The golden${goldens.length === 1 ? '' : 's'}\n`, ...goldens.map(goldenNote)];
   const d = others.diverging;
   if (d.length) parts.push(`The fix changes what the agent sends, so ${d.length === 1 ? 'another golden, which passed before it, diverges' : `${d.length} other goldens, which passed before it, diverge`} on this branch: ${code(d)}. Re-record ${d.length === 1 ? 'it' : 'them'} here once the change is what you meant, and commit the change:\n\n${markdownFence(`shadowlap test ${d.join(' ')} --update`, 'sh')}\n`);
@@ -597,6 +707,9 @@ export function branchNote({ goldens, others = { diverging: [], failing: [], inc
  * names it (GITHUB_SERVER_URL and GITHUB_REPOSITORY, which no step can change), once the checkout's
  * origin names that repository too, so a job that checked out another one opens nothing; elsewhere,
  * the checkout's origin. `{ url, why }`.
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{ url: string | null; why: string | null }}
  */
 export function pushTarget(root, env) {
   const origin = run('git', ['remote', 'get-url', 'origin'], root, env);
@@ -610,7 +723,7 @@ export function pushTarget(root, env) {
 }
 
 /** git's environment with its user and system config left out, and no prompt: nothing on this machine but what the call says. */
-const isolatedGit = (env) => ({ ...env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' });
+const isolatedGit = (/** @type {NodeJS.ProcessEnv} */ env) => ({ ...env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' });
 
 /**
  * Pushes a fix's branch to `url` from a repository of its own, made for the push: bare, with no
@@ -619,6 +732,8 @@ const isolatedGit = (env) => ({ ...env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_N
  * runs, with the token in its environment, or a rewrite of the remote's URL. `env` holds the token
  * for the push (tokenEnv); `plain`, without it, is what the fetch gets. `{ ok, why, title }`, title
  * the fix commit's subject.
+ * @param {{ root: string; branch: string; url: string; env: NodeJS.ProcessEnv; plain: NodeJS.ProcessEnv; scratch: string }} o
+ * @returns {{ ok: boolean; why: string | null; title: string | null }}
  */
 function pushBranch({ root, branch, url, env, plain, scratch }) {
   const dir = mkdtempSync(join(scratch, 'push-'));
@@ -636,7 +751,11 @@ function pushBranch({ root, branch, url, env, plain, scratch }) {
   }
 }
 
-/** Opens the pushed branch's pull request into the branch checked out, through GitHub's API, titled by the fix commit. */
+/**
+ * Opens the pushed branch's pull request into the branch checked out, through GitHub's API, titled by the fix commit.
+ * @param {{ root: string; branch: string; title: string | null; bodyFile: string; env: NodeJS.ProcessEnv; plain: NodeJS.ProcessEnv; auth: GitHubAuth; fetch: Fetch }} o
+ * @returns {Promise<{ pr: string | null; why: string | null }>}
+ */
 async function createPullRequest({ root, branch, title, bodyFile, env, plain, auth, fetch: fetchFn }) {
   const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'], plain).trim();
   const r = await openPullRequest({ env, auth, head: branch, base, title: title || branch, body: readFileSync(bodyFile, 'utf8'), fetch: fetchFn });
@@ -649,8 +768,11 @@ const PUSH_OFF = 'Push from CI is off ("ciPush": false in shadowlap.config.json)
 /**
  * Why the fixes CI opens can't go to the team store, or null when they can: none is set in
  * shadowlap.config.json, or the team turned pushing from CI off (`"ciPush": false`).
+ * @param {string} workdir
+ * @returns {string | null}
  */
 export function cannotPush(workdir) {
+  /** @type {{ store?: unknown; ciPush?: unknown }} */
   let config = {};
   try {
     config = JSON.parse(readFileSync(join(workdir, 'shadowlap.config.json'), 'utf8'));
@@ -667,12 +789,15 @@ export function cannotPush(workdir) {
  * sign-in, so nothing can reach the team store's bucket: the pull request's head is another
  * repository than its base, or one deleted since. `pull_request_target` runs as the base repository,
  * with its secrets, so it isn't counted.
+ * @param {NodeJS.ProcessEnv} env
+ * @param {(path: string) => string} [read]
+ * @returns {boolean}
  */
 export function forkPullRequest(env, read = (path) => readFileSync(path, 'utf8')) {
   const event = env.GITHUB_EVENT_NAME ?? '';
   if (!env.GITHUB_ACTIONS || env.GITHUB_ACTIONS === 'false' || !event.startsWith('pull_request') || event === 'pull_request_target' || !env.GITHUB_EVENT_PATH) return false;
   try {
-    const pr = JSON.parse(read(env.GITHUB_EVENT_PATH)).pull_request;
+    const pr = /** @type {{ pull_request?: { head?: { repo?: { full_name?: unknown } | null }; base?: { repo?: { full_name?: unknown } | null } } }} */ (JSON.parse(read(env.GITHUB_EVENT_PATH))).pull_request;
     if (!pr || typeof pr !== 'object') return false;
     if (pr.head && pr.head.repo === null) return true;
     const head = pr.head?.repo?.full_name;
@@ -683,7 +808,11 @@ export function forkPullRequest(env, read = (path) => readFileSync(path, 'utf8')
   }
 }
 
-/** What `shadowlap push` said went wrong: its `✗` line, the error itself, else the last thing it said. */
+/**
+ * What `shadowlap push` said went wrong: its `✗` line, the error itself, else the last thing it said.
+ * @param {string | null | undefined} stderr
+ * @returns {string}
+ */
 function pushError(stderr) {
   const lines = `${stderr ?? ''}`
     .replace(/\x1b\[[0-9;]*m/g, '')
@@ -712,12 +841,16 @@ function pushError(stderr) {
  * Only push's own word puts a fix in the store: its report lists the fixes it sent and those that
  * couldn't go (`fixes`, held to docs/cli.md by the CLI's JSON contract test), and a report without
  * that list, or one that leaves the fix out, is a warning, never "in the team store".
+ * @param {{ cli: string; db: string | null; workdir: string; env: NodeJS.ProcessEnv; fixIds?: string[]; sentInJob?: Set<string>; read?: (path: string) => string }} o
+ * @returns {FixPush}
  */
 export function pushFix({ cli, db, workdir, env, fixIds = [], sentInJob = new Set(), read }) {
+  /** @type {(why: string) => FixPush} */
   const failed = (why) => ({ state: 'failed', why, pr: null });
   const why = cannotPush(workdir);
   if (why) return { state: why === PUSH_OFF ? 'off' : 'failed', why, pr: null };
   const r = run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'push', '--all', '--json'], workdir, env);
+  /** @type {{ pullRequest?: unknown; fixes?: { sent?: unknown; failed?: unknown }; refused?: unknown } | null} */
   let out = null;
   try {
     out = JSON.parse(r.stdout);
@@ -731,27 +864,36 @@ export function pushFix({ cli, db, workdir, env, fixIds = [], sentInJob = new Se
   if (out.pullRequest) return { state: 'pr', why: null, pr: String(out.pullRequest) };
   const fixes = out.fixes;
   if (!fixes || typeof fixes !== 'object' || !Array.isArray(fixes.sent) || !Array.isArray(fixes.failed)) return failed("shadowlap push didn't say which fixes it sent");
-  for (const id of fixes.sent) if (typeof id === 'string') sentInJob.add(id);
+  for (const id of /** @type {unknown[]} */ (fixes.sent)) if (typeof id === 'string') sentInJob.add(id);
   if (!fixIds.length) return failed("repair named no fix, so there was none for push to send");
-  const refused = fixes.failed.find((f) => fixIds.includes(f?.fixId));
-  if (refused) return failed(`the store didn't take the fix: ${refused.reason}`);
+  const refused = /** @type {Array<{ fixId?: string; reason?: unknown } | null>} */ (fixes.failed).find((f) => fixIds.includes(String(f?.fixId)));
+  if (refused) return failed(`the store didn't take the fix: ${String(refused.reason)}`);
   if (fixIds.every((id) => sentInJob.has(id))) return { state: 'sent', why: null, pr: null };
   // A fix goes once one of its runs is in the store: runs that stayed here may have kept it here too.
-  const stayed = Array.isArray(out.refused) ? out.refused[0] : null;
-  return failed(stayed ? `runs stayed in the job, so the fix may have too: ${stayed.reason}` : "shadowlap push didn't report sending it");
+  const stayed = Array.isArray(out.refused) ? /** @type {{ reason?: unknown } | undefined} */ (out.refused[0]) : null;
+  return failed(stayed ? `runs stayed in the job, so the fix may have too: ${String(stayed.reason)}` : "shadowlap push didn't report sending it");
 }
 
-/** What the job's log says about a fix's push: one that couldn't happen is a warning, with why. Either is a line no workflow command can start in. */
+/**
+ * What the job's log says about a fix's push: one that couldn't happen is a warning, with why. Either is a line no workflow command can start in.
+ * @param {string} name
+ * @param {FixPush} pushed
+ * @returns {string}
+ */
 export function pushLine(name, pushed) {
   if (pushed.state === 'sent') return 'the fix was sent to the team store';
-  if (pushed.state === 'pr') return logLine(`the fix's runs went to pull request ${pushed.pr}'s own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page`);
-  if (pushed.state === 'off') return logLine(`the fix was not sent to the team store: ${pushed.why}`);
+  if (pushed.state === 'pr') return logLine(`the fix's runs went to pull request ${String(pushed.pr)}'s own folder in the team store; a pull request's job sends no fixes, so this one stays off the team's Fixes page`);
+  if (pushed.state === 'off') return logLine(`the fix was not sent to the team store: ${String(pushed.why)}`);
   return annotation('warning', `${name}: the fix is not in the team store, so teammates won't see it on their Fixes page: ${String(pushed.why ?? '').replace(/[\s.]+$/, '')}. Its pull request is open all the same.`);
 }
 
 /**
  * Why goldens repaired together, then one at a time, got no fix: once when every try ended the same
  * way, else each try's own reason.
+ * @param {string} together
+ * @param {Array<{ golden: string; why: string }>} alone
+ * @param {number} members
+ * @returns {string}
  */
 function triedWhy(together, alone, members) {
   if (alone.length === members && alone.every((a) => a.why === together)) return `together and each on its own: ${together}`;
@@ -762,13 +904,17 @@ function triedWhy(together, alone, members) {
  * Why a fix's pull request leaves out the goldens it was not verified for, as its note on them says it:
  * Markdown, with repair's why for the goldens together, which can carry what a provider or the
  * repairer answered, as text, and each golden's name a code span its own backticks can't end.
+ * @param {string[]} goldens
+ * @param {string} together
+ * @param {string[]} verified
+ * @returns {string}
  */
 export function leftOutWhy(goldens, together, verified) {
   return `no fix was accepted for ${listed(goldens.map((g) => markdownCode(g)))} together (${markdownText(String(together ?? ''))}), and this one was verified for ${listed(verified.map((g) => markdownCode(g)))} alone`;
 }
 
 /** Whether a repair that kept no fix leaves one for a repair of fewer goldens to find: it ran to its end, with a repairer to ask. */
-const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' || repair.outcome === 'no-diagnosis') && !repair.noRepairer;
+const worthSplitting = (/** @type {RepairJson | null} */ repair) => !!repair && (repair.outcome === 'not-fixed' || repair.outcome === 'no-diagnosis') && !repair.noRepairer;
 
 /**
  * Runs repair for each failed check, one fix at a time (goldens that fail the same check together,
@@ -779,6 +925,8 @@ const worthSplitting = (repair) => !!repair && (repair.outcome === 'not-fixed' |
  * (the fix-build input) builds it once a candidate is in. `auth` is the token the branch is pushed
  * and the pull request opened with (githubToken); with the job's own GITHUB_TOKEN, the workflow is
  * started on the branch between the two, through `fetch`.
+ * @param {{ cli: string; db: string | null; workdir: string; report: { results: ReportResult[] }; budget: number; repairer: string; guard?: string; build?: string; push?: boolean; env: NodeJS.ProcessEnv; auth?: GitHubAuth; fetch?: Fetch; log?: (line: string) => void }} o
+ * @returns {Promise<FixOutcome[]>}
  */
 export async function runFixes({ cli, db, workdir, report, budget, repairer, guard = 'block', build = '', push = false, env, auth = githubToken(env), fetch: fetchFn = globalThis.fetch, log = () => {} }) {
   const plans = planFixes(report);
@@ -786,8 +934,10 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
   const groups = groupFixes(plans);
   const scratch = mkdtempSync(join(env.RUNNER_TEMP ?? tmpdir(), 'shadowlap-fix-'));
   const fixEnv = repairEnv(workdir, env);
+  /** @type {FixOutcome[]} */
   const out = [];
   // The fixes this job's pushes reported sending: a later push leaves out one an earlier sent, as it is there.
+  /** @type {Set<string>} */
   const sentInJob = new Set();
   let repairs = 0;
   try {
@@ -801,21 +951,28 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
       const group = groups.find((g) => g.members[0] === plan);
       if (!group) continue;
       const names = group.members.map((m) => m.result.name).join(', ');
-      const goldenOf = (m) => m.result.golden ?? m.result.name;
+      const goldenOf = (/** @type {FixPlan} */ m) => m.result.golden ?? m.result.name;
       const goldens = group.members.map(goldenOf);
       const allowed = Number(budget) * group.members.length;
-      /** One repair, of the group or one of its goldens, within `within` dollars: what it was given, reported and spent. */
+      /**
+       * One repair, of the group or one of its goldens, within `within` dollars: what it was given, reported and spent.
+       * @param {FixPlan & { members?: FixPlan[] }} target
+       * @param {number} within
+       * @param {string} line
+       */
       const attempt = (target, within, line) => {
         const plan = repairPlan(target.members ?? [target], report.results);
         const n = repairs++;
         const expectFile = join(scratch, `${n}-expect.json`);
         writeFileSync(expectFile, JSON.stringify(r.expect));
         const gateFile = plan.gate?.kind === 'sprt' ? join(scratch, `${n}-gate.json`) : null;
-        if (gateFile) writeFileSync(gateFile, JSON.stringify({ good: plan.gate.good, bad: plan.gate.bad, risk: plan.gate.risk, max: plan.gate.max }));
+        const sprt = plan.gate?.kind === 'sprt' ? plan.gate : null;
+        if (gateFile && sprt) writeFileSync(gateFile, JSON.stringify({ good: sprt.good, bad: sprt.bad, risk: sprt.risk, max: sprt.max }));
         log(logLine(line));
         const res = run(process.execPath, [cli, ...repairArgs(plan, { db, budget: within, repairer, expectFile, gateFile, guard, build })], workdir, fixEnv);
         // Repair's own output, as it printed it, but no line of it a workflow command: it quotes runs and errors.
         if (res.stderr) process.stderr.write(logLines(res.stderr));
+        /** @type {RepairJson | null} */
         let repair = null;
         try {
           repair = JSON.parse(res.stdout);
@@ -828,8 +985,10 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
       };
       const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);
       let spent = together.spent;
+      /** @type {{ attempt: typeof together; members: FixPlan[] } | null} */
       let chosen = together.fixed ? { attempt: together, members: group.members } : null;
       // No patch fixed them all: one that fixes one of them is still a fix, and the group's one pull request.
+      /** @type {Array<{ member: FixPlan; tried: typeof together }>} */
       const alone = [];
       if (!chosen && group.members.length > 1 && worthSplitting(together.repair) && spent < allowed) {
         log(logLine(`no fix was accepted for ${listed(goldens)} together (${together.why}), so each is repaired on its own, until a fix is accepted for one`));
@@ -851,15 +1010,16 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
       const accepted = repair?.candidates?.find((c) => c.id === repair.accepted) ?? null;
       const runs = accepted?.verify?.runs ?? [];
       // Each run as verify --json prints it (outcome fixed or kept); a CLI from before that printed the verdict.
-      const passed = (x) => (typeof x.outcome === 'string' ? x.outcome === 'fixed' || x.outcome === 'kept' : x.verdict === 'pass');
-      const count = (role) => {
+      const passed = (/** @type {{ outcome?: unknown; verdict?: unknown }} */ x) => (typeof x.outcome === 'string' ? x.outcome === 'fixed' || x.outcome === 'kept' : x.verdict === 'pass');
+      const count = (/** @type {string} */ role) => {
         const of = runs.filter((x) => x.role === role);
         return of.length ? `${role === 'holdout' ? 'held-out' : role} ${of.filter(passed).length} of ${of.length}` : null;
       };
       const verify = accepted ? ['target', 'holdout', 'good'].map(count).filter(Boolean).join(' · ') : null;
       const base = { golden: goldens.join(', '), name: names, budget: allowed };
-      if (chosen) {
-        const branch = repair.output.branch;
+      if (chosen && repair) {
+        // A chosen repair is fixed, with a branch (attempt).
+        const branch = String(repair.output?.branch);
         const leftOut = group.members.filter((m) => !chosen.members.includes(m));
         const unfixedWhy = leftOut.length ? leftOutWhy(goldens, together.why, chosen.members.map(goldenOf)) : null;
         const branchState = refreshGoldens({ cli, workdir, members: chosen.members, unfixed: leftOut, unfixedWhy, results: report.results, repair, guard, build, env: fixEnv, scratch });
@@ -873,7 +1033,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const diverging = branchState.others.diverging;
         if (diverging.length) log(logLine(`${diverging.join(' ')} ${diverging.length === 1 ? 'diverges' : 'diverge'} on ${branch} under the fix: re-record with shadowlap test ${diverging.join(' ')} --update on the branch`));
         // The body is kept beside repair's report, to be read after the job.
-        const reportFile = resolve(workdir, repair.output.report ?? join(repair.output.dir ?? '.', 'report.md'));
+        const reportFile = resolve(workdir, repair.output?.report ?? join(repair.output?.dir ?? '.', 'report.md'));
         const bodyFile = join(dirname(reportFile), 'pull-request.md');
         // Pushed with the token the pull request is opened with. With the job's own GITHUB_TOKEN,
         // GitHub starts no workflow for either, so this one is started on the branch in between,
@@ -881,22 +1041,26 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
         const root = realpathSync(git(workdir, ['rev-parse', '--show-toplevel'], fixEnv).trim());
         const target = pushTarget(root, fixEnv);
         const onOrigin = target.url ? pushBranch({ root, branch, url: target.url, env: tokenEnv(fixEnv, auth), plain: fixEnv, scratch }) : { ok: false, why: target.why, title: null };
+        /** @type {{ pr: string | null; why: string | null }} */
         let opened = { pr: null, why: onOrigin.why };
+        /** @type {FixOutcome['checks']} */
         let checks = null;
         if (onOrigin.ok) {
           const dispatch = auth.startsWorkflows ? null : await dispatchWorkflow({ env, auth, branch, fetch: fetchFn });
-          checks = auth.startsWorkflows ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
+          checks = !dispatch ? { state: 'token', workflow: null, why: null } : dispatch.dispatched ? { state: 'dispatched', workflow: dispatch.workflow, why: null } : { state: 'not-started', workflow: dispatch.workflow, why: dispatch.why };
           if (dispatch && !dispatch.dispatched) log(annotation('warning', `${names}: the fix's pull request has no check started: ${String(dispatch.why)}. Give the action a github-token, or let the workflow be started on a branch (workflow_dispatch, and actions: write)`));
           writeFileSync(bodyFile, `${existsSync(reportFile) ? readFileSync(reportFile, 'utf8').replace(/\s+$/, '') : ''}\n\n${branchNote(branchState)}\n${evidenceNote(chosen.attempt.plan)}\n${checksNote({ auth, dispatch })}`);
           opened = await createPullRequest({ root, branch, title: onOrigin.title, bodyFile, env, plain: fixEnv, auth, fetch: fetchFn });
         }
         // The fix records where it went, so the dashboard shows "from CI · PR #138" and follows its state.
-        if (opened.pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, opened.pr], workdir, fixEnv);
+        const pr = opened.pr;
+        if (pr) for (const f of repair.fixes ?? []) if (typeof f?.fixId === 'string') run(process.execPath, [cli, ...(db ? ['--db', db] : []), 'fix', 'pr', f.fixId, pr], workdir, fixEnv);
         // With push, the fix goes to the team store, so it reaches teammates rather than ending with the job.
         // Its pull request is open by now; a push that can't happen warns, and the job goes on.
+        /** @type {FixPush | null} */
         let pushed = null;
         if (opened.pr && push) {
-          const fixIds = (repair.fixes ?? []).map((f) => f?.fixId).filter((id) => typeof id === 'string');
+          const fixIds = /** @type {string[]} */ ((repair.fixes ?? []).map((f) => f?.fixId).filter((id) => typeof id === 'string'));
           try {
             pushed = pushFix({ cli, db, workdir, env: fixEnv, fixIds, sentInJob });
           } catch (err) {
@@ -904,7 +1068,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
           }
           log(pushLine(names, pushed));
         }
-        const onBranch = { goldenState: branchState.goldens.length === 1 ? branchState.goldens[0] : null, goldenStates: branchState.goldens, others: branchState.others, verifiedOn: chosen.attempt.plan.goldens };
+        const onBranch = { goldenState: branchState.goldens.length === 1 ? (branchState.goldens[0] ?? null) : null, goldenStates: branchState.goldens, others: branchState.others, verifiedOn: chosen.attempt.plan.goldens };
         if (opened.pr) out.push({ ...base, outcome: 'opened', why: null, pr: opened.pr, branch, title: accepted?.strategy ?? null, spent, verify, ...onBranch, pushed, checks });
         else out.push({ ...base, outcome: 'not-opened', why: opened.why, pr: null, branch, title: null, spent, verify, ...onBranch });
       } else {
@@ -932,20 +1096,26 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
  * pipe escaped, a line break and control characters flattened. A fix's why and a golden's name are
  * plain text that can hold anyone's words (a check's label, a run's message, an error a repair or
  * GitHub gave), so they go in through markdownText, and the repairer's title too.
+ * @param {unknown} s
  */
 const cell = (s) => String(s ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\|/g, '\\|');
 
-/** What the summary says about the goldens on a fix's branch: its own, re-recorded or not, and the others it leaves diverging. */
+/**
+ * What the summary says about the goldens on a fix's branch: its own, re-recorded or not, and the others it leaves diverging.
+ * @param {FixOutcome} f
+ * @returns {string}
+ */
 function goldenCell(f) {
   const states = (f.goldenStates ?? (f.goldenState ? [f.goldenState] : [])).filter((g) => g && g.state !== 'fork');
   const recorded = states.filter((g) => g.state === 'recorded');
   const stale = states.filter((g) => g.state === 'stale');
   const unfixed = states.filter((g) => g.state === 'unfixed');
-  const update = (dirs) => `run ${markdownCode(`shadowlap test ${dirs.join(' ')} --update`, { cell: true })} on the branch`;
+  const update = (/** @type {string[]} */ dirs) => `run ${markdownCode(`shadowlap test ${dirs.join(' ')} --update`, { cell: true })} on the branch`;
+  /** @type {string[]} */
   const parts = [];
   // By name when the goldens on the branch fare differently.
   const named = [recorded, stale, unfixed].filter((x) => x.length).length > 1;
-  const which = (gs) => (named ? gs.map((g) => markdownText(g.golden)).join(', ') : `golden${gs.length === 1 ? '' : 's'}`);
+  const which = (/** @type {GoldenState[]} */ gs) => (named ? gs.map((g) => markdownText(g.golden)).join(', ') : `golden${gs.length === 1 ? '' : 's'}`);
   if (recorded.length) parts.push(`${which(recorded)} re-recorded`);
   if (stale.length) parts.push(`${which(stale)} not re-recorded: ${update(stale.map((g) => g.golden))}`);
   if (unfixed.length) {
@@ -961,24 +1131,37 @@ function goldenCell(f) {
   return parts.map((x) => ` · ${x}`).join('');
 }
 
-/** What the summary says about a fix and the team store, with push: in it, kept to a pull request's folder, or not (a warning when it couldn't go). */
+/**
+ * What the summary says about a fix and the team store, with push: in it, kept to a pull request's folder, or not (a warning when it couldn't go).
+ * @param {FixPush | null | undefined} p
+ * @returns {string}
+ */
 function pushCell(p) {
   if (!p) return '';
   if (p.state === 'sent') return ' · in the team store';
-  if (p.state === 'pr') return ` · not on the team's Fixes page: a pull request's job writes only to its own folder, ${markdownCode(`pr/${p.pr}/`, { cell: true })}`;
-  if (p.state === 'off') return ` · not in the team store: ${markdownText(p.why)}`;
+  if (p.state === 'pr') return ` · not on the team's Fixes page: a pull request's job writes only to its own folder, ${markdownCode(`pr/${String(p.pr)}/`, { cell: true })}`;
+  if (p.state === 'off') return ` · not in the team store: ${markdownText(String(p.why))}`;
   return ' · ⚠️ not in the team store';
 }
 
-/** What the summary says about a fix pull request's checks: started by its token, started on its branch, or not started (a warning). */
+/**
+ * What the summary says about a fix pull request's checks: started by its token, started on its branch, or not started (a warning).
+ * @param {FixOutcome['checks']} c
+ * @returns {string}
+ */
 function checksCell(c) {
   if (!c) return '';
   if (c.state === 'token') return ' · its workflows start as for any pull request';
-  if (c.state === 'dispatched') return ` · ${markdownCode(c.workflow, { cell: true })} started on its branch`;
+  if (c.state === 'dispatched') return ` · ${markdownCode(String(c.workflow), { cell: true })} started on its branch`;
   return ' · ⚠️ no check started on its branch';
 }
 
-/** The fixes for the job summary. */
+/**
+ * The fixes for the job summary.
+ * @param {FixOutcome[]} fixes
+ * @param {number | string} budget
+ * @returns {string}
+ */
 export function fixSummary(fixes, budget) {
   if (!fixes.length) return '';
   const opened = fixes.filter((f) => f.outcome === 'opened').length;
@@ -991,7 +1174,7 @@ export function fixSummary(fixes, budget) {
   for (const f of fixes) {
     const what =
       f.outcome === 'opened'
-        ? `[${markdownText(f.title ?? 'fix')}](${f.pr})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
+        ? `[${markdownText(f.title ?? 'fix')}](${String(f.pr)})${f.verify ? ` · verify: ${cell(f.verify)}` : ''}${goldenCell(f)}${checksCell(f.checks)}${pushCell(f.pushed)}`
         : f.outcome === 'skipped'
           ? markdownText(String(f.why ?? ''))
           : `no fix: ${markdownText(String(f.why ?? ''))}${goldenCell(f)}`;
@@ -1003,13 +1186,13 @@ export function fixSummary(fixes, budget) {
   if (unsent.length) {
     const one = unsent.length === 1;
     lines.push('', `⚠️ ${one ? 'A fix' : `${unsent.length} fixes`} couldn't go to the team store, so teammates won't see ${one ? 'it' : 'them'} on their Fixes page. ${one ? 'Its pull request is' : 'Their pull requests are'} open all the same.`, '');
-    for (const f of unsent) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.pushed.why ?? ''))}`);
+    for (const f of unsent) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.pushed?.why ?? ''))}`);
   }
   // A pull request whose checks never started: why, and what starts them.
   const unchecked = fixes.filter((f) => f.outcome === 'opened' && f.checks?.state === 'not-started');
   if (unchecked.length) {
     lines.push('', `⚠️ No check started on ${unchecked.length === 1 ? 'a fix pull request' : `${unchecked.length} fix pull requests`}: GitHub starts no workflow for one the job's \`GITHUB_TOKEN\` opens, and the job couldn't start it on the branch. Give the action a \`github-token\` (a GitHub App's token or a personal access token), or let the workflow be started on a branch: a \`workflow_dispatch:\` trigger, and \`actions: write\` in the job's permissions.`, '');
-    for (const f of unchecked) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.checks.why ?? ''))}`);
+    for (const f of unchecked) lines.push(`- ${markdownCode(f.name)}: ${markdownText(String(f.checks?.why ?? ''))}`);
   }
   lines.push('', 'Each pull request carries the patch verify accepted, its report and, for a golden that must replay exactly, the golden re-recorded under the fix. Nothing is merged: review each one like any other change.');
   return lines.join('\n') + '\n';

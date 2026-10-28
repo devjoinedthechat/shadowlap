@@ -8,7 +8,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
-import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, repairPlan, runFixes, type ReportResult } from '../../../action/fix.mjs';
+import { branchName, branchNote, cannotPush, fixSummary, forkPullRequest, goldenNote, groupFixes, otherOnBranch, planFixes, pushFix, pushLine, refreshGoldens, repairArgs, repairPlan, runFixes } from '../../../action/fix.mjs';
+import type { ReportResult } from '../../../action/types.mjs';
 import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**

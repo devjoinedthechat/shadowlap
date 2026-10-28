@@ -23,6 +23,7 @@
     "README.md",
     "LICENSE",
     "guard",
+    "!guard/tsconfig.json",
     "!**/__pycache__"
   ],
   "engines": {

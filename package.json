@@ -26,7 +26,8 @@
   "scripts": {
     "build": "node scripts/prune-dist.mjs && tsc -b && node scripts/build-cjs.mjs && node packages/dashboard/build-ui.mjs",
     "clean": "tsc -b --clean && rm -rf packages/*/dist testing/*/dist",
-    "typecheck": "tsc -b && node scripts/build-cjs.mjs && tsc -p packages/dashboard/ui/tsconfig.json && tsc -p packages/dashboard/browser/tsconfig.json && npm run typecheck:tests",
+    "typecheck": "tsc -b && node scripts/build-cjs.mjs && tsc -p packages/dashboard/ui/tsconfig.json && tsc -p packages/dashboard/browser/tsconfig.json && npm run typecheck:js && npm run typecheck:tests",
+    "typecheck:js": "tsc -p action/tsconfig.json && tsc -p packages/cli/guard/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "golden": "node testing/reference-agent/dist/make-golden.js testing/golden/reference-agent",
