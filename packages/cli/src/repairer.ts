@@ -26,6 +26,16 @@ export interface Repairer {
 export const DEFAULT_ANTHROPIC_REPAIRER = 'claude-opus-5-5';
 
 /**
+ * The longest answer a repairer is asked for, in tokens, whichever it is: the Anthropic request's
+ * `max_tokens`, an OpenAI-compatible one's `max_completion_tokens`, and Claude Code's
+ * `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. What asking it could cost is worked out from it (repairerMost).
+ */
+export const REPAIRER_ANSWER_TOKENS = 16_000;
+
+/** The turns Claude Code may take for a repair (its `--max-turns`): each an answer of up to REPAIRER_ANSWER_TOKENS. */
+export const CLAUDE_CODE_TURNS = 2;
+
+/**
  * `anthropic`, `anthropic:claude-fable-5-1`, `openai:gpt-6-astra`, `claude-code` or
  * `claude-code:claude-opus-5-5`. Plain `claude-code` leaves the model to Claude Code's own setting.
  */
@@ -310,6 +320,9 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   const bin = process.env.SHADOWLAP_CLAUDE || 'claude';
   const env = { ...process.env };
   for (const v of CLAUDE_SESSION_VARS) delete env[v];
+  // Each of its turns answers within the limit the budget check counts on, or a lower one already set.
+  const set = Number(process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS);
+  env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(Number.isInteger(set) && set > 0 && set < REPAIRER_ANSWER_TOKENS ? set : REPAIRER_ANSWER_TOKENS);
   const dir = mkdtempSync(join(tmpdir(), 'shadowlap-repairer-'));
   const cwd = join(dir, 'work');
   mkdirSync(cwd);
@@ -413,7 +426,7 @@ async function askAnthropic(r: Repairer, prompt: { system: string; user: string 
   try {
     message = await client.beta.messages.parse({
       model: r.model,
-      max_tokens: 16000,
+      max_tokens: REPAIRER_ANSWER_TOKENS,
       system: prompt.system,
       messages: [{ role: 'user', content: prompt.user }],
       output_config: { ...(EFFORT.test(r.model) ? { effort: 'high' as const } : {}), format: betaJSONSchemaOutputFormat(SCHEMA) },
@@ -449,6 +462,8 @@ async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, 
         { role: 'user', content: prompt.user },
       ],
       response_format: { type: 'json_schema', json_schema: { name: 'repair_candidates', strict: true, schema: SCHEMA } },
+      // The answer's limit, which the budget check counts on: a server that ignores it is one no budget prices.
+      max_completion_tokens: REPAIRER_ANSWER_TOKENS,
     }),
   }).catch((err: unknown) => {
     throw new RepairerError(`could not reach ${base}`, (err as Error).message);

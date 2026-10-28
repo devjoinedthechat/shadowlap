@@ -9,6 +9,7 @@ import { placeholdersFor } from './placeholder-keys.js';
 import { ProviderRetry } from './provider-retry.js';
 import { providerIds, testAttempt, type GuardMode, type TestAttempt } from './run-agent.js';
 import { withoutCommand } from './shared.js';
+import { safe } from './ui.js';
 import { type PackResult } from './test-report.js';
 import { type Turns } from './turns.js';
 import { NO_BASELINE_BRANCH } from './baseline-branch.js';
@@ -690,7 +691,9 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
 
 /** The checks, one per line, as the terminal and the JUnit report show them: passed, failed, inconclusive or not applicable. */
 export function formatChecks(checks: CheckResult[]): string {
-  return checks.map((c) => checkLine(c)).join('\n');
+  // Each on its one line, its control characters escaped: a judge's reason is a model's words, and can
+  // break the line where a CI log reads what starts the next as a command.
+  return checks.map((c) => safe(checkLine(c))).join('\n');
 }
 
 /**

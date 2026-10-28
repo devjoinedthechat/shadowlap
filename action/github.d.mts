@@ -38,4 +38,5 @@ export interface Posted {
   url: string | null;
   why: string | null;
 }
+export function openPullRequest(o: { env: NodeJS.ProcessEnv; auth: GitHubAuth; head: string; base: string; title: string; body: string; fetch?: Fetch }): Promise<{ pr: string | null; why: string | null }>;
 export function upsertComment(o: { env: NodeJS.ProcessEnv; auth: GitHubAuth; number: number; marker: string; body: string; fetch?: Fetch }): Promise<Posted>;

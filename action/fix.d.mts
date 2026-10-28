@@ -151,6 +151,7 @@ export function cannotFix(workdir: string, env: NodeJS.ProcessEnv, read?: (path:
 export function repairEnv(workdir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 export function refreshGoldens(options: { cli: string; workdir: string; members: FixPlan[]; unfixed?: FixPlan[]; unfixedWhy?: string | null; results?: ReportResult[]; repair: { output?: { goldens?: string[]; patch?: string | null; branch?: string | null } }; guard?: string; build?: string; env: NodeJS.ProcessEnv; scratch: string }): BranchState;
 export function testPath(path: string): string;
+export function pushTarget(root: string, env: NodeJS.ProcessEnv): { url: string | null; why: string | null };
 export function leftOutWhy(goldens: string[], together: string, verified: string[]): string;
 export function goldenNote(golden: GoldenState): string;
 export function otherOnBranch(before: ReportResult, now: ReportResult | undefined): 'diverging' | 'failing' | 'inconclusive' | 'unsettled' | null;

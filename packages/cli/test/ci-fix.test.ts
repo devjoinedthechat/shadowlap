@@ -1,10 +1,10 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, toolUse, type ScriptContext, type MockServer } from '@shadowlap-testing/mock-anthropic';
@@ -13,7 +13,8 @@ import { startFakeS3 } from '../../remote/test/fakes/s3.js';
 
 /**
  * Fix on failure in the GitHub Action, run as action.yml runs it, on the support agent in a git
- * repository of its own with a bare remote and a stand-in for gh. Its golden is a run that refunded
+ * repository of its own, with a bare repository as the workflow's own (GITHUB_SERVER_URL names a
+ * folder, where example/agent.git is) and a stand-in for GitHub's API. Its golden is a run that refunded
  * a $240 order against policy, and the config checks that no such refund happens, so the golden
  * fails a check on a clean replay. The mock plays the agent's model (which, asked again, escalates
  * every other time, and always under the fixed prompt) and the repairer. The pull request's own
@@ -59,6 +60,8 @@ let decisions = 0;
 let counter = 0;
 let project = '';
 let remote = '';
+/** The folder GITHUB_SERVER_URL names: example/agent.git in it is the repository the workflow runs in. */
+let server = '';
 let bin = '';
 
 function script(ctx: ScriptContext) {
@@ -114,6 +117,7 @@ async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEn
     INPUT_GUARD: 'off',
     INPUT_STORE: join(dir, 'ci.db'),
     GITHUB_API_URL: apiUrl,
+    GITHUB_SERVER_URL: pathToFileURL(server).href,
     GITHUB_REPOSITORY: 'example/agent',
     GITHUB_WORKFLOW_REF: 'example/agent/.github/workflows/ci.yml@refs/heads/main',
     SHADOWLAP_JOB_TOKEN: JOB_TOKEN,
@@ -142,6 +146,12 @@ beforeAll(async () => {
     req.on('data', (d: Buffer) => (body += d.toString()));
     req.on('end', () => {
       apiCalls.push({ method: req.method ?? '', url: req.url ?? '', authorization: req.headers.authorization, body: body ? JSON.parse(body) : null });
+      // A pull request opened, as GitHub answers: its URL.
+      if (req.method === 'POST' && req.url === '/repos/example/agent/pulls') {
+        res.writeHead(201, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ number: 7, html_url: 'https://github.com/example/agent/pull/7' }));
+        return;
+      }
       if (req.method === 'POST' && /\/actions\/workflows\/[^/]+\/dispatches$/.test(req.url ?? '')) {
         res.writeHead(dispatchStatus, { 'content-type': 'application/json' });
         res.end(dispatchStatus === 204 ? '' : JSON.stringify({ message: "Workflow does not have 'workflow_dispatch' trigger" }));
@@ -159,7 +169,12 @@ afterAll(async () => {
   await new Promise((resolve) => api.close(resolve));
 });
 
-/** The agent and its golden, committed, with a remote to push to and gh standing by. `agent` rewrites the agent's source. */
+/** The pull requests the action opened through the API stand-in, each with what it asked for and its token. */
+const pulls = () => apiCalls.filter((c) => c.method === 'POST' && c.url === '/repos/example/agent/pulls');
+/** The last pull request opened: its request's body, as the API got it. */
+const opened = () => pulls().at(-1)!.body as { title: string; head: string; base: string; body: string };
+
+/** The agent and its golden, committed, with the workflow's repository as its origin. `agent` rewrites the agent's source. */
 async function setUp(tests: Record<string, unknown>, agent: (source: string) => string = (x) => x): Promise<void> {
   // Outside this repository, so an interrupted run never leaves a nested one behind in it; the
   // agent's imports resolve through this repository's node_modules, linked in and ignored.
@@ -181,13 +196,13 @@ async function setUp(tests: Record<string, unknown>, agent: (source: string) => 
   writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund-over-limit': tests } }, null, 2));
   sh(project, 'git', ['add', '.']);
   sh(project, 'git', ['commit', '-q', '-m', 'agent and its golden']);
-  remote = mkdtempSync(join(tmpdir(), 'sl-remote-'));
+  server = mkdtempSync(join(tmpdir(), 'sl-server-'));
+  remote = join(server, 'example', 'agent.git');
+  mkdirSync(remote, { recursive: true });
   sh(remote, 'git', ['init', '-q', '--bare']);
   sh(project, 'git', ['remote', 'add', 'origin', remote]);
-  // A stand-in for gh: records how it was last called, and that it was, and prints a pull request URL, as gh does.
-  bin = mkdtempSync(join(tmpdir(), 'sl-gh-'));
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh\nprintf '%s\\n' "$@" > "${join(bin, 'args')}"\necho "$1 $2" >> "${join(bin, 'calls')}"\nprintf '%s\\n' "$GH_TOKEN" > "${join(bin, 'token')}"\necho https://github.com/example/agent/pull/7\n`);
-  chmodSync(join(bin, 'gh'), 0o755);
+  // For what a test puts on the PATH (a claude that isn't there, say).
+  bin = mkdtempSync(join(tmpdir(), 'sl-bin-'));
   mode = 'alternate';
 }
 
@@ -208,8 +223,8 @@ async function addGolden(name: string, order: string, as: 'refund' | 'escalate',
 }
 
 afterEach(() => {
-  for (const d of [project, remote, bin]) if (d) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  project = remote = bin = '';
+  for (const d of [project, server, bin]) if (d) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  project = remote = server = bin = '';
   apiCalls.length = 0;
   dispatchStatus = 204;
 });
@@ -245,9 +260,10 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(changed.every((f) => f === 'agent.mjs' || /^goldens\/refund-over-limit\/(run\.json|calls\.jsonl|blobs\/[0-9a-f]{64})$/.test(f)), changed.join('\n')).toBe(true);
     expect(sh(project, 'git', ['show', `${branch}:goldens/refund-over-limit/README.md`])).toBe('Refunds above the limit are escalated.');
     expect(sh(project, 'git', ['log', '-1', '--format=%B', branch])).toContain('goldens/refund-over-limit is re-recorded under the fix, from the run verify accepted');
-    const args = readFileSync(join(bin, 'args'), 'utf8').split('\n');
-    expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', branch, '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
-    const body = readFileSync(args[9], 'utf8');
+    // Opened through GitHub's API, from no checkout: the fix's branch into the one checked out, titled by the fix commit.
+    expect(pulls()).toHaveLength(1);
+    expect(opened()).toMatchObject({ head: branch, base: 'main', title: 'Escalate refunds above the policy limit' });
+    const body = opened().body;
     expect(body).toContain('## Escalate refunds above the policy limit');
     expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix: the recording verify accepted replaces its pack in this branch, and it replays clean here.');
     expect(body).toContain('Every golden this job tested replays clean on this branch: `shadowlap test` passed on it here.');
@@ -256,9 +272,9 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     // Opened with the job's own token, for which GitHub starts no workflow: the job started ci.yml on the branch, and says so, never that the checks pass.
     expect(body).toContain("This pull request was opened with the job's `GITHUB_TOKEN`, for which GitHub starts no workflow, so the job started `ci.yml` on its branch (`workflow_dispatch`)");
     expect(body).not.toMatch(/checks pass/);
-    expect(apiCalls).toEqual([{ method: 'POST', url: '/repos/example/agent/actions/workflows/ci.yml/dispatches', authorization: `Bearer ${JOB_TOKEN}`, body: { ref: branch } }]);
-    // gh had the job's token to open it with.
-    expect(readFileSync(join(bin, 'token'), 'utf8').trim()).toBe(JOB_TOKEN);
+    expect(apiCalls.filter((c) => c.url !== '/repos/example/agent/pulls')).toEqual([{ method: 'POST', url: '/repos/example/agent/actions/workflows/ci.yml/dispatches', authorization: `Bearer ${JOB_TOKEN}`, body: { ref: branch } }]);
+    // The pull request was opened with the job's own token.
+    expect(pulls()[0].authorization).toBe(`Bearer ${JOB_TOKEN}`);
 
     expect(r.summary).toContain('### Shadowlap: 1 of 1 recording failed');
     expect(r.summary).toContain('### Shadowlap: 1 fix pull request opened');
@@ -281,7 +297,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.outputs).toMatchObject({ passed: '1', failed: '1', fixes: '1' });
     expect(r.out).toContain('goldens/refund-over-limit re-recorded on shadowlap/fix-');
     expect(r.out).toMatch(/goldens\/escalates diverges on shadowlap\/fix-\S+ under the fix/);
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
     expect(body).toContain('another golden, which passed before it, diverges on this branch: `goldens/escalates`');
     expect(body).toContain('shadowlap test goldens/escalates --update');
@@ -316,7 +332,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
     expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json', 'goldens/refund-again/run.json']));
     expect(sh(project, 'git', ['log', '-1', '--format=%B', branch])).toContain('goldens/refund-again and goldens/refund-over-limit are re-recorded under the fix, from the runs verify accepted');
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain('### The goldens');
     expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
     expect(body).toContain('`goldens/refund-again` is re-recorded under the fix');
@@ -347,7 +363,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.out).not.toContain('shadowlap repair for goldens/refund-vip on its own');
     expect(r.out).toContain('::notice title=Shadowlap::refund-over-limit, refund-vip: opened https://github.com/example/agent/pull/7');
     // One pull request, from one branch, and the fix in CI's store names it.
-    expect(readFileSync(join(bin, 'calls'), 'utf8').trim().split('\n')).toEqual(['pr create']);
+    expect(pulls()).toHaveLength(1);
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
     expect(branch).toMatch(/^shadowlap\/fix-refund-over-limit-[0-9a-z]{6}$/);
     expect(r.fixes).toHaveLength(1);
@@ -357,7 +373,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const changed = sh(project, 'git', ['diff', '--name-only', 'main', branch]).split('\n');
     expect(changed).toEqual(expect.arrayContaining(['agent.mjs', 'goldens/refund-over-limit/run.json']));
     expect(changed.some((f) => f.startsWith('goldens/refund-vip/'))).toBe(false);
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain('`goldens/refund-over-limit` is re-recorded under the fix');
     expect(body).toMatch(/`goldens\/refund-vip` fails the same check, but this fix is not verified for it: no fix was accepted for `goldens\/refund-over-limit` and `goldens\/refund-vip` together \(.+\), and this one was verified for `goldens\/refund-over-limit` alone\./);
     expect(body).toContain('shadowlap test goldens/refund-vip --update');
@@ -385,7 +401,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.out).toContain('shadowlap repair for goldens/refund-vip on its own');
     expect(r.out).toContain('refund-over-limit, refund-vip: no fix pull request: together and each on its own: resampling rescued no failing run, so there is no passing path to learn from');
     expect(r.summary).toMatch(/\| ❌ \| `refund-over-limit, refund-vip` \| no fix: together and each on its own: resampling rescued no failing run/);
-    expect(existsSync(join(bin, 'calls'))).toBe(false);
+    expect(pulls()).toHaveLength(0);
     expect(sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*'])).toBe('');
   });
 
@@ -431,7 +447,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
       // The pull request opened, and the push that couldn't happen failed nothing: the job's result is the tests'.
       expect(r.code, r.out).toBe(0);
       expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
-      expect(readFileSync(join(bin, 'args'), 'utf8').split('\n').slice(0, 2)).toEqual(['pr', 'create']);
+      expect(pulls()).toHaveLength(1);
       // Said in the log as a warning, with why...
       expect(r.out).toContain("::warning title=Shadowlap::refund-over-limit: the fix is not in the team store, so teammates won't see it on their Fixes page: No AWS credentials found.");
       expect(r.out).toContain('Its pull request is open all the same.');
@@ -498,7 +514,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.outputs).toMatchObject({ failed: '1', 'checks-failed': '1', fixes: '1' });
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
     expect(sh(project, 'git', ['diff', '--name-only', 'main', branch])).toBe('agent.mjs');
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain('`goldens/refund-over-limit` may fork, so it passes on its checks with the fix as it is.');
     expect(r.summary).not.toContain('· golden');
     sh(project, 'git', ['checkout', '-q', branch]);
@@ -521,7 +537,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.out).toContain('goldens/refund-over-limit not re-recorded on shadowlap/fix-');
     const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
     expect(sh(project, 'git', ['diff', '--name-only', 'main', branch])).toBe('agent.mjs');
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain('`goldens/refund-over-limit` still holds the recording made before the fix, which sends the old prompt, so it diverges on this branch.');
     expect(body).toContain('shadowlap test goldens/refund-over-limit --update');
     expect(body).toMatch(/It was not re-recorded automatically: the recording verify accepted does not replay clean on the branch \(refund-over-limit: diverged at call 1/);
@@ -595,13 +611,45 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     await setUp({ expect: EXPECT });
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', GITHUB_TOKEN: 'github_pat_for_the_test' });
     expect(r.outputs).toMatchObject({ fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
-    expect(readFileSync(join(bin, 'token'), 'utf8').trim()).toBe('github_pat_for_the_test');
-    expect(apiCalls).toEqual([]);
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    expect(pulls().at(-1)!.authorization).toBe('Bearer github_pat_for_the_test');
+    // No workflow started on the branch: the pull request is the only call.
+    expect(apiCalls.filter((c) => c.url !== '/repos/example/agent/pulls')).toEqual([]);
+    const body = opened().body;
     expect(body).toContain('This pull request was opened with the token the action was given (`github-token`), so GitHub starts its workflows as for any pull request.');
     expect(r.summary).toContain('· its workflows start as for any pull request |');
     // A whole blame, repair and verify: more than the default 30 s on a busy machine.
   }, 90_000);
+
+  it('pushes the fix from a repository of its own: no hook of the checkout runs, and no rewrite of its remote or the user’s git config sends it elsewhere', async () => {
+    await setUp({ expect: EXPECT });
+    // What the agent, which ran in the checkout, could have left: a hook a push runs, which would see the
+    // token in its environment, and a rewrite of the remote's URL; and in the user's own git config, another.
+    const ran = join(project, '..', `${project.split('/').at(-1)!}-hook-ran`);
+    const hook = `#!/bin/sh\nenv > "${ran}"\n`;
+    writeFileSync(join(project, '.git', 'hooks', 'pre-push'), hook, { mode: 0o755 });
+    mkdirSync(join(project, 'hooks'));
+    writeFileSync(join(project, 'hooks', 'pre-push'), hook, { mode: 0o755 });
+    const decoy = mkdtempSync(join(tmpdir(), 'sl-decoy-'));
+    const home = mkdtempSync(join(tmpdir(), 'sl-home-'));
+    try {
+      const elsewhere = join(decoy, 'example', 'agent.git');
+      mkdirSync(elsewhere, { recursive: true });
+      sh(elsewhere, 'git', ['init', '-q', '--bare']);
+      sh(project, 'git', ['config', `url.${elsewhere}.insteadOf`, remote]);
+      writeFileSync(join(home, '.gitconfig'), `[url "${elsewhere}"]\n\tinsteadOf = ${pathToFileURL(server).href}\n[core]\n\thooksPath = ${join(project, 'hooks')}\n`);
+      const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic' }, { HOME: home });
+      expect(r.outputs, r.out).toMatchObject({ fixes: '1', 'fix-prs': 'https://github.com/example/agent/pull/7' });
+      const branch = sh(project, 'git', ['branch', '--list', 'shadowlap/fix-*', '--format=%(refname:short)']);
+      // On the workflow's own repository, and nowhere else; and no hook ran.
+      expect(sh(remote, 'git', ['rev-parse', branch])).toBe(sh(project, 'git', ['rev-parse', branch]));
+      expect(sh(elsewhere, 'git', ['for-each-ref'])).toBe('');
+      expect(() => readFileSync(ran)).toThrow();
+    } finally {
+      rmSync(decoy, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+      rmSync(ran, { force: true });
+    }
+  });
 
   it("says so, in the pull request, the log and the summary, when the workflow can't be started on the fix's branch", async () => {
     await setUp({ expect: EXPECT });
@@ -610,7 +658,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     expect(r.code, r.out).toBe(0);
     expect(r.outputs).toMatchObject({ fixes: '1' });
     expect(r.out).toContain("::warning title=Shadowlap::refund-over-limit: the fix's pull request has no check started: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch");
-    const body = readFileSync(readFileSync(join(bin, 'args'), 'utf8').split('\n')[9], 'utf8');
+    const body = opened().body;
     expect(body).toContain("the job could not start `ci.yml` on its branch: ci.yml has no workflow_dispatch trigger, which it needs to be started on a branch: GitHub answered 422 (Workflow does not have 'workflow_dispatch' trigger). No check has run on this branch");
     expect(r.summary).toContain('· ⚠️ no check started on its branch |');
     expect(r.summary).toContain("⚠️ No check started on a fix pull request: GitHub starts no workflow for one the job's `GITHUB_TOKEN` opens, and the job couldn't start it on the branch.");
@@ -623,7 +671,7 @@ describe.skipIf(process.platform === 'win32')('fix on failure in the GitHub Acti
     const r = await action({ FIX_ON_FAILURE: 'true', FIX_BUDGET: '5', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' });
     expect(r.outputs).toMatchObject({ failed: '1', fixes: '0' });
     expect(r.out).toContain('refund-over-limit: no fix pull request: shadowlap/fix-refund-over-limit-abc123 is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it');
-    expect(existsSync(join(bin, 'calls'))).toBe(false);
+    expect(pulls()).toHaveLength(0);
     expect(r.runs.filter((id) => id).length).toBeGreaterThan(0);
   });
 

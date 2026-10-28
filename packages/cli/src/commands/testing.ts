@@ -239,7 +239,8 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
   process.stdout.write(indent(o.failure.details));
   // An injection gate fails on its attempts, not on the replay: what the replay printed says nothing.
   const tail = o.kind === 'injection' ? null : outputTail(o.result.shown.output);
-  if (tail) process.stdout.write(p.dim(indent(tail, '    │ ')));
+  // Every line of it after the bar, a bare CR's too, its control characters escaped: a CI log reads a line that starts with :: as a command.
+  if (tail) process.stdout.write(p.dim(indent(tail.split(/\r\n|\r|\n/).map(safe).join('\n'), '    │ ')));
 }
 
 export function register(program: Command): void {
@@ -521,7 +522,7 @@ export function register(program: Command): void {
               if (!u.replaced || !u.run) {
                 process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason!}\n`);
                 const tail = u.interrupted ? null : outputTail(u.output, 10);
-                if (tail) process.stdout.write(p.dim(tail.split('\n').map((l) => `      │ ${l}`).join('\n') + '\n'));
+                if (tail) process.stdout.write(p.dim(tail.split(/\r\n|\r|\n/).map((l) => `      │ ${safe(l)}`).join('\n') + '\n'));
               } else {
                 updates++;
                 const changes = requestChanges(store, before, u.run, divergence, normalizers);

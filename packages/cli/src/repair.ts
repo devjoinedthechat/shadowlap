@@ -7,7 +7,7 @@ import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget 
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
 import { loadConfig } from './config.js';
 import { candidateTree, COPY_LIMIT, fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
-import { askRepairer, buildRepairPrompt, cannotAsk, DEFAULT_ANTHROPIC_REPAIRER, DEFAULT_REPAIRER_TIMEOUT_MS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
+import { askRepairer, buildRepairPrompt, cannotAsk, CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, DEFAULT_REPAIRER_TIMEOUT_MS, REPAIRER_ANSWER_TOKENS, RepairerError, type RepairCase, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { CandidatePicker, untriedWords } from './repair-pick.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -101,9 +101,6 @@ export class HandOverError extends RepairError {
 
 const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
 
-/** The longest answer the repairer is asked for, in tokens: what the Anthropic request allows it (max_tokens). */
-export const REPAIRER_ANSWER_TOKENS = 16_000;
-
 /**
  * The characters one token of the repairer's prompt is taken to hold when what asking it could cost is
  * worked out: fewer than tokenizers fit into a token of English (about 4), so its tokens are counted
@@ -111,15 +108,22 @@ export const REPAIRER_ANSWER_TOKENS = 16_000;
  */
 export const PROMPT_CHARS_PER_TOKEN = 3;
 
+/** The answers asking the repairer may take: Claude Code's two turns, else one. */
+export const repairerTurns = (r: Pick<Repairer, 'provider'>) => (r.provider === 'claude-code' ? CLAUDE_CODE_TURNS : 1);
+
 /**
  * The most asking the repairer could cost, before it is asked: its prompt, counted high, and the
  * longest answer it may give, at its model's price (Claude Code's own default is priced as
- * Shadowlap's, DEFAULT_ANTHROPIC_REPAIRER). Null for a model with no price, which no budget can
- * count beforehand: its reported cost, when it has one, is counted once it answers.
+ * Shadowlap's, DEFAULT_ANTHROPIC_REPAIRER), for each of its turns: Claude Code's second reads the
+ * prompt again with the first answer, and gives an answer of its own. Null for a model with no
+ * price, which no budget can count beforehand: its reported cost, when it has one, is counted once
+ * it answers.
  */
 export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { system: string; user: string }, prices?: Record<string, Price>): number | null {
   const model = r.model || (r.provider === 'claude-code' ? DEFAULT_ANTHROPIC_REPAIRER : null);
-  return estimateCost(model, { inputTokens: Math.ceil((prompt.system.length + prompt.user.length) / PROMPT_CHARS_PER_TOKEN), outputTokens: REPAIRER_ANSWER_TOKENS }, prices);
+  const turns = repairerTurns(r);
+  const promptTokens = Math.ceil((prompt.system.length + prompt.user.length) / PROMPT_CHARS_PER_TOKEN);
+  return estimateCost(model, { inputTokens: turns * promptTokens + (turns - 1) * REPAIRER_ANSWER_TOKENS, outputTokens: turns * REPAIRER_ANSWER_TOKENS }, prices);
 }
 
 /** What is copied of the files git ignores into a candidate's worktree, in MB, as a warning says it. */
@@ -570,7 +574,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         // Its call counts against the budget like any other: it is asked only when what is left covers the most it could cost.
         const most = repairerMost(s.repairer, request, config.prices);
         const left = budgetLeft();
-        if (left !== null && most !== null && most > left) return stopped(`asking the repairer could cost up to ${formatUsd(most)} (its prompt, and an answer of up to ${REPAIRER_ANSWER_TOKENS.toLocaleString('en-US')} tokens), more than the ${formatUsd(Math.max(left, 0))} left of the budget of $${s.budget!.toFixed(2)}, so it was not asked`);
+        if (left !== null && most !== null && most > left) return stopped(`asking the repairer could cost up to ${formatUsd(most)} (its prompt, and an answer of up to ${REPAIRER_ANSWER_TOKENS.toLocaleString('en-US')} tokens${repairerTurns(s.repairer) > 1 ? `, in each of its ${repairerTurns(s.repairer)} turns` : ''}), more than the ${formatUsd(Math.max(left, 0))} left of the budget of $${s.budget!.toFixed(2)}, so it was not asked`);
         log(`\n  asking ${s.repairer.model ? `${s.repairer.provider}:${s.repairer.model}` : s.repairer.provider} for ${s.candidates} candidates (${anchors.length} spans it may rewrite; held-out runs are not shown to it)`);
         let answer: Awaited<ReturnType<typeof askRepairer>> | null = null;
         try {
