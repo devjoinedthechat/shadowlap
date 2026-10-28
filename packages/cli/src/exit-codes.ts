@@ -109,7 +109,8 @@ export function watchStopSignals(): void {
  * store closing) waits for the loop to read it, and a process that ended first would end with its
  * own status, the signal never read. An immediate queued from an immediate runs on the loop's next
  * turn, after that turn's poll has read the signal: one alone could run in the very turn whose poll
- * had run before the signal came.
+ * had run before the signal came. One that comes after that last poll, in the moment the process
+ * exits, still finds it ending with its own status: nothing can read it any later.
  */
 export function afterPendingSignals(then: () => void): void {
   setImmediate(() => setImmediate(then));
