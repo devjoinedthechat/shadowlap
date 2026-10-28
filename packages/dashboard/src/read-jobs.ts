@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readStoreFacts, storeFacts, type Normalizer, type Price, type Store, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
+import { readStoreFacts, storeFacts, type Normalizer, type Price, type Store, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
@@ -133,7 +133,7 @@ function answer(body: unknown, o: { tagged?: boolean; status?: number } = {}): R
 const failed = (status: number, error: string): ReadAnswer => ({ status, body: JSON.stringify({ error }), etag: null });
 
 /** A run id that names no single run: several runs (409), or none (404). */
-function noRun(store: Store, id: string): ReadAnswer {
+function noRun(store: StoreOf<'readModels'>, id: string): ReadAnswer {
   const no = noSuchRun(store, id);
   return failed(no.status, no.message);
 }
@@ -142,7 +142,7 @@ function noRun(store: Store, id: string): ReadAnswer {
 const code = codeChangeCache();
 
 /** The team store's key, for the runs only on this machine (the Local chip, the `local` tag); null without one. */
-function teamKey(store: Store, team: TeamStoreInput | null): string | null {
+function teamKey(store: StoreOf<'recording' | 'readModels' | 'team'>, team: TeamStoreInput | null): string | null {
   return team ? (teamStoreStatus(store, team)?.key ?? null) : null;
 }
 

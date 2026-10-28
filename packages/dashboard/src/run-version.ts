@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { RunRecord, Store, StoreOf } from '@shadowlap/engine';
+import type { RunRecord, StoreOf } from '@shadowlap/engine';
 import { loadRunIndex } from './run-index.js';
 import { bundleOf, runState } from './runs-list.js';
 
@@ -41,7 +41,7 @@ function familyRows(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
 }
 
 /** An ETag for a run's page answer as it stands now; `extra` names what else it depends on (the prices, the part asked for). */
-export function runVersionTag(store: Store, run: RunRecord, extra: string): string {
+export function runVersionTag(store: StoreOf<'recording' | 'readModels' | 'activity'>, run: RunRecord, extra: string): string {
   const parts = [
     FORMAT,
     JSON.stringify(familyRows(store, run)),

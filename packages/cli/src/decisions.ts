@@ -150,7 +150,7 @@ export function storeTarget(store: StoreOf<'recording'>, run: RunRecord, cwd: st
 }
 
 /** Runs and goldens as given: run ids or prefixes, `label:<name>`, and pack folders (`goldens/*`). */
-export function resolveTargets(store: Store, specs: readonly string[], cwd: string): DecisionTarget[] {
+export function resolveTargets(store: StoreOf<'recording' | 'readModels'>, specs: readonly string[], cwd: string): DecisionTarget[] {
   const out = new Map<string, DecisionTarget>();
   let tests: ReturnType<typeof loadTests> = [];
   try {

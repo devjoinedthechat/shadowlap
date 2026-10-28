@@ -1,4 +1,4 @@
-import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, proposeNormalizers, setupRunOf, type Normalizer, type Proposal, type RunRecord, type Store } from '@shadowlap/engine';
+import { addRules, calibrationTarget, commandIsImported, formatDivergence, formatSummary, proposeNormalizers, setupRunOf, type Normalizer, type Proposal, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { configPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
@@ -67,7 +67,7 @@ export async function calibrate(opts: GlobalOpts, runArg: string | undefined, fl
 }
 
 /** Without a run named: the run the dashboard's setup recorded for this project, else the newest recording. */
-function chooseRecording(store: Store, runArg: string | undefined): NonNullable<ReturnType<typeof calibrationTarget>> | { run: RunRecord; source: 'given' } {
+function chooseRecording(store: StoreOf<'recording'>, runArg: string | undefined): NonNullable<ReturnType<typeof calibrationTarget>> | { run: RunRecord; source: 'given' } {
   const target = runArg ? { run: requireRun(store, runArg), source: 'given' as const } : calibrationTarget(store, { setupRunId: setupRunOf(process.cwd()) });
   if (!target) throw new Error(RECORD_FIRST);
   return target;

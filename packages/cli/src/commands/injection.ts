@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, messageOf, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAULT_BASELINES, hasRecordedCommand, injectionTemplates, messageOf, parseGate, parsePayloads, resolveAuthor, selectTemplates, type Gate, type InjectionEntry, type InjectionReport, type Payload, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
@@ -91,7 +91,7 @@ interface Target {
 /** Whether an argument names a folder rather than a run: it has a path separator or a `*`, or such a folder exists. */
 const isPath = (arg: string) => /[\\/*]/.test(arg) || existsSync(resolve(arg));
 
-function resolveTargets(store: Store, args: readonly string[], tests: TestEntry[] | Error): Target[] {
+function resolveTargets(store: StoreOf<'recording' | 'readModels'>, args: readonly string[], tests: TestEntry[] | Error): Target[] {
   const projectDir = process.cwd();
   const out: Target[] = [];
   for (const arg of args) {

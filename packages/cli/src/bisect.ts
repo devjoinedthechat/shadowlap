@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, messageOf, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, type StoreOf, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
@@ -212,7 +212,7 @@ export function linkDependencies(root: string, from: string, to: string, worktre
  * has it (every copy is marked imported); a golden's, as under `shadowlap test`: one from a pack the
  * repository doesn't track, recorded elsewhere, is someone else's (goldenNeedsConsent).
  */
-function loadTarget(input: BisectInput, projectDir: string, store: Store): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null; imported: boolean } {
+function loadTarget(input: BisectInput, projectDir: string, store: StoreOf<'recording' | 'readModels'>): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null; imported: boolean } {
   const dir = resolve(projectDir, input.target);
   if (existsSync(join(dir, 'run.json')) && statSync(dir).isDirectory()) {
     const golden = goldenName(input.target, projectDir);

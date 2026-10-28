@@ -1,4 +1,4 @@
-import type { Store, StoreOf } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { countRuns } from './runs-list.js';
 import type { LiveRun, MetaView, ProjectView } from './views.js';
 
@@ -28,7 +28,7 @@ export function liveRuns(store: StoreOf<'recording' | 'readModels'>): LiveRun[] 
   });
 }
 
-export function metaView(store: Store, input: MetaInput): MetaView {
+export function metaView(store: StoreOf<'recording' | 'cleanup' | 'readModels'>, input: MetaInput): MetaView {
   return {
     version: input.version,
     dbPath: input.dbPath,

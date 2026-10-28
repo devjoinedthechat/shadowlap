@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type StoreOf, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
@@ -480,7 +480,7 @@ async function pauseUnless(ms: number, stop: () => boolean): Promise<void> {
  * Marks an unavailable attempt's run where its caller's marks say how it came out (`verify`,
  * `probe`): `verdict: 'unavailable'`, so it is never read as an attempt that failed.
  */
-function markUnavailable(store: Store, runId: string, meta: Partial<RunMeta> | undefined): void {
+function markUnavailable(store: StoreOf<'recording'>, runId: string, meta: Partial<RunMeta> | undefined): void {
   const patch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta ?? {})) {
     if (value && typeof value === 'object' && !Array.isArray(value) && 'passed' in value) patch[key] = { ...value, passed: false, verdict: 'unavailable' };

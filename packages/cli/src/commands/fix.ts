@@ -1,5 +1,5 @@
 import { Command, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, KEPT_DEFAULTS, FIX_STATUSES, FixIdError, fixRecords, prNumber, resolveFix, setFixTitle, SPRT_DEFAULTS, type Store, type FixStatus, type ReadPolicy, type StoreOf, type StoredFix } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, KEPT_DEFAULTS, FIX_STATUSES, FixIdError, fixRecords, prNumber, resolveFix, setFixTitle, SPRT_DEFAULTS, type FixStatus, type ReadPolicy, type StoreOf, type StoredFix } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
@@ -268,7 +268,7 @@ function registerFixes(program: Command): void {
 type FixPr = NonNullable<NonNullable<StoredFix['data']['source']>['pr']>;
 
 /** `fix pr <fix> <url>`: the pull request opened for a fix, recorded as open. */
-function recordPr(store: Store, found: StoredFix, url: string): { pr: FixPr; note: string | null } {
+function recordPr(store: StoreOf<'fixes'>, found: StoredFix, url: string): { pr: FixPr; note: string | null } {
   if (!/^https?:\/\/\S+$/.test(url) || url.length > 2048) throw new FixPrError(`${url.slice(0, 80)} is not a pull request's address: give its https:// link`);
   const pr = { url, number: prNumber(url), state: 'open' as const, at: Date.now() };
   store.mergeFixData(found.fixId, { source: { pr } });
@@ -279,7 +279,7 @@ function recordPr(store: Store, found: StoredFix, url: string): { pr: FixPr; not
  * `fix pr <fix>`: where the fix's pull request stands, read from GitHub with gh and recorded when it
  * changed, or as recorded with a note saying why gh wasn't, or couldn't be, asked.
  */
-async function readPr(store: Store, found: StoredFix): Promise<{ pr: FixPr; note: string | null }> {
+async function readPr(store: StoreOf<'fixes'>, found: StoredFix): Promise<{ pr: FixPr; note: string | null }> {
   const pr = found.data.source?.pr ?? null;
   if (!pr) throw new FixPrError(`${shortFixId(found.fixId)} has no pull request: record one with shadowlap fix pr ${shortFixId(found.fixId)} <url>`);
   // Only a host this project uses is asked: a fix pulled from the team store can name any, and gh would send it a token.
@@ -294,7 +294,7 @@ async function readPr(store: Store, found: StoredFix): Promise<{ pr: FixPr; note
 }
 
 /** Why an open fix can't be applied, and what to run first: its repair, or a verify under its own check when a change was accepted under another. */
-function openFixError(store: Store, found: StoredFix): ApplyError {
+function openFixError(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, found: StoredFix): ApplyError {
   const detail = fixDetail(store, found.fixId);
   const next = detail?.actions.repair?.argv;
   const other = detail?.verify.find((v) => v.verdict === 'accepted' && !v.counts);
@@ -304,7 +304,7 @@ function openFixError(store: Store, found: StoredFix): ApplyError {
 }
 
 /** What `fix apply` did, as text or JSON, its job's links, and its status: 1 when its goldens' test failed. */
-function reportApplied(store: Store, found: StoredFix, result: Awaited<ReturnType<typeof applyFix>>, flags: { goldens: string; json?: boolean }): void {
+function reportApplied(store: StoreOf<'fixes' | 'team'>, found: StoredFix, result: Awaited<ReturnType<typeof applyFix>>, flags: { goldens: string; json?: boolean }): void {
   if (flags.json) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   else if (result.status === 'already-applied') {
     // Only --no-test leaves a test undone here: say so rather than that nothing is left. A
