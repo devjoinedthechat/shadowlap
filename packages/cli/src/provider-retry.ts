@@ -11,9 +11,9 @@ import { retryDelay, type Unavailable } from '@shadowlap/engine';
  * (the engine's `decideUnavailable`); a fixed count runs it again.
  */
 /**
- * Unavailable attempts in a row across a test session, whichever goldens ran them: shared by their
- * ProviderRetry, so one golden's success resets it, and `limit` of them stop the session
- * (`sessionInARow`): the provider is down for all of them alike.
+ * Unavailable attempts in a row across a test session, whichever goldens ran them, or a chaos
+ * session, whichever presets: shared by their ProviderRetry, so one's success resets it, and
+ * `limit` of them stop the session (`sessionInARow`): the provider is down for all of them alike.
  */
 export class ProviderStreak {
   inARow = 0;

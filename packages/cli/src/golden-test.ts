@@ -401,13 +401,18 @@ function outcomesOf(g: GateResult): boolean[] | null {
 
 /**
  * Two gates with the same figures, whatever limit each ran under and whatever share of a session's
- * risk each failed at: an SPRT's `failRisk`, a gate against history's `risk` (suite.ts sets both).
+ * risk each failed at: an SPRT's `failRisk`, a gate against history's `risk` (suite.ts sets both),
+ * and whatever record a pass past a history gate's own max was held to (`widened`), which each
+ * session's plan reads afresh, as it sizes the limit.
  */
 const sameGate = (a: Gate, b: Gate) => JSON.stringify(rule(a)) === JSON.stringify(rule(b));
 function rule(g: Gate): Gate {
   const x = { ...gateOf(g), max: 0 };
   if (x.kind === 'sprt') delete x.failRisk;
-  else x.risk = 0;
+  else {
+    x.risk = 0;
+    delete x.widened;
+  }
   return x;
 }
 

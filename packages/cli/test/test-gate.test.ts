@@ -243,32 +243,35 @@ describe('shadowlap test with a gate against history', () => {
     // The gate as the docs give it: every figure its default, so it decides from 5 attempts on.
     const tests = { baselineBranch: 'main', 'goldens/reference-agent': { fork: true, gate: { baseline: 'history' }, expect: CHECKS } };
     // No history yet: compared with its recording, the one attempt it was packed from, and it says so.
-    // That leaves most pass rates open, so the session says the golden can't keep within its share,
-    // and gives the gate every attempt it may, 400, to pass an agent as it was.
+    // That leaves most pass rates open, so the session says it has no baseline yet, and how often it
+    // goes red about; it gets no more than its own 40 attempts, as against its recording an agent that
+    // fails often can't pass however long it runs.
     const first = await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
     expect(first.code, first.out).toBe(0);
-    expect(first.report.results[0]).toMatchObject({ verdict: 'passed', gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 400, decision: 'pass', attempts: 5, evidence: { history: null, baseline: 1, passAt: 0.5 } } });
-    const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 400';
+    expect(first.report.results[0]).toMatchObject({ verdict: 'passed', gate: { kind: 'baseline', drop: 0.15, risk: 0.05, window: 10, min: 5, max: 40, decision: 'pass', attempts: 5, evidence: { history: null, baseline: 1, passAt: 0.5 } } });
+    expect(first.report.results[0].gate.widened).toBeUndefined();
+    const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
     expect(first.out).toContain(`✓ reference-agent: passed · 5 of 5 · rate >= 0.47 (95%) · against its recording (no history yet) · ${rule}`);
     expect(first.out).toContain('no session that passed on the baseline branch for it yet, so its gate compared with its recording');
-    expect(first.out).toContain("goldens/reference-agent: it has no baseline yet, only its recording, one attempt that passed: against that it goes red 36% of the time over the pass rates that leaves open, more than its 5% share of the suite's risk; sessions that pass make it a baseline");
+    expect(first.out).toMatch(/goldens\/reference-agent: no baseline yet, only its recording, one attempt that passed: against that it goes red about \d+% of the time, averaged over the pass rates that leaves open \(more for an agent that fails more often\), where its share of the suite's risk is 5%; sessions that pass make it a baseline/);
     hold([['testGateHistory', first.report.results[0].gate], ['testGateHistoryEvidence', first.report.results[0].gate.evidence]]);
 
     // The same agent again: its own history is the baseline, and its 5 attempts settle it, no more.
+    // One session says little: more attempts than its own 40, a pass past them held to its record.
     const again = await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
     expect(again.code, again.out).toBe(0);
-    expect(again.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 5, passed: 5 }, gate: { decision: 'pass', attempts: 5, evidence: { history: { passes: 5, attempts: 5, sessions: 1 } } } });
-    expect(again.out).toContain(`passed · 5 of 5 · rate >= 0.47 (95%) · against 1.00 over its last session (5 of 5) · ${rule}`);
-    expect(again.out).toContain('attempt 5 of up to 400');
-    // Its sessions' 5 attempts say little either: still over its share, by less.
-    expect(again.out).toContain('goldens/reference-agent: it goes red 20% of the time against its baseline (5 of 5) over the pass rates its sessions leave open (5 of their 5 attempts passed)');
+    expect(again.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 5, passed: 5 }, gate: { decision: 'pass', attempts: 5, widened: { from: 40, record: { passes: 5, attempts: 5, sessions: 1 }, risk: 0.05 }, evidence: { history: { passes: 5, attempts: 5, sessions: 1 } } } });
+    const max = again.report.results[0].gate.max as number;
+    expect(max).toBeGreaterThan(40);
+    const widened = `gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to ${max}, and past 40 passes only once that drop from every attempt of its last session (5 of 5) is 5% likely or less`;
+    expect(again.out).toContain(`passed · 5 of 5 · rate >= 0.47 (95%) · against 1.00 over its last session (5 of 5) · ${widened}`);
+    expect(again.out).toContain(`attempt 5 of up to ${max}`);
+    expect(again.out).toMatch(/goldens\/reference-agent: only one session yet: against its baseline \(5 of 5\) it goes red about \d+% of the time, averaged over the pass rates its last session leaves open \(5 of 5 attempts passed\), where its share of the suite's risk is 5%; sessions that pass make it surer/);
     expect(again.out).not.toContain('attempt 6 of');
     expect(again.out).not.toContain('no session that passed');
 
-    // A baseline of 10 of 10 still says little: the session gives the gate every attempt it may.
-    const sized = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 400';
     // An agent that now passes every other attempt, starting with a pass: 3 of 5 could be bad luck,
-    // so it runs on, and fails once the drop is clear, after 10.
+    // so it runs on, and fails once the drop is clear, after 10, well within its own 40.
     flaky = true;
     attemptsSeen = 1;
     let halved: Ran;
@@ -278,9 +281,11 @@ describe('shadowlap test with a gate against history', () => {
       flaky = false;
     }
     expect(halved.code).toBe(1);
-    expect(halved.report.results[0]).toMatchObject({ verdict: 'failed', attempts: { total: 10, passed: 5 }, gate: { decision: 'fail', attempts: 10, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
+    expect(halved.report.results[0]).toMatchObject({ verdict: 'failed', attempts: { total: 10, passed: 5 }, gate: { decision: 'fail', attempts: 10, widened: { from: 40, record: { passes: 10, attempts: 10, sessions: 2 } }, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
+    const sizedMax = halved.report.results[0].gate.max as number;
+    const sized = `gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to ${sizedMax}, and past 40 passes only once that drop from every attempt of its last 2 sessions (10 of 10) is 5% likely or less`;
     expect(halved.out).toContain(`failed · 5 of 10 · rate <= 0.87 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${sized}`);
-    expect(halved.out).toContain('attempt 10 of up to 400');
+    expect(halved.out).toContain(`attempt 10 of up to ${sizedMax}`);
     expect(halved.out).not.toContain('attempt 11 of');
     const path = halved.report.results[0].gate.evidence.probabilities as Array<number | null>;
     expect(path.slice(0, 4)).toEqual([null, null, null, null]);
@@ -288,11 +293,14 @@ describe('shadowlap test with a gate against history', () => {
     expect(path[9]).toBeGreaterThan(0.95);
 
     // A change that makes it email again: every attempt fails, against its history. The session that
-    // failed is no part of it: the baseline is still the agent before the drop, 10 of 10.
+    // failed is no part of it: the baseline is still the agent before the drop, 10 of 10. Its last
+    // sessions, the one that failed among them, sit below that baseline: no more than its own 40.
     const broken = await shadowlapTest(tests, { ...FORKS_AND_EMAILS, ...ON_MAIN }, { db });
     expect(broken.code).toBe(1);
-    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
-    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${sized}`);
+    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, max: 40, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
+    expect(broken.report.results[0].gate.widened).toBeUndefined();
+    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
+    expect(broken.out).toContain('goldens/reference-agent: only 3 sessions yet: against its baseline (10 of 10) it goes red about 49% of the time, averaged over the pass rates its last 3 sessions leave open (15 of 20 attempts passed)');
 
     // A pull request's session that passes is kept, and is still no part of the baseline.
     const pr = await shadowlapTest(tests, { ...FIX, ...ON_PR }, { db });

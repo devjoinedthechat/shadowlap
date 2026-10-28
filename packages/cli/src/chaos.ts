@@ -12,6 +12,7 @@ import {
   presetResult,
   refused,
   resultShape,
+  sessionUnavailableReason,
   safeLine,
   rateBound,
   storeEffects,
@@ -33,7 +34,7 @@ import {
 import { type ChaosSpec } from './chaos-config.js';
 import { evaluateChecks, type TestSpec } from './checks.js';
 import { attemptVerdict, unavailableIn } from './golden-test.js';
-import { ProviderRetry } from './provider-retry.js';
+import { ProviderRetry, type ProviderStreak } from './provider-retry.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { storedResult } from './interventions.js';
 import { emitJobEvent } from './job-events.js';
@@ -140,6 +141,8 @@ export interface ChaosContext {
   /** How unavailable attempts are retried (UNAVAILABLE_RETRY), and the pause itself: tests pass their own. */
   unavailable?: { inARow: number; firstDelayMs: number; maxDelayMs: number };
   sleep?: (ms: number) => Promise<void>;
+  /** Unavailable attempts in a row across the session, whichever presets ran them, which stop it at its limit (`sessionInARow` of its presets). */
+  streak?: ProviderStreak | null;
 }
 
 type FixedGate = { repeat: number; passes: number };
@@ -292,13 +295,15 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     let unreached: string | null = null;
     // The provider failing for real, as `shadowlap test` reads it: an attempt it cut short after the
     // model answered counted against either verdict, by a sequential gate or the fixed count, one it
-    // failed before run again; three in a row stop the preset.
-    const providers = new ProviderRetry({ retry: ctx.unavailable ?? UNAVAILABLE_RETRY, sleep: ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped)), onUnavailable: ctx.onUnavailable, count: true });
+    // failed before run again; enough in a row across the session (its streak) stop it, this preset
+    // and every one after it.
+    const providers = new ProviderRetry({ retry: ctx.unavailable ?? UNAVAILABLE_RETRY, sleep: ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped)), onUnavailable: ctx.onUnavailable, count: true, streak: ctx.streak ?? null });
     // Attempts that count, and of them those the provider cut short.
     let counted = 0;
     let cut = 0;
-    let gaveUp: string | null = null;
-    while (decision === 'continue') {
+    // The session stopped for its provider before this preset's turn: it runs nothing.
+    let gaveUp: string | null = ctx.streak?.gaveUp ? sessionUnavailableReason(ctx.streak.inARow, ctx.streak.gaveUp, 'preset') : null;
+    while (decision === 'continue' && !gaveUp) {
       if (ctx.stopped?.()) {
         interrupted = true;
         break;
@@ -345,7 +350,8 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
       const down = unavailableIn(ctx.store, attempt);
       const after = await providers.after(down);
       if (after === 'stop') {
-        gaveUp = unavailableReason(providers.inARow, down!);
+        // In a row across the session when its streak stopped it, else this preset's own.
+        gaveUp = unavailableReason(ctx.streak?.gaveUp ? ctx.streak.inARow : providers.inARow, down!);
         runs.push({ runId: s.runId, verdict: 'inconclusive', unavailable: 'retried', passed: false, exitCode: attempt.code, checks: attempt.checks, reason: gaveUp, lastLine: null });
         break;
       }

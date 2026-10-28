@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decide, decideUnavailable, SPRT_DEFAULTS, type Gate, type SprtGate } from '../src/stats.js';
 import { planSuite } from '../src/suite.js';
-import { sessionInARow, UNAVAILABLE_RETRY } from '../src/unavailable.js';
+import { attemptsInARow, sessionInARow, UNAVAILABLE_RETRY } from '../src/unavailable.js';
 
 /**
  * What a provider that errs now and then does to a session of 100 gated goldens, worked out exactly
@@ -151,6 +151,80 @@ describe('a flaky provider and a session of 100 gated goldens', { timeout: 180_0
     says(`with early errors on 2%, 5% and 10% of the attempts, ${pct(figures['stop 0.95 0.02 before'], 1)}, ${pct(figures['stop 0.95 0.05 before'], 0)} and ${pct(figures['stop 0.95 0.1 before'], 0)} of 100-golden sessions at 95% exited 3`);
     says(`which a provider erring on 2%, 5% and 10% of the attempts makes ${pct(Math.ceil(1e6 * figures['stop 0.95 0.02 now']) / 1e6, 4)}, ${pct(Math.ceil(1e5 * figures['stop 0.95 0.05 now']) / 1e5, 3)} and ${pct(Math.ceil(1e3 * figures['stop 0.95 0.1 now']) / 1e3, 1)} of such sessions`);
     says(`cut short on 5% of the attempts, a gate of a 100-golden suite at 95% was left inconclusive ${pct(figures.cutBefore)} of the time, ${pct(figures.cutBeforeSuite, 0)} of sessions, nearly all of it three in a row; now at most ${pct(Math.ceil(1e3 * figures.cutNowSuite) / 1e3, 1)} of sessions`);
+  });
+});
+
+/**
+ * The chance a run of `calls` provider calls stops on errors in a row, each call an error with chance
+ * `e`, independently: by call i, `inARow(i)` of them in a row stop it. Exact, over how many are in a
+ * row so far.
+ */
+function stopsIn(calls: number, e: number, inARow: (call: number) => number): number {
+  let walking = new Float64Array(16);
+  walking[0] = 1;
+  let stopped = 0;
+  for (let i = 1; i <= calls; i++) {
+    const k = inARow(i);
+    const next = new Float64Array(16);
+    for (let run = 0; run < 16; run++) {
+      const m = walking[run];
+      if (!m) continue;
+      next[0] += m * (1 - e);
+      if (run + 1 >= k) stopped += m * e;
+      else next[run + 1] += m * e;
+    }
+    walking = next;
+  }
+  return stopped;
+}
+
+const runs: Record<string, number> = {};
+
+describe('a flaky provider and the runs outside test: verify, blame, repair, migrate, injection', () => {
+  it('takes one more error in a row to stop a run for each tenfold of its attempts past 10', () => {
+    expect([1, 10, 11, 100, 101, 1000, 1001].map(attemptsInARow)).toEqual([3, 3, 4, 4, 5, 5, 6]);
+    expect(attemptsInARow(0)).toBe(UNAVAILABLE_RETRY.inARow);
+  });
+
+  it('stops a long run for nothing far less often than a fixed 3 did', () => {
+    for (const calls of [300, 600])
+      for (const e of [0.05, 0.1]) {
+        runs[`${calls} ${e} before`] = stopsIn(calls, e, () => UNAVAILABLE_RETRY.inARow);
+        runs[`${calls} ${e} now`] = stopsIn(calls, e, attemptsInARow);
+        expect(runs[`${calls} ${e} now`]).toBeLessThan(runs[`${calls} ${e} before`] / 10);
+      }
+    // The review's figures for a fixed 3.
+    expect(runs['300 0.05 before']).toBeCloseTo(0.035, 3);
+    expect(runs['600 0.05 before']).toBeCloseTo(0.069, 3);
+    expect(runs['300 0.1 before']).toBeCloseTo(0.24, 2);
+    expect(runs['600 0.1 before']).toBeCloseTo(0.42, 2);
+    // Each tenfold adds under a point at 10% errors, as each adds one more in a row.
+    expect(stopsIn(10_000, 0.1, attemptsInARow) - stopsIn(1000, 0.1, attemptsInARow)).toBeLessThan(0.01);
+  });
+
+  it('stops a chaos session for nothing far less often, its errors in a row counted across its presets', () => {
+    // 20 attempts a preset, the review's; before, 3 in a row within each preset stopped it.
+    for (const presets of [50, 100])
+      for (const e of [0.05, 0.1]) {
+        runs[`chaos ${presets} ${e} before`] = 1 - (1 - stopsIn(20, e, () => UNAVAILABLE_RETRY.inARow)) ** presets;
+        runs[`chaos ${presets} ${e} now`] = stopsIn(20 * presets, e, () => sessionInARow(presets));
+        expect(runs[`chaos ${presets} ${e} now`]).toBeLessThan(runs[`chaos ${presets} ${e} before`] / 25);
+      }
+    expect(runs['chaos 50 0.05 before']).toBeCloseTo(0.1, 2);
+    expect(runs['chaos 100 0.05 before']).toBeCloseTo(0.19, 2);
+    expect(runs['chaos 50 0.1 before']).toBeCloseTo(0.56, 2);
+    expect(Math.abs(runs['chaos 100 0.1 before'] - 0.81)).toBeLessThan(0.006);
+    // A session of one preset stops as before, at 3 in a row.
+    expect(sessionInARow(1)).toBe(UNAVAILABLE_RETRY.inARow);
+  });
+
+  it('as docs/gating.md states it', () => {
+    const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
+    const says = (text: string) => expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
+    console.log(Object.entries(runs).map(([k, v]) => `${k}: ${pct(v, 4)}`).join('\n'));
+    const up = (x: number, d: number) => pct(Math.ceil(10 ** (d + 2) * x) / 10 ** (d + 2), d);
+    says(`a fixed 3 stopped runs of 300 and 600 attempts ${pct(runs['300 0.05 before'], 1)} and ${pct(runs['600 0.05 before'], 1)} of the time with errors on 5% of them, and ${pct(runs['300 0.1 before'], 0)} and ${pct(runs['600 0.1 before'], 0)} at 10%; now ${up(runs['300 0.05 now'], 2)}, ${up(runs['600 0.05 now'], 2)}, ${up(runs['300 0.1 now'], 1)} and ${up(runs['600 0.1 now'], 1)}`);
+    says(`3 in a row within each preset stopped sessions of 50 and 100 presets of 20 attempts ${pct(runs['chaos 50 0.05 before'], 0)} and ${pct(runs['chaos 100 0.05 before'], 0)} of the time with errors on 5% of them, and ${pct(runs['chaos 50 0.1 before'], 0)} and ${pct(runs['chaos 100 0.1 before'], 0)} at 10%; now ${up(runs['chaos 50 0.05 now'], 3)}, ${up(runs['chaos 100 0.05 now'], 3)}, ${up(runs['chaos 50 0.1 now'], 2)} and ${up(runs['chaos 100 0.1 now'], 1)}`);
   });
 });
 

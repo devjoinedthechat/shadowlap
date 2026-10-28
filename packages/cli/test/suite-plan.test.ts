@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { SPRT_DEFAULTS, planSuite, riskPercent, type SprtGate, type SuiteGolden } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, SPRT_DEFAULTS, planSuite, riskPercent, type BaselineGate, type SprtGate, type SuiteGolden } from '@shadowlap/engine';
 import { suiteJson, suiteLines } from '../src/suite-plan.js';
 import { markdownReport, testReport } from '../src/test-report.js';
 
@@ -48,6 +48,32 @@ describe('the session plan', () => {
     expect(md).toContain(`Suite risk 5%, split across 10 gated goldens (0.5% each), but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer, with the provider answering.`);
     // Within the risk, the line is as before, and the risk it says is the one given.
     expect(suiteLines(planSuite(goldens(10))!)[1]).toBe('suite risk 5%: 10 gated goldens, 0.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering');
+  });
+
+  it('says about how often, and why, when gates against history can’t keep within their shares, and always names a drop', () => {
+    const history: BaselineGate = { kind: 'baseline', ...BASELINE_DEFAULTS };
+    const base = { passes: 47, attempts: 50 };
+    const steady = { history: base, sessions: { passes: 53, attempts: 56 }, record: { passes: 160, attempts: 170, sessions: 30 } };
+    const plan = planSuite([
+      // Two new goldens, with no session yet; one whose last 10 sessions sit below its baseline beyond chance; and 17 as their baseline shows them.
+      ...Array.from({ length: 2 }, (_, i) => ({ golden: `goldens/new${i}`, gate: history, maxGiven: false })),
+      { golden: 'goldens/dropped', gate: history, maxGiven: false, history: base, sessions: { passes: 40, attempts: 56 }, record: { passes: 145, attempts: 168, sessions: 30 } },
+      ...Array.from({ length: 17 }, (_, i) => ({ golden: `goldens/steady${i}`, gate: history, maxGiven: false, ...steady })),
+    ])!;
+    expect(plan.red).toBeGreaterThan(0.05);
+    const lines = suiteLines(plan);
+    expect(lines[1]).toBe(`suite risk 5%: 20 gated goldens, 0.25% each, but 2 goldens have too few sessions yet to keep within their share, so a healthy suite goes red for nothing in about ${riskPercent(plan.red)} of runs, with the provider answering`);
+    expect(lines.slice(2)).toEqual([
+      `goldens/new0: ${plan.planned[0].early}`,
+      `goldens/new1: ${plan.planned[1].early}`,
+      "goldens/dropped: its last 10 sessions passed 40 of 56 attempts, below its baseline's 47 of 50 beyond chance at its 0.25% share: a drop, or a baseline that came out lucky; it runs as its baseline asks, at its share, up to its 40 attempts",
+    ]);
+    expect(plan.planned[0].early).toMatch(/^no baseline yet, only its recording, one attempt that passed: against that it goes red about 37% of the time/);
+    expect(suiteJson(plan)).toMatchObject({ early: 2, drop: 1, averaged: true });
+    // Within the suite's risk, a golden over its own share takes room the others leave and isn't named; a drop always is.
+    const within = planSuite([{ golden: 'goldens/dropped', gate: history, maxGiven: false, history: base, sessions: { passes: 40, attempts: 56 }, record: { passes: 145, attempts: 168, sessions: 30 } }, ...Array.from({ length: 19 }, (_, i) => ({ golden: `goldens/steady${i}`, gate: history, maxGiven: false, ...steady }))])!;
+    expect(within.red).toBeLessThanOrEqual(0.05);
+    expect(suiteLines(within).slice(1)).toEqual(['suite risk 5%: 20 gated goldens, 0.25% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering', expect.stringMatching(/^goldens\/dropped: its last 10 sessions passed 40 of 56 attempts/)]);
   });
 
   it('says nothing of a split for one golden, and names one whose max can’t keep within its share', () => {

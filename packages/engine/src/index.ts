@@ -118,11 +118,11 @@ export type { BaselineEvidence, BaselineGate, Gate, GateDecision, GateHistory, G
 export { boundOf, clopperPearson, confidencePercent, confidenceSequence, countInterval, gateInterval, rateBound, riskPercent, stagewiseInterval, tallyInterval } from './stats.js';
 export type { BoundMethod, GateStop, RateBound, RateInterval, SprtFigures } from './stats.js';
 // A provider that can't answer says nothing about the agent: retried, never counted (rv-gates).
-export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
+export { UNAVAILABLE_RETRY, attemptsInARow, providerUnavailable, retryAfter, retryDelay, sessionInARow, sessionUnavailableReason, unavailableReason, unavailableStatus, unavailableStop, type Unavailable } from './unavailable.js';
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
-export { INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
+export { DECLINE_AT, INCONCLUSIVE_AT_GOOD, RECORD_WINDOWS, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
