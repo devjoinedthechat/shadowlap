@@ -12,6 +12,7 @@ import {
   commandIsImported,
   configClock,
   hasRecordedCommand,
+  isObject,
   namedPatterns,
   parseRules,
   readConfigFile,
@@ -327,7 +328,6 @@ export function configFileError(cwd: string): string | null {
   return loadConfigFile(cwd).info.error;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 
 function ruleRows(file: ConfigFile | null, list: RuleList): RuleRow[] {

@@ -1,6 +1,7 @@
 import { setOwn } from './canonical.js';
 import { parseJsonExact } from './json-exact.js';
 import type { StoreOf } from './store.js';
+import { isObject } from './is-object.js';
 
 /**
  * Request manifests. Every model request resends the whole conversation, so whole-request blobs
@@ -57,8 +58,6 @@ const PARTS: Readonly<Record<ListMember, readonly string[]>> = {
   contents: ['systemInstruction', 'system_instruction', 'tools'],
   input: ['instructions', 'tools'],
 };
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function isConversationShaped(body: unknown): body is { messages: unknown[]; system?: unknown; tools?: unknown } & Record<string, unknown> {
   return isObject(body) && Array.isArray(body.messages);

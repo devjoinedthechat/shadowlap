@@ -1,8 +1,8 @@
+import { isObject } from '@shadowlap/engine';
 import type { Skip } from './import-capture.js';
 import {
   calledToolNames,
   clean,
-  isObject,
   maybeJson,
   messageOf,
   messagesOf,

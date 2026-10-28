@@ -8,6 +8,7 @@ import {
   fillCommand,
   fingerprintTool,
   firstMessage,
+  isObject,
   loadApiRequest,
   normalizeConversation,
   packRun,
@@ -382,7 +383,7 @@ function packGolden(mem: Store, runId: string, group: CoverageGroup, capture: Ru
   if (mode === 'fork' && o.fork) {
     const expect = o.fork.expect;
     editConfigFile(o.projectDir, {}, (data) => {
-      const tests = typeof data.tests === 'object' && data.tests !== null && !Array.isArray(data.tests) ? (data.tests as Record<string, unknown>) : {};
+      const tests: Record<string, unknown> = isObject(data.tests) ? data.tests : {};
       tests[where] = { fork: true, expect };
       data.tests = tests;
     });

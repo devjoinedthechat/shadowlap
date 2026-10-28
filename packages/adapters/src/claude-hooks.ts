@@ -14,6 +14,7 @@
  */
 
 import { frontmatter } from './frontmatter.js';
+import { isObject } from './is-object.js';
 
 /** A hook matcher as the SDK takes one: the tools it picks, its callbacks, and their timeout in seconds. */
 export interface HookMatcherLike {
@@ -24,8 +25,6 @@ export interface HookMatcherLike {
 
 /** A hook callback as the SDK calls one. */
 type Callback = (input: unknown, toolUseID: string | undefined, options: { signal: AbortSignal }) => unknown;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * Whether a matcher picks a tool, by Claude Code's rules: none, "" or "*" pick every tool; one made
@@ -75,7 +74,7 @@ export async function runHooks(matchers: readonly HookMatcherLike[] | undefined,
         const ran = Promise.resolve()
           .then(() => hook(input, toolUseID, { signal: controller.signal }))
           .then(
-            (out): Answer => ({ output: isRecord(out) && out.async !== true ? out : {} }),
+            (out): Answer => ({ output: isObject(out) && out.async !== true ? out : {} }),
             (): Answer => ({ output: {} }),
           );
         return await Promise.race([ran, late]);
@@ -138,10 +137,10 @@ export function combine(answers: readonly Answer[], event: 'PreToolUse' | 'PostT
       continue;
     }
     const o = a.output;
-    const specific = isRecord(o.hookSpecificOutput) ? o.hookSpecificOutput : {};
+    const specific = isObject(o.hookSpecificOutput) ? o.hookSpecificOutput : {};
     const d = event === 'PreToolUse' ? decisionOf(o, specific) : null;
     if (d) decide(d.decision, d.reason);
-    if (event === 'PreToolUse' && isRecord(specific.updatedInput)) out.updatedInput = specific.updatedInput;
+    if (event === 'PreToolUse' && isObject(specific.updatedInput)) out.updatedInput = specific.updatedInput;
     if (event === 'PostToolUse' && 'updatedToolOutput' in specific) out.output = { value: specific.updatedToolOutput };
     if (event === 'PostToolUse' && 'updatedMCPToolOutput' in specific) out.mcpOutput = { value: specific.updatedMCPToolOutput };
     if (typeof specific.additionalContext === 'string' && specific.additionalContext) contexts.push(specific.additionalContext);
@@ -261,8 +260,8 @@ function listDir(fs: Fs, dir: string): string[] {
 
 /** The PreToolUse entries of one settings document, each with a hook. */
 function preToolUse(settings: unknown, source: string, agent?: string): SettingsHook[] {
-  if (!isRecord(settings) || !isRecord(settings.hooks) || !Array.isArray(settings.hooks.PreToolUse)) return [];
-  return settings.hooks.PreToolUse.filter((e): e is Record<string, unknown> => isRecord(e) && Array.isArray(e.hooks) && e.hooks.length > 0).map((e) => ({ source, ...(typeof e.matcher === 'string' ? { matcher: e.matcher } : {}), ...(agent !== undefined ? { agent } : {}) }));
+  if (!isObject(settings) || !isObject(settings.hooks) || !Array.isArray(settings.hooks.PreToolUse)) return [];
+  return settings.hooks.PreToolUse.filter((e): e is Record<string, unknown> => isObject(e) && Array.isArray(e.hooks) && e.hooks.length > 0).map((e) => ({ source, ...(typeof e.matcher === 'string' ? { matcher: e.matcher } : {}), ...(agent !== undefined ? { agent } : {}) }));
 }
 
 /**
@@ -306,7 +305,7 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
   }
   // The query's own settings: an object, JSON text, or a file, as `--settings` takes them.
   for (const given of [places.settings].flat()) {
-    if (isRecord(given)) docs.push({ source: "the query's settings option", data: given, managed: false, scope: 'query' });
+    if (isObject(given)) docs.push({ source: "the query's settings option", data: given, managed: false, scope: 'query' });
     else if (typeof given === 'string' && given.trim()) {
       let parsed: unknown;
       try {
@@ -314,10 +313,10 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
       } catch {
         parsed = read(path.resolve(cwd, given));
       }
-      docs.push({ source: isRecord(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false, scope: 'query' });
+      docs.push({ source: isObject(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false, scope: 'query' });
     }
   }
-  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true, scope: 'managed', host: true });
+  if (isObject(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true, scope: 'managed', host: true });
   return docs;
 }
 
@@ -485,14 +484,14 @@ export interface HookItem {
 
 /** Every hook of every event in one settings document (or a frontmatter's `hooks`, or a plugin's hooks.json). */
 function hookItemsOf(settings: unknown, source: string): HookItem[] {
-  if (!isRecord(settings) || !isRecord(settings.hooks)) return [];
+  if (!isObject(settings) || !isObject(settings.hooks)) return [];
   const out: HookItem[] = [];
   for (const entries of Object.values(settings.hooks)) {
     if (!Array.isArray(entries)) continue;
     for (const e of entries) {
-      if (!isRecord(e) || !Array.isArray(e.hooks)) continue;
+      if (!isObject(e) || !Array.isArray(e.hooks)) continue;
       for (const h of e.hooks) {
-        if (!isRecord(h)) continue;
+        if (!isObject(h)) continue;
         out.push({ source, type: typeof h.type === 'string' ? h.type : 'command', ...(typeof h.command === 'string' ? { command: h.command } : {}), ...(typeof h.url === 'string' ? { url: h.url } : {}) });
       }
     }
@@ -516,7 +515,7 @@ type HooksOn = 'all' | 'managed' | 'none';
  * home folder, off Windows and in a repository the user owns; and a level whose files disagree.
  */
 function hooksOn(docs: readonly SettingsDocument[], ownLocal: string): HooksOn {
-  const said = (d: SettingsDocument) => (isRecord(d.data) && typeof d.data.disableAllHooks === 'boolean' ? d.data.disableAllHooks : undefined);
+  const said = (d: SettingsDocument) => (isObject(d.data) && typeof d.data.disableAllHooks === 'boolean' ? d.data.disableAllHooks : undefined);
   let managed: boolean | undefined;
   for (const d of docs) if (d.managed && !d.host && said(d) !== undefined) managed = said(d);
   if (managed !== undefined) return managed ? 'none' : 'all';

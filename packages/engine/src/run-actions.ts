@@ -1,5 +1,6 @@
 import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
+import { isObject } from './is-object.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
 import type { StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
@@ -299,7 +300,7 @@ export function forkArgs(run: RunRecord, omit: ReadonlySet<string> = new Set()):
     }
   }
   const expect = run.meta?.expect;
-  if (expect && typeof expect === 'object' && !Array.isArray(expect) && !omit.has('--expect')) out.push('--expect', JSON.stringify(expect));
+  if (isObject(expect) && !omit.has('--expect')) out.push('--expect', JSON.stringify(expect));
   return out;
 }
 
@@ -439,8 +440,8 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
     // What a person typed: answer it differently, starting from the recorded reply. Overriding it as
     // a tool result or running it live would mean asking a person again.
     const recorded = context.result;
-    const shaped = recorded && typeof recorded === 'object' && !Array.isArray(recorded) && typeof (recorded as { text?: unknown }).text === 'string';
-    const reply = (v: string) => JSON.stringify(shaped ? { ...(recorded as Record<string, unknown>), text: v } : v);
+    const shaped = isObject(recorded) && typeof recorded.text === 'string';
+    const reply = (v: string) => JSON.stringify(shaped ? { ...recorded, text: v } : v);
     const initial = typeof recorded === 'string' ? recorded : shaped ? (recorded as { text: string }).text : undefined;
     return [
       {

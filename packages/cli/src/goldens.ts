@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { PACK_FORMAT, PACK_LIMITS, type Gate, type Normalizer } from '@shadowlap/engine';
+import { PACK_FORMAT, PACK_LIMITS, isObject, type Gate, type Normalizer } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { judgeChecksOf, specFor, type TestEntry, type TestSpec } from './checks.js';
 import { configPath, loadTests } from './config.js';
@@ -150,7 +150,7 @@ export function rawExpectFor(entries: readonly TestEntry[], recordingDir: string
   try {
     const raw = JSON.parse(readFileSync(configPath(configDir), 'utf8')) as { tests?: Record<string, { expect?: unknown }> };
     const expect = raw.tests?.[key]?.expect;
-    return typeof expect === 'object' && expect !== null && !Array.isArray(expect) ? (expect as Record<string, unknown>) : null;
+    return isObject(expect) ? expect : null;
   } catch {
     return null;
   }

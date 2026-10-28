@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -742,7 +742,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
 /** Where a dashboard export of pairs is written, in the project folder (decision 5). */
 export const PAIRS_EXPORT_FILE = '.shadowlap/exports/pairs.jsonl';
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** Attempts per task Score a model offers; the job takes no other count (the CLI takes any). */
 export const SCORE_ATTEMPTS: readonly number[] = [5, 10];
 const MODEL_NAME = /^[\w.:/@+][\w.:/@+-]{0,199}$/;

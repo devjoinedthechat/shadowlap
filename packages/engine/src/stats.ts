@@ -1,3 +1,4 @@
+import { isObject } from './is-object.js';
 /**
  * Verdicts on runs that vary. A clean replay comes out the same every time; a fork does not, since
  * everything after it runs live. So a forked golden, a verify attempt or a blame probe is a sample,
@@ -142,8 +143,6 @@ export const GATE_MAX_ATTEMPTS = 1000;
 const EPS = 1e-9;
 
 // ---- Parsing ----------------------------------------------------------------------------------
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function onlyKeys(obj: Record<string, unknown>, allowed: readonly string[], where: string): void {
   for (const key of Object.keys(obj)) {

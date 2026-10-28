@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { append, headerMap, importCaptured, type Captured, type ImportResult, type Skip } from './import-capture.js';
 
@@ -39,8 +40,6 @@ export interface LitellmRecord {
 
 const pairs = (raw: Record<string, unknown> | undefined): Array<[string, string]> =>
   Object.entries(raw ?? {}).map(([k, v]) => [k, String(v ?? '')] as [string, string]);
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** What is wrong with a capture record's shape, or null: a line of the wrong shape is skipped with the reason. */
 function recordProblem(r: Record<string, unknown>): string | null {

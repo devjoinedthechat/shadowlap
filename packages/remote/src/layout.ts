@@ -1,4 +1,4 @@
-import { ulid, validateCall, validateRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { isObject, ulid, validateCall, validateRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
 
 /**
  * How runs are laid out in the bucket, under the store's folder:
@@ -91,7 +91,6 @@ const KINDS = new Set(['api', 'tool', 'clock', 'random']);
 const MAX_COVERED_TOOLS = 1000;
 /** A CI provider's name, as ciProvider gives it. */
 const CI_NAME = /^[a-z][a-z0-9-]{0,31}$/;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function fail(where: string, what: string): never {
   throw new LayoutError(`${where}: ${what}`);

@@ -2,6 +2,7 @@ import { hintsFor, isHeaderEntry } from './diff.js';
 import { BUILTIN_STRIPPED_KEYS, isClaudeCodeSession } from './fingerprint.js';
 import { applyNormalizers, compilePattern, parsePath } from './normalize.js';
 import type { DiffEntry, DivergenceReport, Hint, Normalizer } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Values an agent makes anew on every run (a UUID, a ULID, a timestamp, a request id) diverge the
@@ -142,8 +143,6 @@ export function volatileValue(entry: DiffEntry, d: Pick<DivergenceReport, 'kind'
   return null;
 }
 
-const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 /**
  * A field the request carries for the first time, whole (`+ $.metadata {"user_id": "…"}`), as one
  * added entry per value inside it, with paths as the diff writes them. Only a field added by name:
@@ -151,13 +150,13 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => v !== null &
  * a message's) were recorded rather than made anew. Nested objects are followed, arrays are not.
  */
 function addedLeaves(entry: DiffEntry): DiffEntry[] {
-  if (entry.op !== 'added' || !isPlainObject(entry.after) || entry.path.endsWith(']')) return [entry];
+  if (entry.op !== 'added' || !isObject(entry.after) || entry.path.endsWith(']')) return [entry];
   const out: DiffEntry[] = [];
   const walk = (value: Record<string, unknown>, path: string, depth: number) => {
     for (const key of Object.keys(value).sort()) {
       if (out.length >= 50) return;
       const child = value[key];
-      if (isPlainObject(child)) {
+      if (isObject(child)) {
         if (depth < 4) walk(child, `${path}.${key}`, depth + 1);
       } else if (!Array.isArray(child)) {
         out.push({ path: `${path}.${key}`, op: 'added', after: child });

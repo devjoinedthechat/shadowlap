@@ -6,6 +6,7 @@ import { releaseLock, takeLock, type HeldLock } from './lock-file.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
 import { PATTERN_MAX } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * shadowlap.config.json as a file several writers edit: the CLI (`normalize add`, `redact rm`,
@@ -115,7 +116,6 @@ export function ruleNoun(list: RuleList, plural = false): string {
   return NOUN[list][plural ? 1 : 0];
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;
 
 /**

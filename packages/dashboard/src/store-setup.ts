@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import {
   accessPolicy,
@@ -117,7 +118,6 @@ const COMMIT = `git add ${CONFIG_FILE} && git commit -m "Use the team store"`;
 const CI_NAMES: Record<CiProvider, string> = { github: 'GitHub Actions', gitlab: 'GitLab CI', other: 'Other' };
 // Names to fill in, never one a reader could paste: a bucket's name is global, and a stranger may hold it.
 const EXAMPLES: Record<Provider, string> = { s3: 's3://<bucket>/<project>', gcs: 'gs://<bucket>/<project>', azure: 'az://<account>/<container>/<project>', r2: 'r2://<account-id>/<bucket>/<project>' };
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** The setup recorded for a store, as team_sync's data keeps it. */

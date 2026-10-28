@@ -11,6 +11,7 @@ import { normalizeResponse } from './responses.js';
 import { safeLine, safeText } from './text.js';
 import type { CallRecord, Effect, Normalizer } from './types.js';
 import type { RetirementNotice } from './model-retirements.js';
+import { isObject } from './is-object.js';
 
 /**
  * The decision diff (`shadowlap decisions`): each recorded model call asked again with only what a
@@ -780,7 +781,6 @@ export function callLine(name: string, args: unknown, width = 72): string {
  * works; forks fence writes."`, each side cut short. Empty when they are not both objects.
  */
 export function argsDelta(before: unknown, after: unknown, width = 60): string[] {
-  const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
   if (!isObject(before) || !isObject(after)) return [];
   const clip = (v: unknown) => {
     const t = v === undefined ? '—' : JSON.stringify(v);

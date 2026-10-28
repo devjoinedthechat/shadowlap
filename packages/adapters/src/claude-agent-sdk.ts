@@ -2,6 +2,7 @@ import { completeToolCall, resolveToolCall, sayHello, ShadowlapInjectedFailure, 
 import { asOutput, combine, hookRunsFor, matcherPicks, runHooks, settingsPreToolUse, type HookMatcherLike, type SettingsHook, type SettingsPlaces } from './claude-hooks.js';
 import { claudeReach, type ReachOptions } from './claude-reach.js';
 import { toOptions, wrapFirstArg, type EffectSpec } from './core.js';
+import { isObject } from './is-object.js';
 
 /**
  * Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`), and Claude Code headless underneath it.
@@ -131,7 +132,6 @@ type Pending =
   | { kind: 'replayed'; name: string; agent: string; output: unknown; input: Record<string, unknown>; standIn: Record<string, unknown> | null }
   | { kind: 'failure'; name: string; agent: string; input: Record<string, unknown>; standIn: Record<string, unknown> };
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): string => (typeof v === 'string' ? v : '');
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -153,7 +153,7 @@ const ACTS_ON: Readonly<Record<string, string>> = { Bash: 'command', Write: 'fil
  * differs (another hook's rewrite came last). An input Claude Code doesn't show says nothing.
  */
 function ranOther(name: string, ran: unknown, standIn: Record<string, unknown>): boolean {
-  if (!isRecord(ran)) return false;
+  if (!isObject(ran)) return false;
   const field = ACTS_ON[name];
   return field ? ran[field] !== standIn[field] : JSON.stringify(ran) !== JSON.stringify(standIn);
 }
@@ -242,7 +242,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
   async function standIn(name: string, input: Record<string, unknown>, recorded: unknown): Promise<Record<string, unknown> | null> {
     switch (name) {
       case 'Bash': {
-        const cwd = isRecord(recorded) ? text(recorded[CWD]) : '';
+        const cwd = isObject(recorded) ? text(recorded[CWD]) : '';
         // Only what Claude Code tracks of a command: where it left the shell. The builtin, so a cd
         // function or alias the user's shell defines (one that lists the folder, or loads a project's
         // environment) runs nothing.
@@ -269,7 +269,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
   /** The output a stubbed write answers with: the stand-in's, naming the original path rather than the temporary one. */
   function stubOutput(name: string, input: Record<string, unknown>, output: unknown): unknown {
     if (o.onFork) return o.onFork(name, input, output);
-    if (isRecord(output) && typeof output.filePath === 'string' && typeof input.file_path === 'string') return { ...output, filePath: input.file_path };
+    if (isObject(output) && typeof output.filePath === 'string' && typeof input.file_path === 'string') return { ...output, filePath: input.file_path };
     return output;
   }
 
@@ -322,7 +322,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
             return deny(`${name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and ${name} can't be.`);
           }
           const out = await standInOrRefuse(name, agentType, stand, 'shadowlap: a write stubbed after the fork');
-          if (isRecord(out.hookSpecificOutput) && out.hookSpecificOutput.permissionDecision === 'deny') {
+          if (isObject(out.hookSpecificOutput) && out.hookSpecificOutput.permissionDecision === 'deny') {
             await completeToolCall(r.callNo, { outcome: 'error', error: { name: 'ShadowlapWriteBlocked', message: String(out.hookSpecificOutput.permissionDecisionReason) } });
             return out;
           }
@@ -331,7 +331,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
         }
         case 'replayed': {
           if (r.outcome === 'ok') {
-            const output = isRecord(r.result) && CWD in r.result ? Object.fromEntries(Object.entries(r.result).filter(([k]) => k !== CWD)) : r.result;
+            const output = isObject(r.result) && CWD in r.result ? Object.fromEntries(Object.entries(r.result).filter(([k]) => k !== CWD)) : r.result;
             if (effect !== 'write') {
               // A read runs as it is; the model gets the recorded output.
               pending.set(id, { kind: 'replayed', name, agent, output, input: args, standIn: null });
@@ -340,7 +340,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
             const stand = await standIn(name, args, r.result);
             if (!stand) return deny(`shadowlap: ${name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.`);
             const out = await standInOrRefuse(name, agentType, stand, 'shadowlap: a recorded call, replayed');
-            if (!isRecord(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'replayed', name, agent, output, input: args, standIn: stand });
+            if (!isObject(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'replayed', name, agent, output, input: args, standIn: stand });
             return out;
           }
           if (r.injected) return deny(r.error.message);
@@ -349,7 +349,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
           if (failure) {
             const stand = await failingBash(args, failure);
             const out = await standInOrRefuse(name, agentType, stand, 'shadowlap: a recorded failure, replayed');
-            if (!isRecord(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'failure', name, agent, input: args, standIn: stand });
+            if (!isObject(out.hookSpecificOutput) || out.hookSpecificOutput.permissionDecision !== 'deny') pending.set(id, { kind: 'failure', name, agent, input: args, standIn: stand });
             return out;
           }
           return deny(r.error.message);
@@ -373,15 +373,15 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
     // nothing runs, so nothing is recorded or fenced; a rewrite of theirs is what the call runs with.
     const own = combine(await runHooks(o.hooks?.PreToolUse, name, input, toolUseID, options?.signal), 'PreToolUse');
     if (own.decision === 'deny' || own.decision === 'defer' || !effects[name]) return asOutput(own, 'PreToolUse');
-    const args = own.updatedInput ?? (isRecord(input.tool_input) ? input.tool_input : {});
+    const args = own.updatedInput ?? (isObject(input.tool_input) ? input.tool_input : {});
     const out = await fence({ ...input, tool_input: args }, toolUseID ?? text(input.tool_use_id), args);
-    const mine = isRecord(out.hookSpecificOutput) ? out.hookSpecificOutput : null;
+    const mine = isObject(out.hookSpecificOutput) ? out.hookSpecificOutput : null;
     if (!mine) return asOutput(own, 'PreToolUse');
     // The fence has the last word on the input; the more restrictive decision stands, a person's ask over its allow.
     const decision = mine.permissionDecision === 'deny' ? 'deny' : own.decision === 'ask' ? 'ask' : 'allow';
     const reason = decision === own.decision && own.reason !== undefined ? own.reason : String(mine.permissionDecisionReason);
     const { updatedInput: _theirs, ...rest } = own;
-    return asOutput({ ...rest, decision, reason, ...(isRecord(mine.updatedInput) ? { updatedInput: mine.updatedInput } : {}) }, 'PreToolUse');
+    return asOutput({ ...rest, decision, reason, ...(isObject(mine.updatedInput) ? { updatedInput: mine.updatedInput } : {}) }, 'PreToolUse');
   };
 
   /**
@@ -391,7 +391,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
    */
   async function lost(p: Exclude<Pending, { kind: 'live' }>, ran: unknown): Promise<FenceOutput> {
     const field = ACTS_ON[p.name];
-    const what = field && isRecord(ran) ? ` (${field}: ${JSON.stringify(ran[field])})` : '';
+    const what = field && isObject(ran) ? ` (${field}: ${JSON.stringify(ran[field])})` : '';
     const line = `shadowlap: another PreToolUse hook replaced the stand-in Shadowlap gave ${p.name}, so Claude Code ran the call itself${what}: on a replay, that is the recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: see Claude Agent SDK in docs/frameworks.md.`;
     log(line);
     if (p.kind === 'stubbed') await completeToolCall(p.callNo, { outcome: 'error', error: { name: 'ShadowlapFenceLost', message: line } }).catch((err: unknown) => log(`could not record that ${p.name} ran: ${message(err)}`));
@@ -422,7 +422,7 @@ export function fenceHooks(o: FenceOptions = {}): Record<'UserPromptSubmit' | 'P
           const output = input.tool_response;
           // Where a command left the shell is part of what the model sees next: kept for the replay's stand-in.
           const moved = p.name === 'Bash' && typeof input.cwd === 'string' && typeof p.cwd === 'string' && input.cwd !== p.cwd;
-          await completeToolCall(p.callNo, { outcome: 'ok', result: moved && isRecord(output) ? { ...output, [CWD]: input.cwd } : (output ?? null), latencyMs: Date.now() - p.started });
+          await completeToolCall(p.callNo, { outcome: 'ok', result: moved && isObject(output) ? { ...output, [CWD]: input.cwd } : (output ?? null), latencyMs: Date.now() - p.started });
           return await theirs(null, null);
         }
         case 'stubbed': {

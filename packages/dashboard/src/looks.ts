@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageLook } from './coverage.js';
@@ -28,7 +29,6 @@ export interface UpgradeLooks {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const goldenName = (path: string) => path.replace(/^\.\//, '').replace(/^goldens\//, '');
 const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path);
 

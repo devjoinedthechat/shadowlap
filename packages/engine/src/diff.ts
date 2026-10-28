@@ -1,5 +1,6 @@
 import { compilePattern } from './normalize.js';
 import type { DiffEntry, Hint, Normalizer } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Structural diff between two JSON values, for divergence reports.
@@ -13,7 +14,7 @@ export function structuralDiff(before: unknown, after: unknown, path = '$'): Dif
 }
 
 function walk(a: unknown, b: unknown, path: string, out: DiffEntry[]): void {
-  if (isPlainObject(a) && isPlainObject(b)) {
+  if (isObject(a) && isObject(b)) {
     const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
     for (const k of keys) {
       const p = `${path}.${k}`;
@@ -98,10 +99,6 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   const kb = Object.keys(b as object);
   if (ka.length !== kb.length) return false;
   return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** Where two strings first differ, for compact display. */

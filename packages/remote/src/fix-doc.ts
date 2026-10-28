@@ -1,4 +1,4 @@
-import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
+import { canonicalize, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -65,8 +65,6 @@ export const FIXES_PREFIX = 'fixes/';
 export function isFixId(v: unknown): v is string {
   return typeof v === 'string' && FIX_ID.test(v);
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 // ---------------------------------------------------------------------------------------------- shapes
 

@@ -3,6 +3,7 @@ import type { Refusal, ToolFailure } from './interventions.js';
 import { isReservedScope } from './judge-scope.js';
 import type { ReplayOptions } from './session.js';
 import type { CallRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Error-path presets: the failures an agent meets in production that a recording of a healthy run
@@ -110,8 +111,6 @@ export function resultShape(call: Pick<CallRecord, 'meta'>): ResultShape {
   if (call.meta.mcp) return 'mcp';
   return 'value';
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Nothing, keeping the kind of value: an empty list for a list, an empty object, empty text, else null. */
 function emptyOf(v: unknown): unknown {

@@ -1,4 +1,4 @@
-import { unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
+import { isObject, unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
 
 /**
  * What a run did that Shadowlap did not record, read from the run itself, for its page: the tools the
@@ -37,8 +37,6 @@ export interface WebSocketView {
   count: number;
   action: 'tunnelled' | 'refused';
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * The WebSockets a run keeps (`meta.websockets`, as the sidecar's end of a run reports them), checked

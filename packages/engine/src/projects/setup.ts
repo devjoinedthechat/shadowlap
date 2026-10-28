@@ -5,6 +5,7 @@ import { summarizeRun } from '../report.js';
 import type { StoreOf, StoredEvent } from '../store.js';
 import type { Effect, RunRecord, RunStatus } from '../types.js';
 import type { ModelServer } from './record.js';
+import { isObject } from '../is-object.js';
 
 /**
  * Setting a project up: four steps, each a CLI command (inspect with `init`, record with `run`, make
@@ -459,7 +460,6 @@ export interface CalibrationOutcome {
   stopped: string | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
 /**
@@ -472,19 +472,19 @@ const text = (v: unknown): string | null => (typeof v === 'string' && v ? v : nu
  * when calibrate gives it. Null for anything else.
  */
 export function calibrationOutcome(result: unknown, options: { write?: boolean } = {}): CalibrationOutcome | null {
-  if (!isRecord(result)) return null;
+  if (!isObject(result)) return null;
   const r = result;
   if (typeof r.clean !== 'boolean' || !Array.isArray(r.normalizers)) return null;
   const reasons: unknown[] = Array.isArray(r.proposals) ? r.proposals : [];
   const rules = r.normalizers.flatMap((n, i) => {
-    if (!isRecord(n)) return [];
+    if (!isObject(n)) return [];
     const beside = reasons[i];
     // A reason beside the normalizers counts only for the normalizer at its place.
-    const why = text(n.why) ?? (isRecord(beside) && (!isRecord(beside.normalizer) || beside.normalizer.path === n.path) ? text(beside.why) : null);
+    const why = text(n.why) ?? (isObject(beside) && (!isObject(beside.normalizer) || beside.normalizer.path === n.path) ? text(beside.why) : null);
     return [{ path: text(n.path) ?? '(every string)', why }];
   });
   const written = r.written === true || options.write === true;
-  const stopped = isRecord(r.stopped) ? text(r.stopped.why) : null;
+  const stopped = isObject(r.stopped) ? text(r.stopped.why) : null;
   if (!r.clean) return { done: false, added: written ? rules : [], proposed: written ? [] : rules, stopped: stopped ?? 'the replay isn’t clean yet' };
   if (written || !rules.length) return { done: true, added: written ? rules : [], proposed: [], stopped: null };
   return { done: false, added: [], proposed: rules, stopped: null };

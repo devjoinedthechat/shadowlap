@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { GATEWAY_UNCHANGED, isGatewayRequest, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -150,7 +150,7 @@ export function checksOfRun(store: StoreOf<'recording'>, run: RunRecord, cwd: st
 export function expectJson(raw: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(raw.startsWith('@') ? readFileSync(raw.slice(1), 'utf8') : raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+    return isObject(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }

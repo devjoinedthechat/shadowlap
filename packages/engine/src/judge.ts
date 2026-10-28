@@ -3,6 +3,7 @@ import { canonicalize } from './canonical.js';
 import { maskClock, maskClockText, type ClockMode, type ClockReference } from './clock.js';
 import { normalizeConversation, type Turn } from './conversation.js';
 import { runConversations } from './conversations.js';
+import { isObject } from './is-object.js';
 import { agentCallsOf } from './judge-scope.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
@@ -584,7 +585,7 @@ export function readVerdict(bytes: Buffer | null, contentType: string | undefine
   } catch {
     return { error: `the judge answered no verdict${said}${stopped}` };
   }
-  const o = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  const o: Record<string, unknown> = isObject(parsed) ? parsed : {};
   const verdict = typeof o.verdict === 'string' ? o.verdict.trim().toLowerCase() : null;
   if (verdict !== 'yes' && verdict !== 'no') return { error: `the judge answered no verdict${said}${stopped}` };
   return { verdict, reason: typeof o.reason === 'string' ? o.reason.trim().replace(/\s+/g, ' ') : '' };

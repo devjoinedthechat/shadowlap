@@ -1,4 +1,5 @@
 import { num, shortId } from '../format.js';
+import { isObject } from '../is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
 
@@ -41,7 +42,7 @@ export function blameOfferFor(offers: Pick<RunOffers, 'blame'> | null, f: BlameF
   const failed = f.failed;
   if (!failed.length && f.status !== 'failed') return null;
   if (f.fixExpect !== undefined && f.fixExpect !== null) return { from: 'fix', expect: f.fixExpect, failed };
-  if (failed.length && f.ownExpect && typeof f.ownExpect === 'object' && !Array.isArray(f.ownExpect)) return { from: 'run', expect: f.ownExpect, failed };
+  if (failed.length && isObject(f.ownExpect)) return { from: 'run', expect: f.ownExpect, failed };
   if (failed.length) return { from: 'ask', failed };
   return { from: 'exit', expect: null, failed };
 }

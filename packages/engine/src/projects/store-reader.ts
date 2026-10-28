@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { isObject } from '../is-object.js';
 import { RECORDING_RUNS_SQL, SCHEMA_VERSION, rowToRun, splitRecordingRuns, type StoredEvent } from '../store.js';
 import type { RunRecord } from '../types.js';
 import { emptyStoreFacts, storeFacts, type FactsSource, type GoldenTestFact, type StoreFacts } from './setup.js';
@@ -105,7 +106,7 @@ function parseData(raw: unknown): Record<string, unknown> | null {
   if (typeof raw !== 'string') return null;
   try {
     const value = JSON.parse(raw) as unknown;
-    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+    return isObject(value) ? value : null;
   } catch {
     return null;
   }

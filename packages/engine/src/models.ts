@@ -3,6 +3,7 @@ import type { TaskScoreRow } from './store.js';
 import { takeoverRefusal, type TakeoverTarget } from './takeover.js';
 import { averageTokens, type Task } from './tasks.js';
 import type { Usage } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Models to score on the tasks: the model the recordings used, every model each configured provider
@@ -66,7 +67,6 @@ export interface ListModelsInput {
 export const OFFICIAL = { anthropic: 'https://api.anthropic.com', openai: 'https://api.openai.com/v1' } as const;
 const OLLAMA = 'http://127.0.0.1:11434';
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const trim = (u: string) => u.trim().replace(/\/+$/, '');
 
 /** Whether a URL is on this machine. */

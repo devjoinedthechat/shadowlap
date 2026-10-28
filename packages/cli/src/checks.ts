@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, isObject, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { parseChaosFields } from './chaos-config.js';
 
 /**
@@ -226,10 +226,6 @@ export interface CheckResult {
 }
 
 const CONFIG = 'shadowlap.config.json';
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function onlyKeys(obj: Record<string, unknown>, allowed: string[], where: string): void {
   for (const key of Object.keys(obj)) {

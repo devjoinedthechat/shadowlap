@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import type { CallRecord } from '@shadowlap/engine';
 import { sseDataObjects } from './providers.js';
 
@@ -16,7 +17,6 @@ import { sseDataObjects } from './providers.js';
  */
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** What to do with a live Responses call. */
 export type Continuation =

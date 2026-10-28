@@ -1,4 +1,5 @@
 import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAIOptions } from './translate.js';
+import { isObject } from './is-object.js';
 
 /**
  * OpenAI's Responses API at a takeover (E8), on OpenAI or Azure OpenAI: a recorded `responses` call
@@ -15,7 +16,6 @@ import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAI
  */
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v));
 
 function toolId(raw: unknown, fallback: () => string): string {

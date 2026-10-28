@@ -4,6 +4,7 @@ import { loadApiRequest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
 import type { StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Tools the model called that Shadowlap never recorded. A recording holds every model answer, and
@@ -43,8 +44,6 @@ export interface UnrecordedOptions {
 
 /** The key under `tools` in shadowlap.config.json that declares the effect of tools Shadowlap doesn't record; no tool's trust. */
 export const UNRECORDED_KEY = 'unrecorded';
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * `"tools": { "unrecorded": { "Bash": "write", "lookup_kb": "read" } }`, checked: the effect of each

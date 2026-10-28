@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, isObject, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -284,7 +284,7 @@ function offeredTools(store: StoreOf<'recording'>, calls: readonly CallRecord[],
     if (c.kind !== 'api' || !c.requestRef) continue;
     try {
       const body = loadApiRequest(store, c.requestRef);
-      if (body && typeof body === 'object' && !Array.isArray(body)) for (const name of toolDefinitions(body as Record<string, unknown>).keys()) offered.add(name);
+      if (isObject(body)) for (const name of toolDefinitions(body).keys()) offered.add(name);
     } catch {
       // an unreadable request offers nothing we can name
     }

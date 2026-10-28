@@ -1,4 +1,5 @@
-import { epochMs, epochNs, isObject, maybeJson, providerRequest, str, type Trace } from './import-trace.js';
+import { isObject } from '@shadowlap/engine';
+import { epochMs, epochNs, maybeJson, providerRequest, str, type Trace } from './import-trace.js';
 import { EXIT } from './exit-codes.js';
 import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fetch.js';
 import { readStoredSpans, type StoredSpan } from './import-otel.js';

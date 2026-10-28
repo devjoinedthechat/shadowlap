@@ -1,6 +1,7 @@
 import { rewriteJsonDocument } from './json-doc.js';
 import { compilePattern, countMatches, rewriteText, type RewriteObserver, type UnmaskedAt } from './normalize.js';
 import type { Normalizer } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Streamed model responses send their text in pieces: an address the model writes back arrives as
@@ -12,8 +13,6 @@ import type { Normalizer } from './types.js';
  * pieces after it. The text each run adds up to is then exactly the masked text, so every reader of
  * the stream (an SDK, the dashboard, a replay of the copy) sees the masked text.
  */
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** One piece of streamed text: `holder[key]`, a string, is a piece of the run named `run`. */
 export interface StreamPiece {

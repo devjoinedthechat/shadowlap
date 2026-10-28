@@ -11,6 +11,7 @@ import { RecordingsError, deleteRecordings, storeFilesToDelete } from './recordi
 import { isConfirmedCommand, modelServerFinding, type ModelServer } from './record.js';
 import { earlierStage, emptyStoreFacts, initialSetup, isSetupStage, laterStage, stageAtLeast, unwrappedTools, type Inspection, type SetupFindings, type SetupStage, type StoreFacts } from './setup.js';
 import { readStoreFacts } from './store-reader.js';
+import { isObject } from '../is-object.js';
 
 /**
  * The projects opened in the dashboard on this machine: `projects.json` in Shadowlap's home folder
@@ -135,7 +136,6 @@ interface State {
   projects: ProjectEntry[];
 }
 
-const isObject = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 

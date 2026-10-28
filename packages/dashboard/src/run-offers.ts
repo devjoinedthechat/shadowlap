@@ -1,4 +1,4 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, isObject, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
@@ -77,8 +77,6 @@ export interface RunOffersInput {
   /** The commit the project's HEAD is at, for Find the commit on a run that passed; null outside git. */
   head?: string | null;
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
   if (typeof raw !== 'string' || !raw.trim()) return null;

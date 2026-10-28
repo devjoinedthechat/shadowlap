@@ -1,3 +1,4 @@
+import { isObject } from './is-object.js';
 /**
  * What a path into a model request points at, in words: a difference reads as `tool_result
  * lookup_policy` rather than `$.messages[14].content[0].content`. A message is named by its role,
@@ -18,7 +19,6 @@ interface Place {
   inner?: RegExp;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
 /** Ends a wrapper at a segment boundary: `.content` but not `.contents`. */

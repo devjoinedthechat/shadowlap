@@ -1,6 +1,5 @@
 import { crc32 } from 'node:zlib';
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+import { isObject } from './is-object.js';
 
 /** One AWS event stream frame: its header bytes, its payload, and the frame as it was. */
 export interface EventStreamFrame {

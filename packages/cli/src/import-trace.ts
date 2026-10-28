@@ -1,4 +1,4 @@
-import { canonicalize, safeLine, type StoreOf } from '@shadowlap/engine';
+import { canonicalize, isObject, safeLine, type StoreOf } from '@shadowlap/engine';
 import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 import { readPythonRepr } from './python-repr.js';
 
@@ -122,8 +122,6 @@ export interface Trace {
 }
 
 // ---------------------------------------------------------------------------------------------- reading what sources log
-
-export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A JSON string parsed, or the value as it is. */
 export function maybeJson(v: unknown): unknown {

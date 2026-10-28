@@ -1,4 +1,4 @@
-import { ACCOUNT_HEADERS, eventStreamMessages, type Usage } from '@shadowlap/engine';
+import { ACCOUNT_HEADERS, eventStreamMessages, isObject, type Usage } from '@shadowlap/engine';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from './placeholders.js';
 
 /**
@@ -141,10 +141,6 @@ const stainlessRetryable = (status: number) => status === 408 || status === 409 
 
 function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** Yields the parsed `data:` payload of each SSE event. Tolerates partial trailing data and `[DONE]`. */

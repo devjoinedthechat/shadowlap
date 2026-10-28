@@ -1,4 +1,4 @@
-import { dropBound } from '@shadowlap/engine';
+import { dropBound, isObject } from '@shadowlap/engine';
 
 /**
  * What a verdict's JSON may say beyond its tally, read for the Fixes pages when it says it: a gate's
@@ -10,7 +10,7 @@ import { dropBound } from '@shadowlap/engine';
  */
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const record = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+const record = (v: unknown): Record<string, unknown> | null => (isObject(v) ? v : null);
 const count = (v: unknown): number | null => (finite(v) && Number.isInteger(v) && v >= 0 ? v : null);
 
 /** A gate's result as the pages read it: how its bound was computed, and the attempts not tallied because the provider was unavailable. */

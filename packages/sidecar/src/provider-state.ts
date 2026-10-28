@@ -1,4 +1,4 @@
-import { isRawNumber, multipartContents, type CallRecord } from '@shadowlap/engine';
+import { isObject, isRawNumber, multipartContents, type CallRecord } from '@shadowlap/engine';
 
 /**
  * What a recording left on a provider's side, besides a Responses conversation (responses-state.ts),
@@ -21,7 +21,6 @@ import { isRawNumber, multipartContents, type CallRecord } from '@shadowlap/engi
  */
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? (v as unknown[]) : []);
 
 const MB = 1024 * 1024;

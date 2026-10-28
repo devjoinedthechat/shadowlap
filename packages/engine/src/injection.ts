@@ -7,6 +7,7 @@ import { atLeast, atMost, rateBound, riskPercent, tallyInterval, type Gate } fro
 import type { Refusal } from './interventions.js';
 import { applyNormalizers } from './normalize.js';
 import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Causal injection tests: the pure half of `shadowlap injection`. An attacker leaves text where an
@@ -21,8 +22,6 @@ import type { CallRecord, Effect, Normalizer, Trust } from './types.js';
  *
  * Everything here is a function of recorded values; the CLI runs the replays (packages/cli/src/injection.ts).
  */
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 // ---- trust ----
 

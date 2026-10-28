@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect, SerializedError } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
-import { processAlive } from '@shadowlap/engine';
+import { isObject, processAlive } from '@shadowlap/engine';
 // A request's body, whole or not at all (body.ts in the engine).
 import { BodyTooLarge, readBody } from '@shadowlap/engine';
 import { ancestorsOf, findRegistration, isLoopbackUrl, lookupDirs, lookupRegistration, parentRegistration, peerProcess, processAncestors, registeredRuns, type SidecarLookup, type SidecarTarget } from './agent-registry.js';
@@ -137,7 +137,6 @@ export function openWorld(annotations: McpTool['annotations']): boolean {
   return annotations?.openWorldHint === true;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const idKey = (id: JsonRpcId) => `${typeof id}:${String(id)}`;
 const isRequest = (m: unknown): m is JsonRpcMessage & { id: JsonRpcId; method: string } => isObject(m) && m.id !== undefined && m.id !== null && typeof m.method === 'string';
 const isToolCall = (m: unknown) => isRequest(m) && m.method === 'tools/call';

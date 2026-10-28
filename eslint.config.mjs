@@ -37,6 +37,24 @@ const JS = ['**/*.{js,mjs,cjs}'];
 /** The JavaScript that is tests: agents and fakes the tests run, and the harnesses under testing/. */
 const JS_TESTS = ['packages/*/test/**/*.{js,mjs,cjs}', 'testing/**/*.{js,mjs,cjs}'];
 
+/**
+ * What the code says one way, each ban with the message that names that way, for no-restricted-syntax.
+ * The rule takes one list, and a block that sets it replaces the list an earlier block gave: each block
+ * below names, with `bans`, every ban its files are held to.
+ */
+const BANS = {
+  // The engine's isObject is the one test for a plain object. The adapters and the dashboard's browser
+  // code, which can't load the engine, each have a copy in is-object.ts.
+  isObject: [
+    {
+      selector: ':matches(FunctionDeclaration, VariableDeclarator)[id.name=/^(isObject|isRecord|isPlainObject|plainObject)$/]',
+      message: "Import isObject from '@shadowlap/engine' (or the package's own is-object.ts) instead of defining another.",
+    },
+  ],
+};
+/** no-restricted-syntax with the bans named. */
+const bans = (...names) => ['error', ...names.flatMap((name) => BANS[name])];
+
 export default defineConfig(
   globalIgnores([
     '**/dist/**',
@@ -110,6 +128,7 @@ export default defineConfig(
 
       // A destructuring that declares one variable to reassign keeps the others beside it.
       'prefer-const': ['error', { destructuring: 'all' }],
+      'no-restricted-syntax': bans('isObject'),
 
       // Off, each for its reason:
       // TypeScript keeps a variable narrowed when a callback assigns it (a flag a signal handler sets, the
@@ -164,6 +183,13 @@ export default defineConfig(
         { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: true, allowRegExp: true, allowNever: false, allowArray: false },
       ],
     },
+  },
+
+  // The test for a plain object, and its copies where the engine can't be loaded: the adapters and the
+  // browser code, and @shadowlap/test's recording.ts, whose CommonJS copy loads only its own files.
+  {
+    files: ['packages/engine/src/is-object.ts', 'packages/adapters/src/is-object.ts', 'packages/dashboard/ui/is-object.ts', 'packages/test/src/recording.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
   },
 
   // The packages under testing/ are fakes and a reference agent: a fake implements an async interface

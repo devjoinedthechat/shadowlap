@@ -21,6 +21,7 @@ import {
   gitApplyCommand,
   GOOD_LABEL,
   hasRecordedCommand,
+  isObject,
   NO_REPAIRER,
   noRepairerOf,
   outcomeOf,
@@ -2270,13 +2271,11 @@ export interface BlameCheck {
   from: 'replay' | 'config' | 'fix' | 'labels' | 'exit';
 }
 
-const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** The checks a run failed, as it recorded them (`meta.checks`). */
 export function failedChecks(run: RunRecord): string[] {
   const checks: unknown = run.meta?.checks;
   if (!Array.isArray(checks)) return [];
-  return checks.flatMap((c) => (plainObject(c) && c.ok === false && typeof c.label === 'string' ? [c.label] : []));
+  return checks.flatMap((c) => (isObject(c) && c.ok === false && typeof c.label === 'string' ? [c.label] : []));
 }
 
 /**
@@ -2285,11 +2284,11 @@ export function failedChecks(run: RunRecord): string[] {
  * names one. `tests` is the config's `tests` as written; `configDir` the folder it is in.
  */
 export function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
-  if (!plainObject(tests)) return undefined;
+  if (!isObject(tests)) return undefined;
   const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
   for (const dir of recordingsOfRun(store, run)) {
     const entry = testsEntryFor(entries, dir, configDir);
-    if (entry) return plainObject(entry.spec) && plainObject(entry.spec.expect) ? entry.spec.expect : undefined;
+    if (entry) return isObject(entry.spec) && isObject(entry.spec.expect) ? entry.spec.expect : undefined;
   }
   return undefined;
 }
@@ -2304,7 +2303,7 @@ export function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests:
  */
 export function blameCheckFor(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
   const judged = run.meta?.expect;
-  if (plainObject(judged)) return { expect: judged, from: 'replay' };
+  if (isObject(judged)) return { expect: judged, from: 'replay' };
   const configured = options.configDir ? configExpect(store, run, options.tests, options.configDir) : undefined;
   if (configured) return { expect: configured, from: 'config' };
   const failing = fixOfRun(store, run.runId);

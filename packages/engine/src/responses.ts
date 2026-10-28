@@ -12,6 +12,7 @@ import type { CallRecord } from './types.js';
  */
 
 import { applyDeltas, type Block, type Delta } from './deltas.js';
+import { isObject } from './is-object.js';
 
 export { applyDeltas, type Block, type Delta } from './deltas.js';
 
@@ -27,7 +28,6 @@ export interface NormalizedResponse {
 }
 
 const RAW_CAP = 512 * 1024;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function parseJsonText(s: string): unknown {
   try {

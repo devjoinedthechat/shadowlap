@@ -1,5 +1,6 @@
+import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
-import { epochMs, isObject, str } from './import-trace.js';
+import { epochMs, str } from './import-trace.js';
 import { EXIT } from './exit-codes.js';
 import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fetch.js';
 import { TRACE_ID } from './import-logfire.js';

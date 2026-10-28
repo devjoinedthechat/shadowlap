@@ -1,6 +1,7 @@
 import { approx } from '../format.js';
 import { commandText } from '../goldens.js';
 import type { BlameStep, CandidateVerdict, FixBundle, FixDetail, FixRow, RepairStep, StepKey, VerifyMore, VerifyRow, VerifyStep } from '../types.js';
+import { isObject } from '../is-object.js';
 
 /**
  * How the Fixes pages read a fix: which rows a filter keeps, which step and verdict a URL opens, the
@@ -740,8 +741,6 @@ export function inlineParts(text: string): Array<{ code: boolean; text: string }
 
 // ---------------------------------------------------------------------------------------------- the job drawer
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
  * command reported: "lost at #5 · exit 0", "no fix found · exit 1", "applied · tests passed · exit 0".
@@ -751,15 +750,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  */
 export function fixJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
   const r = job.result;
-  if (job.code === null || !isRecord(r)) return null;
+  if (job.code === null || !isObject(r)) return null;
   const exit = `exit ${job.code}`;
   const tone = job.code === 0 ? 'ok' : 'err';
   if (job.kind === 'blame') {
-    const blamed = isRecord(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
+    const blamed = isObject(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
     if (r.outcome === 'blamed' && blamed !== null) return { text: `lost at #${blamed} · ${exit}`, tone };
     if (r.outcome === 'unrescuable') {
       // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".
-      const first = Array.isArray(r.probes) && isRecord(r.probes[0]) ? r.probes[0] : null;
+      const first = Array.isArray(r.probes) && isObject(r.probes[0]) ? r.probes[0] : null;
       const unsettled = first?.decision === 'inconclusive' && !r.sameAnswer && !r.failedWrite;
       return { text: `${unsettled ? 'not settled' : 'not rescued'} · ${exit}`, tone: job.code === 0 ? 'warn' : 'err' };
     }
@@ -767,7 +766,7 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
     return null;
   }
   if (job.kind === 'repair') {
-    if (r.outcome === 'fixed') return { text: `${isRecord(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
+    if (r.outcome === 'fixed') return { text: `${isObject(r.error) ? 'fixed, not handed over' : 'fixed'} · ${exit}`, tone };
     if (r.outcome === 'not-fixed') {
       const unasked = typeof r.noRepairer === 'string' && r.noRepairer.trim() !== '' && !(Array.isArray(r.candidates) && r.candidates.length);
       return unasked ? { text: `repairer not asked · ${exit}`, tone: 'warn' } : { text: `no fix found · ${exit}`, tone: 'err' };
@@ -795,8 +794,8 @@ export interface OutdatedGolden {
 
 /** The goldens a fix apply's result lists as diverging on what its patch changed (`outdated`), well formed only. */
 export function outdatedOf(result: unknown): OutdatedGolden[] {
-  const list = isRecord(result) && Array.isArray(result.outdated) ? result.outdated : [];
-  return list.filter((g): g is OutdatedGolden => isRecord(g) && typeof g.golden === 'string' && g.golden !== '' && typeof g.callNo === 'number' && typeof g.path === 'string');
+  const list = isObject(result) && Array.isArray(result.outdated) ? result.outdated : [];
+  return list.filter((g): g is OutdatedGolden => isObject(g) && typeof g.golden === 'string' && g.golden !== '' && typeof g.callNo === 'number' && typeof g.path === 'string');
 }
 
 /**

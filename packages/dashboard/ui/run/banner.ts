@@ -1,4 +1,5 @@
 import { num } from '../format.js';
+import { isObject } from '../is-object.js';
 import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
@@ -264,7 +265,7 @@ function argsOf(json: string | undefined): Record<string, unknown> | null {
   if (!json) return null;
   try {
     const v: unknown = JSON.parse(json);
-    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    return isObject(v) ? v : null;
   } catch {
     return null;
   }

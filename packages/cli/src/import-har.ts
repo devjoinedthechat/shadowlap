@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import type { StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
@@ -25,7 +26,6 @@ const epoch = (iso: unknown): number | undefined => {
   return Number.isNaN(t) ? undefined : t;
 };
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const textOrNone = (v: unknown) => v === undefined || typeof v === 'string';
 
 function headersProblem(list: unknown, where: string): string | null {

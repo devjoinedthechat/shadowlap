@@ -13,6 +13,7 @@ import type { StoreOf } from './store.js';
 import { isModelRequest } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Preference pairs, read from what blame, verify and `--repeat` already left in the store. A pair is
@@ -117,7 +118,6 @@ type ChunkedManifest = Extract<RequestManifest, { kind: 'chunked' }>;
 const squash = (s: string) => s.trim().replace(/\s+/g, ' ');
 const short = (id: string) => id.slice(0, 10);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A run as a source names it: its first label, or its short id. */
 function runName(run: RunRecord): string {

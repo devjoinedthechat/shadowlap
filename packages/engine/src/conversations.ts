@@ -7,6 +7,7 @@ import { normalizeResponse } from './responses.js';
 import { parseSse } from './sse.js';
 import type { Store, StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Conversations within a run. A run can hold many: an overnight batch works through forty tickets
@@ -76,8 +77,6 @@ export interface ConversationOptions {
 }
 
 const NONE: CallConversation = Object.freeze({ conversation: null, starts: false, requestedBy: null, toolUseId: null });
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Requests that are not a turn of a conversation: embeddings, token counts, model listings, moderation. */
 const NOT_A_CONVERSATION = /embed|count_?tokens|countTokens|\/moderations\b|\/models\/?(?:\?|$)|\/rerank\b/i;

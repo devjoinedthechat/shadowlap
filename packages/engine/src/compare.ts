@@ -18,6 +18,7 @@ import { oneLine, runInterventions, type InterventionFlag } from './run-facts.js
 import { safeLine, safeText } from './text.js';
 import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DiffEntry, Hint, RunRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Two runs side by side, call by call: where their requests first differ, and where identical
@@ -126,8 +127,6 @@ interface RunShape {
   models: Set<string>;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** Tool definitions by name, in each provider's shape: Anthropic, OpenAI Chat and Responses, Gemini, Bedrock Converse. */
 export function toolDefinitions(body: Record<string, unknown>): Map<string, unknown> {
   const out = new Map<string, unknown>();
@@ -187,7 +186,6 @@ export function runChanges(store: StoreOf<'recording'>, a: RunRecord, aCalls: Ca
     code: { a: a.codeVersion, b: b.codeVersion },
   };
 }
-
 
 /**
  * A call's request as Compare reads it, as a divergence report shows it (reportable): each number as

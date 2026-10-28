@@ -2,6 +2,7 @@ import {
   CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
+  isObject,
   Lru,
   hasRecordedCommand,
   isJudgeCall,
@@ -515,7 +516,6 @@ export interface RunPageFacts {
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
 
 // A run can come from someone else's pack: what its metadata says is checked before it is shown.
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);

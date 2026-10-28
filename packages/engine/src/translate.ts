@@ -1,3 +1,4 @@
+import { isObject } from './is-object.js';
 /**
  * Another provider at the takeover. A recording holds each model request in its provider's shape,
  * and `--model k:<model>` only changes the `model` field, which works while the new model speaks the
@@ -27,7 +28,6 @@
 export type ChatShape = 'anthropic' | 'openai-chat' | 'openai-responses' | 'converse' | 'gemini';
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v));
 
 /** A Bedrock model id from a call's path, decoded: `anthropic.claude-sonnet-5-v1:0`, an inference profile, or an ARN. */

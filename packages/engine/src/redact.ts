@@ -11,6 +11,7 @@ import { redactRunFacts } from './run-facts.js';
 import { storeView, type Store, type StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
+import { isObject } from './is-object.js';
 
 type RunCheck = NonNullable<RunMeta['checks']>[number];
 
@@ -54,8 +55,6 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  * there is told instead (RedactRunOptions.signed, the preview's `signed` reason). A copy that is only
  * read masks it like any other text.
  */
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON;
@@ -873,8 +872,6 @@ export function redactArgv(argv: readonly string[], rules: readonly Normalizer[]
   return args;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * A run's own record with the rules without a path applied to what a person or a command line
  * wrote in it, outside its calls: the command line (as one text, redactArgv) and its folder,
@@ -885,7 +882,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {
   if (!rules.some((r) => r.path === undefined && r.pattern !== undefined)) return run;
   const text = (value: string) => rewriteText(value, rules);
-  const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isRecord(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
+  const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isObject(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
   const out: RunRecord = { ...run, command: { ...run.command, argv: redactArgv(run.command.argv, rules), cwd: text(run.command.cwd) } };
   const meta = run.meta;
   if (meta) {
@@ -893,12 +890,12 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     // each part is masked where it has the shape it should, its strings wherever they are otherwise.
     const m: RunMeta = { ...meta };
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
-    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
-    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isRecord(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
-    if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
-    if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
+    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isObject(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isObject(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isObject(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
+    if (isObject(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (isObject(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
-    if (isRecord(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
+    if (isObject(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
     out.meta = m;
   }
   const d = run.divergence;
