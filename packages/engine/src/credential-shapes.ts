@@ -321,8 +321,9 @@ function leadingSpace(text: string, at: number): number {
 }
 
 /**
- * Lines of JSON (NDJSON, JSON Lines): two or more lines, each a JSON object or array (or blank),
- * each masked by `maskLine`. Null when it isn't lines of JSON, or nothing changed.
+ * Lines of JSON (NDJSON, JSON Lines): two or more lines that are each a JSON object or array, each
+ * masked by `maskLine`. A line that isn't one (a log line among them, a blank one) is left as it
+ * is, and the others are read all the same. Null when it holds fewer than two, or nothing changed.
  */
 export function maskJsonLines(text: string, maskLine: (line: string) => string | null | undefined): string | null {
   const lines = text.split('\n');
@@ -331,10 +332,9 @@ export function maskJsonLines(text: string, maskLine: (line: string) => string |
   for (let k = 0; k < lines.length; k++) {
     const line = lines[k]!;
     const body = line.endsWith('\r') ? line.slice(0, -1) : line;
-    if (!body.trim()) continue;
-    if (!/^\s*[{[]/.test(body)) return null;
+    if (!/^\s*[{[]/.test(body)) continue;
     const masked = maskLine(body);
-    if (masked === undefined) return null;
+    if (masked === undefined) continue;
     docs++;
     if (masked !== null) {
       lines[k] = masked + (line.endsWith('\r') ? '\r' : '');
@@ -344,34 +344,68 @@ export function maskJsonLines(text: string, maskLine: (line: string) => string |
   return docs >= 2 && changed ? lines.join('\n') : null;
 }
 
-/** A line of an event stream: a comment, or a field (`data`, `event`, `id`, `retry`) and its value. */
-const SSE_LINE = /^(?::.*|(data|event|id|retry)(?::( ?)(.*))?)$/;
+/**
+ * A line of an event stream: a comment, or a field and its value. A field other than `data`,
+ * `event`, `id` and `retry` is one a client ignores, as the standard has it.
+ */
+const SSE_LINE = /^(?::.*|([A-Za-z][\w-]*)(?::( ?)(.*))?)$/;
+
+/** One `data:` line of an event: where it is, how it was written, and its payload. */
+interface DataLine {
+  k: number;
+  space: string;
+  cr: boolean;
+  payload: string;
+}
 
 /**
- * A text/event-stream body (SSE), each `data:` line's payload masked by `maskData` (a JSON payload
- * as JSON), every other line as it was. Null when it isn't an event stream (no `data:` line, or a
- * line that is no field), or nothing changed.
+ * A text/event-stream body (SSE), each event's data masked by `maskData` (a JSON payload as JSON),
+ * every other line as it was. An event's data is its `data:` lines' payloads joined with line
+ * breaks, as a client reads it, so JSON written across several of them is read whole; a byte-order
+ * mark may open the stream. Null when it isn't an event stream (no `data:` line, or a line that is
+ * no field), or nothing changed.
  */
 export function maskEventStream(text: string, maskData: (payload: string) => string | null): string | null {
-  const lines = text.split('\n');
+  const bom = BOM.exec(text)?.[0] ?? '';
+  const lines = text.slice(bom.length).split('\n');
   let data = false;
   let changed = false;
+  let event: DataLine[] = [];
+  const write = (d: DataLine, payload: string) => {
+    lines[d.k] = `data:${d.space}${payload}${d.cr ? '\r' : ''}`;
+    changed = true;
+  };
+  // An event's data, masked whole; when that masks it into other lines, each line on its own.
+  const ended = () => {
+    const joined = event.map((d) => d.payload).join('\n');
+    const masked = event.length ? maskData(joined) : null;
+    if (masked !== null && masked !== joined) {
+      const parts = masked.split('\n');
+      if (parts.length === event.length) event.forEach((d, j) => parts[j] !== d.payload && write(d, parts[j]!));
+      else
+        for (const d of event) {
+          const one = maskData(d.payload);
+          if (one !== null && one !== d.payload) write(d, one);
+        }
+    }
+    event = [];
+  };
   for (let k = 0; k < lines.length; k++) {
     const line = lines[k]!;
     const cr = line.endsWith('\r');
     const body = cr ? line.slice(0, -1) : line;
-    if (!body) continue;
+    if (!body) {
+      ended();
+      continue;
+    }
     const m = SSE_LINE.exec(body);
     if (!m) return null;
     if (m[1] !== 'data' || m[3] === undefined) continue;
     data = true;
-    const masked = maskData(m[3]);
-    if (masked !== null && masked !== m[3]) {
-      lines[k] = `data:${m[2] ?? ''}${masked}${cr ? '\r' : ''}`;
-      changed = true;
-    }
+    event.push({ k, space: m[2] ?? '', cr, payload: m[3] });
   }
-  return data && changed ? lines.join('\n') : null;
+  ended();
+  return data && changed ? bom + lines.join('\n') : null;
 }
 
 const XML_ENTITIES: Readonly<Record<string, string>> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };

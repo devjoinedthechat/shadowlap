@@ -45,3 +45,20 @@ describe('JSON among other text', () => {
     expect(leftIn(maskTextCredentials(`${open(50)}"x"}} {"token":"${S('LATE')}"}`) ?? '')).toEqual([]);
   });
 });
+
+describe('an event stream and lines of JSON', () => {
+  it("reads an event's data lines joined, as a client does, past a field it ignores and a byte-order mark", () => {
+    const across = `event: token\ndata: {"access_token":\ndata: "${S('SSEMULTI')}", "expires_in": 3600}\n\ndata: [DONE]\n\n`;
+    expect(maskTextCredentials(across)).toBe(`event: token\ndata: {"access_token":\ndata: "${C}", "expires_in": 3600}\n\ndata: [DONE]\n\n`);
+    expect(maskTextCredentials(`foo: bar\ndata: ${tok('SSEUNKNOWN')}\n\n`)).toBe(`foo: bar\ndata: ${MASKED}\n\n`);
+    expect(maskTextCredentials(`\uFEFFdata: ${tok('SSEBOM')}\n\n`)).toBe(`\uFEFFdata: ${MASKED}\n\n`);
+    // Each event apart, a line each, as before.
+    expect(maskTextCredentials(`data: ${tok('SSEA')}\n\ndata: ${tok('SSEB')}\n\n`)).toBe(`data: ${MASKED}\n\ndata: ${MASKED}\n\n`);
+    expect(maskTextCredentials('data: {"text":"hi"}\n\n')).toBeNull();
+  });
+
+  it('masks each line of JSON with a line that is none among them, left as it is', () => {
+    expect(maskTextCredentials(`${tok('NDLOGA')}\nINFO done\n${tok('NDLOGB')}\n`)).toBe(`${MASKED}\nINFO done\n${MASKED}\n`);
+    expect(maskTextCredentials(`{"ok":true}\nnot json\n{"name":"refund"}\n`)).toBeNull();
+  });
+});

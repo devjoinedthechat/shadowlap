@@ -22,9 +22,10 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * credential member, and by the names added since (a cookie, lists of credentials). 6: and in its
  * address's path (a webhook's secret, a credential path parameter), which its name masks too, and
  * by the names a query or form carries one under (a session, a ticket, a secret key). 7: and in
- * the JSON objects among other text (after a comment, before `;`, in a page's script).
+ * the JSON objects among other text (after a comment, before `;`, in a page's script). 8: and in an
+ * event's data read across its lines, and lines of JSON with other lines among them.
  */
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
