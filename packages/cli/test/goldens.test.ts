@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { packRun, Store, storeApiRequest, unpackRun } from '@shadowlap/engine';
 import { parseTests } from '../src/checks.js';
-import { givenCommand } from '../src/commands/testing.js';
+import { givenCommand } from '../src/shared.js';
 import { importGolden } from '../src/golden-test.js';
 import { expandRecordings, goldenMode, goldenName, listGoldens, projectGoldens, rawExpectFor, readPackHead, testsKeyFor } from '../src/goldens.js';
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { formatSummary, formatTokens, plain, Store, summarizeRepeats, summarizeRun, wholeInput, type CallRecord, type Usage } from '@shadowlap/engine';
-import { passedLine } from '../src/commands/testing.js';
+import { passedLine } from '../src/commands/test-session.js';
 import type { GoldenOutcome } from '../src/golden-test.js';
 import { packResult } from '../src/golden-test.js';
 import { describeCall, usageOf } from '../src/shared.js';

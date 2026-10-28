@@ -215,6 +215,14 @@ export function ancestorsOf(store: StoreOf<'recording'>, run: RunRecord): RunRec
   return out;
 }
 
+/** The command as it was given, without the global options before it: `['shadowlap', 'test', 'goldens/*']`. */
+export function givenCommand(argv: readonly string[], name: string): string[] {
+  const args = argv.slice(2);
+  let i = 0;
+  while (i < args.length && args[i]!.startsWith('-') && args[i] !== name) i += args[i] === '--db' ? 2 : 1;
+  return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
+}
+
 export function parseIntArg(value: string): number {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n) || n < 1) throw new InvalidArgumentError('must be a positive integer');
