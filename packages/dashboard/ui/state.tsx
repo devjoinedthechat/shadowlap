@@ -227,6 +227,8 @@ export function useLayer(kind: LayerKind, open: boolean, close: () => void): voi
 }
 
 const POLL_MS = 2000;
+/** How soon the run list is asked again while some of its rows' totals are being added up. */
+export const RUNS_WARMING_MS = 1500;
 
 export function AppProvider({ client, children }: { client: Client; children: ReactNode }) {
   const preview = useMemo(() => previewState(), []);
@@ -291,6 +293,23 @@ export function AppProvider({ client, children }: { client: Client; children: Re
     },
     [client, jobsNow, toast],
   );
+
+  // Rows whose totals the warm-up is still adding up (a long run's, `warming`): the list is asked
+  // again a moment later, quietly, until they are; nothing moved, so no page loads again.
+  const warmingRuns = runs?.some((r) => r.warming && r.status !== 'running') ?? false;
+  useEffect(() => {
+    if (!warmingRuns || client.exported) return;
+    const t = setTimeout(() => {
+      client.runs().then(
+        (list) => {
+          listed.current = list;
+          setRuns(list);
+        },
+        () => undefined,
+      );
+    }, RUNS_WARMING_MS);
+    return () => clearTimeout(t);
+  }, [warmingRuns, runs, client]);
 
   // Where the change feed stands now, asked before a load of the run list so the poll after it
   // reloads only for what moved since (`feedCursor`). Without it the first poll would load the runs,

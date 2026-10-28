@@ -18,7 +18,7 @@ import { loadRunIndex } from './run-index.js';
 import { analyseRun } from './run-page.js';
 import { asksFor, asksOf, warmProgress, warmRunStats } from './run-stats.js';
 import type { RunsPageRow } from './routes/runs-list.js';
-import { listRunsPage, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
+import { listRunsPage, rowsWarming, runsByDay, type RunsByDayOptions, type RunsPageOptions } from './runs-list.js';
 import { searchBehind, searchRecorded, type SearchAnswer } from './search-hits.js';
 import { setupUnderWay } from './store-setup.js';
 import { localRunSet, teamStoreStatus, type TeamStoreInput } from './team-store.js';
@@ -232,8 +232,12 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
         const key = job.options.types?.includes('local') ? teamKey(store, job.team) : null;
         return answer(runsByDay(store, { ...job.options, known: !whole, localRuns: key ? localRunSet(store, key) : null }), { tagged: true });
       }
-      case 'recent':
-        return answer({ runs: listRuns(store, job.read) }, { tagged: true });
+      case 'recent': {
+        // The rows' totals as far as they are known: the sidebar asks again while some are warming.
+        const runs = listRuns(store, { ...job.read, known: !whole });
+        const warming = rowsWarming(runs);
+        return answer({ runs, ...(warming ? { warming } : {}) }, { tagged: true });
+      }
       case 'differences': {
         const run = lookupRun(store, job.runId);
         if (!run) return noRun(store, job.runId);

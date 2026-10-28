@@ -2,9 +2,9 @@ import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, 
 import type { RunListItem } from './api.js';
 import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
-import { aboutsOf, knownAbouts } from './run-about.js';
+import { aboutsOf, knownAbouts, rowAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { callTotals, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
+import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
 /**
  * The Runs page: a page of the table at a time, the 12-week calendar above it, and the bulk
@@ -81,6 +81,11 @@ export interface RunRow extends RunListItem {
   origins: string;
   /** Attempts bundled under this run, those bundled under them in turn included: what deleting it takes with it. */
   attempts: number;
+  /**
+   * Its totals (what it spent, its calls by origin) aren't worked out yet: too long to add up inside
+   * the request, they come with the warm-up beside the server, or once a recording ends.
+   */
+  warming?: true;
   /** The model call blame found lost the run. */
   lostAt: number | null;
   checks: { passed: number; total: number } | null;
@@ -321,9 +326,10 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   }
   const page = keyed.slice(start, start + limit);
   const last = page[page.length - 1];
-  const warming = texts.pending ? { done: texts.of - texts.pending, total: texts.of } : totals && unknownSpent ? totals : null;
+  const listed = rows(store, index, page.map((x) => x.r), options);
+  const warming = texts.pending ? { done: texts.of - texts.pending, total: texts.of } : totals && unknownSpent ? totals : rowsWarming(listed);
   return {
-    runs: rows(store, index, page.map((x) => x.r), options),
+    runs: listed,
     total: matching.length,
     next: last && start + limit < keyed.length ? encodeCursor(last.k) : null,
     chipCounts: chipCounts(all, m.scope, options.localRuns ?? null),
@@ -331,15 +337,24 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
   };
 }
 
-/** Rows of the table for these runs, with their statistics and origins. */
-export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions = {}): RunRow[] {
-  const totals = callTotals(store, index, runs);
-  const abouts = aboutsOf(store, index, runs);
+/**
+ * Rows of the table for these runs, with their statistics and origins. With `known` (a read beside
+ * the server), the totals not worked out yet are read here only for runs that fit `ROW_CALLS_BUDGET`
+ * calls in all, the newest first: a row whose run is longer says its totals are on their way
+ * (`warming`), which the warm-up works out beside the server and the table asks for again. Two runs
+ * of 100,000 calls a store had never added up held the sidebar 9.4 s and Runs 10.6 s, and both
+ * threads with them.
+ */
+export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean } = {}): RunRow[] {
+  const { totals, later } = options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
+  const waiting = new Set(later.map((r) => r.runId));
+  const abouts = options.known ? rowAbouts(store, index, runs, waiting) : aboutsOf(store, index, runs);
   return runs.map((r) => {
     const t = totals.get(r.runId);
     const s = t ? priced(t, options.prices) : null;
     const c = classifiable(r);
     return {
+      ...(waiting.has(r.runId) ? { warming: true as const } : {}),
       runId: r.runId,
       parentRunId: r.parentRunId,
       depth: depthOf(index, r),
@@ -376,9 +391,23 @@ export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[],
   });
 }
 
+/** The most calls a request that lists runs reads to add up the totals of the rows it answers with (`rows`). */
+export const ROW_CALLS_BUDGET = 5000;
+
+/**
+ * How far the totals of these rows are worked out, when some finished run's aren't yet: the page asks
+ * again until they are. A recording's come once it ends, so it is no reason to ask again.
+ */
+export function rowsWarming(listed: readonly RunRow[]): { done: number; total: number } | null {
+  const waiting = listed.filter((r) => r.warming && r.status !== 'running').length;
+  return waiting ? { done: listed.length - waiting, total: listed.length } : null;
+}
+
 // ---- the sidebar ----
 
 export interface RecentRunsOptions extends StatsOptions {
+  /** Read beside the server: the rows' totals not worked out yet are left to the warm-up (`rows`). */
+  known?: boolean;
   /** How many of the newest runs to list: 500 unless asked. */
   limit?: number;
   /** List attempts too, each under the run it came from. */

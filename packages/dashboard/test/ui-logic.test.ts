@@ -11,7 +11,7 @@ import { ACTION_ORDER, highlight, indexingNote, limitRecorded, matchPalette, run
 import { callDetail, modelCallOf, resultLine, ticksFor, timelineOf, timeOf, tokensText, turnCalls, turnsOf, type CallLike } from '../ui/run/calls.js';
 import { indexCalls, notWaited, recordedDuration, type DurationCall } from '../ui/recorded.js';
 import { GO_KEYS, href, nextView, parseRoute, readTokenLink, routeHref, tokenLinkStep } from '../ui/route.js';
-import { bundlesAttempts, compareTarget, defaultComparePair, isFailed, kindWord, matchesChip, matchesText, runOutcome, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
+import { bundlesAttempts, compareTarget, defaultComparePair, familyLine, isFailed, kindWord, matchesChip, matchesText, runOutcome, runSpent, runStatus, runSubline, runSublineParts, runTree, runType, sideLine, sortRuns, TREE_DEPTH, treeLines, type RunLike } from '../ui/runs.js';
 import { inScope, scopeChips, scopeCount, scopesOf } from '../ui/scopes.js';
 import { binCalls, gridCells, miniCells, stripCells, type StripItem } from '../ui/strip.js';
 
@@ -486,6 +486,9 @@ describe('runs', () => {
     expect(matchesText(labelled, 'label:refund')).toBe(false);
     expect(matchesText(labelled, 'clean label:refund-flow')).toBe(true);
     expect(matchesText(labelled, 'label:Good')).toBe(false);
+    // A long run's totals still being added up: what it spent is on its way, never $0.
+    expect(runSpent({ ...clean, spent: 0, warming: true }).text).toBe('…');
+    expect(familyLine({ ...base, spent: 0, warming: true })).toMatch(/· …$/);
     // A label with a space in it: its chip quotes it, and the link it writes lists the runs labelled so.
     const spaced = { ...clean, labels: ['needs review'] };
     expect(labelTerm('needs review')).toBe('label:"needs review"');

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
-import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
+import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, ROW_CALLS_BUDGET, rowsWarming, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
+import { callTotals } from '../src/run-stats.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
 import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
 
@@ -623,6 +624,41 @@ describe('a golden replayed several times in one test session', () => {
       expect(local.allRuns().map((r) => r.runId).sort()).toEqual([golden, other, odd].sort());
     } finally {
       local.close();
+    }
+  });
+});
+
+describe('rows whose totals were never added up', () => {
+  it('answers at once with what is known, a long run’s totals left to the warm-up and said to be on their way', () => {
+    const store = Store.open(':memory:');
+    try {
+      const NOW_ = Date.now();
+      // Two long runs no read added up, and a short one: one request reads the short one's calls only.
+      const longA = addRun(store, { startedAt: NOW_ - 3 * HOUR, calls: 'l'.repeat(ROW_CALLS_BUDGET - 1000) + 'r'.repeat(1001) });
+      const longB = addRun(store, { startedAt: NOW_ - 2 * HOUR, calls: 'r'.repeat(ROW_CALLS_BUDGET + 1) });
+      const short = addRun(store, { startedAt: NOW_ - HOUR, calls: 'lrl' });
+      const reads = vi.spyOn(store, 'getCalls');
+      const page = listRunsPage(store, { known: true });
+      const row = (id: string) => page.runs.find((r) => r.runId === id)!;
+      // The short run read whole; of the long ones, only the first calls their about lines quote.
+      const read = (id: string) => reads.mock.calls.filter(([runId]) => runId === id).map(([, range]) => range ?? 'whole');
+      expect([read(short), read(longA), read(longB)]).toEqual([['whole'], [{ after: 0, limit: 50 }], [{ after: 0, limit: 50 }]]);
+      expect(row(short)).toMatchObject({ origins: 'lrl' });
+      expect(row(short)).not.toHaveProperty('warming');
+      expect([row(longA), row(longB)]).toEqual([expect.objectContaining({ warming: true, origins: '', spent: 0 }), expect.objectContaining({ warming: true, origins: '', spent: 0 })]);
+      expect(page.warming).toEqual({ done: 1, total: 3 });
+      // The sidebar's list says the same.
+      expect(rowsWarming(recentRuns(store, { known: true }))).toEqual({ done: 1, total: 3 });
+      reads.mockRestore();
+      // Once the warm-up has added them up, they are as any run's, and nothing is on its way.
+      const index = loadRunIndex(store);
+      callTotals(store, index, index.runs);
+      const after = listRunsPage(store, { known: true });
+      expect(after.warming).toBeUndefined();
+      expect(after.runs.find((r) => r.runId === longB)).toMatchObject({ origins: 'r'.repeat(ROW_CALLS_BUDGET + 1) });
+      expect(after.runs.some((r) => r.warming)).toBe(false);
+    } finally {
+      store.close();
     }
   });
 });

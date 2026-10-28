@@ -1,7 +1,7 @@
 import { createElement, Fragment, useEffect } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Changes, Client, Meta, RunListItem } from '../ui/api.js';
-import { AppProvider, useApp, useAppSelector } from '../ui/state.js';
+import { AppProvider, RUNS_WARMING_MS, useApp, useAppSelector } from '../ui/state.js';
 import { render, type Rendered } from './ui-render.js';
 
 /**
@@ -81,5 +81,30 @@ describe('re-rendering on what the shell polls', () => {
     expect(renders.loaded).toBe(2);
     // Nothing it reads changed: drawn once.
     expect(renders.actions).toBe(1);
+  });
+});
+
+describe('a run list whose totals are being added up', () => {
+  it('is asked for again, quietly, until they are: no page loads again for it', async () => {
+    vi.stubGlobal('location', { search: '', hash: '#/', pathname: '/', host: '127.0.0.1:4777' });
+    const { client } = quietClient();
+    // A long run's totals come with the warm-up: the first two lists say they are on their way.
+    let asked = 0;
+    const row = (warming: boolean) => ({ runId: '01K4ZQ8D2M6V7N9P3R5T7W9X1Y', status: 'completed', calls: 100_000, spent: warming ? 0 : 1.25, ...(warming ? { warming: true } : {}) });
+    const warmingClient = { ...client, runs: () => Promise.resolve([row(++asked < 3)] as unknown as RunListItem[]) };
+    const seen: Array<{ tick: number; spent: number | undefined; warming: boolean }> = [];
+    function Runs() {
+      const runs = useAppSelector((a) => a.runs);
+      const tick = useAppSelector((a) => a.runsTick);
+      if (runs) seen.push({ tick, spent: runs[0]?.spent, warming: !!runs[0]?.warming });
+      return null;
+    }
+    r = await render(createElement(AppProvider, { client: warmingClient, children: createElement(Runs) }));
+    await r.until('the totals', () => seen.some((x) => !x.warming));
+    await r.wait(RUNS_WARMING_MS + 100);
+    expect(asked).toBe(3);
+    expect(seen.at(-1)).toMatchObject({ spent: 1.25, warming: false });
+    // Nothing moved: the pages keyed on the run list's tick never load again for it.
+    expect(new Set(seen.map((x) => x.tick)).size).toBe(1);
   });
 });

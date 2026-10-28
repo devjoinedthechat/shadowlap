@@ -294,10 +294,30 @@ export function totalsKnown(store: Store, index: RunIndex, runs: readonly Indexe
  * The totals of `runs`: from memory, from the store, or worked out from their calls (and then kept,
  * for a finished run).
  */
-export function callTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>): Map<string, CallTotals> {
+export function callTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number } = {}): Map<string, CallTotals> {
+  return callTotalsWithin(store, index, runs, o).totals;
+}
+
+/**
+ * The totals of `runs`, those not known worked out from their calls only while the calls read stay
+ * within `budget` (all of them with none given): a request that lists runs answers at once, and says
+ * which runs it left out (`later`), the warm-up working out a long finished run's beside the server
+ * and a recording's coming once it ends. Runs are worked out in the order given, each that would go
+ * past what is left of the budget left out.
+ */
+export function callTotalsWithin(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number } = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
   const k = keptFor(store);
-  const { out, unknown: todo } = knownTotals(store, index, runs);
-  if (!todo.length) return out;
+  const { out, unknown } = knownTotals(store, index, runs);
+  let room = o.budget ?? Infinity;
+  const todo: IndexedRun[] = [];
+  const later: IndexedRun[] = [];
+  for (const r of unknown) {
+    if (r.calls <= room) {
+      todo.push(r);
+      room -= r.calls;
+    } else later.push(r);
+  }
+  if (!todo.length) return { totals: out, later };
 
   const fresh = sumCalls(store, index, todo);
   k.runsRead += todo.length;
@@ -313,7 +333,7 @@ export function callTotals(store: Store, index: RunIndex, runs: Iterable<Indexed
     keep.push({ runId: r.runId, key: keyOf(r), stats: JSON.stringify(totals) });
   }
   keepStats(store, keep);
-  return out;
+  return { totals: out, later };
 }
 
 /**
