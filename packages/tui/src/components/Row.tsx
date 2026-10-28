@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
-import { truncate } from '../render.js';
+import { safeLine } from '@shadowlap/engine';
+import { cells as widthOf, truncate } from '../render.js';
 import { useTheme } from '../theme.js';
 
 /** A run of text in one style; color undefined is the terminal's own foreground. */
@@ -26,16 +27,21 @@ export function cell(text: string, width: number, style: Omit<Span, 'text'> = {}
 /** The selected row of the focused pane, the selected row of the other one, or neither. */
 export type Selection = 'focus' | 'blur' | null;
 
-/** The spans of a cell cut and padded to its width. */
+/**
+ * The spans of a cell cut and padded to its width, in terminal columns. Every span is made safe
+ * first: what a row shows comes from recordings, packs and teammates' runs, and an escape sequence in
+ * a label or a command would otherwise reach the terminal (OSC 52 writes the clipboard).
+ */
 function fit(c: Cell): Span[] {
   const room = Math.max(0, c.width - (c.gap ?? 1));
   const out: Span[] = [];
   let used = 0;
   for (const s of c.spans) {
     if (used >= room) break;
-    const t = s.text.length > room - used ? truncate(s.text, room - used) : s.text;
+    const safe = safeLine(s.text);
+    const t = widthOf(safe) > room - used ? truncate(safe, room - used) : safe;
     out.push({ ...s, text: t });
-    used += t.length;
+    used += widthOf(t);
   }
   const pad = ' '.repeat(Math.max(0, c.width - used));
   if (c.align === 'right') return [{ text: pad }, ...out];
@@ -54,7 +60,7 @@ export function Row({ cells, width, selected = null }: { cells: Cell[]; width: n
   const band = selected === 'focus';
   const bg = band ? t.band : selected === 'blur' ? t.selection : undefined;
   const spans = cells.filter((c) => c.width > 0).flatMap(fit);
-  const used = spans.reduce((n, s) => n + s.text.length, 0);
+  const used = spans.reduce((n, s) => n + widthOf(s.text), 0);
   return (
     <Box height={1} width={width} flexShrink={0}>
       <Text wrap="truncate" {...(bg ? { backgroundColor: bg } : {})}>

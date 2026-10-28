@@ -22,6 +22,8 @@ interface Props {
   onQuit: () => void;
   onHelp: () => void;
   openDashboard?: OpenDashboard;
+  /** Help is open over it: it keeps its state and takes no keys. */
+  paused?: boolean;
 }
 
 type Mode = { kind: 'list' } | { kind: 'search'; before: string } | { kind: 'confirm-delete'; runId: string; attempts: number };
@@ -83,12 +85,15 @@ function detailItems(n: RunNode): string[] {
     n.captured ? `≈${formatUsd(n.captured)} of traffic captured` : '',
     n.saved ? `${formatUsd(n.saved)} not re-spent` : '',
     r.divergence ? (r.divergence.type === 'ended_early' ? `ended early at #${r.divergence.callNo}` : `diverged at #${r.divergence.callNo} (${r.divergence.type})`) : '',
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    // From the recording, a pack or a teammate: shown with any escape sequence made visible.
+    .map(safeLine);
 }
 
 const ID = 10;
 
-export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard }: Props) {
+export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false }: Props) {
   const theme = useTheme();
   const [query, setQuery] = useState('');
   const visible = useMemo(() => {
@@ -145,7 +150,11 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (key.escape) {
         if (query) setQuery('');
         else onQuit();
-      } else if (input === 'q') onQuit();
+        return;
+      }
+      // Ctrl and Alt chords are none of these keys (Ctrl-G is not g).
+      if (key.ctrl || key.meta) return;
+      if (input === 'q') onQuit();
       else if (input === '?') onHelp();
       else if (input === '/') setMode({ kind: 'search', before: query });
       else if (key.downArrow || input === 'j') setSelected((s) => Math.min(visible.length - 1, s + 1));
@@ -158,7 +167,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       else if (input === 'o' && current) toDashboard(current.run.runId);
       else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId, attempts: attemptsOf?.(current.run.runId) ?? 0 });
     },
-    { isActive: mode.kind !== 'search' },
+    { isActive: mode.kind !== 'search' && !paused },
   );
 
   // Columns sized to what the shown runs hold, then fitted to the width: the least telling go

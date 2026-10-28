@@ -54,22 +54,29 @@ export function themeFromOsc11(reply: string): 'dark' | 'light' | null {
 /** A Primary Device Attributes answer, `ESC [ ? … c`, which every VT100-style terminal sends. */
 const DA1 = /\x1b\[\?[\d;]*c/;
 
+/** How long to wait for the answer: a round trip, which over SSH can take longer than on this machine. */
+export function queryTimeout(env: NodeJS.ProcessEnv): number {
+  return env.SSH_CONNECTION || env.SSH_TTY ? 3000 : 1000;
+}
+
 /**
  * Asks the terminal for its background colour, then for its device attributes. Terminals answer in
  * order, and every one answers the second, so its answer means the first won't come: nothing is
  * left to arrive later as stray keys. Resolves with what came back, or null without a TTY or an
- * answer in time. Keys typed in those few milliseconds are dropped.
+ * answer in time. Keys typed in those few milliseconds are dropped, except Ctrl-C, which still stops
+ * the program. With no answer in time the terminal stays in raw mode, as the UI wants it next, so an
+ * answer that comes later is never echoed on the screen.
  */
 export function queryTerminal(stdin: NodeJS.ReadStream, stdout: NodeJS.WriteStream, timeoutMs = 1000): Promise<string | null> {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== 'function') return Promise.resolve(null);
   return new Promise((resolve) => {
     let reply = '';
     const wasRaw = stdin.isRaw;
-    const finish = () => {
+    const finish = (answered: boolean) => {
       clearTimeout(timer);
       stdin.off('data', onData);
       try {
-        stdin.setRawMode(wasRaw);
+        if (answered) stdin.setRawMode(wasRaw);
       } catch {
         // A terminal that went away: there is nothing to restore.
       }
@@ -78,16 +85,19 @@ export function queryTerminal(stdin: NodeJS.ReadStream, stdout: NodeJS.WriteStre
     };
     const onData = (chunk: Buffer | string) => {
       reply += chunk.toString();
-      if (DA1.test(reply)) finish();
+      if (reply.includes('\x03')) {
+        finish(true);
+        process.kill(process.pid, 'SIGINT');
+      } else if (DA1.test(reply)) finish(true);
     };
-    const timer = setTimeout(finish, timeoutMs);
+    const timer = setTimeout(() => finish(false), timeoutMs);
     try {
       stdin.setRawMode(true);
       stdin.on('data', onData);
       stdin.resume();
       stdout.write('\x1b]11;?\x1b\\\x1b[c');
     } catch {
-      finish();
+      finish(true);
     }
   });
 }
@@ -97,6 +107,6 @@ export async function detectTheme({ env = process.env, stdin = process.stdin, st
   if (asked) return asked;
   const depth = typeof stdout.getColorDepth === 'function' ? stdout.getColorDepth(env) : 8;
   if (depth < 8) return 'ansi';
-  const reply = await queryTerminal(stdin, stdout, timeoutMs);
+  const reply = await queryTerminal(stdin, stdout, timeoutMs ?? queryTimeout(env));
   return (reply ? themeFromOsc11(reply) : null) ?? themeFromColorFgBg(env.COLORFGBG) ?? 'ansi';
 }

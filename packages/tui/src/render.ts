@@ -1,10 +1,51 @@
 import { safeText, type Block, type Turn, type TurnBlock } from '@shadowlap/engine';
 /** Text rendering helpers: wrapping, truncation, JSON and message content blocks as lines. */
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+/** East Asian Wide and Fullwidth: Hangul Jamo, CJK, kana, Hangul syllables, compatibility and fullwidth forms, the supplementary ideographs. */
+const WIDE = /^[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6\u{1F200}-\u{1F2FF}\u{20000}-\u{3FFFD}]/u;
+const ZERO = /^[\p{Mn}\p{Me}\p{Cf}\p{Cc}]+$/u;
+const PICTURE = /\p{Extended_Pictographic}/u;
+const SHOWN_AS_EMOJI = /\p{Emoji_Presentation}|\uFE0F/u;
+
+/** Columns one character (a grapheme cluster) takes: two for CJK and emoji, none for a mark or a control. */
+function graphemeWidth(g: string): number {
+  if (ZERO.test(g)) return 0;
+  if (PICTURE.test(g) && SHOWN_AS_EMOJI.test(g)) return 2;
+  return WIDE.test(g) ? 2 : 1;
+}
+
+/**
+ * Columns a string takes in a terminal, as the layout engine counts them: two for CJK and emoji,
+ * none for a combining mark, one for the rest. Measured here, with Node's own Unicode tables, so the
+ * terminal UI brings nothing more from npm than Ink and React.
+ */
+export function cells(s: string): number {
+  if (/^[\x20-\x7e]*$/.test(s)) return s.length;
+  let w = 0;
+  for (const { segment } of graphemes.segment(s)) w += graphemeWidth(segment);
+  return w;
+}
+
+/** The longest start of `s` that fits in `width` columns, cut between whole characters. */
+function fitCells(s: string, width: number): string {
+  let out = '';
+  let used = 0;
+  for (const { segment } of graphemes.segment(s)) {
+    const w = graphemeWidth(segment);
+    if (used + w > width) break;
+    out += segment;
+    used += w;
+  }
+  return out;
+}
+
+/** `s` in at most `width` terminal columns, with `…` where it was cut; hidden characters shown as escapes. */
 export function truncate(s: string, width: number): string {
   s = safeText(s);
-  if (width <= 1) return s.slice(0, Math.max(0, width));
-  return s.length > width ? s.slice(0, width - 1) + '…' : s;
+  if (cells(s) <= width) return s;
+  if (width <= 1) return fitCells(s, Math.max(0, width));
+  return fitCells(s, width - 1) + '…';
 }
 
 /**
@@ -13,12 +54,12 @@ export function truncate(s: string, width: number): string {
  */
 export function fitItems(items: readonly string[], width: number, sep = ' · '): string {
   const all = items.join(sep);
-  if (all.length <= width) return all;
+  if (cells(all) <= width) return all;
   const more = `${sep}…`;
   let shown = '';
   for (const item of items) {
     const next = shown ? `${shown}${sep}${item}` : item;
-    if (next.length + more.length > width) break;
+    if (cells(next) + more.length > width) break;
     shown = next;
   }
   return shown ? `${shown}${more}` : truncate(all, width);
@@ -74,7 +115,7 @@ export function wrap(text: string, width: number): string[] {
   const w = Math.max(8, width);
   const out: string[] = [];
   for (const para of text.split('\n')) {
-    if (para.length <= w) {
+    if (cells(para) <= w) {
       out.push(para);
       continue;
     }
@@ -83,13 +124,18 @@ export function wrap(text: string, width: number): string[] {
     const inner = w - indent.length;
     let line = '';
     for (const word of para.trimStart().split(' ')) {
-      if (word.length > inner) {
+      if (cells(word) > inner) {
         if (line) out.push(indent + line);
         line = '';
-        for (let i = 0; i < word.length; i += inner) out.push(indent + word.slice(i, i + inner));
+        // A word wider than the line (a URL, a run of CJK) is cut between whole characters.
+        for (let rest = word; rest; ) {
+          const piece = fitCells(rest, inner) || [...rest][0]!;
+          out.push(indent + piece);
+          rest = rest.slice(piece.length);
+        }
         continue;
       }
-      if ((line + ' ' + word).trim().length > inner) {
+      if (cells((line + ' ' + word).trim()) > inner) {
         out.push(indent + line);
         line = word;
       } else {
@@ -108,7 +154,7 @@ export function jsonLines(value: unknown, width: number, maxLines = 4000): strin
   } catch {
     text = String(value);
   }
-  const lines = text.split('\n').flatMap((l) => (l.length > width ? wrap(l, width) : [l]));
+  const lines = text.split('\n').flatMap((l) => (cells(l) > width ? wrap(l, width) : [l]));
   return lines.length > maxLines ? [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`] : lines;
 }
 

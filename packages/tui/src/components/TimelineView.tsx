@@ -4,11 +4,11 @@ import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
-import { formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
+import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, modelAction, runLabel, type ModelAction } from '../data.js';
 import { divergenceSummary } from '../diff.js';
-import { fitColumns, fitItems } from '../render.js';
+import { cells, fitColumns, fitItems } from '../render.js';
 import { displayOrigin, kindLabel, useTheme } from '../theme.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
 import { Inspector, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
@@ -38,6 +38,8 @@ interface Props {
   initialCall?: number;
   /** Price table and model resolver for cost estimates. */
   summaryOptions?: SummaryOptions;
+  /** Help is open over it: it keeps its state and takes no keys. */
+  paused?: boolean;
 }
 
 type Mode =
@@ -46,8 +48,8 @@ type Mode =
   | { kind: 'prompt'; action: Action }
   /** A replay of someone else's run, asked once more on its own: the exact command line it runs, then a yes. */
   | { kind: 'consent'; action: Action; args: string[] }
-  /** Filtering as you type; Esc puts back the filter from before. */
-  | { kind: 'search'; before: string }
+  /** Filtering as you type; Esc puts back the filter and the selection from before. */
+  | { kind: 'search'; before: string; beforeNo: number | null }
   | { kind: 'output'; title: string; child: ChildProcess };
 
 function matches(c: CallRecord, f: Filter): boolean {
@@ -80,10 +82,47 @@ function scopeOf(c: CallRecord): string {
   return typeof c.meta.scope === 'string' ? c.meta.scope : '';
 }
 
+/**
+ * The footer's keys, in the order they are shown: `? help` first, so a narrow terminal still says
+ * where the rest are. A key that does nothing for the run or the call in front of you (`d` on a run
+ * that didn't fork) is left out.
+ */
+export const TIMELINE_KEYS: readonly Hint[] = [
+  ['?', 'help'],
+  [':', 'fork'],
+  ['d', 'diff'],
+  ['/', 'filter'],
+  ['z', 'zoom'],
+  ['[ ]', 'notable'],
+  ['space', 'play'],
+  ['o', 'dashboard'],
+  ['y', 'copy'],
+  ['w', 'write'],
+  ['p', 'parent'],
+  ['f', 'origins'],
+  ['q', 'back'],
+];
+export const INSPECTOR_KEYS: readonly Hint[] = [
+  ['?', 'help'],
+  ['j/k', 'scroll'],
+  ['tab', 'next tab'],
+  ['z', 'zoom'],
+  ['y', 'copy'],
+  ['h', 'calls'],
+  ['q', 'back'],
+];
+/** What the fork menu's footer says before its keys. */
+export const FORK_MENU_LEAD = 'a letter runs its action';
+export const FORK_MENU_KEYS: readonly Hint[] = [
+  ['enter', 'run'],
+  ['j/k', 'move'],
+  ['esc', 'close'],
+];
+
 /** A row of the call list: a call, or the line drawn where the run forked from its parent. */
 type Item = { kind: 'call'; at: number } | { kind: 'fork' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -93,13 +132,20 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
 
   // What a filter searches and what a model call did, worked out once a call: a call's record
   // doesn't change once it has ended, and a run still recording only adds calls.
+  const details = useRef(new Map<string, string>());
   const searched = useRef(new Map<string, string>());
   const actions = useRef(new Map<string, ModelAction>());
   const keyOf = (c: CallRecord) => `${c.callNo}:${c.end ? 1 : 0}`;
+  const detailOf = (c: CallRecord) => {
+    const k = keyOf(c);
+    let d = details.current.get(k);
+    if (d === undefined) details.current.set(k, (d = rowDetail(store, c, modelOf)));
+    return d;
+  };
   const searchText = (c: CallRecord) => {
     const k = keyOf(c);
     let s = searched.current.get(k);
-    if (s === undefined) searched.current.set(k, (s = `${c.name} ${rowDetail(store, c, modelOf)} ${displayOrigin(c)} ${scopeOf(c)}`.toLowerCase()));
+    if (s === undefined) searched.current.set(k, (s = `${c.name} ${kindLabel[c.kind] ?? c.kind} ${detailOf(c)} ${c.end?.meta.stopReason ?? ''} ${displayOrigin(c)} ${scopeOf(c)}`.toLowerCase()));
     return s;
   };
   const actionOf = (c: CallRecord) => {
@@ -114,15 +160,38 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     return calls.filter((c) => matches(c, filter) && (!q || searchText(c).includes(q)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- searchText reads only the store and the call, which its cache keys
   }, [calls, filter, query]);
+  // A run that ended early forked past its last call: it opens at that last call.
+  const atFork = !!divergence && initialCall === divergence.callNo;
   const [initialIndex] = useState(() => {
     const i = initialCall !== undefined ? calls.findIndex((c) => c.callNo === initialCall) : -1;
+    if (i < 0 && atFork && divergence?.type === 'ended_early') return Math.max(0, calls.length - 1);
     return i >= 0 ? i : 0;
   });
-  const [selected, setSelected] = useState(initialIndex);
+  // The selected call, by its number: a filter that hides it, and clears again, leaves it selected.
+  const [selectedNo, setSelectedNo] = useState<number | null>(() => calls[initialIndex]?.callNo ?? null);
+  const selected = useMemo(() => {
+    if (!visibleCalls.length || selectedNo === null) return 0;
+    // Hidden by the filter: the nearest call after it that is shown stands in, or the last one.
+    const i = visibleCalls.findIndex((c) => c.callNo >= selectedNo);
+    return i >= 0 ? i : visibleCalls.length - 1;
+  }, [visibleCalls, selectedNo]);
+  const select = (i: number) => {
+    const c = visibleCalls[Math.max(0, Math.min(visibleCalls.length - 1, i))];
+    if (c) setSelectedNo(c.callNo);
+  };
+  /** Moves from the latest selection, so keys pressed faster than a frame (a held j) each count. */
+  const move = (by: number | 'first' | 'last') =>
+    setSelectedNo((no) => {
+      if (!visibleCalls.length) return no;
+      let i = no === null ? 0 : visibleCalls.findIndex((c) => c.callNo >= no);
+      if (i < 0) i = visibleCalls.length - 1;
+      const to = by === 'first' ? 0 : by === 'last' ? visibleCalls.length - 1 : Math.max(0, Math.min(visibleCalls.length - 1, i + by));
+      return visibleCalls[to]!.callNo;
+    });
   const [focus, setFocus] = useState<'list' | 'inspector'>('list');
   const [zoom, setZoom] = useState(false);
   // A fork opened at its divergence shows what changed there first.
-  const [tab, setTab] = useState<Tab>(() => (divergence && calls[initialIndex]?.callNo === divergence.callNo ? 'diff' : 'conversation'));
+  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : 'conversation'));
   const [scroll, setScroll] = useState<number | null>(null);
   const view = useRef<InspectorView>({ offset: 0, max: 0, page: 1 });
   const onView = useCallback((v: InspectorView) => {
@@ -144,15 +213,19 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const current = visibleCalls[Math.min(selected, Math.max(0, visibleCalls.length - 1))];
   const currentIndex = current ? calls.indexOf(current) : -1;
 
+  const shownNo = current?.callNo;
+  // A filter kept (or an origin picked) that hides the selected call makes the call standing in for
+  // it the selection: clearing the filter then leaves you on the call it found.
   useEffect(() => {
-    if (selected > visibleCalls.length - 1) setSelected(Math.max(0, visibleCalls.length - 1));
-  }, [visibleCalls.length, selected]);
-  useEffect(() => setScroll(null), [selected, tab]);
+    if (mode.kind === 'search' || shownNo === undefined || selectedNo === null) return;
+    if (!visibleCalls.some((c) => c.callNo === selectedNo)) setSelectedNo(shownNo);
+  }, [visibleCalls, mode.kind, shownNo, selectedNo]);
+  useEffect(() => setScroll(null), [shownNo, tab]);
   // Reset playback when the call changes, never on a tab change: `space` switches to the response
   // tab and starts playing in one keystroke, and child effects (the player) run before this one.
   useEffect(() => {
     setPlay((p) => ({ playing: false, speed: p.speed, upto: 0 }));
-  }, [selected]);
+  }, [shownNo]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), toast.ms);
@@ -218,17 +291,17 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const jump = (dir: 1 | -1) => {
     for (let i = selected + dir; i >= 0 && i < visibleCalls.length; i += dir) {
       if (notable(visibleCalls[i]!)) {
-        setSelected(i);
+        select(i);
         return;
       }
     }
     say(dir === 1 ? 'no later live, fenced or failed call' : 'no earlier live, fenced or failed call');
   };
-  /** Selects the call the run forked at, when the filter shows it; false for a run that didn't fork. */
+  /** Selects the call the run forked at (an ended-early run's last call); false for a run that didn't fork. */
   const toFork = () => {
     if (!divergence) return false;
-    const i = visibleCalls.findIndex((c) => c.callNo === divergence.callNo);
-    if (i >= 0) setSelected(i);
+    const i = visibleCalls.findIndex((c) => c.callNo >= divergence.callNo);
+    select(i >= 0 ? i : visibleCalls.length - 1);
     return true;
   };
   // Inspector scrolling, from where it is: it may have opened on a conversation's newest turns.
@@ -247,10 +320,12 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         else onBack();
         return;
       }
+      // Ctrl and Alt chords are none of these keys (Ctrl-G is not g).
+      if (key.ctrl || key.meta) return;
       if (input === 'q') return onBack();
       if (input === '?') return onHelp();
       if (input === ':') return setMode({ kind: 'actions' });
-      if (input === '/') return setMode({ kind: 'search', before: query });
+      if (input === '/') return setMode({ kind: 'search', before: query, beforeNo: selectedNo });
       if (input === 'z') {
         setZoom(!zoom);
         return setFocus(zoom ? 'list' : 'inspector');
@@ -308,14 +383,14 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         else if (input === 'G') setScroll(view.current.max);
         return;
       }
-      if (down) setSelected((s) => Math.min(visibleCalls.length - 1, s + 1));
-      else if (up) setSelected((s) => Math.max(0, s - 1));
-      else if (key.pageDown) setSelected((s) => Math.min(visibleCalls.length - 1, s + listRows));
-      else if (key.pageUp) setSelected((s) => Math.max(0, s - listRows));
-      else if (input === 'g') setSelected(0);
-      else if (input === 'G') setSelected(Math.max(0, visibleCalls.length - 1));
+      if (down) move(1);
+      else if (up) move(-1);
+      else if (key.pageDown) move(listRows);
+      else if (key.pageUp) move(-listRows);
+      else if (input === 'g') move('first');
+      else if (input === 'G') move('last');
     },
-    { isActive: mode.kind === 'timeline' },
+    { isActive: mode.kind === 'timeline' && !paused },
   );
 
   // The list's rows: the calls, and where the run forked, a line saying what changed there.
@@ -343,9 +418,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     [
       { key: 'mark', min: 2 },
       { key: 'no', min: String(lastNo).length + 3 },
-      { key: 'kind', min: 6 },
-      { key: 'scope', min: longestScope ? Math.min(12, longestScope) + 2 : 0, drop: 1 },
-      { key: 'name', min: 7, max: 26 },
+      { key: 'kind', min: 6, drop: 1 },
+      { key: 'scope', min: longestScope ? Math.min(12, longestScope) + 2 : 0, drop: 2 },
+      { key: 'name', min: 6, max: 26 },
       { key: 'origin', min: originWidth },
       { key: 'outcome', min: 4 },
       { key: 'detail', min: 0, max: Number.POSITIVE_INFINITY },
@@ -371,16 +446,17 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       cell(name, w.name, nameColor ? { color: nameColor } : {}, 2),
       cell(origin, w.origin, { color: theme.origin[origin] }),
       cell(outcome, w.outcome, { color: c.end?.outcome === 'error' ? theme.err : theme.faint }),
-      cell(w.detail >= 4 ? rowDetail(store, c, modelOf) : '', w.detail, { color: quiet ?? theme.dim }, 0),
+      cell(w.detail >= 4 ? detailOf(c) : '', w.detail, { color: quiet ?? theme.dim }, 0),
     ];
     return <Row key={c.callNo} width={innerWidth} cells={cells} selected={sel ? (focus === 'list' ? 'focus' : 'blur') : null} />;
   };
   const forkRow = () => {
-    const text = `── ${divergenceSummary(divergence!)} `;
+    // Its words come from the recording (a forced reason, the request's paths): made safe to show.
+    const text = `── ${safeLine(divergenceSummary(divergence!))} `;
     return (
       <Box key="fork" height={1} width={innerWidth} flexShrink={0}>
         <Text wrap="truncate" color={theme.accent} bold>
-          {text + '─'.repeat(Math.max(0, innerWidth - text.length))}
+          {text + '─'.repeat(Math.max(0, innerWidth - cells(text)))}
         </Text>
       </Box>
     );
@@ -414,30 +490,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const isModel = current?.kind === 'api';
   const hints: Hint[] =
     focus === 'inspector' || zoom
-      ? [
-          ['?', 'help'],
-          ['j/k', 'scroll'],
-          ['tab', 'next tab'],
-          ['z', zoom ? 'unzoom' : 'zoom'],
-          ['y', 'copy'],
-          ['h', 'calls'],
-          ['q', 'back'],
-        ]
-      : ([
-          ['?', 'help'],
-          [':', 'fork'],
-          divergence ? ['d', 'diff'] : null,
-          ['/', 'filter'],
-          ['z', 'zoom'],
-          ['[ ]', 'notable'],
-          isModel ? ['space', 'play'] : null,
-          ['o', 'dashboard'],
-          ['y', 'copy'],
-          ['w', 'write'],
-          run.parentRunId ? ['p', 'parent'] : null,
-          ['f', 'origins'],
-          ['q', 'back'],
-        ] as Array<Hint | null>).filter((h): h is Hint => h !== null);
+      ? INSPECTOR_KEYS.map(([k, d]) => (k === 'z' && zoom ? [k, 'unzoom'] : [k, d]) as Hint)
+      : TIMELINE_KEYS.filter(([k]) => (k === 'd' ? !!divergence : k === 'space' ? isModel : k === 'p' ? !!run.parentRunId : true));
   const filtering = query || filter !== 'all' ? `filter: ${[filter !== 'all' ? filter : '', query ? `/${query}` : ''].filter(Boolean).join(' ')} (${visibleCalls.length}/${calls.length})` : '';
   const modal = mode.kind !== 'timeline' && mode.kind !== 'search';
 
@@ -450,16 +504,14 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         enterDoes="keep"
         width={width}
         active
-        onChange={(v) => {
-          setQuery(v.trim());
-          setSelected(0);
-        }}
+        onChange={(v) => setQuery(v.trim())}
         onSubmit={(v) => {
           setQuery(v.trim());
           setMode({ kind: 'timeline' });
         }}
         onCancel={() => {
           setQuery(mode.before);
+          setSelectedNo(mode.beforeNo);
           setMode({ kind: 'timeline' });
         }}
       />
@@ -468,6 +520,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         {' '}
         {toast.text}
       </Line>
+    ) : mode.kind === 'actions' ? (
+      <KeyHints hints={FORK_MENU_KEYS} width={width} lead={FORK_MENU_LEAD} />
     ) : modal ? (
       <Line width={width}> </Line>
     ) : (
@@ -542,7 +596,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         <Box flexDirection="row" height={bodyHeight}>
           {zoom ? null : (
             <Box flexDirection="column" width={listWidth} height={bodyHeight} borderStyle="round" borderColor={focus === 'list' ? theme.accent : theme.faint}>
-              {visibleCalls.length === 0 ? <Line width={innerWidth}> no calls match · Esc clears</Line> : null}
+              {visibleCalls.length === 0 ? <Line width={innerWidth}>{calls.length ? ' no calls match · Esc clears' : ' no calls recorded yet'}</Line> : null}
               {shownItems.map((it) => (it.kind === 'fork' ? forkRow() : callRow(visibleCalls[it.at]!, it.at)))}
             </Box>
           )}

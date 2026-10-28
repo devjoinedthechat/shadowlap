@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Store, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
+import { cells } from '../src/render.js';
 import { renderAt } from './terminal.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -129,7 +130,7 @@ describe('every screen at 60×12, 80×24 and 120×40', () => {
       frame = await frameWhere(lastFrame, (f) => f.includes('Fork menu'));
       expectFits(frame, columns, rows, 'fork menu');
       expect(frame).toMatch(/> i\s+Inject/);
-      expect(frame).toContain('Esc to close');
+      expect(frame.split('\n').at(-1)).toContain('enter run  j/k move  esc close');
       stdin.write('\x1b');
       await frameWhere(lastFrame, (f) => !f.includes('Fork menu'));
 
@@ -198,6 +199,146 @@ describe('the timeline', () => {
     const frame = await frameWhere(lastFrame, (f) => f.includes('Diverged at call 3'));
     expect(frame).toMatch(/#3\s+model\s+-> search_web, read_file\s+live\s+ok/);
     expect(frame).toMatch(/#28\s+model\s+-> send_email/);
+    unmount();
+    s.close();
+  });
+});
+
+describe('what the review of the rework found', () => {
+  it('shows an escape sequence from a recording as text, never sends it to the terminal', async () => {
+    const { store: s, recording } = store();
+    // A pack's run whose command and label carry OSC 52 (write the clipboard) and a colour change.
+    s.updateRunMeta(recording, { labels: ['\x1b[31mred'] });
+    const evil = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', '\x1b]52;c;aGk=\x07agent.js'], cwd: '.' } });
+    for (const c of s.getCalls(recording).slice(0, 5)) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      s.appendCallStart({ ...start, runId: evil.runId, origin: c.callNo < 3 ? 'replayed' : 'live' });
+      if (end) s.appendCallEnd(c, { ...end, runId: evil.runId });
+    }
+    s.setDivergence(evil.runId, { type: 'forced', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, reason: 'forced \x1b]52;c;aGk=\x07live' });
+    s.endRun(evil.runId, 'completed');
+    const runs = renderAt(<App store={s} columns={140} rows={20} />, 140, 20);
+    let raw = await (async () => {
+      await frameWhere(runs.lastFrame, (f) => f.includes('5 runs'));
+      return runs.lastFrame() ?? '';
+    })();
+    expect(raw).not.toContain('\x1b]52');
+    expect(raw).not.toContain('\x1b[31mred');
+    expect(plain(raw)).toContain('\\x1b]52;c;aGk=\\x07agent.js');
+    runs.unmount();
+    const timeline = renderAt(<App store={s} runId={evil.runId} columns={120} rows={20} />, 120, 20);
+    await frameWhere(timeline.lastFrame, (f) => f.includes('── forked at #3'));
+    raw = timeline.lastFrame() ?? '';
+    expect(raw).not.toContain('\x1b]52');
+    expect(plain(raw)).toContain('forked at #3 · forced \\x1b]52');
+    timeline.unmount();
+    s.close();
+  });
+
+  it('keeps the call a filter found when the filter clears, and Esc in a search puts the selection back', async () => {
+    const { store: s, fork } = store();
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={fork} columns={120} rows={40} />, 120, 40);
+    await frameWhere(lastFrame, (f) => f.includes('Diverged at call 3'));
+    stdin.write('/');
+    await frameWhere(lastFrame, (f) => f.includes('filter calls:'));
+    stdin.write('send_email');
+    stdin.write('\r');
+    let frame = await frameWhere(lastFrame, (f) => /> #\d+\s+tool\s+send_email/.test(f) && !f.includes('filter calls:'));
+    const found = /> #(\d+)\s+tool\s+send_email/.exec(frame)![1];
+    stdin.write('\x1b'); // clears the filter
+    frame = await frameWhere(lastFrame, (f) => !f.includes('filter:'));
+    expect(frame).toMatch(new RegExp(`> #${found}\\s+tool\\s+send_email`));
+    expect(frame).toMatch(/#4\s+tool/); // the whole run again
+    // A search given up puts back the call it started from.
+    stdin.write('/');
+    await frameWhere(lastFrame, (f) => f.includes('filter calls:'));
+    stdin.write('fetch');
+    await frameWhere(lastFrame, (f) => f.includes('filter calls: fetch'));
+    stdin.write('\x1b');
+    frame = await frameWhere(lastFrame, (f) => !f.includes('filter calls:'));
+    expect(frame).toMatch(new RegExp(`> #${found}\\s+tool\\s+send_email`));
+    unmount();
+    s.close();
+  });
+
+  it('leaves the view as it was under help: its filter, its call', async () => {
+    const { store: s, fork } = store();
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={fork} columns={100} rows={30} />, 100, 30);
+    await frameWhere(lastFrame, (f) => f.includes('Diverged at call 3'));
+    stdin.write('f'); // only the calls that ran live
+    await frameWhere(lastFrame, (f) => f.includes('filter: live'));
+    stdin.write('j');
+    await frameWhere(lastFrame, (f) => /> #4\s/.test(f));
+    stdin.write('?');
+    await frameWhere(lastFrame, (f) => f.includes('Keys'));
+    stdin.write('x');
+    const frame = await frameWhere(lastFrame, (f) => !f.includes('Keys') && f.includes('filter: live'));
+    expect(frame).toContain('filter: live');
+    expect(frame).toMatch(/> #4\s/);
+    unmount();
+    s.close();
+  });
+
+  it('opens a run that ended early at its last call, on the diff, and says when a run has no calls', async () => {
+    const { store: s, recording } = store();
+    const early = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    for (const c of s.getCalls(recording).slice(0, 5)) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      s.appendCallStart({ ...start, runId: early.runId, origin: 'replayed' });
+      if (end) s.appendCallEnd(c, { ...end, runId: early.runId });
+    }
+    s.setDivergence(early.runId, { type: 'ended_early', callNo: 6, kind: 'api', name: 'POST /v1/messages', replayedBefore: 5, recorded: 30 });
+    s.endRun(early.runId, 'completed');
+    const a = renderAt(<App store={s} runId={early.runId} columns={100} rows={30} />, 100, 30);
+    const frame = await frameWhere(a.lastFrame, (f) => f.includes('Ended early at call 6'));
+    expect(frame).toMatch(/> #5\s/);
+    expect(frame).toContain('── ended early at #6');
+    a.unmount();
+    const empty = s.createRun({ mode: 'record', command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    s.endRun(empty.runId, 'failed');
+    const b = renderAt(<App store={s} runId={empty.runId} columns={100} rows={30} />, 100, 30);
+    expect(await frameWhere(b.lastFrame, (f) => f.includes('no calls recorded yet'))).toContain('no calls recorded yet');
+    b.unmount();
+    s.close();
+  });
+
+  it('keeps wide characters in their columns, and the outcome whole in a narrow list of many calls', async () => {
+    const { store: s, recording } = store();
+    s.updateRunMeta(recording, { labels: ['修复退款流程', '✅'] });
+    const runs = renderAt(<App store={s} columns={80} rows={24} />, 80, 24);
+    const frame = await frameWhere(runs.lastFrame, (f) => f.includes('4 runs'));
+    for (const l of frame.split('\n')) expect(cells(l), l).toBeLessThanOrEqual(80);
+    expect(frame).toContain('修复');
+    runs.unmount();
+    // 12 calls, one overridden and one that failed, at 60 columns: the narrowest list.
+    const narrow = s.createRun({ mode: 'replay', parentRunId: recording, command: { argv: ['node', 'agent.js'], cwd: '.' } });
+    for (const c of s.getCalls(recording).slice(0, 12)) {
+      const { end, attempts, ...start } = c;
+      void attempts;
+      s.appendCallStart({ ...start, runId: narrow.runId, origin: c.callNo === 4 ? 'overridden' : 'replayed' });
+      if (end) s.appendCallEnd(c, { ...end, runId: narrow.runId, ...(c.callNo === 11 ? { outcome: 'error' as const } : {}) });
+    }
+    s.endRun(narrow.runId, 'completed');
+    const t = renderAt(<App store={s} runId={narrow.runId} callNo={11} columns={60} rows={14} />, 60, 14);
+    const list = await frameWhere(t.lastFrame, (f) => /> #11\s/.test(f));
+    expect(list.split('\n').find((l) => /> #11\s/.test(l))).toMatch(/ ERR /);
+    expect(list.split('\n').find((l) => /#4\s/.test(l))).toMatch(/overridden ok /);
+    t.unmount();
+    s.close();
+  });
+
+  it('finds model calls by their stop reason and their kind', async () => {
+    const { store: s, recording } = store();
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={recording} columns={100} rows={40} />, 100, 40);
+    await frameWhere(lastFrame, (f) => /> #1\s/.test(f));
+    stdin.write('/');
+    await frameWhere(lastFrame, (f) => f.includes('filter calls:'));
+    stdin.write('tool_use');
+    const frame = await frameWhere(lastFrame, (f) => /filter calls: tool_use/.test(f) && !/#4\s+tool/.test(f));
+    expect(frame).toMatch(/#3\s+model/);
+    expect(frame).not.toMatch(/#4\s+tool/);
     unmount();
     s.close();
   });

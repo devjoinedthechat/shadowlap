@@ -366,7 +366,9 @@ describe('scopes, labels and the dashboard', () => {
     stdin.write('planner');
     stdin.write('\r');
     await frameWith(lastFrame, '(3/6)'); // the filter matches scopes too
-    stdin.write('j'); // #3, the second planner call
+    // #4 isn't a planner call: the next one shown after it, #5, stands in; k goes up to #3.
+    await frameMatching(lastFrame, /> #5\s/);
+    stdin.write('k');
     await frameMatching(lastFrame, /> #3\s/);
     stdin.write('4'); // meta tab
     await frameMatching(lastFrame, /scope\s+planner/);

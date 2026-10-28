@@ -66,7 +66,7 @@ export function ActionsView({ actions, title, width, height, active, cliAvailabl
     if (s.section !== null) lines.push({ section: s.section || '─'.repeat(Math.min(inner, 24)) });
     for (const a of s.actions) lines.push({ action: a, at: index++ });
   }
-  const room = Math.max(1, height - 2 - (title ? 1 : 0) - 3);
+  const room = Math.max(1, height - 2 - (title ? 1 : 0) - 2);
   const at = lines.findIndex((l) => 'action' in l && l.at === selected);
   const start = Math.max(0, Math.min(at - Math.floor(room / 2), lines.length - room));
   return (
@@ -97,9 +97,6 @@ export function ActionsView({ actions, title, width, height, active, cliAvailabl
       <Box flexGrow={1} />
       <Text color={theme.dim} wrap="truncate">
         {current?.hint ?? ' '}
-      </Text>
-      <Text color={theme.faint} wrap="truncate">
-        Enter or the letter to run · Esc to close
       </Text>
     </Box>
   );

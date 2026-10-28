@@ -137,6 +137,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     return () => clearTimeout(t);
   }, [play, isSse, events.length, deltas, onPlayTick]);
 
+  const playOnResponse = tab === 'response' ? play : null;
   const [lines, setLines] = useState<RenderedLine[]>([]);
   // Where a tab starts reading when nothing has scrolled it: a conversation's first new turn.
   const [anchor, setAnchor] = useState(0);
@@ -189,7 +190,9 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     }
     setLines(next);
     setAnchor(start);
-  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, play, responseBytes, summaryOptions, divergence, theme]);
+    // Playback moves only the response tab: the others aren't worked out again on each of its ticks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playOnResponse stands in for play
+  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, playOnResponse, responseBytes, summaryOptions, divergence, theme]);
 
   // A view opened at its anchor may end short of the pane's foot, so the newest turn heads it.
   const maxScroll = Math.max(0, lines.length - bodyHeight, Math.min(anchor, lines.length - 1));

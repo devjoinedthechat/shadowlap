@@ -86,10 +86,10 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the timers follow the view's kind, run and status: the view and open are new on every refresh, and taking them in would restart the timers each time
   }, [view.kind, view.kind === 'timeline' ? view.run.runId : '', view.kind === 'timeline' ? view.run.status : '']);
 
-  if (help) return <Help width={width} height={height} context={view.kind === 'timeline' ? 'timeline' : 'runs'} onClose={() => setHelp(false)} />;
+  let screen;
   if (view.kind === 'timeline') {
     const { run, calls, initialCall } = view;
-    return (
+    screen = (
       <TimelineView
         key={run.runId}
         store={store}
@@ -107,11 +107,11 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         {...(openDashboard ? { openDashboard } : {})}
         {...(initialCall !== undefined ? { initialCall } : {})}
         summaryOptions={options}
+        paused={help}
       />
     );
-  }
-  return (
-    <Box>
+  } else {
+    screen = (
       <RunsView
         nodes={nodes}
         width={width}
@@ -134,7 +134,15 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         onQuit={() => exit()}
         onHelp={() => setHelp(true)}
         {...(openDashboard ? { openDashboard } : {})}
+        paused={help}
       />
+    );
+  }
+  // Help is drawn over the view, which stays as it was (its filter, zoom, tab and scroll) and takes no keys meanwhile.
+  return (
+    <Box flexDirection="column">
+      {help ? <Help width={width} height={height} context={view.kind === 'timeline' ? 'timeline' : 'runs'} onClose={() => setHelp(false)} /> : null}
+      <Box display={help ? 'none' : 'flex'}>{screen}</Box>
     </Box>
   );
 }

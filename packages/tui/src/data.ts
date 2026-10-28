@@ -79,16 +79,45 @@ export interface ConversationAt {
   freshFrom?: number;
 }
 
+/** Conversations by request, per store: a request's blob never changes, and the inspector reads the same ones again as you move. */
+const conversations = new WeakMap<Store, Map<string, Turn[] | null>>();
+
 function turnsOf(store: Store, c: CallRecord): Turn[] | null {
   if (c.kind !== 'api' || !c.requestRef) return null;
+  let byRef = conversations.get(store);
+  if (!byRef) conversations.set(store, (byRef = new Map<string, Turn[] | null>()));
+  if (byRef.has(c.requestRef)) return byRef.get(c.requestRef)!;
+  let turns: Turn[] | null;
   try {
-    return normalizeConversation(loadApiRequest(store, c.requestRef))?.turns ?? null;
+    turns = normalizeConversation(loadApiRequest(store, c.requestRef))?.turns ?? null;
   } catch {
-    return null;
+    turns = null;
   }
+  if (byRef.size > 2000) byRef.clear();
+  byRef.set(c.requestRef, turns);
+  return turns;
 }
 
 const scopeOf = (c: CallRecord) => (typeof c.meta.scope === 'string' ? c.meta.scope : '');
+
+/** How many model calls back to look for the conversation this one carries on. */
+const LOOK_BACK = 50;
+
+/**
+ * Where `turns` carries on from: the longest of the `earlier` conversations that `turns` starts
+ * with, turn for turn. A side call in the same scope (a title, a guardrail, a summary) sends a
+ * conversation of its own, which isn't a start of the agent's and so doesn't count. Undefined when
+ * none is: then nothing is marked new.
+ */
+export function freshSince(earlier: ReadonlyArray<readonly Turn[]>, turns: readonly Turn[]): number | undefined {
+  const keys = turns.map((t) => JSON.stringify(t));
+  let best: number | undefined;
+  for (const e of earlier) {
+    if (e.length > turns.length || (best !== undefined && e.length <= best)) continue;
+    if (e.every((t, i) => JSON.stringify(t) === keys[i])) best = e.length;
+  }
+  return best;
+}
 
 /**
  * The conversation state at a call, whatever the provider. For a model call it is that call's own
@@ -101,16 +130,16 @@ export function conversationAt(store: Store, calls: CallRecord[], index: number)
     if (c.kind !== 'api' || !c.requestRef) continue;
     const turns = turnsOf(store, c);
     if (!turns) return null;
-    // What the call before it in the same scope sent: a sub-agent's calls carry a conversation of their own.
-    for (let j = i - 1; j >= 0; j--) {
+    // The model calls before it in the same scope: a sub-agent's carry a conversation of their own.
+    const earlier: Turn[][] = [];
+    for (let j = i - 1; j >= 0 && earlier.length < LOOK_BACK; j--) {
       const p = calls[j]!;
       if (p.kind !== 'api' || !p.requestRef || scopeOf(p) !== scopeOf(c)) continue;
-      const before = turnsOf(store, p)?.length;
-      // A shorter conversation than the last one is a new one, every turn of it fresh.
-      if (before !== undefined) return { turns, fromCallNo: c.callNo, freshFrom: before <= turns.length ? before : 0 };
-      break;
+      const t = turnsOf(store, p);
+      if (t) earlier.push(t);
     }
-    return { turns, fromCallNo: c.callNo };
+    const from = earlier.length ? freshSince(earlier, turns) : undefined;
+    return { turns, fromCallNo: c.callNo, ...(from !== undefined ? { freshFrom: from } : {}) };
   }
   return null;
 }

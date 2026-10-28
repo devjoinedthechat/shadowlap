@@ -1,10 +1,10 @@
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { normalizeConversation, Store, unpackRun } from '@shadowlap/engine';
-import { conversationAt, modelAction } from '../src/data.js';
+import { conversationAt, freshSince, modelAction } from '../src/data.js';
 import { conversationLines, fitColumns, RESULT_LINES, sharedPrefix } from '../src/render.js';
-import { detectTheme, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
+import { detectTheme, queryTerminal, queryTimeout, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from '../src/terminal-theme.js';
 import { THEMES } from '../src/theme.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -160,5 +160,35 @@ describe('what a call shows', () => {
     const long = text(JSON.stringify({ rows: Array.from({ length: 40 }, (_, i) => i) }));
     // The head, then 44 lines of JSON: the first RESULT_LINES shown, the rest counted.
     expect(long).toContain(`… ${45 - RESULT_LINES} more lines in the request tab`);
+  });
+});
+
+describe('what the review of the rework found, without a terminal', () => {
+  it('marks new only the turns after a conversation this one carries on, not after a side call', () => {
+    const t = (role: 'user' | 'assistant', text: string) => ({ role, blocks: [{ type: 'text' as const, text }] });
+    const main = [t('user', 'refund order 7'), t('assistant', 'looking')];
+    const side = [t('user', 'title this chat'), t('assistant', 'Refund')];
+    const turns = [...main, t('user', 'tool result'), t('assistant', 'done')];
+    // The title call came last, but the agent's conversation goes on from the main one.
+    expect(freshSince([side, main], turns)).toBe(2);
+    expect(freshSince([side], turns)).toBeUndefined();
+    expect(freshSince([main.slice(0, 1), main], turns)).toBe(2); // the longest that fits
+  });
+
+  it('stays in raw mode when the terminal never answers, waits longer over SSH, and lets Ctrl-C through', async () => {
+    const silent = terminal(null);
+    expect(await queryTerminal(silent.stdin, silent.stdout, 30)).toBeNull();
+    // An answer that comes later is never echoed: the UI takes raw mode over from here.
+    expect(silent.stdin.isRaw).toBe(true);
+    expect(queryTimeout({})).toBe(1000);
+    expect(queryTimeout({ SSH_CONNECTION: '10.0.0.2 51000 10.0.0.1 22' })).toBe(3000);
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      const stopped = terminal('\x03');
+      await queryTerminal(stopped.stdin, stopped.stdout, 2000);
+      expect(kill).toHaveBeenCalledWith(process.pid, 'SIGINT');
+    } finally {
+      kill.mockRestore();
+    }
   });
 });
