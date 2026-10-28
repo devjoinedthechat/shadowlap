@@ -1,5 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
+import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -474,8 +474,8 @@ export function maskJsonTextCredentials(text: string): string | null {
  * whatever a content type said: JSON (also behind a byte-order mark, an anti-XSSI prefix or inside a
  * JSONP call); a URL; a form's or a query string's parameters; a connection string; a multipart
  * body's fields and parts; an event stream's data; lines of JSON (NDJSON); XML elements and
- * attributes; a GraphQL query's arguments. Each value by its name (credentialParam), and a JWT
- * whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
+ * attributes; a GraphQL query's arguments; and the JSON objects among other text (maskEmbeddedJson).
+ * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
  * name alone, as a redirect's are. Every character it doesn't replace stays as it was; null when it
  * replaced nothing.
  */
@@ -492,15 +492,18 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     const masked = maskParams(text, byName, depth);
     return masked === text ? null : masked;
   }
-  return (
+  const shaped =
     maskConnectionString(text) ??
     maskMultipart(text, (part) => maskedPart(part, depth)) ??
     maskEventStream(text, (payload) => maskTextCredentials(payload, depth)) ??
     maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
-    maskLooseForm(text, byName, depth)
-  );
+    maskLooseForm(text, byName, depth);
+  // JSON among other text, which no shape above read whole: after a comment, before `;`, run
+  // together, in a page's script. What a shape masked already is read again, and stays as it is.
+  if (!text.includes('{')) return shaped;
+  return maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped;
 }
 
 /** One parameter of a form written without encoding its values: a name, then `=`. */

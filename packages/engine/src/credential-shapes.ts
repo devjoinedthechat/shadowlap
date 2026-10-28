@@ -30,34 +30,42 @@ interface Frame {
 
 const NUMBER_OR_LITERAL = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
 
-/**
- * One JSON document (any value, whitespace around it) with each string value `mask` replaces
- * written as the JSON string of its replacement, every other character as it was: a number of any
- * length, the layout, escapes in the strings kept. Undefined when the text isn't JSON, null when it
- * is and nothing was replaced. Iterative, so a document nested thousands deep reads like any other.
- */
-export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null | undefined {
+/** A string value `mask` replaced: where its token starts and ends in the text, and the JSON string written in its place. */
+type Replaced = [start: number, end: number, json: string];
+
+/** `text` with each replaced string token written as its replacement, every other character as it was. */
+function spliced(text: string, replaced: readonly Replaced[]): string {
   const out: string[] = [];
-  const stack: Frame[] = [];
   let copied = 0;
-  let i = 0;
-  let done = false;
+  for (const [start, end, json] of replaced) {
+    out.push(text.slice(copied, start), json);
+    copied = end;
+  }
+  return out.join('') + text.slice(copied);
+}
+
+const isJsonSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+
+/**
+ * Reads the one JSON value that starts at `start` in `text` (whitespace before it skipped), noting
+ * in `replaced` each string value `mask` replaces. `whole` when the value is complete: `at` is then
+ * just past it. Otherwise `at` is where the text stopped being JSON (its length, when it ended
+ * first), and `replaced` holds what was masked before there. Iterative, so a document nested
+ * thousands deep reads like any other; each character is read once.
+ */
+function walkValue(text: string, start: number, mask: StringMask, credentialMember: CredentialMember, replaced: Replaced[]): { at: number; whole: boolean } {
+  const stack: Frame[] = [];
   const n = text.length;
-  const skipWs = () => {
-    while (i < n) {
-      const c = text.charCodeAt(i);
-      if (c !== 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) break;
-      i++;
-    }
-  };
+  let i = start;
   /** The raw text of the string token at `i` (quotes and escapes), moving past it; null when it doesn't end. */
   const scanString = (): string | null => {
-    const start = i;
+    const from = i;
     for (i++; i < n; i++) {
       const c = text.charCodeAt(i);
       if (c === 0x5c) i++;
-      else if (c === 0x22) return text.slice(start, ++i);
+      else if (c === 0x22) return text.slice(from, ++i);
     }
+    i = n;
     return null;
   };
   const decode = (raw: string): string | undefined => {
@@ -68,19 +76,20 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
       return undefined;
     }
   };
-  const afterValue = () => {
+  /** After a value: the member or item it was now wants a comma or a close, or it was the whole value. */
+  const ended = (): boolean => {
     const top = stack[stack.length - 1];
-    if (top) top.expect = 'comma';
-    else done = true;
+    if (!top) return true;
+    top.expect = 'comma';
+    return false;
   };
   for (;;) {
-    skipWs();
-    if (i >= n) break;
-    if (done) return undefined;
+    while (i < n && isJsonSpace(text.charCodeAt(i))) i++;
+    if (i >= n) return { at: n, whole: false };
     const top = stack[stack.length - 1];
     const c = text[i]!;
     if (top?.expect === 'colon') {
-      if (c !== ':') return undefined;
+      if (c !== ':') return { at: i, whole: false };
       i++;
       top.expect = 'value';
       continue;
@@ -92,23 +101,23 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
         top.first = false;
         continue;
       }
-      if (c !== (top.object ? '}' : ']')) return undefined;
+      if (c !== (top.object ? '}' : ']')) return { at: i, whole: false };
       i++;
       stack.pop();
-      afterValue();
+      if (ended()) return { at: i, whole: true };
       continue;
     }
     if (top?.expect === 'key') {
       if (c === '}' && top.first) {
         i++;
         stack.pop();
-        afterValue();
+        if (ended()) return { at: i, whole: true };
         continue;
       }
-      if (c !== '"') return undefined;
+      if (c !== '"') return { at: i, whole: false };
       const raw = scanString();
       const key = raw === null ? undefined : decode(raw);
-      if (key === undefined) return undefined;
+      if (key === undefined) return { at: i, whole: false };
       top.key = key;
       top.expect = 'colon';
       continue;
@@ -117,20 +126,17 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
     if (top && !top.object && c === ']' && top.first) {
       i++;
       stack.pop();
-      afterValue();
+      if (ended()) return { at: i, whole: true };
       continue;
     }
     if (c === '"') {
-      const start = i;
+      const from = i;
       const raw = scanString();
       const value = raw === null ? undefined : decode(raw);
-      if (value === undefined) return undefined;
-      const replaced = mask(top?.key ?? null, value, top?.under ?? false);
-      if (replaced !== null && replaced !== value) {
-        out.push(text.slice(copied, start), JSON.stringify(replaced));
-        copied = i;
-      }
-      afterValue();
+      if (value === undefined) return { at: i, whole: false };
+      const replacement = mask(top?.key ?? null, value, top?.under ?? false);
+      if (replacement !== null && replacement !== value) replaced.push([from, i, JSON.stringify(replacement)]);
+      if (ended()) return { at: i, whole: true };
       continue;
     }
     if (c === '{' || c === '[') {
@@ -142,12 +148,44 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
     }
     NUMBER_OR_LITERAL.lastIndex = i;
     const m = NUMBER_OR_LITERAL.exec(text);
-    if (!m) return undefined;
+    if (!m) return { at: i, whole: false };
     i += m[0].length;
-    afterValue();
+    if (ended()) return { at: i, whole: true };
   }
-  if (!done || stack.length) return undefined;
-  return out.length ? out.join('') + text.slice(copied) : null;
+}
+
+/**
+ * One JSON document (any value, whitespace around it) with each string value `mask` replaces
+ * written as the JSON string of its replacement, every other character as it was: a number of any
+ * length, the layout, escapes in the strings kept. Undefined when the text isn't JSON, null when it
+ * is and nothing was replaced. Iterative, so a document nested thousands deep reads like any other.
+ */
+export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null | undefined {
+  const replaced: Replaced[] = [];
+  const { at, whole } = walkValue(text, 0, mask, credentialMember, replaced);
+  if (!whole) return undefined;
+  let i = at;
+  while (i < text.length && isJsonSpace(text.charCodeAt(i))) i++;
+  if (i < text.length) return undefined;
+  return replaced.length ? spliced(text, replaced) : null;
+}
+
+/**
+ * The JSON objects in a text that isn't JSON as a whole, each string value `mask` replaces written
+ * as walkJson writes it, every other character as it was: a document after a comment or `<!--`, one
+ * followed by `;` or by other text, documents run together or a line each (a JSON text sequence), a
+ * jQuery JSONP call, the state a page's script holds (`__NEXT_DATA__`, `window.__STATE__ = …`).
+ * Each `{` that no object read so far holds opens one, read as far as it is JSON: what it held
+ * before it stopped being JSON is masked, and the search goes on from there, so each character is
+ * read once. Null when nothing was replaced.
+ */
+export function maskEmbeddedJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null {
+  const replaced: Replaced[] = [];
+  for (let i = text.indexOf('{'); i >= 0; ) {
+    const { at } = walkValue(text, i, mask, credentialMember, replaced);
+    i = text.indexOf('{', Math.max(at, i + 1));
+  }
+  return replaced.length ? spliced(text, replaced) : null;
 }
 
 /** The index just past the JSON string token that opens at `start`, or -1 when it doesn't end. */
