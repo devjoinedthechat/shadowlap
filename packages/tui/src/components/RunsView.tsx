@@ -1,5 +1,7 @@
 import { Box, Text, useInput } from 'ink';
-import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, safeLine } from '@shadowlap/engine';
+import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
+import { attemptsText } from '../attempts.js';
+import { markKey, type RunMark } from '../marks.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
@@ -24,6 +26,11 @@ interface Props {
   openDashboard?: OpenDashboard;
   /** Help is open over it: it keeps its state and takes no keys. */
   paused?: boolean;
+  /** Labels a run good or bad (`+`, `-`); says what it did. */
+  onMark?: (runId: string, mark: RunMark) => string;
+  /** Whether attempts are listed one by one, and the key that switches it (`a`). */
+  attemptsShown?: boolean;
+  onToggleAttempts?: () => void;
 }
 
 type Mode = { kind: 'list' } | { kind: 'search'; before: string } | { kind: 'confirm-delete'; runId: string; attempts: number };
@@ -63,9 +70,11 @@ function checksLine(run: RunNode['run']): string {
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
-/** A run's status where it says something: a finished run needs no word, the others do. */
+/** A run's status where it says something: a finished run needs no word, a failed one where blame found it lost. */
 function statusOf(n: RunNode): string {
   if (n.run.status === 'running') return n.interrupted ? 'interrupted' : 'recording';
+  const lost = lostAt(n.run);
+  if (lost !== null) return `lost at #${lost}`;
   return n.run.status === 'completed' ? '' : n.run.status;
 }
 
@@ -77,6 +86,7 @@ function detailItems(n: RunNode): string[] {
     r.meta?.checks?.length ? checksLine(r) : '',
     r.meta?.covers?.length ? `partial: ${r.meta.covers.join('/')} only` : '',
     r.meta?.labels?.length ? r.meta.labels.join(', ') : '',
+    n.attempts ? attemptsText(n.attempts) : '',
     r.meta?.notes?.length ? `${r.meta.notes.length} note${r.meta.notes.length === 1 ? '' : 's'}` : '',
     safeLine(r.command.argv.join(' ')),
     r.codeVersion ? `@${r.codeVersion}` : '',
@@ -93,7 +103,7 @@ function detailItems(n: RunNode): string[] {
 
 const ID = 10;
 
-export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false }: Props) {
+export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false, onMark, attemptsShown = false, onToggleAttempts }: Props) {
   const theme = useTheme();
   const [query, setQuery] = useState('');
   const visible = useMemo(() => {
@@ -166,6 +176,10 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       else if (key.return && current) onOpen(current.run.runId);
       else if (input === 'o' && current) toDashboard(current.run.runId);
       else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId, attempts: attemptsOf?.(current.run.runId) ?? 0 });
+      else if (input === 'a' && onToggleAttempts) {
+        onToggleAttempts();
+        setToast({ text: attemptsShown ? 'attempts folded under their runs' : 'attempts listed one by one; a folds them again', ms: 2500, tone: 'info' });
+      } else if (markKey(input) && current && onMark) setToast({ text: onMark(current.run.runId, markKey(input)!), ms: 4000, tone: 'ok' });
     },
     { isActive: mode.kind !== 'search' && !paused },
   );
@@ -179,6 +193,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
   const checkW = longest((n) => checksOf(n.run, theme)?.text ?? '');
   const labelsW = longest(labelsText);
   const statusW = longest(statusOf);
+  const attemptsW = longest((n) => (n.attempts ? attemptsText(n.attempts) : ''));
   const w = fitColumns(
     [
       { key: 'mark', min: 2 },
@@ -187,6 +202,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       { key: 'checks', min: checkW ? checkW + 2 : 0 },
       { key: 'status', min: statusW ? statusW + 2 : 0, drop: 1 },
       { key: 'labels', min: labelsW ? Math.min(labelsW, 10) + 2 : 0, max: labelsW ? Math.min(labelsW, 28) + 2 : 0, drop: 3 },
+      { key: 'attempts', min: attemptsW ? attemptsW + 2 : 0, drop: 3.5 },
       { key: 'calls', min: longest((n) => `${n.calls} calls`) + 2, drop: 4 },
       { key: 'cost', min: longest(costText) ? longest(costText) + 2 : 0, drop: 5 },
       { key: 'age', min: longest((n) => ago(n.run.startedAt)) + 2, drop: 2 },
@@ -198,15 +214,19 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
   const common = sharedPrefix(shown.map((n) => n.run.runId.slice(0, ID)));
   const count = `${visible.length}${query ? `/${nodes.length}` : ''} run${nodes.length === 1 ? '' : 's'}`;
 
-  const hints: Hint[] = nodes.length
-    ? [
+  const anyAttempts = attemptsShown || nodes.some((n) => n.attempts);
+  const all: Hint[] = [
         ['?', 'help'],
         ['enter', 'open'],
         ['/', 'filter'],
         ['o', 'dashboard'],
         ['x', 'delete'],
+        ['+ -', 'good/bad'],
+        ['a', attemptsShown ? 'fold attempts' : 'attempts'],
         ['q', 'quit'],
-      ]
+      ];
+  const hints: Hint[] = nodes.length
+    ? all.filter(([k]) => k !== 'a' || anyAttempts)
     : [
         ['?', 'help'],
         ['q', 'quit'],
@@ -306,6 +326,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                 cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
                 cell(status, w.status, { color: status === 'recording' ? theme.warn : theme.err }, 2),
                 cell(labelsText(n), w.labels, { color: theme.dim }, 2),
+                cell(n.attempts ? attemptsText(n.attempts) : '', w.attempts, { color: n.attempts && n.attempts.passed < n.attempts.count ? theme.warn : theme.dim }, 2),
                 cell(`${n.calls} calls`, w.calls, {}, 2),
                 cell(costText(n), w.cost, { color: theme.dim }, 2),
                 cell(ago(n.run.startedAt), w.age, { color: theme.dim }, 2),

@@ -1,4 +1,6 @@
-import { kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { attemptBundles, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+
+import { attemptsOf, type Attempts } from './attempts.js';
 
 // The run's kind in words and the model of its calls, as the dashboard shows them, are the engine's.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from '@shadowlap/engine';
@@ -18,6 +20,8 @@ export interface RunNode {
   captured: number;
   /** Marked running, but the process recording it is gone: nothing will add to it (the store's recordingRuns). */
   interrupted: boolean;
+  /** The attempts bundled under it (a `--repeat`'s, blame's probes, verify's) and how many passed. */
+  attempts: Attempts | null;
 }
 
 export interface CostOptions {
@@ -42,17 +46,24 @@ export function runCost(store: Store, run: RunRecord, options: CostOptions): Run
   return cost;
 }
 
-/** Runs as a tree: roots oldest first, children under their parent, oldest first. */
-export function loadRunTree(store: Store, options: CostOptions, limit = 500): RunNode[] {
+/**
+ * Runs as a tree: roots oldest first, children under their parent, oldest first. The attempts bundled
+ * under a run are folded into it, as the dashboard's Runs folds them, unless `attempts` lists them.
+ */
+export function loadRunTree(store: Store, options: CostOptions & { attempts?: boolean }, limit = 500): RunNode[] {
   const runs = store.listRuns(limit);
   const ids = new Set(runs.map((r) => r.runId));
-  const roots = runs.filter((r) => !r.parentRunId || !ids.has(r.parentRunId)).sort((a, b) => a.startedAt - b.startedAt);
+  const bundles = attemptBundles(runs);
+  const folded = options.attempts ? new Set<string>() : new Set([...bundles.values()].flat());
+  const byId = new Map(runs.map((r) => [r.runId, r]));
+  const attemptsUnder = (id: string) => attemptsOf((bundles.get(id) ?? []).flatMap((a) => byId.get(a) ?? []));
+  const roots = runs.filter((r) => (!r.parentRunId || !ids.has(r.parentRunId)) && !folded.has(r.runId)).sort((a, b) => a.startedAt - b.startedAt);
   const out: RunNode[] = [];
   const left = runs.some((r) => r.status === 'running') ? new Set(store.recordingRuns().abandoned.map((r) => r.run.runId)) : new Set<string>();
   const walk = (run: RunRecord, depth: number) => {
     const calls = store.countCalls(run.runId);
-    out.push({ run, depth, calls, label: runLabel(run, kindFacts(store, run, calls)), ...runCost(store, run, options), interrupted: left.has(run.runId) });
-    for (const child of store.childRuns(run.runId)) if (ids.has(child.runId)) walk(child, depth + 1);
+    out.push({ run, depth, calls, label: runLabel(run, kindFacts(store, run, calls)), ...runCost(store, run, options), interrupted: left.has(run.runId), attempts: attemptsUnder(run.runId) });
+    for (const child of store.childRuns(run.runId)) if (ids.has(child.runId) && !folded.has(child.runId)) walk(child, depth + 1);
   };
   roots.forEach((r) => walk(r, 0));
   return out;
