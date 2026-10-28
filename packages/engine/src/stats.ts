@@ -300,16 +300,19 @@ export function decide(passes: number, attempts: number, gate: Gate, history?: G
  * the model had answered (unavailable.ts), none of them among `passes`. A pass must hold with them
  * counted as failures, and a failure with them counted as passes, so neither verdict rests on how
  * they would have ended, whatever made the provider fail where it did; with neither, it runs another
- * attempt, and at `max` it is inconclusive. Each view is the gate's own test of every attempt it
- * counts, so each verdict keeps the gate's risk however the provider's errors fall: the SPRT's by
- * Ville's inequality, whatever the stopping. With none cut short, it is `decide`.
+ * attempt. It is inconclusive once `max` of its attempts were not cut short: one the provider cut
+ * short tells neither view anything of the agent's own, so it uses up none of the gate's attempts,
+ * and an error now and then leaves as few gates inconclusive as none does. Each view is the gate's
+ * own test of every attempt it counts, so each verdict keeps the gate's risk however the provider's
+ * errors fall: the SPRT's by Ville's inequality, whatever the stopping and however long the gate
+ * runs. With none cut short, it is `decide`.
  */
 export function decideUnavailable(passes: number, attempts: number, unavailable: number, gate: Gate, history?: GateHistory | Tally | null): GateDecision {
   if (!unavailable) return decide(passes, attempts, gate, history);
   checkTally(passes + unavailable, attempts);
   if (decide(passes, attempts, gate, history) === 'pass') return 'pass';
   if (decide(passes + unavailable, attempts, gate, history) === 'fail') return 'fail';
-  return attempts >= gate.max ? 'inconclusive' : 'continue';
+  return attempts - unavailable >= gate.max ? 'inconclusive' : 'continue';
 }
 
 /**

@@ -322,7 +322,7 @@ describe('shadowlap test with several gated goldens', () => {
       const r = await shadowlapTestAll(tests, FIX);
       expect(r.code, r.out).toBe(0);
       expect(r.out).toMatch(/forecast: about \d+ attempts \([\d.]+ a golden on average\), up to 164 · /);
-      expect(r.out).toContain('suite risk 5%: 2 gated goldens, 2.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer');
+      expect(r.out).toContain('suite risk 5%: 2 gated goldens, 2.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering');
       // Each gate keeps its risk for a pass, takes its share for a failure, and its max is sized for it.
       const rule = 'gate: tells 90%+ from 70%- at <= 5% risk to pass and <= 2.3% to fail, up to 82 attempts';
       for (const result of r.report.results) {
@@ -337,7 +337,7 @@ describe('shadowlap test with several gated goldens', () => {
       expect(r.report.suite).toMatchObject({ risk: 0.05, perGoldenRisk: 0.025, method: 'bonferroni', goldens: 2, inconclusive: 'fail', forecast: { most: 164 } });
       expect(r.report.suite.red).toBeLessThanOrEqual(0.05);
       expect(r.report.suite.forecast.attempts).toBeGreaterThan(24);
-      expect(r.markdown).toContain('Suite risk 5%, split across 2 gated goldens (2.5% each), so a healthy suite goes red for nothing in 5% of runs or fewer.');
+      expect(r.markdown).toContain('Suite risk 5%, split across 2 gated goldens (2.5% each), so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering.');
       hold([['test', r.report]]);
       // --suite-risk overrides it for one session.
       const looser = await shadowlapTestAll(tests, FIX, ['--suite-risk', '0.2']);

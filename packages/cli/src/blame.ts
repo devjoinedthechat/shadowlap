@@ -252,7 +252,9 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
       const interventions: Interventions | undefined = Object.keys(s.fields).length ? { set: { fromCall: callNo, fields: s.fields } } : undefined;
       await probeAttempts({
         concurrency: s.concurrency,
-        limit,
+        // A gate's max counts the attempts the provider didn't cut short (decideUnavailable): the tally
+        // decides it at max of those, and up to twice it may start in all.
+        limit: each ? 2 * limit : limit,
         tally,
         more: () => !prefixBroken && !tally.decided && runner.canStart(),
         attempt: async (n) => {

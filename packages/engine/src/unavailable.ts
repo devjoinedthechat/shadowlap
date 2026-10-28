@@ -134,6 +134,24 @@ export function unavailableReason(n: number, last: Unavailable): string {
 }
 
 /**
+ * How many unavailable attempts in a row stop a test session of `goldens` goldens, counted across the
+ * session, whichever goldens ran them (their attempts run in turns): 3 for one golden, one more for
+ * each tenfold of goldens (4 from 2, 5 from 11, 6 from 101). A provider that fails attempts now and
+ * then, independently, fails k in a row somewhere in N attempts about N·e^k of the time, so a fixed 3
+ * stops most large sessions for nothing: early errors on 5% or 10% of the attempts stopped 19% and 81%
+ * of 100-golden sessions. At 3 + ⌈log₁₀ G⌉, a provider failing one attempt in ten stops a session
+ * about as often whatever its size, and one that is down stops the session after that many in a row.
+ */
+export function sessionInARow(goldens: number): number {
+  return UNAVAILABLE_RETRY.inARow + Math.max(0, Math.ceil(Math.log10(Math.max(1, goldens)) - 1e-12));
+}
+
+/** Why a golden was not tested: the session's provider stayed unavailable `n` attempts in a row, across its goldens, before its turn. */
+export function sessionUnavailableReason(n: number, last: Unavailable): string {
+  return `${UNAVAILABLE_PREFIX}${n} attempts in a row across the session ended on ${last.reason}, so the session stopped before this golden ran; run it again once the provider answers`;
+}
+
+/**
  * Whether a run, a probe or a session stopped because its provider was unavailable too many attempts
  * in a row (its `stopReason` is `unavailableReason`'s): inconclusive, the provider's doing, never a
  * failure of the agent's.

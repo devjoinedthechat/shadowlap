@@ -243,7 +243,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic, result.cutShort ?? 0);
         };
         if (result.attempts.length) settle();
-        while (result.verdict === 'open' && result.decision !== 'inconclusive' && result.attempts.length < limit && !(s.failFast && failed) && canStart()) {
+        // A gate's max counts the attempts the provider didn't cut short (decideUnavailable), up to twice it in all.
+        const room = () => (s.gate ? result.attempts.length - (result.cutShort ?? 0) < limit && result.attempts.length < 2 * limit : result.attempts.length < limit);
+        while (result.verdict === 'open' && result.decision !== 'inconclusive' && room() && !(s.failFast && failed) && canStart()) {
           const n = result.attempts.length + 1;
           const a = await changed(n);
           if (!a) break;

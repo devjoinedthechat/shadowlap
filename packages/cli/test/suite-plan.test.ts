@@ -18,7 +18,7 @@ describe('the session plan', () => {
     const lines = suiteLines(planSuite(goldens(100, { rate: 0.95, costPerAttempt: 0.025 }))!);
     expect(lines).toEqual([
       'forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about $41.87',
-      'suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing in 5% of runs or fewer',
+      'suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering',
     ]);
     expect(PAGE.includes(`\`\`\`\n${lines.join('\n')}\n\`\`\``), 'docs/gating.md shows the forecast as the session prints it').toBe(true);
   });
@@ -38,16 +38,16 @@ describe('the session plan', () => {
     const plan = planSuite([...goldens(9), { golden: 'goldens/pinned', gate: { ...gate, max: 20 }, maxGiven: true }])!;
     expect(plan.red).toBeGreaterThan(0.5);
     const lines = suiteLines(plan);
-    expect(lines[1]).toBe(`suite risk 5%: 10 gated goldens, 0.5% each, but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer`);
+    expect(lines[1]).toBe(`suite risk 5%: 10 gated goldens, 0.5% each, but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer, with the provider answering`);
     expect(lines[1]).not.toContain('in 5% of runs or fewer');
     expect(lines[2]).toMatch(/^goldens\/pinned: its max of 20 leaves /);
     // The JSON says how many, and the Markdown summary says what the terminal does.
     const suite = suiteJson(plan);
     expect(suite).toMatchObject({ red: plan.red, over: 1 });
     const md = markdownReport(testReport([], null, suite));
-    expect(md).toContain(`Suite risk 5%, split across 10 gated goldens (0.5% each), but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer.`);
+    expect(md).toContain(`Suite risk 5%, split across 10 gated goldens (0.5% each), but 1 golden can't keep within its share, so a healthy suite goes red for nothing in ${riskPercent(plan.red)} of runs or fewer, with the provider answering.`);
     // Within the risk, the line is as before, and the risk it says is the one given.
-    expect(suiteLines(planSuite(goldens(10))!)[1]).toBe('suite risk 5%: 10 gated goldens, 0.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer');
+    expect(suiteLines(planSuite(goldens(10))!)[1]).toBe('suite risk 5%: 10 gated goldens, 0.5% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering');
   });
 
   it('says nothing of a split for one golden, and names one whose max can’t keep within its share', () => {
