@@ -1,6 +1,7 @@
 import { Argument, Command } from 'commander';
 import { AGENTS_FOLDER_READERS, CODING_AGENTS, SKILLS, TARGETS, codingAgent, installCodingAgent, type InstallResult } from '@shadowlap/dashboard';
 import { recordActivity } from '../activity.js';
+import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import type { GlobalOpts } from '../shared.js';
 import { palette as p, safe } from '../ui.js';
@@ -37,7 +38,7 @@ export function register(program: Command): void {
       }
       process.stdout.write((flags.json ? JSON.stringify(result, null, 2) : formatInstall(result)) + '\n');
       emitJobEvent({ type: 'result', data: result });
-      if (result.outcome === 'refused') process.exitCode = 1;
+      if (result.outcome === 'refused') process.exitCode = EXIT.failed;
     });
 }
 

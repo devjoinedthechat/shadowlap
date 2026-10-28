@@ -7,6 +7,7 @@ import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, format
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
+import { EXIT } from '../exit-codes.js';
 import { projectGoldens } from '../goldens.js';
 import { describeCall, leftRunning, missingStoreNote, openStore, parseIntArg, readStore, requireRun, statusWord, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { dashboardTasks } from '../tasks.js';
@@ -351,7 +352,7 @@ export function register(program: Command): void {
         const runId = flags.run ? requireRun(store, flags.run).runId : undefined;
         const hits = searchCalls(store, query.join(' '), { limit: flags.limit, ...(runId ? { runId } : {}) });
         // Nothing found is exit status 1, as for grep, whatever the output.
-        if (!hits.length) process.exitCode = 1;
+        if (!hits.length) process.exitCode = EXIT.failed;
         if (flags.json) {
           process.stdout.write(JSON.stringify(hits.map((h) => ({ ...h, snippet: h.snippet.split(MATCH_START).join('').split(MATCH_END).join('') })), null, 2) + '\n');
           return;
@@ -359,7 +360,7 @@ export function register(program: Command): void {
         if (!hits.length) {
           const note = missingStoreNote(store);
           process.stdout.write(p.dim(note ? `no matches: ${note}\n` : 'no matches\n'));
-          process.exitCode = 1;
+          process.exitCode = EXIT.failed;
           return;
         }
         for (const h of hits) {

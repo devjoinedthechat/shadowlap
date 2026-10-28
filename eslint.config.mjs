@@ -63,7 +63,20 @@ const BANS = {
       message: "Read a caught value with messageOf(err) from '@shadowlap/engine' (or the browser code's message-of.ts).",
     },
   ],
+  // The CLI's exit statuses are a contract (docs/cli.md, "Exit status"), each named in EXIT (exit-codes.ts).
+  exit: [
+    {
+      selector: "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'][right.type='Literal']",
+      message: 'Name the exit status with EXIT from exit-codes.ts: process.exitCode = EXIT.failed.',
+    },
+    {
+      selector: "CallExpression[callee.object.name='process'][callee.property.name='exit'][arguments.0.type='Literal']",
+      message: 'Name the exit status with EXIT from exit-codes.ts: process.exit(EXIT.usage).',
+    },
+  ],
 };
+/** Files other passes are changing now, held out of the bans they don't meet yet until those merge. */
+const HELD = ['packages/tui/**', 'packages/dashboard/src/{read-pool,runs-list}.ts', 'packages/cli/src/{chaos,golden-test}.ts'];
 /** no-restricted-syntax with the bans named. */
 const bans = (...names) => ['error', ...names.flatMap((name) => BANS[name])];
 
@@ -198,12 +211,17 @@ export default defineConfig(
   },
 
   // The packages' code that loads the engine, and the browser code with its copy, read a caught value
-  // with messageOf. Held out until the passes changing them merge: the terminal UI, the dashboard's
-  // read pool and runs list, and the CLI's chaos runs and golden tests.
+  // with messageOf; the CLI's names its exit statuses. Held out until the passes changing them merge:
+  // the terminal UI, the dashboard's read pool and runs list, and the CLI's chaos runs and golden tests.
   {
     files: ['packages/{cli,collector,dashboard,engine,remote,sidecar,tui}/src/**/*.{ts,tsx}', 'packages/dashboard/ui/**/*.{ts,tsx}'],
-    ignores: ['packages/tui/**', 'packages/dashboard/src/{read-pool,runs-list}.ts', 'packages/cli/src/{chaos,golden-test}.ts'],
+    ignores: HELD,
     rules: { 'no-restricted-syntax': bans('isObject', 'messageOf') },
+  },
+  {
+    files: ['packages/cli/src/**/*.ts'],
+    ignores: HELD,
+    rules: { 'no-restricted-syntax': bans('isObject', 'messageOf', 'exit') },
   },
   // The helpers themselves, and their copies where the engine can't be loaded: the adapters and the
   // browser code, and @shadowlap/test's recording.ts, whose CommonJS copy loads only its own files.

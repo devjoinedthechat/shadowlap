@@ -26,7 +26,7 @@ const HOSTS = 'Shadowlap reads Anthropic, OpenAI, Gemini, Azure, Vertex and Bedr
 
 function printJson(json: ImportJson): void {
   console.log(JSON.stringify(json, null, 2));
-  if (!json.runs.length) process.exitCode = 1;
+  if (!json.runs.length) process.exitCode = EXIT.failed;
 }
 
 function report(result: ImportResult, note: string): void {
@@ -36,7 +36,7 @@ function report(result: ImportResult, note: string): void {
     for (const s of result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
     console.error(`\n${HOSTS} The capture must include response bodies.`);
-    process.exitCode = 1;
+    process.exitCode = EXIT.failed;
     return;
   }
 
@@ -86,7 +86,7 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
     for (const s of json.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n}: ${reason}`);
     if (!kept.modelCalls) console.error("\nA model call is a span with the OpenTelemetry GenAI conventions (gen_ai.*) or OpenInference's (an LLM span), a Langfuse generation or a LangSmith llm run, and it needs its messages logged.");
-    process.exitCode = 1;
+    process.exitCode = EXIT.failed;
     return;
   }
   const done = results.filter((r) => r.imported.result.imported.length);
@@ -437,7 +437,7 @@ export function register(program: Command): void {
           for (const r of runs) for (const s of r.result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
           for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
           console.error(`\n${HOSTS} A capture is written only while SHADOWLAP_CAPTURE_DIR is set on the proxy.`);
-          process.exitCode = 1;
+          process.exitCode = EXIT.failed;
           return;
         }
 

@@ -207,7 +207,7 @@ export function register(program: Command): void {
       if (plan.runs.length) process.stdout.write(`${p.green('✓')} ${deletedLine(plan.runs, plan.attempts.length)}; ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
       if (gc?.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
       for (const { runId, why } of plan.held) process.stderr.write(`${p.yellow('!')} left ${shortId(runId)}: ${why}; delete it once that has ended\n`);
-      if (plan.held.length) process.exitCode = 1;
+      if (plan.held.length) process.exitCode = EXIT.failed;
     });
 
   program
