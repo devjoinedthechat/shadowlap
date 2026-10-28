@@ -358,7 +358,8 @@ export function recordBlameFix(
       actor: who,
       runId: input.runId,
       ref: recorded.fix.fixId,
-      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...(unsettledFirst(input.report) ? { unsettled: true } : {}) },
+      // The calls it was lost between, so the activity feed can say a run lost gradually around two (`gradual`).
+      data: { outcome: input.report.outcome, callNo: input.report.blamed?.callNo ?? null, confidence: input.report.confidence, title: recorded.fix.title, opened: recorded.created, ...(unsettledFirst(input.report) ? { unsettled: true } : {}), ...(input.report.range ? { range: { from: input.report.range.from, to: input.report.range.to, ...(input.report.range.gradual ? { gradual: true } : {}) } } : {}) },
     });
     return recorded;
   } catch (err) {

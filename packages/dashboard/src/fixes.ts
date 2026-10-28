@@ -590,6 +590,21 @@ function notVerified(rec: FixRecords): string[] {
   return rec.failing.filter((id) => !checked.has(id));
 }
 
+/**
+ * The two calls a blame found the run lost gradually around (`range.gradual`: the check of the call
+ * the probes pinned found no drop there), or null when it was lost at one call.
+ */
+function gradualRange(r: BlameReport): { from: number; to: number } | null {
+  const g = r.range;
+  return g?.gradual && g.to > g.from ? { from: g.from, to: g.to } : null;
+}
+
+/** Where a blame that named call `callNo` found the run lost, as a line about the fix says it: at the call, or gradually around two. */
+function lostWords(r: BlameReport, callNo: number): string {
+  const g = gradualRange(r);
+  return g ? `lost gradually around #${g.from} and #${g.to}` : `lost at model call #${callNo}`;
+}
+
 function stepsOf(rec: FixRecords): FixStep[] {
   const b = shownBlame(rec);
   const p = shownRepair(rec);
@@ -601,7 +616,11 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
-    if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
+    const g = gradualRange(r);
+    if (b.outcome === 'blamed' && r.blamed)
+      blame = g
+        ? { key: 'blame', n: '01', state: 'done', short: `lost gradually, #${g.from}–#${g.to}`, title: `Lost gradually around model calls #${g.from} and #${g.to}`, meta: `confidence ${r.confidence} · ${cost}` }
+        : { key: 'blame', n: '01', state: 'done', short: `lost at #${r.blamed.callNo}`, title: `Lost at model call #${r.blamed.callNo}`, meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
     // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.
     else if (b.outcome === 'unrescuable') blame = { key: 'blame', n: '01', state: 'warn', short: unsettledFirst(r) ? 'not settled' : 'not rescued', title: unrescuedHead(r).replace(/^\S+ /, ''), meta: cost };
@@ -1700,7 +1719,7 @@ export function needsLookFixes(store: Store, options: { limit?: number; patchInT
     const rec = fixRecords(store, fix);
     if (fix.status === 'open') {
       const b = shownBlame(rec);
-      const where = b?.outcome === 'blamed' && b.report.blamed ? `lost at model call #${b.report.blamed.callNo}` : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
+      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report, b.report.blamed.callNo) : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.
