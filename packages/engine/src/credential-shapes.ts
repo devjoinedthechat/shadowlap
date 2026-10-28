@@ -424,39 +424,102 @@ export function asXmlText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** An XML (or XHTML) document: a tag, a comment or a doctype first, past a byte-order mark and a declaration; `>` last. */
+/** An XML (or XHTML) document: a tag, a comment or a doctype first, past a byte-order mark and a declaration. */
 const XML_START = /^(?:\uFEFF|\u00EF\u00BB\u00BF)?\s*(?:<\?xml[^>]*\?>\s*)?<[A-Za-z_!]/;
-/** A leaf element, its text plain or a CDATA section: `<ns:SessionToken a="1">…</ns:SessionToken>`. */
-const XML_LEAF = /<((?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*))((?:\s[^<>]*)?)>(?:([^<]*)|<!\[CDATA\[([^]*?)\]\]>)<\/\1\s*>/g;
+/** A start or end tag, whole: whether it ends one, its name (and the name without a namespace prefix), and its attributes (a `/` last when it closes itself). */
+const XML_TAG_PARTS = /^<(\/?)((?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*))((?:\s[^<>]*)?)>$/;
 /** A start tag's attribute: `token="…"`, `ns:secret='…'`. */
 const XML_ATTRIBUTE = /(\s)((?:[A-Za-z_][\w.-]*:)?([A-Za-z_][\w.-]*))(\s*=\s*)("[^"<]*"|'[^'<]*')/g;
-const XML_TAG = /<[A-Za-z_][^<>]*>/g;
+/** Attributes that name what an element holds (`<entry key="db.password">`, `<input name="SAMLResponse">`), and those that hold its value. */
+const NAMING_ATTRIBUTES = new Set(['name', 'key']);
+const VALUE_ATTRIBUTES = new Set(['value', 'content']);
+/** HTML's void elements, which have no end tag: what follows one is never inside it. */
+const VOID_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+
+/** An element the reader is inside: its tag, the name it goes by, and whether everything in it is a credential. */
+interface XmlElement {
+  tag: string;
+  name: string;
+  under: boolean;
+}
 
 /**
- * XML with the text of each leaf element, and the value of each attribute, whose name (without its
- * namespace prefix) `credential` reads as one, with its text, replaced by `replacement`, escaped as
- * XML; every other character as it was. An AWS STS answer's `<SecretAccessKey>` and
- * `<SessionToken>`, a SAML attribute. Null when it isn't XML, or nothing changed.
+ * XML, or HTML, with each credential replaced by `replacement`, escaped as XML, every other
+ * character as it was: an element's text (a CDATA section's too) whose name `credential` reads as
+ * one with it, and each attribute whose name does; an element named by its `name` or `key`
+ * attribute (`<entry key="db.password">`, `<property name="api_key" value="…"/>`, `<input
+ * name="SAMLResponse" value="…">`, `<meta name="csrf-token" content="…">`) as by its tag, its
+ * `value` or `content` attribute with it; and everything inside an element whose name or key
+ * attribute `member` reads as a credential by itself (a SAML `<Attribute Name="password">`'s
+ * `<AttributeValue>`). An element named so by its tag holds its own text alone, each element in it
+ * judged by its own name: an AWS STS answer's `<Credentials>` keeps its key id and expiry, which a
+ * client reads on replay, and masks its `<SecretAccessKey>` and `<SessionToken>`. Read tag by tag, each character once; a comment is skipped, and text after the
+ * document is left as it is. Null when it isn't XML, or nothing changed.
  */
-export function maskXml(text: string, credential: (name: string, value: string) => boolean, replacement: string): string | null {
-  if (!XML_START.test(text) || !text.trimEnd().endsWith('>')) return null;
+export function maskXml(text: string, credential: (name: string, value: string) => boolean, member: (name: string) => boolean, replacement: string): string | null {
+  if (!XML_START.test(text)) return null;
   const placed = asXmlText(replacement);
-  let changed = false;
-  const leaves = text.replace(XML_LEAF, (whole, tag: string, local: string, attrs: string, plain: string | undefined, cdata: string | undefined) => {
-    const value = cdata ?? xmlText(plain ?? '');
-    if (value === replacement || !value.trim() || !credential(local, value)) return whole;
-    changed = true;
-    return cdata !== undefined ? `<${tag}${attrs}><![CDATA[${replacement}]]></${tag}>` : `<${tag}${attrs}>${placed}</${tag}>`;
-  });
-  const out = leaves.replace(XML_TAG, (tag) =>
-    tag.replace(XML_ATTRIBUTE, (whole, lead: string, name: string, local: string, eq: string, quoted: string) => {
+  const out: string[] = [];
+  let copied = 0;
+  const replace = (from: number, to: number, written: string) => {
+    out.push(text.slice(copied, from), written);
+    copied = to;
+  };
+  const open: XmlElement[] = [];
+  /** Whether a value inside the element read now is a credential: everything is under one, else by the element's name with it. */
+  const secret = (value: string): boolean => {
+    const top = open[open.length - 1];
+    return top !== undefined && value !== replacement && value.trim() !== '' && (top.under || credential(top.name, value));
+  };
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const lt = text.indexOf('<', i);
+    const to = lt < 0 ? n : lt;
+    if (to > i && secret(xmlText(text.slice(i, to)))) replace(i, to, placed);
+    if (lt < 0) break;
+    if (text.startsWith('<!--', lt)) {
+      const end = text.indexOf('-->', lt + 4);
+      if (end < 0) break;
+      i = end + 3;
+      continue;
+    }
+    if (text.startsWith('<![CDATA[', lt)) {
+      const end = text.indexOf(']]>', lt + 9);
+      if (end < 0) break;
+      if (secret(text.slice(lt + 9, end))) replace(lt + 9, end, replacement);
+      i = end + 3;
+      continue;
+    }
+    const gt = text.indexOf('>', lt + 1);
+    if (gt < 0) break;
+    i = gt + 1;
+    // A doctype, a declaration or a processing instruction, or `<` in text: none holds a value.
+    const tag = XML_TAG_PARTS.exec(text.slice(lt, i));
+    if (!tag) continue;
+    const [, closing, qname = '', local = '', attrs = ''] = tag;
+    if (closing) {
+      let at = open.length - 1;
+      while (at >= 0 && open[at]!.tag !== qname) at--;
+      if (at >= 0) open.length = at;
+      continue;
+    }
+    let named: string | null = null;
+    for (const a of attrs.matchAll(XML_ATTRIBUTE)) if (named === null && NAMING_ATTRIBUTES.has(a[3]!.toLowerCase())) named = xmlText(a[5]!.slice(1, -1));
+    const outer = open[open.length - 1]?.under ?? false;
+    const name = named ?? local;
+    const under = outer || (named !== null && member(named));
+    const masked = attrs.replace(XML_ATTRIBUTE, (whole, lead: string, attr: string, own: string, eq: string, quoted: string) => {
       const value = xmlText(quoted.slice(1, -1));
-      if (value === replacement || !value || !credential(local, value)) return whole;
-      changed = true;
-      return `${lead}${name}${eq}${quoted[0]!}${placed}${quoted[0]!}`;
-    }),
-  );
-  return changed ? out : null;
+      if (value === replacement || !value) return whole;
+      const holds = VALUE_ATTRIBUTES.has(own.toLowerCase()) && (under || (named !== null && credential(named, value)));
+      if (!holds && !credential(own, value)) return whole;
+      return `${lead}${attr}${eq}${quoted[0]!}${placed}${quoted[0]!}`;
+    });
+    if (masked !== attrs) replace(lt + 1 + qname.length, lt + 1 + qname.length + attrs.length, masked);
+    if (!attrs.trimEnd().endsWith('/') && !VOID_ELEMENTS.has(local.toLowerCase())) open.push({ tag: qname, name, under });
+  }
+  return out.length ? out.join('') + text.slice(copied) : null;
 }
 
 /** A GraphQL document: an operation or a fragment, or a query in its shorthand form (`{ … }`). */

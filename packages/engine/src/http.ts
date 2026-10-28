@@ -497,7 +497,7 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     maskMultipart(text, (part) => maskedPart(part, depth)) ??
     maskEventStream(text, (payload) => maskTextCredentials(payload, depth)) ??
     maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
-    maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER) ??
+    maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
     maskLooseForm(text, byName, depth);
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run

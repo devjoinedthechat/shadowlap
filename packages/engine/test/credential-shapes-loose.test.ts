@@ -62,3 +62,26 @@ describe('an event stream and lines of JSON', () => {
     expect(maskTextCredentials(`{"ok":true}\nnot json\n{"name":"refund"}\n`)).toBeNull();
   });
 });
+
+describe('name-value XML and HTML', () => {
+  it('reads an element named by its name or key attribute as by its tag, and masks its value', () => {
+    expect(maskTextCredentials(`<properties><entry key="db.password">${S('XMLENTRY')}</entry><entry key="db.host">db.internal</entry></properties>`)).toBe(`<properties><entry key="db.password">&lt;CREDENTIAL&gt;</entry><entry key="db.host">db.internal</entry></properties>`);
+    expect(maskTextCredentials(`<config><property name="api_key" value="${S('XMLPROPVALUE')}"/><property name="region" value="eu"/></config>`)).toBe(`<config><property name="api_key" value="&lt;CREDENTIAL&gt;"/><property name="region" value="eu"/></config>`);
+    expect(maskTextCredentials(`<html><body><form method="post"><input type="hidden" name="SAMLResponse" value="PHNhbWw+${S('HTMLSAML')}"/><input name="RelayState" value="/home"></form><p>Signing in</p></body></html>`)).toBe(`<html><body><form method="post"><input type="hidden" name="SAMLResponse" value="&lt;CREDENTIAL&gt;"/><input name="RelayState" value="/home"></form><p>Signing in</p></body></html>`);
+    expect(maskTextCredentials(`<html><head><meta name="csrf-token" content="${S('HTMLCSRF')}"><meta name="viewport" content="width=device-width"></head><body>Hi</body></html>`)).toBe(`<html><head><meta name="csrf-token" content="&lt;CREDENTIAL&gt;"><meta name="viewport" content="width=device-width"></head><body>Hi</body></html>`);
+  });
+
+  it('masks everything inside an element its name attribute names as a credential, a SAML attribute’s value', () => {
+    expect(maskTextCredentials(`<AttributeStatement><Attribute Name="password"><AttributeValue>${S('SAMLATTRVAL')}</AttributeValue></Attribute><Attribute Name="email"><AttributeValue>a@example.com</AttributeValue></Attribute></AttributeStatement>`)).toBe(`<AttributeStatement><Attribute Name="password"><AttributeValue>&lt;CREDENTIAL&gt;</AttributeValue></Attribute><Attribute Name="email"><AttributeValue>a@example.com</AttributeValue></Attribute></AttributeStatement>`);
+    // An element named as one by its tag holds its own text alone: each element in it is judged by its own name, as an STS answer's are.
+    expect(maskTextCredentials(`<r><Credentials><AccessKeyId>ASIAEXAMPLE</AccessKeyId><SessionToken>${S('XMLSTS')}</SessionToken></Credentials></r>`)).toBe('<r><Credentials><AccessKeyId>ASIAEXAMPLE</AccessKeyId><SessionToken>&lt;CREDENTIAL&gt;</SessionToken></Credentials></r>');
+    expect(maskTextCredentials(`<r><Password><!-- c -->${S('XMLCOMMENTLEAF')}</Password></r>`)).toBe(`<r><Password><!-- c -->&lt;CREDENTIAL&gt;</Password></r>`);
+    expect(maskTextCredentials(`<r><SecretAccessKey>${S('XMLTRAIL')}</SecretAccessKey></r>\nEOF`)).toBe('<r><SecretAccessKey>&lt;CREDENTIAL&gt;</SecretAccessKey></r>\nEOF');
+  });
+
+  it('masks as before a leaf, a CDATA section and an attribute named as a credential, and leaves a page with none as it is', () => {
+    const sts = `<?xml version="1.0"?><a:R xmlns:a="u"><a:SessionToken><![CDATA[${S('XMLCDATA')}]]></a:SessionToken><Credentials SecretAccessKey="${S('XMLATTR')}"/><Expiration>2026-10-26</Expiration></a:R>`;
+    expect(maskTextCredentials(sts)).toBe(`<?xml version="1.0"?><a:R xmlns:a="u"><a:SessionToken><![CDATA[${C}]]></a:SessionToken><Credentials SecretAccessKey="&lt;CREDENTIAL&gt;"/><Expiration>2026-10-26</Expiration></a:R>`);
+    for (const page of ['<html><body><p>token: hello</p><input name="q" value="refund"><br>after</body></html>', '<r><code>EU</code><key>checkout_v2</key></r>']) expect(maskTextCredentials(page), page).toBeNull();
+  });
+});
