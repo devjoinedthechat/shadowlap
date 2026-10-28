@@ -10,6 +10,7 @@ import { exportsEnded } from './export-apart.js';
 import { HttpError, json, sameToken } from './http.js';
 import { JobManager, type JobKind, type JobNotice, type JobPlace, type SpawnCli } from './jobs.js';
 import { answeringRequest } from './idle.js';
+import { storeKeeper } from './keeper.js';
 import { LocalReads, ReadPool, type ReadModels } from './read-pool.js';
 import { previewsEnded } from './redaction-preview.js';
 import { Router, routeRequest } from './router.js';
@@ -215,10 +216,11 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
    * The read models of each store served, worked out beside the server's thread (read-pool.ts): one
    * set of threads per store file, shared by a project's route instances; a store in memory works
    * them out here. What the threads work out to keep (run totals, what users asked), this thread's
-   * connection writes; while another command holds the store's write lock (gc's VACUUM, a pull) it
-   * stops trying for a moment, and the threads keep what they worked out in memory meanwhile.
+   * connection writes (keeper.ts); while another command holds the store's write lock (a batch of the
+   * search index, gc's VACUUM, a pull) the rows wait, and are written once it lets go.
    */
   const pools = new Map<string, ReadPool>();
+  const keepers = new Map<string, ReturnType<typeof storeKeeper>>();
 
   /**
    * Each store file served, by its path: the device and inode it was when the dashboard first read it.
@@ -256,6 +258,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       pools.delete(path);
       void pool.close();
     }
+    keepers.get(path)?.close();
+    keepers.delete(path);
     const indexer = indexers.get(path);
     if (indexer) {
       indexers.delete(path);
@@ -282,12 +286,10 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
     }
     let pool = pools.get(dbPath);
     if (!pool) {
-      let pausedUntil = 0;
-      const save = (write: (s: Store) => boolean) => {
-        if (Date.now() < pausedUntil) return;
-        if (!write(store())) pausedUntil = Date.now() + 2000;
-      };
-      pool = new ReadPool({ dbPath, keep: { stats: (rows) => save((s) => s.saveRunStats(rows)), asks: (rows) => save((s) => s.saveRunAsks(rows)) }, log });
+      const keep = storeKeeper(store);
+      keepers.get(dbPath)?.close();
+      keepers.set(dbPath, keep);
+      pool = new ReadPool({ dbPath, keep, log });
       pools.set(dbPath, pool);
     }
     return pool;
@@ -667,6 +669,7 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
         uploads.close();
         // The read models' threads close their connections to the store before they end.
         await Promise.all([...pools.values(), ...locals, ...indexers.values()].map((r) => r.close()));
+        for (const keep of keepers.values()) keep.close();
         standIn?.close();
         await closed;
         // A redaction preview's thread, or one making an HTML download, holds the store's file until it has ended.

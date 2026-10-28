@@ -205,8 +205,12 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       // Then the whole of it, every run counted, and found.
       expect(whole.body.sums.week.runs + whole.body.sums.lastWeek.runs).toBe(RUNS);
       expect((await ask(d, 'search?q=T-9999&limit=5')).body.hits.map((h: { field: string }) => h.field)).toEqual(expect.arrayContaining(['prompt']));
-      // What was worked out beside the server is kept in the store, through its own connection.
-      expect(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n).toBeGreaterThanOrEqual(RUNS - 100);
+      // What was worked out beside the server is kept in the store, through its own connection, every
+      // run's totals: what waited while the search index held the store is written once it let go
+      // (keeper.ts), so this waits for that, however long the machine's load makes it.
+      const kept = () => Number(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n);
+      while (kept() < RUNS) await wait(100);
+      expect(kept()).toBe(RUNS);
       expect(store.query('SELECT COUNT(*) AS n FROM search_state')[0].n).toBe(RUNS);
     } finally {
       await d.close();
