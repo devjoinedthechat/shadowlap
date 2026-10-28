@@ -204,8 +204,10 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
   const position = lines.length > bodyHeight ? `${offset + 1}–${Math.min(lines.length, offset + bodyHeight)}/${lines.length}` : '';
   const full = tabs.reduce((n, t) => n + t.length + 2, 0);
   const short = tabs.reduce((n, t) => n + SHORT[t].length + 2, 0);
-  // Full names, short ones, or in the narrowest pane only the open tab and which of them it is.
-  const names: string[] = full + position.length + 2 <= innerWidth ? tabs : short + position.length + 2 <= innerWidth ? tabs.map((t) => SHORT[t]) : [];
+  // Full names, short ones, or in the narrowest pane only the open tab and which of them it is; the
+  // line count goes before the names are shortened further.
+  const names: string[] = full <= innerWidth ? tabs : short <= innerWidth ? tabs.map((t) => SHORT[t]) : [];
+  const shownWidth = names.length ? names.reduce((n, t) => n + t.length + 2, 0) : SHORT[tab].length + 6;
 
   return (
     <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={focused ? theme.accent : theme.faint} paddingX={1}>
@@ -223,7 +225,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
               <Text color={theme.faint}>{` ${tabs.indexOf(tab) + 1}/${tabs.length}`}</Text>
             </Text>
           )}
-          {position ? <Text color={theme.faint}>{`  ${position}`}</Text> : null}
+          {position && shownWidth + position.length + 2 <= innerWidth ? <Text color={theme.faint}>{`  ${position}`}</Text> : null}
         </Text>
       </Box>
       {visible.map((l, i) => {

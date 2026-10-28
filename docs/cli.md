@@ -1372,3 +1372,4 @@ whether pull requests' jobs push to their `own-folder` or not at all (`no-push`,
 | `OLLAMA_HOST` | Where `tasks models` lists Ollama's installed models (default `127.0.0.1:11434`) |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Reach the team store and the clouds' sign-in services through a proxy ([details](./team.md#the-store)). The agent never reaches the sidecar through one: `run`, `replay`, `test` and `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy` |
 | `NO_COLOR` | Plain output |
+| `SHADOWLAP_UI_THEME` | `dark`, `light` or `ansi`: the [terminal UI](./tui.md#colours)'s palette, instead of the one picked from what the terminal reports |
