@@ -10,9 +10,8 @@ import { CACHE_WAIT_MS, StorePart, type SqliteStatement, type SqlValue } from '.
 export abstract class ReadModels extends StorePart {
   // ---- read models (the dashboard's overview, run list and calendar) ----
 
-  /** query's statements by their SQL, and its query_only pragma: the store keeps them, one set per connection (store.ts). */
+  /** query's statements by their SQL: the store keeps them, one set per connection (store.ts). */
   protected declare readonly readStatements: Map<string, SqliteStatement>;
-  protected declare queryOnlyState: SqliteStatement | null;
 
   /**
    * Runs one read-only statement and returns its rows, for read models that aggregate in SQL instead
@@ -29,8 +28,7 @@ export abstract class ReadModels extends StorePart {
       statement = this.db.prepare(sql);
       this.readStatements.set(sql, statement);
     }
-    this.queryOnlyState ??= this.db.prepare('PRAGMA query_only');
-    const readOnly = Number(this.queryOnlyState.get()?.query_only) === 1;
+    const readOnly = Number(this.stmts.queryOnly.get()?.query_only) === 1;
     if (!readOnly) this.db.exec('PRAGMA query_only = ON');
     try {
       return statement.all(...params);

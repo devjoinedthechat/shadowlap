@@ -180,8 +180,11 @@ describe('source maps in the packed packages', () => {
       }
     }
     expect(maps).toBeGreaterThan(100);
+    // A map tsc left of a module since moved or deleted names a source the package no longer has, and
+    // may carry it inline, as the build did then: npm run build removes it (scripts/prune-dist.mjs).
+    const stale = 'npm run build removes the build of a module whose source is gone';
     expect(outside).toEqual([]);
-    expect(inline).toEqual([]);
-    expect(missing).toEqual([]);
+    expect(inline, stale).toEqual([]);
+    expect(missing, stale).toEqual([]);
   }, 120_000);
 });

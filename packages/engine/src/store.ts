@@ -14,7 +14,7 @@
  *
  * store/schema.ts holds every table, each feature's in a block of its own, and opens a file at that
  * schema; store/core.ts holds what the parts share. A feature's methods go in its part, and a part in
- * the Store interface and the mixIn below.
+ * PARTS below, the one list both the Store interface and mixIn are made from.
  */
 import { Activity } from './store/activity.js';
 import { Chaos } from './store/chaos.js';
@@ -47,23 +47,19 @@ export type { TeamFixRow, TeamRunRow, TeamRunState, TeamSyncRow } from './store/
 export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, TestResult, TestResultData, TestSession } from './store/tests.js';
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training.js';
 
-// Store's methods that are a part's (mixIn, below): their signatures and comments are the part's own,
+/**
+ * The store's parts, in the order mixIn (below) puts their methods on Store: the one list the Store
+ * interface is made from too, so a part named here is on both.
+ */
+const PARTS = [Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, Injection, Coverage, Decisions, Training, Team] as const;
+
+/** What a caller sees of the parts in `Parts`: each one's public methods, together. */
+type MethodsOf<Parts extends readonly unknown[]> = Parts extends readonly [abstract new (...args: never[]) => infer Part, ...infer Rest] ? Pick<Part, keyof Part> & MethodsOf<Rest> : unknown;
+
+// Store's methods that are a part's, from PARTS: their signatures and comments are the part's own,
 // where the methods are written.
-// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging -- mixIn puts every part named here on Store's prototype when this file loads, and refuses a name defined twice
-export interface Store
-  extends Pick<Recording, keyof Recording>,
-    Pick<Search, keyof Search>,
-    Pick<Cleanup, keyof Cleanup>,
-    Pick<ReadModels, keyof ReadModels>,
-    Pick<Activity, keyof Activity>,
-    Pick<Fixes, keyof Fixes>,
-    Pick<Tests, keyof Tests>,
-    Pick<Chaos, keyof Chaos>,
-    Pick<Injection, keyof Injection>,
-    Pick<Coverage, keyof Coverage>,
-    Pick<Decisions, keyof Decisions>,
-    Pick<Training, keyof Training>,
-    Pick<Team, keyof Team> {}
+// eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-object-type -- an interface merged with class Store, as mixIn puts every part in PARTS on Store's prototype when this file loads (and refuses a name defined twice)
+export interface Store extends MethodsOf<typeof PARTS> {}
 
 /**
  * The append-only local store: runs, call events and content-addressed blobs in one SQLite file.
@@ -76,7 +72,6 @@ export class Store {
   private readonly stmts: Statements;
   // query's statements (store/read-models.ts), one set per connection.
   private readonly readStatements = new Map<string, SqliteStatement>();
-  private queryOnlyState: SqliteStatement | null = null;
   // Writes queued in this process and not made yet (store/recording.ts, queueWrites).
   private readonly queues = new Set<QueuedWrites>();
 
@@ -122,23 +117,57 @@ export class Store {
   transaction<T>(fn: () => T, mode: 'deferred' | 'immediate' = 'immediate'): T {
     return inTransaction(this.db, fn, mode);
   }
+
+  /** Has each part delete what it keeps of a run deleted (its onRunDeleted), in the order of PARTS: deleteRun's, in its transaction. */
+  private forgetRun(runId: string): void {
+    for (const forget of runDeletedHooks) forget.call(this, runId);
+  }
 }
 
-mixIn([Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, Injection, Coverage, Decisions, Training, Team]);
+/** Each part's onRunDeleted (store/core.ts), which mixIn keeps here for forgetRun. */
+const runDeletedHooks: Array<(this: Store, runId: string) => void> = [];
+
+mixIn(PARTS);
 
 /**
  * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call
- * from one to another goes through the store, as a caller's does, so a view of the store made with
- * Object.create that replaces a method (getBlob, to count what is read) is what the others call too.
- * A name two places define stops store.ts loading.
+ * from one to another goes through the store, as a caller's does, so a view of the store (storeView)
+ * that replaces a method is what the others call too. A name two places define stops store.ts
+ * loading. A part's onRunDeleted is kept aside instead, for forgetRun: more than one part has one.
  */
 function mixIn(parts: ReadonlyArray<abstract new (...args: never[]) => StorePart>): void {
   for (const part of parts) {
     if (Object.getPrototypeOf(part.prototype) !== StorePart.prototype) throw new Error(`${part.name} must extend StorePart`);
     for (const key of Reflect.ownKeys(part.prototype as object)) {
       if (key === 'constructor') continue;
+      const method = Object.getOwnPropertyDescriptor(part.prototype, key)!;
+      if (key === 'onRunDeleted') {
+        runDeletedHooks.push(method.value as (this: Store, runId: string) => void);
+        continue;
+      }
       if (Object.hasOwn(Store.prototype, key)) throw new Error(`Store.${String(key)} is defined twice`);
-      Object.defineProperty(Store.prototype, key, Object.getOwnPropertyDescriptor(part.prototype, key)!);
+      Object.defineProperty(Store.prototype, key, method);
     }
   }
+}
+
+/** A method of the store as a view replaces it (storeView): its parameters and its result, with no `this`. */
+type Replacement<Method> = Method extends (...args: infer Args) => infer Result ? (this: void, ...args: Args) => Result : never;
+
+/**
+ * A view of `store`: the store with the methods in `replaced` in place of its own, as a caller makes
+ * one to count what is read (getBlob), to read each blob once (getJson) or to show a run otherwise
+ * than it is stored (getRun). Each of the store's other methods runs with `this` the view, and so
+ * calls a replacement wherever it calls the method replaced, as every part's method calls another
+ * through `this`: getJson reads by getBlob, updateRunMeta and findRun given a whole id read a run by
+ * getRun, a deletion and gc ask recordingRuns. A method that reads the same rows itself does not:
+ * listRuns, childRuns and findRun given a prefix read runs without getRun. A replacement has no
+ * `this`: it reaches the store through the store it closes over, whose own method it calls so, not
+ * itself. The view keeps nothing of its own but its replacements: the connection, the statements
+ * and the writes queued are the store's, as a part only ever reads its fields through `this`.
+ */
+export function storeView(store: Store, replaced: { [Name in keyof Store]?: Replacement<Store[Name]> }): Store {
+  const view = Object.create(store) as Store;
+  for (const [name, method] of Object.entries(replaced)) Object.defineProperty(view, name, { value: method, writable: true, configurable: true });
+  return view;
 }

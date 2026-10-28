@@ -8,7 +8,7 @@
 // in the ES build), and its declarations are copied beside it as .d.cts; each package's `require`
 // condition names them. Run after tsc -b (npm run build), whose declarations the copies take and
 // whose packages they import.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -74,6 +74,8 @@ for (const [pkg, keep] of Object.entries(PACKAGES)) {
   );
   const diagnostics = ts.getPreEmitDiagnostics(program);
   if (diagnostics.length) fail(diagnostics);
+  // Written whole each time, so no copy of a module since moved or deleted is left to ship.
+  rmSync(join(dist, 'cjs'), { recursive: true, force: true });
   const emitted = program.emit(undefined, (fileName, text) => {
     // x.js and x.js.map as x.cjs and x.cjs.map, pointing at each other and at the other copies.
     const out = fileName.replace(/\.js(\.map)?$/, '.cjs$1');

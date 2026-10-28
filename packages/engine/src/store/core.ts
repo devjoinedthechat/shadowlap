@@ -4,35 +4,12 @@
  * holds the connection and those statements, and each part's methods (store/*.ts) read them as the
  * store's own.
  */
-import { createRequire } from 'node:module';
 import { ulid } from '../ids.js';
+import { rollBack, type SqliteDatabase, type SqliteStatement } from '../sqlite.js';
 
-/*
- * `node:sqlite` prints an ExperimentalWarning when loaded. Loading it through `require` (not a
- * hoisted `import`) lets us filter that one warning first; every other warning still surfaces.
- */
-const originalEmitWarning = process.emitWarning.bind(process);
-process.emitWarning = function patchedEmitWarning(warning: unknown, ...rest: unknown[]): void {
-  const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
-  if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
-};
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => SqliteDatabase };
-export { DatabaseSync };
-
-export interface SqliteStatement {
-  run(...params: unknown[]): { changes: number | bigint; lastInsertRowid: number | bigint };
-  get(...params: unknown[]): Record<string, unknown> | undefined;
-  all(...params: unknown[]): Record<string, unknown>[];
-}
-export interface SqliteDatabase {
-  exec(sql: string): void;
-  prepare(sql: string): SqliteStatement;
-  close(): void;
-  /** Whether a transaction is open on this connection. */
-  readonly isTransaction?: boolean;
-}
+// node:sqlite as the store opens it, its types, and the rollback: the engine's sqlite.ts, which the
+// telemetry collector loads too.
+export { DatabaseSync, rollBack, type SqliteDatabase, type SqliteStatement } from '../sqlite.js';
 
 /** A value a read model's query binds. */
 export type SqlValue = null | number | bigint | string | Uint8Array;
@@ -58,6 +35,8 @@ export interface Statements {
   countCalls: SqliteStatement;
   countAgentCalls: SqliteStatement;
   deleteRun: SqliteStatement;
+  /** Whether the connection is read-only just now (query sets it for each read). */
+  queryOnly: SqliteStatement;
 }
 
 export function prepareStatements(db: SqliteDatabase): Statements {
@@ -89,6 +68,7 @@ export function prepareStatements(db: SqliteDatabase): Statements {
             - (SELECT COUNT(*) FROM call_events WHERE run_id = ? AND phase = 'start' AND json_extract(meta, '$.scope') = 'shadowlap:judge') AS n`,
     ),
     deleteRun: db.prepare(`DELETE FROM runs WHERE run_id = ?`),
+    queryOnly: db.prepare('PRAGMA query_only'),
   };
 }
 
@@ -103,22 +83,6 @@ export function inTransaction<T>(db: SqliteDatabase, fn: () => T, mode: 'deferre
     rollBack(db);
     throw err;
   }
-}
-
-/**
- * Undoes a failed write's transaction, or with `savepoint` what it did since that savepoint, unless
- * SQLite already undid the whole transaction itself: it does on some errors (a full disk, an I/O
- * error), and a ROLLBACK then fails with "no transaction is active" in place of the error that
- * ended it, which is the one to report.
- */
-export function rollBack(db: SqliteDatabase, savepoint?: string): void {
-  if (db.isTransaction === false) return;
-  if (savepoint === undefined) {
-    db.exec('ROLLBACK');
-    return;
-  }
-  db.exec(`ROLLBACK TO ${savepoint}`);
-  db.exec(`RELEASE ${savepoint}`);
 }
 
 export function parseJsonColumn<T>(raw: unknown, fallback: T): T {
@@ -163,8 +127,11 @@ export function ulidNow(): string {
  * Store (store.ts) takes each part's methods as its own, so `this` in them is the store, with the one
  * connection and the statements it prepared, and a method calls another through the store as any
  * caller does. What a part reads of the store is declared here; what it calls of another part, in
- * the part. A part has methods only: what one keeps for as long as the store is open is a field of
- * Store's, which the part declares (as query's statement cache is).
+ * the part. A part writes its own tables only: what it keeps of a run that another part deletes, it
+ * deletes in its onRunDeleted. A part has methods only: what one keeps for as long as the store is
+ * open is a field of Store's, which the part declares (as query's statement cache is), and reads
+ * through `this` but never assigns, as `this` may be a view of the store (storeView in store.ts),
+ * which would take the assignment as its own.
  */
 export abstract class StorePart {
   /** The store's connection. */
@@ -175,4 +142,14 @@ export abstract class StorePart {
   protected declare readonly queues: Set<QueuedWrites>;
   /** `Store.transaction`. */
   protected abstract transaction<T>(fn: () => T, mode?: 'deferred' | 'immediate'): T;
+  /**
+   * Deletes what the part keeps of a run that is deleted and that no foreign key takes with it. A
+   * part with such rows has one; one whose rows of a run outlive it (a blame, the run's activity
+   * events) has none. deleteRun (store/recording.ts) has each part's run (forgetRun) in the
+   * deletion's transaction, `this` the store as in any of the part's methods; mixIn (store.ts) keeps
+   * them aside rather than on the store, as more than one part has one.
+   */
+  protected onRunDeleted?(runId: string): void;
+  /** `Store.forgetRun`: each part's onRunDeleted, in the order of the store's parts. */
+  protected abstract forgetRun(runId: string): void;
 }

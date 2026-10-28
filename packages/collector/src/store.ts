@@ -1,28 +1,7 @@
-import { createRequire } from 'node:module';
+// node:sqlite as the engine's store opens it, and the rollback that leaves alone a transaction
+// SQLite ended itself: the engine's, loaded alone.
+import { DatabaseSync, rollBack, type SqliteDatabase, type SqliteStatement } from '@shadowlap/engine/sqlite';
 import { EARLIEST_MS, FUTURE_ALLOWANCE_MS, type ValidBatch, type ValidEvent } from './schema.js';
-
-// Same loader as the engine's store: filter node:sqlite's experimental warning, nothing else.
-const originalEmitWarning = process.emitWarning.bind(process);
-process.emitWarning = function patched(warning: unknown, ...rest: unknown[]): void {
-  const message = typeof warning === 'string' ? warning : (warning as { message?: string } | undefined)?.message;
-  if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-  return (originalEmitWarning as (...a: unknown[]) => void)(warning, ...rest);
-};
-const require = createRequire(import.meta.url);
-const { DatabaseSync } = require('node:sqlite') as { DatabaseSync: new (path: string) => Db };
-
-interface Stmt {
-  run(...p: unknown[]): unknown;
-  get(...p: unknown[]): Record<string, unknown> | undefined;
-  all(...p: unknown[]): Record<string, unknown>[];
-}
-interface Db {
-  /** Whether a transaction is open (Node 22.16+). SQLite ends one itself on some errors, such as a full disk. */
-  readonly isTransaction?: boolean;
-  exec(sql: string): void;
-  prepare(sql: string): Stmt;
-  close(): void;
-}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS events (
@@ -77,8 +56,8 @@ export interface Stats {
 const DAY = 86_400_000;
 
 export class CollectorStore {
-  private readonly db: Db;
-  private readonly insert: Stmt;
+  private readonly db: SqliteDatabase;
+  private readonly insert: SqliteStatement;
 
   constructor(path: string, now = Date.now()) {
     this.db = new DatabaseSync(path);
@@ -104,9 +83,8 @@ export class CollectorStore {
       for (const e of batch.events) this.insertEvent(batch.installId, e, receivedAt);
       this.db.exec('COMMIT');
     } catch (err) {
-      // On a full disk SQLite has already rolled the batch back, and a second ROLLBACK would throw
-      // "no transaction is active" in place of the error that says what happened.
-      if (this.db.isTransaction !== false) this.db.exec('ROLLBACK');
+      // Unless SQLite already rolled the batch back (a full disk), as the engine's store does.
+      rollBack(this.db);
       throw err;
     }
     return batch.events.length;

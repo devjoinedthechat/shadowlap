@@ -8,7 +8,7 @@ import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-s
 import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
 import { cutSigned, isSignedMark, SIGNED_MARK, signedTexts, type Place } from './signed.js';
 import { redactRunFacts } from './run-facts.js';
-import type { Store } from './store.js';
+import { storeView, type Store } from './store.js';
 import { quoteArgv } from './text.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
 
@@ -75,14 +75,12 @@ function storedRequest(src: Store, call: CallRecord, exact = false): unknown {
  */
 function readingOnce(store: Store): Store {
   const parsed = new Map<string, unknown>();
-  return Object.create(store, {
-    getJson: {
-      value: (hash: string) => {
-        if (!parsed.has(hash)) parsed.set(hash, store.getJson(hash));
-        return parsed.get(hash);
-      },
+  return storeView(store, {
+    getJson: (hash) => {
+      if (!parsed.has(hash)) parsed.set(hash, store.getJson(hash));
+      return parsed.get(hash);
     },
-  }) as Store;
+  });
 }
 
 /**
@@ -785,14 +783,12 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
 
 /** `src` as a copy that is only read sees it: each run's own record masked (redactRunDetails). */
 function withRunDetailsRedacted(src: Store, rules: Normalizer[]): Store {
-  return Object.create(src, {
-    getRun: {
-      value: (runId: string) => {
-        const run = src.getRun(runId);
-        return run && redactRunDetails(run, rules);
-      },
+  return storeView(src, {
+    getRun: (runId) => {
+      const run = src.getRun(runId);
+      return run && redactRunDetails(run, rules);
     },
-  }) as Store;
+  });
 }
 
 /**
@@ -1199,15 +1195,13 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
   const all = store.getCalls(runId);
   // Every stored part is read through here, each once (readingOnce), so `bytes` is what was read.
   let bytes = 0;
-  const counting = Object.create(store, {
-    getBlob: {
-      value: (hash: string) => {
-        const blob = store.getBlob(hash);
-        bytes += blob?.length ?? 0;
-        return blob;
-      },
+  const counting = storeView(store, {
+    getBlob: (hash) => {
+      const blob = store.getBlob(hash);
+      bytes += blob?.length ?? 0;
+      return blob;
     },
-  }) as Store;
+  });
   const reader = readingOnce(counting);
   const skipSeen = !rules.some(seesWholeParts);
   const seen = new Set<string>();

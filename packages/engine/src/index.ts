@@ -15,7 +15,7 @@ export { multipartContents, multipartView, parseMultipart, type MultipartContent
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
 export { BUILTIN_STRIPPED_KEYS, CLAUDE_CODE_SESSION, FINGERPRINT_VERSION, apiCallName, apiNumbers, fingerprintApi, fingerprintMisc, fingerprintTool, isClaudeCodeSession, maskClaudeCodeSession, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
-export { noFullTextSearch, SCHEMA_VERSION, Store } from './store.js';
+export { noFullTextSearch, SCHEMA_VERSION, Store, storeView } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
 export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.
@@ -83,6 +83,9 @@ export { attemptKindOf, countAttempts, isAttempt, rescuedForks, type RoleContext
 // A run's kind in words, and the actions a run and a call offer as CLI commands: the terminal UI's
 // and the dashboard's, here so the dashboard needs nothing of the terminal UI.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-label.js';
+// A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
+export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
+export { rollBack } from './sqlite.js';
 export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE, forkArgs, forkCommand, forkMenuTitle, isUserInput, notRun, PLANTED_INSTRUCTIONS, recordingNow, splitCommand, terminalActions, type Action, type ActionContext } from './run-actions.js';
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';

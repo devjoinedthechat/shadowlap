@@ -24,7 +24,7 @@
     "testing/reference-agent"
   ],
   "scripts": {
-    "build": "tsc -b && node scripts/build-cjs.mjs && node packages/dashboard/build-ui.mjs",
+    "build": "node scripts/prune-dist.mjs && tsc -b && node scripts/build-cjs.mjs && node packages/dashboard/build-ui.mjs",
     "clean": "tsc -b --clean && rm -rf packages/*/dist testing/*/dist",
     "typecheck": "tsc -b && node scripts/build-cjs.mjs && tsc -p packages/dashboard/ui/tsconfig.json && tsc -p packages/dashboard/browser/tsconfig.json && npm run typecheck:tests",
     "test": "vitest run",

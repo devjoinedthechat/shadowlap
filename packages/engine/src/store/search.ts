@@ -16,13 +16,18 @@ export interface SearchState {
 }
 
 export abstract class Search extends StorePart {
+  /** A run deleted (store/recording.ts) takes its documents and how far it was indexed with it. */
+  protected override onRunDeleted(runId: string): void {
+    this.deleteSearchDocs(runId);
+    this.db.prepare(`DELETE FROM search_state WHERE run_id = ?`).run(runId);
+  }
+
   /**
    * A run's documents out of the search index, found by the rows that map them (search_rows), not by
    * reading every document. `all` reads every document after all, for a run indexed again from its
    * start (rare): an earlier Shadowlap may have written some of its documents without their rows.
-   * Deleting a run (store/recording.ts) takes its documents out through this too.
    */
-  protected deleteSearchDocs(runId: string, all = false): void {
+  private deleteSearchDocs(runId: string, all = false): void {
     if (all) this.db.prepare(`DELETE FROM search_docs WHERE run_id = ?`).run(runId);
     else this.db.prepare(`DELETE FROM search_docs WHERE rowid IN (SELECT doc FROM search_rows WHERE run_id = ?)`).run(runId);
     this.db.prepare(`DELETE FROM search_rows WHERE run_id = ?`).run(runId);

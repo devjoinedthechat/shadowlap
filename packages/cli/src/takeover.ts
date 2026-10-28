@@ -26,6 +26,7 @@ import {
   type EncodedAnswer,
   type TakeoverMode,
 } from '@shadowlap/engine';
+import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shadowlap/engine';
 
 /**
  * The model under test, and how a recorded conversation reaches it. `--model <name>` asks the
@@ -145,14 +146,8 @@ function post(url: string, headers: Record<string, string>, body: unknown): Prom
 type AnyRequest = IncomingMessage | Http2ServerRequest;
 type AnyResponse = ServerResponse | Http2ServerResponse;
 
-function readBody(req: AnyRequest): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
+/** A model request's whole body, at most MODEL_BODY_LIMIT, as the sidecar reads one (body.ts in the engine). */
+const readBody = (req: AnyRequest): Promise<Buffer> => readWholeBody(req, { limit: MODEL_BODY_LIMIT });
 
 /** Headers that belong to one connection, never carried across: HTTP/2 refuses them outright. */
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length', 'http2-settings']);
@@ -397,7 +392,7 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
 
   const server = await listenBoth((req, res) => {
     handle(req, res).catch((err: unknown) => {
-      if (!res.headersSent) fail(res, 500, err instanceof Error ? err.message : String(err));
+      if (!res.headersSent) fail(res, err instanceof BodyTooLarge ? 413 : 500, err instanceof Error ? err.message : String(err));
       else res.destroy();
     });
   });
