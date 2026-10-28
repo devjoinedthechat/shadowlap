@@ -56,6 +56,11 @@ interface Props {
   normalizers?: readonly Normalizer[];
   /** The view was asked to open at a call (`--call`): it opens there, on the call, whatever the run's verdict. */
   askedCall?: boolean;
+  /** shadowlap.config.json's `tests` as written and its folder: the check a golden's runs are blamed under. */
+  tests?: unknown;
+  configDir?: string | null;
+  /** Moves when the run was read again (after a job, a mark or a note): what was worked out from the store once a run is worked out again. */
+  version?: number;
   /** The tab to open on (a search's match: where in the call it was found). */
   initialTab?: Tab;
   /** Reads the run again from the store: after blame, repair or verify, its verdict has changed. */
@@ -184,7 +189,7 @@ function AboutLine({ about, facts, width }: { about: Pick<RunAbout, 'text' | 'fr
 /** A row of the call list: a call, or a line drawn before one: where the run forked from its parent, or where blame found it lost. */
 type Item = { kind: 'call'; at: number } | { kind: 'fork' } | { kind: 'lost' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false, onRefresh, onNote, initialTab }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false, onRefresh, onNote, initialTab, tests, configDir = null, version = 0 }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -232,8 +237,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     const ids = withAttempts(attemptBundles(around), run.runId);
     const byId = new Map(around.map((r) => [r.runId, r]));
     return ids.length ? attemptTallies(ids.flatMap((id) => byId.get(id) ?? [])) : null;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempts change when the run ends, not each time it is read again
-  }, [store, run.runId, run.status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempts change when the run ends, or a job adds some (version), not each time it is read again
+  }, [store, run.runId, run.status, version]);
   const blameAt = run.meta?.blame?.at;
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new blame of the run is what changes its report
   const blame = useMemo(() => blameReport(store, run.runId), [store, run.runId, blameAt]);
@@ -323,12 +328,11 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     setMode({ kind: 'output', title: `shadowlap ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, child, refresh });
   };
   // The Fixes flow from this run (B, R, V in the fork menu), and the good runs a change must keep passing.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- which runs are labelled good is read once a run
-  const goodRuns = useMemo(() => store.allRuns().some((r) => r.meta?.labels?.includes('good')), [store, run.runId]);
-  const fixes = useMemo(() => fixActions(run, { fix: verdict.fix, failing: isFailing(verdict.outcome, verdict.fix), recording, goodRuns }), [run, verdict, recording, goodRuns]);
+   
+  const fixes = useMemo(() => fixActions(store, run, { failing: isFailing(verdict.outcome, verdict.fix), recording, tests, configDir }), [store, run, verdict, recording, tests, configDir]);
   const fixMenu = useMemo(() => fixes.map((f): Action => ({ key: f.key, label: f.label, flag: f.flag, hint: f.hint, opensRun: false, ...(f.disabled ? { disabled: f.disabled } : {}) })), [fixes]);
   const runFix = (fix: FixAction, value: string) => {
-    const wrong = expectError(value);
+    const wrong = expectError(value, fix.needsExpect);
     if (wrong) {
       setMode({ kind: 'timeline' });
       return say(`not run: ${wrong}`, 6000, 'warn');
@@ -678,12 +682,13 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         <Box flexDirection="column" width={width} height={bodyHeight} borderStyle="round" borderColor={theme.accent} paddingX={1}>
           <Text bold>{mode.fix.label}</Text>
           <Text color={theme.dim}>{mode.fix.hint}</Text>
+          <Text color={mode.fix.needsExpect ? theme.warn : theme.dim}>{mode.fix.needsExpect ? `It needs a check: ${mode.fix.from}.` : `It is ${mode.fix.from}; change it below, or empty it to judge by the agent's exit alone.`}</Text>
           <Text color={theme.dim}>
             It runs <Text color={theme.accent}>{quoteArgv(['shadowlap', ...mode.fix.build(mode.fix.expect)])}</Text>, and asks models live, which costs.
           </Text>
           <TextInput
             stacked
-            label="What a passing run does (--expect JSON), or nothing for its exit code alone:"
+            label={mode.fix.needsExpect ? 'What a passing run does (--expect JSON):' : 'What a passing run does (--expect JSON), or nothing for its exit code alone:'}
             initial={mode.fix.expect}
             placeholder='{"tools":{"send_email":0}}'
             active

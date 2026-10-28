@@ -2,7 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
 import { allPassed, attemptsText } from '../attempts.js';
 import { markKey, type RunMark } from '../marks.js';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
 import { fitColumns, fitItems, sharedPrefix } from '../render.js';
@@ -11,7 +11,7 @@ import type { OpenDashboard } from './TimelineView.js';
 import { copyToClipboard } from '../clipboard.js';
 import type { RunAbout } from '@shadowlap/engine';
 import { fitAbout } from '../about.js';
-import { runSearch, type SearchResult } from '../search.js';
+import { runSearch, type RunningSearch, type SearchResult } from '../search.js';
 import { cell, KeyHints, Line, Row, type Hint, type Tone } from './Row.js';
 import { SearchResults } from './SearchResults.js';
 import { TextInput } from './TextInput.js';
@@ -134,10 +134,12 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       (n) =>
         n.run.runId.toLowerCase().startsWith(q) ||
         n.run.command.argv.join(' ').toLowerCase().includes(q) ||
+        // What the row shows the run by: worked out once a run, and kept.
+        (aboutOf?.(n).text.toLowerCase().includes(q) ?? false) ||
         (n.run.codeVersion ?? '').toLowerCase().includes(q) ||
         (n.run.meta?.labels ?? []).some((l) => l.toLowerCase().includes(q)),
     );
-  }, [nodes, query]);
+  }, [nodes, query, aboutOf]);
   const [toast, setToast] = useState<{ text: string; ms: number; tone: Tone } | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -269,11 +271,21 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       ];
 
   // Searching what runs said: the CLI runs it in a process of its own, the keys still answered meanwhile.
+  // One search at a time: a new one, leaving the results, or quitting stops the last if it still runs.
+  const searching = useRef<RunningSearch | null>(null);
+  const stopSearch = () => {
+    searching.current?.stop();
+    searching.current = null;
+  };
+  useEffect(() => stopSearch, []);
   const find = (q: string) => {
+    stopSearch();
     if (!q.trim() || !spawnCli) return setMode({ kind: 'list' });
     const token = Date.now();
     setMode({ kind: 'found', query: q.trim(), result: null, token });
-    void runSearch(spawnCli, q.trim()).then((result) => setMode((m) => (m.kind === 'found' && m.token === token ? { ...m, result } : m)));
+    const running = runSearch(spawnCli, q.trim());
+    searching.current = running;
+    void running.done.then((result) => setMode((m) => (m.kind === 'found' && m.token === token ? { ...m, result } : m)));
   };
 
   const footer =
@@ -320,9 +332,15 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         width={width}
         height={height}
         active={!paused}
-        onOpen={(runId, callNo, field) => onOpen(runId, callNo, FIELD_TAB[field])}
+        onOpen={(runId, callNo, field) => {
+          stopSearch();
+          onOpen(runId, callNo, FIELD_TAB[field]);
+        }}
         onAgain={() => setMode({ kind: 'find' })}
-        onClose={() => setMode({ kind: 'list' })}
+        onClose={() => {
+          stopSearch();
+          setMode({ kind: 'list' });
+        }}
       />
     );
   }

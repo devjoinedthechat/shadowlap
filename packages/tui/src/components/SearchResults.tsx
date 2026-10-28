@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import { useState } from 'react';
+import { safeLine } from '@shadowlap/engine';
 import { ago } from '../data.js';
 import { fitColumns } from '../render.js';
 import { queryTerms, SEARCH_LIMIT, type SearchHit, type SearchResult } from '../search.js';
@@ -98,7 +99,7 @@ export function SearchResults({ query, result, width, height, active, onOpen, on
       ) : 'error' in result ? (
         <Line width={width} tone="err">
           {' '}
-          {result.error}
+          {safeLine(result.error)}
         </Line>
       ) : !hits.length ? (
         <Line width={width}> Nothing recorded says that. Every word must appear; “quoted words” together. s searches again.</Line>
@@ -120,7 +121,7 @@ export function SearchResults({ query, result, width, height, active, onOpen, on
         ))
       )}
       <Box flexGrow={1} />
-      <Line width={width}>{hit ? ` ${hit.runId} · #${hit.callNo} ${hit.kind} ${hit.name} · ${hit.field} · ${ago(hit.runStartedAt)}` : ' '}</Line>
+      <Line width={width}>{hit ? ` ${safeLine(`${hit.runId} · #${hit.callNo} ${hit.kind} ${hit.name} · ${hit.field}`)} · ${ago(hit.runStartedAt)}` : ' '}</Line>
       <KeyHints
         hints={[
           ['enter', 'open at the call'],

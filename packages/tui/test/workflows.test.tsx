@@ -5,7 +5,7 @@ import { Store, unpackRun } from '@shadowlap/engine';
 import { fitAbout } from '../src/about.js';
 import { App } from '../src/app.js';
 import { markTerms } from '../src/components/SearchResults.js';
-import { expectError, fixActions } from '../src/fix-actions.js';
+import { blameCheck, expectError, fixActions } from '../src/fix-actions.js';
 import { queryTerms, readSearch, searchArgs } from '../src/search.js';
 import { renderAt } from './terminal.js';
 
@@ -71,15 +71,24 @@ describe('what a run was about', () => {
 });
 
 describe('the Fixes flow from the terminal', () => {
-  it('offers blame, repair and verify for a failed run, and says why not for one that passed', () => {
+  it('blames under the check the dashboard would: the run’s --expect, its fix’s, its exit; asks for one a failed check needs', () => {
     const { s, own, golden } = stores();
-    const failed = fixActions(s.getRun(own)!, { fix: null, failing: true, recording: false, goodRuns: true });
-    expect(failed.map((f) => [f.key, f.disabled ?? null])).toEqual([['B', null], ['R', null], ['V', null]]);
-    expect(failed[1].build('')).toEqual(['repair', '--fixes', own, '--keeps', 'label:good']);
-    expect(failed[0].build('{"tools":{"send_email":1}}')).toEqual(['blame', own, '--expect', '{"tools":{"send_email":1}}']);
-    const passed = fixActions(s.getRun(golden)!, { fix: null, failing: false, recording: false, goodRuns: false });
-    expect(passed.every((f) => f.disabled === 'for a run that failed')).toBe(true);
-    expect(fixActions(s.getRun(own)!, { fix: null, failing: true, recording: true, goodRuns: false })[0].disabled).toBe('once the recording finishes');
+    const run = s.getRun(own)!;
+    // It failed a check nothing names: blaming on the exit alone would look for another failure.
+    expect(blameCheck(s, run)).toBeNull();
+    const [b] = fixActions(s, run, { failing: true, recording: false });
+    expect([b.key, b.needsExpect, b.disabled ?? null]).toEqual(['B', true, null]);
+    expect(b.build('{"tools":{"send_email":1}}')).toEqual(['blame', own, '--expect', '{"tools":{"send_email":1}}']);
+    expect(expectError('', true)).toContain('say what a passing run does');
+    // Its replay's --expect, then the fix it fails in, then an exit with an error.
+    expect(blameCheck(s, { ...run, meta: { ...run.meta, expect: { tools: { send_email: 1 } } } })).toEqual({ expect: { tools: { send_email: 1 } }, from: 'replay' });
+    s.insertFix({ fixId: 'fx-1', title: 't', labels: [], check: { expect: { tools: { send_email: 0 } }, key: 'k', oracle: [], text: 'x' }, status: 'open', openedAt: 1, verifiedAt: null, appliedAt: null, data: {} });
+    s.addFixLink('fx-1', 'failing', own);
+    expect(blameCheck(s, run)).toEqual({ expect: { tools: { send_email: 0 } }, from: 'fix' });
+    expect(blameCheck(s, { ...s.getRun(golden)!, status: 'failed', meta: {} })).toEqual({ expect: null, from: 'exit' });
+    // Not for a run that passed, or one still recording.
+    expect(fixActions(s, s.getRun(golden)!, { failing: false, recording: false })[0].disabled).toBe('for a run that failed');
+    expect(fixActions(s, run, { failing: true, recording: true })[0].disabled).toBe('once the recording finishes');
     expect(expectError('')).toBeNull();
     expect(expectError('{"tools":{}}')).toBeNull();
     expect(expectError('[1]')).toContain('a JSON object');
@@ -122,6 +131,16 @@ describe('the Fixes flow from the terminal', () => {
     await frameWhere(lastFrame, (f) => f.includes('Fixes'));
     stdin.write('B');
     await frameWhere(lastFrame, (f) => f.includes('It runs shadowlap blame'));
+    // It failed a check nothing names: an empty check is refused, a named one goes on.
+    stdin.write('\r');
+    await frameWhere(lastFrame, (f) => f.includes('not run: say what a passing run does'));
+    expect(asked).toEqual([]);
+    stdin.write(':');
+    await frameWhere(lastFrame, (f) => f.includes('Fixes'));
+    stdin.write('B');
+    await frameWhere(lastFrame, (f) => f.includes('It needs a check'));
+    stdin.write('{"tools":{}}');
+    await frameWhere(lastFrame, (f) => f.includes('› {"tools":{}}'));
     stdin.write('\r');
     await frameWhere(lastFrame, (f) => f.includes('Type yes to run it:'));
     expect(asked).toEqual([]);
@@ -129,7 +148,7 @@ describe('the Fixes flow from the terminal', () => {
     await frameWhere(lastFrame, (f) => f.includes('› yes'));
     stdin.write('\r');
     await frameWhere(lastFrame, (f) => f.includes('done') || f.includes('exited'));
-    expect(asked).toEqual([['blame', golden, '--yes']]);
+    expect(asked).toEqual([['blame', golden, '--expect', '{"tools":{}}', '--yes']]);
     unmount();
     s.close();
   });
@@ -159,7 +178,9 @@ describe('search across what runs said', () => {
 
   it('reads what search printed: matches, none, or why it failed; and marks the words searched for', () => {
     expect(readSearch('[]', '', 1)).toEqual({ hits: [] });
-    expect(readSearch('', 'no matches\n', 1)).toEqual({ hits: [] });
+    // With --json no match is `[]`; an exit 1 without it is a failure (a crash, a missing module).
+    expect(readSearch('', 'Error: Cannot find module x\n', 1)).toEqual({ error: 'Error: Cannot find module x' });
+    expect(searchArgs('-1 refund')).toEqual(['search', '--json', '-n', '50', '--', '-1 refund']);
     expect(readSearch('', 'shadowlap search: the store is locked\n', 2)).toEqual({ error: 'shadowlap search: the store is locked' });
     expect(queryTerms('refund "EU limit" policy')).toEqual(['eu limit', 'refund', 'policy']);
     expect(markTerms('the Refund policy here', ['refund'], 'green').map((s) => [s.text, s.bold === true])).toEqual([

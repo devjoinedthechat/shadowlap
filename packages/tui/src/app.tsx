@@ -33,6 +33,9 @@ export interface AppProps {
   unrecorded?: Declared;
   /** The project's normalizers (`normalize` in shadowlap.config.json): what they mask is no difference between a fork and its parent. */
   normalizers?: readonly Normalizer[];
+  /** shadowlap.config.json's `tests` as written and the folder it is in: the check a golden's runs are blamed under. */
+  tests?: unknown;
+  configDir?: string | null;
 }
 
 type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean; initialTab?: Tab };
@@ -45,7 +48,7 @@ export function App({ theme = 'dark', ...rest }: AppProps) {
   );
 }
 
-function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers }: Omit<AppProps, 'theme'>) {
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null }: Omit<AppProps, 'theme'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });
@@ -62,6 +65,8 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
 
   const [tick, setTick] = useState(0);
   const [attemptsShown, setAttemptsShown] = useState(false);
+  // Moves each time a run is read again (a job ended, a mark, a note): what a view works out once a run, it works out again.
+  const [version, setVersion] = useState(0);
   const options = useMemo(() => summaryOptions(store, prices), [store, prices]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `tick` moves when the store has new runs, which loadRunTree reads from it
   const nodes = useMemo(() => loadRunTree(store, { modelOf: options.modelOf!, attempts: attemptsShown, ...(options.prices ? { prices: options.prices } : {}) }), [store, options, tick, attemptsShown]);
@@ -81,6 +86,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
   const refresh = (id: string) => {
     const fresh = open(id);
     setTick((n) => n + 1);
+    setVersion((n) => n + 1);
     setView((v) => (v.kind === 'timeline' && v.run.runId === id && fresh.kind === 'timeline' ? { ...fresh, askedCall: v.askedCall, ...(v.initialCall !== undefined ? { initialCall: v.initialCall } : {}) } : v));
   };
 
@@ -105,6 +111,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
       const next = marked(run.meta?.labels ?? [], m);
       store.updateRunMeta(id, { labels: next.labels });
       setTick((n) => n + 1);
+      setVersion((n) => n + 1);
       setView((v) => (v.kind === 'timeline' && v.run.runId === id ? { ...v, run: store.getRun(id) ?? v.run } : v));
       return markToast(id, m, next.on);
     } catch (err) {
@@ -158,6 +165,9 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         {...(view.initialTab ? { initialTab: view.initialTab } : {})}
         onRefresh={refresh}
         onNote={note}
+        version={version}
+        configDir={configDir}
+        {...(tests !== undefined ? { tests } : {})}
         {...(unrecorded ? { declared: unrecorded } : {})}
         {...(normalizers ? { normalizers } : {})}
       />

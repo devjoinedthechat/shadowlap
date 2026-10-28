@@ -10,18 +10,24 @@ import { cells, truncate } from './render.js';
  * which a terminal can't wait for on a long run.
  */
 
-/** Finished runs' about lines, by what they depend on; a run still recording is worked out each time. */
+/** About lines by what they depend on: a run still recording is worked out again only when it has more calls. */
 const cache = new WeakMap<Store, Map<string, RunAbout>>();
 const CACHED = 5000;
+/** The first calls of a recording `runAsk` reads its ask from: the first few model requests are among them. */
+const ASK_CALLS = 200;
 
-/** A bundled attempt's place among its run's attempts of the same kind (from 1), as the dashboard numbers it. */
-function attemptIndex(store: Store, run: RunRecord, kind: AttemptKind): number {
+/**
+ * A bundled attempt's place among its run's attempts of the same kind (from 1), as the dashboard
+ * numbers it: a probe counts the fork blame rescued its run with among its probes.
+ */
+function attemptIndex(store: Store, run: RunRecord, kind: AttemptKind, parent: RunRecord | null): number {
   if (!run.parentRunId) return 1;
   const group = run.meta?.repeat?.group ?? null;
+  const rescuedId = kind === 'probe' ? parent?.meta?.blame?.rescuedRunId : null;
   const same = store.childRuns(run.parentRunId).filter((a) => {
-    if (classifyRun(a).attemptKind !== kind) return false;
-    if (group !== null) return a.meta?.repeat?.group === group;
-    if (kind === 'probe') return a.meta?.probe?.callNo === run.meta?.probe?.callNo;
+    if (group !== null && a.meta?.repeat?.group !== group) return false;
+    if (a.runId !== rescuedId && classifyRun(a).attemptKind !== kind) return false;
+    if (kind === 'probe') return a.meta?.probe?.callNo === run.meta?.probe?.callNo || a.runId === rescuedId;
     if (kind === 'verify') return a.meta?.verify?.role === run.meta?.verify?.role;
     return true;
   });
@@ -30,13 +36,19 @@ function attemptIndex(store: Store, run: RunRecord, kind: AttemptKind): number {
   return Math.max(1, same.findIndex((a) => a.runId === run.runId) + 1);
 }
 
-function workOut(store: Store, run: RunRecord, calls: number): RunAbout {
+/** Whether the fork's change overrides a call a person answered (a recorded user input): its about line says `answer #n`. */
+function answered(store: Store, parent: RunRecord | null, about: RunAbout): boolean {
+  const n = about.change?.flag === '--override' ? about.change.callNo : null;
+  if (!parent || n === null) return false;
+  return store.getCalls(parent.runId, { only: [n] })[0]?.meta.input === true;
+}
+
+function workOut(store: Store, run: RunRecord, calls: number, parent: RunRecord | null): RunAbout {
   const kind = runKind(run, kindFacts(store, run, calls));
-  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   const c = classifyRun(run);
-  const attempt = c.attemptKind && c.attemptOf ? { kind: c.attemptKind, index: attemptIndex(store, run, c.attemptKind) } : null;
+  const attempt = c.attemptKind && c.attemptOf ? { kind: c.attemptKind, index: attemptIndex(store, run, c.attemptKind, parent) } : null;
   const asks = kind === 'recording' || kind === 'pack';
-  return aboutOf({
+  const facts = {
     kind,
     argv: run.command.argv,
     codeVersion: run.codeVersion,
@@ -45,19 +57,22 @@ function workOut(store: Store, run: RunRecord, calls: number): RunAbout {
     meta: run.meta ?? null,
     attempt,
     rescued: !!parent && parent.meta?.blame?.rescuedRunId === run.runId,
-    ...(asks ? { ask: runAsk(store, store.getCalls(run.runId)) } : {}),
-  });
+    ...(asks ? { ask: runAsk(store, store.getCalls(run.runId, { limit: ASK_CALLS })) } : {}),
+  };
+  const about = aboutOf(facts);
+  return answered(store, parent, about) ? aboutOf({ ...facts, answered: true }) : about;
 }
 
 export function aboutRun(store: Store, run: RunRecord, calls = store.countCalls(run.runId)): RunAbout {
-  if (run.status === 'running') return workOut(store, run, calls);
   let byKey = cache.get(store);
   if (!byKey) cache.set(store, (byKey = new Map<string, RunAbout>()));
-  const key = `${run.runId}|${run.status}|${String(run.endedAt)}|${calls}|${run.meta?.labels?.length ?? 0}`;
+  const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
+  const rescued = parent?.meta?.blame?.rescuedRunId === run.runId;
+  const key = `${run.runId}|${run.status}|${String(run.endedAt)}|${calls}|${rescued ? 1 : 0}`;
   let about = byKey.get(key);
   if (!about) {
     try {
-      about = workOut(store, run, calls);
+      about = workOut(store, run, calls, parent);
     } catch {
       about = { text: run.command.argv.join(' '), from: 'command' };
     }
