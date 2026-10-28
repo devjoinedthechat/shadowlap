@@ -117,6 +117,11 @@ describe('gateHistory', () => {
     expect(gateHistory(s, 'goldens/refund', { window: 10, branch: null }).sessions).toBe(0);
     // A pull request into a release branch takes that branch's sessions.
     expect(gateHistory(s, 'goldens/refund', { window: 10, branch: 'fix-refunds' }).pooled.map((x) => x.sessionId)).toEqual([sessions[4]]);
+    // What the agent's sessions show of it, for a session's plan: those that failed or were inconclusive too, the rest as before.
+    const any = gateHistory(s, 'goldens/refund', { window: 10, branch: 'main', verdicts: 'any' });
+    expect(any.pooled.map((x) => x.sessionId)).toEqual([sessions[7], sessions[2], sessions[1], sessions[0]]);
+    expect(any).toMatchObject({ passes: 40, attempts: 55, sessions: 4 });
+    expect(notBaseline({ ok: false, failure: 'check', revision: 'abc', data: fork(1, 5, { verdict: 'failed' }) }, 'main', true)).toBeNull();
     s.close();
   });
 

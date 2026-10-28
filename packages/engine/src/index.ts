@@ -121,7 +121,7 @@ export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, session
 // A golden's baseline for a gate against its history, pooled from the store's test history.
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
-export { HISTORY_SIZED_AT, INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
+export { INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, predictive, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
 export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
 export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).

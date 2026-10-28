@@ -33,9 +33,11 @@ function recordingCost(store: Store, run: RunRecord, prices: Record<string, Pric
 
 /**
  * The plan for the packs a session tests: every pack whose tests entry has a gate takes its share of
- * `risk`. Its forecast reads each golden's recent results for its pass rate and cost per attempt,
- * else its gate's `good` rate (a gate against history: its baseline's) and the cost of its recording.
- * A pack that can't be read is left to fail on its own when it runs. Null with no gated golden.
+ * `risk`. A gate against history is sized against its baseline for the agent its last sessions show,
+ * every attempt of them, those that went red included. Its forecast reads each golden's recent
+ * results for its pass rate and cost per attempt, else its gate's `good` rate (a gate against
+ * history: its sessions') and the cost of its recording. A pack that can't be read is left to fail on
+ * its own when it runs. Null with no gated golden.
  */
 export function planSession(packs: readonly string[], o: { store: Store; tests: TestEntry[]; projectDir: string; prices?: Record<string, Price> | undefined; baselineBranch?: string | null | undefined; risk: number; inconclusive: 'fail' | 'warn'; maxAttempts?: number | undefined }): SessionPlan | null {
   const goldens: SuiteGolden[] = [];
@@ -50,13 +52,17 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
       continue;
     }
     const checks = oracleLabels(spec).slice(1);
-    const history = spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { window: spec.gate.window, first: spec.gate.min, goldenRunId: parent.runId, checks, mode: 'fork', ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) }) : null;
+    const filter = spec.gate.kind === 'baseline' ? { window: spec.gate.window, goldenRunId: parent.runId, checks, mode: 'fork' as const, ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) } : null;
+    const history = filter && spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { ...filter, first: spec.gate.min }) : null;
+    // What the same sessions show of the agent, every attempt of those that went red too, which a baseline that came out lucky leaves out.
+    const sessions = filter ? gateHistory(o.store, golden, { ...filter, verdicts: 'any' }) : null;
     const recent = recentAttempts(o.store, golden, { window: RECENT, goldenRunId: parent.runId, checks });
     goldens.push({
       golden,
       gate: spec.gate,
       maxGiven: !!spec.gateMaxGiven,
       ...(history?.attempts ? { history: { passes: history.passes, attempts: history.attempts } } : {}),
+      ...(sessions?.attempts ? { sessions: { passes: sessions.passes, attempts: sessions.attempts } } : {}),
       rate: recent ? recent.passes / recent.attempts : null,
       costPerAttempt: recent?.costPerAttempt ?? recordingCost(o.store, parent, o.prices),
     });

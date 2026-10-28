@@ -99,9 +99,10 @@ export interface TestReport {
 /**
  * What the plan says a healthy suite does, after its split: `so a healthy suite goes red for nothing
  * in 5% of runs or fewer, with the provider answering`, or, when a golden can't keep within its share
- * (a max the config set), the chance the plan works out, rounded up: `but 1 golden can't keep within
- * its share, so a healthy suite goes red for nothing in 56% of runs or fewer, with the provider
- * answering`. A provider that stays unavailable leaves goldens inconclusive whatever the plan says.
+ * (a max the config set, or a gate against history with too little behind it), the chance the plan
+ * works out, rounded up: `but 1 golden can't keep within its share, so a healthy suite goes red for
+ * nothing in 56% of runs or fewer, with the provider answering`. A provider that stays unavailable
+ * leaves goldens inconclusive whatever the plan says.
  */
 export function suiteRed(plan: { risk: number; red: number; over?: number }, red = 'goes red for nothing'): string {
   if (!(plan.red > plan.risk)) return `so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer, with the provider answering`;
