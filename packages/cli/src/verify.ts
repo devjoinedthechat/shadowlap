@@ -364,7 +364,9 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const againstHistory = async (): Promise<boolean> => {
         // Named from the project's folder, as `shadowlap test` names it, wherever verify runs the change.
         const golden = goldenOf(store, parent, process.cwd());
-        const history: GateHistory | null = golden ? gateHistory(store, golden, { window: BASELINE_DEFAULTS.window, checks: runner.oracle().slice(1), mode: 'fork' }) : null;
+        // Pooled as a gate against history pools it: under the same recording and checks, each session
+        // by its first `min` attempts, the ones every session runs whatever they show.
+        const history: GateHistory | null = golden ? gateHistory(store, golden, { window: BASELINE_DEFAULTS.window, first: BASELINE_DEFAULTS.min, goldenRunId: parent.runId, checks: runner.oracle().slice(1), mode: 'fork' }) : null;
         if (!golden || !history?.attempts) {
           result.noBaseline = golden ? `${golden} has no test history under these checks yet` : `${shortId(parent.runId)} is no golden's run, so it has no test history`;
           return false;
