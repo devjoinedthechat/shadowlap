@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
 import { oracleLabels } from './attempts.js';
@@ -511,6 +511,8 @@ export interface GoldenOutcome {
  * A pack's command that differs from the copy's is the pack's, someone else's for all the copy's
  * own mark says: the run comes back marked (`commandFromImport`), so a pack that reuses the id of a
  * run recorded here, with a command of its own, asks before it runs as any pack from elsewhere does.
+ * A pack masks the credentials a command line carries (credentialFreeArgv): one whose command is the
+ * copy's but for those is the copy's, and runs as the copy recorded it, with them.
  */
 export function importGolden(store: Store, dir: string): RunRecord {
   const { imported, skipped, mismatched } = unpackRun(store, dir);
@@ -526,8 +528,8 @@ export function importGolden(store: Store, dir: string): RunRecord {
     );
   }
   if (!other?.command) return parent;
-  const differs = JSON.stringify(other.command.argv) !== JSON.stringify(parent.command.argv);
-  return { ...parent, command: other.command, ...(differs ? { meta: { ...(parent.meta ?? {}), commandFromImport: true } } : {}) };
+  if (sameCommandLine(other.command.argv, parent.command.argv)) return { ...parent, command: { ...other.command, argv: parent.command.argv } };
+  return { ...parent, command: other.command, meta: { ...(parent.meta ?? {}), commandFromImport: true } };
 }
 
 export async function testGolden(dir: string, golden: string, spec: TestSpec | null, ctx: RecordingTestContext): Promise<GoldenOutcome> {

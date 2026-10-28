@@ -96,6 +96,32 @@ export function credentialParam(name: string, value?: string): boolean {
   return runTogether(last, 'key') || runTogether(last, 'token') || runTogether(last, 'code');
 }
 
+/**
+ * Names that carry a credential in URL-encoded parameters (a query string, a form body, a path's
+ * parameters), where they name a session or a signed proof far more often than in a JSON body,
+ * whose member of the same name is as often a record of one: a session (`session`, `sid`), a
+ * service ticket (CAS's, Kerberos'), Facebook's `appsecret_proof`.
+ */
+const PARAM_SECRET_NAME = new Set(['session', 'sid', 'ticket', 'appsecretproof']);
+/**
+ * Short parameter names that are a credential as often as a lookup: a secret key (`sk`, as Baidu's
+ * APIs name it), an access key (`ak`), a signed `hash`. One is a credential when its value reads as
+ * one (credentialValue), or when no value is given, as a model call's query takes it.
+ */
+const PARAM_EITHER_NAME = new Set(['sk', 'ak', 'hash']);
+
+/**
+ * Whether a URL-encoded parameter (a query's, a form body's, a path's) carries a credential: a name
+ * credentialParam reads as one, and the names parameters carry one under (PARAM_SECRET_NAME, and
+ * PARAM_EITHER_NAME by its value).
+ */
+export function credentialQueryParam(name: string, value?: string): boolean {
+  if (credentialParam(name, value)) return true;
+  const joined = wordsOf(name).join('');
+  if (PARAM_SECRET_NAME.has(joined)) return true;
+  return PARAM_EITHER_NAME.has(joined) && (value === undefined || credentialValue(value));
+}
+
 /** A JSON Web Token: a header and a payload, each base64url JSON (`eyJ…`), and a signature. */
 const JWT = /^eyJ[A-Za-z0-9_-]{2,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]*$/;
 
@@ -170,7 +196,7 @@ function maskParams(encoded: string, byName: boolean, depth: number): string {
   return encoded.replace(/(^\??|[&;])([^&;=]*)=([^&;]*)/g, (whole, lead: string, raw: string, value: string) => {
     if (!value || value === CREDENTIAL_PLACEHOLDER) return whole;
     const text = decodedParam(value);
-    if (credentialParam(decodedParam(raw), byName ? undefined : text) || JWT.test(text)) return `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}`;
+    if (credentialQueryParam(decodedParam(raw), byName ? undefined : text) || JWT.test(text)) return `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}`;
     const inner = depth < MAX_NESTING ? maskTextCredentials(text, depth + 1, byName) : null;
     if (inner === null) return whole;
     const again = text === value ? inner : encodedAgain(inner);
@@ -183,12 +209,50 @@ const URL_PARTS = /^([A-Za-z][A-Za-z0-9+.-]*:)?(\/\/[^/?#]*)?([^?#]*)(\?[^#]*)?(
 /** A string that reads as a URL: absolute (`https://…`, `postgres://…`), or a path with a query, a fragment or parameters (`/next?page=2`). */
 const URL_SHAPED = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s]*|\/[^\s?#;]*[?#;][^\s]*)$/;
 
+/** Where a Slack webhook's address keeps its secret: under one of these, after the team's id (`T…`). */
+const SLACK_HOOKS = new Set(['services', 'workflows', 'triggers']);
+
+/**
+ * A URL's path with the credentials in it masked: the secret a webhook's address carries, wherever
+ * it is served from (the service, a proxy, a mock), and the value of each path parameter that is a
+ * credential (`;jsessionid=…`, credentialQueryParam; by its name alone with `byName`, as a
+ * redirect's are). A webhook's secret is the last segment of Slack's `/services/T…/B…/<secret>`
+ * (and of its workflow and trigger addresses), the segment after the id in Discord's
+ * `/api/webhooks/<id>/<token>`, and the token in a Telegram bot's `/bot<id>:<token>/`. Read segment by
+ * segment, in time linear in the path. The same string when there is nothing to mask.
+ */
+export function maskPathCredentials(path: string, byName = false): string {
+  const params = !path.includes(';')
+    ? path
+    : path.replace(/;([^;/=?#]*)=([^;/?#]*)/g, (whole, raw: string, value: string) => (value && value !== CREDENTIAL_PLACEHOLDER && credentialQueryParam(decodedParam(raw), byName ? undefined : decodedParam(value)) ? `;${raw}=${CREDENTIAL_PLACEHOLDER}` : whole));
+  const segments = params.split('/');
+  let changed = false;
+  const mask = (i: number, keep = '') => {
+    const next = `${keep}${CREDENTIAL_PLACEHOLDER}`;
+    if (segments[i] && segments[i] !== next) {
+      segments[i] = next;
+      changed = true;
+    }
+  };
+  // Slack: /services/T…/…/<secret>, the last segment that isn't empty.
+  if (segments.length >= 5 && segments[0] === '' && SLACK_HOOKS.has(segments[1]!) && /^T[A-Za-z0-9]+$/.test(segments[2]!)) mask(segments.at(-1) ? segments.length - 1 : segments.length - 2);
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i]!;
+    // Discord: /api/webhooks/<id>/<token>, or /api/v10/webhooks/…
+    if (s === 'webhooks' && /^\d+$/.test(segments[i + 1] ?? '') && (segments[i - 1] === 'api' || (segments[i - 2] === 'api' && /^v\d+$/.test(segments[i - 1] ?? '')))) mask(i + 2);
+    // Telegram: /bot<id>:<token>/…
+    const bot = /^bot\d+:/.exec(s);
+    if (bot && s.length > bot[0].length) mask(i, bot[0]);
+  }
+  return changed ? segments.join('/') : params;
+}
+
 /**
  * A URL with its credentials masked: the password in its user info (`https://svc:…@host`,
- * `postgres://app:…@db`), each path parameter that is one (`;jsessionid=…`), and its query and
- * fragment's parameters (maskParams: a URL inside one too, as a redirect's `next` holds one).
- * `byName` reads each parameter by its name alone, as a redirect's are. The same string when there
- * is nothing to mask.
+ * `postgres://app:…@db`), a webhook's secret and each path parameter that is one
+ * (maskPathCredentials), and its query and fragment's parameters (maskParams: a URL inside one too,
+ * as a redirect's `next` holds one). `byName` reads each parameter by its name alone, as a
+ * redirect's are. The same string when there is nothing to mask.
  */
 export function maskUrlCredentials(url: string, byName = false, depth = 0): string {
   const m = URL_PARTS.exec(url);
@@ -198,12 +262,119 @@ export function maskUrlCredentials(url: string, byName = false, depth = 0): stri
   const colon = at > 2 ? authority.indexOf(':', 2) : -1;
   const password = colon >= 0 && colon < at - 1 ? authority.slice(colon + 1, at) : null;
   const auth = password !== null && password !== CREDENTIAL_PLACEHOLDER ? `${authority.slice(0, colon + 1)}${CREDENTIAL_PLACEHOLDER}${authority.slice(at)}` : authority;
-  const params = !path.includes(';')
-    ? path
-    : path.replace(/;([^;/=?#]*)=([^;/?#]*)/g, (whole, raw: string, value: string) => (value && value !== CREDENTIAL_PLACEHOLDER && credentialParam(decodedParam(raw), byName ? undefined : decodedParam(value)) ? `;${raw}=${CREDENTIAL_PLACEHOLDER}` : whole));
+  const params = maskPathCredentials(path, byName);
   const q = query ? `?${maskParams(query.slice(1), byName, depth)}` : '';
   const f = fragment.includes('=') ? `#${maskParams(fragment.slice(1), byName, depth)}` : fragment;
   return `${scheme}${auth}${params}${q}${f}`;
+}
+
+/**
+ * A captured call's address as a recording keeps it (`args.url`): a webhook's secret and the
+ * credential path parameters in its path masked (maskPathCredentials), and the credentials in its
+ * query (withoutCredentials). The same string when there is nothing to mask.
+ */
+export function credentialFreeUrl(url: string): string {
+  const m = URL_PARTS.exec(url);
+  if (!m) return url;
+  const [, scheme = '', authority = '', path = '', query = '', fragment = ''] = m;
+  const out = `${scheme}${authority}${maskPathCredentials(path)}${query ? withoutCredentials(query) : ''}${fragment}`;
+  return out === url ? url : out;
+}
+
+/**
+ * A captured HTTP call's name (`POST hooks.slack.com/services/T…/B…/…`, the method, the host and the
+ * path it asked for) as a recording keeps it: its path masked as its address's is
+ * (maskPathCredentials). The same string when there is nothing to mask.
+ */
+export function credentialFreeCallName(name: string): string {
+  const space = name.indexOf(' ');
+  const slash = space < 0 ? -1 : name.indexOf('/', space + 1);
+  if (slash < 0) return name;
+  const path = name.slice(slash);
+  const masked = maskPathCredentials(path);
+  return masked === path ? name : `${name.slice(0, slash)}${masked}`;
+}
+
+/**
+ * Last words of a flag's name that make it say where a credential is rather than what it is:
+ * `--api-key-file`, `--token-env`, `--password-stdin`, `--secret-dir`.
+ */
+const FLAG_PLACE = new Set(['file', 'files', 'path', 'paths', 'dir', 'env', 'var', 'stdin', 'fd']);
+
+/**
+ * Whether a command line's flag (its name without the dashes) takes a credential: one
+ * credentialQueryParam reads as one with the `value` it was given (a bare `--key` or `--code` only
+ * when its value reads as one; `--token` whatever it is), unless its name says where the
+ * credential is (FLAG_PLACE).
+ */
+function credentialFlag(name: string, value: string): boolean {
+  const words = wordsOf(name);
+  if (!words.length || FLAG_PLACE.has(words.at(-1)!)) return false;
+  return words.join('') === 'token' || credentialQueryParam(name, value);
+}
+
+/** An argument written as a flag: `--name`, `-name`, with `=value` or not. */
+const FLAG_ARG = /^--?([A-Za-z][\w.-]*)(?:=([^]*))?$/;
+/** An argument that assigns a value: `API_KEY=…`, `auth.password=…` (`env`, `helm --set`, `vault write`). */
+const ASSIGN_ARG = /^([A-Za-z_][\w.-]*)=([^]*)$/;
+/** An argument that is a header line: `Authorization: Bearer …` (curl's `-H`). */
+const HEADER_ARG = /^([A-Za-z][\w-]*):[ \t]*(\S[^]*)$/;
+
+/**
+ * One argument, or a flag's value, with its credentials masked: a JWT, a credential's value in an
+ * assignment (`API_KEY=…`) or a header line (`Authorization: Bearer …`), and the credentials in a URL
+ * (maskUrlCredentials: its user info's password, its query, a webhook's secret).
+ */
+function credentialFreeArgument(value: string): string {
+  if (JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
+  const assign = ASSIGN_ARG.exec(value);
+  if (assign) return assign[2] && assign[2] !== CREDENTIAL_PLACEHOLDER && credentialQueryParam(assign[1]!, assign[2]) ? `${assign[1]!}=${CREDENTIAL_PLACEHOLDER}` : value;
+  const header = HEADER_ARG.exec(value);
+  if (header && header[2] !== CREDENTIAL_PLACEHOLDER && credentialHeader(header[1]!)) return `${value.slice(0, value.length - header[2]!.length)}${CREDENTIAL_PLACEHOLDER}`;
+  return URL_SHAPED.test(value) ? maskUrlCredentials(value) : value;
+}
+
+/**
+ * A command line as every copy that leaves the machine writes it (a pack, an HTML file or a share
+ * link, a push, a trace, a dataset), its credentials masked with CREDENTIAL_PLACEHOLDER: the value
+ * of each flag that takes one (`--api-key <value>`, `--api-key=<value>`, `-token <value>` as Go's
+ * flags are written: credentialFlag), and in any other argument or flag value a JWT, an assignment's
+ * or a header line's credential, and a URL's (credentialFreeArgument). The program stays as it is.
+ * The store keeps the command as it ran, which a replay runs again. The same array when nothing
+ * changes.
+ */
+export function credentialFreeArgv(argv: readonly string[]): readonly string[] {
+  let out: string[] | null = null;
+  const set = (i: number, value: string) => {
+    if (value === argv[i]) return;
+    out ??= [...argv];
+    out[i] = value;
+  };
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]!;
+    const flag = FLAG_ARG.exec(arg);
+    if (!flag) {
+      set(i, credentialFreeArgument(arg));
+      continue;
+    }
+    const [, name = '', value] = flag;
+    if (value !== undefined) {
+      const masked = value === '' || value === CREDENTIAL_PLACEHOLDER ? value : credentialFlag(name, value) ? CREDENTIAL_PLACEHOLDER : credentialFreeArgument(value);
+      set(i, `${arg.slice(0, arg.length - value.length)}${masked}`);
+      continue;
+    }
+    // A flag's value is the argument after it, unless that is a flag of its own.
+    const next = argv[i + 1];
+    if (next === undefined || FLAG_ARG.test(next) || !credentialFlag(name, next)) continue;
+    if (next !== '' && next !== CREDENTIAL_PLACEHOLDER) set(i + 1, CREDENTIAL_PLACEHOLDER);
+    i++;
+  }
+  return out ?? argv;
+}
+
+/** Whether two command lines are one, but for the credentials a copy masks in them (credentialFreeArgv). */
+export function sameCommandLine(a: readonly string[], b: readonly string[]): boolean {
+  return JSON.stringify(credentialFreeArgv(a)) === JSON.stringify(credentialFreeArgv(b));
 }
 
 /**
@@ -433,8 +604,8 @@ export function credentialFreeBody<T extends { body?: unknown; encoding?: unknow
 
 /**
  * A captured call's stored arguments (`{ method, url, body?, encoding? }`) as they are matched on
- * replay and as every copy carries them: with the credentials in the URL's query masked
- * (withoutCredentials), and those in its body (credentialFreeBody: a JSON body's credential members,
+ * replay and as every copy carries them: with the credentials in the URL's path and query masked
+ * (credentialFreeUrl), and those in its body (credentialFreeBody: a JSON body's credential members,
  * a form's parameters, a multipart body's credential fields), as a call is stored now. The sidecar
  * stores a live call's body by the same rule, so both sides of matching read it alike. A recording
  * made by an earlier version holds them as sent, and so still matches a live call with the same key
@@ -444,9 +615,8 @@ export function withoutStoredCredentials(args: unknown): unknown {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return args;
   const stored = args as Record<string, unknown>;
   let out = stored;
-  if (typeof stored.url === 'string' && stored.url.includes('?')) {
-    const at = stored.url.indexOf('?');
-    const url = stored.url.slice(0, at) + withoutCredentials(stored.url.slice(at));
+  if (typeof stored.url === 'string') {
+    const url = credentialFreeUrl(stored.url);
     if (url !== stored.url) out = { ...out, url };
   }
   return credentialFreeBody(out);
@@ -462,7 +632,7 @@ export function credentialFreeQuery(query: string): string | undefined {
   const kept = query.split('&').filter((part) => {
     if (!part) return false;
     const eq = part.indexOf('=');
-    return !credentialParam(decodedParam(eq < 0 ? part : part.slice(0, eq)));
+    return !credentialQueryParam(decodedParam(eq < 0 ? part : part.slice(0, eq)));
   });
   const out = kept.join('&');
   return out || undefined;

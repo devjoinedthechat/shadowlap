@@ -19,9 +19,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * fingerprint differs. 4: and in a body by its shape whatever its content type (JSON sent as text,
  * lines of JSON, an event stream, XML, bytes that aren't UTF-8), so it differs again. 5: and inside
  * its strings (a URL, JSON in a string, a JWT, a connection string, GraphQL arguments), under a
- * credential member, and by the names added since (a cookie, lists of credentials).
+ * credential member, and by the names added since (a cookie, lists of credentials). 6: and in its
+ * address's path (a webhook's secret, a credential path parameter), which its name masks too, and
+ * by the names a query or form carries one under (a session, a ticket, a secret key).
  */
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =

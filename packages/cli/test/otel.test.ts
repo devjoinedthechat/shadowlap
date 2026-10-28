@@ -100,6 +100,15 @@ describe('runToOtlp', () => {
     expect(runSpanName(trace).endsWith('--customer <EMAIL>')).toBe(true);
   });
 
+  it("masks a key the command line carries and a webhook's secret in a captured call's name, rules or none", () => {
+    const keyed: RunRecord = { ...run, command: { argv: ['node', 'agent.mjs', '--api-key', 'SLSEC_ARGV_0123456789'], cwd: '/w' } };
+    const hook: CallRecord = { ...api, kind: 'tool', name: 'POST hooks.slack.com/services/T0/B0/SLSEC_TP_SLACKHOOK', meta: { http: 'hooks.slack.com' }, effect: 'write', callNo: 2 };
+    const out = JSON.stringify(runToOtlp(keyed, [api, hook]));
+    expect(out).not.toContain('SLSEC_');
+    const spans = (JSON.parse(out) as { resourceSpans: Array<{ scopeSpans: Array<{ spans: Array<{ name: string }> }> }> }).resourceSpans[0].scopeSpans[0].spans;
+    expect(spans.map((s) => s.name)).toEqual(['shadowlap.record node agent.mjs --api-key <CREDENTIAL>', expect.stringMatching(/^chat /), 'execute_tool POST hooks.slack.com/services/T0/B0/<CREDENTIAL>']);
+  });
+
   it('parses OTLP header lists', () => {
     expect(otlpHeaders('authorization=Bearer%20x, x-scope-orgid=team')).toEqual({ authorization: 'Bearer x', 'x-scope-orgid': 'team' });
     expect(otlpHeaders(undefined)).toEqual({});

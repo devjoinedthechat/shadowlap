@@ -64,7 +64,7 @@ import { awsErrorType } from '@shadowlap/engine';
 // A request's body, whole or not at all (body.ts in the engine).
 import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shadowlap/engine';
 // A model call's answer is kept with the credentials its headers carry masked, as a captured host's are.
-import { credentialFreeHeaders } from '@shadowlap/engine';
+import { credentialFreeHeaders, maskPathCredentials } from '@shadowlap/engine';
 // A redacted copy's model calls: their path and header parameters as the copy's rules masked them.
 import { redactApiPath, redactHeaderValues } from '@shadowlap/engine';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
@@ -2246,8 +2246,10 @@ export class Sidecar {
       throw err;
     }
     if (client.gone) return null;
-    const args = { method, url: `${origin.origin}${subpath}${withoutCredentials(search)}`, ...storedRequestBody(rawBody, req.headers['content-type']) };
-    return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${subpath}`, url: `${origin.origin}${subpath}${search}`, search, args };
+    // Stored and matched without the credentials in its address: a webhook's secret in its path, its query's (credentialFreeUrl).
+    const path = maskPathCredentials(subpath);
+    const args = { method, url: `${origin.origin}${path}${withoutCredentials(search)}`, ...storedRequestBody(rawBody, req.headers['content-type']) };
+    return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${path}`, url: `${origin.origin}${subpath}${search}`, search, args };
   }
 
   /**

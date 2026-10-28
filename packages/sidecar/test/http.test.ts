@@ -303,6 +303,64 @@ describe('credentials in a captured call', () => {
     }
   });
 
+  it("in a webhook's address are stored masked, and a recording that kept them as sent still matches, with a rotated secret too", async () => {
+    const seen: string[] = [];
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        seen.push(req.url ?? '');
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const post = async (base: string, runId: string, token: string) => {
+      const res = await fetch(`${base}/r/${runId}/http/api/webhooks/123456/${token}?session=SLSEC_QS_SESSION_q1w2e3`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/json' }, body: '{"content":"refunded"}' });
+      await res.text();
+      return res.status;
+    };
+    const sidecars: Sidecar[] = [];
+    try {
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'write' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await post(recording.url, run.runId, 'SLSEC_R2_DISCORDTOKEN_q1w2e3r4')).toBe(200);
+      recording.endRun(run.runId, 'completed');
+      // The service got the address as the agent sent it; the store keeps it without the secret.
+      expect(seen).toEqual(['/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4?session=SLSEC_QS_SESSION_q1w2e3']);
+      const [call] = store.getCalls(run.runId);
+      expect(call.name).toBe(`POST ${host}/api/webhooks/123456/<CREDENTIAL>`);
+      expect(JSON.stringify(store.getJson(call.requestRef!))).not.toContain('SLSEC_');
+
+      // As an earlier version stored it: the secret in its name and address, fingerprinted so.
+      const sent = { ...(store.getJson(call.requestRef!) as { args: Record<string, unknown> }).args, url: `http://${host}/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4?session=SLSEC_QS_SESSION_q1w2e3` };
+      const name = `POST ${host}/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4`;
+      const old = store.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' }, meta: { normalizersHash: normalizersHash([], 'exact', false) } });
+      const fingerprint = fingerprintTool(name, sent, []).fingerprint;
+      store.appendCallStart({ ...call, runId: old.runId, name, fingerprint, requestRef: store.putJson({ args: sent }) });
+      store.appendCallEnd({ kind: call.kind, name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
+      store.endRun(old.runId, 'completed');
+
+      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'write' }], clock: 'exact' });
+      sidecars.push(sidecar);
+      for (const token of ['SLSEC_R2_DISCORDTOKEN_q1w2e3r4', 'rotated-token-0123456789']) {
+        for (const parent of [old.runId, run.runId]) {
+          const replay = sidecar.startRun({ mode: 'replay', parentRunId: parent, command: { argv: ['x'], cwd: '.' } });
+          expect(await post(sidecar.url, replay.runId, token)).toBe(200);
+          expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, `${token} on ${parent === old.runId ? 'the old recording' : 'the new one'}`).toBeNull();
+        }
+      }
+      // Every replay was served from the recording: the service saw the recording's call alone.
+      expect(seen).toHaveLength(1);
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
+  });
+
   it('read from stored arguments as a call is stored now, which change nothing that already reads so', () => {
     const url = 'http://h/customsearch/v1?key=AIzaSyD-live-key-0123&q=refund';
     expect(withoutStoredCredentials({ method: 'GET', url })).toEqual({ method: 'GET', url: 'http://h/customsearch/v1?key=<CREDENTIAL>&q=refund' });

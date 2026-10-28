@@ -6,6 +6,7 @@
  */
 import { checksOf, type CheckCounts } from './classify.js';
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
+import { credentialFreeArgv } from './http.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { compilePattern, parsePath } from './normalize.js';
@@ -102,7 +103,8 @@ function example(store: Store, run: RunRecord, call: CallRecord, rules: Normaliz
       notes: (run.meta?.notes ?? []).filter((x) => x.callNo === null || x.callNo === call.callNo).map((x) => x.text),
       // As `ls --json` counts them: a check that did not apply is not one that passed.
       checks: checksOf(run),
-      command: run.command.argv.join(' '),
+      // Without the credentials it carries, as every copy writes it.
+      command: credentialFreeArgv(run.command.argv).join(' '),
       code_version: run.codeVersion,
       // A replay that stopped before its recording did forked nowhere: every call it made was replayed.
       forked_at: run.divergence && run.divergence.type !== 'ended_early' ? run.divergence.callNo : null,

@@ -164,6 +164,25 @@ describe('shadowlap test, given a golden', () => {
   }, 60_000);
 });
 
+describe('a golden whose command line carries a key', () => {
+  it('is packed without it, and runs here as recorded, with it, without asking', async () => {
+    // An agent that notes the key it was given, then asks its model as the others do.
+    writeFileSync(join(mine, 'keyed.mjs'), AGENT.replace("appendFileSync('ran.log', 'ran\\n');", "appendFileSync('keys.log', process.argv.at(-1) + '\\n');"));
+    const recorded = await shadowlap(mine, join(mine, 'store.db'), ['run', '--', process.execPath, 'keyed.mjs', '--api-key', 'SLSEC_ARGV_GOLDEN_0123456789']);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = /Recorded (\w{26})/.exec(recorded.out)![1];
+    const packed = await shadowlap(mine, join(mine, 'store.db'), ['pack', runId, join(mine, 'goldens', 'keyed')]);
+    expect(packed.code, packed.out).toBe(0);
+    const manifest = readFileSync(join(mine, 'goldens', 'keyed', 'run.json'), 'utf8');
+    expect(manifest).not.toContain('SLSEC_ARGV_GOLDEN');
+    expect(manifest).toContain('<CREDENTIAL>');
+    const tested = await shadowlap(mine, join(mine, 'store.db'), ['test', 'goldens/keyed']);
+    expect(tested.code, tested.out).toBe(0);
+    expect(tested.out).not.toContain('not run');
+    expect(readFileSync(join(mine, 'keys.log'), 'utf8').trim().split('\n')).toEqual(['SLSEC_ARGV_GOLDEN_0123456789', 'SLSEC_ARGV_GOLDEN_0123456789']);
+  }, 60_000);
+});
+
 describe("the other commands that run a golden's recorded command", () => {
   it('ask before a sent pack’s, as test does, and without a terminal run nothing', async () => {
     const before = runs(repo);

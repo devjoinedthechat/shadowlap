@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, sameCommandLine, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
@@ -218,10 +218,13 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
     const golden = goldenName(input.target, projectDir);
     const run = importGolden(store, dir);
     // Copied into a store of its own, any golden reads as imported: whether this machine recorded it,
-    // with the pack's command, is for the project's store to say.
+    // with the pack's command, is for the project's store to say. One it recorded runs as recorded,
+    // with the credentials its pack masks in the command line (sameCommandLine).
     const project = openStore(input.opts);
     try {
-      return { run, kind: 'golden', name: golden, golden, imported: goldensNeedingConsent(project, [dir], projectDir).length > 0 };
+      const held = project.getRun(run.runId);
+      const own = held !== null && !commandIsImported(held) && sameCommandLine(held.command.argv, run.command.argv);
+      return { run: own ? { ...run, command: { ...run.command, argv: held.command.argv } } : run, kind: 'golden', name: golden, golden, imported: goldensNeedingConsent(project, [dir], projectDir).length > 0 };
     } finally {
       project.close();
     }
@@ -236,7 +239,8 @@ function loadTarget(input: BisectInput, projectDir: string, store: Store): { run
     if (found.status === 'running' && project.recordingRuns().live.some((r) => r.run.runId === found.runId)) throw new BisectError(`${shortId(found.runId)} is still recording: find the commit once it has ended`);
     packRun(project, found.runId, scratch);
     unpackRun(store, scratch);
-    return { run: store.getRun(found.runId)!, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null, imported: commandIsImported(found) };
+    // A pack masks the credentials its command line carries: this copy never leaves the machine, and runs the command as it was recorded.
+    return { run: { ...store.getRun(found.runId)!, command: found.command }, kind: 'run', name: shortId(found.runId), golden: found.meta?.test?.golden ?? null, imported: commandIsImported(found) };
   } finally {
     project.close();
     rmSync(scratch, { recursive: true, force: true });

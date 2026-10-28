@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { join, relative, resolve, sep } from 'node:path';
+import { sameCommandLine } from './http.js';
 import { commandIsImported, hasRecordedCommand, PACK_FORMAT, readPackFile } from './pack.js';
 import { PACK_LIMITS } from './pack-schema.js';
 import type { Store } from './store.js';
@@ -79,8 +80,8 @@ export function packHeadRun(dir: string): { runId: string; argv: string[] } | nu
  * The goldens among `dirs` whose recorded command needs a yes, read without bringing their packs in
  * (a dashboard job asks before it starts one), each with the command it runs. A golden's command runs
  * without one when this machine recorded it (the store holds its run under the pack's id, unmarked,
- * with the same command) or the repository tracks its pack; one whose pack can't be read is left
- * for the command, which refuses it.
+ * with the same command, but for the credentials a pack masks in it: sameCommandLine) or the
+ * repository tracks its pack; one whose pack can't be read is left for the command, which refuses it.
  */
 export function goldensNeedingConsent(store: Store, dirs: readonly string[], projectDir: string): Array<{ dir: string; runId: string; argv: string[] }> {
   const asked: Array<{ dir: string; runId: string; argv: string[] }> = [];
@@ -88,7 +89,7 @@ export function goldensNeedingConsent(store: Store, dirs: readonly string[], pro
     const head = packHeadRun(resolve(projectDir, dir));
     if (!head || !head.argv.length) continue;
     const held = store.getRun(head.runId);
-    const own = held !== null && !commandIsImported(held) && JSON.stringify(held.command.argv) === JSON.stringify(head.argv);
+    const own = held !== null && !commandIsImported(held) && sameCommandLine(held.command.argv, head.argv);
     if (!own && hasRecordedCommand({ command: { argv: head.argv } })) asked.push({ dir, runId: head.runId, argv: head.argv });
   }
   if (!asked.length) return asked;

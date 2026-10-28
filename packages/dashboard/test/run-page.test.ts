@@ -365,6 +365,18 @@ describe('the run page: a fork’s flags in a copy of it', () => {
     });
   }
 
+  it("masks a key the command line carries in an HTML export and a share link's page, rules or none", () => {
+    const store = Store.open(':memory:');
+    const run = store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs', '--api-key', 'SLSEC_HTML_ARGV_q1w2e3', '--notify=https://hooks.slack.com/services/T0/B0/SLSEC_HTML_HOOK'], cwd: '/w' } });
+    store.endRun(run.runId, 'completed');
+    for (const redact of [[], rules]) {
+      const html = exportHtml({ store, runIds: [run.runId], uiDir, redact }).html;
+      expect(html).not.toContain('SLSEC_HTML_');
+      expect(html).toContain('--api-key');
+    }
+    store.close();
+  });
+
   it('masks the hosts the guard named with a rule that matches them', () => {
     const store = Store.open(':memory:');
     const { fork } = forked(store, kept);

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
-import { capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
+import { capturedHttp, credentialFreeArgv, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
@@ -38,9 +38,10 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  * (an `--override` carries a whole tool result), the divergence report's diff and reason, the
  * checks' labels, details and judges' reasons, and each call's error, injected failure, response
  * headers and query string (redactQuery). A judge's own request takes only the rules without a path
- * (requestRules). The run's command line, labels and notes are copied as they are: a replay of the
- * copy runs that command. A copy that is only ever read (`export html`) masks them too:
- * redactRunWithDetails.
+ * (requestRules). The run's command line, labels and notes are copied as the rules found them: a
+ * replay of the copy runs that command. A copy that is only ever read (`export html`) masks them too:
+ * redactRunWithDetails. The credentials a command line carries (a flag's, an argument's) are masked
+ * in every copy, rules or none (credentialFreeArgv): who replays the copy gives their own.
  *
  * Every copy also masks the credentials a recording made before they were known to be ones could
  * hold, rules or none (http.ts): those in a model call's query, a credential response header, and a
@@ -315,9 +316,10 @@ export function redactHeaderValues(headers: Record<string, string>, rules: reado
 
 /**
  * A call's name as every copy writes it. A captured HTTP call (a host under "http" in the config) is
- * named after the address the agent asked for, `GET api.example.com/contacts/alice@example.com`,
- * so the rules without a path that apply to tool calls mask its name as they mask the address in its
- * arguments. A model call is named after its API path, whose segments can hold what a rule masks
+ * named after the address the agent asked for, `GET api.example.com/contacts/alice@example.com`:
+ * a webhook's secret in its path is masked as a recording keeps it (credentialFreeCallName), rules
+ * or none, and the rules without a path that apply to tool calls mask its name as they mask the
+ * address in its arguments. A model call is named after its API path, whose segments can hold what a rule masks
  * (a Bedrock model's ARN, with the account id): those are masked as redactApiPath masks them. Any
  * other call's name is the code's (a tool, a read) and stays as it is.
  *
@@ -334,7 +336,7 @@ export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'
     return masked === path ? call.name : `${call.name.slice(0, space)} ${masked}`;
   }
   if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return call.name;
-  let name = call.name;
+  let name = credentialFreeCallName(call.name);
   rules.forEach((rule, i) => {
     if (rule.path !== undefined || rule.pattern === undefined || !normalizerApplies(rule, 'tool', call.name)) return;
     const regex = compilePattern(rule.pattern);
@@ -352,11 +354,16 @@ export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'
  * (`meta.redactions`, redactedCallName), live and recorded alike, and so is the name each
  * normalizer is scoped to, so a rule written for `POST crm.example.com/contacts/alice@example.com`
  * applies to the call on both sides. Masking twice changes nothing, so a recorded name the copy
- * already masked, or one an older copy kept, comes out the same. Any other call, and a replay of a
- * run no rules redacted, is matched as it was recorded.
+ * already masked, or one an older copy kept, comes out the same. A webhook's secret in a captured
+ * call's path is masked so too, redacted or not (credentialFreeCallName): a recording made before it
+ * was matches a live call, which is named without it. Any other call is matched as it was recorded.
  */
 export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, normalizers: Normalizer[], redactions: readonly Normalizer[]): { name: string; normalizers: Normalizer[] } {
-  if (!redactions.length || call.kind !== 'tool' || typeof call.meta.http !== 'string') return { name: call.name, normalizers };
+  if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return { name: call.name, normalizers };
+  if (!redactions.length) {
+    const name = credentialFreeCallName(call.name);
+    return name === call.name ? { name, normalizers } : { name, normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: credentialFreeCallName(n.name) })) };
+  }
   const masked = (name: string) => redactedCallName({ kind: 'tool', name, meta: call.meta }, redactions);
   return { name: masked(call.name), normalizers: normalizers.map((n) => (n.name === undefined ? n : { ...n, name: masked(n.name) })) };
 }
@@ -695,9 +702,9 @@ export function credentialFreeCall(call: CallRecord): CallRecord {
 
 /**
  * A run's calls as a push sends them: each as credentialFreeCall leaves it, and a captured HTTP
- * call's stored request and results as a recording stores them now (credentialFreeRequest,
- * credentialFreeResult), so a run an earlier version recorded, which kept a credential in a body or
- * in a header there, goes up without it, as a pack does. Each masked blob is put in `store`
+ * call's name, stored request and results as a recording stores them now (credentialFreeCallName,
+ * credentialFreeRequest, credentialFreeResult), so a run an earlier version recorded, which kept a
+ * credential in its address, a body or a header there, goes up without it, as a pack does. Each masked blob is put in `store`
  * (content-addressed, beside the one it stands for), where a push sends it from like any other; a
  * call with nothing to mask is the same object.
  */
@@ -715,20 +722,25 @@ export function credentialFreeCalls(store: Store, calls: readonly CallRecord[]):
       return responseRef === e.responseRef ? e : { ...e, responseRef };
     };
     const requestRef = masked(call.requestRef, credentialFreeRequest);
+    const name = credentialFreeCallName(call.name);
     const attempts = call.attempts.map(end);
     const last = call.end ? end(call.end) : null;
-    if (requestRef === call.requestRef && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
-    return { ...call, requestRef, end: last, attempts };
+    if (requestRef === call.requestRef && name === call.name && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
+    return { ...call, name, requestRef, end: last, attempts };
   });
 }
 
 /**
  * Whether a run holds a credential that a recording made before it was known to be one kept: in a
- * model call's query, a credential response header, or a captured HTTP call's query, form body or
- * response headers. Every copy of such a run goes through redactRun, rules or none, which masks
- * them; a run without any is copied as it is when no rule applies.
+ * model call's query, a credential response header, or a captured HTTP call's address (a webhook's
+ * secret in its path, its query), form body or response headers; or one its command line carries
+ * (credentialFreeArgv), which the store keeps for a replay to run. Every copy of such a run goes
+ * through redactRun, rules or none, which masks them; a run without any is copied as it is when no
+ * rule applies.
  */
 export function carriesCredentials(store: Store, runId: string): boolean {
+  const run = store.getRun(runId);
+  if (run && credentialFreeArgv(run.command.argv) !== run.command.argv) return true;
   // Read from the rows that can hold one, without loading the run's calls: an export reads those once.
   for (const row of store.query(CALL_METAS_SQL, runId)) {
     const meta = JSON.parse(String(row.meta)) as CallMeta;
@@ -771,8 +783,11 @@ export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: S
   const forkedAt = run.divergence && calls.find((c) => c.callNo === run.divergence!.callNo && c.name === run.divergence!.name);
   const copy: RunRecord = {
     ...run,
+    // Its command line without the credentials a flag or an argument carried (credentialFreeArgv), rules or none.
+    command: { ...run.command, argv: [...credentialFreeArgv(run.command.argv)] },
     parentRunId: run.parentRunId && dst.getRun(run.parentRunId) ? run.parentRunId : null,
-    divergence: run.divergence ? { ...redactDivergence(run.divergence, rules), ...(forkedAt ? { name: redactedCallName(forkedAt, rules) } : {}) } : null,
+    // A webhook's secret in it is masked whether the call is there or not (credentialFreeCallName).
+    divergence: run.divergence ? { ...redactDivergence(run.divergence, rules), name: forkedAt ? redactedCallName(forkedAt, rules) : credentialFreeCallName(run.divergence.name) } : null,
     // The run page's facts in the metadata (the hosts the guard named) are masked too.
     meta: redactMeta(run.meta, rules),
   };

@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeArgv, credentialFreeCallName, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -334,7 +334,8 @@ async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null
   let existing = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
   if (!existing) {
     const calls = credentialFreeCalls(ctx.store, ctx.store.getCalls(run.runId));
-    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
+    // Its command line without the credentials a flag or an argument carried, as a pack writes it (credentialFreeArgv).
+    const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, command: { ...run.command, argv: [...credentialFreeArgv(run.command.argv)] }, divergence: run.divergence && { ...run.divergence, name: credentialFreeCallName(run.divergence.name) }, meta: sharedMeta(run.meta) }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
     const blobs = runBlobs(ctx.store, calls);
     const problem = storeProblem(first.run, calls) ?? localProblem(ctx, calls, blobs);
     if (problem) return { refused: problem };
