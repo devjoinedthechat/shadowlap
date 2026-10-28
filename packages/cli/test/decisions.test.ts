@@ -20,8 +20,8 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('../../../testing/reference-agent/dist/main.js', import.meta.url));
 /** Runs the agent, failing every third time (flaky-agent.mjs). */
 const FLAKY = fileURLToPath(new URL('./flaky-agent.mjs', import.meta.url));
-/** Five of seven passed on each side of seven pairs: the drop's interval, each end at 95%. */
-const DROP_5_OF_7 = 'drop -0.66 to 0.71 (95%)';
+/** Five of seven passed on each side of seven pairs: the drop's interval, each end at 97.5% so the two hold together at 95%. */
+const DROP_5_OF_7 = 'drop -0.72 to 0.76 (95%)';
 
 let mock: MockServer;
 let cwd: string;

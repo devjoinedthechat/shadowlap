@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -348,8 +348,10 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           Object.assign(result, keptVerdict(decision));
           result.baseline = { passes: answered.basePasses, attempts: baseRuns.filter((x) => !x.unavailable).length, source: 'paired', revision: at };
           result.margin = rule.margin;
-          // Each end of the drop's interval from the tally against its own verdict.
-          result.drop = pairsOf(keeping) === pairsOf(answered) ? pairedDrop(answered, rule.risk) : { ...pairedDrop(keeping, rule.risk), lo: pairedDrop(breaking, rule.risk).lo };
+          // Each end of the drop's interval from the tally against its own verdict: a verdict's end at the
+          // whole risk, both ends of an undecided run at half each, so the two hold together.
+          const ends = dropEndsRisk(decision, rule.risk);
+          result.drop = { ...(pairsOf(keeping) === pairsOf(answered) ? pairedDrop(answered, ends) : { ...pairedDrop(keeping, ends), lo: pairedDrop(breaking, ends).lo }), confidence: 1 - rule.risk };
           if (decision !== 'continue') break;
         }
         // An attempt it could not judge stopped it: inconclusive, as no attempt after it would say more.
@@ -386,7 +388,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
           const cut = result.cutShort ?? 0;
           const decision = decideAgainstHistoryAround(judged, cut, history, rule);
           Object.assign(result, keptVerdict(decision));
-          result.drop = cut ? { ...historyDrop(judged, history, rule.risk), lo: historyDrop({ passes: judged.passes + cut, attempts: judged.attempts }, history, rule.risk).lo } : historyDrop(judged, history, rule.risk);
+          const ends = dropEndsRisk(decision, rule.risk);
+          result.drop = { ...(cut ? { ...historyDrop(judged, history, ends), lo: historyDrop({ passes: judged.passes + cut, attempts: judged.attempts }, history, ends).lo } : historyDrop(judged, history, ends)), confidence: 1 - rule.risk };
           if (decision !== 'continue') break;
         }
         return true;
