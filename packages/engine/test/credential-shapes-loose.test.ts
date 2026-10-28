@@ -125,3 +125,19 @@ describe('the cheaper shapes', () => {
     expect(headers).toEqual({ 'x-upstream-auth': C, 'x-user-jwt': C, 'x-auth': C, 'x-forwarded-uri': `/cb?access_token=${C}&page=2`, 'hx-redirect': `/x?code=${C}`, 'hx-location': `{"path":"/x?code=${C}","target":"#main"}`, 'content-type': 'application/json', 'x-request-id': 'req_123' });
   });
 });
+
+describe('a URL’s user info anywhere in text', () => {
+  it('masks the password of every URL in a .env file, a sentence or a log line, whatever its line’s key', () => {
+    const env = `OPENAI_API_KEY=${S('ENVKEY')}\nDATABASE_URL=postgres://app:${S('ENVDBPASS')}@db.internal:5432/app\nREDIS_URL=redis://:${S('ENVREDISPASS')}@cache:6379\nAPP_URL=https://example.com/a@b\n`;
+    expect(maskTextCredentials(env)).toBe(`OPENAI_API_KEY=${C}\nDATABASE_URL=postgres://app:${C}@db.internal:5432/app\nREDIS_URL=redis://:${C}@cache:6379\nAPP_URL=https://example.com/a@b\n`);
+    expect(maskTextCredentials(JSON.stringify({ note: `connect with postgres://app:${S('PROSEPASS')}@db/app, then retry`, clone: 'ssh://git@github.com/o/r.git' }))).toBe(JSON.stringify({ note: `connect with postgres://app:${C}@db/app, then retry`, clone: 'ssh://git@github.com/o/r.git' }));
+    expect(maskTextCredentials(`retrying amqp://guest:${S('LOGPASS')}@mq:5672 in 2s (attempt 3)`)).toBe(`retrying amqp://guest:${C}@mq:5672 in 2s (attempt 3)`);
+    for (const text of ['see https://example.com/x?y=1 for more', 'mail me at bob@example.com, or :// alone', '1http://a:b@c is no scheme']) expect(maskTextCredentials(text), text).toBeNull();
+  });
+
+  it('reads the text once, however many `://` it holds', () => {
+    const urls = (k: number) => 'a://b'.repeat(k);
+    const t = timesOf({ urls: () => maskTextCredentials(urls(4000)), urls4: () => maskTextCredentials(urls(16000)) }, { rounds: 2 });
+    expect(t.urls4, `4 times the URLs took ${times(t.urls4, t.urls)} as long`).toBeLessThan(12 * t.urls);
+  });
+});
