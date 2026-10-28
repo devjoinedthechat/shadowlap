@@ -1,4 +1,4 @@
-import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, type Gate, type Price, type RunRecord, type Store, type SuiteGolden, type SuitePlan } from '@shadowlap/engine';
+import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, RECORD_WINDOWS, type Gate, type Price, type RunRecord, type Store, type SuiteGolden, type SuitePlan, type Tally } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { suiteRed } from './test-report.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
@@ -54,15 +54,19 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
     const checks = oracleLabels(spec).slice(1);
     const filter = spec.gate.kind === 'baseline' ? { window: spec.gate.window, goldenRunId: parent.runId, checks, mode: 'fork' as const, ...(o.baselineBranch !== undefined ? { branch: o.baselineBranch } : {}) } : null;
     const history = filter && spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { ...filter, first: spec.gate.min }) : null;
-    // What the same sessions show of the agent, every attempt of those that went red too, which a baseline that came out lucky leaves out.
-    const sessions = filter ? gateHistory(o.store, golden, { ...filter, verdicts: 'any' }) : null;
+    // What the same sessions show of the agent, every attempt of those that went red too, which a baseline
+    // that came out lucky leaves out: its last window of them, and its last RECORD_WINDOWS windows.
+    const record = filter && spec.gate.kind === 'baseline' ? gateHistory(o.store, golden, { ...filter, window: RECORD_WINDOWS * spec.gate.window, verdicts: 'any' }) : null;
+    const sum = (xs: readonly Tally[]): Tally => ({ passes: xs.reduce((n, x) => n + x.passes, 0), attempts: xs.reduce((n, x) => n + x.attempts, 0) });
+    const sessions = record && spec.gate.kind === 'baseline' ? sum(record.pooled.slice(0, spec.gate.window)) : null;
     const recent = recentAttempts(o.store, golden, { window: RECENT, goldenRunId: parent.runId, checks });
     goldens.push({
       golden,
       gate: spec.gate,
       maxGiven: !!spec.gateMaxGiven,
       ...(history?.attempts ? { history: { passes: history.passes, attempts: history.attempts } } : {}),
-      ...(sessions?.attempts ? { sessions: { passes: sessions.passes, attempts: sessions.attempts } } : {}),
+      ...(sessions?.attempts ? { sessions } : {}),
+      ...(record?.attempts ? { record: { passes: record.passes, attempts: record.attempts, sessions: record.pooled.length } } : {}),
       rate: recent ? recent.passes / recent.attempts : null,
       costPerAttempt: recent?.costPerAttempt ?? recordingCost(o.store, parent, o.prices),
     });
@@ -82,8 +86,11 @@ const plural = (n: number, noun: string) => `${count(n)} ${noun}${Math.round(n) 
  * What the session says before it runs: the forecast, and with more than one gated golden, how the
  * risk is split. `forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about
  * $41.87` and `suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing
- * in 5% of runs or fewer, with the provider answering`. A golden whose share can't be met says why, and the suite's line then says
- * what the plan works out instead of the risk it was given (`suiteRed`), which it would overstate.
+ * in 5% of runs or fewer, with the provider answering`. When the goldens' chances together go past
+ * the suite's risk, the line says what the plan works out instead (`suiteRed`), and each golden that
+ * can't keep within its share, or has too few sessions yet to, says why: one over its own share
+ * whose suite keeps within its risk takes room the others leave, and isn't named. A gate against
+ * history whose last sessions sit below its baseline beyond chance is always named.
  */
 export function suiteLines(plan: SuitePlan): string[] {
   const f = plan.forecast;
@@ -92,14 +99,33 @@ export function suiteLines(plan: SuitePlan): string[] {
   const lines = [`forecast: about ${plural(f.attempts, 'attempt')}${each}, up to ${count(f.most)} · ${cost}`];
   if (plan.goldens > 1) {
     const red = plan.inconclusive === 'fail' ? 'goes red for nothing' : 'fails a golden for nothing';
-    lines.push(`suite risk ${riskPercent(plan.risk)}: ${plan.goldens} gated goldens, ${riskPercent(plan.perGoldenRisk)} each, ${suiteRed({ ...plan, over: plan.planned.filter((p) => p.over).length }, red)}`);
+    lines.push(`suite risk ${riskPercent(plan.risk)}: ${plan.goldens} gated goldens, ${riskPercent(plan.perGoldenRisk)} each, ${suiteRed(suiteCounts(plan), red)}`);
   }
-  for (const p of plan.planned) if (p.over) lines.push(`${p.golden}: ${p.over}`);
+  const over = plan.red > plan.risk;
+  for (const p of plan.planned) {
+    const why = p.drop ?? (over ? (p.over ?? p.early) : undefined);
+    if (why) lines.push(`${p.golden}: ${why}`);
+  }
   return lines;
 }
 
-/** The plan as `--json` reports it, under `suite`: with `over`, the goldens whose share could not be met, when any could not. */
-export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number } {
-  const over = plan.planned.filter((p) => p.over).length;
-  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}) };
+/**
+ * The plan's figures as its suite line reads them: how many goldens can't keep within their share,
+ * how many have too few sessions yet to, and whether its chance is averaged over the pass rates a
+ * golden's sessions leave open (a gate against history's), or exact at each gate's good rate.
+ */
+function suiteCounts(plan: SuitePlan): { risk: number; red: number; over: number; early: number; averaged: boolean } {
+  return { risk: plan.risk, red: plan.red, over: plan.planned.filter((p) => p.over).length, early: plan.planned.filter((p) => p.early).length, averaged: plan.planned.some((p) => p.gate.kind === 'baseline') };
+}
+
+/**
+ * The plan as `--json` reports it, under `suite`: with `over`, the goldens whose share could not be
+ * met, `early`, those with too few sessions yet, and `drop`, those whose last sessions sit below
+ * their baseline beyond chance, when there are any; `averaged`, when gates against history make its
+ * `red` an average over the pass rates their sessions leave open rather than a bound.
+ */
+export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number; early?: number; drop?: number; averaged?: true } {
+  const { over, early, averaged } = suiteCounts(plan);
+  const drop = plan.planned.filter((p) => p.drop).length;
+  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}), ...(early ? { early } : {}), ...(drop ? { drop } : {}), ...(averaged ? { averaged: true as const } : {}) };
 }

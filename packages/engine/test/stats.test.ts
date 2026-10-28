@@ -559,6 +559,56 @@ describe('what a label rounds to', () => {
   });
 });
 
+describe('a history gate a session widened past its own max', () => {
+  // The review's case: a baseline of 48 of 50, at a 20-golden share; the record, every attempt of the last 30 sessions.
+  const base = { passes: 48, attempts: 50 };
+  const record = { passes: 160, attempts: 170, sessions: 30 };
+  const at40 = baseline({ risk: 0.0025 });
+  const plain = baseline({ risk: 0.0025, max: 400 });
+  const widened = baseline({ risk: 0.0025, max: 400, widened: { from: 40, record, risk: 0.05 } });
+
+  it('decides as its own max did up to it, and past it passes only once a drop from its record is at most its risk likely', () => {
+    for (let n = 5; n <= 40; n++) for (let s = 0; s <= n; s++) expect(decide(s, n, widened, base), `${s} of ${n}`).toBe(decide(s, n, plain, base));
+    // 38 of 46: a drop from the baseline no likelier than not (0.36), but from the record 0.31 likely: on it goes.
+    expect(dropProbability({ passes: 38, attempts: 46 }, base, 0.15)).toBeLessThanOrEqual(BASELINE_PASS_AT);
+    expect(dropProbability({ passes: 38, attempts: 46 }, record, 0.15)).toBeGreaterThan(0.05);
+    expect([decide(38, 46, plain, base), decide(38, 46, widened, base)]).toEqual(['pass', 'continue']);
+    expect(decide(55, 60, widened, base)).toBe('pass');
+    // Its failures are the gate's own, whatever the record.
+    for (let n = 41; n <= 400; n += 7) for (let s = 0; s <= n; s += 3) if (decide(s, n, plain, base) === 'fail') expect(decide(s, n, widened, base)).toBe('fail');
+  });
+
+  it('passes an agent that dropped about as often as its own max did, where 400 attempts without the bound passed it more often', () => {
+    // 75% against 48 of 50: 63.3% with max 40, 69.7% with max 400 (the review's figures), and with the bound 63.3% again.
+    const o40 = gateOdds(at40, 0.75, base);
+    const o400 = gateOdds(plain, 0.75, base);
+    const now = gateOdds(widened, 0.75, base);
+    expect(o40.pass).toBeCloseTo(0.633, 3);
+    expect(o400.pass).toBeCloseTo(0.697, 3);
+    expect(now.pass - o40.pass).toBeLessThan(0.001);
+    for (const p of [0.6, 0.7]) expect(gateOdds(widened, p, base).pass - gateOdds(at40, p, base).pass).toBeLessThan(0.0001);
+    // An agent as its record shows it passes as it would with 400 attempts and no bound.
+    expect(gateOdds(widened, 0.95, base).pass).toBeGreaterThan(gateOdds(at40, 0.95, base).pass);
+    expect(Math.abs(gateOdds(widened, 0.95, base).pass - gateOdds(plain, 0.95, base).pass)).toBeLessThan(1e-4);
+  });
+
+  it('states the bound with its rule, keeps it in what a result reports, and gives the chance of a drop from the record after each attempt past it', () => {
+    expect(describeGate(widened)).toBe('fails a drop of 15+ points from its last 10 sessions once 99.75% likely, from 5 attempts up to 400, and past 40 passes only once that drop from every attempt of its last 30 sessions (160 of 170) is 5% likely or less');
+    expect(describeGate(baseline({ widened: { from: 40, record: { passes: 9, attempts: 10 }, risk: 0.05 }, max: 60 }))).toContain('and past 40 passes only once that drop from its record (9 of 10) is 5% likely or less');
+    expect(gateOf(widened)).toEqual(widened);
+    expect(gateOf(at40)).not.toHaveProperty('widened');
+    const outcomes = [...Array(40).keys()].map((i) => i % 5 !== 0).concat(Array(6).fill(true));
+    const r = gateResult(widened, outcomes, { history: { ...base, sessions: 10 } });
+    expect(r.decision).toBe('continue');
+    expect(r.kind === 'baseline' && r.widened).toEqual(widened.widened);
+    const e = r.evidence;
+    if (e.kind !== 'baseline' || !e.widened) throw new Error('a widened gate gives its record in its evidence');
+    expect(e.widened.probabilities.slice(0, 40).every((x) => x === null)).toBe(true);
+    expect(e.widened.probabilities[45]).toBeCloseTo(dropProbability({ passes: 38, attempts: 46 }, record, 0.15), 12);
+    expect(e.probabilities[45]!).toBeLessThanOrEqual(BASELINE_PASS_AT);
+  });
+});
+
 describe('parseGate', () => {
   const where = 'shadowlap.config.json: tests["goldens/refund-*"].gate';
 

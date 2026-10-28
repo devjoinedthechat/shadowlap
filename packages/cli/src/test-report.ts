@@ -93,22 +93,31 @@ export interface TestReport {
    * went red for nothing at most as planned, and the forecast made before it ran: attempts on
    * average and at most, and their cost on average (null with no price; `unpriced` goldens had none).
    */
-  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number }; over?: number };
+  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number }; over?: number; early?: number; drop?: number; averaged?: true };
 }
 
 /**
  * What the plan says a healthy suite does, after its split: `so a healthy suite goes red for nothing
- * in 5% of runs or fewer, with the provider answering`, or, when a golden can't keep within its share
- * (a max the config set, or a gate against history with too little behind it), the chance the plan
- * works out, rounded up: `but 1 golden can't keep within its share, so a healthy suite goes red for
- * nothing in 56% of runs or fewer, with the provider answering`. A provider that stays unavailable
- * leaves goldens inconclusive whatever the plan says.
+ * in 5% of runs or fewer, with the provider answering` while its goldens' chances add up to no more
+ * than its risk, or else the chance the plan works out, rounded up, and why: `but 1 golden can't
+ * keep within its share, so a healthy suite goes red for nothing in 56% of runs or fewer, with the
+ * provider answering` (a max the config set), or `but 3 goldens have too few sessions yet to keep
+ * within their share, so a healthy suite goes red for nothing in about 41% of runs, …` (gates against
+ * history still building a baseline, or whose baseline came out lucky). `about` when gates against
+ * history are among them (`averaged`): their chance is averaged over the pass rates their sessions
+ * leave open, where an SPRT's is exact at its good rate, and less for a better agent. A provider
+ * that stays unavailable leaves goldens inconclusive whatever the plan says.
  */
-export function suiteRed(plan: { risk: number; red: number; over?: number }, red = 'goes red for nothing'): string {
+export function suiteRed(plan: { risk: number; red: number; over?: number; early?: number; averaged?: boolean }, red = 'goes red for nothing'): string {
   if (!(plan.red > plan.risk)) return `so a healthy suite ${red} in ${riskPercent(plan.risk)} of runs or fewer, with the provider answering`;
   const over = plan.over ?? 0;
-  const who = over ? `${over === 1 ? '1 golden' : `${over} goldens`} can't keep within ${over === 1 ? 'its' : 'their'} share` : "its goldens can't keep within their shares";
-  return `but ${who}, so a healthy suite ${red} in ${riskPercent(plan.red)} of runs or fewer, with the provider answering`;
+  const early = plan.early ?? 0;
+  const why = [
+    ...(over ? [`${over === 1 ? '1 golden' : `${over} goldens`} can't keep within ${over === 1 ? 'its' : 'their'} share`] : []),
+    ...(early ? [`${early === 1 ? '1 golden has' : `${early} goldens have`} too few sessions yet to keep within ${early === 1 ? 'its' : 'their'} share`] : []),
+  ];
+  const odds = plan.averaged ? `about ${riskPercent(plan.red)} of runs` : `${riskPercent(plan.red)} of runs or fewer`;
+  return `but ${why.length ? why.join(' and ') : "its goldens can't keep within their shares"}, so a healthy suite ${red} in ${odds}, with the provider answering`;
 }
 
 export function testReport(results: PackResult[], session: { id: string; revision: string | null; interrupted?: boolean } | null = null, suite: TestReport['suite'] | null = null): TestReport {
