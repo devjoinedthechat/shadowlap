@@ -783,16 +783,23 @@ export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>>
 /** Response headers that set state in the client: never stored, nor handed to the agent on replay. */
 export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 
+/** Words that make a header's whole value a credential wherever they are in its name: `x-session-token-raw`, `x-api-secret-v2`. */
+const HEADER_SECRET_WORD = new Set(['token', 'secret', 'password', 'passwd', 'credential']);
+
 /**
  * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
- * `*-key`), a session's (`x-session`, `*-session`) or an auth header of a service's own (`x-auth`,
- * `*-auth`). The explicit list covers the echoed request headers, which read by their words alone
- * aren't credentials.
+ * `*-key`), a session's (`x-session`, `*-session`), an auth header of a service's own (`x-auth`,
+ * `*-auth`), or one with a token, secret, password or credential word anywhere in its name
+ * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
+ * explicit list covers the echoed request headers, which read by their words alone aren't
+ * credentials.
  */
 export function credentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower);
+  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower)) return true;
+  const words = wordsOf(lower);
+  return words.some((w) => HEADER_SECRET_WORD.has(w)) && !words.some((w) => CURSOR.includes(w));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */

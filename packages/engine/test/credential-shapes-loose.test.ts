@@ -126,7 +126,7 @@ describe('the cheaper shapes', () => {
   });
 });
 
-describe('a URL’s user info and a JWT anywhere in text', () => {
+describe('a URL’s user info and a JWT anywhere in text, and a header named with a token word anywhere', () => {
   it('masks the password of every URL in a .env file, a sentence or a log line, whatever its line’s key', () => {
     const env = `OPENAI_API_KEY=${S('ENVKEY')}\nDATABASE_URL=postgres://app:${S('ENVDBPASS')}@db.internal:5432/app\nREDIS_URL=redis://:${S('ENVREDISPASS')}@cache:6379\nAPP_URL=https://example.com/a@b\n`;
     expect(maskTextCredentials(env)).toBe(`OPENAI_API_KEY=${C}\nDATABASE_URL=postgres://app:${C}@db.internal:5432/app\nREDIS_URL=redis://:${C}@cache:6379\nAPP_URL=https://example.com/a@b\n`);
@@ -153,4 +153,8 @@ describe('a URL’s user info and a JWT anywhere in text', () => {
     expect(t.jwts4, `4 times the words took ${times(t.jwts4, t.jwts)} as long`).toBeLessThan(12 * t.jwts);
   });
 
+  it('masks a header whose name holds a token, secret, password or credential word anywhere, but a page’s token', () => {
+    const headers = credentialFreeHeaders({ 'x-session-token-raw': S('HDRSESSRAW'), 'x-api-secret-v2': S('HDRSECRET'), 'x-db-password-hint': 'see vault', 'x-credential-id': S('HDRCRED'), 'x-next-page-token': 'p2', 'x-ratelimit-tokens-remaining': '10', 'content-type': 'text/plain' });
+    expect(headers).toEqual({ 'x-session-token-raw': C, 'x-api-secret-v2': C, 'x-db-password-hint': C, 'x-credential-id': C, 'x-next-page-token': 'p2', 'x-ratelimit-tokens-remaining': '10', 'content-type': 'text/plain' });
+  });
 });
