@@ -5,10 +5,12 @@
 // send nothing upstream and run no tool, and a fork run the read again and block the write while the
 // agent answers. On OpenAI (Responses API, OPENAI_BASE_URL), Anthropic (ANTHROPIC_BASE_URL, streamed)
 // and Google (captured in the process; the key in GOOGLE_GENERATIVE_AI_API_KEY, as Mastra reads it),
-// and a workflow whose steps are the tools.
+// and a workflow whose steps are the tools. And the same agent in a Vitest test wrapped by recorded():
+// it records on its first run, replays offline in CI with no key, and fails with the diff when its
+// request changes.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,9 +19,11 @@ import { after, before, describe, it } from 'node:test';
 import { message, startMockAnthropic, text, toolUse } from '../mock-anthropic/dist/index.js';
 import { functionCall, startMockGemini, turn as geminiTurn } from '../mock-gemini/dist/index.js';
 import { startMockOpenAI, toolCall, turn } from '../mock-openai/dist/index.js';
+import { REPO_MODULES, removeTempProject, tempProject } from '../temp-project.mjs';
 
 const CLI = fileURLToPath(new URL('../../packages/cli/bin/shadowlap.js', import.meta.url));
 const AGENT = fileURLToPath(new URL('./mastra-agent.mjs', import.meta.url));
+const VITEST = fileURLToPath(new URL('../../node_modules/vitest/vitest.mjs', import.meta.url));
 const ANSWER = 'Refunded 240 on A-1042.';
 
 /** The tool the model asks for after `done` tool results: look the order up, refund it, then answer. */
@@ -129,5 +133,63 @@ describe('Mastra Agent and workflow through shadowlap run', () => {
     assert.equal(printed(fork).status, 'failed');
     assert.deepEqual(printed(fork).executed, ['lookup-order']);
     assert.match(fork.out, /ShadowlapWriteBlocked: write tool refund-order blocked after divergence/);
+  });
+  it('in a Vitest test wrapped by recorded(): records, replays offline with no key, and fails on a changed request', async () => {
+    const project = tempProject('sl-mastra-vitest-', [fileURLToPath(new URL('./node_modules', import.meta.url)), REPO_MODULES]);
+    try {
+      writeFileSync(join(project, 'vitest.config.mjs'), "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['*.spec.mjs'], globalSetup: ['@shadowlap/test/global-setup'], setupFiles: ['@shadowlap/test/setup'] } });\n");
+      writeFileSync(
+        join(project, 'support.spec.mjs'),
+        `import { appendFileSync } from 'node:fs';
+import { Agent } from '@mastra/core/agent';
+import { createTool } from '@mastra/core/tools';
+import { withEffect } from '@shadowlap/adapters/mastra';
+import { currentRecording, recorded } from '@shadowlap/test';
+import { expect, test } from 'vitest';
+import { z } from 'zod';
+
+const ran = (name) => appendFileSync(process.env.TOOL_LOG, name + '\\n');
+const lookupOrder = createTool(withEffect({ id: 'lookup-order', description: 'Look up an order', inputSchema: z.object({ order_id: z.string() }), execute: async ({ order_id }) => (ran('lookup-order'), { order_id, amount: 240 }) }, 'read'));
+const refundOrder = createTool(withEffect({ id: 'refund-order', description: 'Refund an order', inputSchema: z.object({ order_id: z.string(), amount: z.number() }), execute: async ({ order_id, amount }) => (ran('refund-order'), { refunded: true, order_id, amount }) }, 'write'));
+const agent = new Agent({ id: 'support', name: 'Support', instructions: 'You resolve refund requests.', model: 'anthropic/claude-opus-5', tools: { lookupOrder, refundOrder } });
+
+test('refunds the order', recorded(async () => {
+  const result = await agent.generate(process.env.TICKET ?? 'Refund order A-1042.', { maxSteps: 4 });
+  expect(result.text).toBe(${JSON.stringify(ANSWER)});
+  expect(await currentRecording().called('refundOrder', { order_id: 'A-1042', amount: 240 })).toBe(1);
+}));
+`,
+      );
+      const log = join(project, 'tools.log');
+      writeFileSync(log, '');
+      const vitest = async (extra) => {
+        const full = { ...env, TOOL_LOG: log, ...extra };
+        for (const k of ['CI', 'SHADOWLAP_RECORD', 'SHADOWLAP_TEST_HOST', 'NODE_OPTIONS', 'NODE_TEST_CONTEXT']) if (!(k in extra)) delete full[k];
+        try {
+          const { stdout, stderr } = await promisify(execFile)(process.execPath, [VITEST, 'run', '--config', 'vitest.config.mjs'], { cwd: project, env: full, encoding: 'utf8', timeout: 180_000 });
+          return { code: 0, out: stdout + stderr };
+        } catch (err) {
+          return { code: err.code ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+        }
+      };
+      const ran = () => readFileSync(log, 'utf8').split('\n').filter(Boolean);
+
+      const first = await vitest({ ANTHROPIC_API_KEY: 'sk-recording', SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url });
+      assert.equal(first.code, 0, first.out);
+      assert.deepEqual(ran(), ['lookup-order', 'refund-order']);
+
+      // In CI without secrets, with no model to reach: the recording answers, and no tool runs.
+      const ci = await vitest({ CI: 'true', ANTHROPIC_API_KEY: '', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9' });
+      assert.equal(ci.code, 0, ci.out);
+      assert.match(ci.out, /1 passed/);
+      assert.deepEqual(ran(), ['lookup-order', 'refund-order']);
+
+      const changed = await vitest({ CI: 'true', ANTHROPIC_API_KEY: '', SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9', TICKET: 'Refund order A-1042, please.' });
+      assert.notEqual(changed.code, 0, changed.out);
+      assert.match(changed.out, /Refund order A-1042, please\./);
+      assert.deepEqual(ran(), ['lookup-order', 'refund-order']);
+    } finally {
+      removeTempProject(project);
+    }
   });
 });
