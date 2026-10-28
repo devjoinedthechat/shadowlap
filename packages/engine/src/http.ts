@@ -142,8 +142,29 @@ export function withoutCredentials(encoded: string): string {
 }
 
 /**
+ * `text` with each half of a surrogate pair standing alone made U+FFFD, as String.prototype.toWellFormed
+ * makes it: what encodeURIComponent can always encode.
+ */
+export function wellFormed(text: string): string {
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD');
+}
+
+/**
+ * `text` URL-encoded again, or null when it has no encoding: half of a character's surrogate pair
+ * (a `\ud800` a JSON string escaped on its own) makes encodeURIComponent throw.
+ */
+export function encodedAgain(text: string): string | null {
+  try {
+    return encodeURIComponent(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parameters as withoutCredentials masks them; `byName` reads a name alone (a bare `code` or
- * `token` is one whatever its value), as a redirect's are read.
+ * `token` is one whatever its value), as a redirect's are read. A value masked inside that can't be
+ * encoded again as it was is masked whole: a request is never held up by how its body is stored.
  */
 function maskParams(encoded: string, byName: boolean, depth: number): string {
   return encoded.replace(/(^\??|[&;])([^&;=]*)=([^&;]*)/g, (whole, lead: string, raw: string, value: string) => {
@@ -152,7 +173,8 @@ function maskParams(encoded: string, byName: boolean, depth: number): string {
     if (credentialParam(decodedParam(raw), byName ? undefined : text) || JWT.test(text)) return `${lead}${raw}=${CREDENTIAL_PLACEHOLDER}`;
     const inner = depth < MAX_NESTING ? maskTextCredentials(text, depth + 1, byName) : null;
     if (inner === null) return whole;
-    return `${lead}${raw}=${text === value ? inner : encodeURIComponent(inner)}`;
+    const again = text === value ? inner : encodedAgain(inner);
+    return `${lead}${raw}=${again ?? CREDENTIAL_PLACEHOLDER}`;
   });
 }
 

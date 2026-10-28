@@ -36,6 +36,58 @@ describe('HTTP host rules', () => {
   });
 });
 
+describe('a captured call whose body masking can\'t encode again', () => {
+  // A JSON string can escape half of a surrogate pair on its own (\\ud800): decoded, it has no
+  // URL encoding, so a credential masked inside a percent-encoded value next to it can't be written
+  // back as it was. The value is masked whole, and the call goes through.
+  const pct = encodeURIComponent('{"api_key":"SLSEC_LONE_q1w2e3r4","y":"');
+  const bodies = {
+    json: `{"q":"data=${pct}\\ud800%22%7D&x=1"}`,
+    form: `data=${pct}\ud800%22%7D&x=1`,
+    url: `{"u":"https://h/x?data=${pct}\\ud800%22%7D"}`,
+  };
+
+  it('is stored with that value masked whole, never thrown on', () => {
+    for (const [name, text] of Object.entries(bodies)) {
+      for (const contentType of ['application/json', 'text/plain', undefined]) {
+        const stored = JSON.stringify(storedRequestBody(Buffer.from(text), contentType));
+        expect(stored, `${name} ${String(contentType)}`).not.toContain('SLSEC_LONE');
+        expect(stored).toMatch(/<CREDENTIAL>|%3CCREDENTIAL%3E/);
+        const result = storedResult({ status: 200, headers: { 'content-type': contentType ?? 'text/plain' }, ...decodeBody(Buffer.from(text), contentType) }, Buffer.from(text)).toString('utf8');
+        expect(result, `${name} ${String(contentType)}`).not.toContain('SLSEC_LONE');
+      }
+    }
+  });
+
+  it('reaches the service and the agent, and is recorded ended', async () => {
+    const service = createServer((req, res) => {
+      let got = '';
+      req.on('data', (d: Buffer) => (got += d.toString()));
+      req.on('end', () => res.writeHead(200, { 'content-type': 'text/plain' }).end(got));
+    });
+    await new Promise<void>((r) => service.listen(0, '127.0.0.1', () => r()));
+    const at = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, http: [{ host: new URL(at).host, effect: 'read' }] });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      // JSON whose string escapes the half surrogate: the bytes on the wire are plain ASCII.
+      const res = await fetch(`${sidecar.url}/r/${run.runId}/http/echo`, { method: 'POST', headers: { 'x-shadowlap-upstream': at, 'content-type': 'application/json' }, body: bodies.json });
+      // The service got the body as sent, and the agent the answer as the service gave it.
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(bodies.json);
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call.end).toMatchObject({ outcome: 'ok' });
+      expect(JSON.stringify(store.getJson(call.requestRef!)) + JSON.stringify(store.getJson(call.end!.responseRef!))).not.toContain('SLSEC_LONE');
+    } finally {
+      await sidecar.close();
+      store.close();
+      await new Promise<void>((r) => service.close(() => r()));
+    }
+  });
+});
+
 describe('captured HTTP calls', () => {
   it('forward only to declared hosts, and store neither request headers nor cookies', async () => {
     const store = Store.open(':memory:');

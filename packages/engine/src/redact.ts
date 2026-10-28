@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from './eventstream.js';
-import { capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, withoutStoredCredentials } from './http.js';
+import { capturedHttp, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
@@ -288,7 +288,7 @@ export function redactApiPath(path: string, rules: readonly Normalizer[], call: 
     .map((segment) => {
       const text = decodedSegment(segment);
       const out = replacedBy(text, applying, observer);
-      return out === text ? segment : encodeURIComponent(out);
+      return out === text ? segment : encodeURIComponent(wellFormed(out));
     })
     .join('/');
   return rest.length ? `${masked}?${rest.join('?')}` : masked;
@@ -646,7 +646,7 @@ export function redactQuery(query: string, rules: readonly Normalizer[], call: P
       }
       if (out === text) return part;
       const at = out.indexOf('=');
-      return at < 0 ? encodeURIComponent(out) : `${encodeURIComponent(out.slice(0, at))}=${encodeURIComponent(out.slice(at + 1))}`;
+      return at < 0 ? encodeURIComponent(wellFormed(out)) : `${encodeURIComponent(wellFormed(out.slice(0, at)))}=${encodeURIComponent(wellFormed(out.slice(at + 1)))}`;
     })
     .join('&');
 }

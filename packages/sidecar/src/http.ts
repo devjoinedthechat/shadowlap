@@ -1,4 +1,4 @@
-import { credentialFreeBody, credentialFreeHeaders, formShaped, nestsDeeper, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, formShaped, nestsDeeper, rawJsonMember, responseBodyWithoutCredentials, resultBlob, withoutCredentials, type Effect } from '@shadowlap/engine';
 
 /**
  * HTTP hosts recorded as tools. Retrieval, vector databases and internal APIs are usually called
@@ -54,9 +54,14 @@ export { CREDENTIAL_PLACEHOLDER, credentialParam, credentialValue, rawJsonMember
  * one. The call is forwarded with the body as it was sent.
  */
 export function storedRequestBody(bytes: Buffer, contentType: string | undefined): StoredBody {
-  const body = decodeBody(bytes, contentType);
-  if (body.encoding === 'text' && /^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(body.body as string)) return { ...body, body: withoutCredentials(body.body as string) };
-  return credentialFreeBody(body);
+  try {
+    const body = decodeBody(bytes, contentType);
+    if (body.encoding === 'text' && /^\s*application\/x-www-form-urlencoded\b/i.test(contentType ?? '') && !formShaped(body.body as string)) return { ...body, body: withoutCredentials(body.body as string) };
+    return credentialFreeBody(body);
+  } catch {
+    // How a body is stored never holds its call up: one masking can't read is kept as a placeholder.
+    return { body: CREDENTIAL_PLACEHOLDER, encoding: 'text' };
+  }
 }
 
 /** A body as stored: parsed JSON, text, or base64 for anything else. */
@@ -114,6 +119,15 @@ export interface HttpResult extends StoredBody {
  * event stream's or an STS answer's. The agent gets the response as it came, live.
  */
 export function storedResult(result: HttpResult, received: Buffer): Buffer {
+  try {
+    return storedResultMasked(result, received);
+  } catch {
+    // How a result is stored never loses its call: one masking can't read is kept as a placeholder.
+    return Buffer.from(JSON.stringify({ result: { status: result.status, headers: {}, body: CREDENTIAL_PLACEHOLDER, encoding: 'text' } }), 'utf8');
+  }
+}
+
+function storedResultMasked(result: HttpResult, received: Buffer): Buffer {
   const kept: HttpResult = { ...result, headers: credentialFreeHeaders(result.headers) };
   const { body, ...rest } = kept;
   if (kept.encoding === 'text' && typeof body === 'string') return Buffer.from(JSON.stringify({ result: { ...kept, body: responseBodyWithoutCredentials(Buffer.from(body, 'utf8'), 'text').toString('utf8') } }), 'utf8');
