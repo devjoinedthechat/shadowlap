@@ -113,8 +113,9 @@ for (const c of CASES) {
         const home = mkdtempSync(join(dir, 'home-'));
         const env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', HOME: home, USERPROFILE: home, AWS_REGION: AWS.region, AWS_EC2_METADATA_DISABLED: 'true', PROMPT: 'hello' };
         for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_PROFILE']) delete env[name];
-        // A store of its own: the session it keeps never lands in a .shadowlap folder here.
-        const r = await promisify(execFile)(process.execPath, [CLI, '--db', join(dir, `test-${CASES.indexOf(c)}.db`), 'test', pack], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 }).then(
+        // A store of its own: the session it keeps never lands in a .shadowlap folder here. The pack
+        // isn't in a repository, so running the command it recorded takes --yes.
+        const r = await promisify(execFile)(process.execPath, [CLI, '--db', join(dir, `test-${CASES.indexOf(c)}.db`), 'test', pack, '--yes'], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 }).then(
           ({ stdout, stderr }) => ({ code: 0, out: stdout + stderr }),
           (err) => ({ code: err.code ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}` }),
         );
