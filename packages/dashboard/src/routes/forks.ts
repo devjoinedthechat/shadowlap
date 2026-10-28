@@ -7,6 +7,7 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import { recordingNow } from '../run-exports.js';
+import { runAffinity } from '../run-index.js';
 import type { Router } from '../router.js';
 
 /**
@@ -47,7 +48,7 @@ export function register(router: Router, ctx: RouteContext): void {
       const no = noSuchRun(store, r.params.id!);
       throw new HttpError(no.status, no.message);
     }
-    sendAnswer(r, await ctx.reads.run({ kind: 'differences', runId: run.runId, normalizers: [...normalizers()] }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'differences', runId: run.runId, normalizers: [...normalizers()] }, runAffinity(ctx.store, run.runId)));
   });
 
   // What the run did that Shadowlap never recorded: it reads every model call's answer, so it is worked out beside the server too.
@@ -66,7 +67,7 @@ export function register(router: Router, ctx: RouteContext): void {
       const no = noSuchRun(store, r.params.id!);
       throw new HttpError(no.status, no.message);
     }
-    sendAnswer(r, await ctx.reads.run({ kind: 'unrecorded', runId: run.runId, declared: declared() }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'unrecorded', runId: run.runId, declared: declared() }, runAffinity(ctx.store, run.runId)));
   });
 
   ctx.jobs.registerJobKind('override', {

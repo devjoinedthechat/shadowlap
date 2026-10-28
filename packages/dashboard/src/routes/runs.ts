@@ -5,6 +5,7 @@ import { HttpError } from '../http.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
+import { runAffinity } from '../run-index.js';
 import { maskCount } from '../run-mask.js';
 import { runVersionTag } from '../run-version.js';
 import { deleteRunsApart } from '../delete-apart.js';
@@ -51,7 +52,7 @@ export function register(router: Router, ctx: RouteContext): void {
       r.res.end();
       return;
     }
-    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, ...(after === undefined ? {} : { after }) }, { affinity: run.runId }), { etag });
+    sendAnswer(r, await ctx.reads.run({ kind: 'run', runId: run.runId, read: ctx.read, ...(after === undefined ? {} : { after }) }, runAffinity(ctx.store, run.runId)), { etag });
   });
 
   // The next page of a run's calls (contract 8): those from call `from` on, `limit` of them (500 at
@@ -65,7 +66,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
     const from = count(r, 'from', 'a call number') ?? 1;
     const limit = Math.min(CALLS_PAGE, Math.max(1, count(r, 'limit', 'how many calls') ?? CALLS_PAGE));
-    sendAnswer(r, await ctx.reads.run({ kind: 'calls', runId: run.runId, read: ctx.read, from, limit, ...(wantsWhole(r) ? { whole: true } : {}) }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'calls', runId: run.runId, read: ctx.read, from, limit, ...(wantsWhole(r) ? { whole: true } : {}) }, runAffinity(ctx.store, run.runId)));
   });
 
   // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
@@ -83,7 +84,7 @@ export function register(router: Router, ctx: RouteContext): void {
     const n = Number(r.params.n);
     const run = Number.isInteger(n) ? lookupRun(ctx.store, r.params.id!) : null;
     if (!run) throw new HttpError(404, `no call #${r.params.n!} in run ${r.params.id!}`);
-    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n, ...(wantsWhole(r) ? { whole: true } : {}) }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'call', runId: run.runId, read: ctx.read, callNo: n, ...(wantsWhole(r) ? { whole: true } : {}) }, runAffinity(ctx.store, run.runId)));
   });
 
   // The run's record for the Provenance tab, with what a copy made now would mask under the
@@ -98,13 +99,13 @@ export function register(router: Router, ctx: RouteContext): void {
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
     const redact = ctx.options.loadConfig ? ctx.config().redact : (ctx.options.redact ?? []);
     const mask = await maskCount({ store, dbPath: ctx.options.dbPath ?? null, run, rules: redact });
-    sendAnswer(r, await ctx.reads.run({ kind: 'provenance', runId: run.runId, read: ctx.read, mask }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'provenance', runId: run.runId, read: ctx.read, mask }, runAffinity(ctx.store, run.runId)));
   });
 
   router.get('/runs/:id/lineage', async (r) => {
     const run = lookupRun(ctx.store, r.params.id!);
     if (!run) throw new HttpError(404, `no run ${r.params.id!}`);
-    sendAnswer(r, await ctx.reads.run({ kind: 'lineage', runId: run.runId, read: ctx.read }, { affinity: run.runId }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'lineage', runId: run.runId, read: ctx.read }, runAffinity(ctx.store, run.runId)));
   });
 
   router.post('/runs/:id/labels', async (r) => {
