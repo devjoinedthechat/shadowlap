@@ -3,7 +3,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { compareRuns, parseJsonExact, Store, storeApiRequest, type RunMeta, type RunRecord } from '@shadowlap/engine';
+import { compareRuns, parseJsonExact, Store, storeApiRequest, storeView, type RunMeta, type RunRecord } from '@shadowlap/engine';
 import { codeChangeCache, compareHead, HEAD_READS, parseRevision, readCodeChange, type CompareView } from '../src/compare.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { compareTarget } from '../ui/runs.js';
@@ -243,7 +243,7 @@ describe('what Compare shows first', () => {
     expect(same(store, rec, rec)).toMatchObject({ identicalPrefix: 5, firstRequestDifference: null, onlyInA: 0, onlyInB: 0 });
     // Of the requests, only the two at the first difference are read whole.
     const reads: string[] = [];
-    const spy = Object.create(store, { getCalls: { value: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) } }) as Store;
+    const spy = storeView(store, { getCalls: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) });
     compareHead(spy, rec.runId, fork.runId);
     expect(reads).toEqual(['a:4', 'b:4']);
     store.close();
@@ -257,7 +257,7 @@ describe('what Compare shows first', () => {
     expect(same(store, rec, replay)).toMatchObject({ identicalPrefix: 3, firstRequestDifference: { callNo: 4 } });
     // Served calls are the same request without reading any: only the call that wasn't is read whole.
     const reads: string[] = [];
-    const spy = Object.create(store, { getCalls: { value: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) } }) as Store;
+    const spy = storeView(store, { getCalls: (id: string, range?: { only?: readonly number[] }) => (reads.push(`${id === rec.runId ? 'a' : 'b'}:${range?.only?.join(',') ?? 'all'}`), store.getCalls(id, range)) });
     compareHead(spy, rec.runId, replay.runId);
     expect(reads).toEqual(['a:4', 'b:4']);
     // Two recordings of the same requests fingerprinted under other normalizers: read whole, they ask the same.

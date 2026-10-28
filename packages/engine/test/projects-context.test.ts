@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Store, packRun, storeFacts } from '../src/index.js';
+import { Store, packRun, storeFacts, storeView } from '../src/index.js';
 import { ProjectError, ProjectHost, ProjectRegistry, projectDbPath } from '../src/projects/index.js';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as { DatabaseSync: new (path: string) => { exec(sql: string): void; prepare(sql: string): { get(): Record<string, unknown> | undefined }; close(): void } };
@@ -288,7 +288,7 @@ describe('ProjectHost: what it reads and keeps', () => {
     let reads = 0;
     const openStore = (path: string) => {
       const opened = Store.open(path);
-      return Object.assign(Object.create(opened) as Store, { allRuns: () => (reads++, opened.allRuns()) });
+      return storeView(opened, { allRuns: () => (reads++, opened.allRuns()) });
     };
     const host = ProjectHost.open(support, { registry, loadConfig, openStore });
     registry.add('~/triage-bot');

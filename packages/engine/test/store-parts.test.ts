@@ -108,11 +108,14 @@ describe('Store, made of parts', () => {
   it('is viewed through storeView only, and its parts assign no field through `this`, which may be a view', () => {
     const packages = new URL('../../', import.meta.url);
     const made: string[] = [];
+    // The tests too: a spy that counts what is read is a view as well.
     for (const pkg of readdirSync(packages)) {
-      const src = new URL(`${pkg}/src/`, packages);
-      if (!existsSync(src)) continue;
-      for (const file of readdirSync(src, { recursive: true, encoding: 'utf8' }).filter((f) => /\.tsx?$/.test(f))) {
-        if (/Object\.create\((?!null\))/.test(readFileSync(new URL(file, src), 'utf8'))) made.push(`${pkg}/src/${file}`);
+      for (const dir of ['src', 'test']) {
+        const at = new URL(`${pkg}/${dir}/`, packages);
+        if (!existsSync(at)) continue;
+        for (const file of readdirSync(at, { recursive: true, encoding: 'utf8' }).filter((f) => /\.tsx?$/.test(f))) {
+          if (/Object\.create\((?!null\))/.test(readFileSync(new URL(file, at), 'utf8'))) made.push(`${pkg}/${dir}/${file}`);
+        }
       }
     }
     expect(made).toEqual(['engine/src/store.ts']);
