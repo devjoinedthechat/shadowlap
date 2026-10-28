@@ -704,7 +704,7 @@ const PACKAGE = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(?:@[\w.^~-]+)?$/i;
 /**
  * A local server's name as `shadowlap mcp` records it (call meta `mcp.server`): its command, and the
  * package a runner like npx starts; never its other arguments, which can hold secrets. Kept in step
- * with stdioServerName in the CLI's mcp.ts.
+ * with stdioServerName in the CLI's mcp-stdio.ts.
  */
 export function stdioServerName(command: string, args: readonly string[]): string {
   const name = (command.split(/[\\/]/).pop() ?? command).replace(/\.(?:cmd|exe|bat)$/i, '');
