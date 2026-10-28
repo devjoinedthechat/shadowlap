@@ -126,7 +126,7 @@ describe('the cheaper shapes', () => {
   });
 });
 
-describe('a URL’s user info anywhere in text', () => {
+describe('a URL’s user info and a JWT anywhere in text', () => {
   it('masks the password of every URL in a .env file, a sentence or a log line, whatever its line’s key', () => {
     const env = `OPENAI_API_KEY=${S('ENVKEY')}\nDATABASE_URL=postgres://app:${S('ENVDBPASS')}@db.internal:5432/app\nREDIS_URL=redis://:${S('ENVREDISPASS')}@cache:6379\nAPP_URL=https://example.com/a@b\n`;
     expect(maskTextCredentials(env)).toBe(`OPENAI_API_KEY=${C}\nDATABASE_URL=postgres://app:${C}@db.internal:5432/app\nREDIS_URL=redis://:${C}@cache:6379\nAPP_URL=https://example.com/a@b\n`);
@@ -135,9 +135,22 @@ describe('a URL’s user info anywhere in text', () => {
     for (const text of ['see https://example.com/x?y=1 for more', 'mail me at bob@example.com, or :// alone', '1http://a:b@c is no scheme']) expect(maskTextCredentials(text), text).toBeNull();
   });
 
-  it('reads the text once, however many `://` it holds', () => {
-    const urls = (k: number) => 'a://b'.repeat(k);
-    const t = timesOf({ urls: () => maskTextCredentials(urls(4000)), urls4: () => maskTextCredentials(urls(16000)) }, { rounds: 2 });
-    expect(t.urls4, `4 times the URLs took ${times(t.urls4, t.urls)} as long`).toBeLessThan(12 * t.urls);
+  it('masks a JWT as a word of its own anywhere, a sentence’s full stop left as it is', () => {
+    const t = jwt('PROSEJWT');
+    expect(maskTextCredentials(JSON.stringify({ header: `Bearer ${t}`, note: `token is ${t}. Use it once.` }))).toBe(JSON.stringify({ header: `Bearer ${C}`, note: `token is ${C}. Use it once.` }));
+    // One without a signature ends with its dot.
+    const unsigned = `${t.slice(0, t.lastIndexOf('.'))}.`;
+    expect(maskTextCredentials(`sent ${unsigned} to the queue`)).toBe(`sent ${C} to the queue`);
+    // Inside another word, or two parts only, it is none.
+    for (const text of [`x${t} glued`, 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0 has no third part']) expect(maskTextCredentials(text), text).toBeNull();
   });
+
+  it('reads the text once, however many `://` and `eyJ` it holds', () => {
+    const urls = (k: number) => 'a://b'.repeat(k);
+    const jwts = (k: number) => 'eyJeyJ.'.repeat(k);
+    const t = timesOf({ urls: () => maskTextCredentials(urls(4000)), urls4: () => maskTextCredentials(urls(16000)), jwts: () => maskTextCredentials(jwts(4000)), jwts4: () => maskTextCredentials(jwts(16000)) }, { rounds: 2 });
+    expect(t.urls4, `4 times the URLs took ${times(t.urls4, t.urls)} as long`).toBeLessThan(12 * t.urls);
+    expect(t.jwts4, `4 times the words took ${times(t.jwts4, t.jwts)} as long`).toBeLessThan(12 * t.jwts);
+  });
+
 });

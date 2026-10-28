@@ -518,9 +518,9 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run
   // together, in a page's script. What a shape masked already is read again, and stays as it is.
   const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped) : shaped;
-  // A URL's user info, wherever it stands in what is left: a .env line's database URL, a sentence's.
+  // A URL's user info and a JWT, wherever they stand in what is left: a .env line's database URL, a sentence's token.
   const read = embedded ?? text;
-  const loose = maskUrlUserInfo(read);
+  const loose = maskJwtsInText(maskUrlUserInfo(read));
   return loose === read ? embedded : loose;
 }
 
@@ -555,6 +555,37 @@ function maskUrlUserInfo(text: string): string {
   return parts.length ? parts.join('') + text.slice(copied) : text;
 }
 
+/** Whether a character is one a JWT is written with: base64url, or the dot between its parts. */
+const jwtChar = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a) || (c >= 0x30 && c <= 0x39) || c === 0x2d || c === 0x5f || c === 0x2e;
+
+/**
+ * Text with each JWT in it masked, wherever it stands: after `Bearer `, in a sentence, in a log
+ * line. A JWT is a word of its own (`eyJ…` after a character it can't hold) to where the word ends,
+ * less the full stop a sentence puts after it. Each word is read once. The same string when there
+ * is none.
+ */
+function maskJwtsInText(text: string): string {
+  const parts: string[] = [];
+  let copied = 0;
+  for (let at = text.indexOf('eyJ'); at >= 0; ) {
+    if (at > 0 && jwtChar(text.charCodeAt(at - 1))) {
+      at = text.indexOf('eyJ', at + 3);
+      continue;
+    }
+    let e = at;
+    while (e < text.length && jwtChar(text.charCodeAt(e))) e++;
+    let end = e;
+    while (end > at && text.charCodeAt(end - 1) === 0x2e) end--;
+    // One without a signature ends with its dot: `header.payload.`.
+    const word = JWT.test(text.slice(at, end)) ? end : end < e && JWT.test(text.slice(at, end + 1)) ? end + 1 : -1;
+    if (word > 0) {
+      parts.push(text.slice(copied, at), CREDENTIAL_PLACEHOLDER);
+      copied = word;
+    }
+    at = text.indexOf('eyJ', e);
+  }
+  return parts.length ? parts.join('') + text.slice(copied) : text;
+}
 
 /** One parameter of a form written without encoding its values: a name, then `=`. */
 const LOOSE_PARAM = /^[\w.\-[\]%]+=/;
