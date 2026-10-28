@@ -82,7 +82,7 @@ const searchWeb = betaZodTool(withEffect({ name: 'search_web', description: 'Sea
 const runner = client.beta.messages.toolRunner({ model: 'claude-opus-5', max_tokens: 1024, tools: [searchWeb], messages });
 ```
 
-The runner's API calls are recorded through `ANTHROPIC_BASE_URL`; nothing else is needed.
+The runner's API calls are recorded through `ANTHROPIC_BASE_URL`, run to the end or streamed (`stream: true`); nothing else is needed. A write blocked after a fork goes back to the model as a `tool_result` marked `is_error`.
 
 ## Claude Agent SDK
 
