@@ -51,7 +51,7 @@ function blame(out: Out, run: RunRecord, f: RunFacts, width: number, theme: Them
   if (!run.meta?.blame) {
     if (!isFailing(f.verdict.outcome, f.verdict.fix)) return;
     heading(out, 'Blame', theme);
-    say(out, `Not blamed yet. shadowlap blame ${run.runId.slice(0, 10)} finds the model call the run was lost at.`, width, theme.dim);
+    say(out, `Not blamed yet. : then B finds the model call the run was lost at (shadowlap blame ${run.runId.slice(0, 10)}).`, width, theme.dim);
     return;
   }
   heading(out, 'Blame', theme);
@@ -90,6 +90,15 @@ function marks(out: Out, run: RunRecord, width: number, theme: Theme) {
   say(out, '+ marks it good, a run a fix must keep working; - marks it bad, one to fix; again takes it off', width, theme.faint);
 }
 
+/** Every note left on the run, its calls' and its own, oldest first. */
+function notes(out: Out, run: RunRecord, width: number, theme: Theme) {
+  const list = run.meta?.notes ?? [];
+  if (!list.length) return;
+  heading(out, 'Notes', theme);
+  for (const n of list) say(out, `${n.callNo !== null ? `#${n.callNo}` : 'run'}  ${n.text}`, width);
+  say(out, 'N adds one on the selected call', width, theme.faint);
+}
+
 export function runLines(run: RunRecord, f: RunFacts, width: number, theme: Theme): RenderedLine[] {
   const out: Out = [];
   stands(out, f.verdict, width, theme);
@@ -99,6 +108,7 @@ export function runLines(run: RunRecord, f: RunFacts, width: number, theme: Them
   unrecorded(out, f.verdict, width, theme);
   attempts(out, f.attempts, width, theme);
   marks(out, run, width, theme);
+  notes(out, run, width, theme);
   return out;
 }
 

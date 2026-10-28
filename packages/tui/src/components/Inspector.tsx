@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CallRecord, DivergenceReport, RunRecord, Store } from '@shadowlap/engine';
 import { forkLines, runLines, type RunFacts } from '../run-lines.js';
 import { estimateCost, formatDuration, formatTokens, formatUsd, normalizeResponse, type SummaryOptions } from '@shadowlap/engine';
-import { conversationAt, loadRequest, loadResponseBytes } from '../data.js';
+import { ago, conversationAt, loadRequest, loadResponseBytes } from '../data.js';
 import { diffLines } from '../diff.js';
 import { conversationLines, formatBytes, jsonLines, truncate, wrap, type RenderedLine } from '../render.js';
 import { streamView } from '../sse.js';
@@ -107,6 +107,15 @@ function metaLines(call: CallRecord, width: number, theme: Theme, options?: Summ
   return out;
 }
 
+/** The notes someone left on the call, as the dashboard lists them under its details. */
+function noteLines(run: RunRecord | null, call: CallRecord, width: number): RenderedLine[] {
+  const notes = (run?.meta?.notes ?? []).filter((n) => n.callNo === call.callNo);
+  if (!notes.length) return [];
+  const lines: RenderedLine[] = [{ text: '' }, { text: `notes on #${call.callNo}`, role: 'label', head: true }];
+  for (const n of notes) for (const text of wrap(`${n.text} · ${ago(n.at)}`, width)) lines.push({ text });
+  return lines;
+}
+
 export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, run = null, facts = null, onView, summaryOptions }: Props) {
   const theme = useTheme();
   const divergence = run?.divergence ?? null;
@@ -197,7 +206,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
         next = jsonLines(parsed, innerWidth).map((text) => ({ text }));
       } else next = [{ text: '(empty response)', role: 'label' }];
     } else {
-      next = metaLines(call, innerWidth, theme, summaryOptions);
+      next = [...metaLines(call, innerWidth, theme, summaryOptions), ...noteLines(run, call, innerWidth)];
     }
     setLines(next);
     setAnchor(start);

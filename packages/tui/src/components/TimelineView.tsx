@@ -6,13 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
 import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
-import { attemptBundles, lostAt, withAttempts, type Normalizer } from '@shadowlap/engine';
+import { attemptBundles, commandIsImported, lostAt, withAttempts, type Normalizer, type RunAbout } from '@shadowlap/engine';
+import { aboutRun, fitAbout } from '../about.js';
+import { expectError, fixActions, type FixAction } from '../fix-actions.js';
 import { attemptTallies } from '../attempts.js';
 import { forkEffects } from '../fork-effects.js';
 import type { RunFacts } from '../run-lines.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, modelAction, runLabel, type ModelAction } from '../data.js';
 import { markKey, type RunMark } from '../marks.js';
-import { blameReport, isFailing, toneOf, verdictOf, type Declared } from '../verdict.js';
+import { blameReport, isFailing, toneOf, verdictOf, type Declared, type Fact } from '../verdict.js';
 import { divergenceSummary } from '../diff.js';
 import { cells, fitColumns, fitItems } from '../render.js';
 import { displayOrigin, kindLabel, useTheme } from '../theme.js';
@@ -54,6 +56,12 @@ interface Props {
   normalizers?: readonly Normalizer[];
   /** The view was asked to open at a call (`--call`): it opens there, on the call, whatever the run's verdict. */
   askedCall?: boolean;
+  /** The tab to open on (a search's match: where in the call it was found). */
+  initialTab?: Tab;
+  /** Reads the run again from the store: after blame, repair or verify, its verdict has changed. */
+  onRefresh?: (runId: string) => void;
+  /** Adds a note on a call of the run (`N`), as `shadowlap note` adds one; says what it did. */
+  onNote?: (runId: string, callNo: number | null, text: string) => string;
 }
 
 /** The runs an attempt of `run` can be among: its descendants and its siblings (a test's are filed under a sibling). */
@@ -68,10 +76,15 @@ type Mode =
   | { kind: 'actions' }
   | { kind: 'prompt'; action: Action }
   /** A replay of someone else's run, asked once more on its own: the exact command line it runs, then a yes. */
-  | { kind: 'consent'; action: Action; args: string[] }
+  | { kind: 'consent'; action: Action; args: string[]; refresh?: boolean }
+  /** Blame, repair or verify: what a passing run does, then the command runs. */
+  | { kind: 'fix'; fix: FixAction }
+  /** A note on the selected call. */
+  | { kind: 'note'; callNo: number | null }
   /** Filtering as you type; Esc puts back the filter and the selection from before. */
   | { kind: 'search'; before: string; beforeNo: number | null }
-  | { kind: 'output'; title: string; child: ChildProcess };
+  /** A job's output; `refresh` reads the run again when it closes (blame, repair and verify change its verdict). */
+  | { kind: 'output'; title: string; child: ChildProcess; refresh?: boolean };
 
 function matches(c: CallRecord, f: Filter): boolean {
   if (f === 'all') return true;
@@ -121,6 +134,7 @@ export const TIMELINE_KEYS: readonly Hint[] = [
   ['o', 'dashboard'],
   ['y', 'copy'],
   ['w', 'write'],
+  ['N', 'note'],
   ['p', 'parent'],
   ['+ -', 'good/bad'],
   ['f', 'origins'],
@@ -143,10 +157,34 @@ export const FORK_MENU_KEYS: readonly Hint[] = [
   ['esc', 'close'],
 ];
 
+/**
+ * The line under a run's header: what it was about, quiet, then how it stands in its verdict's
+ * colour. The verdict's first fact is shown whole when it can be: the about line gives way first,
+ * down to a few words.
+ */
+function AboutLine({ about, facts, width }: { about: Pick<RunAbout, 'text' | 'from'>; facts: readonly Fact[]; width: number }) {
+  const theme = useTheme();
+  const tone = toneOf(facts);
+  const color = tone === 'ok' ? theme.ok : tone === 'warn' ? theme.warn : tone === 'err' ? theme.err : undefined;
+  const mark = { err: '✗', warn: '!', ok: '✓', info: '·' }[tone];
+  const first = facts[0] ? cells(safeLine(facts[0].text)) + 5 : 0;
+  const aboutWidth = facts.length ? Math.max(12, Math.min(Math.floor(width * 0.4), width - 2 - first)) : width - 2;
+  const lead = ` ${safeLine(fitAbout(about, aboutWidth))}`;
+  const room = Math.max(0, width - cells(lead) - 5);
+  return (
+    <Box height={1} width={width} flexShrink={0}>
+      <Text wrap="truncate">
+        <Text color={theme.dim}>{lead}</Text>
+        {facts.length ? <Text {...(color ? { color } : {})}>{`  ${mark} ${fitItems(facts.map((f) => safeLine(f.text)), room)}`}</Text> : null}
+      </Text>
+    </Box>
+  );
+}
+
 /** A row of the call list: a call, or a line drawn before one: where the run forked from its parent, or where blame found it lost. */
 type Item = { kind: 'call'; at: number } | { kind: 'fork' } | { kind: 'lost' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false, onRefresh, onNote, initialTab }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -202,6 +240,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a fork's effects change as its calls come, not each time it is read again
   const fork = useMemo(() => forkEffects(store, run, calls, normalizers), [store, run.runId, run.status, calls.length, normalizers]);
   const facts = useMemo<RunFacts>(() => ({ verdict, attempts, blame, fork }), [verdict, attempts, blame, fork]);
+  // What the run was about, as the dashboard names it, and the calls someone left a note on.
+  const about = useMemo(() => aboutRun(store, run, calls.length), [store, run, calls.length]);
+  const notedCalls = useMemo(() => new Set((run.meta?.notes ?? []).flatMap((n) => (n.callNo === null ? [] : [n.callNo]))), [run.meta?.notes]);
   const lost = lostAt(run);
   const [initialIndex] = useState(() => {
     const i = initialCall !== undefined ? calls.findIndex((c) => c.callNo === initialCall) : -1;
@@ -233,7 +274,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const [zoom, setZoom] = useState(false);
   // A fork opened at its divergence shows what changed there; a failed run shows its verdict, unless
   // a call was asked for (`--call`, as each `shadowlap search` match opens one).
-  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : !askedCall && isFailing(verdict.outcome, verdict.fix) ? 'verdict' : 'conversation'));
+  const [tab, setTab] = useState<Tab>(() => initialTab ?? (atFork ? 'diff' : !askedCall && isFailing(verdict.outcome, verdict.fix) ? 'verdict' : 'conversation'));
   const [scroll, setScroll] = useState<number | null>(null);
   const view = useRef<InspectorView>({ offset: 0, max: 0, page: 1 });
   const onView = useCallback((v: InspectorView) => {
@@ -249,8 +290,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   // Marked running: still recording, or left so by a recording process that was killed.
   const recording = useMemo(() => recordingNow(store, run), [store, run]);
   // The verdict line, under the header, when the run has a verdict to give.
-  const verdictRow = verdict.facts.length > 0;
-  const bodyHeight = Math.max(3, height - 2 - (verdictRow ? 1 : 0));
+  // The line under the header: what the run was about, as the dashboard names it under its id, then its verdict.
+  const bodyHeight = Math.max(3, height - 3);
   // The calls get the wider share from 100 columns: their rows carry more than the inspector's lines need.
   const listWidth = zoom ? 0 : Math.max(36, Math.floor(width * (width >= 100 ? 0.55 : 0.5)));
   const listRows = Math.max(1, bodyHeight - 2);
@@ -276,16 +317,34 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     return () => clearTimeout(t);
   }, [toast]);
 
-  const runAction = (args: string[]) => {
+  const runAction = (args: string[], refresh = false) => {
     if (!spawnCli) return;
     const child = spawnCli(args);
-    setMode({ kind: 'output', title: `shadowlap ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, child });
+    setMode({ kind: 'output', title: `shadowlap ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, child, refresh });
+  };
+  // The Fixes flow from this run (B, R, V in the fork menu), and the good runs a change must keep passing.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- which runs are labelled good is read once a run
+  const goodRuns = useMemo(() => store.allRuns().some((r) => r.meta?.labels?.includes('good')), [store, run.runId]);
+  const fixes = useMemo(() => fixActions(run, { fix: verdict.fix, failing: isFailing(verdict.outcome, verdict.fix), recording, goodRuns }), [run, verdict, recording, goodRuns]);
+  const fixMenu = useMemo(() => fixes.map((f): Action => ({ key: f.key, label: f.label, flag: f.flag, hint: f.hint, opensRun: false, ...(f.disabled ? { disabled: f.disabled } : {}) })), [fixes]);
+  const runFix = (fix: FixAction, value: string) => {
+    const wrong = expectError(value);
+    if (wrong) {
+      setMode({ kind: 'timeline' });
+      return say(`not run: ${wrong}`, 6000, 'warn');
+    }
+    const args = fix.build(value.trim());
+    // Someone else's pack's run: its command runs only on a yes of its own, as a replay's does.
+    if (commandIsImported(run)) setMode({ kind: 'consent', action: fixMenu.find((a) => a.key === fix.key)!, args: [...args, '--yes'], refresh: true });
+    else runAction(args, true);
   };
   // A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
   // their command: whatever the action asked first (attempts, an instruction), it runs only once a
   // step of its own has shown the exact command line and been answered yes, as the dashboard asks.
   const pick = (action: Action) => {
     if (action.disabled || !spawnCli) return;
+    const fix = fixes.find((f) => f.key === action.key);
+    if (fix) return setMode({ kind: 'fix', fix });
     if (action.imported === 'confirm') setMode({ kind: 'consent', action, args: action.prompt!.build('yes') });
     else if (action.prompt) setMode({ kind: 'prompt', action });
     else if (action.args) runAction(action.args);
@@ -395,6 +454,10 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       }
       if (input === 'f') return setFilter((f) => FILTERS[(FILTERS.indexOf(f) + 1) % FILTERS.length]!);
       if (input === 'v') return setTab('verdict');
+      if (input === 'N') {
+        if (!onNote) return say('notes can be added from the dashboard or with shadowlap note');
+        return setMode({ kind: 'note', callNo: current?.callNo ?? null });
+      }
       if (input === 'b') {
         if (lost === null) return say(run.meta?.blame ? 'blame placed the failure on no call' : `not blamed: shadowlap blame ${run.runId.slice(0, 10)} finds where it was lost`);
         const i = visibleCalls.findIndex((c) => c.callNo >= lost);
@@ -493,6 +556,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   );
 
   const callRow = (c: CallRecord, at: number) => {
+    const noted = notedCalls.has(c.callNo);
     const sel = at === selected;
     // Before the fork, the calls served from the recording: context, drawn quieter than what changed.
     const before = !!divergence && c.callNo < divergence.callNo && c.origin === 'replayed';
@@ -504,7 +568,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     const outcome = c.end ? (c.end.outcome === 'ok' ? 'ok' : 'ERR') : '…';
     const cells: Cell[] = [
       cell(sel ? '>' : '', w.mark),
-      cell(`#${c.callNo}`, w.no, quiet ? { color: quiet } : {}, 2),
+      { spans: [{ text: `#${c.callNo}`, ...(quiet ? { color: quiet } : {}) }, { text: noted ? '*' : '', color: theme.warn }], width: w.no, gap: 1 },
       cell(kindLabel[c.kind] ?? c.kind, w.kind, { color: theme.dim }),
       cell(scopeOf(c), w.scope, { color: theme.dim }, 2),
       cell(name, w.name, nameColor ? { color: nameColor } : {}, 2),
@@ -557,7 +621,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const hints: Hint[] =
     focus === 'inspector' || zoom
       ? INSPECTOR_KEYS.map(([k, d]) => (k === 'z' && zoom ? [k, 'unzoom'] : [k, d]) as Hint)
-      : TIMELINE_KEYS.filter(([k]) => (k === 'd' ? !!divergence : k === 'b' ? lost !== null : k === 'space' ? isModel : k === 'p' ? !!run.parentRunId : k === '+ -' ? !!onMark : true));
+      : TIMELINE_KEYS.filter(([k]) => (k === 'd' ? !!divergence : k === 'b' ? lost !== null : k === 'space' ? isModel : k === 'p' ? !!run.parentRunId : k === '+ -' ? !!onMark : k === 'N' ? !!onNote : true));
   const filtering = query || filter !== 'all' ? `filter: ${[filter !== 'all' ? filter : '', query ? `/${query}` : ''].filter(Boolean).join(' ')} (${visibleCalls.length}/${calls.length})` : '';
   const modal = mode.kind !== 'timeline' && mode.kind !== 'search';
 
@@ -607,13 +671,42 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
           {header ? <Text color={theme.dim}> · {header}</Text> : null}
         </Text>
       </Box>
-      {verdictRow ? (
-        <Line width={width} tone={toneOf(verdict.facts)}>
-          {` ${{ err: '✗', warn: '!', ok: '✓', info: '·' }[toneOf(verdict.facts)]} ${fitItems(verdict.facts.map((f) => safeLine(f.text)), Math.max(0, width - 3))}`}
-        </Line>
-      ) : null}
+      <AboutLine about={about} facts={verdict.facts} width={width} />
       {mode.kind === 'actions' ? (
-        <ActionsView actions={terminalActions(run, current, { ...actionContext(store, current), recording })} title={forkMenuTitle(current)} width={width} height={bodyHeight} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
+        <ActionsView actions={terminalActions(run, current, { ...actionContext(store, current), recording })} fixes={fixMenu} title={forkMenuTitle(current)} width={width} height={bodyHeight} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
+      ) : mode.kind === 'fix' ? (
+        <Box flexDirection="column" width={width} height={bodyHeight} borderStyle="round" borderColor={theme.accent} paddingX={1}>
+          <Text bold>{mode.fix.label}</Text>
+          <Text color={theme.dim}>{mode.fix.hint}</Text>
+          <Text color={theme.dim}>
+            It runs <Text color={theme.accent}>{quoteArgv(['shadowlap', ...mode.fix.build(mode.fix.expect)])}</Text>, and asks models live, which costs.
+          </Text>
+          <TextInput
+            stacked
+            label="What a passing run does (--expect JSON), or nothing for its exit code alone:"
+            initial={mode.fix.expect}
+            placeholder='{"tools":{"send_email":0}}'
+            active
+            onSubmit={(value) => runFix(mode.fix, value)}
+            onCancel={() => setMode({ kind: 'timeline' })}
+          />
+        </Box>
+      ) : mode.kind === 'note' ? (
+        <Box flexDirection="column" width={width} height={bodyHeight} borderStyle="round" borderColor={theme.accent} paddingX={1}>
+          <Text bold>Note {mode.callNo !== null ? `on #${mode.callNo}` : 'on the run'}</Text>
+          <Text color={theme.dim}>Kept with the run, as shadowlap note keeps one: the dashboard shows it under the call, and a pack carries it.</Text>
+          <TextInput
+            stacked
+            label="Note:"
+            placeholder="the refund limit is per order, not per customer"
+            active
+            onSubmit={(value) => {
+              setMode({ kind: 'timeline' });
+              if (value.trim() && onNote) say(onNote(run.runId, mode.callNo, value.trim()), 4000, 'ok');
+            }}
+            onCancel={() => setMode({ kind: 'timeline' })}
+          />
+        </Box>
       ) : mode.kind === 'prompt' ? (
         <Box flexDirection="column" width={width} height={bodyHeight} borderStyle="round" borderColor={theme.accent} paddingX={1}>
           <Text bold>{mode.action.label}</Text>
@@ -652,7 +745,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
             active
             onSubmit={(value) => {
               const args = mode.args;
-              if (/^y(es)?$/i.test(value.trim())) runAction(args);
+              if (/^y(es)?$/i.test(value.trim())) runAction(args, mode.refresh === true);
               else {
                 setMode({ kind: 'timeline' });
                 say('not run: it runs only once you type yes', 4000, 'warn');
@@ -662,7 +755,21 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
           />
         </Box>
       ) : mode.kind === 'output' ? (
-        <OutputPane title={mode.title} child={mode.child} width={width} height={bodyHeight} active onExit={() => {}} onClose={() => setMode({ kind: 'timeline' })} onOpenRun={onOpenRun} />
+        <OutputPane
+          title={mode.title}
+          child={mode.child}
+          width={width}
+          height={bodyHeight}
+          active
+          opensRun={!mode.refresh}
+          onExit={() => {}}
+          onClose={() => {
+            const refresh = mode.refresh === true;
+            setMode({ kind: 'timeline' });
+            if (refresh) onRefresh?.(run.runId);
+          }}
+          onOpenRun={onOpenRun}
+        />
       ) : (
         <Box flexDirection="row" height={bodyHeight}>
           {zoom ? null : (
