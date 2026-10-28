@@ -120,6 +120,20 @@ describe('gateHistory', () => {
     s.close();
   });
 
+  it('pools no session a signal stopped, whose goldens decided by then were the quickest to', () => {
+    const { store: s, sessions } = store([
+      { ok: true, at: T0, data: fork(4, 5) },
+      { ok: true, at: T0 + 1, data: fork(5, 5) },
+      { ok: true, at: T0 + 2, data: fork(3, 5) },
+    ]);
+    s.finishTestSession(sessions[1], { passed: 1, failed: 0, upstreamRequests: 0, interrupted: true });
+    s.finishTestSession(sessions[2], { passed: 1, failed: 0, upstreamRequests: 0 });
+    const h = gateHistory(s, 'goldens/refund', { window: 10, mode: 'fork', checks: ['issue_refund called 0 times'], goldenRunId: 'REC' });
+    expect(h).toMatchObject({ passes: 7, attempts: 10, sessions: 2 });
+    expect(h.pooled.map((x) => x.sessionId)).toEqual([sessions[2], sessions[0]]);
+    s.close();
+  });
+
   it('says why a result is no baseline', () => {
     const r = (data: Partial<TestResultData>, o: { ok?: boolean; revision?: string } = {}) => ({ ok: o.ok ?? true, failure: o.ok === false ? ('check' as const) : null, revision: o.revision ?? 'abc', data: fork(5, 5, data) });
     expect(notBaseline(r({}), 'main')).toBeNull();

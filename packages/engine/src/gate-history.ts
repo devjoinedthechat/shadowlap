@@ -161,13 +161,25 @@ export function sessionAttempts(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, 
   return own.length ? { passes: own.filter(Boolean).length, attempts: own.length } : null;
 }
 
-/** The baseline a gate against history compares with: the golden's last `window` sessions that qualify, pooled. */
+/**
+ * The baseline a gate against history compares with: the golden's last `window` sessions that
+ * qualify, pooled. A session a signal stopped is none of them: with its goldens' attempts in turns,
+ * those whose gates had decided by then were the quickest to, a sample tilted towards the attempts
+ * that pass.
+ */
 export function gateHistory(store: Store, golden: string, f: HistoryFilter): PooledHistory {
   const pooled: HistorySession[] = [];
   const excluded = new Set(typeof f.excludeSession === 'string' ? [f.excludeSession] : (f.excludeSession ?? []));
+  const stopped = new Map<string, boolean>();
+  const interrupted = (sessionId: string): boolean => {
+    let v = stopped.get(sessionId);
+    if (v === undefined) stopped.set(sessionId, (v = store.getTestSession(sessionId)?.interrupted === true));
+    return v;
+  };
   for (const r of store.listTestResults({ golden, limit: READ_LIMIT })) {
     if (pooled.length >= f.window) break;
     if (excluded.has(r.sessionId)) continue;
+    if (interrupted(r.sessionId)) continue;
     if (f.before !== undefined && r.at >= f.before) continue;
     if (f.goldenRunId && r.goldenRunId && r.goldenRunId !== f.goldenRunId) continue;
     if (f.mode && r.data?.mode && r.data.mode !== f.mode) continue;
