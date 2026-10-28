@@ -272,6 +272,8 @@ describe('shadowlap migrate', () => {
   }, 240_000);
 
   it('migrates the goldens from a fresh store, as CI has one, running their commands as test runs them', async () => {
+    // CI's checkout tracks its goldens: their commands run without asking, from a store that never recorded them.
+    execFileSync('git', ['add', '--', 'goldens/research'], { cwd, stdio: 'ignore' });
     const fresh = join(cwd, 'fresh.db');
     const r = await new Promise<{ code: number | null; stdout: string; out: string }>((resolve) => {
       const child = spawn(process.execPath, [CLI, '--db', fresh, 'migrate', '--to', 'claude-haiku-4-5', '--attempts', '1', '--json'], { cwd, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(cwd, 'home'), AGENT_MODEL: FROM }, stdio: ['ignore', 'pipe', 'pipe'] });

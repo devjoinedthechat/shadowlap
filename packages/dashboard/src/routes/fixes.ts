@@ -2,7 +2,7 @@ import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, import
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
-import { askConsent, saidYes } from '../consent.js';
+import { jobConsent, type JobConsent } from '../consent.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
@@ -108,26 +108,25 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
  * fields, without what it ran with on a teammate's machine (`left`). The yes is to the lines the
  * question showed (consent.ts): one a pull has since changed is asked again.
  */
-function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonly string[]; pulled?: { what: string; left: readonly string[] } | null }): JobBuildResult | null {
+function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonly string[]; pulled?: { what: string; left: readonly string[] } | null }): JobConsent {
   const imported = o.runs.find((r) => commandIsImported(r));
-  if (!imported && !o.pulled) return null;
+  // `--yes` reaches the CLI only once the request said yes to this question: with none asked, a yes sent anyway is passed on to nothing.
+  if (!imported && !o.pulled) return jobConsent([], o.yes, () => '');
   const lines = [['shadowlap', ...o.args], ...(imported ? [imported.command.argv] : [])];
-  if (saidYes(o.yes, lines)) return null;
   const line = quoteArgv(['shadowlap', ...o.args]);
-  if (o.pulled) {
-    const p = o.pulled;
-    const without = p.left.length ? `, without the ${leftWords(p.left)} it ran with there` : '';
-    const and = imported ? `, and the command ${imported.runId.slice(0, 10)} was recorded with (${quoteArgv(imported.command.argv)}), which came from ${importedCommandSource(imported)}` : '';
-    return askConsent(`${p.what} came from the team store: this runs the command ${line}, made here from its own fields${without}${and}. Confirm it to run it`, lines);
-  }
-  return askConsent(`${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`, lines);
+  return jobConsent(lines, o.yes, () => {
+    if (o.pulled) {
+      const p = o.pulled;
+      const without = p.left.length ? `, without the ${leftWords(p.left)} it ran with there` : '';
+      const and = imported ? `, and the command ${imported.runId.slice(0, 10)} was recorded with (${quoteArgv(imported.command.argv)}), which came from ${importedCommandSource(imported)}` : '';
+      return `${p.what} came from the team store: this runs the command ${line}, made here from its own fields${without}${and}. Confirm it to run it`;
+    }
+    return `${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`;
+  });
 }
 
-/** `--yes` for the CLI, once the request said yes to the question needsConsent asked: the CLI asks nothing again. */
-const yesFlag = (yes: unknown): string[] => (typeof yes === 'string' ? ['--yes'] : []);
-
 /** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
-function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobBuildResult | null {
+function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobConsent {
   return needsConsent({ runs, yes, args });
 }
 
@@ -181,8 +180,8 @@ function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
   // A blame a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
   const next = req.again === true ? d.actions.blameAgain! : d.actions.blameStronger!;
   const consent = needsConsent({ runs: [run], yes: req.yes, args, pulled: next.pulled ? { what: `${id}'s blame`, left: next.left } : null });
-  if (consent) return consent;
-  return { args: [...args, ...yesFlag(req.yes)], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model as string}` };
+  if ('ask' in consent) return consent.ask;
+  return { args: [...args, ...consent.yes], runId: run.runId, title: req.again === true ? 'Blaming again' : `Blaming with ${req.model as string}` };
 }
 
 /**
@@ -199,8 +198,8 @@ function verifyJob(req: JobRequest, store: Store): JobBuildResult {
   // A verdict a pull brought runs again only once the user says yes to the exact command, as an imported run's does.
   const runs = v.rows.map((x) => store.getRun(x.runId)).filter((r): r is RunRecord => r !== null);
   const consent = needsConsent({ runs, yes: req.yes, args: v.more.argv, pulled: v.more.pulled ? { what: `${short(fix.fixId)}'s verdict ${v.verifyId.slice(0, 13)}`, left: v.more.left } : null });
-  if (consent) return consent;
-  return { args: [...v.more.argv, ...yesFlag(req.yes)], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
+  if ('ask' in consent) return consent.ask;
+  return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
 }
 
 function blameJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
@@ -228,8 +227,8 @@ function blameJob(req: JobRequest, store: Store, configDir: string | null): JobB
   }
   const args = ['blame', run.runId, ...(expect !== null && expect !== undefined ? ['--expect', JSON.stringify(expect)] : [])];
   const consent = importedCommand([run], req.yes, args);
-  if (consent) return consent;
-  return { args: [...args, ...yesFlag(req.yes)], runId: run.runId };
+  if ('ask' in consent) return consent.ask;
+  return { args: [...args, ...consent.yes], runId: run.runId };
 }
 
 /**
@@ -260,8 +259,8 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   // Every run the command will select, as the CLI selects it: a label can bring in an imported run.
   const args = repairJobArgv(d.actions.repair.argv, configured);
   const consent = importedCommand(selectedRuns(store, d.actions.repair.argv), req.yes, args);
-  if (consent) return consent;
-  return { args: [...args, ...yesFlag(req.yes)] };
+  if ('ask' in consent) return consent.ask;
+  return { args: [...args, ...consent.yes] };
 }
 
 function applyJob(req: JobRequest, store: Store): JobBuildResult {

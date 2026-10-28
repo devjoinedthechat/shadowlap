@@ -54,7 +54,9 @@ export function register(router: Router, ctx: RouteContext): void {
 
   router.get('/retirements', (r) => r.tagged(retirementsView(ctx.store, goldens())));
 
-  ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens()) });
-  ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens()) });
-  ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store) });
+  // A golden's pack is read from the project's folder, which is where a job runs the CLI.
+  const folder = (b: { project: { path: string } | null }) => b.project?.path ?? process.cwd();
+  ctx.jobs.registerJobKind('decisions', { title: () => 'Previewing a change', build: (req, b) => decisionsJob(req, b.store, goldens(), folder(b)) });
+  ctx.jobs.registerJobKind('migrate', { title: () => 'Migrating', build: (req, b) => migrateJob(req, b.store, goldens(), folder(b)) });
+  ctx.jobs.registerJobKind('decisions-verify', { title: () => 'Verifying the changed runs', build: (req, b) => verifyFlaggedJob(req, b.store, folder(b)) });
 }

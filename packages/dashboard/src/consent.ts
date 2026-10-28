@@ -21,3 +21,17 @@ export function saidYes(yes: unknown, lines: ReadonlyArray<readonly string[]>): 
 export function askConsent(error: string, lines: ReadonlyArray<readonly string[]>): { error: string; status: 409; confirm: string } {
   return { error, status: 409, confirm: consentKey(lines) };
 }
+
+/**
+ * A job's question about the commands someone else chose that it runs (`lines`), or its answer:
+ * `ask`, the 409 in the words `words` gives, until the request says yes to exactly those lines; then
+ * `yes`, the `--yes` the CLI takes so it asks nothing again. With nothing to ask, `yes` is empty: a
+ * yes a request sends anyway answers no question, so it never reaches the CLI, which asks what it
+ * asks itself (and refuses it, as a job has no terminal to answer in).
+ */
+export type JobConsent = { ask: { error: string; status: 409; confirm: string } } | { yes: string[] };
+
+export function jobConsent(lines: ReadonlyArray<readonly string[]>, yes: unknown, words: () => string): JobConsent {
+  if (!lines.length) return { yes: [] };
+  return saidYes(yes, lines) ? { yes: ['--yes'] } : { ask: askConsent(words(), lines) };
+}

@@ -507,6 +507,10 @@ export interface GoldenOutcome {
  * pack's command runs, as wherever only the pack exists; when its calls differ, the golden fails,
  * naming where the store's copy came from. A command from that copy never runs. A copy that only
  * carries more or fewer redaction rules than the pack is the pack's recording (see unpackRun).
+ *
+ * A pack's command that differs from the copy's is the pack's, someone else's for all the copy's
+ * own mark says: the run comes back marked (`commandFromImport`), so a pack that reuses the id of a
+ * run recorded here, with a command of its own, asks before it runs as any pack from elsewhere does.
  */
 export function importGolden(store: Store, dir: string): RunRecord {
   const { imported, skipped, mismatched } = unpackRun(store, dir);
@@ -521,7 +525,9 @@ export function importGolden(store: Store, dir: string): RunRecord {
       `the store already holds another recording under this golden's run id ${id} (${heldFrom(parent)}), and its calls differ from the pack's. A golden replays only its own pack: delete the store's copy (shadowlap rm ${id}) to test this one, or, for a golden copied from another, pack a run of its own`,
     );
   }
-  return other?.command ? { ...parent, command: other.command } : parent;
+  if (!other?.command) return parent;
+  const differs = JSON.stringify(other.command.argv) !== JSON.stringify(parent.command.argv);
+  return { ...parent, command: other.command, ...(differs ? { meta: { ...(parent.meta ?? {}), commandFromImport: true } } : {}) };
 }
 
 export async function testGolden(dir: string, golden: string, spec: TestSpec | null, ctx: RecordingTestContext): Promise<GoldenOutcome> {

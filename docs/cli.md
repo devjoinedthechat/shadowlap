@@ -329,7 +329,7 @@ Runs are ids, unique prefixes or `label:<name>`; a path such as `goldens/*` name
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long. A model request waits ten minutes by default, as the official SDKs do |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status: `fail` (the default) exits 3, `warn` exits 0 with a warning |
-| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack (`--from-code`, `--then-verify`, `--verify`) without asking. A golden named by its pack folder runs its command as `test` runs it |
+| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack (`--from-code`, `--then-verify`, `--verify`) without asking, and of a golden from a pack the repository doesn't track, as `test` asks of one |
 | `--json` | The report as JSON on stdout (below); progress goes to stderr |
 
 The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and `--verify`.
@@ -365,7 +365,7 @@ It switches the agent's model calls: those made with the models `--from` names, 
 | `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
 | `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` |
-| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack without asking; a golden runs its command as `test` runs it |
+| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack without asking, and of a golden from a pack the repository doesn't track, as `test` asks of one |
 | `--json` | The report as JSON on stdout (below) |
 
 The fields it changes come from two places. The [retirement table](./decisions.md#model-retirements) keeps what a provider's pages say it stops accepting: Anthropic's Claude 4.7 and later, in a Messages API request on the Claude API, Bedrock or Vertex AI, answer a non-default `temperature`, `top_p` or `top_k` with a 400, and the page says to omit them, so they are left out of what to set (the preview and verify send `temperature` its default, 1, meanwhile); they refuse a manual thinking budget too, so `thinking` becomes `{"type": "adaptive"}`; and OpenAI's o-series take `max_tokens` as `max_completion_tokens`. And the new model's own refusal, when it names what to change (`max_tokens: 64000 > 32000`, *at most 16384 completion tokens*, *Only the default (1) value is supported*, `"thinking.type.enabled" is not supported`, *'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead*): the step is asked once more with that field changed, and so is every later request to that model through that provider that needs it (an output limit only ever lowers a request, and never under its thinking budget). Verify runs with the fields set to a value; a field to leave out or to send under its new name has to change in your agent's requests first, since verify runs your code, so verify waits for it and the report says what to change. A refusal that names nothing to change stays the step's `error`.
@@ -395,11 +395,12 @@ Goldens as tasks a model can be scored on: a model under test takes over at one 
 | `--attempts <n>` | Attempts per task. Default 5 |
 | `--reads live\|replay` | What read tools do after the takeover. Default `live` |
 | `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for `blame` |
+| `-y`, `--yes` | Run the recorded command of a golden from a pack the repository doesn't track without asking; without it such a golden asks first, as `test` asks of one, and without a terminal it is skipped, saying why |
 | `--json` | The scores as JSON on stdout |
 
 Exit status 0 when every task was scored in full; 1 when a task was skipped or stopped; 3 when the budget stopped it; 2 when nothing given can be scored.
 
-`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. [Training](./training.md) shows a request and its response.
+`tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
 
@@ -587,7 +588,7 @@ shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>]
 
 [Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one, 1 when there is none between the two (it passes at `--bad`, or already fails at `--good`), 3 when a commit at either end can't be tested, 2 when it can't search what it was given (a commit that isn't one, a run with no command, a recording whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record)), and 130 for Ctrl-C. The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), with the golden's newest test result as the search started, the failure it answers. The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then: not once it passed, and never over a later failure (an answer given while the golden passed answers none). A search stopped with Ctrl-C keeps nothing.
 
-Each replay runs the recorded command, or the one after `--`, in the commit's worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command someone else chose, which would run at every commit: bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 2) unless given `--yes`. A golden is the project's own and runs as `test` runs it.
+Each replay runs the recorded command, or the one after `--`, in the commit's worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command someone else chose, which would run at every commit: bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 2) unless given `--yes`. So does a golden from a pack the repository doesn't track, recorded elsewhere, as `test` asks of one; a golden recorded on this machine, or one the repository tracks, runs without asking.
 
 | Option | Effect |
 |---|---|
@@ -598,7 +599,7 @@ Each replay runs the recorded command, or the one after `--`, in the commit's wo
 | `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
 | `--allow-unrecorded <names>` | As for `replay` |
-| `-y, --yes` | Run the recorded command of a run from a pack or the team store at each commit without asking |
+| `-y, --yes` | Run the recorded command of a run from a pack or the team store, or of a golden from a pack the repository doesn't track, at each commit without asking |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
 
@@ -657,7 +658,7 @@ Each run tested comes to a verdict against its limits: *failed* when more attemp
 | `--timeout <seconds>` | Stop an attempt after this long; it is inconclusive |
 | `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
 | `--allow-unrecorded <names>` | As for `replay` |
-| `-y, --yes` | Run the recorded command of an imported run without asking (a golden is the project's own) |
+| `-y, --yes` | Run the recorded command of an imported run, or of a golden from a pack the repository doesn't track, without asking |
 | `--json` | Print the report as JSON; progress goes to stderr |
 
 With `--list-templates --json` it prints (`version`, `updated`, and the `templates`, each with its `id`, `shape`, `title` and `text`) and exits; otherwise, with `--json` it prints (`templates`, the built-in set's `version` and `updated`; `results`, one per run tested; `totals`; the `verdict` they come to, `passed`, `failed` or `inconclusive`; `passed`, whether the exit status is 0; `html`, the report's path or null). `totals` adds up (`runs`, `attempts`, `obeyed`, `influenced`, `ignored`, `inconclusive`) over the runs tested by planting.

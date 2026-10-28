@@ -21,7 +21,7 @@ import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { Turns } from '../turns.js';
-import { goldenNeedsConsent } from '../golden-consent.js';
+import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
@@ -41,10 +41,6 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 /** How many failing goldens a dashboard job links to by their replay; Tests has every one. */
 const FAILED_LINKS = 3;
 
-/** Asks whether a golden from someone else's pack may run its recorded command, as `replay` asks of an imported run. */
-function confirmGoldenCommand(run: RunRecord, dir: string): Promise<boolean> {
-  return confirmImportedCommand(run, run.command.argv, `shadowlap test ${dir} --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${dir} --yes), or add the pack to the repository.`);
-}
 
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
@@ -361,7 +357,7 @@ export function register(program: Command): void {
       // One question at a time: goldens tested side by side each wait for the one asked before them.
       let asking: Promise<unknown> = Promise.resolve();
       const askInTurn = (run: RunRecord, dir: string): Promise<boolean> => {
-        const answer = asking.then(() => confirmGoldenCommand(run, dir));
+        const answer = asking.then(() => confirmGolden(run, dir));
         asking = answer.catch(() => undefined);
         return answer;
       };
@@ -686,7 +682,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
-    .option('-y, --yes', 'run the recorded command of a run from a pack or the team store at each commit without asking')
+    .option('-y, --yes', "run the recorded command of a run from a pack or the team store, or of a golden from a pack this repository doesn't track, at each commit without asking")
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
     .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
@@ -696,7 +692,7 @@ export function register(program: Command): void {
           target,
           ...(command.length ? { argv: command } : {}),
           // A command someone else chose runs at every commit only with consent, as a replay of it does.
-          confirm: flags.yes ? () => Promise.resolve(true) : (run, argv) => confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`),
+          confirm: flags.yes ? () => Promise.resolve(true) : (run, argv, golden) => (golden ? confirmGolden(run, golden, `shadowlap bisect ${golden} --good ${flags.good} --yes`) : confirmImportedCommand(run, argv, `shadowlap bisect ${shortId(run.runId)} --good ${flags.good} -- <command>`)),
           good: flags.good,
           bad: flags.bad,
           spec: flags.expect !== undefined ? readExpect(flags.expect) : undefined,

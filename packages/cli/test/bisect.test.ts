@@ -246,6 +246,41 @@ describe('shadowlap bisect', () => {
     }
   });
 
+  it("asks before a golden from a pack the repository doesn't track runs its command at every commit; one recorded here runs as it is", async () => {
+    // Someone else's golden, sent as a pack: its command writes where it ran to a file outside the repository, then runs the agent.
+    const away = mkdtempSync(join(tmpdir(), 'sl-bisect-sent-'));
+    try {
+      const marker = join(away, 'ran.txt');
+      const script = `require('node:fs').appendFileSync(${JSON.stringify(marker)}, process.cwd() + '\\n'); import('./agent.mjs')`;
+      const theirs = join(away, 'theirs.db');
+      const recorded = await shadowlap(['--db', theirs, 'run', '--', process.execPath, '-e', script]);
+      expect(recorded.code, recorded.out).toBe(0);
+      const runId = /recording run (\w{26})/.exec(recorded.out)![1];
+      const sent = join(away, 'sent');
+      expect((await shadowlap(['--db', theirs, 'pack', runId, sent])).code).toBe(0);
+      rmSync(marker);
+      const range = ['--good', rev['Start the ticket agent'], '--bad', rev['Describe the agent']];
+
+      const refused = await shadowlap(['bisect', sent, ...range]);
+      expect(refused.code, refused.out).toBe(2);
+      expect(refused.out).toContain("Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap bisect ");
+      expect(refused.out).not.toContain('replay at');
+      expect(existsSync(marker), 'the sent command never ran').toBe(false);
+      const yes = await shadowlap(['bisect', sent, ...range, '--yes']);
+      expect(yes.out).toContain(`replay at ${rev['Describe the agent']}`);
+      expect(readFileSync(marker, 'utf8')).toContain(join('.shadowlap', 'bisect'));
+
+      // The golden recorded in this project, packed where the repository doesn't track it, is the user's own.
+      const own = join(away, 'own');
+      expect((await shadowlap(['pack', recordedRun, own])).code).toBe(0);
+      const mine = await shadowlap(['bisect', own, ...range]);
+      expect(mine.out).not.toContain('was imported from a pack');
+      expect(mine.out).toContain(`replay at ${rev['Describe the agent']}`);
+    } finally {
+      rmSync(away, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
+  });
+
   it('refuses a run that is still recording, whose recording is not whole yet', async () => {
     const store = Store.open(join(project, '.shadowlap', 'shadowlap.db'));
     const recording = store.createRun({ mode: 'record', command: { argv: [process.execPath, 'agent.mjs'], cwd: project } });

@@ -138,6 +138,7 @@ export type { Conversation, Turn, TurnBlock } from './conversation.js';
 export { applyDeltas, finalAnswer, normalizeResponse } from './responses.js';
 export type { Block, Delta, NormalizedResponse } from './responses.js';
 export type { PackOptions, PackResult, RecordingMismatch, UnpackResult } from './pack.js';
+export { goldenNeedsConsent, goldensNeedingConsent, packHeadRun, packTracked, trackedPacks } from './golden-consent.js';
 export type { Palette } from './report.js';
 export { conversationRequest, conversationRequestFor, LiveConversations, Lru, responseInfo, runConversations, runStamp } from './conversations.js';
 export type { CallConversation, ConversationOptions, ConversationSpan, RequestedTool, RunConversations } from './conversations.js';

@@ -471,6 +471,14 @@ describe('the blame job', () => {
     expect((await json(refused)).error).toMatch(/no command to re-run/);
   });
 
+  it('passes --yes on only once it asked: a yes sent with nothing to ask reaches no command', async () => {
+    const own = makeRun(store);
+    await start();
+    // The CLI then asks what it asks itself, and a job has no terminal to answer it in.
+    await started({ kind: 'blame', runId: own, expect: null, yes: 'f'.repeat(32) });
+    expect(spawned.at(-1)).toEqual(['blame', own]);
+  });
+
   it('asks the same before running the command of a teammate’s run pulled from the team store, naming the store', async () => {
     const pulled = makeRun(store, { meta: { imported: { at: 1, from: 's3://northwind-agent-runs/support-agent' }, author: 'maya@example.com' } });
     await start();

@@ -136,4 +136,49 @@ describe('shadowlap test, given a golden', () => {
     expect(refused.code, refused.out).toBe(2);
     expect(runs(repo)).toBe(before);
   }, 60_000);
+
+  it('asks of a sent pack that reuses the id of a run recorded here, with a command of its own', async () => {
+    // The pack this machine made, sent back under the same run id with another command: one that runs other.mjs.
+    const reused = join(root, 'downloads', 'reused');
+    cpSync(join(mine, 'goldens', 'own'), reused, { recursive: true });
+    const manifest = JSON.parse(readFileSync(join(reused, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+    manifest.runs.at(-1)!.command.argv = [process.execPath, 'other.mjs'];
+    writeFileSync(join(reused, 'run.json'), JSON.stringify(manifest, null, 2));
+    writeFileSync(join(mine, 'other.mjs'), AGENT.replace("'ran.log'", "'other.log'"));
+    const others = () => (existsSync(join(mine, 'other.log')) ? readFileSync(join(mine, 'other.log'), 'utf8').split('\n').filter(Boolean).length : 0);
+    const before = runs(mine);
+    const refused = await shadowlap(mine, join(mine, 'store.db'), ['test', reused]);
+    // Not run for want of a yes, and nothing else failed: 2, as for any pack from elsewhere.
+    expect(refused.code, refused.out).toBe(2);
+    expect(refused.out).toContain("Its pack isn't one this repository tracks. Pass --yes to run it");
+    expect(refused.out).toContain("not run: its recorded command came from a pack this repository doesn't track");
+    expect(others()).toBe(0);
+    expect(runs(mine)).toBe(before);
+    const yes = await shadowlap(mine, join(mine, 'store.db'), ['test', reused, '--yes']);
+    expect(yes.code, yes.out).toBe(0);
+    expect(others()).toBe(1);
+    // The golden this machine packed runs its own command, as it is, without asking.
+    const own = await shadowlap(mine, join(mine, 'store.db'), ['test', 'goldens/own']);
+    expect(own.code, own.out).toBe(0);
+    expect([runs(mine), others()]).toEqual([before + 1, 1]);
+  }, 60_000);
+});
+
+describe("the other commands that run a golden's recorded command", () => {
+  it('ask before a sent pack’s, as test does, and without a terminal run nothing', async () => {
+    const before = runs(repo);
+    for (const args of [
+      ['injection', 'goldens/sent', '--json'],
+      ['decisions', 'goldens/sent', '--from-code'],
+      ['migrate', '--to', 'claude-haiku-4-5', 'goldens/sent'],
+    ]) {
+      const refused = await shadowlap(repo, join(repo, 'store.db'), args);
+      expect(refused.code, `${args.join(' ')}\n${refused.out}`).toBe(2);
+      expect(refused.out, args[0]).toContain(`Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap ${args[0]} `);
+      expect(runs(repo), args[0]).toBe(before);
+    }
+    // The repository's own golden asks nothing: injection goes on to plant, decisions to its offline read.
+    const tracked = await shadowlap(repo, join(repo, 'store.db'), ['injection', 'goldens/tracked', '--json']);
+    expect(tracked.out).not.toContain("Its pack isn't one this repository tracks");
+  }, 120_000);
 });

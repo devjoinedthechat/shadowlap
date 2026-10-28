@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { matchTask, readBody, type ReadPolicy, type Store } from '@shadowlap/engine';
+import { goldensNeedingConsent, matchTask, readBody, type ReadPolicy, type Store } from '@shadowlap/engine';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { resolveTarget } from './takeover.js';
@@ -39,7 +39,17 @@ export interface ServeSettings {
    * request send a key from the environment to an address of its choosing.
    */
   keyEnv?: string;
+  /**
+   * The goldens whose recorded command runs only after a yes (golden-consent.ts) that the user said
+   * yes to as the server started, each as servedConsentKey names it, by its folder and command: one
+   * whose pack has another command by now, or one added since, is refused. `yes` (--yes) serves any.
+   */
+  consented?: ReadonlySet<string>;
+  yes?: boolean;
 }
+
+/** A golden the user said yes to serving: its pack folder and the command its attempts run. */
+export const servedConsentKey = (dir: string, argv: readonly string[]): string => JSON.stringify([dir, argv]);
 
 export interface TasksServer {
   url: string;
@@ -87,16 +97,20 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     running--;
     queue.shift()?.();
   };
-  const tasks = () => {
+  const withStore = <T>(fn: (store: Store) => T): T => {
     let store: Store | null = null;
     try {
       store = openStore(opts);
-      const all = loadTasks(root, store).tasks;
-      return s.goldens.length ? all.filter((t) => s.goldens.includes(t.golden)) : all;
+      return fn(store);
     } finally {
       store?.close();
     }
   };
+  const tasks = () =>
+    withStore((store) => {
+      const all = loadTasks(root, store).tasks;
+      return s.goldens.length ? all.filter((t) => s.goldens.includes(t.golden)) : all;
+    });
 
   let port = 0;
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
@@ -133,6 +147,12 @@ export async function serveTasks(opts: GlobalOpts, root: string, s: ServeSetting
     if (!match) return send(res, 404, { error: `no task "${name}" (GET /v1/tasks lists them)` });
     if ('ambiguous' in match) return send(res, 409, { error: `"${name}" names more than one golden: give its path, such as ${encodeURIComponent(match.ambiguous[0]!)}`, ambiguous: match.ambiguous });
     const { task } = match;
+    // A golden from a pack the repository doesn't track, recorded elsewhere, runs its command only
+    // with the yes given as the server started, as tasks score asks (golden-consent.ts).
+    if (!s.yes) {
+      const asked = withStore((store) => goldensNeedingConsent(store, [task.dir], root))[0];
+      if (asked && !s.consented?.has(servedConsentKey(asked.dir, asked.argv))) return send(res, 409, { error: `${task.golden} came from a pack this repository doesn't track: its recorded command runs only with a yes, given as tasks serve starts (shadowlap tasks serve --yes), or add the pack to the repository`, status: task.status });
+    }
     if (typeof body.model !== 'string' || !body.model) return send(res, 400, { error: '"model" is required: the model to ask, such as "my-finetune"' });
     if (body.baseUrl !== undefined && typeof body.baseUrl !== 'string') return send(res, 400, { error: '"baseUrl" must be a string' });
     if (body.keyEnv !== undefined) return send(res, 400, { error: '"keyEnv" is set when tasks serve starts (--key-env), not per request' });

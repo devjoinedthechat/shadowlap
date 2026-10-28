@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { commandIsImported, formatDuration, formatUsd, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
+import { commandIsImported, formatDuration, formatUsd, goldensNeedingConsent, hasRecordedCommand, packRun, plain, recordEvent, resolveAuthor, statusTally, Store, unpackRun, type Normalizer, type Palette, type RunRecord } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { undecidableChecks } from './attempts.js';
 import { specFor, type TestSpec } from './checks.js';
@@ -57,9 +57,10 @@ export interface BisectInput {
   argv?: string[];
   /**
    * Asked before a run whose recorded command someone else chose (a run from a pack, or pulled from
-   * the team store) is run at every commit; false refuses. Without it, such a run is refused.
+   * the team store, or a golden whose pack the repository doesn't track: `golden`, its folder) is
+   * run at every commit; false refuses. Without it, such a run is refused.
    */
-  confirm?: (run: RunRecord, argv: string[]) => Promise<boolean>;
+  confirm?: (run: RunRecord, argv: string[], golden: string | null) => Promise<boolean>;
   /** The tools `--allow-unrecorded` lets each replay run again though the recording never recorded them and they write. */
   allowUnrecorded?: ReadonlySet<string>;
 }
@@ -208,13 +209,22 @@ export function linkDependencies(root: string, from: string, to: string, worktre
 /**
  * The recording to bisect, copied into a store of its own: replays at old commits never touch the
  * project's. `imported` says whether a run's command came from someone else, as the project's store
- * has it (every copy is marked imported); a golden is the project's own, as under `shadowlap test`.
+ * has it (every copy is marked imported); a golden's, as under `shadowlap test`: one from a pack the
+ * repository doesn't track, recorded elsewhere, is someone else's (goldenNeedsConsent).
  */
 function loadTarget(input: BisectInput, projectDir: string, store: Store): { run: RunRecord; kind: 'golden' | 'run'; name: string; golden: string | null; imported: boolean } {
   const dir = resolve(projectDir, input.target);
   if (existsSync(join(dir, 'run.json')) && statSync(dir).isDirectory()) {
     const golden = goldenName(input.target, projectDir);
-    return { run: importGolden(store, dir), kind: 'golden', name: golden, golden, imported: false };
+    const run = importGolden(store, dir);
+    // Copied into a store of its own, any golden reads as imported: whether this machine recorded it,
+    // with the pack's command, is for the project's store to say.
+    const project = openStore(input.opts);
+    try {
+      return { run, kind: 'golden', name: golden, golden, imported: goldensNeedingConsent(project, [dir], projectDir).length > 0 };
+    } finally {
+      project.close();
+    }
   }
   const project = openStore(input.opts);
   const scratch = mkdtempSync(join(tmpdir(), 'shadowlap-bisect-'));
@@ -314,7 +324,7 @@ export async function runBisect(input: BisectInput): Promise<BisectReport> {
   if (!own && target.imported) {
     let ok = false;
     try {
-      ok = input.confirm ? await input.confirm(target.run, target.run.command.argv) : false;
+      ok = input.confirm ? await input.confirm(target.run, target.run.command.argv, target.kind === 'golden' ? input.target : null) : false;
     } finally {
       if (!ok) store.close();
     }

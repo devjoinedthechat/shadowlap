@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commandIsImported, importedCommandSource, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store } from '@shadowlap/engine';
+import { commandIsImported, goldenNeedsConsent, importedCommandSource, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
@@ -103,9 +103,10 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
       return storeTarget(store, run, cwd);
     };
     const targets = chosen.map(targetOf);
-    // A run from someone's pack runs its recorded command only with a yes; a golden runs its pack's, as test runs it.
-    const imported = input.settings.argv ? [] : targets.filter((t) => t.golden === null && commandIsImported(t.run));
-    if (imported.length && !input.yes) throw new DecisionsError(`${imported.map((t) => `${t.run.runId.slice(0, 10)} came from ${importedCommandSource(t.run)}`).join('; ')}: verifying runs the command it was recorded with (${imported[0]!.run.command.argv.join(' ')}). Give --yes to run it, or your own command after --`);
+    // A run from someone's pack runs its recorded command only with a yes, and so does a golden whose
+    // pack the repository doesn't track, recorded elsewhere, as test asks of one (goldenNeedsConsent).
+    const imported = input.settings.argv ? [] : targets.filter((t) => (t.golden === null ? commandIsImported(t.run) : goldenNeedsConsent(t.run, resolve(cwd, t.golden), cwd)));
+    if (imported.length && !input.yes) throw new DecisionsError(`${imported.map((t) => (t.golden === null ? `${t.run.runId.slice(0, 10)} came from ${importedCommandSource(t.run)}` : `${t.golden} is from a pack this repository doesn't track`)).join('; ')}: verifying runs the command it was recorded with (${quoteArgv(imported[0]!.run.command.argv)}). Give --yes to run it, or your own command after --`);
     const remedies = report?.remedies ?? [];
     const verify = await verifyFlagged({
       opts: input.opts,
