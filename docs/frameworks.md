@@ -70,6 +70,8 @@ const searchWeb = withEffect(tool(async ({ query }) => search(query), { name: 's
 const tools = new ToolNode([searchWeb]);
 ```
 
+The same tools go to `createAgent` from `langchain` or LangGraph's prebuilt `createReactAgent`, whose `ToolNode` runs them. A write blocked after a fork reaches the model as the tool's message: both catch a tool's error by default (`handleToolErrors`), and the agent goes on to its answer, invoked or streamed. With `handleToolErrors: false` the block ends the run, as any tool error does. `ChatOpenAI` and `ChatAnthropic` with no base URL in code take theirs from `OPENAI_BASE_URL` and `ANTHROPIC_BASE_URL`, as `shadowlap run` sets them, but read `OPENAI_API_BASE` and `ANTHROPIC_API_URL` first: with either set, that model's calls bypass the sidecar, and the run says so.
+
 ## Anthropic tool runner
 
 ```ts
