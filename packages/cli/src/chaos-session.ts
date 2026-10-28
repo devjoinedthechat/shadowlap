@@ -7,7 +7,7 @@ import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
 import { parseExpect, specFor, type TestSpec } from './checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests } from './config.js';
-import { goldenNeedsConsent, notRunMessage } from './golden-consent.js';
+import { goldenConsented, notRunMessage } from './golden-consent.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './goldens.js';
 import { EXIT, inconclusiveStatus, signalExit } from './exit-codes.js';
@@ -15,7 +15,7 @@ import { emitJobEvent } from './job-events.js';
 import { junitXml } from './junit.js';
 import { unavailableWords } from './provider-retry.js';
 import { type GuardMode } from './run-agent.js';
-import { confirmImportedCommand, telemetry, type GlobalOpts } from './shared.js';
+import { telemetry, type GlobalOpts } from './shared.js';
 import { palette as p, safe, shortId } from './ui.js';
 
 /**
@@ -160,9 +160,10 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         parent = importGolden(store, packDir);
         if (!hasRecordedCommand(parent)) throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run`);
         // Its presets run its recorded command: from someone else's pack the repository doesn't track, only after a yes.
-        if (!flags.yes && goldenNeedsConsent(parent, packDir, projectDir) && !(await confirmImportedCommand(parent, parent.command.argv, `shadowlap test ${packDir} --chaos --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${packDir} --chaos --yes), or add the pack to the repository.`))) {
+        const again = `shadowlap test ${packDir} --chaos --yes`;
+        if (!(await goldenConsented(parent, packDir, projectDir, flags.yes, again))) {
           unvouched = true;
-          throw new Error(notRunMessage(packDir));
+          throw new Error(notRunMessage(packDir, again));
         }
       } catch (err) {
         process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);

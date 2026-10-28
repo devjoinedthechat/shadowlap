@@ -120,6 +120,26 @@ describe('Store', () => {
         chmodSync(open, mode);
         expect(() => Store.openReadOnly(join(open, 'shadowlap.db')), mode.toString(8)).toThrow(`${open} can be written by every user`);
       }
+      // One in a directory another user keeps that every user can change: whoever can write there
+      // can put another directory in its place. Refused, unless the directory is sticky, as a shared
+      // /tmp is, or is this user's own (a CI job's checkout under a umask of 0).
+      const shared = join(root, 'open-parent');
+      mkdirSync(shared);
+      chmodSync(shared, 0o777);
+      const inside = join(shared, '.shadowlap');
+      mkdirSync(inside, { mode: 0o700 });
+      Store.open(join(inside, 'shadowlap.db')).close();
+      const me = process.getuid!();
+      const other = vi.spyOn(process, 'getuid').mockReturnValue(me + 1);
+      try {
+        expect(() => Store.open(join(inside, 'shadowlap.db'))).toThrow(`${shared}, the directory ${inside} is in, belongs to another user (uid ${me}) and every user can change it`);
+        chmodSync(shared, 0o1777);
+        // Sticky: past it, to the directory's own owner.
+        expect(() => Store.open(join(inside, 'shadowlap.db'))).toThrow(`${inside} belongs to another user (uid ${me})`);
+      } finally {
+        other.mockRestore();
+        chmodSync(shared, 0o700);
+      }
       // One that belongs to another user, as lstat would say it: refused, and nothing written there.
       const theirs = join(root, 'theirs');
       mkdirSync(theirs, { mode: 0o700 });
@@ -131,8 +151,16 @@ describe('Store', () => {
         asked.mockRestore();
       }
       expect(readdirSync(theirs)).toEqual([]);
-      // A directory of this user's that only they, or their group, can write to holds one.
-      for (const mode of [0o700, 0o750, 0o775]) {
+      // One its group can write to: refused as well, and nothing written there.
+      for (const mode of [0o770, 0o775]) {
+        const grouped = join(root, `group-${mode.toString(8)}`);
+        mkdirSync(grouped);
+        chmodSync(grouped, mode);
+        expect(() => Store.open(join(grouped, 'shadowlap.db')), mode.toString(8)).toThrow(`${grouped} can be written by its group: a store is kept only in a directory no one else can write to`);
+        expect(readdirSync(grouped)).toEqual([]);
+      }
+      // A directory of this user's that only they can write to holds one.
+      for (const mode of [0o700, 0o750, 0o755]) {
         const mine = join(root, `mine-${mode.toString(8)}`);
         mkdirSync(mine);
         chmodSync(mine, mode);

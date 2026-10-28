@@ -99,6 +99,30 @@ describe('push', () => {
     expect(pulled.end!.meta.headers).toEqual({ 'content-type': 'application/json', 'x-subject-token': '<CREDENTIAL>' });
   });
 
+  it("sends no key its command line carries, nor a webhook's secret in a captured call's address, and sends nothing more when pushed again", async () => {
+    const remote = new MemoryStore(loc);
+    const a = machine(remote, 'dana@northwind.example');
+    const run = a.store.createRun({ mode: 'record', command: { argv: ['node', 'agent.mjs', '--api-key', 'SLSEC_PUSH_ARGV_q1w2e3'], cwd: '/w' } });
+    // As an earlier version stored it: the secret in its name and address.
+    const hook = { kind: 'tool' as const, name: 'POST hooks.slack.com/services/T0/B0/SLSEC_PUSH_HOOK_q1w2e3', fingerprint: 'f'.repeat(64), occurrence: 1 };
+    const request = a.store.putJson({ args: { method: 'POST', url: 'https://hooks.slack.com/services/T0/B0/SLSEC_PUSH_HOOK_q1w2e3', body: '{"text":"hi"}', encoding: 'text' } });
+    a.store.appendCallStart({ runId: run.runId, callNo: 1, ...hook, origin: 'live', effect: 'write', requestRef: request, meta: { http: 'hooks.slack.com' }, at: 1 });
+    a.store.appendCallEnd(hook, { runId: run.runId, callNo: 1, attempt: 0, responseRef: a.store.putBlob(Buffer.from(JSON.stringify({ result: { status: 200, headers: {}, body: 'ok', encoding: 'text' } }))), outcome: 'ok', meta: {}, at: 2 });
+    a.store.endRun(run.runId, 'completed');
+    await push(a, { runIds: [run.runId] });
+    const bucket = () => [...remote.objects.entries()].map(([key, o]) => (key.endsWith('.gz') || key.startsWith('blobs/') ? gunzipSync(o.body) : o.body).toString('utf8')).join('\n');
+    expect(bucket()).not.toMatch(/SLSEC_PUSH_/);
+    const b = machine(remote, 'sam@northwind.example');
+    await pull(b);
+    expect(b.store.getRun(run.runId)!.command.argv).toEqual(['node', 'agent.mjs', '--api-key', '<CREDENTIAL>']);
+    expect(b.store.getCalls(run.runId)[0].name).toBe('POST hooks.slack.com/services/T0/B0/<CREDENTIAL>');
+    // The run here keeps the command it ran.
+    expect(a.store.getRun(run.runId)!.command.argv).toContain('SLSEC_PUSH_ARGV_q1w2e3');
+    remote.log.length = 0;
+    await push(a, { runIds: [run.runId] });
+    expect(remote.log.filter((l) => l.op === 'put')).toEqual([]);
+  });
+
   it('sends no credential an earlier version kept in a captured call’s body, whatever its content type', async () => {
     const remote = new MemoryStore(loc);
     const a = machine(remote, 'dana@northwind.example');

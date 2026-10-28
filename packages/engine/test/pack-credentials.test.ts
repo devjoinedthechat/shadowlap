@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { CREDENTIAL_PLACEHOLDER, rawJsonMember, resultBlob } from '../src/http.js';
 import { loadApiRequest, storeApiRequest } from '../src/manifest.js';
 import { packRun, unpackRun } from '../src/pack.js';
-import { carriesCredentials, credentialFreeCall, previewRedaction, redactQuery, redactRun, redactRunWithDetails } from '../src/redact.js';
+import { carriesCredentials, credentialFreeCall, credentialFreeCalls, previewRedaction, redactQuery, redactRun, redactRunWithDetails } from '../src/redact.js';
 import { Store } from '../src/store.js';
 import type { Normalizer } from '../src/types.js';
 
@@ -161,6 +161,75 @@ describe('a call as a push copies it', () => {
     expect(pushed.end!.meta.headers).toEqual({ 'content-type': 'application/json', authorization: CREDENTIAL_PLACEHOLDER });
     expect(credentialFreeCall(pushed)).toBe(pushed);
     expect(credentialFreeCall(captured)).toBe(captured);
+    store.close();
+  });
+});
+
+/**
+ * A run whose command line carries a key (`--api-key …`), recorded with a captured call to a Slack
+ * webhook, its secret in the path, as an earlier version stored it (in its name and address), and
+ * a replay that forked at that call.
+ */
+function withArgvAndHook(store: Store) {
+  const argv = ['node', 'agent.js', '--api-key', 'SLSEC_ARGV_0123456789', '--notify=https://hooks.slack.com/services/T0/B0/SLSEC_ARGV_HOOKFLAG'];
+  const run = store.createRun({ mode: 'record', command: { argv, cwd: '/tmp' } });
+  const hook = { kind: 'tool' as const, name: 'POST hooks.slack.com/services/T0/B0/SLSEC_TP_SLACKHOOK', fingerprint: 'd'.repeat(64), occurrence: 1 };
+  const req = store.putJson({ args: { method: 'POST', url: 'https://hooks.slack.com/services/T0/B0/SLSEC_TP_SLACKHOOK', body: '{"text":"refunded"}', encoding: 'text' } });
+  store.appendCallStart({ runId: run.runId, callNo: 1, ...hook, origin: 'live', effect: 'write', requestRef: req, meta: { http: 'hooks.slack.com' }, at: 1 });
+  store.appendCallEnd(hook, { runId: run.runId, callNo: 1, attempt: 0, responseRef: store.putBlob(resultBlob({ status: 200, headers: { 'content-type': 'text/plain' }, encoding: 'text' }, 'ok')), outcome: 'ok', meta: {}, at: 2 });
+  store.endRun(run.runId, 'completed');
+  const replay = store.createRun({ mode: 'replay', parentRunId: run.runId, command: { argv, cwd: '/tmp' } });
+  store.endRun(replay.runId, 'completed');
+  store.setDivergence(replay.runId, { type: 'request_changed', callNo: 1, kind: 'tool', name: hook.name, replayedBefore: 0, reason: 'the request changed' });
+  return { run, replay: store.getRun(replay.runId)! };
+}
+
+describe("a copy of a run whose command line and a captured call's address carry credentials", () => {
+  const ARGV_SECRETS = ['SLSEC_ARGV_0123456789', 'SLSEC_ARGV_HOOKFLAG', 'SLSEC_TP_SLACKHOOK'];
+
+  it('carries none of them, a pack with no rules too, and its command matches the one recorded here', () => {
+    const store = Store.open(':memory:');
+    const { run } = withArgvAndHook(store);
+    expect(carriesCredentials(store, run.runId)).toBe(true);
+    for (const rules of [[], [EMAIL]]) {
+      const dir = packOf(store, run.runId, rules);
+      const bytes = everything(dir);
+      for (const secret of ARGV_SECRETS) expect(bytes, `${secret} with ${rules.length} rules`).not.toContain(secret);
+      const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
+      expect(manifest.runs[0].command.argv).toEqual(['node', 'agent.js', '--api-key', CREDENTIAL_PLACEHOLDER, `--notify=https://hooks.slack.com/services/T0/B0/${CREDENTIAL_PLACEHOLDER}`]);
+      const into = Store.open(':memory:');
+      const [id] = unpackRun(into, dir).imported;
+      const [hook] = into.getCalls(id);
+      expect(hook.name).toBe(`POST hooks.slack.com/services/T0/B0/${CREDENTIAL_PLACEHOLDER}`);
+      expect((into.getJson(hook.requestRef!) as { args: { url: string } }).args.url).toBe(`https://hooks.slack.com/services/T0/B0/${CREDENTIAL_PLACEHOLDER}`);
+      into.close();
+      // Brought back into the store that recorded it, the pack is that recording: its command is the store's but for what it masks.
+      expect(unpackRun(store, dir).mismatched).toEqual([]);
+    }
+    // The store keeps the command as it ran, which a replay runs again.
+    expect(store.getRun(run.runId)!.command.argv).toContain('SLSEC_ARGV_0123456789');
+    store.close();
+  });
+
+  it('carries none in an HTML copy, nor in the name of the call a replay forked at', () => {
+    const store = Store.open(':memory:');
+    const { run, replay } = withArgvAndHook(store);
+    const copy = Store.open(':memory:');
+    redactRunWithDetails(store, run.runId, [], copy);
+    const forked = redactRun(store, replay.runId, [], copy);
+    const everythingThere = JSON.stringify([copy.getRun(run.runId), forked, copy.getCalls(run.runId), ...copy.getCalls(run.runId).map((c) => copy.getBlob(c.requestRef!)!.toString('latin1'))]);
+    for (const secret of ARGV_SECRETS) expect(everythingThere, secret).not.toContain(secret);
+    expect(forked.divergence!.name).toBe(`POST hooks.slack.com/services/T0/B0/${CREDENTIAL_PLACEHOLDER}`);
+    copy.close();
+    store.close();
+  });
+
+  it("carries none in what a push sends of the run's calls", () => {
+    const store = Store.open(':memory:');
+    const { run } = withArgvAndHook(store);
+    const pushed = credentialFreeCalls(store, store.getCalls(run.runId));
+    const sent = JSON.stringify([pushed, ...pushed.map((c) => store.getBlob(c.requestRef!)!.toString('latin1'))]);
+    for (const secret of ARGV_SECRETS) expect(sent, secret).not.toContain(secret);
     store.close();
   });
 });

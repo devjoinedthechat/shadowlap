@@ -695,6 +695,31 @@ function plainRepoPath(file: string): boolean {
 const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).join(', ')} and ${files.at(-1)!}` : (files[0] ?? 'nothing'));
 
 /**
+ * What `file` (a path relative to the repository, with forward slashes) is when a repair never
+ * rewrites it, whatever a report says, or null. A repair rewrites the text the agent sends the model where the
+ * agent's source holds it. A recording holds a copy of that text, and a pack's run.json holds the
+ * command its replay runs, which `shadowlap test` runs without asking for a pack the repository
+ * tracks: so no file of a recording (a pack's run.json, calls.jsonl and blobs, or anything in
+ * `__recordings__`) is ever rewritten, nor Shadowlap's config, which says what runs and where runs
+ * go, nor anything in its own folder. Each name is read as Windows reads it too: in any case,
+ * without the dots and spaces it drops from the end, and never as a stream of a file
+ * (`run.json::$DATA`) or a short name (`RUN~1.JSO`), either of which names another file there.
+ */
+export function repairNeverRewrites(file: string): string | null {
+  const parts = file.split('/');
+  if (parts.some((p) => p.includes(':'))) return 'a stream of a file, which Windows writes as the file itself';
+  if (parts.some((p) => /~\d/.test(p))) return 'a name with a ~ and a digit, which Windows can read as the short name of another file';
+  const names = parts.map((p) => p.replace(/[. ]+$/, '').toLowerCase());
+  const name = names.at(-1) ?? '';
+  if (names.includes('.shadowlap')) return "a file in Shadowlap's own folder, where its store and repairs are";
+  if (names.includes('__recordings__')) return 'a file in a folder of recordings';
+  if (name === 'shadowlap.config.json') return "Shadowlap's config, which says what runs and where runs go";
+  if (name === 'run.json') return "a pack's run.json, which holds the command a replay of the recording runs";
+  if (name === 'calls.jsonl' || (names.at(-2) === 'blobs' && /^[0-9a-f]{64}$/.test(name))) return "a recording's file";
+  return null;
+}
+
+/**
  * Why a repair's patch is not the change its accepted candidate makes, or null when it is (or when
  * there is no patch). `shadowlap fix apply` hands the patch to `git apply`, and a store can come from
  * elsewhere (a teammate's bucket, a copied file), so it is held to what `unifiedDiff` writes for that
@@ -709,6 +734,8 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
   if (!c) return 'no accepted candidate comes with it';
   const file = c.file;
   if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
+  const never = repairNeverRewrites(file);
+  if (never) return `its accepted candidate rewrites ${safeLine(file)}, ${never}: a repair rewrites only the text the agent sends the model, where the agent's source holds it`;
   // Nothing larger than a repair makes is read any further: the text a candidate rewrites is in a
   // file repair read, and its rewrite is held to longestRewrite. The patch holds the lines around
   // the rewrite before and after it, a mark in front of each, which at most doubles them (empty lines).

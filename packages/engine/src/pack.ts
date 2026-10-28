@@ -1,6 +1,7 @@
 import { closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
+import { sameCommandLine } from './http.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
@@ -301,24 +302,33 @@ function appendCalls(store: Store, calls: readonly CallRecord[]): void {
  * redaction rules than the other, after the ones both carry: the pack, when it is the golden packed
  * from the run recorded here; the store's copy, when it came from a newer pack of the run (packed
  * again after a rule was added) and the pack is an older one, as an older checkout holds it. Then
- * the one with fewer is redacted with the rest, as `pack` did, and compared with the other. The
- * agent's calls decide: a judge check's calls are what a run was asked about later, which a pack
- * packed again (or a golden updated) gains under the same id (see mergeJudgeCalls).
+ * the one with fewer is redacted with the rest, as `pack` did, and compared with the other. A
+ * recording an earlier version made, which kept a credential before it was known to be one
+ * (carriesCredentials: in a captured call's address or body, say), is compared as a pack writes it,
+ * with those masked. The agent's calls decide: a judge check's calls are what a run was asked about
+ * later, which a pack packed again (or a golden updated) gains under the same id (see
+ * mergeJudgeCalls).
  */
 function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
   const ours = agentCallsOf(store.getCalls(held.runId));
   const theirs = agentCallsOf([...packedCalls].sort((a, b) => a.callNo - b.callNo));
   if (ours.length !== theirs.length) return false;
-  const identity = (c: CallRecord) => JSON.stringify([c.callNo, c.kind, c.name, c.fingerprint, c.occurrence]);
-  if (ours.some((c, i) => identity(c) !== identity(theirs[i]!))) return false;
-  const refs = (c: CallRecord) => JSON.stringify(callRefs(c));
-  const same = (a: readonly CallRecord[], b: readonly CallRecord[]) => a.length === b.length && a.every((c, i) => refs(c) === refs(b[i]!));
+  // What no copy changes first; a call's name and what it stored, which a copy masks, after.
+  const shape = (c: CallRecord) => JSON.stringify([c.callNo, c.kind, c.fingerprint, c.occurrence]);
+  if (ours.some((c, i) => shape(c) !== shape(theirs[i]!))) return false;
+  const stored = (c: CallRecord) => JSON.stringify([c.name, ...callRefs(c)]);
+  const same = (a: readonly CallRecord[], b: readonly CallRecord[]) => a.length === b.length && a.every((c, i) => stored(c) === stored(b[i]!));
   const mine = held.meta?.redactions ?? [];
   const rules = packed.meta?.redactions ?? [];
   const json = (v: unknown) => JSON.stringify(v);
-  if (json(rules) === json(mine)) return same(ours, theirs);
   const into = Store.open(':memory:');
   try {
+    if (json(rules) === json(mine)) {
+      if (same(ours, theirs)) return true;
+      if (!carriesCredentials(store, held.runId)) return false;
+      redactRun(store, held.runId, [], into);
+      return same(agentCallsOf(into.getCalls(held.runId)), theirs);
+    }
     if (rules.length > mine.length && json(rules.slice(0, mine.length)) === json(mine)) {
       // Packed with more rules than this copy carries: this copy redacted with the rest.
       redactRun(store, held.runId, rules.slice(mine.length), into);
@@ -386,7 +396,8 @@ function mergeJudgeCalls(store: Store, runId: string, theirs: readonly CallRecor
 
 /** How the store's run under a pack run's id differs from it, or null when it is that recording. */
 function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): RecordingMismatch | null {
-  const sameCommand = JSON.stringify(held.command.argv) === JSON.stringify(packed.command.argv) && held.command.cwd === packed.command.cwd;
+  // A pack masks the credentials a command line carries (credentialFreeArgv): the store's, with them, is the same command.
+  const sameCommand = sameCommandLine(held.command.argv, packed.command.argv) && held.command.cwd === packed.command.cwd;
   const calls = !sameCalls(store, held, packed, packedCalls, blobs);
   return sameCommand && !calls ? null : { runId: packed.runId, command: sameCommand ? null : { argv: packed.command.argv, cwd: packed.command.cwd }, calls };
 }

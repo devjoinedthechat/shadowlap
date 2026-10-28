@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { CallRecord, Normalizer, RunRecord } from '@shadowlap/engine';
-import { estimateCost, redactArgv, rewriteText, type Price } from '@shadowlap/engine';
+import { credentialFreeArgv, credentialFreeCallName, estimateCost, redactArgv, rewriteText, type Price } from '@shadowlap/engine';
 
 /**
  * A run as an OpenTelemetry trace in OTLP/HTTP JSON: one span for the run, one child span per
@@ -112,7 +112,9 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
     const usd = c.kind === 'api' ? estimateCost(model, end?.meta.usage, options.prices) : null;
     if (usd !== null && c.origin === 'live') spent += usd;
     const provider = providerOf(c);
-    const name = c.kind === 'api' ? `chat ${model ?? c.name}` : c.kind === 'tool' ? `execute_tool ${c.name}` : `${c.kind} ${c.name}`;
+    // A captured HTTP call is named after its address: a webhook's secret in its path is masked, as every copy masks it.
+    const tool = c.kind === 'tool' ? credentialFreeCallName(c.name) : c.name;
+    const name = c.kind === 'api' ? `chat ${model ?? c.name}` : c.kind === 'tool' ? `execute_tool ${tool}` : `${c.kind} ${c.name}`;
     const status = end ? (end.outcome === 'error' ? { code: 2, message: end.meta.error?.message ?? `HTTP ${end.meta.status ?? '?'}` } : { code: 1 }) : { code: 0 };
     spans.push({
       traceId,
@@ -138,7 +140,7 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
         attr('gen_ai.usage.output_tokens', end?.meta.usage?.outputTokens),
         attr('gen_ai.usage.cache_read_input_tokens', end?.meta.usage?.cacheReadInputTokens),
         attr('gen_ai.usage.cache_creation_input_tokens', end?.meta.usage?.cacheCreationInputTokens),
-        attr('gen_ai.tool.name', c.kind === 'tool' ? c.name : null),
+        attr('gen_ai.tool.name', c.kind === 'tool' ? tool : null),
         attr('http.request.method', c.kind === 'api' ? c.name.split(' ')[0] : null),
         attr('http.response.status_code', end?.meta.status),
         attr('http.response.body.size', end?.meta.bytes),
@@ -149,11 +151,12 @@ export function runToOtlp(run: RunRecord, calls: CallRecord[], options: OtelOpti
       status,
     });
   }
-  // The command line masked as one text, as every copy masks it (a rule sees `--api-key sk-…` across
-  // two arguments), and before the run's span name is cut from it, so the cut never splits a value
-  // the rule would have masked whole.
+  // The command line without the credentials it carries (credentialFreeArgv), then masked as one text,
+  // as every copy masks it (a rule sees `--api-key sk-…` across two arguments), and before the run's
+  // span name is cut from it, so the cut never splits a value the rule would have masked whole.
   const rules = options.redact ?? [];
-  const argv = rules.length ? redactArgv(run.command.argv, rules) : run.command.argv;
+  const own = [...credentialFreeArgv(run.command.argv)];
+  const argv = rules.length ? redactArgv(own, rules) : own;
   const runSpan: Span = {
     traceId,
     spanId: runSpanId,

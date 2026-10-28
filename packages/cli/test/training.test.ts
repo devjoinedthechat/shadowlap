@@ -12,6 +12,7 @@ import { startMockOpenAI, toolCall, turn, type MockServer as OpenAIServer, type 
 import { ANSWERED_BY } from '../src/takeover.js';
 import { answeredBy } from '../src/tasks.js';
 import { departures } from './json-shapes.js';
+import { trackInGit } from './tracked.js';
 
 /**
  * Training through the CLI: preference pairs exported from a real blame, goldens scored as tasks by
@@ -757,7 +758,7 @@ describe("a task whose golden's run id the store holds as another recording", ()
 
   /**
    * A project whose store holds the golden's run id as a copy edited by `edit` (as a pull request's
-   * folder or a pack someone sent brings it), next to the golden itself.
+   * folder or a pack someone sent brings it), next to the golden itself, which its repository tracks.
    */
   async function heldElsewhere(edit: (copy: string) => void): Promise<{ work: string; db: string }> {
     const other = workdir('sl-tasks-copy-');
@@ -767,6 +768,7 @@ describe("a task whose golden's run id the store holds as another recording", ()
     const u = await shadowlap(other.work, ['unpack', 'sent']);
     expect(u.code, u.out).toBe(0);
     cpSync(pack, join(other.work, 'goldens', 'refund-over-limit'), { recursive: true });
+    trackInGit(other.work, 'goldens/refund-over-limit/run.json');
     writeFileSync(join(other.work, 'shadowlap.config.json'), JSON.stringify({ tests: TESTS }));
     return other;
   }
@@ -1062,4 +1064,79 @@ describe('Training in the dashboard', () => {
       rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     }
   }, 180_000);
+});
+
+describe("tasks score and serve, given a golden from a pack this repository doesn't track", () => {
+  let theirs = '';
+  let work = '';
+
+  beforeAll(async () => {
+    policy = 'models';
+    ({ work: theirs } = workdir('sl-theirs-'));
+    ({ work } = workdir('sl-sent-task-'));
+    // Someone else's recording, packed straight into this project, which no repository tracks.
+    const run = await record(theirs, [AGENT]);
+    expect((await shadowlap(theirs, ['pack', run, join(work, 'goldens', 'refund')])).code).toBe(0);
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/refund': { expect: { tools: { issue_refund: 0, escalate: 1 } }, task: { takeover: 5 } } } }));
+  }, 60_000);
+  afterAll(() => {
+    for (const dir of [theirs, work]) if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  it('asks before its attempts run the recorded command, and without a terminal scores nothing', async () => {
+    const before = anthropic.requests.length;
+    const refused = await shadowlap(work, ['tasks', 'score', 'goldens/refund', '--model', 'weak-model', '--attempts', '1']);
+    expect(refused.code, refused.out).toBe(2);
+    expect(refused.out).toContain("goldens/refund came from a pack this repository doesn't track: pass --yes to run its recorded command (shadowlap tasks score goldens/refund --model weak-model --yes)");
+    expect(anthropic.requests.length, 'no attempt ran').toBe(before);
+    const yes = await shadowlap(work, ['tasks', 'score', 'goldens/refund', '--model', 'weak-model', '--attempts', '1', '--yes']);
+    expect(yes.code, yes.out).toBe(0);
+    expect(anthropic.requests.slice(before).map((x) => x.body.model)).toEqual(['weak-model', 'weak-model']);
+  }, 120_000);
+
+  it('serves it to a training loop only with --yes, when no one is at a terminal to ask', async () => {
+    const token = 'tok-' + 'y'.repeat(20);
+    const serve = async (args: string[]) => {
+      const child = spawn(process.execPath, [CLI, 'tasks', 'serve', ...args], { cwd: work, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: anthropic.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_TASKS_TOKEN: token }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let err = '';
+      child.stderr.on('data', (d: Buffer) => (err += d.toString()));
+      const url = await new Promise<string>((resolve, reject) => {
+        let out = '';
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          const m = /on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+          if (m) resolve(m[1]);
+        });
+        child.on('exit', () => reject(new Error(`tasks serve exited: ${out}${err}`)));
+      });
+      const attempt = () =>
+        new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
+          const u = new URL('/v1/tasks/refund/attempts', url);
+          const req = httpRequest(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` } }, (res) => {
+            let data = '';
+            res.on('data', (d: Buffer) => (data += d.toString()));
+            res.on('end', () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(data) as Record<string, unknown> }));
+          });
+          req.on('error', reject);
+          req.end(JSON.stringify({ model: 'weak-model' }));
+        });
+      return { child, attempt, stderr: () => err };
+    };
+    const asked = await serve([]);
+    try {
+      const before = anthropic.requests.length;
+      expect(asked.stderr()).toContain("! not serving goldens/refund: it came from a pack this repository doesn't track. Pass --yes to serve it (shadowlap tasks serve goldens/refund --yes)");
+      expect(await asked.attempt()).toMatchObject({ status: 409, body: { error: expect.stringContaining("goldens/refund came from a pack this repository doesn't track") } });
+      expect(anthropic.requests.length, 'no attempt ran').toBe(before);
+    } finally {
+      await stopServe(asked.child);
+    }
+    const yes = await serve(['--yes']);
+    try {
+      const r = await yes.attempt();
+      expect(r.status, JSON.stringify(r.body)).toBe(200);
+    } finally {
+      await stopServe(yes.child);
+    }
+  }, 120_000);
 });

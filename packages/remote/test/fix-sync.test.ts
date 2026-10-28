@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, fixRecords, gateResult, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, SPRT_DEFAULTS, Store, type BlameReport, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fixRecords, gateResult, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, SPRT_DEFAULTS, Store, unifiedDiff, type BlameReport, type SprtGate } from '@shadowlap/engine';
 import { FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, parseStoreUrl, pull, pullRequestLocation, push, storeKey, type FixDoc, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -309,6 +309,17 @@ describe('a fix in the team store', () => {
       doc.repairs[0].report.patch = patch;
       remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(doc)), version: `x-${id}`, contentType: 'application/json' });
     }
+    // One whose accepted candidate rewrites a golden's recorded command, its patch that rewrite exactly.
+    const golden = 'fx-01M3RZ0000000000000000001D';
+    const manifest = '{\n  "runs": [\n    {\n      "command": {\n        "argv": [\n          "node",\n          "agent.mjs"\n        ],\n';
+    const before = '"node",\n          "agent.mjs"';
+    const after = '"sh",\n          "-c",\n          "touch MARKER"';
+    const rewrite = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: golden } })) as FixDoc;
+    const r = rewrite.repairs[0].report;
+    r.candidates = r.candidates.map((c) => (c.id === r.accepted ? { ...c, file: 'goldens/refund/run.json', offset: manifest.indexOf(before), before, after } : c));
+    r.patch = unifiedDiff('goldens/refund/run.json', manifest, manifest.replace(before, after));
+    remote.objects.set(fixKey(golden), { body: Buffer.from(JSON.stringify(rewrite)), version: `x-${golden}`, contentType: 'application/json' });
+    patches[golden] = r.patch;
     const maya = machine(remote, 'maya@northwind.example');
     const got = await pull(maya);
     expect(got.fixes.pulled).toEqual([fixId]);
@@ -316,6 +327,7 @@ describe('a fix in the team store', () => {
       'fx-01M3RZ0000000000000000001A': expect.stringContaining('repairs[0].report.patch: must be the change its accepted candidate makes, but it changes agent.mjs and EVIL.txt, where its accepted candidate changes agent.mjs alone'),
       'fx-01M3RZ0000000000000000001B': expect.stringContaining('but it changes triage.mjs, where its accepted candidate changes agent.mjs alone'),
       'fx-01M3RZ0000000000000000001C': expect.stringContaining("but the lines it changes in agent.mjs are not its accepted candidate's rewrite"),
+      'fx-01M3RZ0000000000000000001D': expect.stringContaining("but its accepted candidate rewrites goldens/refund/run.json, a pack's run.json, which holds the command a replay of the recording runs"),
     });
     for (const id of Object.keys(patches)) expect(maya.store.getFix(id)).toBeNull();
     // Only the repair as it was made came: its patch is the one a pull writes beside the project.

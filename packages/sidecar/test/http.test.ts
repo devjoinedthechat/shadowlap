@@ -36,6 +36,58 @@ describe('HTTP host rules', () => {
   });
 });
 
+describe('a captured call whose body masking can\'t encode again', () => {
+  // A JSON string can escape half of a surrogate pair on its own (\\ud800): decoded, it has no
+  // URL encoding, so a credential masked inside a percent-encoded value next to it can't be written
+  // back as it was. The value is masked whole, and the call goes through.
+  const pct = encodeURIComponent('{"api_key":"SLSEC_LONE_q1w2e3r4","y":"');
+  const bodies = {
+    json: `{"q":"data=${pct}\\ud800%22%7D&x=1"}`,
+    form: `data=${pct}\ud800%22%7D&x=1`,
+    url: `{"u":"https://h/x?data=${pct}\\ud800%22%7D"}`,
+  };
+
+  it('is stored with that value masked whole, never thrown on', () => {
+    for (const [name, text] of Object.entries(bodies)) {
+      for (const contentType of ['application/json', 'text/plain', undefined]) {
+        const stored = JSON.stringify(storedRequestBody(Buffer.from(text), contentType));
+        expect(stored, `${name} ${String(contentType)}`).not.toContain('SLSEC_LONE');
+        expect(stored).toMatch(/<CREDENTIAL>|%3CCREDENTIAL%3E/);
+        const result = storedResult({ status: 200, headers: { 'content-type': contentType ?? 'text/plain' }, ...decodeBody(Buffer.from(text), contentType) }, Buffer.from(text)).toString('utf8');
+        expect(result, `${name} ${String(contentType)}`).not.toContain('SLSEC_LONE');
+      }
+    }
+  });
+
+  it('reaches the service and the agent, and is recorded ended', async () => {
+    const service = createServer((req, res) => {
+      let got = '';
+      req.on('data', (d: Buffer) => (got += d.toString()));
+      req.on('end', () => res.writeHead(200, { 'content-type': 'text/plain' }).end(got));
+    });
+    await new Promise<void>((r) => service.listen(0, '127.0.0.1', () => r()));
+    const at = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, http: [{ host: new URL(at).host, effect: 'read' }] });
+    try {
+      const run = sidecar.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      // JSON whose string escapes the half surrogate: the bytes on the wire are plain ASCII.
+      const res = await fetch(`${sidecar.url}/r/${run.runId}/http/echo`, { method: 'POST', headers: { 'x-shadowlap-upstream': at, 'content-type': 'application/json' }, body: bodies.json });
+      // The service got the body as sent, and the agent the answer as the service gave it.
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(bodies.json);
+      sidecar.endRun(run.runId, 'completed');
+      const [call] = store.getCalls(run.runId);
+      expect(call.end).toMatchObject({ outcome: 'ok' });
+      expect(JSON.stringify(store.getJson(call.requestRef!)) + JSON.stringify(store.getJson(call.end!.responseRef!))).not.toContain('SLSEC_LONE');
+    } finally {
+      await sidecar.close();
+      store.close();
+      await new Promise<void>((r) => service.close(() => r()));
+    }
+  });
+});
+
 describe('captured HTTP calls', () => {
   it('forward only to declared hosts, and store neither request headers nor cookies', async () => {
     const store = Store.open(':memory:');
@@ -244,6 +296,64 @@ describe('credentials in a captured call', () => {
       await fetch(`${sidecar.url}/r/${changed.runId}/http/customsearch/v1?key=AIzaSyD-live-key-0123&q=refunds`, { headers: { 'x-shadowlap-upstream': `http://${host}` } }).then((r) => r.text());
       const { divergence } = sidecar.endRun(changed.runId, 'completed').summary;
       expect(divergence?.diff).toEqual([{ op: 'changed', path: '$.args.url', before: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refund`, after: `http://${host}/customsearch/v1?key=<CREDENTIAL>&q=refunds` }]);
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
+  });
+
+  it("in a webhook's address are stored masked, and a recording that kept them as sent still matches, with a rotated secret too", async () => {
+    const seen: string[] = [];
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        seen.push(req.url ?? '');
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const post = async (base: string, runId: string, token: string) => {
+      const res = await fetch(`${base}/r/${runId}/http/api/webhooks/123456/${token}?session=SLSEC_QS_SESSION_q1w2e3`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/json' }, body: '{"content":"refunded"}' });
+      await res.text();
+      return res.status;
+    };
+    const sidecars: Sidecar[] = [];
+    try {
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'write' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await post(recording.url, run.runId, 'SLSEC_R2_DISCORDTOKEN_q1w2e3r4')).toBe(200);
+      recording.endRun(run.runId, 'completed');
+      // The service got the address as the agent sent it; the store keeps it without the secret.
+      expect(seen).toEqual(['/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4?session=SLSEC_QS_SESSION_q1w2e3']);
+      const [call] = store.getCalls(run.runId);
+      expect(call.name).toBe(`POST ${host}/api/webhooks/123456/<CREDENTIAL>`);
+      expect(JSON.stringify(store.getJson(call.requestRef!))).not.toContain('SLSEC_');
+
+      // As an earlier version stored it: the secret in its name and address, fingerprinted so.
+      const sent = { ...(store.getJson(call.requestRef!) as { args: Record<string, unknown> }).args, url: `http://${host}/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4?session=SLSEC_QS_SESSION_q1w2e3` };
+      const name = `POST ${host}/api/webhooks/123456/SLSEC_R2_DISCORDTOKEN_q1w2e3r4`;
+      const old = store.createRun({ mode: 'record', command: { argv: ['x'], cwd: '.' }, meta: { normalizersHash: normalizersHash([], 'exact', false) } });
+      const fingerprint = fingerprintTool(name, sent, []).fingerprint;
+      store.appendCallStart({ ...call, runId: old.runId, name, fingerprint, requestRef: store.putJson({ args: sent }) });
+      store.appendCallEnd({ kind: call.kind, name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
+      store.endRun(old.runId, 'completed');
+
+      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'write' }], clock: 'exact' });
+      sidecars.push(sidecar);
+      for (const token of ['SLSEC_R2_DISCORDTOKEN_q1w2e3r4', 'rotated-token-0123456789']) {
+        for (const parent of [old.runId, run.runId]) {
+          const replay = sidecar.startRun({ mode: 'replay', parentRunId: parent, command: { argv: ['x'], cwd: '.' } });
+          expect(await post(sidecar.url, replay.runId, token)).toBe(200);
+          expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, `${token} on ${parent === old.runId ? 'the old recording' : 'the new one'}`).toBeNull();
+        }
+      }
+      // Every replay was served from the recording: the service saw the recording's call alone.
+      expect(seen).toHaveLength(1);
     } finally {
       for (const s of sidecars) await s.close();
       store.close();

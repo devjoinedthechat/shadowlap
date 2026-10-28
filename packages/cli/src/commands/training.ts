@@ -18,6 +18,7 @@ import {
   PAIR_SHAPES,
   pairRows,
   projectPath,
+  goldensNeedingConsent,
   recordEvent,
   resolveAuthor,
   safeLine,
@@ -28,11 +29,12 @@ import {
 } from '@shadowlap/engine';
 import { STOP_SIGNALS } from '../agent-signals.js';
 import { formatBudget } from '../attempts.js';
+import { confirmGolden, headRunRecord } from '../golden-consent.js';
 import { loadConfig } from '../config.js';
 import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
-import { serveTasks } from '../serve-tasks.js';
+import { servedConsentKey, serveTasks } from '../serve-tasks.js';
 import { openStore, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
 import { addJudge, cannotScore, keepScores, loadTasks, notStarted, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
@@ -252,8 +254,9 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
+    .option('-y, --yes', "run the recorded command of a golden from a pack this repository doesn't track without asking")
     .option('--json', 'print the scores as JSON (progress still goes to stderr)')
-    .action(async (goldens: string[], flags: { model: string; baseUrl?: string; keyEnv?: string; attempts: number; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; json?: boolean }) => {
+    .action(async (goldens: string[], flags: { model: string; baseUrl?: string; keyEnv?: string; attempts: number; reads: ReadPolicy; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       if (flags.attempts > 100) throw new InvalidArgumentError('--attempts is at most 100');
       let target: ModelTarget;
@@ -281,6 +284,19 @@ export function register(program: Command): void {
         const why = cannotScore(t, target);
         if (why) skipped.push({ task: t.golden, reason: why });
         else scorable.push(t);
+      }
+      // Every attempt runs the golden's recorded command: one from a pack this repository doesn't
+      // track, recorded elsewhere, runs only after a yes, as `shadowlap test` asks of it; without a
+      // terminal, as in CI, it isn't scored, saying why.
+      if (!flags.yes) {
+        const asked = withStore(opts, (store) => goldensNeedingConsent(store, scorable.map((t) => t.dir), root), true);
+        for (const a of asked) {
+          const t = scorable.find((x) => x.dir === a.dir)!;
+          const again = `shadowlap tasks score ${t.golden} --model ${flags.model} --yes`;
+          if (await confirmGolden(headRunRecord(a), t.golden, again)) continue;
+          scorable.splice(scorable.indexOf(t), 1);
+          skipped.push({ task: t.golden, reason: `${t.golden} came from a pack this repository doesn't track: pass --yes to run its recorded command (${again}), or add the pack to the repository` });
+        }
       }
       const log = (line: string) => process.stderr.write(`${line}\n`);
       for (const s of skipped) log(`${p.yellow('!')} skipped ${safeLine(s.reason)}`);
@@ -374,7 +390,8 @@ export function register(program: Command): void {
     .option('--key-env <name>', 'the environment variable holding the key of --base-url, sent there and nowhere else (a request can\'t name one)')
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; baseUrl?: string; keyEnv?: string; timeout?: number; guard: GuardMode }) => {
+    .option('-y, --yes', "serve goldens from packs this repository doesn't track, whose attempts run their recorded command, without asking")
+    .action(async (goldens: string[], flags: { port?: number; concurrency: number; reads: ReadPolicy; baseUrl?: string; keyEnv?: string; timeout?: number; guard: GuardMode; yes?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const root = process.cwd();
       const { tasks: all } = withStore(opts, (store) => loadTasks(root, store), true);
@@ -394,9 +411,25 @@ export function register(program: Command): void {
       const given = process.env.SHADOWLAP_TASKS_TOKEN?.trim();
       if (given !== undefined && given !== '' && given.length < 16) throw new InvalidArgumentError('SHADOWLAP_TASKS_TOKEN must be at least 16 characters; leave it unset for a random one');
       const token = given || randomBytes(24).toString('hex');
-      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only, ...(baseUrl ? { baseUrl } : {}), ...(flags.keyEnv ? { keyEnv: flags.keyEnv } : {}) }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
       const served = goldens.length ? all.filter((t) => only.includes(t.golden)) : all;
-      const ready = served.filter((t) => t.status === 'ready');
+      let ready = served.filter((t) => t.status === 'ready');
+      // Every attempt runs a golden's recorded command: one from a pack this repository doesn't
+      // track, recorded elsewhere, is served only once the user says yes to it here, as tasks score
+      // asks; without a terminal, as under a training loop's supervisor, only with --yes.
+      const consented = new Set<string>();
+      if (!flags.yes) {
+        const asked = withStore(opts, (store) => goldensNeedingConsent(store, ready.map((t) => t.dir), root), true);
+        for (const a of asked) {
+          const t = ready.find((x) => x.dir === a.dir)!;
+          const again = `shadowlap tasks serve ${t.golden} --yes`;
+          if (await confirmGolden(headRunRecord(a), t.golden, again)) consented.add(servedConsentKey(a.dir, a.argv));
+          else {
+            process.stderr.write(`${p.yellow('!')} not serving ${safeLine(t.golden)}: it came from a pack this repository doesn't track. Pass --yes to serve it (${safeLine(again)}), or add the pack to the repository\n`);
+            ready = ready.filter((x) => x !== t);
+          }
+        }
+      }
+      const server = await serveTasks(opts, root, { port: flags.port ?? 4779, strictPort: flags.port !== undefined, token, concurrency: flags.concurrency, reads: flags.reads, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, goldens: only, consented, ...(flags.yes ? { yes: true } : {}), ...(baseUrl ? { baseUrl } : {}), ...(flags.keyEnv ? { keyEnv: flags.keyEnv } : {}) }, (line) => process.stderr.write(p.dim(`[tasks] ${line}\n`)));
       process.stdout.write(`Serving ${plural(ready.length, 'ready task')} on ${server.url}\n`);
       process.stdout.write(`  token: ${token}\n`);
       process.stdout.write(p.dim(`  POST ${server.url}/v1/tasks/<task>/attempts  ${baseUrl ? `{"model":"my-finetune"} (asks ${baseUrl})` : '{"model":"my-finetune","baseUrl":"http://127.0.0.1:8000/v1"}'}\n  with Authorization: Bearer <token>; GET /v1/tasks lists them. Ctrl-C stops.\n`));

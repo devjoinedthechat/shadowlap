@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
+import { applyEdit, patchFiles, REPAIR_FILE_LIMIT, repairNeverRewrites, repairPatchProblem, unifiedDiff, type RepairCandidate } from '../src/repair.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -81,6 +81,23 @@ describe('repairPatchProblem', () => {
     }
     expect(repairPatchProblem(report(candidate(), AGENT, ['diff --git a/agent.mjs b/run.sh', 'similarity index 90%', 'rename from agent.mjs', 'rename to run.sh', ''].join('\n')))).toBe('it changes agent.mjs and run.sh, where its accepted candidate changes agent.mjs alone');
     expect(repairPatchProblem(report(candidate(), AGENT, ['diff --git a/agent.mjs b/agent.mjs', 'GIT binary patch', 'literal 3', 'Hc$@<O00001', ''].join('\n')))).toMatch(/^its header is not the one/);
+  });
+
+  it("refuses a candidate that rewrites a recording or Shadowlap's config: a recorded command never changes through a repair", () => {
+    // A pulled repair whose accepted candidate rewrites a golden's recorded command: its patch is that rewrite exactly.
+    const content = '{\n  "runs": [\n    {\n      "command": {\n        "argv": [\n          "node",\n          "agent.mjs"\n        ],\n';
+    const before = '"node",\n          "agent.mjs"';
+    const after = '"sh",\n          "-c",\n          "touch never-run"';
+    const pulled = (file: string) => report(candidate({ file, offset: content.indexOf(before), before, after }), content);
+    expect(repairPatchProblem(pulled('goldens/refund/run.json'))).toBe("its accepted candidate rewrites goldens/refund/run.json, a pack's run.json, which holds the command a replay of the recording runs: a repair rewrites only the text the agent sends the model, where the agent's source holds it");
+    // Read as Windows reads a name too: in any case, without the dots it drops, as a stream or a short name.
+    for (const file of ['goldens/refund/RUN.JSON', 'goldens/refund/run.json.', 'goldens/refund/run.json::$DATA', 'goldens/refund/RUN~1.JSO', 'goldens/refund/calls.jsonl', `goldens/refund/blobs/${'a'.repeat(64)}`, '__recordings__/refund.json', 'src/__Recordings__/refund.json', '.shadowlap/repairs/r1/fix.patch', 'shadowlap.config.json', 'agents/Shadowlap.Config.json']) {
+      expect(repairPatchProblem(pulled(file)), file).toMatch(/^its accepted candidate rewrites .*: a repair rewrites only the text the agent sends the model/);
+    }
+    // A file of the agent's own, whatever its folder is called, is one a repair rewrites.
+    for (const file of ['src/prompt.txt', 'prompts/run.md', 'src/blobs/prompt.ts', 'run.json.md']) expect(repairPatchProblem(pulled(file)), file).toBeNull();
+    expect(repairNeverRewrites('goldens/refund/run.json')).toMatch(/run\.json/);
+    expect(repairNeverRewrites('agent.mjs')).toBeNull();
   });
 
   it("refuses a patch to the candidate's file that is not the candidate's rewrite", () => {

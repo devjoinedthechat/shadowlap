@@ -67,8 +67,9 @@ const RULES = [
 const EXPECT: Record<RedactionExport['id'], { kept: Value[]; masked: Value[] } | null> = {
   // Every request masked, and the strings of every response and error; what a call got back as
   // recorded otherwise (the ticket), and the command line, labels and notes, since a replay runs the
-  // command and hands the agent what each call got back.
-  pack: { kept: ['command', 'flag', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
+  // command and hands the agent what each call got back. But for the key a flag carries, which
+  // every copy masks as a credential, rules or none (`--api-key <CREDENTIAL>`).
+  pack: { kept: ['command', 'label', 'note', 'ticket'], masked: ['system', 'account', 'user', 'key', 'answer', 'error'] },
   // Everything, the run's details too: the file is read, never replayed.
   html: { kept: [], masked: ['system', 'account', 'user', 'key', 'ticket', 'answer', 'error', 'command', 'flag', 'label', 'note'] },
   // The model calls only, whole requests and responses: no tool calls, no command line.
@@ -205,7 +206,10 @@ describe('where the redaction rules apply', () => {
       expect(present.sort()).toEqual([...expected!.kept].sort());
       for (const k of expected!.masked) expect(text, k).toContain(VALUES[k].marker);
       // The run's details as the entry says.
-      if (entry.details === 'kept') expect(present).toContain('command');
+      if (entry.details === 'kept') {
+        expect(present).toContain('command');
+        expect(text).toMatch(/"--api-key",\s*"<CREDENTIAL>"/);
+      }
       if (entry.details === 'masked') expect(text).toContain(`--notify ${VALUES.command.marker}`);
       if (entry.details === 'absent') expect(text).not.toContain('--notify');
       if (entry.applies === 'attributes') expect(text).not.toContain('You help the owner');

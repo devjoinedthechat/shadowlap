@@ -5,7 +5,7 @@
  * WAL and brings an older store up to this version under one write lock, or the read-only one
  * Store.openReadOnly makes. A store a newer Shadowlap wrote is refused either way.
  */
-import { chmodSync, closeSync, constants as fsConstants, lstatSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants as fsConstants, lstatSync, mkdirSync, openSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
@@ -598,9 +598,11 @@ function createStoreFile(path: string): void {
 
 /**
  * Why the directory a store is in can't hold one, or null: a store is kept only in a real directory
- * of this user's that not every user can write to, never through a link to one elsewhere. Whoever
+ * of this user's that no other user can write to, neither its group nor every user, never through a
+ * link to one elsewhere, nor in a directory someone else keeps that every user can change. Whoever
  * can write there can put a link where the store's files go after each is checked, before SQLite
- * opens it, and node:sqlite can't open a file without following one.
+ * opens it, and node:sqlite can't open a file without following one; whoever can write in the
+ * directory above it can put another directory in its place.
  */
 export function storeDirProblem(dir: string): string | null {
   let st;
@@ -612,10 +614,21 @@ export function storeDirProblem(dir: string): string | null {
   }
   if (st.isSymbolicLink()) return `${dir} is a symbolic link: a store is kept only in a directory of its own, never through a link to one elsewhere. Point --db at a store in the directory itself, or remove the link`;
   if (!st.isDirectory()) return `${dir} is not a directory: point --db at a store's file`;
+  // Windows keeps neither owners as numbers nor these bits: who may write there is its access control's to say.
+  if (process.platform === 'win32' || typeof process.getuid !== 'function') return null;
+  // The directory it is in: one every user can change that isn't sticky (in a shared /tmp only an
+  // entry's owner can rename it), and that someone else keeps, lets any user put another directory
+  // in its place. One of this user's, or root's, is theirs to keep so: a CI job's checkout, made
+  // with every permission under a umask of 0, is one.
+  const parent = dirname(dir);
+  if (parent !== dir) {
+    const above = statSync(parent);
+    if (above.mode & 0o002 && !(above.mode & 0o1000) && above.uid !== process.getuid() && above.uid !== 0) return `${parent}, the directory ${dir} is in, belongs to another user (uid ${above.uid}) and every user can change it: whoever can write there can put another directory in its place. Point --db at a store in a directory of your own`;
+  }
   const why = "since whoever can write there can put a link where the store's files go";
-  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return `${dir} belongs to another user (uid ${st.uid}): a store is kept only in a directory of yours, ${why}. Point --db at a store in a directory of your own`;
-  // Windows keeps no such bit: who may write there is its access control's to say.
-  if (process.platform !== 'win32' && st.mode & 0o002) return `${dir} can be written by every user: a store is kept only in a directory that not everyone can write to, ${why}. Take that away (chmod o-w), or point --db at a store in a directory of your own`;
+  if (st.uid !== process.getuid()) return `${dir} belongs to another user (uid ${st.uid}): a store is kept only in a directory of yours, ${why}. Point --db at a store in a directory of your own`;
+  if (st.mode & 0o002) return `${dir} can be written by every user: a store is kept only in a directory that not everyone can write to, ${why}. Take that away (chmod o-w), or point --db at a store in a directory of your own`;
+  if (st.mode & 0o020) return `${dir} can be written by its group: a store is kept only in a directory no one else can write to, ${why}. Take that away (chmod g-w), or point --db at a store in a directory of your own`;
   return null;
 }
 

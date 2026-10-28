@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CREDENTIAL_PLACEHOLDER as C, credentialFreeBody, credentialFreeHeaders, credentialParam, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials } from '../src/http.js';
+import { redactApiPath, redactQuery } from '../src/redact.js';
 
 /**
  * The shapes and headers the review found a credential still left by: a token in a URL inside a
@@ -149,5 +150,24 @@ describe('a multipart body’s parts', () => {
     expect(masked).toContain(`{"api_key":"${C}","name":"f"}`);
     expect(masked).toContain('filename="a.txt"\r\n\r\nplain file');
     expect(maskMultipartBytes(Buffer.from(masked))).toBeNull();
+  });
+});
+
+describe('a value that can\'t be encoded again', () => {
+  it('is masked whole, and no copy\'s rule throws on it', () => {
+    // Half of a surrogate pair, escaped on its own in JSON: decoded beside a percent-encoded
+    // credential, the value masked inside has no URL encoding.
+    const pct = encodeURIComponent('{"api_key":"SLSEC_LONE_q1w2e3r4","y":"');
+    const lone = String.fromCharCode(0xd800);
+    for (const text of [`{"q":"data=${pct}\\ud800%22%7D&x=1"}`, `data=${pct}${lone}%22%7D&x=1`, `{"u":"https://h/x?data=${pct}\\ud800%22%7D"}`]) {
+      const masked = maskTextCredentials(text);
+      expect(masked, text).toContain('data=<CREDENTIAL>');
+      expect(masked).not.toContain('SLSEC_LONE');
+    }
+    // A rule a copy applies to a query or a path segment that holds one writes it back well formed.
+    const rule = { pattern: '/secret-[a-z]+/', replace: '<GONE>' };
+    const call = { kind: 'api' as const, name: 'POST /v1/x' };
+    expect(redactQuery(`q=${lone}secret-abc`, [rule], call)).toBe('q=%EF%BF%BD%3CGONE%3E');
+    expect(redactApiPath(`/v1/${lone}secret-abc/x`, [rule], call)).toBe('/v1/%EF%BF%BD%3CGONE%3E/x');
   });
 });

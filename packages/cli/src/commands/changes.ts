@@ -1,8 +1,10 @@
+import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
 import { byRule, commandIsImported, controlOpen, formatDecisions, hasRecordedCommand, judgeOpen, SPRT_DEFAULTS, unsettledReason, type DecisionsReport, type DecisionsVerify } from '@shadowlap/engine';
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
+import { goldenConsented } from '../golden-consent.js';
 import { attemptRule, parseFields, readExpectJson } from './fix.js';
 import { gateFlags } from '../fixes.js';
 import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-codes.js';
@@ -38,16 +40,20 @@ function splitCommand(program: Command, given: string[]): { specs: string[]; arg
 }
 
 /**
- * Consent for every imported command the change may run (the offline replay of --from-code, verify),
- * asked before anything is spent. A golden named by its pack folder runs its command as `shadowlap
- * test` runs it, without asking: it is the project's own.
+ * Consent for every command someone else chose that the change may run (the offline replay of
+ * --from-code, verify), asked before anything is spent: a run's from a pack or the team store, and a
+ * golden's, named by its pack folder, as `shadowlap test` asks of one (goldenNeedsConsent).
  */
-async function consent(targets: DecisionTarget[], argv: string[] | null, yes: boolean | undefined, runs: boolean): Promise<boolean> {
+async function consent(targets: DecisionTarget[], argv: string[] | null, yes: boolean | undefined, runs: boolean, kind: 'decisions' | 'migrate' = 'decisions'): Promise<boolean> {
   if (!runs) return true;
+  const cwd = process.cwd();
   for (const t of targets) {
     const problem = commandProblem(t, argv);
     if (problem) throw new DecisionsError(problem);
-    if (!argv && t.golden === null && commandIsImported(t.run) && hasRecordedCommand(t.run) && !yes && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap decisions ${shortId(t.run.runId)} … -- <command>`))) return false;
+    if (argv || yes) continue;
+    if (t.golden !== null) {
+      if (!(await goldenConsented(t.run, resolve(cwd, t.golden), cwd, false, `shadowlap ${kind} ${t.golden} … --yes`))) return false;
+    } else if (commandIsImported(t.run) && hasRecordedCommand(t.run) && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap ${kind} ${shortId(t.run.runId)} … -- <command>`))) return false;
   }
   return true;
 }
@@ -128,7 +134,7 @@ export function register(program: Command): void {
     .option('--strict', 'exit 1 when a run has a rank 1 or 2 change (for CI)')
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (1) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
     .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
+    .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set: string[]; from: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
@@ -228,7 +234,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop a model request, or a verify attempt, after this long', parseIntArg)
     .option('--inconclusive <mode>', 'what an inconclusive result does to the exit status: fail (1) or warn (0, with a warning)', parseChoice(['fail', 'warn'] as const), 'fail')
     .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option('-y, --yes', "run the recorded command of runs imported from someone's pack without asking (a golden's runs as test runs it)")
+    .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
     .action(async (given: string[], flags: { to: string; from: string[]; scope?: string; set: string[]; samples: number; concurrency: number; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
@@ -251,7 +257,7 @@ export function register(program: Command): void {
       }
       store.close();
       try {
-        if (!(await consent(targets, split.argv, flags.yes, true))) {
+        if (!(await consent(targets, split.argv, flags.yes, true, 'migrate'))) {
           process.exitCode = EXIT.usage;
           return;
         }

@@ -1024,8 +1024,8 @@ export async function verifyFlagged(input: { opts: GlobalOpts; store: Store; fla
     const runs = g.targets.map((t) => {
       const judged = judgeRecording(input.store, t.run, input.store.getCalls(t.run.runId), g.spec, input.prices);
       const role: VerifyRole = judged.passed === false ? 'target' : 'good';
-      // A golden runs its pack's command as test runs it; a run unpacked from someone's pack is marked so later replays ask.
-      return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), role };
+      // A run whose command came from someone's pack (a golden's too, as importGolden marks one) is marked so later replays ask.
+      return { parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), role };
     });
     const role = (r: VerifyRole) => runs.filter((x) => x.role === r).map((x) => x.parent.runId);
     const line = verifyCommand({ fixes: role('target').map((id) => shortId(id)), keeps: role('good').map((id) => shortId(id)) }, { expect: g.json ?? null, attempts: v.attempts, passes: !v.gate && v.needed !== Math.ceil(0.8 * v.attempts) ? v.needed : undefined, gate: v.gate, fields: input.fields, from: input.from ?? undefined, liveTools: [], writes: v.writes, reads: 'live', budget: null, timeoutMs: s.timeoutMs, argv: s.argv });
@@ -1112,7 +1112,7 @@ export async function runDecisions(input: DecisionsInput): Promise<DecisionsRepo
       const held = new Map<string, RequestPrompt>();
       for (const t of input.targets) {
         log(p.dim(`  reading the prompt the working tree sends ${t.golden ?? shortId(t.run.runId)}, offline`));
-        const cap = await captureFromCode({ store, config, parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && t.golden === null && commandIsImported(t.run), guard: 'block', timeoutMs: s.timeoutMs ?? 120_000, cwd });
+        const cap = await captureFromCode({ store, config, parent: t.run, argv: s.argv ?? t.run.command.argv, commandFromImport: !s.argv && commandIsImported(t.run), guard: 'block', timeoutMs: s.timeoutMs ?? 120_000, cwd });
         for (const c of cap.prompts.values()) {
           const key = JSON.stringify(c.prompt);
           const had = held.get(key);

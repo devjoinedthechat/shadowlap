@@ -1,6 +1,6 @@
-import { commandIsImported, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { commandIsImported, goldensNeedingConsent, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
-import { askConsent, saidYes } from './consent.js';
+import { jobConsent, type JobConsent } from './consent.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';
@@ -187,11 +187,12 @@ function setArgs(raw: unknown): string[] | { error: string } {
 }
 
 /** The runs and goldens a request names: run ids from the store, goldens from the project's list. */
-function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[]; byId: string[] } | { error: string; status?: number } {
+function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[]; byId: string[]; packs: string[] } | { error: string; status?: number } {
   const args: string[] = [];
   const runIds: string[] = [];
-  // Runs named by id: a golden runs its pack's command as a test does, without asking.
+  // Runs named by id, and goldens by their pack folder: each asks for a yes as a test asks of it.
   const byId: string[] = [];
+  const packs: string[] = [];
   if (req.runs !== undefined) {
     if (!Array.isArray(req.runs) || req.runs.length > 500) return { error: 'runs must be a list of run ids' };
     for (const id of req.runs) {
@@ -212,11 +213,12 @@ function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSourc
       // A path that starts with "-" would be read as one of the CLI's options, never as a golden.
       if (optionLike(g.path)) return { error: `${g.path.slice(0, 80)}: its path starts with "-", which the CLI would read as an option: rename it under "tests" in shadowlap.config.json` };
       args.push(g.path);
+      packs.push(g.path);
       if (g.runId) runIds.push(g.runId);
     }
   }
   if (!args.length) return { error: 'name the runs or goldens to ask again: runs, goldens, or goldens "all"' };
-  return { args, runIds, byId };
+  return { args, runIds, byId, packs };
 }
 
 /** `--from` flags from the request's `from`: the recorded models a switch changes. */
@@ -239,7 +241,7 @@ function scopeArgs(raw: unknown): string[] | { error: string } {
  * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
  * passed on whatever it is, 1 too, which asks once and has no control.
  */
-export function decisionsJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[]): JobBuildResult {
+export function decisionsJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
   if (req.model !== undefined && (typeof req.model !== 'string' || !MODEL.test(req.model))) return { error: 'model is a model name, such as claude-sonnet-5-5' };
@@ -258,17 +260,19 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
     samples = ['--samples', String(req.samples)];
   }
   const runsAgent = fromCode || req.thenVerify === true;
+  let yes: string[] = [];
   if (runsAgent) {
-    const consent = importedConsent(store, targets.byId, req.yes);
-    if (consent) return consent;
+    const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+    if ('ask' in consent) return consent.ask;
+    yes = consent.yes;
   }
-  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...(runsAgent && typeof req.yes === 'string' ? ['--yes'] : [])];
+  const args = ['decisions', ...targets.args, ...(typeof req.model === 'string' ? ['--model', req.model] : []), ...set, ...from, ...scope, ...(fromCode ? ['--from-code'] : []), ...samples, ...(req.thenVerify === true ? ['--then-verify'] : []), ...yes];
   const what = fromCode ? 'the prompt in your working tree' : typeof req.model === 'string' ? req.model : 'the fields set';
   return { args, title: `Previewing ${what}`, ...(targets.runIds.length === 1 ? { runId: targets.runIds[0]! } : {}) };
 }
 
 /** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
-export function migrateJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[]): JobBuildResult {
+export function migrateJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
   const named = req.goldens !== undefined || req.runs !== undefined;
   const targets = named ? targetArgs(store, req, goldens) : targetArgs(store, { goldens: 'all' }, goldens);
@@ -279,9 +283,9 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
   if ('error' in from) return from;
   const scope = scopeArgs(req.scope);
   if ('error' in scope) return scope;
-  const consent = importedConsent(store, targets.byId, req.yes);
-  if (consent) return consent;
-  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...(typeof req.yes === 'string' ? ['--yes'] : [])], title: `Migrating to ${req.to}` };
+  const consent = commandConsent(store, targets.byId, targets.packs, projectDir, req.yes);
+  if ('ask' in consent) return consent.ask;
+  return { args: ['migrate', '--to', req.to, ...targets.args, ...from, ...scope, ...set, ...consent.yes], title: `Migrating to ${req.to}` };
 }
 
 /**
@@ -291,7 +295,7 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: Store, projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
@@ -304,11 +308,18 @@ export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult 
   if (!flagged.length) return { error: 'no run in this session has a write, stop or judged change: there is nothing to verify', status: 409 };
   const runs = flagged.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null);
   if (runs.length < flagged.length) return { error: 'a run this session flagged is no longer in the store', status: 409 };
-  // A run from the store whose command came from someone's pack runs only with a yes; a golden runs its pack's command, as test runs it.
-  const goldenRuns = new Set(session.matrix.filter((row) => row.golden).map((row) => row.runId));
-  const consent = importedConsent(store, flagged.filter((id) => !goldenRuns.has(id)), req.yes);
-  if (consent) return consent;
-  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...(typeof req.yes === 'string' ? ['--yes'] : [])];
+  // A run from the store whose command came from someone's pack runs only with a yes, and so does a
+  // golden's, run from its pack, whose pack the repository doesn't track, as test asks of one.
+  const goldenOf = new Map(session.matrix.filter((row) => row.golden).map((row) => [row.runId, row.golden!] as const));
+  const consent = commandConsent(
+    store,
+    flagged.filter((id) => !goldenOf.has(id)),
+    [...new Set(flagged.flatMap((id) => (goldenOf.has(id) ? [goldenOf.get(id)!] : [])))],
+    projectDir,
+    req.yes,
+  );
+  if ('ask' in consent) return consent.ask;
+  const args = ['decisions', '--verify', req.sessionId, ...(req.runId !== undefined ? [flagged[0]!] : []), ...consent.yes];
   return { args, title: `Verifying ${runs.length} run${runs.length === 1 ? '' : 's'} with a write, stop or judged change`, ...(runs.length === 1 ? { runId: runs[0]!.runId } : {}) };
 }
 
@@ -316,14 +327,26 @@ export function verifyFlaggedJob(req: JobRequest, store: Store): JobBuildResult 
 export const commandLine = (args: readonly string[]) => quoteArgv(['shadowlap', ...args]);
 
 /**
- * A run whose command came from someone else's pack needs a yes before a job runs it: to the
- * commands the question showed (consent.ts).
+ * The commands someone else chose that a job runs need a yes before it does, to the lines the
+ * question showed (consent.ts): a run's whose command came from someone's pack or the team store,
+ * and a golden's, from a pack (`packs`, relative to `projectDir`) the repository doesn't track and
+ * this machine didn't record (goldensNeedingConsent), as `shadowlap test` asks of one. The CLI gets
+ * `--yes` only once that question was asked and answered (JobConsent).
  */
-function importedConsent(store: Store, runIds: readonly string[], yes: unknown): JobBuildResult | null {
+function commandConsent(store: Store, runIds: readonly string[], packs: readonly string[], projectDir: string, yes: unknown): JobConsent {
   const imported = runIds.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null && commandIsImported(r));
-  if (!imported.length) return null;
-  const lines = imported.map((r) => r.command.argv);
-  if (saidYes(yes, lines)) return null;
-  const first = imported[0]!;
-  return askConsent(`${first.runId.slice(0, 10)} came from ${importedCommandSource(first)}: this runs the command it was recorded with (${quoteArgv(first.command.argv)})${imported.length > 1 ? `, and ${imported.length - 1} more run${imported.length === 2 ? '' : 's'} like it: ${imported.slice(1).map((r) => `${r.runId.slice(0, 10)} (${quoteArgv(r.command.argv)})`).join(', ')}` : ''}. Confirm it to run it`, lines);
+  const sent = packs.length ? goldensNeedingConsent(store, packs, projectDir) : [];
+  const named = [
+    ...imported.map((r) => ({ what: `${r.runId.slice(0, 10)} came from ${importedCommandSource(r)}`, short: r.runId.slice(0, 10), argv: r.command.argv })),
+    ...sent.map((g) => ({ what: `${g.dir} is from a pack this repository doesn't track`, short: g.dir, argv: g.argv })),
+  ];
+  return jobConsent(
+    named.map((n) => n.argv),
+    yes,
+    () => {
+      const [first, ...more] = named;
+      const kind = sent.length && imported.length ? '' : ` ${sent.length ? 'golden' : 'run'}${more.length === 1 ? '' : 's'}`;
+      return `${first!.what}: this runs the command it was recorded with (${quoteArgv(first!.argv)})${more.length ? `, and ${more.length} more${kind} like it: ${more.map((m) => `${m.short} (${quoteArgv(m.argv)})`).join(', ')}` : ''}. Confirm it to run it`;
+    },
+  );
 }

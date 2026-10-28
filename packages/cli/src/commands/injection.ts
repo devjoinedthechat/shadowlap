@@ -6,6 +6,7 @@ import { attemptsToFail, attemptsToPass, cleanDecided, commandIsImported, DEFAUL
 import { AttemptRunner, type AttemptTarget } from '../attempts.js';
 import { specFor, type TestEntry } from '../checks.js';
 import { loadConfig, loadTests } from '../config.js';
+import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
 import { importGolden } from '../golden-test.js';
 import { expandRecordings, goldenName } from '../goldens.js';
 import { CLEAN_GATE, cleanInjection, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
@@ -81,6 +82,8 @@ export function cleanGate(json: string | undefined, repeat: number | undefined):
 interface Target {
   run: RunRecord;
   golden: string | null;
+  /** A golden's pack folder, which the consent rule reads (goldenNeedsConsent); null for a run from the store. */
+  dir: string | null;
   /** The golden's tests entry, when the config gives it one. */
   entry: InjectionEntry | null;
 }
@@ -93,7 +96,7 @@ function resolveTargets(store: Store, args: readonly string[], tests: TestEntry[
   const out: Target[] = [];
   for (const arg of args) {
     if (!isPath(arg)) {
-      out.push({ run: requireRun(store, arg), golden: null, entry: null });
+      out.push({ run: requireRun(store, arg), golden: null, dir: null, entry: null });
       continue;
     }
     const { dirs, unmatched } = expandRecordings([arg], projectDir);
@@ -101,7 +104,7 @@ function resolveTargets(store: Store, args: readonly string[], tests: TestEntry[
     for (const dir of dirs) {
       if (tests instanceof Error) throw tests;
       const run = importGolden(store, dir);
-      out.push({ run, golden: goldenName(dir, projectDir), entry: specFor(tests, dir, projectDir)?.injection ?? null });
+      out.push({ run, golden: goldenName(dir, projectDir), dir, entry: specFor(tests, dir, projectDir)?.injection ?? null });
     }
   }
   return out;
@@ -157,7 +160,7 @@ export function register(program: Command): void {
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
-    .option('-y, --yes', 'run the recorded command of an imported run without asking')
+    .option('-y, --yes', "run the recorded command of an imported run, or of a golden from a pack this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
     .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
       if (flags.listTemplates) {
@@ -199,11 +202,13 @@ export function register(program: Command): void {
       } finally {
         store.close();
       }
-      // A run from someone else's pack runs their command: ask, as a replay does. A golden is the project's own.
+      // A run from someone else's pack runs their command: ask, as a replay does. So does a golden
+      // whose pack the repository doesn't track, recorded elsewhere, as `shadowlap test` asks.
       const attemptTargets: AttemptTarget[] = [];
       for (const t of targets) {
-        const imported = !t.golden && commandIsImported(t.run);
-        if (imported && !flags.yes && !(await confirmImportedCommand(t.run, t.run.command.argv, `shadowlap injection ${shortId(t.run.runId)} --yes`))) {
+        const imported = t.dir ? goldenNeedsConsent(t.run, t.dir, projectDir) : commandIsImported(t.run);
+        const again = `shadowlap injection ${t.golden ?? shortId(t.run.runId)} --yes`;
+        if (imported && !flags.yes && !(await (t.dir ? confirmGolden(t.run, t.dir, again) : confirmImportedCommand(t.run, t.run.command.argv, again)))) {
           process.exitCode = EXIT.usage;
           return;
         }
