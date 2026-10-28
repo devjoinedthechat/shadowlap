@@ -270,9 +270,17 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           const given = r.headers['mcp-session-id'];
           if (initialize) sessions.set(typeof given === 'string' ? given : '', session);
           relayHead(res, r);
+          // A body the server's connection broke off part way through: the call ends as the agent saw
+          // it end, and the client's response is broken off too, never passed on as the whole of it.
+          const cutShort = async (cut: string) => {
+            await unanswered(`the MCP server's answer was cut short: ${cut}`);
+            res.destroy();
+            resolve();
+          };
           if (status >= 400 || status === 202 || status === 204 || !/^(application\/json|text\/event-stream)/i.test(type)) {
             // An HTTP error, an accepted notification, or something that isn't MCP: as it came.
-            void readAll(r).then(async (bytes) => {
+            void readAll(r).then(async ({ bytes, cut }) => {
+              if (cut) return cutShort(cut);
               if (status >= 400) await unanswered(`the MCP server answered ${status}${bytes.length ? `: ${bytes.toString('utf8').slice(0, 300)}` : ''}`);
               res.end(bytes);
               resolve();
@@ -280,7 +288,8 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
             return;
           }
           if (/^application\/json/i.test(type)) {
-            void readAll(r).then(async (bytes) => {
+            void readAll(r).then(async ({ bytes, cut }) => {
+              if (cut) return cutShort(cut);
               try {
                 await onMessage(JSON.parse(bytes.toString('utf8')));
               } catch {
@@ -382,12 +391,20 @@ function rpcAnswer(res: ServerResponse, status: number, message: unknown): void 
   res.end(JSON.stringify(message));
 }
 
-function readAll(res: IncomingMessage): Promise<Buffer> {
+/**
+ * A response's body, and why it was cut short when the server's connection broke part way through
+ * (null when it came whole): what came of a cut body is never passed on as the whole of it.
+ */
+function readAll(res: IncomingMessage): Promise<{ bytes: Buffer; cut: string | null }> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
+    const done = (cut: string | null) => resolve({ bytes: Buffer.concat(chunks), cut });
     res.on('data', (c: Buffer) => chunks.push(c));
-    res.on('end', () => resolve(Buffer.concat(chunks)));
-    res.on('error', () => resolve(Buffer.concat(chunks)));
+    res.on('end', () => done(null));
+    res.on('error', (err) => done(err.message));
+    res.on('close', () => {
+      if (!res.complete) done('the connection closed');
+    });
   });
 }
 

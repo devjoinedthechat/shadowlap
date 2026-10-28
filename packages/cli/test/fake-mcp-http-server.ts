@@ -8,7 +8,8 @@ import type { AddressInfo } from 'node:net';
  * over an event stream (with a log notification first), and `tools/call` with JSON. Like the
  * reference SDK servers, it refuses an `initialize` that names a session it doesn't know. A batch
  * (2025-03-26) is answered with an array. Results carry a call counter, so a replayed result is told
- * apart from a live one, and `calls` lists what ran. The tool `flaky` fails at the HTTP level.
+ * apart from a live one, and `calls` lists what ran. The tool `flaky` fails at the HTTP level, and
+ * `cut` breaks its answer off part way through, the connection gone.
  *
  * With `{ streams: true }` it also offers the transport's standalone stream: a GET in a session
  * opens an event stream that stays open and carries the server's own messages (`notify()` sends
@@ -123,6 +124,11 @@ export async function startFakeMcpHttpServer(options: { streams?: boolean } = {}
       }
       if (message.method === 'tools/call') {
         if (message.params?.name === 'flaky') return void res.writeHead(500, { 'content-type': 'text/plain' }).end('upstream exploded');
+        if (message.params?.name === 'cut') {
+          res.writeHead(200, { 'content-type': 'application/json', 'content-length': '4096' });
+          res.write('{"jsonrpc":"2.0","id":');
+          return void setTimeout(() => res.destroy(), 20);
+        }
         if (options.streams) {
           res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
           res.write(`id: ${++eventId}\ndata: ${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: message.id, progress: 1, total: 2 } })}\n\n`);

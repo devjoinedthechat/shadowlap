@@ -196,6 +196,20 @@ describe('shadowlap mcp --listen', () => {
     current = null;
   });
 
+  it('breaks the client\'s answer off when the server breaks its own off, and records the call as it ended', async () => {
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+    current = target(rec.runId);
+    const c = httpClient(listener.url);
+    await c.handshake();
+    const asked = fetch(listener.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': c.session! }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'cut', arguments: {} } }) });
+    // Part of an answer is never passed on as the whole: the client's response breaks off too.
+    expect(await asked.then((r) => r.text()).then(() => 'whole', () => 'broken off')).toBe('broken off');
+    sidecar.endRun(rec.runId, 'completed');
+    const [call] = store.getCalls(rec.runId);
+    expect([call.name, call.end?.outcome]).toEqual(['cut', 'error']);
+    current = null;
+  });
+
   it('serves its own address only: another Host or a web page\'s Origin is refused', async () => {
     const port = new URL(listener.url).port;
     const asHost = await new Promise<number>((resolve) => {

@@ -286,8 +286,8 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
     const type = String(res.headers['content-type'] ?? '');
     if (status === 202 || status === 204) return void res.resume();
     if (status >= 400) {
-      const text = await readText(res);
-      if (id !== null) await settle(id, `the MCP server answered ${status}${text ? `: ${text.slice(0, 300)}` : ''}`);
+      const { text, cut } = await readText(res);
+      if (id !== null) await settle(id, `the MCP server answered ${status}${text ? `: ${text.slice(0, 300)}` : ''}${cut ? ` (cut short: ${cut})` : ''}`);
       return;
     }
     if (/text\/event-stream/i.test(type)) {
@@ -306,7 +306,11 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
       });
       await chain;
     } else {
-      const text = await readText(res);
+      const { text, cut } = await readText(res);
+      if (cut) {
+        if (id !== null) await settle(id, `the MCP server's answer was cut short: ${cut}`);
+        return;
+      }
       if (text.trim()) await fromServer(text);
     }
     // A request whose stream ended without its answer gets an error, so the client isn't left waiting.
@@ -403,12 +407,19 @@ export function startMcpHttpProxy(o: McpHttpProxyOptions): { done: Promise<numbe
   return { done };
 }
 
-function readText(res: IncomingMessage): Promise<string> {
+/**
+ * A response's body as text, and why it was cut short when the server's connection broke part way
+ * through (null when it came whole): what came of a cut body is never read as the whole of it.
+ */
+function readText(res: IncomingMessage): Promise<{ text: string; cut: string | null }> {
   return new Promise((resolve) => {
     let text = '';
     res.setEncoding('utf8');
     res.on('data', (c: string) => (text += c));
-    res.on('end', () => resolve(text));
-    res.on('error', () => resolve(text));
+    res.on('end', () => resolve({ text, cut: null }));
+    res.on('error', (err) => resolve({ text, cut: err.message }));
+    res.on('close', () => {
+      if (!res.complete) resolve({ text, cut: 'the connection closed' });
+    });
   });
 }
