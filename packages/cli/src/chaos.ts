@@ -454,6 +454,8 @@ export interface ChaosRecordingResult {
   /** Why its presets couldn't run at all (a golden that couldn't be imported, chaos off for it). */
   error: string | null;
   skipped: string | null;
+  /** Not run: its recorded command came from a pack the repository doesn't track, and nobody said yes. */
+  unvouched?: true;
 }
 
 export interface ChaosReport {

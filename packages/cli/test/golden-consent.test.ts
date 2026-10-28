@@ -12,7 +12,9 @@ import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-t
  * is, which is where CI's goldens are: both run as before. A pack someone sent, outside the
  * repository or in it but not added, runs its command only once the user says yes, as `replay` asks
  * of an imported run: with `--yes`, or a yes at a terminal. Without a terminal, as in CI, it isn't
- * run, and the golden fails saying why. Every run of the agent leaves a line in its folder.
+ * run, and the golden fails saying why; a session whose only failures are such packs ends with 2, as
+ * `replay` does for an imported run, and one where another golden failed with 1. Every run of the
+ * agent leaves a line in its folder.
  */
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 /** An agent that says it ran, then asks its model one question, which its recording answers on replay. */
@@ -89,7 +91,8 @@ describe('shadowlap test, given a golden', () => {
     const before = runs(repo);
     for (const pack of ['goldens/sent', outside]) {
       const refused = await shadowlap(repo, join(repo, 'store.db'), ['test', pack]);
-      expect(refused.code, refused.out).toBe(1);
+      // A pack it needs --yes to run, as `replay` refuses an imported run: 2.
+      expect(refused.code, refused.out).toBe(2);
       expect(refused.out).toMatch(/was imported from a pack\. Replaying it runs the command it was recorded with/);
       expect(refused.out).toContain("Its pack isn't one this repository tracks. Pass --yes to run it");
       expect(refused.out).toContain("not run: its recorded command came from a pack this repository doesn't track");
@@ -103,19 +106,34 @@ describe('shadowlap test, given a golden', () => {
   it('asks of each sent pack when several are tested side by side, and runs none of them without a yes', async () => {
     const before = runs(repo);
     const both = await shadowlap(repo, join(repo, 'store.db'), ['test', 'goldens/sent', outside]);
-    expect(both.code, both.out).toBe(1);
+    expect(both.code, both.out).toBe(2);
     expect(both.out.match(/not run: its recorded command came from a pack this repository doesn't track/g)).toHaveLength(2);
     expect(runs(repo)).toBe(before);
-    // The repository's own golden beside them runs as ever.
+    // The repository's own golden beside them runs as ever, and passes: the sent pack alone failed, 2.
     const mixed = await shadowlap(repo, join(repo, 'store.db'), ['test', 'goldens/tracked', 'goldens/sent']);
-    expect(mixed.code, mixed.out).toBe(1);
+    expect(mixed.code, mixed.out).toBe(2);
+    expect(mixed.out).toContain('1 passed, 1 failed');
     expect(runs(repo)).toBe(before + 1);
+  }, 60_000);
+
+  it('ends with 1 when a golden it ran failed beside a pack it needs --yes to run', async () => {
+    // The agent now exits before it asks its model: the repository's own golden fails.
+    writeFileSync(join(repo, 'agent.mjs'), "import { appendFileSync } from 'node:fs';\nappendFileSync('ran.log', 'ran\\n');\nprocess.exit(3);\n");
+    try {
+      const failed = await shadowlap(repo, join(repo, 'store.db'), ['test', 'goldens/tracked', 'goldens/sent']);
+      expect(failed.code, failed.out).toBe(1);
+      expect(failed.out).toContain('0 passed, 2 failed');
+      expect(failed.out).toContain("not run: its recorded command came from a pack this repository doesn't track");
+    } finally {
+      writeFileSync(join(repo, 'agent.mjs'), AGENT);
+    }
   }, 60_000);
 
   it('asks before a sent pack’s presets with --chaos too', async () => {
     const before = runs(repo);
     const refused = await shadowlap(repo, join(repo, 'store.db'), ['test', outside, '--chaos', '--presets', '500']);
     expect(refused.out).toContain("not run: its recorded command came from a pack this repository doesn't track");
+    expect(refused.code, refused.out).toBe(2);
     expect(runs(repo)).toBe(before);
   }, 60_000);
 });
