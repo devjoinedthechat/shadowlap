@@ -1,4 +1,5 @@
 import {
+  messageOf,
   UNAVAILABLE_RETRY,
   chaosTargets,
   decideCountUnavailable,
@@ -443,7 +444,7 @@ function record(ctx: ChaosContext, parent: RunRecord, o: PresetOutcome): PresetO
       data: { target: o.target, detail: o.detail, reason: o.reason, runs: o.runs.map((r) => ({ runId: r.runId, verdict: r.verdict, passed: r.passed, exitCode: r.exitCode, ...(r.checks ? { checks: r.checks } : {}), reason: r.reason, ...(r.lastLine ? { lastLine: r.lastLine } : {}) })), gate: o.gate, upstreamRequests: o.upstreamRequests, spent: o.spent },
     });
   } catch (err) {
-    process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${(err as Error).message}\n`);
+    process.stderr.write(`[shadowlap] the ${o.label} result was not kept: ${messageOf(err)}\n`);
   }
   return o;
 }

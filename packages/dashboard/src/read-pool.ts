@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import type { Store } from '@shadowlap/engine';
+import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { serverIdle } from './idle.js';
 import { runJob, type ReadAnswer, type ReadJob } from './read-jobs.js';
@@ -463,7 +463,7 @@ export class ReadPool implements ReadModels {
           if (m.stats) this.o.keep.stats(m.stats);
           if (m.asks) this.o.keep.asks(m.asks);
         } catch (err) {
-          this.o.log?.(`could not keep what a read-model thread worked out: ${err instanceof Error ? err.message : String(err)}`);
+          this.o.log?.(`could not keep what a read-model thread worked out: ${messageOf(err)}`);
         }
         return;
       case 'answer':

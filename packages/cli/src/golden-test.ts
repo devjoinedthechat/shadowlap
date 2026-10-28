@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { messageOf, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
 import { oracleLabels } from './attempts.js';
@@ -581,7 +581,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     const result = await testRecording(parent, spec, tested);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted, notes };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     // The session's provider stopped it before it ran: inconclusive, the provider named, never failed.
     return { ...base, parent, result: null, failure: { message, details: message }, kind: err instanceof ProviderStopped ? 'inconclusive' : 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: err instanceof ReplayInterrupted, notes };
   }
@@ -855,6 +855,6 @@ export function pruneQuietly(store: Store, session: { sessionId: string; started
     pruneReplays(store, session, tested);
     return null;
   } catch (err) {
-    return `older replays were not pruned this time: ${err instanceof Error ? err.message : String(err)}`;
+    return `older replays were not pruned this time: ${messageOf(err)}`;
   }
 }

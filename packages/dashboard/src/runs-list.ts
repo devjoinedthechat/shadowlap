@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
+import { checksOf, cleanLabel, isFailedOutcome, lostAt, messageOf, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
@@ -605,7 +605,7 @@ export function labelRuns(store: Store, ids: unknown, add: unknown, remove: unkn
         store.updateRunMeta(run.runId, { labels });
         done.push({ runId: run.runId, labels });
       } catch (err) {
-        skipped.push({ runId: run.runId, reason: err instanceof Error ? err.message : String(err) });
+        skipped.push({ runId: run.runId, reason: messageOf(err) });
       }
     }
   });
