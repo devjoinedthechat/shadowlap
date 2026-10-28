@@ -104,61 +104,13 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
   if (input.slot !== undefined) envForSlot(core, input.slot);
   // Known before the parent is fingerprinted, which masks dates against it.
   const startedAt = Date.now();
-  let parentCalls: CallRecord[] | undefined;
-  let parentStartedAt: number | undefined;
-  // Whether the parent was recorded with what a person types (RunMeta.inputs); see the Session.
-  let parentRecordsInput = false;
-  let normalizers = core.normalizers;
-  let redactions: Normalizer[] = [];
-  // A replay that runs a command other than its parent's (`replay <run> -- <command>`) says so in its record.
-  let ownCommand: string[] | undefined;
-  // A parent made before requests kept their numbers stored them rounded: matched so.
-  let roundedNumbers = false;
-  // A parent that holds no header parameters (RunMeta.headerParameters) is matched without them,
-  // and this run keeps none either, so its own replays match the same way.
-  let headerParameters = true;
-  if (input.mode === 'replay') {
-    if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
-    const parent = core.store.getRun(input.parentRunId);
-    if (!parent) throw new HttpError(404, `unknown run ${input.parentRunId}`);
-    const argv = input.command.argv;
-    if (argv.length && (argv.length !== parent.command.argv.length || argv.some((a, i) => a !== parent.command.argv[i]))) ownCommand = argv;
-    // A redacted recording matches only if the live request is masked the same way.
-    if (parent.meta?.redactions?.length) {
-      redactions = parent.meta.redactions;
-      normalizers = [...normalizers, ...redactions];
-    }
-    headerParameters = parent.meta?.headerParameters === true;
-    const kept = core.store.getCalls(input.parentRunId);
-    const stored = headerParameters ? kept : kept.map((c) => withoutParameters(core, c));
-    roundedNumbers = parent.meta?.exactNumbers !== true;
-    // Stored fingerprints are valid under the list they were computed with; anything else recomputes them.
-    parentStartedAt = parent.startedAt;
-    parentRecordsInput = parent.meta?.inputs === true;
-    if (input.replay?.promptFrom !== undefined) {
-      const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
-      if (!target || target.kind !== 'api' || isJudgeCall(target)) throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}${target && isJudgeCall(target) ? ' (it is a judge check\'s)' : ''}`);
-    }
-    // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
-    // is new, so the parent's stored fingerprints (made against its own start) never apply.
-    const withoutPrompt = input.replay?.promptFrom !== undefined;
-    if (core.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, core.clock, withoutPrompt, roundedNumbers)) {
-      // A captured HTTP call is matched with the credentials in its query or form body masked, which
-      // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
-      // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
-      const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
-      const some = stored.some(again);
-      parentCalls = some ? refingerprint(core, stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, redactions }, again).calls : stored;
-      core.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
-    } else {
-      // Most come from the cache (fingerprint-cache.ts), which the recording filled.
-      const { calls, cached } = refingerprint(core, stored, { normalizers, clockRef: core.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, redactions });
-      parentCalls = calls;
-      core.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers (${cached} from the cache)`);
-    }
-    // Compared as they are matched, so a divergence report never shows a sign-in beta as a change.
-    parentCalls = parentCalls.map((c) => asMatched(core, c));
-  }
+  const parent = input.mode === 'replay' ? replayParent(core, input, startedAt) : undefined;
+  const parentCalls = parent?.calls;
+  const normalizers = parent?.normalizers ?? core.normalizers;
+  const redactions = parent?.redactions ?? [];
+  const roundedNumbers = parent?.roundedNumbers ?? false;
+  // A run that replays none keeps its header parameters; one whose parent holds none keeps none either (ReplayParent).
+  const headerParameters = parent?.headerParameters ?? true;
   // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
   // Flags name the agent's model calls: a judge's is never one of them, nor counted among them.
   const requestInterventions = input.interventions && parentCalls ? new RequestInterventions(parentCalls.filter((c) => !isJudgeCall(c)), input.interventions, (message) => {
@@ -166,7 +118,7 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
   }) : null;
   // Every replay keeps the list, empty when it changed nothing, so a run made before replays kept
   // their flags (no list) is never taken for one that had none.
-  const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, ownCommand, input.overrideSources) : null;
+  const described = input.mode === 'replay' ? describeInterventions(input.replay, input.interventions, parent?.ownCommand, input.overrideSources) : null;
   const meta: RunMeta = {
     ...(input.meta ?? {}),
     normalizersHash: normalizersHash(normalizers, core.clock, input.replay?.promptFrom !== undefined, roundedNumbers),
@@ -177,7 +129,7 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
     ...(described ? { interventions: described } : {}),
   };
   const run: RunRecord = { runId: ulidNow(), parentRunId: input.parentRunId ?? null, mode: input.mode, status: 'running', divergence: null, command: input.command, codeVersion: input.codeVersion ?? null, startedAt, endedAt: null, meta };
-  const clockRef = core.clock !== 'auto' ? undefined : parentStartedAt !== undefined ? [parentStartedAt, run.startedAt] : [run.startedAt];
+  const clockRef = core.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
   const session = new Session({
     mode: input.mode,
     parentRunId: input.parentRunId ?? null,
@@ -189,8 +141,8 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
     matchName: (rec) => matchName(core, rec, redactions),
     // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
     matchQuery: (rec) => storedQuery(rec, redactions),
-    ...(clockRef !== undefined && parentStartedAt !== undefined ? { clock: { parent: parentStartedAt, run: run.startedAt } } : {}),
-    ...(parentRecordsInput ? { parentRecordsInput } : {}),
+    ...(clockRef !== undefined && parent ? { clock: { parent: parent.startedAt, run: run.startedAt } } : {}),
+    ...(parent?.recordsInput ? { parentRecordsInput: true } : {}),
   });
   const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? unversioned(core, parentCalls) : undefined, parentCalls ? unqueried(core, parentCalls) : undefined, roundedNumbers, headerParameters);
   core.writer.write({
@@ -202,26 +154,97 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
       ctx.warnings.push(`Run ${run.runId} could not be written to the store (${reason}): nothing of it is in the recording.`);
     },
   });
-  // A fork's live Responses call may continue a response or a conversation the recording made: read when one does.
-  if (parentCalls?.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
-    const recorded = parentCalls;
-    ctx.responses = new ResponsesState(recorded, {
-      request: (rec) => sentRequest(core, rec),
-      response: (rec) => ({ bytes: rec.end?.responseRef ? core.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
-    });
-  }
-  // A fork's live call may name a Gemini cache the recording made, or a file it uploaded: read when one does.
-  if (parentCalls && ProviderState.applies(parentCalls)) {
-    ctx.providerState = new ProviderState(parentCalls, {
-      request: (rec) => sentRequest(core, rec),
-      response: (rec) => (rec.end?.responseRef ? core.store.getBlob(rec.end.responseRef) : null),
-    });
-  }
+  if (parentCalls) readRecordedState(core, ctx, parentCalls);
   core.runs.set(run.runId, ctx);
   if (input.slot !== undefined) core.slots.set(input.slot, run.runId);
   core.activeRunId = run.runId;
   core.log(`run ${run.runId} started (${input.mode})`);
   return run;
+}
+
+/** What a replay takes from the run it replays (replayParent), read and matched as the replay matches it. */
+interface ReplayParent {
+  /** Its calls, each with its fingerprint under this replay's rules and as matching reads it (asMatched). */
+  calls: CallRecord[];
+  startedAt: number;
+  /** Whether it was recorded with what a person types (RunMeta.inputs); see the Session. */
+  recordsInput: boolean;
+  /** The sidecar's normalizers, and the rules that redacted the parent, if any: a redacted recording matches only if the live request is masked the same way. */
+  normalizers: Normalizer[];
+  redactions: Normalizer[];
+  /** The command this replay runs when it is not the parent's (`replay <run> -- <command>`), which its record names. */
+  ownCommand: string[] | undefined;
+  /** Whether it stored its requests' numbers rounded, as a parent made before requests kept their numbers did: matched so. */
+  roundedNumbers: boolean;
+  /**
+   * Whether it holds header parameters (RunMeta.headerParameters): one that holds none is matched
+   * without them, and this run keeps none either, so its own replays match the same way.
+   */
+  headerParameters: boolean;
+}
+
+/**
+ * The run a replay replays, read whole (the writes this process queued for it included) and its
+ * calls fingerprinted again under the replay's rules: stored fingerprints are valid under the list
+ * they were computed with, and anything else recomputes them.
+ */
+function replayParent(core: SidecarCore, input: StartRunInput, startedAt: number): ReplayParent {
+  if (!input.parentRunId) throw new HttpError(400, 'replay needs a parentRunId');
+  const parent = core.store.getRun(input.parentRunId);
+  if (!parent) throw new HttpError(404, `unknown run ${input.parentRunId}`);
+  const argv = input.command.argv;
+  const ownCommand = argv.length && (argv.length !== parent.command.argv.length || argv.some((a, i) => a !== parent.command.argv[i])) ? argv : undefined;
+  const redactions = parent.meta?.redactions?.length ? parent.meta.redactions : [];
+  const normalizers = redactions.length ? [...core.normalizers, ...redactions] : core.normalizers;
+  const headerParameters = parent.meta?.headerParameters === true;
+  const kept = core.store.getCalls(input.parentRunId);
+  const stored = headerParameters ? kept : kept.map((c) => withoutParameters(core, c));
+  const roundedNumbers = parent.meta?.exactNumbers !== true;
+  if (input.replay?.promptFrom !== undefined) {
+    const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
+    if (!target || target.kind !== 'api' || isJudgeCall(target)) throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}${target && isJudgeCall(target) ? ' (it is a judge check\'s)' : ''}`);
+  }
+  // Under "clock": "auto" both sides are masked against both runs' starts, and this run's start
+  // is new, so the parent's stored fingerprints (made against its own start) never apply.
+  const withoutPrompt = input.replay?.promptFrom !== undefined;
+  let calls: CallRecord[];
+  if (core.clock === 'exact' && parent.meta?.normalizersHash === normalizersHash(normalizers, core.clock, withoutPrompt, roundedNumbers)) {
+    // A captured HTTP call is matched with the credentials in its query or form body masked, which
+    // a recording made by an earlier version stored as sent: those calls are fingerprinted again.
+    // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
+    const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
+    const some = stored.some(again);
+    calls = some ? refingerprint(core, stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, redactions }, again).calls : stored;
+    core.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
+  } else {
+    // Most come from the cache (fingerprint-cache.ts), which the recording filled.
+    const fresh = refingerprint(core, stored, { normalizers, clockRef: core.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, redactions });
+    calls = fresh.calls;
+    core.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers (${fresh.cached} from the cache)`);
+  }
+  // Compared as they are matched, so a divergence report never shows a sign-in beta as a change.
+  calls = calls.map((c) => asMatched(core, c));
+  return { calls, startedAt: parent.startedAt, recordsInput: parent.meta?.inputs === true, normalizers, redactions, ownCommand, roundedNumbers, headerParameters };
+}
+
+/**
+ * What a fork's live calls may name of the state its recording left on the provider's side, read
+ * when one does: a response or a conversation a Responses call continues, a Gemini cache the
+ * recording made or a file it uploaded.
+ */
+function readRecordedState(core: SidecarCore, ctx: RunContext, parentCalls: CallRecord[]): void {
+  if (parentCalls.some((c) => c.kind === 'api' && /\/(responses|conversations)$/.test(c.name))) {
+    ctx.responses = new ResponsesState(parentCalls, {
+      request: (rec) => sentRequest(core, rec),
+      response: (rec) => ({ bytes: rec.end?.responseRef ? core.store.getBlob(rec.end.responseRef) : null, contentType: rec.end?.meta.headers?.['content-type'] }),
+    });
+  }
+  if (ProviderState.applies(parentCalls)) {
+    ctx.providerState = new ProviderState(parentCalls, {
+      request: (rec) => sentRequest(core, rec),
+      response: (rec) => (rec.end?.responseRef ? core.store.getBlob(rec.end.responseRef) : null),
+    });
+  }
 }
 
 /**
@@ -362,6 +385,22 @@ export function endRun(core: SidecarCore, runId: string, status: Exclude<RunStat
       failed: (reason) => core.storeTrouble(ctx, 'store:end', `That run ${runId} ended could not be written to the store (${reason}): it reads as running until a later command finds no process recording it.`),
     });
   }
+  const warnings = endWarnings(ctx, calls, preloads, unguarded, websockets);
+  const ended: RunRecord = { ...run, status, endedAt, meta: { ...(run.meta ?? {}), ...patch } };
+  const summary = summarizeRun(ended, calls, ctx.session.notReached(), warnings, { ...(core.prices ? { prices: core.prices } : {}), modelOf: storedModelResolver(core.store) });
+  // What goes wrong writing the run from here on, its summary made, is said apart (endWritten).
+  ctx.ended = true;
+  core.log(`run ${runId} ended (${status})`);
+  return { run: ended, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
+}
+
+/**
+ * What a run's summary warns of as it ends: what went wrong along the way, the preloads that never
+ * loaded, the connections that went around Shadowlap, interventions and failures a flag asked for
+ * that never took effect, WebSockets, and a recording that holds no model call.
+ */
+function endWarnings(ctx: RunContext, calls: readonly CallRecord[], preloads: PreloadReport | null, unguarded: ReadonlyArray<{ target: string; count: number; action: 'warned' | 'blocked' }>, websockets: readonly WebSocketUse[]): string[] {
+  const run = ctx.run;
   const warnings = [...ctx.warnings];
   if (preloads?.missing) warnings.push(preloads.missing);
   if (preloads?.unguarded) warnings.push(preloads.unguarded);
@@ -388,12 +427,7 @@ export function endRun(core: SidecarCore, runId: string, status: Exclude<RunStat
         : `${calls.length} ${calls.every((c) => c.meta.http) ? 'HTTP' : 'SDK'} call${calls.length === 1 ? '' : 's'} recorded but no model API calls. If the agent calls a model, its client is not going through Shadowlap (a client configured with its own base URL bypasses the ANTHROPIC_BASE_URL / OPENAI_BASE_URL / GOOGLE_GEMINI_BASE_URL that shadowlap run sets).`,
     );
   }
-  const ended: RunRecord = { ...run, status, endedAt, meta: { ...(run.meta ?? {}), ...patch } };
-  const summary = summarizeRun(ended, calls, ctx.session.notReached(), warnings, { ...(core.prices ? { prices: core.prices } : {}), modelOf: storedModelResolver(core.store) });
-  // What goes wrong writing the run from here on, its summary made, is said apart (endWritten).
-  ctx.ended = true;
-  core.log(`run ${runId} ended (${status})`);
-  return { run: ended, summary, providers: [...ctx.providersUsed].sort(), sdks: [...ctx.sdksSeen].sort(), unguarded, websockets, preloads };
+  return warnings;
 }
 
 /**

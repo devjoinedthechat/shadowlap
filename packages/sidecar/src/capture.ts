@@ -4,7 +4,7 @@
  * request itself when one runs live, and only to a declared host.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { fingerprintTool, maskPathCredentials, matchedAs, plantInToolResult, refused, toolFailureError, type CallEndRow, type CallStartRow, type Effect, type SerializedError } from '@shadowlap/engine';
+import { fingerprintTool, maskPathCredentials, matchedAs, plantInToolResult, refused, toolFailureError, type CallEndRow, type CallStartRow, type Decision, type Effect, type SerializedError } from '@shadowlap/engine';
 import { breakAsRecorded, breakConnection, clientLeft, ClientWatch, HttpError, json, jsonBytes, sendOwn, type OwnAnswer } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, withoutCredentials, type HttpResult, type StoredBody } from './http.js';
@@ -167,87 +167,122 @@ function replayHttp(core: SidecarCore, call: HttpCall, recorded: CallEndRow, fro
 
 /**
  * Serve recorded: a captured HTTP call answered without the network where it has to be, as the
- * session decided: replayed, failed as `--fail-at` asks, with text planted in its result, with an
- * override's result, blocked, stubbed; or one that may not go out (offline, or carrying a
- * placeholder key). False when it goes live.
+ * session decided, one function for each way it can be decided: replayed, failed as `--fail-at`
+ * asks, with text planted in its result, with an override's result, blocked, stubbed; or, decided
+ * live, one that may not go out (offline, or carrying a placeholder key). False when it goes live.
  */
 function serveRecordedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall): boolean {
-  const { ctx, req, res, name, effect } = call;
-  const { callNo } = placed;
   const decision = placed.tracked.decision;
-  const end = (response: Buffer | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => endHttpCall(core, call, placed, response, outcome, meta);
   switch (decision.origin) {
-    case 'replayed': {
-      const recorded = decision.record.end!;
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-      replayHttp(core, call, recorded, 'replayed');
+    case 'replayed':
+      serveReplayedHttp(core, call, placed, decision);
       return true;
-    }
-    case 'injected': {
-      // A captured HTTP call fails the way HTTP does: with that status; or, for a timeout or an
-      // error, the way the agent's HTTP library reports one. The capture hooks raise the library's
-      // own error (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer
-      // that names the failure, and ask for one with x-shadowlap-failures: raise. Any other client
-      // gets the connection closed before a response, which it reports as a network error.
-      const f = decision.failure;
-      const error = toolFailureError(name, f);
-      const meta = { injected: true, failure: f };
-      core.log(`run ${ctx.run.runId} call ${callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
-      if (f.kind === 'status') answerOwnHttp(core, call, placed, { status: f.status, body: { error: { message: error.message } }, origin: 'injected' }, error, meta);
-      else if (req.headers['x-shadowlap-failures'] !== 'raise') {
-        end(jsonBytes({ error }), 'error', { ...meta, error, latencyMs: 0 });
-        breakConnection(res, error.message);
-      } else {
-        // Only a message the flag gave: without one, each library's own wording stands.
-        const headers = { 'x-shadowlap-injected': f.kind, ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}) };
-        answerOwnHttp(core, call, placed, { status: f.kind === 'timeout' ? 504 : 502, body: { error: { message: error.message } }, origin: 'injected', headers }, error, meta);
-      }
+    case 'injected':
+      serveInjectedHttp(core, call, placed, decision);
       return true;
-    }
-    case 'planted': {
-      const recorded = decision.record.end!;
-      // Each number as it was recorded: the agent gets the result with only the text added.
-      const payload = (recorded.responseRef ? core.getJsonExact<StoredHttpEnd>(recorded.responseRef) : null) ?? {};
-      const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
-      if (refused(planted)) {
-        ctx.session.declined(decision.record.callNo);
-        ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
-        end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
-        replayHttp(core, call, recorded, 'replayed');
-        return true;
-      }
-      end(jsonBytes({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
-      sendHttp(res, planted.result as HttpResult, 'overridden');
+    case 'planted':
+      servePlantedHttp(core, call, placed, decision);
       return true;
-    }
-    case 'overridden': {
-      const value = decision.result as Partial<HttpResult> | null;
-      const result: HttpResult = value && typeof value === 'object' && typeof value.status === 'number' ? { status: value.status, headers: value.headers ?? {}, ...(value.body !== undefined ? { body: value.body, encoding: value.encoding ?? 'json' } : {}) } : { status: 200, headers: { 'content-type': 'application/json' }, body: value, encoding: 'json' };
-      end(jsonBytes({ result }), 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
-      sendHttp(res, result, 'overridden');
+    case 'overridden':
+      serveOverriddenHttp(core, call, placed, decision);
       return true;
-    }
-    case 'blocked': {
-      const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(name) } : { name: 'ShadowlapWriteBlocked', message: `write ${name} blocked after divergence (use --writes stub|allow to change this)` };
-      answerOwnHttp(core, call, placed, { status: 409, body: { type: 'error', error: { type: effect === 'read' ? 'shadowlap_read_blocked' : 'shadowlap_write_blocked', message: error.message } }, origin: 'blocked' }, error);
+    case 'blocked':
+      serveBlockedHttp(core, call, placed);
       return true;
-    }
-    case 'stubbed': {
-      const result: HttpResult = { status: 200, headers: { 'content-type': 'application/json' }, body: { shadowlap: 'stubbed' }, encoding: 'json' };
-      end(jsonBytes({ result }), 'ok', { stubbed: true, latencyMs: 0 });
-      sendHttp(res, result, 'stubbed');
+    case 'stubbed':
+      serveStubbedHttp(core, call, placed);
       return true;
-    }
     case 'live':
-      break;
+      return refuseLiveHttp(core, call, placed);
   }
+}
+
+/** The host's answer as the recording holds it. */
+function serveReplayedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall, decision: Extract<Decision, { origin: 'replayed' }>): void {
+  const recorded = decision.record.end!;
+  endHttpCall(core, call, placed, recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
+  replayHttp(core, call, recorded, 'replayed');
+}
+
+/**
+ * A failure `--fail-at` asks for, the way HTTP fails: with that status; or, for a timeout or an
+ * error, the way the agent's HTTP library reports one. The capture hooks raise the library's own
+ * error (a fetch TimeoutError, httpx.ReadTimeout, requests' ReadTimeout...) from an answer that
+ * names the failure, and ask for one with x-shadowlap-failures: raise. Any other client gets the
+ * connection closed before a response, which it reports as a network error.
+ */
+function serveInjectedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall, decision: Extract<Decision, { origin: 'injected' }>): void {
+  const { ctx, req, res, name } = call;
+  const f = decision.failure;
+  const error = toolFailureError(name, f);
+  const meta = { injected: true, failure: f };
+  core.log(`run ${ctx.run.runId} call ${placed.callNo}: injected ${f.kind === 'status' ? `HTTP ${f.status}` : f.kind}`);
+  if (f.kind === 'status') answerOwnHttp(core, call, placed, { status: f.status, body: { error: { message: error.message } }, origin: 'injected' }, error, meta);
+  else if (req.headers['x-shadowlap-failures'] !== 'raise') {
+    endHttpCall(core, call, placed, jsonBytes({ error }), 'error', { ...meta, error, latencyMs: 0 });
+    breakConnection(res, error.message);
+  } else {
+    // Only a message the flag gave: without one, each library's own wording stands.
+    const headers = { 'x-shadowlap-injected': f.kind, ...(f.kind === 'error' && f.message ? { 'x-shadowlap-injected-message': encodeURIComponent(f.message) } : {}) };
+    answerOwnHttp(core, call, placed, { status: f.kind === 'timeout' ? 504 : 502, body: { error: { message: error.message } }, origin: 'injected', headers }, error, meta);
+  }
+}
+
+/**
+ * The recorded answer with text planted in it (`--inject-result`), each number as it was recorded,
+ * so the agent gets the result with only the text added; served as recorded when the text can't go in.
+ */
+function servePlantedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall, decision: Extract<Decision, { origin: 'planted' }>): void {
+  const { ctx, res } = call;
+  const recorded = decision.record.end!;
+  const payload = (recorded.responseRef ? core.getJsonExact<StoredHttpEnd>(recorded.responseRef) : null) ?? {};
+  const planted = payload.result ? plantInToolResult(payload.result, decision.text, true) : { refused: 'it failed when it was recorded, so it has no response to add to' };
+  if (refused(planted)) {
+    ctx.session.declined(decision.record.callNo);
+    ctx.warnOnce(`plant:${decision.record.callNo}`, `--inject-result ${decision.record.callNo} changed nothing: ${planted.refused}`);
+    endHttpCall(core, call, placed, recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: decision.record.callNo, latencyMs: 0 });
+    replayHttp(core, call, recorded, 'replayed');
+    return;
+  }
+  endHttpCall(core, call, placed, jsonBytes({ result: planted.result }), 'ok', { overriddenFrom: decision.record.callNo, planted: planted.at, latencyMs: 0 });
+  sendHttp(res, planted.result as HttpResult, 'overridden');
+}
+
+/** An `--override` result: an HTTP answer as given, or any other value as a JSON body with status 200. */
+function serveOverriddenHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall, decision: Extract<Decision, { origin: 'overridden' }>): void {
+  const value = decision.result as Partial<HttpResult> | null;
+  const result: HttpResult = value && typeof value === 'object' && typeof value.status === 'number' ? { status: value.status, headers: value.headers ?? {}, ...(value.body !== undefined ? { body: value.body, encoding: value.encoding ?? 'json' } : {}) } : { status: 200, headers: { 'content-type': 'application/json' }, body: value, encoding: 'json' };
+  endHttpCall(core, call, placed, jsonBytes({ result }), 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
+  sendHttp(call.res, result, 'overridden');
+}
+
+/** A read the replay fences, or a write after the divergence: answered 409 without being sent. */
+function serveBlockedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall): void {
+  const { name, effect } = call;
+  const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(name) } : { name: 'ShadowlapWriteBlocked', message: `write ${name} blocked after divergence (use --writes stub|allow to change this)` };
+  answerOwnHttp(core, call, placed, { status: 409, body: { type: 'error', error: { type: effect === 'read' ? 'shadowlap_read_blocked' : 'shadowlap_write_blocked', message: error.message } }, origin: 'blocked' }, error);
+}
+
+/** A write stubbed after the divergence (`--writes stub`): a 200 that says so, never sent. */
+function serveStubbedHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall): void {
+  const result: HttpResult = { status: 200, headers: { 'content-type': 'application/json' }, body: { shadowlap: 'stubbed' }, encoding: 'json' };
+  endHttpCall(core, call, placed, jsonBytes({ result }), 'ok', { stubbed: true, latencyMs: 0 });
+  sendHttp(call.res, result, 'stubbed');
+}
+
+/**
+ * A call decided live that may not go out, answered here: offline (shadowlap test), or carrying a
+ * placeholder key the agent passes on to a declared host (a vector store that embeds with the
+ * caller's OpenAI key), which is never sent either. False when it may go out.
+ */
+function refuseLiveHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttpCall): boolean {
+  const { ctx, req, name } = call;
+  const { callNo } = placed;
   if (ctx.offline || core.upstreams.http === 'offline') {
     const message = `shadowlap is offline: call #${callNo} (${name}) was not served from the recording and would need the network`;
     answerOwnHttp(core, call, placed, { status: 503, body: { type: 'error', error: { type: 'shadowlap_offline', message } }, origin: 'offline' }, { name: 'ShadowlapOffline', message });
     return true;
   }
-  // A placeholder key the agent passes on to a declared host (a vector store that embeds with the
-  // caller's OpenAI key) is never sent either.
   if (carriesPlaceholder(req.headers, call.search)) {
     const message = placeholderRefusal('the key it sends', name);
     answerOwnHttp(core, call, placed, { status: 401, body: { type: 'error', error: { type: 'shadowlap_placeholder_key', message } }, origin: 'refused' }, { name: 'ShadowlapPlaceholderKey', message }, { refused: true, retryable: false });

@@ -7,7 +7,7 @@
  * captured HTTP calls too (capture.ts), which are recorded as tools.
  */
 import { randomUUID } from 'node:crypto';
-import { configuredTrust, fingerprintMisc, fingerprintTool, isRawNumber, matchable, plantInToolResult, refused, reportable, toolFailureError, type CallKind, type CallMeta, type CallStartRow, type Effect, type Normalizer, type SerializedError, type ToolFailure } from '@shadowlap/engine';
+import { configuredTrust, fingerprintMisc, fingerprintTool, isRawNumber, matchable, plantInToolResult, refused, reportable, toolFailureError, type CallKind, type CallMeta, type CallStartRow, type Decision, type Effect, type Normalizer, type SerializedError, type ToolFailure } from '@shadowlap/engine';
 import { HttpError, jsonBytes } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { clockMarks, encodeMarks, fingerprintKey, rulesId, type FingerprintRules } from './fingerprint-cache.js';
@@ -125,76 +125,105 @@ function endToolCall(core: SidecarCore, call: ToolCall, placed: PlacedToolCall, 
 }
 
 /**
- * Serve: the SDK's answer, as the session decided the call. A failure `--fail-at` asks for, a result
- * with text planted in it (`--inject-result`) or given in its place (`--override`), and a recorded
- * result are answered here, as are a clock or random value, generated here so the SDK needs no
- * second round trip, and a blocked tool. A stubbed or live tool is the SDK's to run.
+ * Serve: the SDK's answer, as the session decided the call, one function for each way it can be
+ * decided. A failure `--fail-at` asks for, a result with text planted in it (`--inject-result`) or
+ * given in its place (`--override`), and a recorded result are answered here, as are a clock or
+ * random value, generated here so the SDK needs no second round trip, whatever the session decided,
+ * and a blocked tool. A stubbed or live tool is the SDK's to run.
  */
 function serveToolCall(core: SidecarCore, call: ToolCall, placed: PlacedToolCall): ResolveResponse {
-  const { ctx, body, kind, name, effect } = call;
-  const { callNo } = placed;
   const decision = placed.tracked.decision;
-  const end = (response: { value: unknown } | string | null, outcome: 'ok' | 'error', meta: CallStartRow['meta']) => endToolCall(core, call, placed, response, outcome, meta);
   switch (decision.origin) {
-    case 'injected': {
-      // The tool does not run. Its error is stored as Shadowlap's, and the SDK raises it as the kind
-      // of failure asked for; a client that predates this raises it as a replayed error.
-      const error = toolFailureError(name, decision.failure);
-      end({ value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
-      core.log(`run ${ctx.run.runId} call ${callNo}: injected ${decision.failure.kind} into ${name}`);
-      return { origin: 'replayed', callNo, outcome: 'error', error, injected: decision.failure };
-    }
-    case 'planted': {
-      const record = decision.record;
-      const recorded = record.end!;
-      // Each number as it was recorded: the agent gets the result with only the text added.
-      const payload = (recorded.responseRef ? core.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
-      if (!refused(planted)) {
-        end({ value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
-        return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
-      }
-      // Served as recorded, and said: the run is a clean replay, not the attack it was asked for.
-      ctx.session.declined(record.callNo);
-      ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? core.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
-    }
+    case 'injected':
+      return serveInjectedTool(core, call, placed, decision);
+    case 'planted':
+      return servePlantedTool(core, call, placed, decision);
     case 'overridden':
-      // The user's substitute result stands in for the recording; the agent builds its next request from it.
-      end({ value: { result: decision.result } }, 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
-      return { origin: 'replayed', callNo, outcome: 'ok', result: decision.result };
-    case 'replayed': {
-      const record = decision.record;
-      const recorded = record.end!;
-      // Read with each number as it was recorded, so the SDK gets back exactly what the tool returned.
-      const payload = (recorded.responseRef ? core.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
-      if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(name)) {
-        ctx.warnOnce(name, `${name} changed since the recording; pass --live-tool ${name} to run it live`);
-      }
-      end(recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
-      if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
-      return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
-    }
+      return serveOverriddenTool(core, call, placed, decision);
+    case 'replayed':
+      return serveReplayedTool(core, call, placed, decision);
     case 'blocked':
+      return call.kind === 'tool' ? serveBlockedTool(core, call, placed) : serveValue(core, call, placed);
     case 'stubbed':
+      return call.kind === 'tool' ? { origin: 'stubbed', callNo: placed.callNo } : serveValue(core, call, placed);
     case 'live':
-      break;
+      return call.kind === 'tool' ? { origin: 'live', callNo: placed.callNo } : serveValue(core, call, placed);
   }
-  if (kind !== 'tool') {
-    // Clock and random values are generated here so the SDK needs no second round-trip.
-    const result = kind === 'clock' ? Date.now() : name === 'uuid' ? randomUUID() : Math.random();
-    end({ value: { result } }, 'ok', {});
-    return { origin: 'live', callNo, outcome: 'ok', result };
+}
+
+/**
+ * A failure `--fail-at` asks for: the tool does not run. Its error is stored as Shadowlap's, and the
+ * SDK raises it as the kind of failure asked for; a client that predates this raises it as a
+ * replayed error.
+ */
+function serveInjectedTool(core: SidecarCore, call: ToolCall, placed: PlacedToolCall, decision: Extract<Decision, { origin: 'injected' }>): ResolveResponse {
+  const { ctx, name } = call;
+  const error = toolFailureError(name, decision.failure);
+  endToolCall(core, call, placed, { value: { error } }, 'error', { injected: true, failure: decision.failure, error, latencyMs: 0 });
+  core.log(`run ${ctx.run.runId} call ${placed.callNo}: injected ${decision.failure.kind} into ${name}`);
+  return { origin: 'replayed', callNo: placed.callNo, outcome: 'error', error, injected: decision.failure };
+}
+
+/**
+ * The recorded result with text planted in it (`--inject-result`), each number as it was recorded,
+ * so the agent gets the result with only the text added. A result the text can't go in is served as
+ * recorded, and said: the run is a clean replay, not the attack it was asked for.
+ */
+function servePlantedTool(core: SidecarCore, call: ToolCall, placed: PlacedToolCall, decision: Extract<Decision, { origin: 'planted' }>): ResolveResponse {
+  const { ctx } = call;
+  const { callNo } = placed;
+  const record = decision.record;
+  const recorded = record.end!;
+  const payload = (recorded.responseRef ? core.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+  const planted = recorded.outcome === 'ok' ? plantInToolResult(payload.result, decision.text, false) : { refused: 'it failed when it was recorded, so it has no result to add to' };
+  if (!refused(planted)) {
+    endToolCall(core, call, placed, { value: { result: planted.result } }, 'ok', { overriddenFrom: record.callNo, planted: planted.at, latencyMs: 0 });
+    return { origin: 'replayed', callNo, outcome: 'ok', result: planted.result };
   }
-  if (decision.origin === 'blocked') {
-    const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${name} blocked after divergence (use --writes stub|allow to change this)` };
-    end({ value: { error } }, 'error', { error });
-    return { origin: 'blocked', callNo, outcome: 'error', error };
+  ctx.session.declined(record.callNo);
+  ctx.warnOnce(`plant:${record.callNo}`, `--inject-result ${record.callNo} changed nothing: ${planted.refused}`);
+  endToolCall(core, call, placed, recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+  if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: (recorded.responseRef ? core.getJsonExact<{ result?: unknown }>(recorded.responseRef) : null)?.result };
+  return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+}
+
+/** An `--override` result: the user's substitute stands in for the recording, and the agent builds its next request from it. */
+function serveOverriddenTool(core: SidecarCore, call: ToolCall, placed: PlacedToolCall, decision: Extract<Decision, { origin: 'overridden' }>): ResolveResponse {
+  endToolCall(core, call, placed, { value: { result: decision.result } }, 'ok', { overriddenFrom: decision.record.callNo, latencyMs: 0 });
+  return { origin: 'replayed', callNo: placed.callNo, outcome: 'ok', result: decision.result };
+}
+
+/**
+ * The recorded result, read with each number as it was recorded, so the SDK gets back exactly what
+ * the tool returned; a tool whose code changed since says so, once.
+ */
+function serveReplayedTool(core: SidecarCore, call: ToolCall, placed: PlacedToolCall, decision: Extract<Decision, { origin: 'replayed' }>): ResolveResponse {
+  const { ctx, body, kind, name } = call;
+  const { callNo } = placed;
+  const record = decision.record;
+  const recorded = record.end!;
+  const payload = (recorded.responseRef ? core.getJsonExact<{ result?: unknown; error?: SerializedError }>(recorded.responseRef) : null) ?? {};
+  if (kind === 'tool' && body.implHash && record.meta.implHash && record.meta.implHash !== body.implHash && !ctx.session.options.liveTools.has(name)) {
+    ctx.warnOnce(name, `${name} changed since the recording; pass --live-tool ${name} to run it live`);
   }
-  if (decision.origin === 'stubbed') return { origin: 'stubbed', callNo };
-  return { origin: 'live', callNo };
+  endToolCall(core, call, placed, recorded.responseRef, recorded.outcome, { ...recorded.meta, replayedFrom: record.callNo, latencyMs: 0 });
+  if (recorded.outcome === 'ok') return { origin: 'replayed', callNo, outcome: 'ok', result: payload.result };
+  return { origin: 'replayed', callNo, outcome: 'error', error: payload.error ?? { name: 'Error', message: 'recorded error' } };
+}
+
+/** A blocked tool: a read the replay fences, or a write after the divergence, fails without running. */
+function serveBlockedTool(core: SidecarCore, call: ToolCall, placed: PlacedToolCall): ResolveResponse {
+  const { name, effect } = call;
+  const error: SerializedError = effect === 'read' ? { name: 'ShadowlapReadBlocked', message: fencedRead(`read tool ${name}`) } : { name: 'ShadowlapWriteBlocked', message: `write tool ${name} blocked after divergence (use --writes stub|allow to change this)` };
+  endToolCall(core, call, placed, { value: { error } }, 'error', { error });
+  return { origin: 'blocked', callNo: placed.callNo, outcome: 'error', error };
+}
+
+/** A clock or random value, generated here so the SDK needs no second round trip. */
+function serveValue(core: SidecarCore, call: ToolCall, placed: PlacedToolCall): ResolveResponse {
+  const result = call.kind === 'clock' ? Date.now() : call.name === 'uuid' ? randomUUID() : Math.random();
+  endToolCall(core, call, placed, { value: { result } }, 'ok', {});
+  return { origin: 'live', callNo: placed.callNo, outcome: 'ok', result };
 }
 
 export function completeCall(core: SidecarCore, ctx: RunContext, callNo: number, body: CompleteBody): void {
