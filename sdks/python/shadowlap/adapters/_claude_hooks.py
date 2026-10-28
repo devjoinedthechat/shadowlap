@@ -1,7 +1,8 @@
 """Claude Code's hooks, as the Claude Agent SDK's fence (claude_agent_sdk.py) needs to know them: which
 tools a matcher picks, the query's own PreToolUse and PostToolUse hooks run inside the fence's and
 their answers put together as Claude Code puts several together, and the PreToolUse hooks of settings
-files, which Claude Code runs beside the fence, where nothing can run them inside.
+files, plugins, skills and subagents, which Claude Code runs beside the fence, where nothing can run them
+inside.
 
 Claude Code runs every hook that matches a tool call at once. It decides between their permission
 decisions by precedence (deny, then defer, ask and allow), but it takes ``updatedInput`` and
@@ -23,6 +24,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Callable, Optional, Union
 
 from shadowlap import _async_library
+from shadowlap.adapters._frontmatter import UNREADABLE, frontmatter
 
 #: The SDK's own default for a callback's timeout on PreToolUse and PostToolUse: the command hooks', 600 seconds.
 DEFAULT_TIMEOUT_S = 600.0
@@ -194,24 +196,55 @@ def as_output(c: Mapping[str, Any], event: str) -> dict[str, Any]:
     return out
 
 
-# ---- settings files
+# ---- settings files, plugins, skills and subagents
 
 
 #: The managed settings file an organization deploys, where Claude Code reads it on each system (Linux's otherwise).
 _MANAGED = {"darwin": "/Library/Application Support/ClaudeCode/managed-settings.json", "win32": "C:\\Program Files\\ClaudeCode\\managed-settings.json"}
+
+#: At most this many skill and subagent files are read for one query: a folder of thousands says nothing more.
+MAX_COMPONENT_FILES = 500
+
+#: What the query's own settings are called where a hook in them is named.
+QUERY_SETTINGS = "the query's settings option"
 
 
 def _managed_file() -> str:
     return _MANAGED.get(sys.platform, "/etc/claude-code/managed-settings.json")
 
 
-def _pre_tool_use(settings: Any, source: str) -> list[dict[str, Any]]:
-    """The PreToolUse entries of one settings document that hold a hook, each with where it is and its matcher."""
+def managed_file_of(places: Mapping[str, Any]) -> Optional[str]:
+    """The managed settings file the places name (``managed_file``; None for none), or this system's."""
+    return places["managed_file"] if "managed_file" in places else _managed_file()
+
+
+def env_of(places: Mapping[str, Any]) -> dict[str, str]:
+    """The environment the CLI runs with: the process's, with the query's on top, as the Python SDK merges them."""
+    return {**os.environ, **(places.get("env") or {})}
+
+
+def config_dir_of(env: Mapping[str, str]) -> str:
+    """The folder Claude Code keeps its own files in: ``CLAUDE_CONFIG_DIR``, else ``~/.claude``."""
+    return env.get("CLAUDE_CONFIG_DIR") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".claude")
+
+
+def _sources(places: Mapping[str, Any]) -> list[str]:
+    sources = places.get("sources")
+    return ["user", "project", "local"] if sources is None else list(sources)
+
+
+def _pre_tool_use(settings: Any, source: str, agent: Optional[str] = None) -> list[dict[str, Any]]:
+    """The PreToolUse entries of one settings document that hold a hook, each with where it is, its
+    matcher, and the subagent whose own it is."""
     hooks = settings.get("hooks") if isinstance(settings, dict) else None
     entries = hooks.get("PreToolUse") if isinstance(hooks, dict) else None
     if not isinstance(entries, list):
         return []
-    return [{"source": source, "matcher": e.get("matcher") if isinstance(e.get("matcher"), str) else None} for e in entries if isinstance(e, dict) and isinstance(e.get("hooks"), list) and e["hooks"]]
+    return [
+        {"source": source, "matcher": e.get("matcher") if isinstance(e.get("matcher"), str) else None, **({"agent": agent} if agent is not None else {})}
+        for e in entries
+        if isinstance(e, dict) and isinstance(e.get("hooks"), list) and e["hooks"]
+    ]
 
 
 def _read(path: str) -> Any:
@@ -222,47 +255,185 @@ def _read(path: str) -> Any:
         return None
 
 
-def settings_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
-    """The PreToolUse hooks of the settings Claude Code loads for the query, read as they are now (Claude
-    Code reloads a file that changes). ``places``: ``sources`` (the query's ``setting_sources``; all
-    three when absent), ``settings`` (the query's, a file or JSON text, as the CLI's ``--settings``
-    takes), ``env`` (the CLI's: ``CLAUDE_CONFIG_DIR``, ``HOME``) and ``managed_file`` (the managed
-    settings file; the system's by default, None for none). Read: the user's file, the project's and
-    the local one in ``cwd`` (the local one at the git repository's root too), the query's settings,
-    and the managed file. A file that can't be read or parsed holds none: Claude Code skips it too."""
-    env = {**os.environ, **(places.get("env") or {})}
-    sources = places.get("sources")
-    sources = ["user", "project", "local"] if sources is None else list(sources)
-    files: list[str] = []
+def _list_dir(folder: str) -> list[str]:
+    try:
+        return os.listdir(folder)
+    except OSError:
+        return []
+
+
+def settings_documents(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
+    """The settings documents Claude Code reads for the query, in its order, each ``{"source", "data",
+    "managed"}``: the user's file (in ``CLAUDE_CONFIG_DIR``, else ``~/.claude``), the project's and the
+    local one in its working folder (the Agent SDK reads both there, with no folder above it), the
+    managed settings file and every ``*.json`` in ``managed-settings.d/`` beside it in alphabetical
+    order, and the query's ``settings`` (a file or JSON text, as the CLI's ``--settings`` takes, or a
+    list of them). A file that isn't there is left out; one that can't be parsed holds None."""
+    env = env_of(places)
+    sources = _sources(places)
+    docs: list[dict[str, Any]] = []
+
+    def add(path: str, managed: bool = False) -> None:
+        if os.path.exists(path):
+            docs.append({"source": path, "data": _read(path), "managed": managed})
+
     if "user" in sources:
-        home = env.get("HOME") or os.path.expanduser("~")
-        files.append(os.path.join(env.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "settings.json"))
+        add(os.path.join(config_dir_of(env), "settings.json"))
     if "project" in sources:
-        files.append(os.path.join(cwd, ".claude", "settings.json"))
+        add(os.path.join(cwd, ".claude", "settings.json"))
     if "local" in sources:
-        files.append(os.path.join(cwd, ".claude", "settings.local.json"))
-        # Claude Code keeps the local file at the root of the git repository the folder is in.
-        folder = cwd
-        while True:
-            if os.path.exists(os.path.join(folder, ".git")):
-                if folder != cwd:
-                    files.append(os.path.join(folder, ".claude", "settings.local.json"))
-                break
-            parent = os.path.dirname(folder)
-            if parent == folder:
-                break
-            folder = parent
-    managed = places["managed_file"] if "managed_file" in places else _managed_file()
+        add(os.path.join(cwd, ".claude", "settings.local.json"))
+    managed = managed_file_of(places)
     if managed:
-        files.append(managed)
-    found = [h for f in files for h in _pre_tool_use(_read(f), f)]
+        add(managed, True)
+        # Claude Code merges the drop-ins after the file, in alphabetical order, skipping hidden files and any not ending in .json.
+        dropins = os.path.join(os.path.dirname(managed), "managed-settings.d")
+        for name in sorted(n for n in _list_dir(dropins) if n.endswith(".json") and not n.startswith(".")):
+            add(os.path.join(dropins, name), True)
     given = places.get("settings")
-    if isinstance(given, dict):
-        found.extend(_pre_tool_use(given, "the query's settings option"))
-    elif isinstance(given, str) and given.strip():
+    for one in given if isinstance(given, (list, tuple)) else [given]:
+        if isinstance(one, dict):
+            docs.append({"source": QUERY_SETTINGS, "data": one, "managed": False})
+        elif isinstance(one, str) and one.strip():
+            try:
+                docs.append({"source": QUERY_SETTINGS, "data": json.loads(one), "managed": False})
+            except ValueError:
+                path = os.path.join(cwd, one)
+                docs.append({"source": path, "data": _read(path), "managed": False})
+    return docs
+
+
+def project_dirs(cwd: str) -> list[str]:
+    """The session's folder and each above it up to its repository's root, as project skills and
+    subagents load; the folder alone outside a repository."""
+    dirs: list[str] = []
+    folder = cwd
+    while True:
+        dirs.append(folder)
+        if os.path.exists(os.path.join(folder, ".git")):
+            return dirs
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return [cwd]
+        folder = parent
+
+
+def component_files(places: Mapping[str, Any], cwd: str) -> dict[str, list[str]]:
+    """Where Claude Code loads skills and subagents from for the query, as the Agent SDK's documentation
+    lists them: under ``user``, the skills and agents folders in ``CLAUDE_CONFIG_DIR`` (else
+    ``~/.claude``); under ``project``, ``.claude/skills/`` and ``.claude/agents/`` in the working folder
+    and each folder above it up to the repository's root, and in each added folder (``add_dirs``); the
+    organization's skills in ``.claude/skills/`` beside the managed settings file; and the skills,
+    agents and ``hooks/hooks.json`` of each local plugin the query loads (``plugins``). As
+    ``{"skills", "agents", "plugin_hooks"}``."""
+    env = env_of(places)
+    sources = _sources(places)
+    config = config_dir_of(env)
+    managed = managed_file_of(places)
+    plugins = [os.path.join(cwd, str(p)) for p in places.get("plugins") or []]
+    added = [os.path.join(cwd, str(d)) for d in places.get("add_dirs") or []]
+    project = [*project_dirs(cwd), *added] if "project" in sources else []
+    skill_dirs = [
+        *([os.path.join(config, "skills")] if "user" in sources else []),
+        *(os.path.join(d, ".claude", "skills") for d in project),
+        *([os.path.join(os.path.dirname(managed), ".claude", "skills")] if managed else []),
+        *(os.path.join(p, "skills") for p in plugins),
+    ]
+    agent_dirs = [
+        *([os.path.join(config, "agents")] if "user" in sources else []),
+        *(os.path.join(d, ".claude", "agents") for d in project),
+        *(os.path.join(p, "agents") for p in plugins),
+    ]
+    budget = [MAX_COMPONENT_FILES]
+    skills: list[str] = []
+    for folder in dict.fromkeys(skill_dirs):
+        for name in sorted(_list_dir(folder)):
+            path = os.path.join(folder, name, "SKILL.md")
+            if budget[0] > 0 and not name.startswith(".") and os.path.exists(path):
+                skills.append(path)
+                budget[0] -= 1
+    agents: list[str] = []
+
+    def walk(folder: str, depth: int) -> None:
+        for name in sorted(_list_dir(folder)):
+            if budget[0] <= 0 or name.startswith("."):
+                continue
+            path = os.path.join(folder, name)
+            if name.endswith(".md"):
+                agents.append(path)
+                budget[0] -= 1
+            elif depth < 3 and os.path.isdir(path):
+                walk(path, depth + 1)
+
+    for folder in dict.fromkeys(agent_dirs):
+        walk(folder, 0)
+    plugin_hooks = [path for path in (os.path.join(p, "hooks", "hooks.json") for p in plugins) if os.path.exists(path)]
+    return {"skills": skills, "agents": agents, "plugin_hooks": plugin_hooks}
+
+
+def _read_text(path: str) -> Optional[str]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except (OSError, ValueError):
+        return None
+
+
+def component_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
+    """The PreToolUse hooks of the skills, subagents and local plugins the query loads. Claude Code keeps
+    a skill's for the rest of the session once the skill is invoked, which can come at any turn, so each
+    counts from the start; a subagent's run only while that subagent runs, so each is for that
+    subagent's calls alone. A frontmatter whose hooks can't be read counts as a hook on every tool."""
+    files = component_files(places, cwd)
+    out: list[dict[str, Any]] = []
+
+    def from_frontmatter(path: str, agent: bool) -> None:
+        text = _read_text(path)
+        keys = frontmatter(text) if text is not None else None
+        if not keys:
+            return
+        name = keys.get("name")
+        own = (name.strip() if isinstance(name, str) and name.strip() else os.path.basename(path)[: -len(".md")]) if agent else None
+        hooks = keys.get("hooks", None)
+        if hooks is None and "hooks" not in keys:
+            return
+        if hooks is UNREADABLE:
+            out.append({"source": f"{path}, whose hooks Shadowlap could not read", "matcher": None, **({"agent": own} if own is not None else {})})
+        else:
+            out.extend(_pre_tool_use({"hooks": hooks}, path, own))
+
+    for path in files["skills"]:
+        from_frontmatter(path, False)
+    for path in files["agents"]:
+        from_frontmatter(path, True)
+    for path in files["plugin_hooks"]:
+        text = _read_text(path)
         try:
-            found.extend(_pre_tool_use(json.loads(given), "the query's settings option"))
+            data = json.loads(text or "")
         except ValueError:
-            path = os.path.join(cwd, given)
-            found.extend(_pre_tool_use(_read(path), path))
-    return found
+            out.append({"source": f"{path}, which Shadowlap could not read", "matcher": None})
+            continue
+        out.extend(_pre_tool_use(data, path))
+    return out
+
+
+def settings_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
+    """The PreToolUse hooks Claude Code runs beside the fence for the query, read as they are now (Claude
+    Code reloads a file that changes): those of every settings document it reads (settings_documents),
+    and of the skills, subagents and local plugins it loads (component_pre_tool_use). ``places``:
+    ``sources`` (the query's ``setting_sources``; all three when absent), ``settings``, ``env`` (the
+    CLI's: ``CLAUDE_CONFIG_DIR``, ``HOME``), ``managed_file`` (the managed settings file; the system's by
+    default, None for none, its folder holding the organization's other files), ``add_dirs`` and
+    ``plugins`` (the local plugins' folders). A file that can't be read or parsed holds none, as Claude
+    Code skips it; a frontmatter is the exception, read as a hook on every tool."""
+    docs = settings_documents(places, cwd)
+    return [h for d in docs for h in _pre_tool_use(d["data"], d["source"])] + component_pre_tool_use(places, cwd)
+
+
+def hook_runs_for(hook: Mapping[str, Any], agent_type: str) -> bool:
+    """Whether a hook runs for a call of the subagent ``agent_type`` (the main session's when empty)."""
+    agent = hook.get("agent")
+    if agent is None:
+        return True
+    # A plugin's subagent is named with its plugin's: ``plugin:agent``.
+    return agent_type == agent or agent_type.endswith(f":{agent}")

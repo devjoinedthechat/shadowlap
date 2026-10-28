@@ -106,6 +106,8 @@ export class FakeClaudeCode {
   canUseTool: (tool: string, input: Record<string, unknown>) => { behavior: 'allow' } | { behavior: 'deny'; message: string } = (tool) => ({ behavior: 'deny', message: `Claude requested permissions to use ${tool}, but you haven't granted it yet.` });
   /** Why a hook stopped the session (`continue: false`), once one has: no tool call runs after it. */
   stopReason: string | null = null;
+  /** The subagent the calls are made in, as Claude Code names it in each hook's input; null for the main session. */
+  agent: { id: string; type: string } | null = null;
 
   constructor(
     private readonly hooks: Hooks,
@@ -125,7 +127,7 @@ export class FakeClaudeCode {
     const invalid = this.validate(tool, checked);
     if (invalid) return { content: `<tool_use_error>${invalid}</tool_use_error>`, is_error: true };
 
-    const base = { session_id: 's', transcript_path: '/t', cwd: this.cwd, permission_mode: 'default', tool_name: tool, tool_use_id: id };
+    const base = { session_id: 's', transcript_path: '/t', cwd: this.cwd, permission_mode: 'default', tool_name: tool, tool_use_id: id, ...(this.agent ? { agent_id: this.agent.id, agent_type: this.agent.type } : {}) };
     const pre = await this.run('PreToolUse', tool, { ...base, hook_event_name: 'PreToolUse', tool_input: checked }, id);
     let decision: string | undefined;
     let reason = '';

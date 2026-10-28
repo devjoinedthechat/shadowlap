@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadConfig, upstreamOverrides } from '../src/config.js';
+import { guardAccept, loadConfig, upstreamOverrides } from '../src/config.js';
 
 /** loadConfig's lists of rules: checked when a command first reads them, and otherwise plain properties. */
 let cwd: string;
@@ -38,6 +38,25 @@ describe('loadConfig', () => {
     const broken = loadConfig(cwd);
     broken.redact = [org];
     expect(broken.redact).toEqual([org]);
+  });
+
+  it('takes guard.accept for the Claude Code CLI alone, and SHADOWLAP_GUARD_ACCEPT beside it', () => {
+    expect(guardAccept(cwd, {})).toEqual([]);
+    write({ guard: { accept: ['claude-code'] } });
+    expect(loadConfig(cwd).guard).toEqual({ accept: ['claude-code'] });
+    expect(guardAccept(cwd, {})).toEqual(['claude-code']);
+    write({});
+    expect(guardAccept(cwd, { SHADOWLAP_GUARD_ACCEPT: ' claude-code ,' })).toEqual(['claude-code']);
+    // A Node or Python process keeps --guard block: nothing accepts it unwatched.
+    write({ guard: { accept: ['claude-code', 'node'] } });
+    expect(() => loadConfig(cwd)).toThrow('shadowlap.config.json: guard.accept takes "claude-code" alone, not "node": a Node or Python process whose guard is off still fails --guard block');
+    expect(() => guardAccept(cwd, {})).toThrow(/guard\.accept takes "claude-code" alone, not "node"/);
+    write({ guard: { allow: ['claude-code'] } });
+    expect(() => loadConfig(cwd)).toThrow('shadowlap.config.json: guard has an unknown key "allow" (expected "accept")');
+    write({ guard: { accept: 'claude-code' } });
+    expect(() => loadConfig(cwd)).toThrow('shadowlap.config.json: guard.accept must be a list, e.g. ["claude-code"]');
+    write({});
+    expect(() => guardAccept(cwd, { SHADOWLAP_GUARD_ACCEPT: 'python' })).toThrow('SHADOWLAP_GUARD_ACCEPT takes "claude-code" alone, not "python"');
   });
 
   it('reads a missing file as no rules', () => {

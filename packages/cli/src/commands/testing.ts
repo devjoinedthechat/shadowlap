@@ -22,7 +22,7 @@ import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { Turns } from '../turns.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
-import { expandRecordings, goldenName, rawExpectFor } from '../goldens.js';
+import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
 import { emitJobEvent } from '../job-events.js';
 import { junitXml, type JunitCase } from '../junit.js';
@@ -45,10 +45,12 @@ const FAILED_LINKS = 3;
  * It prints how to reach it (base URLs per slot, with `__SLOT__` for the plugin to fill in, and the
  * in-process capture module) and runs until its stdin closes, which is when the test runner exits.
  */
-async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>, db: string | undefined): Promise<void> {
+async function serveRecordings(store: Store, config: ReturnType<typeof loadConfig>, db: string | undefined, allowUnrecorded: readonly string[]): Promise<void> {
   const root = process.cwd();
   const upstreams = upstreamOverrides(process.env);
-  const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact });
+  // What a replay may run again though its recording never recorded it: the flag's, and the test run's environment's, which the plugins pass on.
+  const allowed = allowedUnrecorded([...allowUnrecorded, process.env.SHADOWLAP_ALLOW_UNRECORDED ?? '']);
+  const host = new RecordingHost(store, root, { codeVersion: codeVersion(root), redact: config.redact, unrecorded: { declared: config.unrecorded ?? {}, allowed } });
   const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams, api: host.api, ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}) });
   host.attach(sidecar);
   const captureDir = fileURLToPath(new URL('../../guard/', import.meta.url));
@@ -294,6 +296,9 @@ export function register(program: Command): void {
       if (unmatched.length) {
         throw new InvalidArgumentError(`no recordings match ${unmatched.join(' ')}: a recording is a directory written by shadowlap pack, with a run.json inside`);
       }
+      // A path named as it is that holds no pack is a typo to fix, as a bad flag is: the others still
+      // run, and it fails as a golden in every report, but the session ends with 2.
+      const noPack = packs.filter((d) => !isPack(resolve(projectDir, d)));
       // Team store: no store or no credentials is a warning; the tests still decide the exit code.
       const pusher = flags.push ? await prepareTestPush(teamEnv(opts.db), { ...(flags.annotations ? { annotations: true } : {}) }) : null;
 
@@ -627,7 +632,7 @@ export function register(program: Command): void {
       await telemetry().flush();
       // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM. Then a golden
       // that failed, 1; one that was inconclusive and not let through (--inconclusive warn), 3.
-      process.exitCode = signal ? signalExit(signal) : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
+      process.exitCode = signal ? signalExit(signal) : noPack.length ? EXIT.usage : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
     });
 
   program
@@ -752,12 +757,13 @@ export function register(program: Command): void {
     .command('serve')
     .description('Start a sidecar with one recording run for a process you launch yourself; prints the environment to set')
     .option('--recordings', 'no run of its own: serve recordings to a test-runner plugin (pytest, Vitest), and print its connection details as one JSON line')
-    .action(async (flags: { recordings?: boolean }) => {
+    .option(ALLOW_UNRECORDED, 'with --recordings: replay these tools again for real though a recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable; SHADOWLAP_ALLOW_UNRECORDED in the test run says the same)', collectNames)
+    .action(async (flags: { recordings?: boolean; allowUnrecorded?: string[] }) => {
       const opts = program.opts<GlobalOpts>();
       const store = openStore(opts);
       const config = loadConfig(process.cwd());
       if (flags.recordings) {
-        await serveRecordings(store, config, opts.db);
+        await serveRecordings(store, config, opts.db, flags.allowUnrecorded ?? []);
         return;
       }
       const sidecar = await Sidecar.start({ store, normalizers: config.normalize, upstreams: upstreamOverrides(process.env), ...(config.prices ? { prices: config.prices } : {}), ...(config.clock ? { clock: config.clock } : {}), ...(config.http ? { http: config.http } : {}), ...(config.tools ? { trust: config.tools } : {}), log: (line) => process.stderr.write(p.dim(`[shadowlap] ${line}\n`)) });

@@ -40,7 +40,8 @@ export function goldenName(dir: string, projectDir: string): string {
   return name.replace(/\/+$/, '');
 }
 
-const isPack = (dir: string) => {
+/** Whether `dir` holds a pack: a run.json in it. */
+export const isPack = (dir: string) => {
   try {
     return statSync(dir).isDirectory() && existsSync(join(dir, 'run.json'));
   } catch {

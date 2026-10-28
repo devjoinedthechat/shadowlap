@@ -65,6 +65,8 @@ class FakeClaudeCode:
         self.asked_model = 0
         self.notes: list[str] = []
         self.can_use_tool: Callable[[str, dict[str, Any]], dict[str, Any]] = lambda tool, inp: {"behavior": "deny", "message": f"Claude requested permissions to use {tool}, but you haven't granted it yet."}
+        # The subagent the calls are made in, as Claude Code names it in each hook's input: (agent_id, agent_type); None for the main session.
+        self.agent: Optional[tuple[str, str]] = None
 
     async def call(self, tool: str, given: dict[str, Any], tool_use_id: str) -> dict[str, Any]:
         if self.stop_reason is not None:
@@ -75,7 +77,7 @@ class FakeClaudeCode:
         invalid = self._validate(tool, checked)
         if invalid:
             return {"content": f"<tool_use_error>{invalid}</tool_use_error>", "is_error": True}
-        base = {"session_id": "s", "transcript_path": "/t", "cwd": self.cwd, "permission_mode": "default", "tool_name": tool, "tool_use_id": tool_use_id}
+        base = {"session_id": "s", "transcript_path": "/t", "cwd": self.cwd, "permission_mode": "default", "tool_name": tool, "tool_use_id": tool_use_id, **({"agent_id": self.agent[0], "agent_type": self.agent[1]} if self.agent else {})}
         decision, reason, updated = None, "", None
         pre = await self._run("PreToolUse", tool, {**base, "hook_event_name": "PreToolUse", "tool_input": checked}, tool_use_id)
         self._stopped(pre)

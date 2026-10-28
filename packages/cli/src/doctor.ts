@@ -248,7 +248,7 @@ export const PRELOAD_FIX =
 
 /** What to do about processes the guard can't watch: the Claude Code CLI loads no preload, whatever the environment. */
 export const UNGUARDED_FIX =
-  "The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP server it connects to). Reach a remote MCP server through shadowlap mcp, which records and fences its calls, and test with --guard warn to accept the rest. A Node or Python process whose guard could not start says so on its standard error.";
+  "The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can't watch a connection it makes itself, and its fence names what it can still reach. Close each (disallow WebFetch, keep MCP servers to the query's own with strictMcpConfig, reach a remote one through shadowlap mcp, which records and fences its calls), accept the CLI alone with \"guard\": { \"accept\": [\"claude-code\"] } in shadowlap.config.json, or test with --guard warn to accept every connection the guard can't watch. A Node or Python process whose guard could not start says so on its standard error.";
 
 /**
  * Whether the preloads loaded in the newest run that says (`RunMeta.preloads`): the processes they

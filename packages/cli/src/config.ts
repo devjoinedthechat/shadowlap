@@ -45,6 +45,12 @@ export interface ShadowlapConfig {
   tools?: ToolTrust;
   /** `tools.unrecorded`: the effect of tools the agent runs without Shadowlap recording them, which decides whether `replay` and `test` may run them again. */
   unrecorded?: Record<string, 'read' | 'write'>;
+  /**
+   * The network guard: `accept` names the runtimes whose unwatched connections `--guard block` takes
+   * as they are, the Claude Code CLI the Claude Agent SDK runs (`claude-code`) alone. Node and Python
+   * keep block.
+   */
+  guard?: { accept: string[] };
   // ---- Team store ----
   /** The team store, a bucket URL (`shadowlap store set`). Parsed in full by the commands that use it. */
   store?: string;
@@ -127,6 +133,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     if (typeof parsed.ciPush !== 'boolean') throw new Error(`${file}: ciPush must be true or false (set it with shadowlap store push-from-ci on|off)`);
     config.ciPush = parsed.ciPush;
   }
+  if (parsed.guard !== undefined) config.guard = { accept: parseGuardAccept(parsed.guard, file) };
   const prices = parsePrices(parsed.prices, file);
   if (prices) config.prices = prices;
   // Injection tests: which reads bring outside text in. A mistake here is named, as for http.
@@ -145,6 +152,41 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     config.mcp = { effects };
   }
   return config;
+}
+
+/** The runtimes `--guard block` can accept unwatched: the Claude Code CLI alone, which no preload loads into. */
+export const ACCEPTABLE_RUNTIMES = ['claude-code'] as const;
+
+/** The `guard` section: `{ "accept": ["claude-code"] }`. */
+function parseGuardAccept(raw: unknown, file: string): string[] {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error(`${file}: guard must be an object, e.g. { "accept": ["claude-code"] }`);
+  const { accept, ...rest } = raw as Record<string, unknown>;
+  const unknown = Object.keys(rest)[0];
+  if (unknown !== undefined) throw new Error(`${file}: guard has an unknown key "${unknown}" (expected "accept")`);
+  if (accept === undefined) return [];
+  if (!Array.isArray(accept)) throw new Error(`${file}: guard.accept must be a list, e.g. ["claude-code"]`);
+  return acceptList(accept, `${file}: guard.accept`);
+}
+
+/** A list of runtimes to accept, each one `--guard block` can accept, or the error that names the one it can't. */
+function acceptList(items: readonly unknown[], where: string): string[] {
+  for (const item of items) {
+    if (!(ACCEPTABLE_RUNTIMES as readonly unknown[]).includes(item)) {
+      throw new Error(`${where} takes "claude-code" alone, not ${JSON.stringify(item)}: a Node or Python process whose guard is off still fails --guard block`);
+    }
+  }
+  return [...new Set(items as string[])];
+}
+
+/**
+ * The runtimes `--guard block` accepts unwatched for a run in `cwd`: the config's `guard.accept`, and
+ * SHADOWLAP_GUARD_ACCEPT (names separated by commas, as the GitHub Action's guard-accept input sets it).
+ */
+export function guardAccept(cwd: string = process.cwd(), env: NodeJS.ProcessEnv = process.env): string[] {
+  const stored = readConfigFile(cwd);
+  const fromConfig = stored.exists && (stored.data as { guard?: unknown }).guard !== undefined ? parseGuardAccept((stored.data as { guard?: unknown }).guard, CONFIG_FILE) : [];
+  const fromEnv = (env.SHADOWLAP_GUARD_ACCEPT ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+  return [...new Set([...fromConfig, ...acceptList(fromEnv, 'SHADOWLAP_GUARD_ACCEPT')])];
 }
 
 /** The `verify` section: a margin between 0 and 1, `paired` or `history`, a whole number of pairs or attempts. */

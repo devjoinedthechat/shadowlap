@@ -319,13 +319,19 @@ export interface ProcessHello {
   ppid?: number;
   guard: 'warn' | 'block' | 'off';
   capture: boolean;
+  /**
+   * For a process with no guard: what it can still connect to that bypasses Shadowlap, a few words
+   * each (at most 20 are kept). Empty: nothing, and the run passes `--guard block`. Absent: nobody
+   * knows, and it fails.
+   */
+  reach?: readonly string[];
 }
 
 /**
  * Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
  * they tell it about their own (`POST /v1/hello`): the Claude Code CLI the Claude Agent SDK runs,
- * whose fence says it runs with no guard, so the run's summary names it and `--guard block` fails
- * the run. Does nothing outside Shadowlap.
+ * whose fence says it runs with no guard and what it can still reach, so the run's summary names
+ * that and `--guard block` fails the run unless it is nothing. Does nothing outside Shadowlap.
  */
 export async function sayHello(hello: ProcessHello): Promise<void> {
   const cfg = config();
@@ -362,27 +368,51 @@ async function lastOf(stream: AsyncIterable<unknown>): Promise<unknown> {
 }
 
 /**
+ * How a streaming tool's call is recorded: every value it handed the caller, in order, under a key no
+ * tool's own result has, with what the generator returned as `returned` and `closed` when the caller
+ * stopped reading before the stream ended. The Python SDK records its streams the same way.
+ */
+const STREAM = 'shadowlap_stream';
+/** The argument that makes a stream's reading on past a recording a call of its own: the values the replay already handed the caller. */
+const STREAM_AFTER = 'shadowlap_stream_after';
+
+/** A streaming call's recorded values, return value, and whether its caller closed it early; null for a result recorded as one value, which a replay yields alone. */
+function recordedStream(result: unknown): { items: unknown[]; returned: unknown; closed: boolean } | null {
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) return null;
+  const r = result as Record<string, unknown>;
+  if (!Array.isArray(r[STREAM]) || Object.keys(r).some((k) => k !== STREAM && k !== 'returned' && k !== 'closed')) return null;
+  return { items: r[STREAM] as unknown[], returned: r.returned ?? null, closed: r.closed === true };
+}
+
+/** The values a streaming call handed its caller before it failed, as its error keeps them. */
+function streamedOf(error: unknown): unknown[] {
+  const values = typeof error === 'object' && error !== null ? (error as { streamed?: unknown }).streamed : undefined;
+  return Array.isArray(values) ? values : [];
+}
+
+/**
  * A streaming tool's live call: each value is pulled from the tool when the caller asks for the
- * next, so the tool runs at the caller's pace, as it does outside Shadowlap. The last value is
- * recorded as the result once the stream ends. A caller that stops early (a break, an aborted AI
- * SDK stream) stops the tool too, through its return(), and the last value it was handed is the
- * result; an error the caller throws in is handed to the tool, as yield* does. A failure of the
- * tool is recorded as its error.
+ * next, so the tool runs at the caller's pace, as it does outside Shadowlap. Every value is
+ * recorded, in order, once the stream ends, with what the generator returned. A caller that stops
+ * early (a break, an aborted AI SDK stream) stops the tool too, through its return(), and what it was
+ * handed is recorded closed, so a replay that reads on knows the recording ends there; an error the
+ * caller throws in is handed to the tool, as yield* does. A failure of the tool is recorded as its
+ * error, with the values that came before it.
  */
 async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator<unknown, unknown, undefined>): AsyncGenerator<unknown, void, undefined> {
   const started = Date.now();
   const complete = (body: object) => post(cfg, `/v1/calls/${callNo}/complete`, { ...body, latencyMs: Date.now() - started });
-  let last: unknown = null;
+  const items: unknown[] = [];
   let completed = false;
   const fail = async (err: unknown): Promise<never> => {
     completed = true;
-    await complete({ outcome: 'error', error: serializeError(err) });
+    await complete({ outcome: 'error', error: { ...serializeError(err), ...(items.length ? { streamed: items } : {}) } });
     throw err;
   };
-  const succeed = async () => {
+  const succeed = async (returned: unknown, closed: boolean) => {
     completed = true;
     try {
-      await complete({ outcome: 'ok', result: last ?? null });
+      await complete({ outcome: 'ok', result: { [STREAM]: items, ...(returned !== undefined && returned !== null ? { returned } : {}), ...(closed ? { closed: true } : {}) } });
     } catch (err) {
       // A result the sidecar can't take (not JSON) still completes the call, as an error.
       await complete({ outcome: 'error', error: serializeError(err) });
@@ -399,7 +429,7 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
   try {
     let step = await advance(() => iterator.next());
     while (!step.done) {
-      last = step.value;
+      items.push(step.value);
       let thrown: { error: unknown } | null = null;
       try {
         yield step.value;
@@ -408,12 +438,12 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
       }
       step = await advance(() => (thrown ? iterator.throw(thrown.error) : iterator.next()));
     }
-    await succeed();
+    await succeed(step.value, false);
   } finally {
     if (!completed) {
-      // The caller stopped reading: stop the tool as well, and record what the caller saw.
+      // The caller stopped reading: stop the tool as well, and record what the caller saw, closed.
       await advance(() => iterator.return(undefined));
-      await succeed();
+      await succeed(undefined, true);
     }
   }
 }
@@ -424,9 +454,10 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
  * `write`, and making that implicit would hide a decision the developer must make.
  *
  * An async generator function (`async function*`, the AI SDK's streaming `async *execute`) stays
- * one: what it yields is passed on as the caller reads it, its last value is recorded as the result,
- * and a replay yields that value alone (see liveStream). Outside Shadowlap every call goes straight
- * to `impl`, and its stream or promise comes back as `impl` made it.
+ * one: what it yields is passed on as the caller reads it, every value is recorded, and a replay
+ * yields them again, in order (see liveStream); one that reads past what a closed recording holds
+ * forks there, as a call of its own. Outside Shadowlap every call goes straight to `impl`, and its
+ * stream or promise comes back as `impl` made it.
  *
  * An implementation that only throws returns `never`, which every overload would take: the first
  * one is for it, as its calls return a promise (of a fork's stub, when `onFork` gives one).
@@ -490,13 +521,51 @@ export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args
         yield* stream(args);
         return;
       }
-      const r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(args));
+      let asked: unknown = args;
+      let after = 0;
+      let r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(asked as A));
+      while (r.origin === 'replayed') {
+        // The implementation doesn't run: the recorded values are the stream, in order, and a
+        // failure comes after the values it followed.
+        if (r.outcome !== 'ok') {
+          if (!r.injected) yield* streamedOf(r.error);
+          await call(cfg, asked as A, () => Promise.resolve(null), r);
+          return;
+        }
+        const recorded = recordedStream(r.result);
+        if (!recorded) {
+          yield r.result;
+          return;
+        }
+        yield* recorded.items;
+        if (!recorded.closed) return;
+        // The caller closed it there when it was recorded, and reads on now: past the recording, a
+        // call of its own that no recording holds, so the replay forks here.
+        after += recorded.items.length;
+        asked = typeof args === 'object' && args !== null && !Array.isArray(args) ? { ...args, [STREAM_AFTER]: after } : { args, [STREAM_AFTER]: after };
+        r = await post<ResolveResponse>(cfg, '/v1/calls/resolve', await resolveBody(asked as A));
+      }
       if (r.origin !== 'live') {
-        // Replayed or stubbed: the implementation doesn't run, so the recorded value is the stream.
+        // Blocked or stubbed: the implementation doesn't run; a stub is the stream.
         yield (await call(cfg, args, () => Promise.resolve(null), r)).value;
         return;
       }
-      yield* liveStream(cfg, r.callNo, stream(args));
+      // Live from the start, past the values the recording already handed the caller.
+      const iterator = stream(args);
+      for (let i = 0; i < after; i++) {
+        let skipped: IteratorResult<unknown, unknown>;
+        try {
+          skipped = await iterator.next();
+        } catch (err) {
+          await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'error', error: serializeError(err), latencyMs: 0 });
+          throw err;
+        }
+        if (skipped.done) {
+          await post(cfg, `/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: { [STREAM]: [] }, latencyMs: 0 });
+          return;
+        }
+      }
+      yield* liveStream(cfg, r.callNo, iterator);
     };
   }
 

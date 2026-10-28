@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mcpToolName, parseToolTrust, parseUnrecordedConfig, Store, toolNameEffect, unrecordedEffect, unrecordedTools } from '../src/index.js';
+import { mcpToolName, parseToolTrust, parseUnrecordedConfig, Store, toolNameEffect, unrecordedEffect, unrecordedFix, unrecordedTools } from '../src/index.js';
 import { messageStream, RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 /**
@@ -36,13 +36,13 @@ describe('unrecordedTools', () => {
     const runId = b.end();
 
     expect(unrecordedTools(store, runId)).toEqual([
-      { name: 'Bash', count: 3, firstCallNo: 1, effect: 'write', why: 'a built-in that writes' },
-      { name: 'Write', count: 1, firstCallNo: 3, effect: 'write', why: 'a built-in that writes' },
-      { name: 'send_invoice', count: 1, firstCallNo: 5, effect: 'write', why: '"send" changes something' },
-      { name: 'search_docs', count: 1, firstCallNo: 6, effect: 'read', why: '"search" only looks' },
-      { name: 'computer.click', count: 1, firstCallNo: 6, effect: 'write', why: 'a built-in that writes' },
-      { name: 'frobnicate', count: 1, firstCallNo: 7, effect: 'unknown', why: 'its name says nothing of what it does' },
-      { name: 'mcp__crm__update_contact', count: 1, firstCallNo: 8, effect: 'write', why: '"update" changes something' },
+      { name: 'Bash', count: 3, firstCallNo: 1, effect: 'write', why: 'a Claude Code built-in that runs a command', fix: 'fence' },
+      { name: 'Write', count: 1, firstCallNo: 3, effect: 'write', why: 'a Claude Code built-in that changes a file', fix: 'fence' },
+      { name: 'send_invoice', count: 1, firstCallNo: 5, effect: 'write', why: '"send" changes something', fix: 'wrap' },
+      { name: 'search_docs', count: 1, firstCallNo: 6, effect: 'read', why: '"search" only looks', fix: 'wrap' },
+      { name: 'computer.click', count: 1, firstCallNo: 6, effect: 'write', why: 'a built-in that writes', fix: 'wrap' },
+      { name: 'frobnicate', count: 1, firstCallNo: 7, effect: 'unknown', why: 'its name says nothing of what it does', fix: 'wrap' },
+      { name: 'mcp__crm__update_contact', count: 1, firstCallNo: 8, effect: 'write', why: '"update" changes something', fix: 'mcp' },
     ]);
     store.close();
   });
@@ -76,6 +76,15 @@ describe('an unrecorded tool’s effect', () => {
   it('knows the agent runtimes’ built-ins, and reads a name by the verb it leads with', () => {
     expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'computer', 'computer.type', 'str_replace_based_edit_tool', 'local_shell', 'apply_patch'].map((n) => unrecordedEffect(n).effect)).toEqual(Array(10).fill('write'));
     expect(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map((n) => unrecordedEffect(n).effect)).toEqual(Array(5).fill('read'));
+    // Claude Code's built-ins by what they do: a subagent, a skill, the task list and the plan mode keep to the session.
+    const sessions = ['Agent', 'Task', 'Workflow', 'Skill', 'AskUserQuestion', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'EnterPlanMode', 'ExitPlanMode', 'ToolSearch', 'LSP'];
+    expect(sessions.map((n) => [n, unrecordedEffect(n).effect, unrecordedFix(n)])).toEqual(sessions.map((n) => [n, 'read', 'none']));
+    expect(unrecordedEffect('Agent')).toEqual({ effect: 'read', why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart' });
+    // Those that run a command or send something out write; the fence records some as it is, others once its effects name them.
+    const writes = ['PowerShell', 'Monitor', 'TaskStop', 'EnterWorktree', 'Artifact', 'PushNotification', 'RemoteTrigger', 'SendMessage', 'SendUserFile', 'ShareOnboardingGuide'];
+    expect(writes.map((n) => [n, unrecordedEffect(n).effect, unrecordedFix(n)])).toEqual(writes.map((n) => [n, 'write', 'fence-effects']));
+    expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map(unrecordedFix)).toEqual(Array(10).fill('fence'));
+    expect([unrecordedFix('mcp__kb__search'), unrecordedFix('send_email')]).toEqual(['mcp', 'wrap']);
     expect(unrecordedEffect('sendEmail')).toEqual({ effect: 'write', why: '"send" changes something' });
     expect(unrecordedEffect('get_weather')).toEqual({ effect: 'read', why: '"get" only looks' });
     // A tool that depends only on its input changes nothing outside: it is no write.
@@ -84,16 +93,22 @@ describe('an unrecorded tool’s effect', () => {
     expect(toolNameEffect('lookupOrder')).toEqual({ effect: 'read', word: 'lookup' });
   });
 
-  it('lets a verb that changes something win wherever it stands, and a word that is often a noun only first', () => {
+  it('counts a verb where a name puts its verb: first, after and, or or then, or last after a noun', () => {
     const effect = (names: string[]) => names.map((n) => [n, toolNameEffect(n)?.effect ?? null]);
     // Each of these writes, though some lead with a word that only looks.
-    const writes = ['get_or_create_user', 'search_and_replace', 'edit_file', 'replace', 'checkout', 'purchase', 'python_repl', 'open_pull_request', 'browser_click', 'browser_navigate', 'fill_form', 'issue_refund', 'run_query', 'post_message'];
+    const writes = ['get_or_create_user', 'search_and_replace', 'search_and_book', 'fetch_and_store', 'get_and_set', 'lookup_and_order', 'read_and_archive', 'list_and_clear', 'check_then_deploy', 'edit_file', 'replace', 'checkout', 'purchase', 'python_repl', 'open_pull_request', 'browser_click', 'browser_navigate', 'fill_form', 'issue_refund', 'run_query', 'post_message', 'user_create', 'ticket_status_update', 'searchAndBook'];
     expect(effect(writes)).toEqual(writes.map((n) => [n, 'write']));
     expect(toolNameEffect('get_or_create_user')).toEqual({ effect: 'write', word: 'create' });
+    expect(toolNameEffect('search_and_book')).toEqual({ effect: 'write', word: 'book' });
     expect(toolNameEffect('python_repl')).toEqual({ effect: 'write', word: 'repl' });
-    // A noun after the verb is no write: the order, the run, the post a read looks at.
-    const reads = ['lookup_order', 'get_order_status', 'get_run_status', 'list_posts', 'read_email', 'browser_snapshot', 'get_weather'];
+    // A noun after the verb is no write: the merge request, the commit, the refund a read looks at.
+    const reads = ['get_merge_request', 'get_commit', 'get_refund_status', 'get_deploy_status', 'get_order_status', 'list_runs', 'read_file', 'lookup_order', 'get_run_status', 'list_posts', 'read_email', 'browser_snapshot', 'get_weather', 'sql_db_schema', 'sql_db_list_tables'];
     expect(effect(reads)).toEqual(reads.map((n) => [n, 'read']));
+    // A word that is as often a noun is none at a name's end: no hint, so unknown, which a replay refuses as it may write.
+    expect(toolNameEffect('sales_order')).toBeNull();
+    // A tool that runs SQL the model writes can change data, whatever its name's verb says.
+    for (const n of ['sql_db_query', 'run_sql', 'execute_sql', 'sql_query', 'graphql_query', 'run_cypher']) expect(toolNameEffect(n)?.effect, n).toBe('write');
+    expect(unrecordedEffect('sql_db_query')).toEqual({ effect: 'write', why: 'it runs SQL the model writes, which can change data' });
     expect(unrecordedEffect('frobnicate')).toEqual({ effect: 'unknown', why: 'its name says nothing of what it does' });
     expect(mcpToolName('mcp__my_server__send_email')).toBe('send_email');
     expect(mcpToolName('send_email')).toBeNull();

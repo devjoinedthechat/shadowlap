@@ -4,6 +4,7 @@ import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './a
 import { recordBlameFix } from './fixes.js';
 import { type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
+import { unrecordedNote } from './attempt-unrecorded.js';
 
 /**
  * `shadowlap blame`: runs the probes the engine's search asks for (`searchBlame` in @shadowlap/engine
@@ -270,7 +271,7 @@ export async function runBlame(input: BlameInput): Promise<BlameRun> {
             return;
           }
           if (a.cutShort) cutShort++;
-          done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, ...(a.cutShort ? { cutShort: true as const } : {}), exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests };
+          done[n - 1] = { runId: a.run.runId, passed: a.passed, verdict: a.verdict, ...(a.cutShort ? { cutShort: true as const } : {}), exitCode: a.code, failures: a.failures, spent: a.summary.cost.spent, upstreamRequests: a.summary.upstreamRequests, unrecordedTools: a.unrecorded };
           const late = tally.decided !== null;
           // An attempt that all it fell short on is a check that could not be decided says nothing of the
           // answer re-asked; one the provider cut short is counted, against either verdict.
@@ -489,11 +490,12 @@ export function inconclusiveChecks(a: { checks: readonly StoredCheck[] }): Store
 }
 
 /** One attempt in a line: its verdict (one only an undecided check held back is inconclusive, never failed), what ran live, what it cost, how long it took and its run. */
-export function describeAttempt(a: Pick<Attempt, 'passed' | 'verdict' | 'failures' | 'summary' | 'ms' | 'run'>): string {
+export function describeAttempt(a: Pick<Attempt, 'passed' | 'verdict' | 'failures' | 'summary' | 'ms' | 'run'> & Partial<Pick<Attempt, 'unrecorded'>>): string {
   const cost = a.summary.cost.spent ? ` · ≈${formatUsd(a.summary.cost.spent)}` : '';
   const mark = a.verdict === 'inconclusive' ? p.yellow('?') : p.red('✗');
   const verdict = a.passed ? p.green('✓ passed') : `${mark} ${a.failures[0] ?? a.verdict}${a.failures.length > 1 ? p.dim(` (+${a.failures.length - 1} more)`) : ''}`;
-  return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}`;
+  // A write the attempt's model called that nothing recorded ran for real, whatever the writes Shadowlap fences do.
+  return `${verdict}${p.dim(` · ${a.summary.byOrigin.live} live${cost} · ${formatDuration(a.ms)} · ${shortId(a.run.runId)}`)}${unrecordedNote(a.unrecorded)}`;
 }
 
 /**

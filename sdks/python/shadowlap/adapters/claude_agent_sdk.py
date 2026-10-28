@@ -59,7 +59,8 @@ from shadowlap import (
     _say_hello,
     serialize_error,
 )
-from shadowlap.adapters._claude_hooks import DEFAULT_TIMEOUT_S, as_output, combine, matcher_picks, run_hooks, settings_pre_tool_use
+from shadowlap.adapters._claude_hooks import DEFAULT_TIMEOUT_S, as_output, combine, hook_runs_for, matcher_picks, run_hooks, settings_pre_tool_use
+from shadowlap.adapters._claude_reach import claude_reach
 
 __all__ = ["BUILT_IN_EFFECTS", "fence_hooks", "with_fence", "with_effects"]
 
@@ -177,6 +178,7 @@ def fence_hooks(
     log: Optional[Callable[[str], None]] = None,
     hooks: Optional[Mapping[str, Sequence[Any]]] = None,
     settings: Optional[Mapping[str, Any]] = None,
+    query: Optional[Mapping[str, Any]] = None,
 ) -> dict[str, list[Any]]:
     """The hooks that record and fence Claude Code's built-in tools: PreToolUse, PostToolUse,
     PostToolUseFailure, and Stop and SubagentStop, which end a call Claude Code never ran (a
@@ -196,9 +198,14 @@ def fence_hooks(
     could put back the input of a recorded write, and the write would run again for real. Inside, they
     answer first, in the order given, and the fence has the last word. ``settings``: where Claude Code
     finds the settings it loads for the query (``sources``, ``cwd``, ``settings``, ``env``,
-    ``managed_file``; with_fence passes the query's). A PreToolUse hook in them runs beside the fence,
-    where nothing can run it inside: a recorded write it could rewrite is refused on replay rather than
-    handed a stand-in."""
+    ``managed_file``, ``add_dirs``, ``plugins``; with_fence passes the query's). A PreToolUse hook in
+    them, or in a skill, subagent or plugin they load, runs beside the fence, where nothing can run it
+    inside: a recorded write it could rewrite is refused on replay rather than handed a stand-in.
+    ``query``: the query's options that decide what the Claude Code CLI connects to besides Shadowlap
+    (``tools``, ``disallowed_tools``, ``mcp_servers``, ``strict_mcp_config``, ``agents``,
+    ``extra_args``, ``plugins``; with_fence passes them). The fence says what they leave open when it
+    tells Shadowlap the CLI runs: a run whose CLI reaches nothing the guard can't watch passes
+    ``--guard block``. Without them nobody knows, and it fails."""
     table: dict[str, str] = {**BUILT_IN_EFFECTS, **(effects or {})}
     for name, effect in table.items():
         if effect not in ("pure", "read", "write"):
@@ -216,14 +223,23 @@ def fence_hooks(
 
     async def greet() -> None:
         """The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
-        into, so the network guard can't watch the connections it makes itself (WebFetch, an HTTP MCP
-        server). The fence says so for it, once, as a preload says it loaded: the run's summary names
-        it, and ``--guard block`` fails the run. From this process, the one the CLI's hooks answer in."""
+        into, so the network guard can't watch the connections it makes itself. The fence says so for
+        it, once, as a preload says it loaded, with what the query leaves the CLI to reach
+        (claude_reach): the run's summary names each, and ``--guard block`` fails the run unless there
+        are none. From this process, the one the CLI's hooks answer in."""
         if greeted["done"]:
             return
         greeted["done"] = True
+        body: dict[str, Any] = {"runtime": "claude-code", "pid": os.getpid(), "ppid": os.getppid(), "guard": "off", "capture": False}
+        if query is not None:
+            try:
+                paths = claude_reach(query, {"cwd": project["dir"], **places}, {**os.environ, **(places.get("env") or {})}, os.environ.get("ANTHROPIC_BASE_URL"))
+                # The sidecar keeps 20: the rest are counted in the last.
+                body["reach"] = paths if len(paths) <= 20 else [*paths[:19], f"{len(paths) - 19} more"]
+            except Exception as err:
+                say(f"could not work out what the Claude Code CLI can reach: {err}")
         try:
-            await _finish(_say_hello, {"runtime": "claude-code", "pid": os.getpid(), "ppid": os.getppid(), "guard": "off", "capture": False})
+            await _finish(_say_hello, body)
         except Exception as err:
             say(f"could not tell Shadowlap that the Claude Code CLI runs unguarded: {err}")
 
@@ -271,24 +287,26 @@ def fence_hooks(
             return {**output, "filePath": args["file_path"]}
         return output
 
-    def besides(name: str) -> Optional[dict[str, Any]]:
-        """A PreToolUse hook of the settings Claude Code loads that picks ``name``, or None: it runs beside the fence."""
+    def besides(name: str, agent_type: str) -> Optional[dict[str, Any]]:
+        """A PreToolUse hook Claude Code runs beside the fence that picks ``name`` in the session or the
+        subagent ``agent_type`` (a settings file's, a plugin's, a skill's or that subagent's), or None."""
         found = settings_pre_tool_use(places, project["dir"] or os.getcwd())
-        return next((h for h in found if matcher_picks(h["matcher"], name, "all")), None)
+        return next((h for h in found if matcher_picks(h["matcher"], name, "all") and hook_runs_for(h, agent_type)), None)
 
     def where(h: Mapping[str, Any]) -> str:
-        return "a PreToolUse hook in %s%s" % (h["source"], ' (matcher "%s")' % h["matcher"] if h["matcher"] is not None else "")
+        agent = f', which runs while the subagent "{h["agent"]}" runs' if h.get("agent") is not None else ""
+        return "a PreToolUse hook in %s%s%s" % (h["source"], agent, ' (matcher "%s")' % h["matcher"] if h["matcher"] is not None else "")
 
-    def stand_in_or_refuse(name: str, stand: dict[str, Any], why: str) -> dict[str, Any]:
-        """A write the fence would hand a stand-in, refused instead when a settings file's hook could
+    def stand_in_or_refuse(name: str, agent_type: str, stand: dict[str, Any], why: str) -> dict[str, Any]:
+        """A write the fence would hand a stand-in, refused instead when a hook beside the fence could
         rewrite its input after the fence: the recorded write would run again for real."""
-        beside = besides(name)
+        beside = besides(name, agent_type)
         if beside is None:
             return allow(stand, why)
         reason = (
             f"shadowlap: {name} was not run again: {where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, "
             f"so it could run the recorded {name} again for real. The replay forks here. Give that hook to the query in its hooks option, where with_fence runs "
-            "it inside the fence, or leave that settings file out of setting_sources for this agent."
+            "it inside the fence, or leave its file out for this agent (its setting_sources entry, or the plugin that holds it)."
         )
         once("beside:" + name, reason)
         return deny(reason)
@@ -298,6 +316,7 @@ def fence_hooks(
         name = _text(input_data.get("tool_name"))
         effect = table[name]
         agent = _text(input_data.get("agent_id"))
+        agent_type = _text(input_data.get("agent_type"))
         try:
             r = await _resolve_shielded(functools.partial(_resolve_tool, name, effect, args), _complete_call)
             if r is None:
@@ -305,9 +324,9 @@ def fence_hooks(
             origin = r.get("origin")
             if origin == "live":
                 pending[key] = {"kind": "live", "call_no": r["callNo"], "name": name, "started": time.time(), "agent": agent, "cwd": input_data.get("cwd"), "input": args}
-                # Recorded as it runs; a replay of it will meet the same settings hook, and refuse it.
+                # Recorded as it runs; a replay of it will meet the same hook beside the fence, and refuse it.
                 if effect == "write":
-                    beside = besides(name)
+                    beside = besides(name, agent_type)
                     if beside is not None:
                         once("record:" + name, f"{where(beside)} runs beside Shadowlap's for {name}: a replay of this run refuses {name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where with_fence runs it inside the fence.")
                 return {}
@@ -318,7 +337,7 @@ def fence_hooks(
                 if stand is None:
                     await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": f"{name} has no stand-in Claude Code takes, so it was refused instead of stubbed"}})
                     return deny(f"{name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and {name} can't be.")
-                out = stand_in_or_refuse(name, stand, "shadowlap: a write stubbed after the fork")
+                out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a write stubbed after the fork")
                 if denied(out):
                     await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": out["hookSpecificOutput"]["permissionDecisionReason"]}})
                     return out
@@ -335,7 +354,7 @@ def fence_hooks(
                     stand = stand_in(name, args, result)
                     if stand is None:
                         return deny(f"shadowlap: {name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.")
-                    out = stand_in_or_refuse(name, stand, "shadowlap: a recorded call, replayed")
+                    out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a recorded call, replayed")
                     if not denied(out):
                         pending[key] = {"kind": "replayed", "name": name, "agent": agent, "output": output, "input": args, "stand_in": stand}
                     return out
@@ -347,7 +366,7 @@ def fence_hooks(
                 failure = _bash_failure(str(error.get("message", ""))) if name == "Bash" else None
                 if failure is not None:
                     stand = failing_bash(args, failure[0], failure[1])
-                    out = stand_in_or_refuse(name, stand, "shadowlap: a recorded failure, replayed")
+                    out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a recorded failure, replayed")
                     if not denied(out):
                         pending[key] = {"kind": "failure", "name": name, "agent": agent, "input": args, "stand_in": stand}
                     return out
@@ -505,19 +524,48 @@ def fence_hooks(
 def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fence: Any) -> Opts:
     """``options`` (a ``ClaudeAgentOptions``) with the fence's hooks in them:
     ``query(prompt=..., options=with_fence(options))``. The query's own PreToolUse and PostToolUse
-    hooks run inside the fence's, first; its other hooks stay where they are, beside the fence's.
-    Without Shadowlap the hooks answer as the query's own would, so the same options serve production."""
+    hooks run inside the fence's, first; its other hooks stay where they are, beside the fence's. Under
+    Shadowlap, the CLI runs with CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 unless the query's ``env``
+    or this process's sets it: its updates, telemetry and error reports are connections the guard
+    can't watch. Without Shadowlap the hooks answer as the query's own would and the environment is
+    the query's, so the same options serve production."""
     if not dataclasses.is_dataclass(options) or isinstance(options, type):
         raise TypeError("with_fence: options must be a ClaudeAgentOptions")
     own: Mapping[str, Sequence[Any]] = getattr(options, "hooks", None) or {}
     given_hooks: Mapping[str, Sequence[Any]] = fence.pop("hooks", None) or {}
     inner = {event: [*own.get(event, []), *given_hooks.get(event, [])] for event in ("PreToolUse", "PostToolUse")}
-    places: dict[str, Any] = {"sources": getattr(options, "setting_sources", None), "cwd": str(getattr(options, "cwd", None) or os.getcwd()), "settings": getattr(options, "settings", None), "env": getattr(options, "env", None) or {}}
+    # The CLI's environment: the query's over this process's, as the SDK merges them.
+    env: dict[str, str] = dict(getattr(options, "env", None) or {})
+    has_env = any(f.name == "env" for f in dataclasses.fields(options))
+    quiet = has_env and bool(os.environ.get("SHADOWLAP_URL")) and "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in {**os.environ, **env}
+    if quiet:
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+    extra = getattr(options, "extra_args", None) or {}
+    plugins = [str(p["path"]) for p in getattr(options, "plugins", None) or [] if isinstance(p, dict) and isinstance(p.get("path"), str)]
+    places: dict[str, Any] = {
+        "sources": getattr(options, "setting_sources", None),
+        "cwd": str(getattr(options, "cwd", None) or os.getcwd()),
+        # ``--settings`` given through extra_args is one more settings file.
+        "settings": [s for s in (getattr(options, "settings", None), extra.get("settings")) if s],
+        "env": env,
+        "add_dirs": [str(d) for d in getattr(options, "add_dirs", None) or []],
+        "plugins": plugins,
+    }
     places.update(fence.pop("settings", None) or {})
+    query = {
+        "tools": getattr(options, "tools", None),
+        "disallowed_tools": list(getattr(options, "disallowed_tools", None) or []),
+        "mcp_servers": getattr(options, "mcp_servers", None),
+        "strict_mcp_config": getattr(options, "strict_mcp_config", False),
+        "agents": getattr(options, "agents", None),
+        "extra_args": extra,
+        "plugins": list(getattr(options, "plugins", None) or []),
+        **(fence.pop("query", None) or {}),
+    }
     hooks: dict[str, list[Any]] = {event: list(matchers) for event, matchers in own.items() if event not in inner}
-    for event, matchers in fence_hooks(effects, hooks=inner, settings=places, **fence).items():
+    for event, matchers in fence_hooks(effects, hooks=inner, settings=places, query=query, **fence).items():
         hooks[event] = hooks.get(event, []) + matchers
-    return dataclasses.replace(options, hooks=hooks)
+    return dataclasses.replace(options, hooks=hooks, **({"env": env} if quiet else {}))
 
 
 def with_effects(server: str, tools: Sequence[ToolT], effects: Mapping[str, Any]) -> list[ToolT]:

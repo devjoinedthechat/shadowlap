@@ -425,6 +425,14 @@ class RecordingRules(unittest.TestCase):
                     self.assertIs(type(again), type(err))
                     self.assertEqual((str(again), repr(again), again.args), (str(err), repr(err), err.args))
 
+                # A builtin's is that builtin too, so the agent's own except clause catches it again.
+                if type(original).__module__ == "builtins":
+                    self.assertIsInstance(err, type(original))
+                    for base in type(original).__mro__:
+                        self.assertIsInstance(err, base)
+                    if isinstance(original, OSError):
+                        self.assertEqual((err.errno, err.strerror), (original.errno, original.strerror))
+
         # One class per recorded name, so `except` clauses and `type(e) is` checks agree across calls.
         first = shadowlap.ReplayedError({"name": "ValueError", "message": "once"})
         self.assertIs(type(shadowlap.ReplayedError({"name": "ValueError", "message": "again"})), type(first))
@@ -434,6 +442,19 @@ class RecordingRules(unittest.TestCase):
         self.assertEqual((str(old), repr(old), old.args), ("order A-17 not found", "ValueError('order A-17 not found')", ("order A-17 not found",)))
         custom = shadowlap.ReplayedError({"name": "OrderMissing", "message": "A-17"})
         self.assertEqual((type(custom).__name__, str(custom)), ("OrderMissing", "A-17"))
+        self.assertNotIsInstance(custom, ValueError)
+        # The builtin as except catches it, whatever the recording kept.
+        for name, base in (("ValueError", ValueError), ("KeyError", LookupError), ("TimeoutError", OSError), ("ZeroDivisionError", ArithmeticError)):
+            with self.assertRaises(base):
+                raise shadowlap.ReplayedError({"name": name, "message": "m"})
+        # A builtin whose arguments the recording couldn't keep (UnicodeDecodeError's bytes) is made all the same.
+        broken = shadowlap.ReplayedError({"name": "UnicodeDecodeError", "message": "'utf-8' codec can't decode byte 0xff"})
+        self.assertIsInstance(broken, UnicodeDecodeError)
+        self.assertEqual(str(broken), "'utf-8' codec can't decode byte 0xff")
+        # Ending the program is never what a replayed tool error does.
+        self.assertNotIsInstance(shadowlap.ReplayedError({"name": "SystemExit", "message": "1"}), SystemExit)
+        # A class of the agent's own named like a builtin, in its own module, is no builtin.
+        self.assertNotIsInstance(shadowlap.ReplayedError({"name": "ValueError", "message": "m", "module": "myapp.errors"}), ValueError)
 
 
 class OrderMissing(Exception):

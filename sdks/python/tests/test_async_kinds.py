@@ -130,7 +130,8 @@ class AsyncGenerators(Stubbed):
         self.assertEqual(asyncio.run(first_two()), [0, 1])
         self.assertEqual(closed, ["orders"])
         [done] = sidecar.completes()
-        self.assertEqual((done["outcome"], done["result"]), ("ok", {"shadowlap_stream": [0, 1]}))
+        # Closed: the caller stopped there, and the stream had more, so a replay that reads on is past it.
+        self.assertEqual((done["outcome"], done["result"]), ("ok", {"shadowlap_stream": [0, 1], "closed": True}))
 
     def test_a_failure_of_the_tool_is_recorded_as_its_error_and_raised(self):
         sidecar = self.use({"origin": "live", "callNo": 4})
@@ -472,3 +473,110 @@ class Header(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Answers:
+    """Answers each resolve with the next of its decisions, and keeps what the SDK sent."""
+
+    def __init__(self, *decisions):
+        self.decisions = list(decisions)
+        self.sent = []
+
+    def __call__(self, cfg, path, body):
+        json.dumps(body, allow_nan=False)
+        self.sent.append((path, body))
+        return dict(self.decisions.pop(0)) if path.endswith("/resolve") else {}
+
+    def resolves(self):
+        return [body["args"] for path, body in self.sent if path.endswith("/resolve")]
+
+    def completes(self):
+        return [body for path, body in self.sent if path.endswith("/complete")]
+
+
+class ClosedEarly(Stubbed):
+    """A stream its caller closed before it ended is recorded as closed, and a replay that reads past
+    what it holds forks there: the rest is a call of its own, which no recording holds, never a stream
+    that ends where the recording did and reads as clean."""
+
+    def test_a_generator_its_caller_stops_reading_is_recorded_closed_and_one_that_ends_is_not(self):
+        sidecar = self.use({"origin": "live", "callNo": 3})
+
+        @tool(effect="read")
+        def pages(topic: str):
+            for i in range(10):
+                yield f"{topic} page {i}"
+
+        stream = pages("refunds")
+        self.assertEqual([next(stream), next(stream)], ["refunds page 0", "refunds page 1"])
+        stream.close()
+        self.assertEqual(list(pages("short"))[-1], "short page 9")
+        closed, whole = sidecar.completes()
+        self.assertEqual(closed["result"], {"shadowlap_stream": ["refunds page 0", "refunds page 1"], "closed": True})
+        self.assertNotIn("closed", whole["result"])
+
+    def test_a_replay_that_reads_only_what_was_recorded_asks_nothing_more(self):
+        sidecar = Answers({"origin": "replayed", "callNo": 3, "outcome": "ok", "result": {"shadowlap_stream": ["a", "b"], "closed": True}})
+        shadowlap._post = sidecar
+
+        @tool(effect="read")
+        def pages(topic: str):
+            raise AssertionError("a replay never runs the tool")
+            yield  # a generator, as the tool is
+
+        stream = pages("refunds")
+        self.assertEqual([next(stream), next(stream)], ["a", "b"])
+        stream.close()
+        self.assertEqual(sidecar.resolves(), [{"topic": "refunds"}])
+
+    def test_a_replay_that_reads_past_a_closed_recording_forks_there_and_runs_on_live(self):
+        sidecar = Answers({"origin": "replayed", "callNo": 3, "outcome": "ok", "result": {"shadowlap_stream": ["refunds page 0", "refunds page 1"], "closed": True}}, {"origin": "live", "callNo": 9})
+        shadowlap._post = sidecar
+        ran = []
+
+        @tool(effect="read")
+        def pages(topic: str):
+            for i in range(4):
+                ran.append(i)
+                yield f"{topic} page {i}"
+
+        self.assertEqual(list(pages("refunds")), ["refunds page 0", "refunds page 1", "refunds page 2", "refunds page 3"])
+        # The rest is asked as a call of its own, past the two values the recording held, and runs live.
+        self.assertEqual(sidecar.resolves(), [{"topic": "refunds"}, {"topic": "refunds", "shadowlap_stream_after": 2}])
+        self.assertEqual(ran, [0, 1, 2, 3])
+        [done] = sidecar.completes()
+        self.assertEqual(done["result"], {"shadowlap_stream": ["refunds page 2", "refunds page 3"]})
+
+    def test_an_async_replay_that_reads_past_forks_too_and_a_write_past_it_is_blocked(self):
+        sidecar = Answers({"origin": "replayed", "callNo": 3, "outcome": "ok", "result": {"shadowlap_stream": [0], "closed": True}}, {"origin": "live", "callNo": 9})
+        shadowlap._post = sidecar
+
+        @tool(effect="read")
+        async def ticks(n: int):
+            for i in range(n):
+                yield i
+
+        async def read_all(gen):
+            return [item async for item in gen]
+
+        self.assertEqual(asyncio.run(read_all(ticks(3))), [0, 1, 2])
+        self.assertEqual(sidecar.resolves()[1], {"n": 3, "shadowlap_stream_after": 1})
+        self.assertEqual(sidecar.completes()[0]["result"], {"shadowlap_stream": [1, 2]})
+
+        blocked = Answers({"origin": "replayed", "callNo": 3, "outcome": "ok", "result": {"shadowlap_stream": ["sent 1"], "closed": True}}, {"origin": "blocked", "callNo": 9, "error": {"name": "ShadowlapWriteBlocked", "message": "write tool sends blocked after divergence"}})
+        shadowlap._post = blocked
+
+        @tool(effect="write")
+        async def sends(n: int):
+            for i in range(n):
+                yield f"sent {i}"
+
+        got = []
+
+        async def read_on():
+            async for item in sends(3):
+                got.append(item)
+
+        with self.assertRaises(ShadowlapWriteBlocked):
+            asyncio.run(read_on())
+        self.assertEqual(got, ["sent 1"])

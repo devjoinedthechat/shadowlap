@@ -659,7 +659,7 @@ describe('job drawer', () => {
     const refusal = [
       "shadowlap: 01K0UNKNOW holds model calls of a tool Shadowlap never recorded, which may write: a replay serves the model's answers again, so it would run it again for real.",
       '  frobnicate (2 calls from #3, may write)',
-      "  Wrap it where your agent runs it, so Shadowlap records it and a replay serves it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk.",
+      "  So Shadowlap records it and a replay serves it: wrap it where your agent runs it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk.",
       '  If running it again is safe, declare it a read in shadowlap.config.json, "tools": { "unrecorded": { "frobnicate": "read" } }',
     ];
     const blame = { kind: 'blame', args: ['blame', '01K0UNKNOW0000000000000000', '--expect', '{"tools":{"send_email":1}}'], done: true, code: 2 };

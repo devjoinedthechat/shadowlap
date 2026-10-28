@@ -73,27 +73,46 @@ class ShadowlapWriteBlocked(RuntimeError):
         return (type(self), (self.tool, self.tool_args, str(self)))
 
 
+def _recorded_args(error: Any) -> list[Any]:
+    """The arguments a recorded error was made with. A recording made before arguments were kept, or
+    of an error whose arguments aren't JSON, has the message alone, which is what an error made from
+    one string holds."""
+    if not isinstance(error, dict):
+        return []
+    args = error.get("args")
+    return args if isinstance(args, list) else [error.get("message", "recorded error")]
+
+
 class ReplayedError(Exception):
     """A recorded error, replayed. The original class is not preserved; name, message and code are.
 
     It reads as the recorded error: ``ReplayedError({"name": "KeyError", ...})`` is an instance of a
     subclass named ``KeyError`` in the recorded module, holding the recorded arguments, so ``str()``,
     ``repr()``, ``type(e).__name__``, ``e.args`` and a traceback's last line are what they were when
-    the call was recorded. An agent that hands a tool's error to the model hands it the same text on
-    replay, and ``except ReplayedError`` still catches it."""
+    the call was recorded. A builtin's (ValueError, KeyError, FileNotFoundError) is an instance of that
+    builtin too, so the agent's ``except KeyError`` catches it as it caught the original. An agent that
+    hands a tool's error to the model hands it the same text on replay, and ``except ReplayedError``
+    still catches it."""
 
     def __new__(cls, error: Optional[dict[str, Any]] = None, *args: Any, **kwargs: Any) -> ReplayedError:
         if cls is ReplayedError and isinstance(error, dict):
             module = error.get("module")
             cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
-        return super().__new__(cls)
+        # With the recorded arguments, which a builtin such as OSError reads as it is made (its errno and file).
+        try:
+            return super().__new__(cls, *_recorded_args(error))
+        except TypeError:
+            return super().__new__(cls)
 
     def __init__(self, error: dict[str, Any]):
         message = error.get("message", "recorded error")
-        args = error.get("args")
-        # A recording made before arguments were kept, or of an error whose arguments aren't JSON,
-        # has the message alone, which is what an error made from one string holds.
-        super().__init__(*(args if isinstance(args, list) else [message]))
+        args = _recorded_args(error)
+        try:
+            super().__init__(*args)
+        except TypeError:
+            # A builtin that takes arguments of its own kind (UnicodeDecodeError's five) the recording
+            # couldn't keep: the arguments it has, as any exception holds them.
+            BaseException.__init__(self, *args)
         self._message = message if isinstance(message, str) else str(message)
         self.name: str = error.get("name", "Error")
         self.code: Optional[str] = error.get("code")
@@ -121,13 +140,23 @@ def _replayed_class(name: str, module: Optional[str] = None) -> type[ReplayedErr
     """The ReplayedError subclass for a recorded error's name and module, one per pair. Its module is
     the recorded one, so a traceback names it as it named the original (``myapp.errors.OrderMissing``,
     and ``OrderMissing`` alone for ``__main__`` and builtins). A recording without a module shows a
-    builtin's name (ValueError, KeyError) without one, as the builtin is."""
+    builtin's name (ValueError, KeyError) without one, as the builtin is. A builtin exception's class
+    is a subclass of that builtin as well; one that ends the program rather than reports a failure
+    (SystemExit, KeyboardInterrupt) is not taken as one."""
+    builtin = getattr(builtins, name, None)
+    is_builtin = isinstance(builtin, type) and issubclass(builtin, BaseException)
     if module is None:
-        builtin = getattr(builtins, name, None)
-        module = "builtins" if isinstance(builtin, type) and issubclass(builtin, BaseException) else __name__
+        module = "builtins" if is_builtin else __name__
     cls = _REPLAYED_CLASSES.get((name, module))
     if cls is None:
-        cls = cast(type[ReplayedError], type(name, (ReplayedError,), {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}))
+        namespace = {"__module__": module, "__qualname__": name, "__doc__": ReplayedError.__doc__}
+        bases: tuple[type, ...] = (ReplayedError,)
+        if module == "builtins" and isinstance(builtin, type) and issubclass(builtin, Exception) and builtin is not Exception:
+            bases = (ReplayedError, builtin)
+        try:
+            cls = cast(type[ReplayedError], type(name, bases, namespace))
+        except TypeError:  # a builtin whose layout no other class can share
+            cls = cast(type[ReplayedError], type(name, (ReplayedError,), namespace))
         _REPLAYED_CLASSES[(name, module)] = cls
     return cls
 
@@ -341,7 +370,10 @@ async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[Bas
     """``fn(*args)`` on a worker thread, run to its end whatever the caller does meanwhile, with the
     cancel that came while it ran, if one did, for the caller to go on with once it has the answer.
     Under trio it runs in a shielded scope (a cancelled task can wait on nothing outside one), and a
-    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out."""
+    cancel shows at the caller's next checkpoint; under asyncio a cancel is waited out. Under anyio
+    on asyncio it runs in anyio's shielded scope too: a cancelled anyio scope cancels the task again
+    at every await, which waiting it out would turn into a loop that spins until the answer comes, so
+    that cancel shows at the caller's next checkpoint instead, as under trio."""
     library = _async_library()
     if library == "trio":
         import trio
@@ -350,6 +382,17 @@ async def _shielded(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[Bas
             return await _to_thread(fn, *args), None
     if library != "asyncio":
         return await _to_thread(fn, *args), None
+    if "anyio" in sys.modules:
+        import anyio
+
+        with anyio.CancelScope(shield=True):
+            return await _waited_out(fn, *args)
+    return await _waited_out(fn, *args)
+
+
+async def _waited_out(fn: Callable[..., _T], *args: Any) -> tuple[_T, Optional[BaseException]]:
+    """``fn(*args)`` on a worker thread under asyncio, run to its end through every cancel, the first
+    of which comes back with the answer."""
     done = asyncio.ensure_future(_to_thread(fn, *args))
     cancel: Optional[BaseException] = None
     while True:
@@ -382,6 +425,14 @@ async def _resolve_shielded(resolve: Callable[[], Optional[Resolution]], complet
         try:
             await trio.lowlevel.checkpoint_if_cancelled()
         except trio.Cancelled as err:
+            cancel = err
+    elif cancel is None and "anyio" in sys.modules:
+        # A cancel of an anyio scope while the question was asked shows here, as trio's does above.
+        import anyio
+
+        try:
+            await anyio.lowlevel.checkpoint_if_cancelled()
+        except anyio.get_cancelled_exc_class() as err:
             cancel = err
     if cancel is not None:
         if r is not None and r.get("origin") in ("live", "stubbed"):
@@ -811,16 +862,20 @@ def _since(started: float) -> int:
 
 
 #: How a streaming tool's call is recorded: every value it handed the caller, in order, under a key
-#: no tool's own result has, with a generator's return value as ``returned``.
+#: no tool's own result has, with a generator's return value as ``returned``, and ``closed`` when the
+#: caller stopped reading before the stream ended.
 _STREAM = "shadowlap_stream"
+#: The argument that makes a stream's reading on past a recording a call of its own: the values the
+#: replay already handed the caller, which the recording held.
+_STREAM_AFTER = "shadowlap_stream_after"
 
 
-def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any]]:
-    """A streaming call's recorded values and return value; None for a result recorded as one value
-    (a stream recorded before streams were recorded whole, or what ``--override`` put in its place),
-    which a replay yields alone."""
-    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned"}:
-        return result[_STREAM], result.get("returned")
+def _recorded_stream(result: Any) -> Optional[tuple[list[Any], Any, bool]]:
+    """A streaming call's recorded values, return value, and whether the caller closed it early; None
+    for a result recorded as one value (a stream recorded before streams were recorded whole, or what
+    ``--override`` put in its place), which a replay yields alone."""
+    if isinstance(result, dict) and isinstance(result.get(_STREAM), list) and set(result) <= {_STREAM, "returned", "closed"}:
+        return result[_STREAM], result.get("returned"), result.get("closed") is True
     return None
 
 
@@ -962,23 +1017,34 @@ class _Tool:
         async def wrapper(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, Any]:
             cfg = _config()
             live: Optional[_LiveStream] = None
+            after = 0
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = await tool_.resolve_async(cfg, _check_args(tool_.name, bound))
-                if r["origin"] == "replayed":
+                asked = bound
+                r = await tool_.resolve_async(cfg, _check_args(tool_.name, asked))
+                while r["origin"] == "replayed":
                     # The implementation doesn't run: the recorded values are the stream, in order,
                     # and a failure comes after the values it followed.
-                    if r["outcome"] == "ok":
-                        recorded = _recorded_stream(r.get("result"))
-                        for item in recorded[0] if recorded is not None else [r.get("result")]:
-                            yield item
+                    if r["outcome"] != "ok":
+                        if not r.get("injected"):
+                            for item in _streamed(r.get("error")):
+                                yield item
+                        await tool_.replayed_async(r, asked)
                         return
-                    if not r.get("injected"):
-                        for item in _streamed(r.get("error")):
-                            yield item
-                    await tool_.replayed_async(r, bound)
-                    return
-                tool_.refuse(r, bound)
+                    recorded = _recorded_stream(r.get("result"))
+                    if recorded is None:
+                        yield r.get("result")
+                        return
+                    for item in recorded[0]:
+                        yield item
+                    if not recorded[2]:
+                        return
+                    # The caller closed it there when it was recorded, and reads on now: past the
+                    # recording, a call of its own that no recording holds, so the replay forks here.
+                    after += len(recorded[0])
+                    asked = {**bound, _STREAM_AFTER: after}
+                    r = await tool_.resolve_async(cfg, _check_args(tool_.name, asked))
+                tool_.refuse(r, asked)
                 if r["origin"] == "stubbed":
                     stub = await tool_.stub_async(bound)
                     await _finish(_complete_ok, tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
@@ -986,6 +1052,18 @@ class _Tool:
                     return
                 live = _LiveStream(tool_, cfg, r["callNo"])
             stream = cast(AsyncGenerator[Any, Any], fn(*args, **kwargs))
+            # Run live from the start, past the values the recording already handed the caller.
+            for _ in range(after):
+                try:
+                    await stream.__anext__()
+                except StopAsyncIteration:
+                    if live:
+                        await _finish(live.ended)
+                    return
+                except BaseException as err:
+                    if live:
+                        await live.failed_async(err)
+                    raise
             # What follows is `yield from` for an async generator, which Python doesn't have: values
             # sent and errors thrown in reach the tool, and a caller that stops early stops it.
             try:
@@ -1004,12 +1082,13 @@ class _Tool:
                 try:
                     sent = yield value
                 except GeneratorExit:
-                    # The caller stopped reading: stop the tool as well, and record what the caller saw.
+                    # The caller stopped reading: stop the tool as well, and record what the caller
+                    # saw, closed early, so a replay that reads on knows the recording ends there.
                     try:
                         await stream.aclose()
                     finally:
                         if live:
-                            await _finish(live.ended)
+                            await _finish(live.ended, None, True)
                     raise
                 except BaseException as thrown:
                     step: Awaitable[Any] = stream.athrow(thrown)
@@ -1038,26 +1117,34 @@ class _Tool:
         def wrapper(*args: Any, **kwargs: Any) -> Generator[Any, Any, Any]:
             cfg = _config()
             live: Optional[_LiveStream] = None
+            after = 0
             if cfg is not None:
                 bound = _bind_args(fn, args, kwargs, tool_.exclude)
-                r = tool_.resolve(cfg, _check_args(tool_.name, bound))
-                if r["origin"] == "replayed":
+                asked = bound
+                r = tool_.resolve(cfg, _check_args(tool_.name, asked))
+                while r["origin"] == "replayed":
                     # The recorded values are the stream, in order, then what the generator returned;
                     # a failure comes after the values it followed. A value sent in changes nothing.
-                    if r["outcome"] == "ok":
-                        recorded = _recorded_stream(r.get("result"))
-                        if recorded is None:
-                            yield r.get("result")
-                            return None
-                        for item in recorded[0]:
-                            yield item
+                    if r["outcome"] != "ok":
+                        if not r.get("injected"):
+                            for item in _streamed(r.get("error")):
+                                yield item
+                        tool_.replayed(r, asked)
+                        return None
+                    recorded = _recorded_stream(r.get("result"))
+                    if recorded is None:
+                        yield r.get("result")
+                        return None
+                    for item in recorded[0]:
+                        yield item
+                    if not recorded[2]:
                         return recorded[1]
-                    if not r.get("injected"):
-                        for item in _streamed(r.get("error")):
-                            yield item
-                    tool_.replayed(r, bound)
-                    return None
-                tool_.refuse(r, bound)
+                    # The caller closed it there when it was recorded, and reads on now: past the
+                    # recording, a call of its own that no recording holds, so the replay forks here.
+                    after += len(recorded[0])
+                    asked = {**bound, _STREAM_AFTER: after}
+                    r = tool_.resolve(cfg, _check_args(tool_.name, asked))
+                tool_.refuse(r, asked)
                 if r["origin"] == "stubbed":
                     stub = tool_.on_fork(**bound) if tool_.on_fork else None
                     _complete_ok(tool_.complete, cfg, r["callNo"], tool_.name, {_STREAM: [stub]}, 0)
@@ -1065,6 +1152,18 @@ class _Tool:
                     return None
                 live = _LiveStream(tool_, cfg, r["callNo"])
             stream = cast(Generator[Any, Any, Any], fn(*args, **kwargs))
+            # Run live from the start, past the values the recording already handed the caller.
+            for _ in range(after):
+                try:
+                    next(stream)
+                except StopIteration as stop:
+                    if live:
+                        live.ended(stop.value)
+                    return stop.value
+                except BaseException as err:
+                    if live:
+                        live.failed(err)
+                    raise
             try:
                 value = next(stream)
             except StopIteration as stop:
@@ -1085,7 +1184,7 @@ class _Tool:
                         stream.close()
                     finally:
                         if live:
-                            live.ended()
+                            live.ended(None, True)
                     raise
                 except BaseException as thrown:
                     advance: Callable[[], Any] = functools.partial(stream.throw, thrown)
@@ -1107,8 +1206,9 @@ class _Tool:
 
 class _LiveStream:
     """A streaming tool's live call: every value it handed the caller is recorded, in order, once the
-    stream ends (with a generator's return value), or once the caller stops reading; none for a
-    stream that yielded nothing. A failure of the tool is its error, with the values that came first."""
+    stream ends (with a generator's return value), or once the caller stops reading, marked closed;
+    none for a stream that yielded nothing. A failure of the tool is its error, with the values that
+    came first."""
 
     def __init__(self, tool_: _Tool, cfg: Config, call_no: int):
         self.tool = tool_
@@ -1118,11 +1218,11 @@ class _LiveStream:
         self.items: list[Any] = []
         self.done = False
 
-    def ended(self, returned: Any = None) -> None:
+    def ended(self, returned: Any = None, closed: bool = False) -> None:
         if self.done:
             return
         self.done = True
-        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {})}
+        record: dict[str, Any] = {_STREAM: self.items, **({"returned": returned} if returned is not None else {}), **({"closed": True} if closed else {})}
         _complete_ok(self.tool.complete, self.cfg, self.call_no, self.tool.name, record, _since(self.started))
 
     def failed(self, err: BaseException) -> None:
@@ -1214,7 +1314,9 @@ def _resolve_tool(name: str, effect: str, args: Any, trust: Optional[str] = None
 def _say_hello(body: dict[str, Any]) -> None:
     """Tells the sidecar about a process of the agent's that Shadowlap's preloads can't load into, as
     they tell it about their own (``POST /v1/hello``): the Claude Code CLI the Claude Agent SDK runs,
-    whose fence says it runs with no guard. Does nothing outside Shadowlap."""
+    whose fence says it runs with no guard, and with ``reach`` what it can still connect to that
+    bypasses Shadowlap (empty: nothing, and the run passes ``--guard block``). Does nothing outside
+    Shadowlap."""
     cfg = _config()
     if cfg is not None:
         _post(cfg, "/v1/hello", {"runtimeVersion": "", "ppid": 0, **body})

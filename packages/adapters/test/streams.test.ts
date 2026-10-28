@@ -6,7 +6,8 @@ import { withEffects } from '../src/ai-sdk.js';
 
 /**
  * An AI SDK streaming tool (`async *execute`) wrapped by withEffects still streams, in production
- * and under Shadowlap, which records its final value.
+ * and under Shadowlap, which records every value it yields, and replays them in order: the AI SDK
+ * takes the last for the tool's output, as it did live.
  */
 
 let store: Store;
@@ -67,7 +68,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(wrapped).toEqual(bare);
   });
 
-  it('streams while recording, records the final value, and replays it without running', async () => {
+  it('streams while recording, records every value, and replays them without running', async () => {
     const tools = withEffects({ weather }, { weather: 'read' });
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
     activate(rec.runId);
@@ -78,7 +79,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(ran).toBe(1);
     const [call] = store.getCalls(rec.runId);
     expect(call.end?.outcome).toBe('ok');
-    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { status: 'done', city: 'Oslo', tempC: 7 } });
+    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { shadowlap_stream: [{ status: 'loading' }, { status: 'done', city: 'Oslo', tempC: 7 }] } });
     expect(call.meta.implHash).toBe(sha(weather.execute));
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
@@ -87,8 +88,8 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     const { summary } = sidecar.endRun(rep.runId, 'completed');
     expect(summary.divergence).toBeNull();
     expect(ran).toBe(1);
-    // The model is shown the same final value; the progress updates were the live run's.
-    expect(replayed).toEqual({ streamed: true, seen: [{ status: 'done', city: 'Oslo', tempC: 7 }], final: { status: 'done', city: 'Oslo', tempC: 7 } });
+    // The model is shown the same final value, after the same progress updates.
+    expect(replayed).toEqual(live);
     deactivate();
   });
 
@@ -110,7 +111,20 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     ).rejects.toThrow('weather service down');
     sidecar.endRun(rec.runId, 'completed');
     expect(seen).toEqual([{ status: 'loading' }]);
-    expect(store.getCalls(rec.runId)[0].end?.outcome).toBe('error');
+    const [failed] = store.getCalls(rec.runId);
+    expect(failed.end?.outcome).toBe('error');
+    // The value it yielded first is kept with its error, and a replay yields it before raising it.
+    expect(store.getJson(failed.end!.responseRef!)).toMatchObject({ error: { message: 'weather service down', streamed: [{ status: 'loading' }] } });
+    const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
+    activate(rep.runId);
+    const again: unknown[] = [];
+    await expect(
+      (async () => {
+        for await (const v of tools.failing.execute({}, {}) as AsyncIterable<unknown>) again.push(v);
+      })(),
+    ).rejects.toThrow('weather service down');
+    sidecar.endRun(rep.runId, 'completed');
+    expect(again).toEqual(seen);
     deactivate();
   });
 
@@ -151,13 +165,28 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(log.splice(0)).toEqual(bare);
     const [call] = store.getCalls(rec.runId);
     expect(call.end?.outcome).toBe('ok');
-    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { step: 1 } });
+    // Closed: the caller stopped reading there, and the stream had more.
+    expect(store.getJson(call.end!.responseRef!)).toEqual({ result: { shadowlap_stream: [{ step: 1 }], closed: true } });
 
     const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
     activate(rep.runId);
     expect(await first(tools.steps.execute)).toEqual({ step: 1 });
     expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
     expect(log).toEqual([]);
+
+    // A replay that reads past what the caller read when recording forks there: the rest is a call of
+    // its own, which runs live from the start, past the value the recording gave, never a stream that
+    // ends early and reads as clean.
+    const past = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '.' } });
+    activate(past.runId);
+    const all: unknown[] = [];
+    for await (const v of tools.steps.execute({}, {}) as AsyncIterable<unknown>) all.push(v);
+    const { summary } = sidecar.endRun(past.runId, 'completed');
+    expect(all).toEqual([1, 2, 3, 4, 5].map((step) => ({ step })));
+    expect(summary.divergence).toMatchObject({ callNo: 2, kind: 'tool', name: 'steps' });
+    const [, rest] = store.getCalls(past.runId);
+    expect(store.getJson(rest.requestRef!)).toEqual({ args: { shadowlap_stream_after: 1 } });
+    expect(store.getJson(rest.end!.responseRef!)).toEqual({ result: { shadowlap_stream: [2, 3, 4, 5].map((step) => ({ step })) } });
     deactivate();
   });
 
@@ -182,7 +211,7 @@ describe('an AI SDK streaming tool (async *execute)', () => {
     expect(await it.next()).toEqual({ done: false, value: 3 });
     expect((await it.next()).done).toBe(true);
     sidecar.endRun(rec.runId, 'completed');
-    expect(store.getJson(store.getCalls(rec.runId)[0].end!.responseRef!)).toEqual({ result: 3 });
+    expect(store.getJson(store.getCalls(rec.runId)[0].end!.responseRef!)).toEqual({ result: { shadowlap_stream: [1, 2, 3] } });
     deactivate();
   });
 });

@@ -76,7 +76,9 @@ let watching = false;
  * the signal does: alone among its listeners, the watcher stands in for the default and ends the
  * process the way the signal would have (a shell then reports 128 + n). A command that handles the
  * signal itself (winding its agents down first) keeps doing so; the watcher only remembers which one
- * it was. Called once, by the entry point.
+ * it was, and makes it the status the process ends with: a signal that comes once the command has
+ * set its own (after verify's verdict, as repair closes its store) still ends it with 128 + n.
+ * Called once, by the entry point.
  */
 export function watchStopSignals(): void {
   if (watching) return;
@@ -84,6 +86,7 @@ export function watchStopSignals(): void {
   for (const signal of STOP_SIGNALS) {
     const note = (): void => {
       received ??= signal;
+      process.exitCode = signalExit(received);
       if (process.listenerCount(signal) > 1) return;
       process.removeListener(signal, note);
       try {

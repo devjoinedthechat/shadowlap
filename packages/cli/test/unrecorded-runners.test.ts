@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store, type RunRecord } from '@shadowlap/engine';
+import { Store, type RunRecord, type UnrecordedFix } from '@shadowlap/engine';
 import { RunBuilder, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { AttemptRunner } from '../src/attempts.js';
 import { CliError, EXIT } from '../src/exit-codes.js';
@@ -43,7 +43,7 @@ async function refused(run: () => Promise<unknown>): Promise<CliError> {
   expect(err).toBeInstanceOf(CliError);
   expect((err as CliError).exitCode).toBe(EXIT.usage);
   expect((err as CliError).message).toContain('holds model calls of a tool Shadowlap never recorded, which writes');
-  expect((err as CliError).message).toContain('    Bash  1 call from model call #1 · a built-in that writes');
+  expect((err as CliError).message).toContain('    Bash  1 call from model call #1 · a Claude Code built-in that runs a command');
   expect(existsSync(marker), 'the agent never started').toBe(false);
   return err as CliError;
 }
@@ -106,7 +106,7 @@ describe('the runners every replaying command shares', () => {
 
 describe('a tool of unknown effect', () => {
   const run = { runId: '01K0UNKNOWN0000000000000000', meta: {} } as unknown as RunRecord;
-  const tool = (name: string, effect: 'write' | 'read' | 'unknown', why: string) => ({ name, count: 1, firstCallNo: 2, effect, why });
+  const tool = (name: string, effect: 'write' | 'read' | 'unknown', why: string, fix: UnrecordedFix = 'wrap') => ({ name, count: 1, firstCallNo: 2, effect, why, fix });
 
   it('is refused as a write is, as the MCP proxy takes a tool its server leaves unannotated', () => {
     const refusal = unrecordedRefusal(run, [tool('frobnicate', 'unknown', 'its name says nothing of what it does')], new Set(), ['shadowlap', 'replay', run.runId]);
@@ -115,13 +115,25 @@ describe('a tool of unknown effect', () => {
     expect(refusal).toContain(`shadowlap replay ${run.runId} --allow-unrecorded frobnicate`);
     expect(unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…')], new Set(['frobnicate']), null)).toBeNull();
     // With a write beside it, both are named.
-    const both = unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…'), tool('Bash', 'write', 'a built-in that writes')], new Set(), null);
+    const both = unrecordedRefusal(run, [tool('frobnicate', 'unknown', '…'), tool('Bash', 'write', 'a Claude Code built-in that runs a command', 'fence')], new Set(), null);
     expect(both).toContain('which write, or may:');
     expect(unrecordedRunAnyway([tool('frobnicate', 'unknown', '…'), tool('lookup_kb', 'read', '…')], new Set()).map((t) => t.name)).toEqual(['lookup_kb']);
   });
 
   it('says at the end of a run that it may write, so a replay refuses it', () => {
     const said = formatUnrecorded([tool('frobnicate', 'unknown', 'its name says nothing of what it does')], 'recording');
-    expect(said).toContain('  frobnicate may write, so shadowlap replay and test refuse to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.');
+    expect(said).toContain('  frobnicate may write, so every command that replays the run refuses to run it again until it is recorded, declared a read, or allowed with --allow-unrecorded.');
+    expect(said).toContain("To have it recorded and replayed, wrap it where your agent runs it: tool('frobnicate', { effect: 'write' }, fn) with @shadowlap/sdk;");
+  });
+
+  it('points a Claude Code built-in at the fence, an MCP tool at shadowlap mcp, and leaves a session tool alone', () => {
+    // A subagent's own calls are named apart: Agent itself is no write, and nothing need be done about it.
+    const agent = tool('Agent', 'read', 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart', 'none');
+    expect(unrecordedRefusal(run, [agent], new Set(), null)).toBeNull();
+    expect(formatUnrecorded([agent], 'recording')).not.toContain('To have it recorded');
+    const shell = tool('PowerShell', 'write', 'a Claude Code built-in that runs a command', 'fence-effects');
+    expect(unrecordedRefusal(run, [shell], new Set(), null)).toContain("  So Shadowlap records it and a replay serves it: name it in withFence's effects, withFence(options, { effects: { 'PowerShell': 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay.");
+    const close = tool('mcp__issues__close_issue', 'write', '"close" changes something', 'mcp');
+    expect(unrecordedRefusal(run, [close], new Set(), null)).toContain('connect Claude Code to its MCP server through shadowlap mcp, which records and fences its calls');
   });
 });

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole, lostWhere, type RepairRange } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -642,8 +642,16 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     const parentCalls = store.getCalls(runId);
     // The agent's model calls: a judge check's are none of blame's steps.
     const steps = parentCalls.filter((c) => c.kind === 'api' && c.end && inScope(c.meta.scope, s.scope) && !isJudgeCall(c)).map((c) => c.callNo);
-    const base: RepairTarget = { runId, outcome: 'error', callNo: null, step: null, steps: steps.length, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note: null };
+    const base: RepairTarget = { runId, outcome: 'error', callNo: null, step: null, steps: steps.length, range: null, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note: null };
     let callNo: number | null = null;
+    /** The two calls its blame found the run lost between, when it pinned no one call. */
+    let lostRange: RepairRange | null;
+    const rangeOf = (range: { from?: unknown; to?: unknown; gradual?: unknown } | null | undefined): RepairRange | null => {
+      const from = range?.from;
+      const to = range?.to;
+      if (typeof from !== 'number' || typeof to !== 'number' || from === to || !steps.includes(from) || !steps.includes(to)) return null;
+      return { from, to, fromStep: steps.indexOf(from) + 1, toStep: steps.indexOf(to) + 1, ...(range!.gradual === true ? { gradual: true as const } : {}) };
+    };
     let rescuedRunId: string | null = null;
     let failures: string[] = judgeRecording(store, t.parent, parentCalls, s.spec, config.prices).failures;
 
@@ -664,7 +672,8 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     if (same) {
       callNo = stored.callNo;
       rescuedRunId = stored.rescuedRunId;
-      log(`  ${shortId(runId)}: lost at model call #${callNo!}, from the blame already stored on it`);
+      lostRange = rangeOf(stored.range);
+      log(`  ${shortId(runId)}: lost ${lostWhere(callNo!, stored.range)}, from the blame already stored on it`);
       base.reused = true;
     } else {
       log(`  blaming ${shortId(runId)}${fields.model ? ` with ${String(fields.model)}` : ''}`);
@@ -685,6 +694,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
         if (r.outcome !== 'blamed' || !r.blamed || !r.contrast) return { target: { ...base, outcome: r.outcome === 'stopped' ? 'stopped' : 'unrescuable', ...(unsettledFirst(r) ? { unsettled: true } : {}) }, repairCase: null, request: null, model: null, notTheAnswer: r.outcome === 'stopped' ? null : notTheAnswer(r), ...(r.outcome === 'stopped' ? { stopReason: r.stopReason } : {}) };
         callNo = r.blamed.callNo;
         rescuedRunId = r.contrast.rescuedRunId;
+        lostRange = rangeOf(r.range);
       } catch (err) {
         if (!(err instanceof BlameError)) throw err;
         // What its judges cost before blame stopped counts all the same.
@@ -707,10 +717,10 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     const asRecorded = exchange(store);
     const view = shown ? shown.of(runId, rescuedRunId!) : store;
     const seen = view === store ? asRecorded : exchange(view);
-    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, rescuedRunId, recorded: describeBlocks(seen.recorded), rescued: describeBlocks(seen.rescued) };
+    const target: RepairTarget = { ...base, outcome: 'blamed', callNo, step: steps.indexOf(callNo!) + 1, range: lostRange, rescuedRunId, recorded: describeBlocks(seen.recorded), rescued: describeBlocks(seen.rescued) };
     return {
       target,
-      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, ...seen, failures: failures.map((f) => rewriteText(f, rules)), rescuedBy: typeof fields.model === 'string' ? fields.model : null },
+      repairCase: { step: target.step!, steps: steps.length, callNo: callNo!, ...(lostRange ? { range: lostRange } : {}), ...seen, failures: failures.map((f) => rewriteText(f, rules)), rescuedBy: typeof fields.model === 'string' ? fields.model : null },
       // Case details are screened against the run as recorded: the check never leaves the machine.
       caseText: `${conversationText(asRecorded.conversation)}\n${describeBlocks(asRecorded.recorded)}`,
       request,
@@ -982,7 +992,7 @@ function commitMessage(r: RepairReport, c: RepairCandidate): string {
   const pass = (role: VerifyRole) => count(role).filter((x) => x.verdict === 'pass').length;
   const lines = [commitTitle(c), ''];
   if (c.why.trim()) lines.push(c.why.trim(), '');
-  lines.push(`The failing runs were lost at ${r.targets.filter((t) => t.callNo !== null).map((t) => `model call #${t.callNo!} of ${shortId(t.runId)}`).join(', ')}.`);
+  lines.push(`The failing runs were lost ${r.targets.filter((t) => t.callNo !== null).map((t) => `${lostWhere(t.callNo!, t.range)} of ${shortId(t.runId)}`).join('; ')}.`);
   if (v) lines.push(`Verified by replaying them under the change: fixes ${pass('target')} of ${count('target').length} target and ${pass('holdout')} of ${count('holdout').length} held-out failing runs, keeps ${pass('good')} of ${count('good').length} good runs, ${eachRun(v)}.`);
   if (r.uncommitted?.length) lines.push('', `The runs were replayed on a working tree with uncommitted changes to ${r.uncommitted.join(', ')}, which this commit does not hold: it is HEAD with the fix alone.`);
   return lines.join('\n') + '\n';

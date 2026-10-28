@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Store, type RunRecord } from '@shadowlap/engine';
+import { FENCED_BUILT_INS, Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { BUILT_IN_EFFECTS, fenceHooks, withEffects, withFence, type HookMatcherLike } from '../src/claude-agent-sdk.js';
 import { matcherPicks } from '../src/claude-hooks.js';
@@ -31,6 +31,7 @@ afterEach(() => {
 afterAll(async () => {
   await sidecar.close();
   store.close();
+  rmSync(HOME, { recursive: true, force: true });
 });
 
 /** A Claude Code session on the project as it is before the agent runs; `beside`, the hooks of the settings files it loads. */
@@ -41,9 +42,14 @@ function session(hooks: Hooks, beside: Hooks = {}): FakeClaudeCode {
   return cc;
 }
 
+/** A home folder of the tests' own: no file of this machine's Claude Code is read. */
+const HOME = mkdtempSync(join(tmpdir(), 'shadowlap-fence-home-'));
+/** The CLI's environment in these tests: that home, and the model API where Shadowlap would send it. */
+const HOME_ENV = { HOME, CLAUDE_CONFIG_DIR: join(HOME, '.claude'), ...(process.env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL } : {}) };
+
 /** The query's hooks with the fence's in them. No settings file of this machine is read: only those the query names. */
-const fenced = (query: { hooks?: Record<string, HookMatcherLike[]>; cwd?: string; settingSources?: string[] } = {}, log: (line: string) => void = () => {}): Hooks =>
-  withFence({ settingSources: [], ...query }, { scratch: mkdtempSync(join(tmpdir(), 'shadowlap-fence-test-')), log, settings: { managedFile: null } }).hooks as unknown as Hooks;
+const fenced = (query: { hooks?: Record<string, HookMatcherLike[]>; cwd?: string; settingSources?: string[]; disallowedTools?: string[]; env?: Record<string, string> } = {}, log: (line: string) => void = () => {}, managedFile: string | null = null): Hooks =>
+  withFence({ settingSources: [], ...query, env: { ...HOME_ENV, ...query.env } }, { scratch: mkdtempSync(join(tmpdir(), 'shadowlap-fence-test-')), log, settings: { managedFile } }).hooks as unknown as Hooks;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A PreToolUse hook of the agent's own that marks every Bash command it is given, answering `delay` ms late. */
@@ -82,6 +88,15 @@ function within(run: RunRecord): void {
 }
 
 const command = { argv: ['agent'], cwd: ROOT };
+
+describe('the built-ins the fence records', () => {
+  it('are the ones the CLI tells a person the fence records, in both SDKs', () => {
+    expect(new Set(Object.keys(BUILT_IN_EFFECTS))).toEqual(FENCED_BUILT_INS);
+    const python = readFileSync(new URL('../../../sdks/python/shadowlap/adapters/claude_agent_sdk.py', import.meta.url), 'utf8');
+    const table = /BUILT_IN_EFFECTS: Mapping\[str, str\] = \{([^}]*)\}/.exec(python)![1];
+    expect(new Set([...table.matchAll(/"(\w+)":/g)].map((m) => m[1]))).toEqual(FENCED_BUILT_INS);
+  });
+});
 
 describe('the Claude Agent SDK fence', () => {
   let recording: RunRecord;
@@ -266,8 +281,58 @@ describe('the Claude Agent SDK fence', () => {
     await cc.call('Bash', { command: 'true' }, 'toolu_h');
     const ended = sidecar.endRun(run.runId, 'completed');
     expect(ended.preloads).toMatchObject({ guard: 'block', hellos: { 'claude-code': 1 }, failed: true });
-    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload');
+    // What the query leaves the CLI to reach: WebFetch, and the claude.ai connectors with no API key.
+    expect(ended.preloads!.unguarded).toContain('the Claude Code CLI the Claude Agent SDK runs, which loads no Shadowlap preload, so the guard can\'t watch WebFetch, which fetches each page itself; and claude.ai connectors, which a claude.ai login brings.');
     expect(ended.run.status).toBe('failed');
+  });
+
+  it('passes --guard block for a query that leaves the CLI nothing to reach unwatched, and names what one leaves', async () => {
+    const say = async (hooks: Hooks) => {
+      const signal = new AbortController().signal;
+      const h = hooks as unknown as Record<string, Array<{ hooks: Array<(input: Record<string, unknown>, id: string | undefined, o: { signal: AbortSignal }) => Promise<unknown>> }>>;
+      await h.UserPromptSubmit[0].hooks[0]({ hook_event_name: 'UserPromptSubmit', prompt: 'go', cwd: ROOT }, undefined, { signal });
+    };
+    const closed = sidecar.startRun({ mode: 'record', command });
+    sidecar.expectPreloads(closed.runId, 'block');
+    within(closed);
+    await say(fenced({ disallowedTools: ['WebFetch'], env: { ANTHROPIC_API_KEY: 'sk-test' } }));
+    const c = sidecar.endRun(closed.runId, 'completed');
+    expect(c.preloads).toMatchObject({ hellos: { 'claude-code': 1 }, unguarded: null, failed: false });
+    expect(c.run.status).toBe('completed');
+
+    // An MCP server over the network the query connects is named, and fails the run.
+    const open = sidecar.startRun({ mode: 'record', command });
+    sidecar.expectPreloads(open.runId, 'block');
+    within(open);
+    const hooks = withFence({ settingSources: [], disallowedTools: ['WebFetch'], mcpServers: { docs: { type: 'http', url: 'https://docs.example/mcp' } }, env: { ...HOME_ENV, ANTHROPIC_API_KEY: 'sk-test' } }, { settings: { managedFile: null } }).hooks as unknown as Hooks;
+    await say(hooks);
+    await new FakeClaudeCode(hooks, ROOT).call('Read', { file_path: `${ROOT}/missing.md` }, 'toolu_r');
+    const o = sidecar.endRun(open.runId, 'completed');
+    expect(o.preloads).toMatchObject({ failed: true });
+    expect(o.preloads!.unguarded).toContain('so the guard can\'t watch the MCP server "docs" (http). Under --guard block nothing stops such a connection, so the run fails.');
+  });
+
+  it('turns the CLI\'s nonessential traffic off under Shadowlap, unless the query\'s env sets it, and leaves the env alone outside it', () => {
+    const run = sidecar.startRun({ mode: 'record', command });
+    within(run);
+    const before = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    // Without a query env the CLI takes the process's as it starts, so the variable goes there, not into a copy.
+    expect('env' in withFence({})).toBe(false);
+    expect(process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1');
+    if (before === undefined) delete process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    else process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = before;
+    // The query's own env, which replaces the process's: kept whole, with the variable added.
+    expect((withFence({ env: { A: '1' } }) as { env?: Record<string, string> }).env).toEqual({ A: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' });
+    // A value the query sets stands, an empty one too.
+    expect((withFence({ env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '' } }) as { env?: Record<string, string> }).env).toEqual({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '' });
+    sidecar.endRun(run.runId, 'completed');
+    delete process.env.SHADOWLAP_URL;
+    delete process.env.SHADOWLAP_RUN_ID;
+    const outside = process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC;
+    expect('env' in withFence({})).toBe(false);
+    expect(process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe(outside);
+    expect((withFence({ env: { A: '1' } }) as { env?: Record<string, string> }).env).toEqual({ A: '1' });
   });
 
   it('picks the tools Claude Code picks, by its matcher rules', () => {
@@ -372,6 +437,65 @@ describe('the fence beside other hooks', () => {
       expect(said.join('\n')).toContain(file);
     } finally {
       rmSync(project, { recursive: true, force: true });
+    }
+  });
+
+  /** A project folder with these files, the fence reading it under these sources: the folder, and its hooks. */
+  function project(files: Record<string, string>, sources: string[], log: (line: string) => void, managed = false): { dir: string; hooks: Hooks } {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-frontmatter-'));
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(dir, path, '..'), { recursive: true });
+      writeFileSync(join(dir, path), text);
+    }
+    return { dir, hooks: fenced({ cwd: dir, settingSources: sources }, log, managed ? join(dir, 'managed', 'managed-settings.json') : null) };
+  }
+  const BASH_HOOK = 'hooks:\n  PreToolUse:\n    - matcher: Bash\n      hooks:\n        - type: command\n          command: ./mark.sh\n';
+
+  it("refuses a recorded write a skill's frontmatter hook could rewrite, as one in a managed drop-in's", async () => {
+    for (const [files, sources, managed, where] of [
+      [{ '.claude/skills/guard/SKILL.md': `---\nname: guard\ndescription: d\n${BASH_HOOK}---\n` }, ['project'], false, '.claude/skills/guard/SKILL.md'],
+      [{ 'managed/managed-settings.d/10-hooks.json': JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: './mark.sh' }] }] } }) }, [], true, 'managed/managed-settings.d/10-hooks.json'],
+    ] as const) {
+      const { run } = await recorded(fenced());
+      const said: string[] = [];
+      const { dir, hooks } = project(files, [...sources], (l) => said.push(l), managed);
+      try {
+        const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+        within(replay);
+        const cc = session(hooks, { PreToolUse: [marking(150)] as unknown as Hooks['PreToolUse'] });
+        const { results } = await agent(cc, SCRIPT_BASH);
+        sidecar.endRun(replay.runId, 'completed');
+        expect(cc.ran, where).toEqual([]);
+        expect(results[0].content).toContain(`shadowlap: Bash was not run again: a PreToolUse hook in ${join(dir, where)} (matcher "Bash") runs beside Shadowlap's`);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("refuses a recorded write a subagent's own hook could rewrite, in that subagent's calls alone", async () => {
+    const said: string[] = [];
+    const { dir, hooks } = project({ '.claude/agents/review.md': `---\nname: reviewer\ndescription: d\n${BASH_HOOK}---\nReview.\n` }, ['project'], (l) => said.push(l));
+    try {
+      const { run } = await recorded(fenced());
+      // The session's own call: the subagent's hook doesn't run for it, and the stand-in does.
+      const main = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      within(main);
+      const cc = session(hooks);
+      await agent(cc, SCRIPT_BASH);
+      sidecar.endRun(main.runId, 'completed');
+      expect(cc.ran).toEqual(['true']);
+      // The same call made in the subagent: its hook runs beside the fence there, and the write is refused.
+      const sub = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command });
+      within(sub);
+      const inSub = session(hooks);
+      inSub.agent = { id: 'agent-1', type: 'reviewer' };
+      const { results } = await agent(inSub, SCRIPT_BASH);
+      sidecar.endRun(sub.runId, 'completed');
+      expect(inSub.ran).toEqual([]);
+      expect(results[0].content).toContain(`a PreToolUse hook in ${join(dir, '.claude', 'agents', 'review.md')}, which runs while the subagent "reviewer" runs (matcher "Bash")`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

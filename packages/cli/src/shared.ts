@@ -230,10 +230,18 @@ export function parseChoice<T extends string>(choices: readonly T[]) {
   };
 }
 
-/** Spawns the agent under a sidecar-managed run and returns the child's exit status. */
+/**
+ * How a run's summary reads for what the guard said of it: under --guard block, a run the guard
+ * could not watch fails, so it is never called clean, and one whose agent exited 0 says the run was
+ * not watched, not that its agent exited with an error.
+ */
+export function guardOutcome(preloads: ReturnType<Sidecar['endRun']>['preloads'] | undefined): { unwatched?: boolean; exitedOk?: boolean } {
+  return preloads?.failed ? { unwatched: true, exitedOk: preloads.exitedOk === true } : {};
+}
 
-export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary'], options: { unwatched?: boolean } = {}): void {
-  process.stderr.write('\n' + formatSummary(summary, p, options) + '\n');
+/** A run's end as `run` and `replay` print it: its summary, as the guard left it, how it diverged, and how to see it. */
+export function printOutcome(summary: ReturnType<Sidecar['endRun']>['summary'], preloads?: ReturnType<Sidecar['endRun']>['preloads']): void {
+  process.stderr.write('\n' + formatSummary(summary, p, guardOutcome(preloads)) + '\n');
   // One that stopped before its recording did changed no request: the summary line says it all.
   if (summary.divergence && summary.divergence.type !== 'ended_early') process.stderr.write(formatDivergence(summary.divergence, p) + '\n');
   process.stderr.write(p.dim(`  shadowlap show ${shortId(summary.runId)}\n`));

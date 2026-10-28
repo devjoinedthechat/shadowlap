@@ -8,6 +8,7 @@ import { plain } from './report.js';
 import { safeLine } from './text.js';
 import type { CallRecord } from './types.js';
 import { unavailableStop } from './unavailable.js';
+import type { UnrecordedTool } from './unrecorded-tools.js';
 
 /**
  * Whether a change does what it was made for without breaking what worked. Three kinds of recorded
@@ -87,6 +88,8 @@ export interface VerifyAttempt {
   spent: number;
   upstreamRequests: number;
   footprint: Footprint;
+  /** The tools its model called that its run never recorded, which ran for real in it. Absent from reports made before attempts named them. */
+  unrecordedTools?: UnrecordedTool[];
 }
 
 export interface VerifiedRun {

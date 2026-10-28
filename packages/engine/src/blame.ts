@@ -7,6 +7,7 @@ import { atLeast, atMost, attemptsToPass, BLAME_DEFAULTS, confidenceSequence, co
 import type { Palette } from './report.js';
 import { plain } from './report.js';
 import { safeLine } from './text.js';
+import type { UnrecordedTool } from './unrecorded-tools.js';
 
 /**
  * Where a failed run was lost. A run can go wrong long before it visibly fails: the model picks the
@@ -64,6 +65,8 @@ export interface BlameAttempt {
   /** Approximate USD spent on the attempt's live model calls. */
   spent: number;
   upstreamRequests: number;
+  /** The tools its model called that its run never recorded, which ran for real in it. Absent from reports made before attempts named them. */
+  unrecordedTools?: UnrecordedTool[];
 }
 
 export interface BlameProbe {
@@ -630,6 +633,21 @@ export function unsettledFirst(r: Pick<BlameReport, 'outcome' | 'probes' | 'same
  * not rescued from any model call.
  */
 export const unrescuedWords = (unsettled: boolean): string => (unsettled ? 'not settled from the first model call' : 'not rescued from any model call');
+
+/**
+ * Where a blamed run was lost, as blame's report says it: `at model call #5` when the check pinned
+ * the call (or for a blame kept before ranges); `gradually, around model calls #17 and #18` when it
+ * found rescue falls by less than the gate's rates apart from one to the next, so no one call lost
+ * the run; `between model calls #7 and #9` when the probes between them claimed nothing. `range` is
+ * the blame's (BlameReport.range, a run's BlameRecord.range); a run can come from a pack, so one that
+ * isn't two whole call numbers is read as none.
+ */
+export function lostWhere(callNo: number, range?: { from?: unknown; to?: unknown; gradual?: unknown } | null): string {
+  const from = range?.from;
+  const to = range?.to;
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from === to) return `at model call #${callNo}`;
+  return `${range!.gradual === true ? 'gradually, around' : 'between'} model calls #${String(from)} and #${String(to)}`;
+}
 
 /**
  * Why a blame placed the failure on no call (`unrescuable`), as its report and the dashboard's Blame

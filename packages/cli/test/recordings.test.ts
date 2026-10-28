@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
-import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { RecordingHost, type RecordedCalls, type RecordingResult } from '../src/recordings.js';
 
 /** The recordings API behind the pytest and Vitest plugins, driven the way their clients drive it. */
@@ -132,5 +132,62 @@ describe('shadowlap serve --recordings', () => {
     const exited = new Promise((resolve) => child.once('exit', resolve));
     child.stdin.end();
     await exited;
+  });
+});
+
+describe('a recorded test whose model called a tool it never recorded', () => {
+  it('is refused before its replay starts, as every command that replays a run refuses it, unless the test run allows it', async () => {
+    // The agent runs Bash itself, unwrapped: its recording holds the answer that asked for it, and no call of it.
+    const bashMock = await startMockAnthropic({ script: () => ({ message: message([toolUse('Bash', { command: 'rm -rf build' })]) }) });
+    const own = Store.open(':memory:');
+    const dir = mkdtempSync(join(tmpdir(), 'fp-recordings-unrecorded-'));
+    const start = async (allowed: ReadonlySet<string>) => {
+      const host = new RecordingHost(own, dir, { codeVersion: null, redact: [], unrecorded: { declared: {}, allowed } });
+      const car = await Sidecar.start({ store: own, upstreams: { anthropic: bashMock.url }, api: host.api });
+      host.attach(car);
+      return car;
+    };
+    try {
+      let car = await start(new Set());
+      const at = (path: string, body: unknown) => post<{ runId: string; mode: string; error?: { message: string } }>(`${car.url}/v1/recordings/${path}`, body);
+      const rec = (await at('start', { recording: 'recs/cleanup', slot: 'w' })).body;
+      await post(`${car.envForSlot('w').ANTHROPIC_BASE_URL}/v1/messages`, { model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content: 'clean up' }] });
+      expect((await at('end', { runId: rec.runId, passed: true })).body).toMatchObject({ saved: true });
+      const refused = await at('start', { recording: 'recs/cleanup', slot: 'w', mode: 'none' });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error?.message).toContain("holds model calls of a tool Shadowlap never recorded, which writes: a replay serves the model's answers again, so it would run it again for real.");
+      expect(refused.body.error?.message).toContain('Or let the tests run it again for real: SHADOWLAP_ALLOW_UNRECORDED=Bash for the test run.');
+      await car.close();
+      // Allowed, as --allow-unrecorded allows it: the replay starts.
+      car = await start(new Set(['Bash']));
+      const allowed = await post<{ mode: string }>(`${car.url}/v1/recordings/start`, { recording: 'recs/cleanup', slot: 'w', mode: 'none' });
+      expect(allowed.status).toBe(201);
+      expect(allowed.body.mode).toBe('replay');
+      await car.close();
+      // As the plugins start it, the test run's environment says it: serve --recordings reads SHADOWLAP_ALLOW_UNRECORDED.
+      const served = async (env: NodeJS.ProcessEnv) => {
+        const cli = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
+        const child = spawn(process.execPath, [cli, '--db', join(dir, 'store.db'), 'serve', '--recordings'], { cwd: dir, env: { ...process.env, SHADOWLAP_TELEMETRY: '0', ...env }, stdio: ['pipe', 'pipe', 'inherit'] });
+        const line = await new Promise<string>((resolve) => {
+          let out = '';
+          child.stdout.on('data', (d: Buffer) => {
+            out += d.toString();
+            if (out.includes('\n')) resolve(out.slice(0, out.indexOf('\n')));
+          });
+        });
+        const { url } = JSON.parse(line) as { url: string };
+        const status = (await post(`${url}/v1/recordings/start`, { recording: 'recs/cleanup', slot: 'w', mode: 'none' })).status;
+        const exited = new Promise((resolve) => child.once('exit', resolve));
+        child.stdin.end();
+        await exited;
+        return status;
+      };
+      expect(await served({})).toBe(409);
+      expect(await served({ SHADOWLAP_ALLOW_UNRECORDED: 'Bash' })).toBe(201);
+    } finally {
+      await bashMock.close();
+      own.close();
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    }
   });
 });

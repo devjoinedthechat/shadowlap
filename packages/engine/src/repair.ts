@@ -1,4 +1,4 @@
-import { unrescuedWords } from './blame.js';
+import { lostWhere, unrescuedWords } from './blame.js';
 import { markdownCode, markdownFence, markdownText } from './markdown.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
@@ -848,6 +848,14 @@ export interface RepairTarget {
   callNo: number | null;
   step: number | null;
   steps: number;
+  /**
+   * The two calls its blame found the run lost between (blame.ts `range`), with their places among
+   * the run's model calls: `gradual` when rescue falls by less than the gate's rates apart from one
+   * to the next, so no one call lost the run; else the probes between them claimed nothing. `callNo`
+   * is then the first of them, where the rescue the repairer is shown forked. Null when blame pinned
+   * one call, or found none; absent from reports made before it was.
+   */
+  range?: RepairRange | null;
   rescuedRunId: string | null;
   /** The model that rescued the run, when resampling the recorded one did not. */
   rescuedBy: string | null;
@@ -857,6 +865,26 @@ export interface RepairTarget {
   recorded: string | null;
   rescued: string | null;
   note: string | null;
+}
+
+/** Two calls a run was lost between: their call numbers, their places among its model calls, and whether gradually. */
+export interface RepairRange {
+  from: number;
+  to: number;
+  fromStep: number;
+  toStep: number;
+  gradual?: true;
+}
+
+/**
+ * Where a failing run was lost, with its places among the run's model calls, as repair's report and
+ * the pull request it writes say it: `model call #5 (3 of 5)`, `gradually, around model calls #17 and
+ * #18 (17 and 18 of 30)`, or `between model calls #7 and #9 (7 and 9 of 30)`.
+ */
+export function targetWhere(t: Pick<RepairTarget, 'callNo' | 'step' | 'steps' | 'range'>): string {
+  const r = t.range;
+  if (r) return `${lostWhere(t.callNo ?? r.from, r)} (${r.fromStep} and ${r.toStep} of ${t.steps})`;
+  return `model call #${t.callNo ?? '?'} (${t.step ?? '?'} of ${t.steps})`;
 }
 
 export type RepairOutcome = 'fixed' | 'not-fixed' | 'no-diagnosis' | 'stopped';
@@ -1006,7 +1034,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     for (const t of r.targets) {
       const where =
         t.outcome === 'blamed' && t.callNo !== null
-          ? `model call #${t.callNo} (${t.step!} of ${t.steps})${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
+          ? `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${safeLine(t.rescuedBy)}` : ''}${t.reused ? p.dim(' · from an earlier blame') : ''}`
           : t.outcome === 'unrescuable'
             ? unrescuedWords(t.unsettled === true)
             : safeLine(t.note ?? t.outcome);
@@ -1064,10 +1092,10 @@ export function repairMarkdown(r: RepairReport): string {
 
   out.push('### What failed', '', `A run passes when ${r.oracle.map((o) => md(o, 120)).join('; ')}.`, '');
   if (r.targets.length) {
-    out.push('Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (`shadowlap blame`).', '');
+    out.push(`Each failing run was lost at the model call below: the last one whose answer, asked again, lets the run pass (\`shadowlap blame\`)${r.targets.some((t) => t.range?.gradual) ? ', or gradually around two calls, where no one call lost it' : ''}.`, '');
     out.push('| Run | Lost at | What the agent did there | What a passing run did |', '|---|---|---|---|');
     for (const t of r.targets) {
-      const at = t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step!} of ${t.steps})` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
+      const at = t.outcome === 'blamed' && t.callNo !== null ? targetWhere(t) : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : t.outcome === 'passes' ? 'passes when replayed' : t.outcome;
       out.push(`| \`${short(t.runId)}\` | ${cell(at)} | ${cell(t.recorded ?? '')} | ${cell(t.rescued ? `${t.rescued}${t.rescuedBy ? ` (${t.rescuedBy})` : ''}` : '')} |`);
     }
   } else {

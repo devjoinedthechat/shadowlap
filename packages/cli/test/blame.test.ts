@@ -163,6 +163,15 @@ describe('shadowlap blame', () => {
 
     const shown = await shadowlap(['show', runId]);
     expect(shown.stdout).toMatch(new RegExp(`blame: lost at model call #${decision} \\(high confidence\\), rescued by \\w{10}`));
+    // A blame that found the run lost gradually around two calls says so, never that one call lost it.
+    const kept = Store.open(db);
+    const found = kept.getRun(runId)!.meta!.blame!;
+    kept.updateRunMeta(runId, { blame: { ...found, range: { from: decision, to: last, gradual: true } } });
+    kept.close();
+    expect((await shadowlap(['show', runId])).stdout).toMatch(new RegExp(`blame: lost gradually, around model calls #${decision} and #${last} \\(high confidence\\), rescued by \\w{10}`));
+    const back = Store.open(db);
+    back.updateRunMeta(runId, { blame: found });
+    back.close();
     const rescuedId = /rescued fork: shadowlap diff \w+ (\w+)/.exec(r.stdout)![1];
     expect((await shadowlap(['show', rescuedId])).stdout).toContain(`an attempt of shadowlap blame ${runId.slice(0, 10)}, forked at model call #${decision}: passed`);
   });

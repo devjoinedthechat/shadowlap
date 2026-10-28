@@ -2,7 +2,8 @@
  * Claude Code's hooks, as the Claude Agent SDK's fence (claude-agent-sdk.ts) needs to know them:
  * which tools a matcher picks, the query's own PreToolUse and PostToolUse hooks run inside the
  * fence's and their answers put together as Claude Code puts several together, and the PreToolUse
- * hooks of settings files, which Claude Code runs beside the fence, where nothing can run them inside.
+ * hooks of settings files, plugins, skills and subagents, which Claude Code runs beside the fence,
+ * where nothing can run them inside.
  *
  * Claude Code runs every hook that matches a tool call at once. It decides between their permission
  * decisions by precedence (deny, then defer, ask and allow), but it takes `updatedInput` and
@@ -11,6 +12,8 @@
  * write the fence turned into a stand-in, and the write runs again for real. Run inside the fence,
  * the query's hooks answer first, in the order they are given, and the fence has the last word.
  */
+
+import { frontmatter } from './frontmatter.js';
 
 /** A hook matcher as the SDK takes one: the tools it picks, its callbacks, and their timeout in seconds. */
 export interface HookMatcherLike {
@@ -169,20 +172,26 @@ export function asOutput(c: Combined, event: 'PreToolUse' | 'PostToolUse'): Reco
   };
 }
 
-// ---- settings files ----
+// ---- settings files, plugins, skills and subagents ----
 
-/** A PreToolUse entry of a settings file, which Claude Code runs beside the fence. */
+/**
+ * A PreToolUse entry Claude Code runs beside the fence: a settings file's, a plugin's, or one in a
+ * skill's or a subagent's frontmatter.
+ */
 export interface SettingsHook {
   /** Where it is: a file, or the query option that holds it. */
   source: string;
   matcher?: string;
+  /** A subagent's own: it runs only for that subagent's calls, whose `agent_type` this names. */
+  agent?: string;
 }
 
 /**
  * Where Claude Code finds settings for the query, as its options say: the sources it loads
  * (`settingSources`; all three when absent), its working folder, `settings` (a settings object,
- * JSON text or a file, as the CLI's `--settings` takes), `managedSettings`, and the environment the
- * CLI gets (`CLAUDE_CONFIG_DIR`, `HOME`).
+ * JSON text or a file, as the CLI's `--settings` takes, or a list of them), `managedSettings`, the
+ * environment the CLI gets (`CLAUDE_CONFIG_DIR`, `HOME`), the folders it adds
+ * (`additionalDirectories`) and the folders of the local plugins it loads (`plugins`).
  */
 export interface SettingsPlaces {
   sources?: readonly string[] | null;
@@ -190,37 +199,78 @@ export interface SettingsPlaces {
   settings?: unknown;
   managedSettings?: unknown;
   env?: Readonly<Record<string, string | undefined>> | null;
-  /** The managed settings file an organization deploys: by default where Claude Code reads it on this system; null for none. */
+  /**
+   * The managed settings file an organization deploys: by default where Claude Code reads it on this
+   * system; null for none. Its folder holds the rest of the organization's: `managed-settings.d/`,
+   * `managed-mcp.json` and `.claude/skills/`.
+   */
   managedFile?: string | null;
+  addDirs?: readonly string[] | null;
+  plugins?: readonly string[] | null;
+}
+
+/** One settings document Claude Code reads for the query: where it is, and what it holds (null for one it can't parse). */
+export interface SettingsDocument {
+  source: string;
+  data: unknown;
+  /** The organization's: the managed settings file, a drop-in beside it, or the query's `managedSettings`. */
+  managed: boolean;
+}
+
+type Fs = typeof import('node:fs');
+type Path = typeof import('node:path');
+
+const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
+
+async function nodeModules(): Promise<{ fs: Fs; path: Path; os: typeof import('node:os') }> {
+  return { fs: (await load('node:fs')) as Fs, path: (await load('node:path')) as Path, os: (await load('node:os')) as typeof import('node:os') };
 }
 
 /** The managed settings file an organization deploys, where Claude Code reads it on this system. */
-function managedFile(platform: string, path: typeof import('node:path')): string {
+function managedFile(platform: string, path: Path): string {
   if (platform === 'darwin') return '/Library/Application Support/ClaudeCode/managed-settings.json';
   if (platform === 'win32') return path.win32.join('C:\\Program Files', 'ClaudeCode', 'managed-settings.json');
   return '/etc/claude-code/managed-settings.json';
 }
 
-/** The PreToolUse entries of one settings document, each with a hook. */
-function preToolUse(settings: unknown, source: string): SettingsHook[] {
-  if (!isRecord(settings) || !isRecord(settings.hooks) || !Array.isArray(settings.hooks.PreToolUse)) return [];
-  return settings.hooks.PreToolUse.filter((e): e is Record<string, unknown> => isRecord(e) && Array.isArray(e.hooks) && e.hooks.length > 0).map((e) => ({ source, ...(typeof e.matcher === 'string' ? { matcher: e.matcher } : {}) }));
+/** The managed settings file the places name, or this system's. */
+export function managedFileOf(places: SettingsPlaces, path: Path): string | null {
+  return places.managedFile === undefined ? managedFile(process.platform, path) : places.managedFile;
 }
 
-const load = (name: string): Promise<unknown> => import(/* webpackIgnore: true */ /* @vite-ignore */ name);
+/** The folder Claude Code keeps its own files in: `CLAUDE_CONFIG_DIR`, else `~/.claude`. */
+export function configDirOf(env: Readonly<Record<string, string | undefined>>, path: Path, home: string): string {
+  return env.CLAUDE_CONFIG_DIR || path.join(env.HOME || home, '.claude');
+}
+
+/** The environment the CLI reads its folders from: the process's, with the query's on top. */
+const envOf = (places: SettingsPlaces) => ({ ...process.env, ...(places.env ?? {}) });
+
+/** The names in a folder, none when it can't be listed. */
+function listDir(fs: Fs, dir: string): string[] {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/** The PreToolUse entries of one settings document, each with a hook. */
+function preToolUse(settings: unknown, source: string, agent?: string): SettingsHook[] {
+  if (!isRecord(settings) || !isRecord(settings.hooks) || !Array.isArray(settings.hooks.PreToolUse)) return [];
+  return settings.hooks.PreToolUse.filter((e): e is Record<string, unknown> => isRecord(e) && Array.isArray(e.hooks) && e.hooks.length > 0).map((e) => ({ source, ...(typeof e.matcher === 'string' ? { matcher: e.matcher } : {}), ...(agent !== undefined ? { agent } : {}) }));
+}
 
 /**
- * The PreToolUse hooks of the settings Claude Code loads for the query, read as they are now (Claude
- * Code reloads a file that changes): the user's file (in `CLAUDE_CONFIG_DIR`, else `~/.claude`), the
- * project's and the local one in its working folder (the local one at the git repository's root
- * too), the query's `settings` and `managedSettings`, and the managed settings file. A file that
- * can't be read or parsed holds none: Claude Code skips it too.
+ * The settings documents Claude Code reads for the query, in its order: the user's file (in
+ * `CLAUDE_CONFIG_DIR`, else `~/.claude`), the project's and the local one in its working folder (the
+ * Agent SDK reads both there, with no folder above it), the managed settings file and every `*.json`
+ * in `managed-settings.d/` beside it in alphabetical order, the query's `settings`, and its
+ * `managedSettings`. A file that isn't there is left out; one that can't be parsed holds null.
  */
-export async function settingsPreToolUse(places: SettingsPlaces, cwd: string): Promise<SettingsHook[]> {
-  const fs = (await load('node:fs')) as typeof import('node:fs');
-  const path = (await load('node:path')) as typeof import('node:path');
-  const os = (await load('node:os')) as typeof import('node:os');
-  const env = { ...process.env, ...(places.env ?? {}) };
+export async function settingsDocuments(places: SettingsPlaces, cwd: string): Promise<SettingsDocument[]> {
+  const { fs, path, os } = await nodeModules();
+  const env = envOf(places);
   const sources = places.sources ?? ['user', 'project', 'local'];
   const read = (file: string): unknown => {
     try {
@@ -229,35 +279,177 @@ export async function settingsPreToolUse(places: SettingsPlaces, cwd: string): P
       return null;
     }
   };
-  const files: string[] = [];
-  if (sources.includes('user')) files.push(path.join(env.CLAUDE_CONFIG_DIR || path.join(env.HOME || os.homedir(), '.claude'), 'settings.json'));
-  if (sources.includes('project')) files.push(path.join(cwd, '.claude', 'settings.json'));
-  if (sources.includes('local')) {
-    files.push(path.join(cwd, '.claude', 'settings.local.json'));
-    // Claude Code keeps the local file at the root of the git repository the folder is in.
-    for (let dir = cwd; ; dir = path.dirname(dir)) {
-      if (fs.existsSync(path.join(dir, '.git'))) {
-        if (dir !== cwd) files.push(path.join(dir, '.claude', 'settings.local.json'));
-        break;
-      }
-      if (path.dirname(dir) === dir) break;
-    }
+  const docs: SettingsDocument[] = [];
+  const add = (file: string, managed = false) => {
+    if (fs.existsSync(file)) docs.push({ source: file, data: read(file), managed });
+  };
+  if (sources.includes('user')) add(path.join(configDirOf(env, path, os.homedir()), 'settings.json'));
+  if (sources.includes('project')) add(path.join(cwd, '.claude', 'settings.json'));
+  if (sources.includes('local')) add(path.join(cwd, '.claude', 'settings.local.json'));
+  const managed = managedFileOf(places, path);
+  if (managed) {
+    add(managed, true);
+    // Claude Code merges the drop-ins after the file, in alphabetical order, skipping hidden files and any not ending in .json.
+    const dropins = path.join(path.dirname(managed), 'managed-settings.d');
+    for (const name of listDir(fs, dropins).filter((n) => n.endsWith('.json') && !n.startsWith('.')).sort()) add(path.join(dropins, name), true);
   }
-  const managed = places.managedFile === undefined ? managedFile(process.platform, path) : places.managedFile;
-  if (managed) files.push(managed);
-  const found = files.flatMap((file) => preToolUse(read(file), file));
   // The query's own settings: an object, JSON text, or a file, as `--settings` takes them.
-  const given = places.settings;
-  if (isRecord(given)) found.push(...preToolUse(given, 'the query\'s settings option'));
-  else if (typeof given === 'string' && given.trim()) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(given);
-    } catch {
-      parsed = read(path.resolve(cwd, given));
+  for (const given of [places.settings].flat()) {
+    if (isRecord(given)) docs.push({ source: "the query's settings option", data: given, managed: false });
+    else if (typeof given === 'string' && given.trim()) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(given);
+      } catch {
+        parsed = read(path.resolve(cwd, given));
+      }
+      docs.push({ source: isRecord(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false });
     }
-    found.push(...preToolUse(parsed, isRecord(parsed) && given.trim().startsWith('{') ? 'the query\'s settings option' : path.resolve(cwd, given)));
   }
-  if (isRecord(places.managedSettings)) found.push(...preToolUse(places.managedSettings, 'the query\'s managedSettings option'));
-  return found;
+  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true });
+  return docs;
+}
+
+/** The session's folder and each above it up to its repository's root, as project skills and subagents load; the folder alone outside a repository. */
+export function projectDirs(fs: Fs, path: Path, cwd: string): string[] {
+  const dirs: string[] = [];
+  for (let dir = cwd; ; dir = path.dirname(dir)) {
+    dirs.push(dir);
+    if (fs.existsSync(path.join(dir, '.git'))) return dirs;
+    if (path.dirname(dir) === dir) return [cwd];
+  }
+}
+
+/** At most this many skill and subagent files are read for one query: a folder of thousands says nothing more. */
+const MAX_COMPONENT_FILES = 500;
+
+/** The skill and subagent files Claude Code loads for the query, and its local plugins' hook files. */
+export interface ComponentFiles {
+  skills: string[];
+  agents: string[];
+  pluginHooks: string[];
+}
+
+/**
+ * Where Claude Code loads skills and subagents from for the query, as the Agent SDK's documentation
+ * lists them: under `user`, the skills and agents folders in `CLAUDE_CONFIG_DIR` (else `~/.claude`);
+ * under `project`, `.claude/skills/` and `.claude/agents/` in the working folder and each folder above
+ * it up to the repository's root, and in each added folder; the organization's skills in
+ * `.claude/skills/` beside the managed settings file; and the skills, agents and `hooks/hooks.json`
+ * of each local plugin the query loads.
+ */
+export async function componentFiles(places: SettingsPlaces, cwd: string): Promise<ComponentFiles> {
+  const { fs, path, os } = await nodeModules();
+  const env = envOf(places);
+  const sources = places.sources ?? ['user', 'project', 'local'];
+  const config = configDirOf(env, path, os.homedir());
+  const managed = managedFileOf(places, path);
+  const plugins = (places.plugins ?? []).map((p) => path.resolve(cwd, p));
+  const skillDirs = [
+    ...(sources.includes('user') ? [path.join(config, 'skills')] : []),
+    ...(sources.includes('project') ? [...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'skills')) : []),
+    ...(managed ? [path.join(path.dirname(managed), '.claude', 'skills')] : []),
+    ...plugins.map((p) => path.join(p, 'skills')),
+  ];
+  const agentDirs = [
+    ...(sources.includes('user') ? [path.join(config, 'agents')] : []),
+    ...(sources.includes('project') ? [...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'agents')) : []),
+    ...plugins.map((p) => path.join(p, 'agents')),
+  ];
+  let budget = MAX_COMPONENT_FILES;
+  const skills: string[] = [];
+  for (const dir of new Set(skillDirs)) {
+    for (const name of listDir(fs, dir).sort()) {
+      const file = path.join(dir, name, 'SKILL.md');
+      if (budget > 0 && !name.startsWith('.') && fs.existsSync(file)) {
+        skills.push(file);
+        budget--;
+      }
+    }
+  }
+  // Subagent files, in the folder and the folders inside it.
+  const agents: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    for (const name of listDir(fs, dir).sort()) {
+      if (budget <= 0 || name.startsWith('.')) continue;
+      const file = path.join(dir, name);
+      if (name.endsWith('.md')) {
+        agents.push(file);
+        budget--;
+      } else if (depth < 3) {
+        try {
+          if (fs.statSync(file).isDirectory()) walk(file, depth + 1);
+        } catch {
+          // Gone, or not readable: Claude Code can't load it either.
+        }
+      }
+    }
+  };
+  for (const dir of new Set(agentDirs)) walk(dir, 0);
+  const pluginHooks = plugins.map((p) => path.join(p, 'hooks', 'hooks.json')).filter((f) => fs.existsSync(f));
+  return { skills, agents, pluginHooks };
+}
+
+/** A file's text, or null when it can't be read. */
+function readText(fs: Fs, file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The PreToolUse hooks of the skills, subagents and local plugins the query loads. Claude Code keeps
+ * a skill's for the rest of the session once the skill is invoked, which can come at any turn, so
+ * each counts from the start; a subagent's run only while that subagent runs, so each is for that
+ * subagent's calls alone. A frontmatter whose hooks can't be read counts as a hook on every tool.
+ */
+export async function componentPreToolUse(places: SettingsPlaces, cwd: string): Promise<SettingsHook[]> {
+  const { fs, path } = await nodeModules();
+  const files = await componentFiles(places, cwd);
+  const out: SettingsHook[] = [];
+  const fromFrontmatter = (file: string, agent: boolean) => {
+    const text = readText(fs, file);
+    const keys = text === null ? null : frontmatter(text);
+    if (!keys) return;
+    const name = keys.get('name');
+    const own = agent ? (name && 'value' in name && typeof name.value === 'string' && name.value.trim() ? name.value.trim() : path.basename(file, '.md')) : undefined;
+    const hooks = keys.get('hooks');
+    if (!hooks) return;
+    if ('unreadable' in hooks) out.push({ source: `${file}, whose hooks Shadowlap could not read`, ...(own !== undefined ? { agent: own } : {}) });
+    else out.push(...preToolUse({ hooks: hooks.value }, file, own));
+  };
+  for (const f of files.skills) fromFrontmatter(f, false);
+  for (const f of files.agents) fromFrontmatter(f, true);
+  for (const f of files.pluginHooks) {
+    let data: unknown;
+    try {
+      data = JSON.parse(readText(fs, f) ?? '');
+    } catch {
+      out.push({ source: `${f}, which Shadowlap could not read` });
+      continue;
+    }
+    out.push(...preToolUse(data, f));
+  }
+  return out;
+}
+
+/**
+ * The PreToolUse hooks Claude Code runs beside the fence for the query, read as they are now
+ * (Claude Code reloads a file that changes): those of every settings document it reads
+ * (settingsDocuments), and of the skills, subagents and local plugins it loads
+ * (componentPreToolUse). A file that can't be read or parsed holds none, as Claude Code skips it;
+ * a frontmatter is the exception, read as a hook on every tool.
+ */
+export async function settingsPreToolUse(places: SettingsPlaces, cwd: string): Promise<SettingsHook[]> {
+  const docs = await settingsDocuments(places, cwd);
+  return [...docs.flatMap((d) => preToolUse(d.data, d.source)), ...(await componentPreToolUse(places, cwd))];
+}
+
+/** Whether a hook of `h` runs for a call of the subagent `agentType` (the main session's when empty). */
+export function hookRunsFor(h: SettingsHook, agentType: string): boolean {
+  if (h.agent === undefined) return true;
+  // A plugin's subagent is named with its plugin's: `plugin:agent`.
+  return agentType === h.agent || agentType.endsWith(`:${h.agent}`);
 }

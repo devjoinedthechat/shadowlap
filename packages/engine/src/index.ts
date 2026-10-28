@@ -96,7 +96,7 @@ export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat }
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';
 export { LABEL_MAX, NOTE_MAX, cleanLabel, withLabels, withNote } from './labels-notes.js';
 export { formatRepeats, pathOf, summarizeRepeats } from './repeat.js';
-export { describeBlocks, describeRescue, formatBlame, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
+export { describeBlocks, describeRescue, formatBlame, lostWhere, maxProbes, notTheAnswer, probeBound, probeFinding, probeTally, probeVerdict, probeWord, rescueRule, searchBlame, unrescuedWhy, unrescuedWords, unsettledFirst } from './blame.js';
 export type { BlameAttempt, BlameContrast, BlameOutcome, BlameProbe, BlameReport, BlameSearchOptions, BlameSearchResult, Confidence, PinCheck, ProbeVerdict } from './blame.js';
 export { decideVerify, eachRun, footprintDelta, footprintOf, formatVerify, gateShort, gateVerdict, keptTally, keptVerdict, outcomeOf, runVerdict, unsettledReason, verifyRule } from './verify.js';
 // Blame's calibrated search (the risk spent across its probes, the range it reports and its bound),
@@ -122,8 +122,8 @@ export { UNAVAILABLE_RETRY, providerUnavailable, retryAfter, retryDelay, unavail
 export { attemptsOf, gateHistory, judgedUnder, notBaseline, recentAttempts, sessionAttempts, testResultVerdict, type HistoryFilter, type HistorySession, type PooledHistory } from './gate-history.js';
 // One risk for a test session, split across its gated goldens (rv-gates).
 export { HISTORY_SIZED_AT, INCONCLUSIVE_AT_GOOD, SUITE_RISK, planSuite, type PlannedGolden, type SuiteGolden, type SuitePlan } from './suite.js';
-export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, unifiedDiff } from './repair.js';
-export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
+export { applyEdit, caseDetails, checkEdit, commitTitle, editSize, findAnchors, forbiddenDetails, formatRepair, gitApplyCommand, NO_REPAIRER, noRepairerOf, patchFiles, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, targetWhere, unifiedDiff } from './repair.js';
+export type { Anchor, CandidateState, EditCheck, ProposedEdit, RepairCandidate, RepairOutcome, RepairRange, RepairReport, RepairTarget, SourceFile, Surface } from './repair.js';
 // Placeholders a rewrite keeps, and its growth before anything runs (repair).
 export { CHARS_PER_TOKEN, placeholders, rewriteGrowth, templateSyntax } from './repair.js';
 export type { Placeholder, TemplateSyntax } from './repair.js';
@@ -147,7 +147,7 @@ export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';
 export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts, runInterventions, toolResultLine, unrecordedProjectTools } from './run-facts.js';
 // Tools the model called that a run recorded no call of, read from its answers (contract: name, count, firstCallNo, effect).
-export { mcpToolName, parseUnrecordedConfig, toolNameEffect, UNRECORDED_KEY, unrecordedEffect, unrecordedTools, type UnrecordedEffect, type UnrecordedOptions, type UnrecordedTool } from './unrecorded-tools.js';
+export { FENCED_BUILT_INS, mcpToolName, parseUnrecordedConfig, toolNameEffect, UNRECORDED_KEY, unrecordedEffect, unrecordedFix, unrecordedTools, type UnrecordedEffect, type UnrecordedFix, type UnrecordedOptions, type UnrecordedTool } from './unrecorded-tools.js';
 // A run's about line: one quiet line that says what the run was, worked out from it and never edited.
 export { ABOUT_FROM, ABOUT_MAX, aboutOf, batchInput, changeWords, firstSentence, goldenWords, sourceWords } from './about.js';
 export type { AboutFacts, AboutFrom, AboutIntervention, RunAbout, RunAsk } from './about.js';

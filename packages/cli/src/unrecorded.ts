@@ -59,10 +59,26 @@ export function unrecordedLines(tools: readonly UnrecordedTool[], indent = '    
 /** A tool's name as a JavaScript string literal, in the single quotes the SDK's examples use. */
 export const literal = (name: string) => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
-/** How to have a tool recorded and replayed: wrapped where the agent runs it, with the effect it has. */
-function wrapIt(tool: UnrecordedTool): string {
-  return `tool(${literal(tool.name)}, { effect: '${tool.effect === 'read' ? 'read' : 'write'}' }, fn) with @shadowlap/sdk`;
+/**
+ * How to have a tool recorded and replayed, as a clause: a Claude Code built-in through the Claude
+ * Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped where the
+ * agent runs it, with the effect it has. Null for a built-in that keeps to Claude Code's session.
+ */
+export function howToRecord(tool: Pick<UnrecordedTool, 'name' | 'effect' | 'fix'>): string | null {
+  switch (tool.fix) {
+    case 'fence':
+      return `run the query through withFence from @shadowlap/adapters/claude-agent-sdk (with_fence in shadowlap.adapters.claude_agent_sdk), which records ${tool.name} and fences it on replay`;
+    case 'fence-effects':
+      return `name it in withFence's effects, withFence(options, { effects: { ${literal(tool.name)}: 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay`;
+    case 'mcp':
+      return 'connect Claude Code to its MCP server through shadowlap mcp, which records and fences its calls';
+    case 'none':
+      return null;
+    default:
+      return `wrap it where your agent runs it: tool(${literal(tool.name)}, { effect: '${tool.effect === 'read' ? 'read' : 'write'}' }, fn) with @shadowlap/sdk`;
+  }
 }
+
 
 /**
  * Whether a replay refuses to run an unrecorded tool again: one that writes, and one whose effect
@@ -83,12 +99,12 @@ export function formatUnrecorded(tools: readonly UnrecordedTool[], what: 'record
   if (!tools.length) return '';
   const writes = tools.filter(refusedEffect);
   const head = `${p.yellow('!')} The model called ${tools.length === 1 ? 'a tool' : `${tools.length} tools`} Shadowlap did not record: ${what === 'replay' ? 'this replay ran' : 'they ran in your agent unseen, and a replay runs'} ${tools.length === 1 ? 'it' : 'them'} for real`;
-  const refuse = writes.length ? `  ${writes.length === 1 ? `${safe(writes[0]!.name)} ${acts(writes)}, so shadowlap replay and test refuse` : `Some ${acts(writes)}, so shadowlap replay and test refuse`} to run ${writes.length === 1 ? 'it' : 'them'} again until it is recorded, declared a read, or allowed with --allow-unrecorded.` : '';
-  // The tool to show how to wrap and declare: the first that writes, else the first named.
-  const shown = writes[0] ?? tools[0]!;
-  const effect = shown.effect === 'read' ? 'read' : 'write';
-  const remedy = `Wrap each where your agent runs it, so it is recorded and replayed (${wrapIt(shown)}), or declare what it does in shadowlap.config.json: "tools": { "unrecorded": { ${JSON.stringify(shown.name)}: "${effect}" } }`;
-  return [head, ...unrecordedLines(tools).map((l) => p.dim(l)), ...(refuse ? [refuse] : []), p.dim(`  ${remedy}`)].join('\n') + '\n';
+  const refuse = writes.length ? `  ${writes.length === 1 ? `${safe(writes[0]!.name)} ${acts(writes)}, so every command that replays the run refuses` : `Some ${acts(writes)}, so every command that replays the run refuses`} to run ${writes.length === 1 ? 'it' : 'them'} again until it is recorded, declared a read, or allowed with --allow-unrecorded.` : '';
+  // The tool to show how to record and declare: the first that writes, else the first that leaves Claude Code's session.
+  const shown = writes[0] ?? tools.find((t) => t.fix !== 'none');
+  const how = shown ? howToRecord(shown) : null;
+  const remedy = shown && how ? `To have ${tools.length === 1 ? 'it' : 'each'} recorded and replayed, ${how}; or declare what it does in shadowlap.config.json: "tools": { "unrecorded": { ${JSON.stringify(shown.name)}: "${shown.effect === 'read' ? 'read' : 'write'}" } }` : '';
+  return [head, ...unrecordedLines(tools).map((l) => p.dim(l)), ...(refuse ? [refuse] : []), ...(remedy ? [p.dim(`  ${remedy}`)] : [])].join('\n') + '\n';
 }
 
 /**
@@ -107,7 +123,7 @@ export function unrecordedRefusal(run: RunRecord, tools: readonly UnrecordedTool
   return [
     `${shortId(run.runId)} holds model calls of ${writes.length === 1 ? 'a tool' : 'tools'} Shadowlap never recorded, which ${acts(writes)}: a replay serves the model's answers again, so it would run ${it} again for real.`,
     ...unrecordedLines(writes),
-    `  Wrap ${writes.length === 1 ? 'it' : 'each'} where your agent runs it, so Shadowlap records it and a replay serves it: ${wrapIt(writes[0]!)}.`,
+    `  So Shadowlap records ${it} and a replay serves ${writes.length === 1 ? 'it' : 'each'}: ${howToRecord(writes[0]!) ?? 'record it'}.`,
     `  If running ${it} again is safe, declare ${it} a read in shadowlap.config.json, "tools": { "unrecorded": { ${JSON.stringify(writes[0]!.name)}: "read" } }${command ? `, or let this replay run ${it}: ${safe(quoteArgv(withFlag(command, ['--allow-unrecorded', names.join(',')])))}` : ''}`,
   ].join('\n');
 }

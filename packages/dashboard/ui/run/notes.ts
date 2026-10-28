@@ -3,8 +3,8 @@ import { num } from '../format.js';
 /**
  * What a run's page says, under its banner, of what the run did that Shadowlap did not record or
  * answered as it went, from what wave one's runs keep: the tools the model called that the run never
- * recorded (contract 10), which a replay runs for real and `replay` and `test` refuse when one
- * writes, with how to wrap or declare them; a run whose agent loaded no preload, so the network guard
+ * recorded (contract 10), which a replay runs for real and every command that replays the run
+ * refuses when one writes, or may, with how to have them recorded or declare them; a run whose agent loaded no preload, so the network guard
  * never watched it; the WebSockets that went to a provider live, which no recording holds; and a
  * replay's extra reads, the clock and random reads it answered live because its recording had no
  * counterpart for them; and a process of the agent the guard could not watch, such as the Claude
@@ -21,6 +21,8 @@ export interface UnrecordedToolView {
   firstCallNo: number;
   effect: 'write' | 'read' | 'unknown';
   why: string;
+  /** How to have it recorded, as the engine's unrecordedFix says: through the Claude Agent SDK's fence, `shadowlap mcp`, or wrapped. Absent from an older server. */
+  fix?: 'fence' | 'fence-effects' | 'mcp' | 'none' | 'wrap';
 }
 
 export interface RunNote {
@@ -99,10 +101,11 @@ function unrecordedNote(u: NonNullable<NotesInput['unrecorded']>, mode: string):
   const parts: NotePart[] = [`The model called ${n === 1 ? 'a tool' : `${num(n)} tools`} Shadowlap did not record: ${mode === 'replay' ? `this replay ran ${them} for real` : `${n === 1 ? 'it' : 'they'} ran in your agent unseen, and a replay runs ${them} for real`}.`];
   if (refused.length) {
     const w = refused.length === 1;
-    parts.push(' ', ...names(refused.map((t) => t.name)), ` ${acts(refused)}, so shadowlap replay and test refuse to run ${w ? 'it' : 'them'} again until ${w ? 'it is' : 'they are'} recorded, declared a read, or allowed with `, { code: '--allow-unrecorded' }, '.');
+    parts.push(' ', ...names(refused.map((t) => t.name)), ` ${acts(refused)}, so every command that replays the run refuses to run ${w ? 'it' : 'them'} again until ${w ? 'it is' : 'they are'} recorded, declared a read, or allowed with `, { code: '--allow-unrecorded' }, '.');
   }
-  // As the CLI shows it: the first refused, else the first named, wrapped with its effect.
-  const shown = refused[0] ?? tools[0]!;
+  // As the CLI shows it: the first refused, else the first that leaves Claude Code's session, and how to have it recorded.
+  const shown = refused[0] ?? tools.find((t) => t.fix !== 'none');
+  const how = shown ? howToRecord(shown) : null;
   const copy = declareSnippet(tools);
   return {
     kind: 'unrecorded',
@@ -110,8 +113,28 @@ function unrecordedNote(u: NonNullable<NotesInput['unrecorded']>, mode: string):
     label: 'not recorded',
     parts,
     tools: [...tools],
-    hint: { parts: [`Wrap each where your agent runs it, so it is recorded and replayed: `, { code: `tool(${literal(shown.name)}, { effect: '${shown.effect === 'read' ? 'read' : 'write'}' }, fn)` }, ' with ', { code: '@shadowlap/sdk' }, '. Or declare what each does in ', { code: 'shadowlap.config.json' }, ': '], copy },
+    ...(how ? { hint: { parts: [...how, '. Or declare what each does in ', { code: 'shadowlap.config.json' }, ': '], copy } } : {}),
   };
+}
+
+/**
+ * How to have a tool recorded, in the CLI's words (its howToRecord): a Claude Code built-in through
+ * the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped
+ * where the agent runs it. Null for a built-in that keeps to Claude Code's session.
+ */
+function howToRecord(t: UnrecordedToolView): NotePart[] | null {
+  switch (t.fix) {
+    case 'fence':
+      return ['To have it recorded and replayed, run the query through ', { code: 'withFence' }, ' from ', { code: '@shadowlap/adapters/claude-agent-sdk' }, ` (`, { code: 'with_fence' }, ` in Python), which records ${t.name} and fences it on replay`];
+    case 'fence-effects':
+      return ['To have it recorded, name it in ', { code: 'withFence' }, '’s effects, ', { code: `withFence(options, { effects: { ${literal(t.name)}: 'write' } })` }, ', which records it and refuses to run it again on replay'];
+    case 'mcp':
+      return ['To have it recorded and replayed, connect Claude Code to its MCP server through ', { code: 'shadowlap mcp' }, ', which records and fences its calls'];
+    case 'none':
+      return null;
+    default:
+      return ['Wrap each where your agent runs it, so it is recorded and replayed: ', { code: `tool(${literal(t.name)}, { effect: '${t.effect === 'read' ? 'read' : 'write'}' }, fn)` }, ' with ', { code: '@shadowlap/sdk' }];
+  }
 }
 
 /**
@@ -119,11 +142,13 @@ function unrecordedNote(u: NonNullable<NotesInput['unrecorded']>, mode: string):
  * UNGUARDED_FIX, which a test holds this to), with the page's apostrophes.
  */
 export const UNGUARDED_FIX: readonly NotePart[] = [
-  'The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can’t watch the connections it makes itself (WebFetch, an HTTP MCP server it connects to). Reach a remote MCP server through ',
+  'The Claude Code CLI the Claude Agent SDK runs is a native program that loads no Shadowlap preload, so the network guard can’t watch a connection it makes itself, and its fence names what it can still reach. Close each (disallow WebFetch, keep MCP servers to the query’s own with strictMcpConfig, reach a remote one through ',
   { code: 'shadowlap mcp' },
-  ', which records and fences its calls, and test with ',
+  ', which records and fences its calls), accept the CLI alone with ',
+  { code: '"guard": { "accept": ["claude-code"] }' },
+  ' in shadowlap.config.json, or test with ',
   { code: '--guard warn' },
-  ' to accept the rest. A Node or Python process whose guard could not start says so on its standard error.',
+  ' to accept every connection the guard can’t watch. A Node or Python process whose guard could not start says so on its standard error.',
 ];
 
 /**
