@@ -73,6 +73,8 @@ interface Pages {
   exact: Read;
   /** The pages on their way, as the calls each was asked for: counted as read when the next is picked. */
   flight: ReadonlyArray<readonly [number, number]>;
+  /** A page was read while the run recorded: it reached the calls it held, so the run's end is its count. */
+  recorded?: true;
 }
 
 const none = (runId: string): Pages => ({ runId, calls: [], read: [], exact: [], flight: [] });
@@ -83,15 +85,48 @@ const withFlight = (read: Read, flight: Pages['flight']): Read => flight.reduce<
 /** The pages on their way with one taken off, once it came or failed. */
 const landed = (flight: Pages['flight'], range: readonly [number, number]) => flight.filter((f) => f !== range);
 
+/**
+ * The calls after the run's count, read as none: the calls are numbered from the first to the count,
+ * as the page lists them (paging.ts `listedCalls`). A recording's later calls are read once its page
+ * counts them, and none past its end is asked for once it has ended. Null: the pages say where the
+ * run ends, the last reaching it.
+ */
+const withEnd = (read: Read, total: number | null): Read => (total === null ? read : withRange(read, total + 1, Infinity));
+
+/** The ranges without the calls given, each a hole of its own: read again. */
+export function without(read: Read, nos: readonly number[]): Array<[number, number]> {
+  let out = read.map(([a, b]) => [a, b] as [number, number]);
+  for (const n of nos) out = out.flatMap(([a, b]): Array<[number, number]> => (n < a || n > b ? [[a, b]] : [...(a <= n - 1 ? [[a, n - 1] as [number, number]] : []), ...(n + 1 <= b ? [[n + 1, b] as [number, number]] : [])]));
+  return out;
+}
+
 export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { run: RunDetail; paging: Paging | null } {
   const runId = run.run.runId;
   const runNow = useLatest(runId);
   const whole = run.callsNext === null;
+  // A recording: what it makes is read as it comes, with its page's next answer.
+  const live = run.run.status === 'running';
+  const liveNow = useLatest(live);
   const [pages, setPages] = useState<Pages>(() => none(runId));
   const own = pages.runId === runId ? pages : none(runId);
   // What the run's page came with is read: its first calls, up to where the next page starts.
-  const read = useMemo<Read>(() => (whole ? [[1, Infinity]] : withRange(own.read, 1, run.callsNext! - 1)), [whole, own.read, run.callsNext]);
-  const exact = useMemo<Read>(() => (whole ? [[1, Infinity]] : withRange(own.exact, 1, run.callsNext! - 1)), [whole, own.exact, run.callsNext]);
+  // While it records, and once a page was read as it did, the calls past its count are none (yet).
+  const end = live || own.recorded === true ? run.callsTotal : null;
+  const read = useMemo<Read>(() => (whole ? [[1, Infinity]] : withEnd(withRange(own.read, 1, run.callsNext! - 1), end)), [whole, own.read, run.callsNext, end]);
+  const exact = useMemo<Read>(() => (whole ? [[1, Infinity]] : withEnd(withRange(own.exact, 1, run.callsNext! - 1), end)), [whole, own.exact, run.callsNext, end]);
+  // A recording's calls read before they ended are read again with each of its page's answers, and
+  // once more as it ends: what they answered, or that they failed.
+  const wasLive = useRef(live);
+  useEffect(() => {
+    const again = live || wasLive.current;
+    wasLive.current = live;
+    if (whole || !again) return;
+    setPages((p) => {
+      if (p.runId !== runId) return p;
+      const open = p.calls.filter((c) => c.outcome === null || c.retryable).map((c) => c.callNo);
+      return open.length ? { ...p, read: without(p.read, open), exact: without(p.exact, open) } : p;
+    });
+  }, [run, whole, live, runId]);
   const calls = useMemo(() => (own.calls.length ? withPage(own.calls, run.calls) : run.calls), [own.calls, run.calls]);
   const done = whole || nextRead(exact, null) === null;
   const origins = useMemo(() => (done ? null : parseOrigins(run.origins)), [done, run.origins]);
@@ -133,8 +168,10 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
   // The pages read in order ask for every fact, waiting for the whole analysis when it is under way.
   const exactly = want === null;
   // A call asked for goes beside one page on its way, once the window settles; the pages read in order
-  // go one at a time, the first of them after a moment for what the page asks first.
-  const go = want !== null ? flight.length < IN_FLIGHT : flight.length === 0;
+  // go one at a time, the first of them after a moment for what the page asks first. A recording's go
+  // one at a time all: each works out the whole run as it stands (60 to 100 ms at 60,000 calls), and two
+  // at once held both of the server's threads, every other page waiting 0.7 s for one.
+  const go = want !== null && !live ? flight.length < IN_FLIGHT : flight.length === 0;
   const wait = want !== null ? (flight.length ? NEED_SETTLE_MS : 0) : own.read.length ? 0 : PAGES_AFTER_MS;
   useEffect(() => {
     if (!go || from === null || limit === null) return;
@@ -142,6 +179,8 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
     const delay = exactly ? Math.max(wait, askedAt.current + ASKING_PAUSE_MS - Date.now()) : wait;
     const t = setTimeout(() => {
       const range = [from, from + limit - 1] as const;
+      // Asked while it records: the page reaches the calls it holds, not the end of the run.
+      const recording = liveNow.current;
       setPages((p) => {
         const mine = p.runId === runId ? p : none(runId);
         return { ...mine, flight: [...mine.flight, range] };
@@ -152,8 +191,9 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
           if (runNow.current !== runId) return;
           setPages((p) => {
             const mine = p.runId === runId ? p : none(runId);
-            const got = rangeOf(from, page);
-            return { runId, calls: withPage(mine.calls, page.calls), read: withRange(mine.read, ...got), exact: page.around ? mine.exact : withRange(mine.exact, ...got), flight: landed(mine.flight, range) };
+            const got: [number, number] = recording ? [from, Math.max(from - 1, page.calls.at(-1)?.callNo ?? from - 1)] : rangeOf(from, page);
+            if (got[1] < got[0]) return { ...mine, flight: landed(mine.flight, range), ...(recording ? { recorded: true as const } : {}) };
+            return { runId, calls: withPage(mine.calls, page.calls), read: withRange(mine.read, ...got), exact: page.around ? mine.exact : withRange(mine.exact, ...got), flight: landed(mine.flight, range), ...(recording || mine.recorded ? { recorded: true as const } : {}) };
           });
           setFailed((f) => (f?.runId === runId ? null : f));
         },
@@ -167,7 +207,7 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
       );
     }, delay);
     return () => clearTimeout(t);
-  }, [client, runId, runNow, from, limit, wait, go, exactly]);
+  }, [client, runId, runNow, liveNow, from, limit, wait, go, exactly]);
 
   const shown = useMemo<RunDetail>(() => {
     if (whole) return run;
