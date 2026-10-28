@@ -59,7 +59,7 @@ After a fork, a blocked write reaches an agent as the tool's error, which it han
 
 ## LangChain and LangGraph
 
-Wrap the tool instance; `ToolNode` invokes it as usual. The adapter records the step after LangChain has validated the input and before it builds the `ToolMessage`, so the recorded input is the parsed arguments (never the `ToolCall` envelope or its id) and replayed results come back as real `ToolMessage`s. Tool outputs must be JSON (strings, objects, or `[content, artifact]`).
+Wrap the tool instance; `ToolNode` invokes it as usual. The adapter records the step after LangChain has validated the input and before it builds the `ToolMessage`, so the recorded input is the parsed arguments (never the `ToolCall` envelope or its id) and replayed results come back as real `ToolMessage`s. Tool outputs must be JSON (strings, objects, or `[content, artifact]`), a LangGraph `Command` or a message. A tool that returns a `Command` (to update the graph's state) or a message such as a `ToolMessage` is recorded in a tagged JSON form, its messages as `toDict()` writes them, and gets a real `Command` or message back on replay, made by the agent's own `@langchain/langgraph` and `@langchain/core`, so the state update happens again.
 
 ```ts
 import { tool } from '@langchain/core/tools';
