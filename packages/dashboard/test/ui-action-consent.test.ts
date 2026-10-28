@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, type ActionItem, type JobView } from '../ui/api.js';
@@ -82,6 +84,33 @@ describe('an action on someone else’s run', () => {
       { key: 'r', yes: true },
     ]);
     expect(page.all('[role="dialog"]')).toEqual([]);
+  });
+
+  it('opens the question on Cancel, so an Enter pressed once too often runs nothing', async () => {
+    const asked: Asked[] = [];
+    const watched: Array<Promise<JobView>> = [];
+    const page = await open(replay, app(asked, watched, unconfirmed('')));
+    await page.click(page.one('.go'));
+    await page.until('the question', () => page.all('[role="dialog"]').length === 1);
+    expect(page.focused()).toBe(page.one('[role="dialog"] .dlg-cancel'));
+    // Enter on a button clicks it, in a browser: here, the button the focus is on.
+    await page.click(page.focused());
+    expect(page.all('[role="dialog"]')).toEqual([]);
+    expect(asked).toEqual([{ key: 'r', yes: false }]);
+    expect(watched).toEqual([]);
+  });
+
+  it('asks every such question with the one dialog that opens on Cancel', () => {
+    // Every page that asks this yes (a fix's steps, blame, a run's actions, Edit and fork) asks it
+    // with ConsentDialog, never a dialog of its own that would open on its Run.
+    const ui = join(import.meta.dirname, '..', 'ui');
+    const files = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx'));
+    const asking = files.filter((f) => readFileSync(join(ui, f), 'utf8').includes('asksConsent('));
+    expect(asking.length).toBeGreaterThanOrEqual(5);
+    for (const f of asking) {
+      const src = readFileSync(join(ui, f), 'utf8');
+      expect({ f, consent: src.includes('<ConsentDialog'), ownTitle: src.includes('consentTitle(') }).toEqual({ f, consent: true, ownTitle: false });
+    }
   });
 
   it('asks its own question first, and the yes after it, sending the answer with both', async () => {

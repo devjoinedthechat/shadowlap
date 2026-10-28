@@ -378,7 +378,7 @@ function TasksTab({ view }: { view: TrainingView }) {
               <>
                 {/* Nothing was asked: an example, with a placeholder run and one check missed, so a score reads as the share passed. */}
                 <p className="muted trafter">For example, one attempt and the score it answers with:</p>
-                <pre className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
+                <pre tabIndex={0} className="report trserve">{`${view.serve.request}\n\n${view.serve.response}`}</pre>
               </>
             ) : (
               <p className="muted trafter">Once a task is ready, each request scores one attempt at it.</p>

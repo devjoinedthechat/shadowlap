@@ -411,7 +411,7 @@ function askKnown(k: Kept, r: IndexedRun): boolean {
   return r.ask !== undefined || k.asks.get(r.runId)?.key === askKeyOf(r);
 }
 
-const warming = new WeakMap<Store, { index: RunIndex; next: number }>();
+const warming = new WeakMap<Store, { index: RunIndex; revision: number; next: number }>();
 
 /** How far the warm-up has gone through the store's runs, newest first (`walked` of `total`); null before its first slice. */
 export function warmProgress(store: Store): { walked: number; total: number } | null {
@@ -443,7 +443,7 @@ export function warmRunStats(store: Store, options: { budgetMs?: number; now?: n
   const k = keptFor(store);
   let w = warming.get(store);
   // Runs came or went since the last slice: go through the new list (what is known is skipped fast).
-  if (!w || w.index !== index) warming.set(store, (w = { index, next: 0 }));
+  if (!w || w.index !== index || w.revision !== index.revision) warming.set(store, (w = { index, revision: index.revision, next: 0 }));
   while (w.next < index.runs.length) {
     const batch: IndexedRun[] = [];
     const caches: IndexedRun[] = [];

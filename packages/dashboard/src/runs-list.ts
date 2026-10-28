@@ -1,5 +1,6 @@
 import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
+import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
 import { aboutsOf, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
@@ -127,16 +128,8 @@ interface Matcher {
   matches: (r: IndexedRun) => boolean;
 }
 
-/**
- * The filter field's words, lowercased, and its `label:<name>` terms, kept as typed: a run matches
- * one only with that label exactly, as `repair --keeps label:good` and `ls --label` take it, where a
- * word matches anywhere in its id, about line, labels, command, source or revision.
- */
-export function filterTerms(q: string | undefined): { words: string[]; labels: string[] } {
-  const parts = (q ?? '').split(/\s+/).filter(Boolean).slice(0, 20);
-  const label = (w: string) => /^label:./i.test(w);
-  return { words: parts.filter((w) => !label(w)).map((w) => w.toLowerCase()), labels: parts.filter(label).map((w) => w.slice('label:'.length)) };
-}
+/** The filter field's words and its `label:<name>` terms (links.ts, which the page reads them with too). */
+export { filterTerms };
 
 const filterWords = (filter: RunFilter): string[] => filterTerms(filter.q).words;
 

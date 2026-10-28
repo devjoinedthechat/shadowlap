@@ -316,6 +316,32 @@ describe('the switcher', () => {
 
   // Windows refuses to move a folder while a file in it is open, and the store is open while it is
   // served: there, a served project's folder can't move away.
+  // Windows can't delete a file another connection holds open, so a served store can't go there.
+  it.skipIf(process.platform === 'win32')('says a store deleted while it is served is gone, and reads one made where it was anew, never the old file', async () => {
+    const w = await world();
+    expect((await w.api<{ counts: { runs: number } }>('meta')).body.counts.runs).toBe(2);
+    // The store deleted, as removing its .shadowlap folder's files does: the dashboard's connection and
+    // threads still hold the old file, and read on from it, each its own state.
+    const db = projectDbPath(w.support);
+    for (const f of [db, `${db}-wal`, `${db}-shm`]) rmSync(f, { force: true });
+    const gone = await w.api<{ project: { id: string; problem?: string }; counts: { runs: number } }>('meta');
+    expect(gone.body.project.problem).toBe('support-agent’s store (~/support-agent/.shadowlap/shadowlap.db) was deleted while the dashboard served it: record a run to make a new one');
+    expect(gone.body.counts.runs).toBe(0);
+    expect((await w.api<{ runs: unknown[] }>('runs')).body.runs).toEqual([]);
+    expect(await w.api('jobs', { method: 'POST', body: { kind: 'init' } })).toMatchObject({ status: 409, body: { error: expect.stringContaining('was deleted while the dashboard served it') } });
+    // Nothing was made where it was.
+    expect(existsSync(db)).toBe(false);
+    // A store made there anew (a run recorded): read from the new file, its run alone.
+    const fresh = Store.open(db);
+    const made = recordInto(fresh, w.support);
+    fresh.close();
+    const back = await w.api<{ project: { problem?: string }; counts: { runs: number } }>('meta');
+    expect(back.body.project.problem).toBeUndefined();
+    expect(back.body.counts.runs).toBe(1);
+    expect((await w.api<{ runs: Array<{ runId: string }> }>('runs')).body.runs.map((r) => r.runId)).toEqual([made]);
+    expect((await w.api<{ runs: Array<{ runId: string }> }>('runs/page?limit=10')).body.runs.map((r) => r.runId)).toEqual([made]);
+  });
+
   it.skipIf(process.platform === 'win32')('sees a folder moved away while it is served, refuses its jobs and uploads with the reason, and serves it again once it is back', async () => {
     const heard: string[] = [];
     const listening: RouteModule = { register: (_router, ctx) => void ctx.jobs.onJob((n) => (n.type === 'end' ? heard.push(n.job.kind) : undefined)) };
@@ -832,6 +858,29 @@ describe('folder limits', () => {
       expect(page.body.empty).toBe('Can’t read ~/locked.');
     } finally {
       chmodSync(locked, 0o755);
+    }
+  });
+});
+
+describe('a dashboard that serves one store', () => {
+  // Windows can't delete a file another connection holds open.
+  it.skipIf(process.platform === 'win32')('says its store was deleted while it served it, rather than read on from the old file', async () => {
+    const dir = tempDir('sl-one-store-');
+    const db = join(dir, 'shadowlap.db');
+    const store = Store.open(db);
+    recordInto(store, dir);
+    const dash = await startDashboard({ store, dbPath: db });
+    const meta = () => fetch(`${dash.url}/api/meta`, { headers: { 'x-shadowlap-token': dash.token } });
+    try {
+      expect((await meta()).status).toBe(200);
+      for (const f of [db, `${db}-wal`, `${db}-shm`]) rmSync(f, { force: true });
+      // The store the caller opened can't be opened anew here: the pages say why, and what read it stops.
+      const res = await meta();
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/^The store \(.+shadowlap\.db\) was deleted while the dashboard served it: record a run to make a new one, then start the dashboard again$/);
+    } finally {
+      await dash.close();
+      store.close();
     }
   });
 });

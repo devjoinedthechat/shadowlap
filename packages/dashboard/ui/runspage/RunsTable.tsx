@@ -5,6 +5,7 @@ import { RunIcon } from '../components/RunIcon.js';
 import { MiniStrip } from '../components/Strip.js';
 import { rowOpen, SortTh } from '../components/Table.js';
 import { num, shortId, whenShort } from '../format.js';
+import { labelTerm } from '../../src/links.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import { useWindow } from '../run/window-hook.js';
@@ -258,7 +259,7 @@ const Row = memo(function Row({ at, run: r, on, selectable, byColumn, you, onPic
           {chips.length ? (
             <span className="labs">
               {chips.map((l) => (
-                <a className="chip" key={l} href={href.runs({ q: `label:${l}` })} title={`List the runs labelled ${l}`}>
+                <a className="chip" key={l} href={href.runs({ q: labelTerm(l) })} title={`List the runs labelled ${l}`}>
                   {l}
                 </a>
               ))}

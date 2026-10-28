@@ -639,6 +639,36 @@ describe('events as each feature records them', () => {
     store.close();
   });
 
+  it('says a run blame found lost gradually around two calls was, never that one call lost it', () => {
+    const store = Store.open(':memory:');
+    const failed = (startedAt: number) => {
+      const r = store.createRun({ mode: 'record', command: { argv: ['python', 'refund_agent.py'], cwd: '.' }, startedAt });
+      store.endRun(r.runId, 'failed', startedAt + 50);
+      return r.runId;
+    };
+    const lost = failed(100);
+    const older = failed(110);
+    const alone = failed(120);
+    const gradual = { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true as const };
+    // As blame records it: the calls it was lost between, with the title of its fix, and without.
+    recordEvent(store, { kind: 'blame.done', runId: lost, ref: 'fx-refund-limit', data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: 'refund over the limit', opened: true, range: gradual }, at: 3000 });
+    recordEvent(store, { kind: 'blame.done', ref: 'fx-other', data: { outcome: 'blamed', callNo: 5, confidence: 'medium', title: null, opened: false, range: gradual }, at: 3010 });
+    // Recorded before its event carried the range: the blame kept on its run has it.
+    store.updateRunMeta(older, { blame: { at: 3020, outcome: 'blamed', callNo: 5, confidence: 'high', range: gradual, rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
+    recordEvent(store, { kind: 'blame.done', runId: older, ref: 'fx-older', data: { outcome: 'blamed', callNo: 5, confidence: 'high', title: 'refund twice', opened: true }, at: 3020 });
+    // A run whose blame no event tells.
+    store.updateRunMeta(alone, { blame: { at: 3030, outcome: 'blamed', callNo: 5, confidence: 'high', range: gradual, rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
+    const items = activity(store, { limit: 50 }).items;
+    const at = (t: number) => items.find((i) => i.at === t)?.text;
+    expect([3000, 3010, 3020, 3030].map(at)).toEqual([
+      'Blamed · refund over the limit, lost gradually around #5 and #7',
+      'Blamed · lost gradually around #5 and #7 · confidence medium',
+      'Blamed · refund twice, lost gradually around #5 and #7',
+      'Blamed · lost gradually around #5 and #7 · confidence high',
+    ]);
+    store.close();
+  });
+
   it('tells an import once, however many runs it made and events it recorded', () => {
     const store = Store.open(':memory:');
     // cli-imports: a LiteLLM log of three conversations, an event per run kept, moments apart.

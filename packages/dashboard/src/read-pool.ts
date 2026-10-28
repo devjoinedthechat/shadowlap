@@ -15,14 +15,16 @@ import type { Keeper } from './run-stats.js';
  * memory) can't be opened from another thread: its read models are worked out on the server's.
  *
  * Requests come first, in the order they came. A job about a run goes to the thread that read that
- * run last, which keeps its calls and its analysis. When a thread has nothing asked of it, it does
- * what can wait: the whole analysis of a long run whose first page was answered from its first calls,
- * and the warm-up, which works each finished run's totals out ahead, newest first, a slice at a time
- * (run-stats.ts `warmRunStats`), so a request waits for at most one slice. A page of a run's calls,
- * a call's details or a run's first page asked while the run's thread analyses that run is answered
- * on a free thread from a part of the run (`borrowed`), and only one that asks for the whole
- * analysis (`whole`) waits for it. What a thread works out that is worth keeping comes back here, and
- * the server's connection writes it to the store.
+ * run last, which keeps its calls and its analysis; while that thread is busy with another request,
+ * a free thread takes it once it has waited a moment (`READ_LIMITS.stealMs`), rather than wait for a
+ * long one (a whole Compare of two long runs takes most of a minute). What can wait is done only
+ * while another thread stays free for requests: the whole analysis of a long run whose first page
+ * was answered from its first calls, and the warm-up, which works each finished run's totals out
+ * ahead, newest first, a slice at a time (run-stats.ts `warmRunStats`). A page of a run's calls, a
+ * call's details or a run's first page asked while the run's thread analyses that run, or works on
+ * another request about it, is answered on a free thread from a part of the run (`borrowed`), and
+ * only one that asks for the whole analysis (`whole`) waits for it. What a thread works out that is
+ * worth keeping comes back here, and the server's connection writes it to the store.
  */
 
 export interface ReadModels {
@@ -45,6 +47,11 @@ export const READ_LIMITS = {
   size: 2,
   /** A slice of the warm-up, in milliseconds: the longest a request waits behind one. */
   warmSliceMs: 250,
+  /**
+   * How long a request waits for the thread that read its run last while that thread works on
+   * another request, before a free thread takes it, in milliseconds.
+   */
+  stealMs: 100,
   /** How long a thread has to close its connection when the dashboard stops, before it is ended. */
   closeMs: 2000,
   /**
@@ -66,6 +73,8 @@ interface Pending {
   id: number;
   job: ReadJob;
   affinity: string | null;
+  /** When it was asked (Date.now()): a free thread takes it from a busy one once it has waited `stealMs`. */
+  at: number;
   /** What can wait: done only when nothing is asked of the thread. */
   background: boolean;
   /**
@@ -105,6 +114,8 @@ export class ReadPool implements ReadModels {
   private nextId = 1;
   private warming: 'running' | 'done' = 'running';
   private closing: Promise<void> | null = null;
+  /** A look again, once the oldest request waiting for a busy thread has waited `stealMs`. */
+  private stealing: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly o: {
@@ -138,7 +149,7 @@ export class ReadPool implements ReadModels {
   run(job: ReadJob, o: { affinity?: string } = {}): Promise<ReadAnswer> {
     if (this.closing) return Promise.reject(new HttpError(503, 'the dashboard is stopping'));
     return new Promise<ReadAnswer>((resolve, reject) => {
-      const p: Pending = { id: this.nextId++, job, affinity: o.affinity ?? null, background: false, resolve, reject };
+      const p: Pending = { id: this.nextId++, job, affinity: o.affinity ?? null, at: Date.now(), background: false, resolve, reject };
       const owner = p.affinity === null ? undefined : this.owners.get(p.affinity);
       if (owner !== undefined) this.slots[owner]!.pinned.push(p);
       else this.shared.push(p);
@@ -147,44 +158,67 @@ export class ReadPool implements ReadModels {
   }
 
   /**
-   * Gives each thread with nothing to do the next thing to do: what was asked of it, then of any.
-   * What can wait runs on one thread at a time, so another is free for the next request: a long
-   * run's whole analysis first (on the thread that read the run), then a slice of the warm-up.
+   * Gives each thread with nothing to do the next thing to do: what was asked of it, then of any,
+   * then what waits for a busy one (`unpin`). What can wait runs on one thread at a time, and only
+   * while another stays free for the next request: a long run's whole analysis first (on the thread
+   * that read the run), then a slice of the warm-up. With one thread, it runs when that one is free.
    */
   private dispatch(): void {
     if (this.closing) return;
+    const now = Date.now();
     for (const slot of this.slots) {
       if (slot.busy) continue;
-      const next = slot.pinned.shift() ?? this.shared.shift() ?? this.unpin();
+      const next = slot.pinned.shift() ?? this.shared.shift() ?? this.unpin(now);
       if (next) this.start(slot, next);
     }
+    this.lookAgain(now);
     if (this.slots.some((s) => s.busy?.background)) return;
     const idle = this.slots.filter((s) => !s.busy);
+    if (idle.length < Math.min(2, this.slots.length)) return;
     const analysing = idle.find((s) => s.later.length);
     if (analysing) return this.start(analysing, analysing.later.shift()!);
-    const warm = idle.length ? this.warmSlice() : undefined;
+    const warm = this.warmSlice();
     if (warm) this.start(idle[0]!, warm);
   }
 
   /**
-   * A request waiting for the thread that read its run, while that thread does what can wait: a free
-   * thread takes it, reading the run's page again rather than waiting seconds for a long analysis.
-   * One about the run that thread is analysing is borrowed when a part of the run answers it (a page
-   * of its calls, a call, its first page): at 100,000 calls the page at #50,000 waited 13.8 s for the
-   * analysis. One that asks for the whole analysis (`whole`) is answered right after, from it.
+   * A request waiting for the thread that read its run last, while that thread is busy: a free
+   * thread takes it, reading the run again rather than waiting for what that thread is on. Behind
+   * what can wait it is taken at once (at 100,000 calls the page at #50,000 waited 13.8 s for the
+   * analysis); behind another request once it has waited `stealMs` (a 30-call run's page waited 77 s
+   * for a whole Compare of two runs of 100,000 calls while the other thread was free). One about the
+   * run that thread is analysing, or reading for another request, is borrowed when a part of the run
+   * answers it (a page of its calls, a call, its first page), leaving the run that thread's; one that
+   * needs the whole of it waits for that thread.
    */
-  private unpin(): Pending | undefined {
+  private unpin(now: number): Pending | undefined {
     for (const s of this.slots) {
       const busy = s.busy;
-      if (!busy?.background) continue;
-      const analysing = busy.job.kind === 'analyse' ? busy.job.runId : null;
-      const i = s.pinned.findIndex((p) => p.affinity !== analysing || answersFromPart(p.job));
+      if (!busy) continue;
+      const reading = busy.background ? (busy.job.kind === 'analyse' ? busy.job.runId : null) : busy.affinity;
+      const i = s.pinned.findIndex((p) => (busy.background || now - p.at >= READ_LIMITS.stealMs) && (p.affinity !== reading || answersFromPart(p.job)));
       if (i < 0) continue;
       const p = s.pinned.splice(i, 1)[0]!;
-      if (p.affinity === analysing) p.borrowed = true;
+      if (p.affinity === reading) p.borrowed = true;
       return p;
     }
     return undefined;
+  }
+
+  /** While a thread is free and a request waits for a busy one, looks again once the oldest of them has waited `stealMs`. */
+  private lookAgain(now: number): void {
+    if (this.stealing || !this.slots.some((s) => !s.busy)) return;
+    let oldest = Infinity;
+    for (const s of this.slots) if (s.busy) for (const p of s.pinned) oldest = Math.min(oldest, p.at);
+    if (oldest === Infinity) return;
+    this.stealing = setTimeout(
+      () => {
+        this.stealing = null;
+        this.dispatch();
+      },
+      Math.max(1, oldest + READ_LIMITS.stealMs - now),
+    );
+    this.stealing.unref();
   }
 
   /** A slice of the warm-up, while it has runs left to go through. */
@@ -194,6 +228,7 @@ export class ReadPool implements ReadModels {
       id: this.nextId++,
       job: { kind: 'warm', budgetMs: READ_LIMITS.warmSliceMs },
       affinity: null,
+      at: Date.now(),
       background: true,
       resolve: (a) => {
         if (a.warm?.done) this.warming = 'done';
@@ -280,7 +315,7 @@ export class ReadPool implements ReadModels {
           // A long run answered from its first calls is analysed whole when the thread is free.
           const then = m.answer.then;
           if (then && !p.borrowed && !slot.later.some((x) => x.job.kind === then.kind && 'runId' in x.job && 'runId' in then && x.job.runId === then.runId)) {
-            slot.later.push({ id: this.nextId++, job: then, affinity: null, background: true, resolve: () => undefined, reject: () => undefined });
+            slot.later.push({ id: this.nextId++, job: then, affinity: null, at: Date.now(), background: true, resolve: () => undefined, reject: () => undefined });
           }
           p.resolve(m.answer);
         } else {
@@ -314,12 +349,14 @@ export class ReadPool implements ReadModels {
     this.o.log?.(`a read-model thread stopped: ${why}`);
     // A thread that can't open the store fails each job given to it, one at a time, and the warm-up
     // stops at its first: what waits drains, and nothing starts threads for good.
-    busy?.reject(late ? new HttpError(503, `${why}, so it was stopped: try again, or ask for less`) : new Error(`the read model's thread stopped: ${why}`));
+    busy?.reject(late ? new HttpError(503, `${why}, so it was stopped`) : new Error(`the read model's thread stopped: ${why}`));
     this.dispatch();
   }
 
   close(): Promise<void> {
     return (this.closing ??= (async () => {
+      if (this.stealing) clearTimeout(this.stealing);
+      this.stealing = null;
       const stopping = new HttpError(503, 'the dashboard is stopping');
       for (const p of this.shared.splice(0)) p.reject(stopping);
       await Promise.all(

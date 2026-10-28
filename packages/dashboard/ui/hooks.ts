@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { stripScroll } from './place.js';
 
+/** An error that says what was read is gone: the server answered 404 (api.ts `ApiError`). */
+const gone = (err: unknown): boolean => typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 404;
+
 /** The latest value, for callbacks that must not re-subscribe when it changes. */
 export function useLatest<T>(value: T): { readonly current: T } {
   const ref = useRef(value);
@@ -17,7 +20,9 @@ export interface Loaded<T> {
 
 /**
  * Loads `load()` whenever `key` changes, and again whenever `refresh` changes, keeping what it had
- * while it reloads. A different key starts empty. `load` returning null skips the request.
+ * while it reloads, and when the reload fails, unless it failed because what it read is gone (a 404:
+ * a run deleted while its page is open), which drops it. A different key starts empty. `load`
+ * returning null skips the request.
  */
 export function useLoad<T>(load: () => Promise<T> | null, key: string, refresh: unknown = 0): Loaded<T> {
   const [state, setState] = useState<{ key: string; data: T | null; error: Error | null; loading: boolean }>({ key, data: null, error: null, loading: true });
@@ -36,7 +41,7 @@ export function useLoad<T>(load: () => Promise<T> | null, key: string, refresh: 
     p.then(
       // An unchanged answer (a 304 hands back the same object) changes nothing, so nothing redraws.
       (data) => alive && setState((s) => (s.key === key && s.data === data && !s.error && !s.loading ? s : { key, data, error: null, loading: false })),
-      (err: unknown) => alive && setState((s) => ({ key, data: s.key === key ? s.data : null, error: err instanceof Error ? err : new Error(String(err)), loading: false })),
+      (err: unknown) => alive && setState((s) => ({ key, data: s.key === key && !gone(err) ? s.data : null, error: err instanceof Error ? err : new Error(String(err)), loading: false })),
     );
     return () => {
       alive = false;

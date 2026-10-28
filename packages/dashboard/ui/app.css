@@ -47,7 +47,7 @@ code, pre, .mono { font-family: var(--mono); }
 /* Chrome makes a scrolling pane focusable on its own; the selected row already shows where you are, so the pane draws no ring */
 main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visible, .ibody:focus-visible, .pallist:focus-visible, .rawsse:focus-visible { outline: none; }
 /* A pane that takes the focus to be scrolled by keyboard (it holds no control of its own) says it has it. */
-.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vbody[tabindex="0"]:focus-visible, .tscroll[tabindex="0"]:focus-visible, .drawer pre:focus-visible, .codebox:focus-visible, pre.report:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* A pane that scrolls cuts off what is drawn past its edge, a control's ring among them: inside one, the ring is drawn
    inside the control, so it shows whole wherever the control sits. The page itself keeps its padding clear of rings. */
 :is(.runs, .vbody, .ibody, .pallist, .pallist > [role="listbox"], .pop, .help, .dialog .db, .dialog pre.fxpatch, .drawer pre, .drawer .jfiles, .tscroll, .fxtable, .stabs, .views .tabs, .bulkbar, .rawsse, .codebox, pre.report, .diffpanel pre) :focus-visible { outline-offset: -2px; }
@@ -74,7 +74,8 @@ main:focus-visible, .page:focus-visible, .runs:focus-visible, .vbody:focus-visib
 .crumbs i { font-style: normal; color: var(--line2); }
 .sp { flex: 1; }
 .seg { display: inline-flex; padding: 3px; border: 1px solid var(--line2); border-radius: 10px; background: var(--panel); flex: none; }
-.seg button { border: 0; background: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+/* At least 24 px tall, as WCAG 2.5.8 asks of a target. */
+.seg button { border: 0; background: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; min-height: 24px; border-radius: 7px; cursor: pointer; }
 .seg button:hover { color: var(--ink); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .ibtn { width: 32px; height: 32px; display: inline-grid; place-items: center; border-radius: 9px; border: 1px solid var(--line2); background: none; color: var(--dim); cursor: pointer; flex: none; }
@@ -462,7 +463,8 @@ table.runst .labs a.chip:hover { color: var(--ink); }
 .filter-in input { height: 30px; width: 200px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--body); padding: 0 30px 0 10px; outline: none; }
 .filter-in input:focus { border-color: var(--accent-line); }
 .filter-in .kbd { position: absolute; right: 7px; top: 50%; transform: translateY(-50%); }
-.vbody { flex: 1; overflow: auto; min-height: 0; }
+/* The list puts its rows itself (window-hook.ts), keeping the call asked for in view as rows above it change height: no anchoring of the browser's own moves it as well. */
+.vbody { flex: 1; overflow: auto; min-height: 0; overflow-anchor: none; }
 table.calls { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.calls th { position: sticky; top: 0; z-index: 1; background: var(--bg); text-align: left; font: 500 10px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
 table.calls td { padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -785,7 +787,9 @@ table.probes tr.hot td { background: var(--sel); }
 .hgroup:last-child dl { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
 .hgroup dt, .hgroup dd { margin: 0; padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; }
 .hgroup dd { color: var(--dim); font-size: 13px; text-wrap: balance; }
-.hgroup.off dd, .hgroup.off dt { opacity: .5; }
+/* Keys that don't apply on this page: the faint ink, never faded, which fell under AA's contrast (2.2:1). */
+.hgroup.off dd, .hgroup.off dt, .hgroup.off kbd { color: var(--faint); }
+.hgroup.off kbd { border-color: var(--line); }
 .help kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line2); border-bottom-width: 2px; background: var(--panel); color: var(--ink); font: 500 11.5px var(--mono); }
 .help .then { margin: 0 6px; color: var(--faint); font-size: 11.5px; }
 @media (max-width: 640px) { .hgrid { grid-template-columns: minmax(0, 1fr); } .hgroup:last-child dl { grid-template-columns: max-content minmax(0, 1fr); } }
@@ -886,7 +890,7 @@ table.probes tr.hot td { background: var(--sel); }
 .vchips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
 .vchips .vn { font: 12px var(--mono); color: var(--faint); }
 .vpick { margin-bottom: 14px; flex-wrap: wrap; max-width: 100%; }
-.seg a { display: inline-block; text-decoration: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; border-radius: 7px; }
+.seg a { display: inline-block; text-decoration: none; color: var(--faint); font: 500 12px var(--body); padding: 4px 10px; min-height: 24px; border-radius: 7px; }
 .seg a:hover { color: var(--ink); }
 .seg a[aria-pressed="true"], .seg a[aria-current="page"] { background: var(--ink); color: var(--bg); }
 .verdict .actions { margin-left: auto; }
@@ -1319,7 +1323,8 @@ table.ledger code { font-size: 11.5px; color: var(--dim); }
 .connbar .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
 .connbar .ct { flex: 1; min-width: 0; color: var(--dim); }
 .connbar .ct b { color: var(--ink); font-weight: 500; }
-.connbar .cr { font: 12px var(--mono); color: var(--faint); white-space: nowrap; }
+/* The dim ink: on the bar's amber wash the faint one is 4.4:1, under AA's 4.5. */
+.connbar .cr { font: 12px var(--mono); color: var(--dim); white-space: nowrap; }
 body.is-offline main.view { padding-top: 44px; }
 .status .off { color: var(--warn); font-weight: 500; }
 .connblock { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(6px); }
@@ -1700,7 +1705,8 @@ code.mcpt { display: inline-block; max-width: 360px; overflow: hidden; text-over
 .cip + .cip { margin-top: 16px; }
 .cip .cimain > p.muted { margin: 0 0 6px; }
 .cip .offnote { display: block; margin-top: 6px; font-weight: 500; color: var(--warn); }
-.cip.off .cimain .setrow, .cip.off .codewrap, .cip.off .prcard, .cip.off .slackmsg, .cip.off .teamside ul { opacity: .45; }
+/* What a feature turned off would do: the faint ink, never faded, which fell under AA's contrast (2.0 to 4.0:1). */
+.cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul), .cip.off :is(.cimain .setrow, .codewrap, .prcard, .slackmsg, .teamside ul) * { color: var(--faint); }
 .cip .teamside .k { display: block; margin: 0 0 8px; }
 .cip .teamside .alertcard + .k { margin-top: 20px; }
 .setrow select.sel, .setrow input.inp { height: 32px; min-width: 170px; border-radius: 9px; border: 1px solid var(--line2); background: var(--panel); color: var(--ink); font: 12.5px var(--mono); padding: 0 10px; outline: none; flex: none; }
@@ -1965,7 +1971,7 @@ table.daytable tbody tr:hover td { background: none; }
 .agroups .ax:hover { color: var(--ink); }
 /* The baseline line wraps inside its cell, which the table's cells otherwise keep on one line, so a kept run's row never scrolls the table sideways. */
 .fxwhere .fxbase { display: block; margin-top: 2px; font-size: 12px; color: var(--faint); white-space: normal; }
-.attempts a { display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--dim); text-decoration: none; white-space: nowrap; }
+.attempts a { display: flex; align-items: center; gap: 8px; min-height: 24px; font: 12px var(--mono); color: var(--dim); text-decoration: none; white-space: nowrap; }
 .attempts a:hover { color: var(--ink); }
 .attempts a i { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--o-rep); }
 .attempts a i.no { background: var(--o-block); }

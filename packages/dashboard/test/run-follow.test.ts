@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { searchIndexBehind, Store } from '@shadowlap/engine';
 import { runDetail, type RunDetail } from '../src/api.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { liveRuns } from '../src/meta.js';
@@ -241,11 +241,17 @@ describe('a run’s page on the server', () => {
     const first = (await (await get(`runs/${b.runId}`)).json()) as RunDetail;
     expect(first.calls).toHaveLength(180);
     expect(first.conversations).toHaveLength(30);
+    const nos = ticket(b, 31);
+    // The search index takes the run in on the server's thread too, in slices between requests
+    // (search-hits.ts `catchUpSearch`), reading its calls in batches of its own: under load it was
+    // still at it as the page asked. A search has it catch up with every call, the new ones too, and
+    // the reads counted start once it has, so they are the page's alone.
+    expect((await get('search?q=refund&limit=1')).status).toBe(200);
+    while (searchIndexBehind(store) > 0) await new Promise((r) => setTimeout(r, 10));
 
     const calls = vi.spyOn(store, 'getCalls');
     const json = vi.spyOn(store, 'getJson');
     const blobs = vi.spyOn(store, 'getBlob');
-    const nos = ticket(b, 31);
     const part = (await (await get(`runs/${b.runId}?after=180`)).json()) as RunDetail;
     expect(part.calls.map((c) => c.callNo)).toEqual(nos);
     expect(part.calls.map((c) => c.conversation)).toEqual(new Array(6).fill(31));

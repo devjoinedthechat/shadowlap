@@ -171,6 +171,20 @@ describe('the Runs table', () => {
     expect(filterTerms('Refund label:good  label:Bad x')).toEqual({ words: ['refund', 'x'], labels: ['good', 'Bad'] });
   });
 
+  it('lists the runs with a label that has a space in it, quoted as its chip writes it', () => {
+    const ids = (q: string) => all({ q }).runs.map((r) => r.runId);
+    expect(filterTerms('label:"needs  review" Refund label:good')).toEqual({ words: ['refund'], labels: ['needs review', 'good'] });
+    labelRuns(store, [id.clean], ['needs review'], []);
+    try {
+      expect(ids('label:"needs review"')).toEqual([id.clean]);
+      expect(ids('label:"needs review" refund')).toEqual([id.clean]);
+      // Unquoted: the label `needs`, which no run has, and the word `review`.
+      expect(ids('label:needs review')).toEqual([]);
+    } finally {
+      labelRuns(store, [id.clean], [], ['needs review']);
+    }
+  });
+
   it('narrows to a date range, and the chip counts follow it', () => {
     const today = localDay(NOW, 'Europe/Berlin');
     const page = all({ from: today.start, to: today.end });
@@ -537,10 +551,10 @@ describe('the run index', () => {
       const rec = addRun(here, { startedAt: NOW - DAY, calls: 'll' });
       const first = loadRunIndex(here);
       expect(loadRunIndex(here)).toBe(first);
-      // Another process records a run: this one sees it on its next read.
+      // Another process records a run: this one sees it on its next read, taken into the index it has.
       const theirs = addRun(other, { startedAt: NOW, calls: 'l' });
       const second = loadRunIndex(here);
-      expect(second).not.toBe(first);
+      expect(second).toBe(first);
       expect(second.byId.has(theirs)).toBe(true);
       expect(loadRunIndex(here)).toBe(second);
       // So does a write of its own.

@@ -69,6 +69,14 @@ async function ask(d: Dashboard, path: string): Promise<{ status: number; ms: nu
   return { status: res.status, ms: performance.now() - t0, bytes: Buffer.byteLength(text), body: text ? JSON.parse(text) : null };
 }
 
+/** A write, as the page sends one. */
+async function send(d: Dashboard, path: string, method: 'POST' | 'DELETE', body?: unknown): Promise<{ status: number; ms: number; body: any }> {
+  const t0 = performance.now();
+  const res = await fetch(`${d.url}/api/${path}`, { method, headers: { 'x-shadowlap-token': d.token, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  const text = await res.text();
+  return { status: res.status, ms: performance.now() - t0, body: text ? JSON.parse(text) : null };
+}
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const median = (xs: readonly number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
@@ -197,9 +205,73 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       // Then the whole of it, every run counted, and found.
       expect(whole.body.sums.week.runs + whole.body.sums.lastWeek.runs).toBe(RUNS);
       expect((await ask(d, 'search?q=T-9999&limit=5')).body.hits.map((h: { field: string }) => h.field)).toEqual(expect.arrayContaining(['prompt']));
-      // What was worked out beside the server is kept in the store, through its own connection.
-      expect(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n).toBeGreaterThanOrEqual(RUNS - 100);
+      // What was worked out beside the server is kept in the store, through its own connection, every
+      // run's totals: what waited while the search index held the store is written once it let go
+      // (keeper.ts), so this waits for that, however long the machine's load makes it.
+      const kept = () => Number(store.query('SELECT COUNT(*) AS n FROM run_stats')[0].n);
+      while (kept() < RUNS) await wait(100);
+      expect(kept()).toBe(RUNS);
       expect(store.query('SELECT COUNT(*) AS n FROM search_state')[0].n).toBe(RUNS);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  it('keeps the status bar’s poll a few milliseconds of the server’s thread while a session writes runs, and labels them', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0 });
+    // A session in a thread of its own, as a test session or a verify writes from another process:
+    // a run started, a call, the run ended, then a label on the run before it, every 50 ms.
+    const script = join(dir, 'session.mjs');
+    writeFileSync(
+      script,
+      [
+        `import { parentPort, workerData } from 'node:worker_threads';`,
+        `import { Store } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, '../../engine/dist/index.js')).href)};`,
+        'const store = Store.open(workerData.dbPath);',
+        'let n = 0, last = null;',
+        'const t = setInterval(() => {',
+        "  const run = store.createRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: '/work' }, startedAt: Date.now() });",
+        "  const identity = { kind: 'tool', name: 'lookup_order', fingerprint: 's' + n, occurrence: 1 };",
+        "  store.appendCallStart({ runId: run.runId, callNo: 1, ...identity, origin: 'live', effect: 'read', requestRef: null, meta: {}, at: Date.now() });",
+        "  store.appendCallEnd(identity, { runId: run.runId, callNo: 1, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 1 }, at: Date.now() });",
+        "  store.endRun(run.runId, 'completed', Date.now());",
+        "  if (last) store.updateRunMeta(last, { labels: ['session'] });",
+        '  last = run.runId;',
+        "  if (++n === workerData.runs) { clearInterval(t); store.close(); parentPort.postMessage(n); }",
+        '}, 50);',
+      ].join('\n'),
+    );
+    try {
+      await ask(d, 'meta');
+      await untilWhole(d);
+      const runsBefore = Number((await ask(d, 'meta')).body.counts.runs);
+      const RUNS_WRITTEN = 40;
+      const session = new Worker(script, { workerData: { dbPath, runs: RUNS_WRITTEN } });
+      const written = new Promise<number>((resolve, reject) => {
+        session.once('message', resolve);
+        session.once('error', reject);
+      });
+      const busy: number[] = [];
+      let done = false;
+      void written.then(() => (done = true));
+      const t = await onServerThread(async () => {
+        while (!done) {
+          const before = performance.eventLoopUtilization();
+          expect((await ask(d, 'meta')).status).toBe(200);
+          busy.push(performance.eventLoopUtilization(before).active);
+          await wait(20);
+        }
+        return written;
+      });
+      expect(t.out).toBe(RUNS_WRITTEN);
+      said(`/api/meta while a session wrote ${RUNS_WRITTEN} runs into ${RUNS} runs: ${busy.length} polls, each costing the server's thread ${median(busy).toFixed(1)} ms (median)`, t);
+      // Each poll took in the runs written since: a few milliseconds, not a read of every run (80 ms here, 137 in the review).
+      expect(busy.length).toBeGreaterThan(10);
+      expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
+      expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + RUNS_WRITTEN);
+      await session.terminate();
     } finally {
       await d.close();
       store.close();
@@ -231,6 +303,8 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       // As a browser finds it: the threads started, the run index read, the totals kept by the test before.
       await ask(d, 'meta');
       await untilWhole(d);
+      // The runs before it: those the tests before this one wrote into the store too.
+      const runsBefore = Number((await ask(d, 'meta')).body.counts.runs);
       const CALLS = 60;
       const recorder = new Worker(script, { workerData: { dbPath, calls: CALLS } });
       const recorded = new Promise<number>((resolve, reject) => {
@@ -257,7 +331,7 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       expect(metas.length).toBeGreaterThan(20);
       expect(median(busy), 'what a poll costs the server’s thread (median)').toBeLessThan(10);
       expect(t.p99, 'the server’s event loop, 99th percentile').toBeLessThan(HELD_P99_MS);
-      expect((await ask(d, 'meta')).body.counts.runs).toBe(RUNS + 1);
+      expect((await ask(d, 'meta')).body.counts.runs).toBe(runsBefore + 1);
       await recorder.terminate();
     } finally {
       await d.close();
@@ -308,6 +382,27 @@ describe('ten thousand runs, their totals not kept yet, their recordings never i
       expect(t.out.body.live.map((tool: { name: string }) => tool.name)).toEqual(['lookup_order']);
       // Every tool call of every run, and the MCP servers they came through: none of it read on the server's thread.
       beside('settings/tools', t);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  // Last: it deletes runs the others count.
+  it('deletes fifty runs beside the server, with their calls and what nothing else uses', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, readOnly: false });
+    try {
+      await ask(d, 'meta');
+      const ids = ((await ask(d, 'runs/page?limit=50')).body.runs as Array<{ runId: string }>).map((r) => r.runId);
+      expect(ids).toHaveLength(50);
+      const t = await onServerThread(() => send(d, 'runs/delete', 'POST', { ids }));
+      said(`50 runs deleted in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.done).toHaveLength(50);
+      // Every call of each, its search index and the data nothing else used: none of it on the server's thread.
+      beside('runs/delete', t);
+      expect((await ask(d, `runs/${ids[0]}`)).status).toBe(404);
     } finally {
       await d.close();
       store.close();
@@ -495,6 +590,25 @@ describe('a run of twenty thousand calls', () => {
       }
       expect((await ask(d, `runs/${big.runId}/provenance`)).body).toMatchObject({ runId: big.runId, calls: { model: CALLS / 2, tool: CALLS / 2 } });
       expect((await ask(d, `fixes/${fixId}`)).body.blame.callRow).toHaveLength(CALLS);
+    } finally {
+      await d.close();
+      store.close();
+    }
+  }, TIMEOUT);
+
+  // Last: it deletes the fork the others compare.
+  it('deletes its fork of twenty thousand calls beside the server', async () => {
+    const store = Store.open(dbPath);
+    const d = await startDashboard({ store, dbPath, port: 0, readOnly: false });
+    try {
+      await ask(d, 'meta');
+      const t = await onServerThread(() => send(d, `runs/${fork.runId}`, 'DELETE'));
+      said(`a run of ${CALLS} calls deleted in ${t.out.ms.toFixed(0)} ms`, t);
+      expect(t.out.status).toBe(200);
+      expect(t.out.body.deleted).toBe(fork.runId);
+      beside(`runs/<fork> DELETE`, t);
+      expect((await ask(d, `runs/${fork.runId}`)).status).toBe(404);
+      expect((await ask(d, `runs/${big.runId}`)).status).toBe(200);
     } finally {
       await d.close();
       store.close();

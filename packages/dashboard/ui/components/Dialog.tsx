@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { choiceAnswer } from '../actions.js';
+import { choiceAnswer, consentTitle } from '../actions.js';
 import { dialogFocus } from '../focus.js';
 import { dialogOnSwitch, noteDialogDropped, onShownProject, shownProject } from '../projects-api.js';
 import { useLayer } from '../state.js';
@@ -241,4 +241,14 @@ export function ConfirmDialog({ title, text, ok, danger = false, command, onOk, 
       {command ? <CmdLine>{command}</CmdLine> : null}
     </Dialog>
   );
+}
+
+/**
+ * The yes a job waits for before it runs the command of a run from someone else's pack or the team
+ * store (`asksConsent`): where it came from, the server's words naming the command, and the action.
+ * It opens on Cancel, as it comes up after a click or an Enter of its own: an Enter pressed once too
+ * often never runs someone else's command.
+ */
+export function ConsentDialog({ why, ok, onOk, onClose }: { why: string; ok: string; onOk: () => void; onClose: () => void }) {
+  return <Dialog title={consentTitle(why)} text={`${why}.`} ok={ok} initialFocus="cancel" onOk={onOk} onClose={onClose} />;
 }

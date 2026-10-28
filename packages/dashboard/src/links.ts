@@ -59,6 +59,32 @@ const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 /** The most words a link's filter keeps, as the field takes them. */
 export const RUNS_QUERY_MAX = 200;
 
+/**
+ * The filter field's words, lowercased, and its `label:<name>` terms, kept as typed: a run matches
+ * one only with that label exactly, as `repair --keeps label:good` and `ls --label` take it, where a
+ * word matches anywhere in its id, about line, labels, command, source or revision. A label with a
+ * space in it is quoted, `label:"needs review"`, as a label's chip writes it (`labelTerm`); a label
+ * holds no quote. The server's filter and an exported copy's read it alike.
+ */
+export function filterTerms(q: string | null | undefined): { words: string[]; labels: string[] } {
+  const words: string[] = [];
+  const labels: string[] = [];
+  for (const m of (q ?? '').matchAll(/label:"([^"]*)"?|\S+/gi)) {
+    if (words.length + labels.length === 20) break;
+    const quoted = m[1]?.trim().replace(/\s+/g, ' ');
+    if (quoted !== undefined) {
+      if (quoted) labels.push(quoted);
+    } else if (/^label:./i.test(m[0])) labels.push(m[0].slice('label:'.length));
+    else words.push(m[0].toLowerCase());
+  }
+  return { words, labels };
+}
+
+/** The filter's term for the runs labelled `name` exactly: quoted when it holds a space. */
+export function labelTerm(name: string): string {
+  return /\s/.test(name) ? `label:"${name}"` : `label:${name}`;
+}
+
 /** A filter with what it doesn't set filled in, its days in order: what the page shows for it. */
 export function runsFilter(f: RunsFilter = {}): RunsFilterRead {
   const q = (f.q ?? '').slice(0, RUNS_QUERY_MAX);

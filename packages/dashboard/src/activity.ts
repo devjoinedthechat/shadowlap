@@ -112,9 +112,11 @@ const EVENT_TEXT = new Map<string, Describe>([
       // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
       if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}not settled from the first model call`, href };
       if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
+      // Lost gradually around two calls, when the check of the one the probes pinned found no drop there.
+      const g = gradualOf(d.range);
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
-      if (title) return { kind: 'blame', text: `Blamed · ${title}, lost at model call #${callNo}`, href };
-      return { kind: 'blame', text: parts(`Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)!}`), href };
+      if (title) return { kind: 'blame', text: `Blamed · ${title}, ${g ? `lost gradually around #${g.from} and #${g.to}` : `lost at model call #${callNo}`}`, href };
+      return { kind: 'blame', text: parts(g ? `Blamed · lost gradually around #${g.from} and #${g.to}` : `Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)!}`), href };
     },
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
@@ -183,11 +185,30 @@ export function describeEvent(kind: string, describe: Describe): void {
   EVENT_TEXT.set(kind, describe);
 }
 
-function storedItem(e: StoredEvent): ActivityItem {
+/** The two calls a run was lost gradually around (a blame's `range` with `gradual`), or null. */
+function gradualOf(range: unknown): { from: number; to: number } | null {
+  if (!range || typeof range !== 'object') return null;
+  const { from, to, gradual } = range as Record<string, unknown>;
+  return gradual === true && typeof from === 'number' && typeof to === 'number' && Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to > from ? { from, to } : null;
+}
+
+/**
+ * What an event says, as the feed reads it. A blame recorded before its event carried the calls the
+ * run was lost between takes them from the blame kept on its run, when that is the same blame (the
+ * same call).
+ */
+function eventData(store: Store, e: StoredEvent): Record<string, unknown> {
+  const d = e.data ?? {};
+  if (e.kind !== 'blame.done' || 'range' in d || !e.runId || typeof d.callNo !== 'number') return d;
+  const b = store.getRun(e.runId)?.meta?.blame;
+  return b && b.callNo === d.callNo && b.range ? { ...d, range: b.range } : d;
+}
+
+function storedItem(store: Store, e: StoredEvent): ActivityItem {
   const describe = EVENT_TEXT.get(e.kind);
   let t: EventText;
   try {
-    t = describe ? describe(e, e.data ?? {}) : fallback(e);
+    t = describe ? describe(e, eventData(store, e)) : fallback(e);
   } catch {
     t = fallback(e);
   }
@@ -480,12 +501,12 @@ function inBursts<T>(items: T[], key: (item: T) => string, at: (item: T) => numb
  * "Imported litellm.jsonl · 3 runs · 40 model calls". An event that lists its runs (`runIds`) is an
  * import of its own.
  */
-function importStubs(events: StoredEvent[]): Stub[] {
+function importStubs(store: Store, events: StoredEvent[]): Stub[] {
   const key = (e: StoredEvent) => (Array.isArray(e.data?.runIds) ? `event:${e.eventId}` : `${e.actor ?? ''}\n${str(e.data?.from) ?? e.ref ?? ''}\n${str(e.data?.format) ?? ''}`);
   return inBursts(events, key, (e) => e.at, (e) => e.eventId).map((group) => {
     // The entry takes the newest event's place in the feed: when the import ended.
     const newest = group[group.length - 1]!;
-    return { id: `e:${newest.eventId}`, at: newest.at, render: () => (group.length === 1 ? storedItem(newest) : importedEvents(group)) };
+    return { id: `e:${newest.eventId}`, at: newest.at, render: () => (group.length === 1 ? storedItem(store, newest) : importedEvents(group)) };
   });
 }
 
@@ -514,7 +535,8 @@ function importedEvents(group: StoredEvent[]): ActivityItem {
 function blamed(run: RunRecord): ActivityItem {
   const b = run.meta!.blame!;
   const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: links.fixes() };
-  if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `Blamed model call #${b.callNo} · confidence ${b.confidence}` };
+  const g = gradualOf(b.range);
+  if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `${g ? `Blamed · lost gradually around #${g.from} and #${g.to}` : `Blamed model call #${b.callNo}`} · confidence ${b.confidence}` };
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
   if (b.unsettled === true) return { ...item, kind: 'blame', text: 'Blamed · not settled from the first model call' };
@@ -708,7 +730,7 @@ function derivedStubs(store: Store): Stub[] {
   // The newest 10,000 of the events that stand in for what runs tell; older ones are left out of the feed.
   const telling = store.listEvents({ kinds: ['capture.imported', 'blame.done'], limit: 10_000 });
   const imports = telling.filter((e) => GROUPED_KINDS.includes(e.kind));
-  const stubs = [...derived(store, runs, coveredBy(telling)), ...importStubs(imports)].sort(order);
+  const stubs = [...derived(store, runs, coveredBy(telling)), ...importStubs(store, imports)].sort(order);
   stubCache.set(store, { key, stubs });
   return stubs;
 }
@@ -815,7 +837,7 @@ export function activity(store: Store, options: { limit?: number; before?: strin
   // A page holds at most `limit` stored events; one more says whether any are left. Imports are
   // among the stubs already, one entry per import.
   const stored = store.listEvents({ ...storedAfter(cursor), limit: limit + 1, exceptKinds: GROUPED_KINDS });
-  const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(e) }))].sort(order);
+  const all: Stub[] = [...stubs, ...stored.map((e) => ({ id: `e:${e.eventId}`, at: e.at, render: () => storedItem(store, e) }))].sort(order);
   const page = all.slice(0, limit);
   return { items: page.map(render), next: all.length > limit ? encodeCursor(page[page.length - 1]!) : null };
 }

@@ -3,7 +3,8 @@ import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import type { Router } from '../router.js';
 import { sendAnswer } from '../read-pool.js';
-import { deleteRuns, knownRuns, labelRuns, matchingRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
+import { deleteRunsApart } from '../delete-apart.js';
+import { knownRuns, labelRuns, matchingRuns, runsByDayOptions, runsPageOptions, type RunRow } from '../runs-list.js';
 import { bisectChoices, type BisectChoices } from '../tests.js';
 import { readTeamStoreInput, type TeamStoreInput } from '../team-store.js';
 import { goldensOf } from './overview.js';
@@ -107,9 +108,10 @@ export function register(router: Router, ctx: RouteContext): void {
     r.json(out);
   });
 
+  // Beside the server (delete-apart.ts): fifty runs at 10,000 held its thread 1.3 s.
   router.post('/runs/delete', async (r) => {
     const body = await r.body();
-    const out = deleteRuns(store, body.ids);
+    const out = await deleteRunsApart(store, ctx.options.dbPath, body.ids);
     if ('error' in out) throw new HttpError(400, out.error);
     r.json(out);
   });

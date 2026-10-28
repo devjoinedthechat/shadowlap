@@ -179,7 +179,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                       <p className="muted">
                         For {part.for}: {part.kind}
                       </p>
-                      <pre className="codebox">{part.text}</pre>
+                      <pre tabIndex={0} className="codebox">{part.text}</pre>
                       <button className="btn sm" type="button" onClick={() => copy(part.text, `the access for ${part.for}`)}>
                         Copy
                       </button>
@@ -244,7 +244,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                     {step.workflow.credentials ? 'Put these steps in its job right before the action, where its comment says:' : 'Add R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY as repository secrets: its step gives them to your branches’ jobs only.'}
                   </p>
                   {step.workflow.credentials ? (
-                    <pre className="codebox" title={step.file}>
+                    <pre tabIndex={0} className="codebox" title={step.file}>
                       {step.workflow.credentials}
                     </pre>
                   ) : null}
@@ -257,7 +257,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
                 </>
               ) : step ? (
                 <>
-                  <pre className="codebox" title={step.file}>
+                  <pre tabIndex={0} className="codebox" title={step.file}>
                     {step.text}
                   </pre>
                   {step.notes.map((n) => (
@@ -293,7 +293,7 @@ export function StoreSetup({ view, finishedNow, onFinish, onChange }: { view: St
           <p>Commit the project config. Anyone whose cloud account can read the bucket gets the store on their next pull.</p>
           {states.team !== 'todo' && view.commit ? (
             <>
-              <pre className="codebox">
+              <pre tabIndex={0} className="codebox">
                 {`  ${view.commit.file}\n`}
                 <span className="add">{`+ ${view.commit.line}`}</span>
               </pre>

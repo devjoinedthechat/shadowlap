@@ -1,9 +1,10 @@
 import { createElement } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CompareHead } from '../src/compare.js';
 import { ApiError, type Client } from '../ui/api.js';
 import { oneRunPair, replayCommand } from '../ui/compare/model.js';
 import { ComparePage } from '../ui/pages/Compare.js';
+import { useRoute } from '../ui/router.js';
 import { AppContext, type AppState } from '../ui/state.js';
 import type { CompareView, RunDetail, RunListItem } from '../ui/types.js';
 import { render, type Rendered } from './ui-render.js';
@@ -156,6 +157,21 @@ describe('two runs named', () => {
     await page.until('the whole comparison', () => page!.all('.cmpwait').length === 0 && page!.all('.changes').length > 0);
   });
 
+  it('keeps the head when the rest can’t be worked out in the time a request has, and says how to work it out', async () => {
+    addressBar(`#/compare/${REC}/${FORK}`);
+    const head: CompareHead = { a: { runId: REC, calls: 100_000 }, b: { runId: FORK, calls: 100_000 }, identicalPrefix: 99_976, firstRequestDifference: { callNo: 99_977, kind: 'api', name: 'POST /v1/messages', diff: [{ path: '$.system', op: 'changed', before: 'Be thorough.', after: 'Be brief.', what: 'system prompt' }] }, onlyInA: 0, onlyInB: 0, answersDiffer: 0 };
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compareHead: () => Promise.resolve(head), compare: () => Promise.reject(new ApiError(503, 'a compare job took more than 2 minutes, so it was stopped')) };
+    page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: REC, b: FORK })));
+    await page.until('the answer', () => page!.all('.cmpwait').some((w) => w.textContent.includes('could not')));
+    expect(page.one('.prefix').textContent).toBe('#1–#99,976 identical. The first request that differs is #99977.');
+    expect(page.all('.diffpanel h4').map((h) => h.textContent)).toEqual(['#99977 in 01M5GRVTKS', '#99977 in 01M5GRXFM1']);
+    expect(page.one('.cmpwait[role="status"] p').textContent).toBe(
+      'The rest, what changed between the two runs and where each went from #99977, could not be worked out here: a compare job took more than 2 minutes, so it was stopped. What shows above is whole. A terminal compares the two runs with no time limit:',
+    );
+    expect(page.one('.cmpwait .cmdline').textContent).toBe('$shadowlap diff 01M5GRVTKS 01M5GRXFM1');
+    expect(page.all('.empty')).toEqual([]);
+  });
+
   it('names the run the store doesn’t hold, and the side to pick again', async () => {
     addressBar(`#/compare/${REC}/${GONE}`);
     const client = { run: (id: string) => (id === GONE ? missing() : Promise.resolve(detail(id))), compare: () => Promise.reject(new ApiError(404, 'one of the runs does not exist')) };
@@ -187,5 +203,45 @@ describe('two runs named', () => {
     page = await render(createElement(AppContext.Provider, { value: app(client, runs) }, createElement(ComparePage, { a: SEVERAL, b: SEVERAL })));
     await page.until('the answer', () => page!.all('.stepempty h3').some((h) => h.textContent === 'More than one run'));
     expect(page.one('.stepempty p').textContent).toBe(`${SEVERAL} matches several runs; use more of the id, or pick another run for A and for B.`);
+  });
+});
+
+describe('picking another run', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the focus on the picker used, as the page compares the new pair', async () => {
+    // The address bar as a browser has it: set, it tells the page (hashchange), which the router follows.
+    let hash = `#/compare/${REC}/${FORK}`;
+    const location = {
+      pathname: '/',
+      search: '',
+      get hash() {
+        return hash;
+      },
+      set hash(to: string) {
+        hash = to;
+        window.dispatchEvent(new Event('hashchange'));
+      },
+    };
+    Object.assign(g, { location, history: { state: null, replaceState: (_s: unknown, _t: string, url: string) => (hash = url.slice(url.indexOf('#'))) } });
+    // What the list of runs reads to place itself under its button.
+    vi.stubGlobal('innerWidth', 1440);
+    vi.stubGlobal('innerHeight', 900);
+    vi.stubGlobal('addEventListener', () => undefined);
+    vi.stubGlobal('removeEventListener', () => undefined);
+    const client = { run: (id: string) => Promise.resolve(detail(id)), compare: () => new Promise<CompareView>(() => undefined) };
+    function Routed() {
+      const route = useRoute();
+      return createElement('main', { id: 'view', tabIndex: -1 }, route.page === 'compare' ? createElement(ComparePage, { a: route.a, b: route.b }) : null);
+    }
+    page = await render(createElement(AppContext.Provider, { value: app(client, [listed(REC), listed(FORK), listed(ALONE)]) }, createElement(Routed)));
+    const pickerA = () => page!.all('.rpick').find((b) => b.getAttribute('aria-label')?.startsWith('Run A:'))!;
+    await page.click(pickerA());
+    await page.until('the list of runs', () => page!.all('[role="listbox"] [role="option"]').length > 0);
+    await page.click(page.all('[role="listbox"] [role="option"]').find((o) => o.textContent.includes(ALONE.slice(0, 10)))!);
+    await page.until('the new pair', () => pickerA().getAttribute('aria-label')!.startsWith(`Run A: ${ALONE.slice(0, 10)}`));
+    expect(hash).toBe(`#/compare/${ALONE}/${FORK}`);
+    // The button picked with keeps the focus, where the next Tab or Enter goes on from.
+    expect(page.focused()).toBe(pickerA());
   });
 });

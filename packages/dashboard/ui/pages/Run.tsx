@@ -51,6 +51,9 @@ let lastTab: InspectorTab = 'conversation';
 /** No group folded. */
 const NO_FOLDS: ReadonlySet<number> = new Set();
 
+/** The views that may hold nothing that takes the focus, which take it themselves, by what each shows. */
+const PANE_NAMES: Partial<Record<View, string>> = { timeline: 'Timeline of the calls', turns: 'Turns of the conversation', context: 'Context of each model call' };
+
 export function RunPage({ id, call, view }: { id: string; call: number | null; view: View | null }) {
   const { client, runsTick, live } = useApp();
   // Opened by a short id, the page settles on the full one (the workspace rewrites the URL). That is
@@ -61,15 +64,19 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
   // Loaded again when runs move (this one may have ended or changed), and while it records, when its
   // own calls do: another run recording asks this page for nothing.
   const recording = live.find((l) => (opened.current.runId ? l.runId === opened.current.runId : sameRun(opened.current.key, l.runId))) ?? null;
-  // What the page has: a recording it follows asks only for the calls after those that won't change.
+  // What the page has: a recording it follows asks only for the calls after those that won't change,
+  // and so does the run once it has ended, the page holding every call of it: its end is merged in,
+  // where reading it again from its first page left the page on that page's last call (#200 of
+  // 20,124) and read every call again.
   const had = useRef<{ key: string; run: RunDetail; part: RunDetail | null } | null>(null);
   const loaded = useLoad(
     () => {
       const key = opened.current.key;
       const asked = opened.current.runId ?? key;
       const prev = had.current?.key === key ? had.current : null;
+      const whole = !!prev && prev.run.callsNext === null && prev.run.calls.length >= prev.run.callsTotal && (prev.run.run.status === 'running' || prev.part !== null);
       // A recording's page follows its newest call: the pages after the one it came with are read at once.
-      if (!prev || !recording || prev.run.run.status !== 'running' || prev.run.run.runId !== recording.runId) return client.run(asked).then((d) => (d.run.status === 'running' && d.callsNext !== null ? followPages(client, d) : d));
+      if (!prev || !whole || (recording !== null && prev.run.run.runId !== recording.runId)) return client.run(asked).then((d) => (d.run.status === 'running' && d.callsNext !== null ? followPages(client, d) : d));
       return client.run(asked, settledThrough(prev.run.calls)).then(async (part) => {
         // The same answer again (a 304): the page as it was, so nothing redraws.
         if (part === prev.part) return prev.run;
@@ -174,7 +181,8 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   const forkMark = forkMarkOf(run);
   const blame = useMemo(() => blameOf(run), [run]);
   const lostAt = blame?.callNo ?? null;
-  const last = calls.length ? calls[calls.length - 1]!.callNo : null;
+  // The newest call: the last of the run's count while its pages come, never the last read.
+  const last = paging ? paging.total : calls.length ? calls[calls.length - 1]!.callNo : null;
   // A failed run opens where it first failed, every call's origin read while a long run's pages come;
   // clock and random reads are never where a run opens (open-at.ts).
   const failed = run.state?.failed ?? run.run.status === 'failed';
@@ -187,7 +195,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // The page that holds the selected call, read before the others.
   const need = paging?.need ?? null;
   useEffect(() => {
-    if (need && selected !== null) need(selected);
+    if (need && selected !== null) need(selected, { pick: true });
   }, [need, selected]);
 
   // A short id settles on the full one; a run opened without a call lands on its fork, its lost call,
@@ -467,14 +475,17 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
           {v === 'calls' ? <CallsToolbar counts={filterCounts} filter={filter} onFilter={setFilter} text={text} onText={setText} inputRef={filterRef} fold={foldAll} /> : null}
           {paging ? (
             <div className="toolbar muted" role="status">
-              {paging.error
-                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the next page could not be read (${paging.error}). Pick a call to try again.`
+              {paging.gone
+                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the run is no longer in ${client.exported ? 'this copy' : 'this store'}.`
+                : paging.error
+                ? `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read; the next page could not be read (${paging.error}). It is tried again in a moment, or at once when you pick a call.`
                 : `${paging.read.toLocaleString('en-US')} of ${paging.total.toLocaleString('en-US')} calls read so far; the rest are on their way.${text.trim() || scope !== 'all' || v !== 'calls' ? ' What shows is from those read.' : ''}`}
             </div>
           ) : null}
-          {/* Each view starts at its top; Calls centres the selected call. The Timeline holds nothing
-              that takes the focus, so it takes it itself, to be scrolled by keyboard. */}
-          <div className="vbody" key={v} {...(v === 'timeline' ? { tabIndex: 0, role: 'region', 'aria-label': 'Timeline of the calls' } : { tabIndex: -1 })}>
+          {/* Each view starts at its top; Calls centres the selected call. The Timeline, the Turns of a
+              run whose model called no tool and Context hold nothing that takes the focus, so the
+              view takes it itself, to be scrolled by keyboard. */}
+          <div className="vbody" key={v} {...(PANE_NAMES[v] ? { tabIndex: 0, role: 'region', 'aria-label': PANE_NAMES[v] } : { tabIndex: -1 })}>
             {v === 'calls' ? <CallsTable calls={visible} asked={asked} selected={selected} scoped={scoped} forkAt={forkMark} lostAt={lostAt} ancestors={ancestors} live={live} canFork={canFork} onSelect={select} onFork={openForkAt} onNeed={need} tree={tree} folded={folded} onFold={fold} /> : null}
             {v === 'turns' ? <TurnsView calls={scopedCalls} selected={selected} scoped={scoped} onSelect={select} /> : null}
             {v === 'context' ? <ContextView run={run} calls={scopedCalls} selected={selected} onSelect={select} /> : null}

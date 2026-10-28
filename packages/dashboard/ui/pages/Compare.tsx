@@ -47,7 +47,9 @@ export function ComparePage({ a, b }: { a: string | null; b: string | null }) {
       </Page>
     );
   if (!a || !b) return <Page>{null}</Page>;
-  return <Comparison key={`${a}:${b}`} a={a} b={b} runs={listed} />;
+  // Not keyed on the pair: another run picked keeps the pickers, and the focus on the one used,
+  // while what the comparison reads starts anew for the new pair (useLoad's keys).
+  return <Comparison a={a} b={b} runs={listed} />;
 }
 
 const INTRO = 'What changed first, then call by call: the identical prefix, the first request that differs, and where the paths went from there.';
@@ -207,10 +209,13 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
     );
   const c = cmp.data;
   const error = cmp.error ? (hub ? `This copy compares each run with ${shortId(hub)} only: pick it on one side.` : `Could not compare these runs: ${cmp.error.message}`) : null;
+  // The rest of a long pair that couldn't be worked out (a 503: it ran past the time a request is
+  // given): what came first stays, and the terminal, which has no such limit, works out the rest.
+  const stopped = cmp.error && !hub && head.data ? { why: cmp.error.message, command: `shadowlap diff ${shortId(ra.data?.run.runId ?? a)} ${shortId(rb.data?.run.runId ?? b)}` } : null;
   return (
     <Page>
       {header}
-      {error ? <div className="empty">{error}</div> : null}
+      {error && !stopped ? <div className="empty">{error}</div> : null}
       {c ? (
         <>
           <Changes c={c} />
@@ -219,9 +224,9 @@ function Comparison({ a, b, runs }: { a: string; b: string; runs: RunListItem[] 
           {ra.data && rb.data ? <Paths c={c} a={ra.data} b={rb.data} /> : null}
           <ResponseDifferences c={c} />
         </>
-      ) : cmp.error ? null : head.data ? (
-        <HeadFirst h={head.data} />
-      ) : (
+      ) : head.data && (!cmp.error || stopped) ? (
+        <HeadFirst h={head.data} stopped={stopped} />
+      ) : cmp.error ? null : (
         <div className="empty">Comparing…</div>
       )}
     </Page>
@@ -268,19 +273,29 @@ function Changes({ c }: { c: CompareView }) {
  * What a comparison shows while the rest of it is worked out: the identical prefix and the first
  * request that differs, then what is still to come, said as it is under way.
  */
-function HeadFirst({ h }: { h: CompareHead }) {
+function HeadFirst({ h, stopped = null }: { h: CompareHead; stopped?: { why: string; command: string } | null }) {
   const rest = [
     'what changed between the two runs',
     ...(h.answersDiffer ? [`what ${plural(h.answersDiffer, 'call')} with the same request got instead`] : []),
     ...(h.firstRequestDifference ? [`where each went from #${h.firstRequestDifference.callNo}`] : []),
   ];
+  const listed = rest.length > 1 ? `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)!}` : rest[0]!;
   return (
     <>
       <Prefix c={{ ...h, responseDifferences: [], intervention: null }} />
       {h.firstRequestDifference ? <FirstDifference c={h} /> : null}
-      <p className="cmpwait" role="status">
-        Comparing the rest: {rest.length > 1 ? `${rest.slice(0, -1).join(', ')} and ${rest.at(-1)!}` : rest[0]}…
-      </p>
+      {stopped ? (
+        <div className="cmpwait" role="status">
+          <p>
+            The rest, {listed}, could not be worked out here: {stopped.why}. What shows above is whole. A terminal compares the two runs with no time limit:
+          </p>
+          <CmdLine>{stopped.command}</CmdLine>
+        </div>
+      ) : (
+        <p className="cmpwait" role="status">
+          Comparing the rest: {listed}…
+        </p>
+      )}
     </>
   );
 }

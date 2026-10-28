@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { asksConsent, consentTitle } from '../actions.js';
+import { asksConsent } from '../actions.js';
 import { ApiError } from '../api.js';
 import { tipCard } from '../components/HoverCard.js';
-import { ConfirmDialog } from '../components/Dialog.js';
+import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
 import { useTreeBusy } from './tree.js';
 
@@ -74,9 +74,8 @@ export function FixJobButton({
           )
         : null}
       {consent ? (
-        <ConfirmDialog
-          title={consentTitle(consent.why)}
-          text={`${consent.why}.`}
+        <ConsentDialog
+          why={consent.why}
           ok="Run"
           onClose={() => setConsent(null)}
           onOk={() => {

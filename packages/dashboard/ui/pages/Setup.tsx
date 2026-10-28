@@ -403,7 +403,7 @@ function InspectBody({ step, off, canInspect, onInspect }: { step: InspectStep; 
         <div className="warnbox">
           <b>{step.warning.title}</b> <Coded text={step.warning.text} names={unwrapped} />
           {step.warning.code.map((w) => (
-            <pre key={w.language + w.tools.join(',')} className="codebox">
+            <pre tabIndex={0} key={w.language + w.tools.join(',')} className="codebox">
               {w.code}
             </pre>
           ))}

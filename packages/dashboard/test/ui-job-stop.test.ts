@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '../ui/api.js';
 import { JobDrawer } from '../ui/components/Drawer.js';
@@ -82,6 +82,36 @@ describe('a job’s output in its drawer', () => {
     r = await render(createElement(AppContext.Provider, { value: app({ jobs: [watched(job())] }) }, createElement(JobDrawer)));
     const out = r.one('.drawer pre');
     expect([out.getAttribute('tabindex'), out.getAttribute('role'), out.getAttribute('aria-label')]).toEqual(['0', 'region', 'What the command printed']);
+  });
+});
+
+describe('what a screen reader hears of a job', () => {
+  /** Whether the element is in a live region, whose every change a screen reader reads out. */
+  const inLive = (el: Rendered['document']['body'] | null): boolean => {
+    for (let e = el; e; e = e.parentNode) if (e.getAttribute('aria-live') || ['status', 'log', 'alert'].includes(e.getAttribute('role') ?? '')) return true;
+    return false;
+  };
+
+  it('says how the job stands as that changes, and none of the lines it prints', async () => {
+    let print: (line: string) => void = () => undefined;
+    let finish: () => void = () => undefined;
+    function Host() {
+      const [j, setJ] = useState(job);
+      print = (line) => setJ((was) => ({ ...was, lines: [...was.lines, line], total: was.total + 1 }));
+      finish = () => setJ((was) => ({ ...was, done: true, code: 0, endedAt: 2_000, lines: [...was.lines, '3 passed, 0 failed'] }));
+      return createElement(AppContext.Provider, { value: app({ jobs: [watched(j)] }) }, createElement(JobDrawer));
+    }
+    r = await render(createElement(Host));
+    const said = () => r!.all('.drawer [role="status"]').map((s) => s.textContent);
+    expect(said()).toEqual(['Running the tests: running']);
+    expect(inLive(r.one('.drawer pre'))).toBe(false);
+    print('[shadowlap] golden 01M5GS3E4G passed');
+    await r.until('the line', () => r!.one('.drawer pre').textContent.includes('passed'));
+    expect(said()).toEqual(['Running the tests: running']);
+    finish();
+    await r.until('the end', () => said()[0] !== 'Running the tests: running');
+    expect(said()).toEqual(['Running the tests: 3 passed · exit 0']);
+    expect(inLive(r.one('.drawer pre'))).toBe(false);
   });
 });
 

@@ -7,7 +7,7 @@ import type { Router } from '../router.js';
 import { recordingNow, stillRecording } from '../run-exports.js';
 import { maskCount } from '../run-mask.js';
 import { runVersionTag } from '../run-version.js';
-import { deleteRuns } from '../runs-list.js';
+import { deleteRunsApart } from '../delete-apart.js';
 import { exportHtml, withAncestors, type ExportHtmlResult } from '../static.js';
 
 /** A whole number, 0 or more, from the query string; undefined when absent. */
@@ -70,10 +70,9 @@ export function register(router: Router, ctx: RouteContext): void {
 
   // As the Runs page deletes: the attempts bundled under the run go with it, and a run still
   // recording, or one a replay in progress still serves answers from, is left alone. A write, so a
-  // read-only dashboard refuses it before it gets here.
-  router.delete('/runs/:id', (r) => {
-    const store = ctx.store;
-    const out = deleteRuns(store, [r.params.id!]);
+  // read-only dashboard refuses it before it gets here. Done beside the server (delete-apart.ts).
+  router.delete('/runs/:id', async (r) => {
+    const out = await deleteRunsApart(ctx.store, ctx.options.dbPath, [r.params.id!]);
     if ('error' in out) throw new HttpError(400, out.error);
     const skipped = out.skipped[0];
     if (skipped) throw skipped.reason === 'no such run' ? new HttpError(404, `no run ${r.params.id!}`) : new HttpError(409, `this run can't be deleted now: ${skipped.reason}`);

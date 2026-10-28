@@ -4,8 +4,9 @@ import { dash, openPage, seriousViolations } from './dashboard.js';
 /**
  * axe-core's WCAG 2.2 A and AA rules over everything the whole demo shows: every page, every run with
  * each view, its inspector's tabs, its menus and dialogs, Fixes and each fix's steps, Tests and its
- * dialogs, Settings' tabs, the palette, the shortcuts and a toast with Undo. Any serious or critical
- * violation fails, named with the state it was found in.
+ * dialogs, Settings' tabs, the team store's setup, the palette, the shortcuts on every kind of page,
+ * a toast with Undo and the bar that says the dashboard can't be reached; and again on a phone, 390 px
+ * wide. Any serious or critical violation fails, named with the state it was found in.
  */
 
 /** The demo's runs by name, each by its id: every run the demo names. */
@@ -50,7 +51,8 @@ test('every page and Settings tab has no serious or critical axe violation', asy
 
 test('every run of the demo, and every view of a few, has no serious or critical axe violation', async ({ page }) => {
   const all = runs().map(([name, id]): [string, () => Promise<void>] => [`run ${name}`, run(page, id)]);
-  const views = ['ticket', 'override', 'batchFork', 'eval'].flatMap((name) => {
+  // A capture's Turns (litellm's, whose model called no tool, hold nothing that takes the focus) and a chat's too.
+  const views = ['ticket', 'override', 'batchFork', 'eval', 'litellm', 'chat'].flatMap((name) => {
     const id = dash().runs[name] as string;
     return ['turns', 'context', 'timeline', 'forks', 'provenance'].map((v): [string, () => Promise<void>] => [`run ${name} · ${v}`, run(page, id, v)]);
   });
@@ -90,9 +92,36 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await page.waitForTimeout(800);
   }], ['the palette closed', press(page, 'Escape')]);
   states.push(['the shortcuts', press(page, '?')], ['the shortcuts closed', press(page, 'Escape')]);
+  // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
+  for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
+    states.push([`${where}`, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn')], [`the shortcuts on ${where} closed`, press(page, 'Escape')]);
+  }
   // A toast with Undo: the good/bad key pressed, then put back with u.
   states.push(['a run', run(page, dash().runs.ticket as string)], ['a toast with Undo', click(page, '.rhead .runkey button', 'good')]);
   const found = await sweep(page, states);
   await page.keyboard.press('u');
   expect(found).toEqual([]);
+});
+
+test('the bar that says the dashboard can’t be reached has no serious or critical axe violation', async ({ page }) => {
+  await openPage(page, `/run/${dash().runs.ticket as string}`, 'run');
+  // The server stops answering: the bar comes once the page's next look fails.
+  await page.route('**/api/**', (route) => route.abort());
+  await page.waitForSelector('.connbar', { state: 'visible', timeout: 30_000 });
+  expect((await seriousViolations(page)).map((v) => `the connection bar: ${v}`)).toEqual([]);
+  await page.unroute('**/api/**');
+});
+
+test('on a phone, every page, Settings tab, fix step and dialog has no serious or critical axe violation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const states: Array<[string, () => Promise<void>]> = [];
+  for (const p of ['/', '/runs', '/runs?types=failed', '/fixes', '/tests', '/training', '/compare', '/new', '/setup/store']) states.push([`${p} on a phone`, at(page, p)]);
+  for (const t of ['matching', 'redaction', 'alerts', 'agents', 'tools', 'project', 'store']) states.push([`Settings → ${t} on a phone`, at(page, `/settings/${t}`)]);
+  for (const fx of fixes()) for (const step of ['', '/blame', '/repair', '/verify']) states.push([`fix ${fx}${step} on a phone`, at(page, `/fixes/${fx}${step}`, 'fix')]);
+  for (const name of ['ticket', 'litellm', 'batchFork']) {
+    const id = dash().runs[name] as string;
+    for (const v of ['', 'turns', 'timeline']) states.push([`run ${name}${v ? ` · ${v}` : ''} on a phone`, run(page, id, v)]);
+  }
+  states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture on a phone', click(page, 'main#view button', 'Import a capture')], ['Runs · import closed on a phone', press(page, 'Escape')]);
+  expect(await sweep(page, states)).toEqual([]);
 });

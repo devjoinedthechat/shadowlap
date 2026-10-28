@@ -28,7 +28,8 @@ import type { NewStoredEvent, Store, StoredEvent } from './store.js';
  *   answered? }: no first bad commit between them. `answered` is the golden's newest result as the
  *   search started { session, at, ok, revision }: the failure the answer is about
  * - `blame.done`: runId the blamed run, ref the fix (`fx-…`); data { outcome ('blamed',
- *   'unrescuable' or 'stopped'), callNo, confidence, title }
+ *   'unrescuable' or 'stopped'), callNo, confidence, title, range? { from, to, gradual? }: the calls
+ *   it was lost between, two `gradual` ones when it was lost gradually around them }
  * - `repair.accepted`, `repair.empty`: ref the fix; data { repairId, title (accepted), why (empty) }
  * - `verify.accepted`, `verify.rejected`: ref the fix; data { verifyId, reasons }
  * - `fix.applied`: ref the fix; data { title }

@@ -73,8 +73,11 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
   );
   const offsetsNow = useLatest(offsets);
   const rowsNow = useLatest(rows);
-  // The row asked to show (`show`), kept until the heights it was placed by have settled: rows are
-  // placed by estimates until one of each shape has been drawn. A scroll of the reader's own lets go of it.
+  // The row asked to show (`show`), kept in view until the reader scrolls: rows are placed by
+  // estimates until one of each shape has been drawn, and the rows above it change height as they
+  // are drawn and as the pages of a long run come (a call not read yet is a line, read it can be
+  // three), each moving it. Let go once in place, a batch run opened on #600 showed #522 to #533 by
+  // the time its pages were read. A scroll of the reader's own lets go of it.
   const wanted = useRef<{ key: string | number; centre: boolean; head: number } | null>(null);
   const placedAt = useRef<number | null>(null);
 
@@ -148,25 +151,35 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       }
     }
     if (changed) setVersion((n) => n + 1);
-    // The heights drawn match those assumed: the row asked for is placed for good once it is where it should be.
-    else if (wanted.current && !place()) wanted.current = null;
+    // The heights drawn match those assumed: the row asked for is put back where it should be, if
+    // what changed moved it, and stays asked for until the reader scrolls.
+    else if (wanted.current) place();
   });
 
-  /** Scrolls the box to the row asked for; false when it is where it should be already (or gone). */
-  const place = useCallback((): boolean => {
+  /**
+   * Scrolls the box to the row asked for, when it isn't where it should be. A row no longer listed
+   * (a filter left it out) is let go of. The scroll is marked as the list's own (`placedAt`), so the
+   * reader's next one tells from it.
+   */
+  const place = useCallback((): void => {
     const w = wanted.current;
     const b = box.current;
     const l = list.current;
-    if (!w || !b || !l) return false;
+    if (!w || !b || !l) return;
     const { keyOf } = opts.current;
     const i = rowsNow.current.findIndex((r) => keyOf(r) === w.key);
     const at = offsetsNow.current;
-    if (i < 0 || i >= at.length - 1) return false;
+    if (i < 0 || i >= at.length - 1) {
+      wanted.current = null;
+      return;
+    }
     const to = scrollFor(listTop(b, l) + at[i]!, at[i + 1]! - at[i]!, b.scrollTop, b.clientHeight, w.head, w.centre);
-    if (to === null || Math.abs(to - b.scrollTop) < 1) return false;
+    if (to === null || Math.abs(to - b.scrollTop) < 1) {
+      placedAt.current = b.scrollTop;
+      return;
+    }
     b.scrollTop = to;
     placedAt.current = b.scrollTop;
-    return true;
   }, [opts, rowsNow, offsetsNow]);
 
   const show = useCallback(
@@ -174,7 +187,7 @@ export function useWindow<R>(rows: readonly R[], o: WindowOptions<R>): Windowed 
       const r = rowsNow.current[i];
       if (r === undefined) return;
       wanted.current = { key: opts.current.keyOf(r), centre: !!s.centre, head: s.head ?? 0 };
-      if (!place()) wanted.current = null;
+      place();
     },
     [opts, rowsNow, place],
   );
