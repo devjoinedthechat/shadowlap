@@ -83,6 +83,24 @@ def _recorded_args(error: Any) -> list[Any]:
     return args if isinstance(args, list) else [error.get("message", "recorded error")]
 
 
+#: The file names an OSError holds apart from its arguments, as a recording keeps them.
+_OS_FILES = ("filename", "filename2")
+
+
+def _os_error_args(cls: type, args: list[Any], error: Any) -> list[Any]:
+    """An OSError's arguments with the file names it was recorded with, which its ``args`` leave out:
+    ``OSError(2, "No such file", "a.txt")`` keeps ``(2, "No such file")`` and the name in
+    ``filename`` (``filename2`` the second of a rename's). The arguments as they are for any other
+    error, an OSError recorded with no file, or one not made from an errno and a message."""
+    if not (isinstance(cls, type) and issubclass(cls, OSError)) or not isinstance(error, dict) or len(args) != 2:
+        return args
+    filename, filename2 = error.get("filename"), error.get("filename2")
+    # BlockingIOError reads a number there as the characters it wrote.
+    if not isinstance(filename, str) and not (isinstance(filename, int) and not isinstance(filename, bool) and not issubclass(cls, BlockingIOError)):
+        return args
+    return [*args, filename, None, filename2 if isinstance(filename2, (str, int)) and not isinstance(filename2, bool) else None]
+
+
 class ReplayedError(Exception):
     """A recorded error, replayed. The original class is not preserved; name, message and code are.
 
@@ -100,13 +118,13 @@ class ReplayedError(Exception):
             cls = _replayed_class(str(error.get("name") or "Error"), module if isinstance(module, str) else None)
         # With the recorded arguments, which a builtin such as OSError reads as it is made (its errno and file).
         try:
-            return super().__new__(cls, *_recorded_args(error))
+            return super().__new__(cls, *_os_error_args(cls, _recorded_args(error), error))
         except TypeError:
             return super().__new__(cls)
 
     def __init__(self, error: dict[str, Any]):
         message = error.get("message", "recorded error")
-        args = _recorded_args(error)
+        args = _os_error_args(type(self), _recorded_args(error), error)
         try:
             super().__init__(*args)
         except TypeError:
@@ -127,6 +145,8 @@ class ReplayedError(Exception):
         # Rebuilt through ReplayedError, which picks the class for the name again: the class itself is
         # made at run time, and pickle would look it up by its name (ValueError) and find another.
         error: dict[str, Any] = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
+        if isinstance(self, OSError):
+            error.update({key: getattr(self, key) for key in _OS_FILES if getattr(self, key, None) is not None})
         module = type(self).__module__
         if module != __name__:
             error["module"] = module
@@ -464,7 +484,8 @@ async def _wait_forever() -> None:
 def serialize_error(err: BaseException) -> dict[str, Any]:
     """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
     so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
-    and its arguments when they aren't the message alone and survive JSON as they are."""
+    and its arguments when they aren't the message alone and survive JSON as they are. An OSError's
+    file names too (``filename``, ``filename2``), which its arguments leave out, when JSON keeps them."""
     message = str(err)
     out: dict[str, Any] = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
@@ -482,6 +503,11 @@ def serialize_error(err: BaseException) -> dict[str, Any]:
         # Only what JSON gives back unchanged: a tuple would come back a list, and print as one.
         if kept == list(args) and _same_types(kept, list(args)):
             out["args"] = kept
+    if isinstance(err, OSError):
+        for key in _OS_FILES:
+            value = getattr(err, key, None)
+            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                out[key] = value
     return out
 
 
