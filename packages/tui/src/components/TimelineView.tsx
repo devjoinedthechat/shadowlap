@@ -6,12 +6,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
 import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
+import { attemptBundles, lostAt, withAttempts, type Normalizer } from '@shadowlap/engine';
+import { attemptTallies } from '../attempts.js';
+import { forkEffects } from '../fork-effects.js';
+import type { RunFacts } from '../run-lines.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, modelAction, runLabel, type ModelAction } from '../data.js';
+import { markKey, type RunMark } from '../marks.js';
+import { blameReport, isFailing, toneOf, verdictOf, type Declared } from '../verdict.js';
 import { divergenceSummary } from '../diff.js';
 import { cells, fitColumns, fitItems } from '../render.js';
 import { displayOrigin, kindLabel, useTheme } from '../theme.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
-import { Inspector, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
+import { Inspector, TAB_KEYS, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
 import { OutputPane } from './OutputPane.js';
 import { cell, KeyHints, Line, Row, type Cell, type Hint, type Tone } from './Row.js';
 import { TextInput } from './TextInput.js';
@@ -40,6 +46,21 @@ interface Props {
   summaryOptions?: SummaryOptions;
   /** Help is open over it: it keeps its state and takes no keys. */
   paused?: boolean;
+  /** Labels a run good or bad (`+`, `-`); says what it did. */
+  onMark?: (runId: string, mark: RunMark) => string;
+  /** `tools.unrecorded` from shadowlap.config.json, for the unrecorded-tools warning. */
+  declared?: Declared;
+  /** The project's normalizers: what they mask is no difference between a fork and its parent. */
+  normalizers?: readonly Normalizer[];
+  /** The view was asked to open at a call (`--call`): it opens there, on the call, whatever the run's verdict. */
+  askedCall?: boolean;
+}
+
+/** The runs an attempt of `run` can be among: its descendants and its siblings (a test's are filed under a sibling). */
+function runsAround(store: Store, run: RunRecord): RunRecord[] {
+  const out = [run, ...(run.parentRunId ? store.childRuns(run.parentRunId) : [])];
+  for (let i = 0; i < out.length && out.length < 5000; i++) if (i === 0 || out[i]!.parentRunId !== run.parentRunId) out.push(...store.childRuns(out[i]!.runId));
+  return [...new Map(out.map((r) => [r.runId, r])).values()];
 }
 
 type Mode =
@@ -90,6 +111,8 @@ function scopeOf(c: CallRecord): string {
 export const TIMELINE_KEYS: readonly Hint[] = [
   ['?', 'help'],
   [':', 'fork'],
+  ['v', 'verdict'],
+  ['b', 'lost at'],
   ['d', 'diff'],
   ['/', 'filter'],
   ['z', 'zoom'],
@@ -99,6 +122,7 @@ export const TIMELINE_KEYS: readonly Hint[] = [
   ['y', 'copy'],
   ['w', 'write'],
   ['p', 'parent'],
+  ['+ -', 'good/bad'],
   ['f', 'origins'],
   ['q', 'back'],
 ];
@@ -119,10 +143,10 @@ export const FORK_MENU_KEYS: readonly Hint[] = [
   ['esc', 'close'],
 ];
 
-/** A row of the call list: a call, or the line drawn where the run forked from its parent. */
-type Item = { kind: 'call'; at: number } | { kind: 'fork' };
+/** A row of the call list: a call, or a line drawn before one: where the run forked from its parent, or where blame found it lost. */
+type Item = { kind: 'call'; at: number } | { kind: 'fork' } | { kind: 'lost' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -162,6 +186,23 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   }, [calls, filter, query]);
   // A run that ended early forked past its last call: it opens at that last call.
   const atFork = !!divergence && initialCall === divergence.callNo;
+  // How the run stands (its checks, blame, fix, unrecorded tools), the attempts bundled under it,
+  // blame's report and what a fork did differently: each worked out once a run, not on each key.
+  const verdict = useMemo(() => verdictOf(store, run, calls, declared), [store, run, calls, declared]);
+  const attempts = useMemo(() => {
+    const around = runsAround(store, run);
+    const ids = withAttempts(attemptBundles(around), run.runId);
+    const byId = new Map(around.map((r) => [r.runId, r]));
+    return ids.length ? attemptTallies(ids.flatMap((id) => byId.get(id) ?? [])) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempts change when the run ends, not each time it is read again
+  }, [store, run.runId, run.status]);
+  const blameAt = run.meta?.blame?.at;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new blame of the run is what changes its report
+  const blame = useMemo(() => blameReport(store, run.runId), [store, run.runId, blameAt]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a fork's effects change as its calls come, not each time it is read again
+  const fork = useMemo(() => forkEffects(store, run, calls, normalizers), [store, run.runId, run.status, calls.length, normalizers]);
+  const facts = useMemo<RunFacts>(() => ({ verdict, attempts, blame, fork }), [verdict, attempts, blame, fork]);
+  const lost = lostAt(run);
   const [initialIndex] = useState(() => {
     const i = initialCall !== undefined ? calls.findIndex((c) => c.callNo === initialCall) : -1;
     if (i < 0 && atFork && divergence?.type === 'ended_early') return Math.max(0, calls.length - 1);
@@ -190,8 +231,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     });
   const [focus, setFocus] = useState<'list' | 'inspector'>('list');
   const [zoom, setZoom] = useState(false);
-  // A fork opened at its divergence shows what changed there first.
-  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : 'conversation'));
+  // A fork opened at its divergence shows what changed there; a failed run shows its verdict, unless
+  // a call was asked for (`--call`, as each `shadowlap search` match opens one).
+  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : !askedCall && isFailing(verdict.outcome, verdict.fix) ? 'verdict' : 'conversation'));
   const [scroll, setScroll] = useState<number | null>(null);
   const view = useRef<InspectorView>({ offset: 0, max: 0, page: 1 });
   const onView = useCallback((v: InspectorView) => {
@@ -206,7 +248,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const summary = useMemo(() => summarizeRun(run, calls, [], [], summaryOptions), [run, calls, summaryOptions]);
   // Marked running: still recording, or left so by a recording process that was killed.
   const recording = useMemo(() => recordingNow(store, run), [store, run]);
-  const bodyHeight = Math.max(3, height - 2);
+  // The verdict line, under the header, when the run has a verdict to give.
+  const verdictRow = verdict.facts.length > 0;
+  const bodyHeight = Math.max(3, height - 2 - (verdictRow ? 1 : 0));
   // The calls get the wider share from 100 columns: their rows carry more than the inspector's lines need.
   const listWidth = zoom ? 0 : Math.max(36, Math.floor(width * (width >= 100 ? 0.55 : 0.5)));
   const listRows = Math.max(1, bodyHeight - 2);
@@ -338,8 +382,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       if (key.tab && key.shift) return setTab((t) => tabs[(tabs.indexOf(t) + tabs.length - 1) % tabs.length]!);
       if (key.tab) return setTab((t) => tabs[(tabs.indexOf(t) + 1) % tabs.length]!);
       if (/^[1-9]$/.test(input)) {
-        const t = tabs[Number(input) - 1];
-        if (t) setTab(t);
+        // By the tab's own number, which a run without one leaves unused: 5 is a fork's diff, 6 the verdict.
+        const t = TAB_KEYS[Number(input) - 1];
+        if (t && tabs.includes(t)) setTab(t);
         return;
       }
       if (input === 'J') return scrollBy(1);
@@ -349,6 +394,17 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         return setTab('diff');
       }
       if (input === 'f') return setFilter((f) => FILTERS[(FILTERS.indexOf(f) + 1) % FILTERS.length]!);
+      if (input === 'v') return setTab('verdict');
+      if (input === 'b') {
+        if (lost === null) return say(run.meta?.blame ? 'blame placed the failure on no call' : `not blamed: shadowlap blame ${run.runId.slice(0, 10)} finds where it was lost`);
+        const i = visibleCalls.findIndex((c) => c.callNo >= lost);
+        return select(i >= 0 ? i : visibleCalls.length - 1);
+      }
+      const m = markKey(input);
+      if (m) {
+        if (onMark) say(onMark(run.runId, m), 4000, 'ok');
+        return;
+      }
       if (input === 'n') {
         if (!toFork()) say('this run did not diverge');
         return;
@@ -368,8 +424,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         setPlay((p) => (p.playing ? { ...p, playing: false } : { ...p, playing: true, upto: p.upto > 0 && !p.playing ? 0 : p.upto }));
         return;
       }
-      if (input === '+' || input === '=') return setPlay((p) => ({ ...p, speed: SPEEDS[(SPEEDS.indexOf(p.speed) + 1) % SPEEDS.length]! }));
-      if (input === '-') return setPlay((p) => ({ ...p, speed: SPEEDS[(SPEEDS.indexOf(p.speed) + SPEEDS.length - 1) % SPEEDS.length]! }));
+      // Playback speed, as a video player has it; + and - mark the run, as on the dashboard.
+      if (input === '>' || input === '.') return setPlay((p) => ({ ...p, speed: SPEEDS[(SPEEDS.indexOf(p.speed) + 1) % SPEEDS.length]! }));
+      if (input === '<' || input === ',') return setPlay((p) => ({ ...p, speed: SPEEDS[(SPEEDS.indexOf(p.speed) + SPEEDS.length - 1) % SPEEDS.length]! }));
 
       // Movement goes to the focused pane.
       const down = key.downArrow || input === 'j';
@@ -402,9 +459,16 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     else if (divergence.type === 'ended_early') out.push({ kind: 'fork' });
     return out;
   }, [visibleCalls, divergence]);
-  const selItem = Math.max(0, items.findIndex((it) => it.kind === 'call' && it.at === selected));
-  const start = Math.max(0, Math.min(selItem - Math.floor(listRows / 2), items.length - listRows));
-  const shownItems = items.slice(start, start + listRows);
+  // Blame's call, after the fork's line when both fall before one call.
+  const rows = useMemo((): Item[] => {
+    if (lost === null) return items;
+    const i = items.findIndex((it) => it.kind === 'call' && visibleCalls[it.at]!.callNo === lost);
+    const line: Item = { kind: 'lost' };
+    return i < 0 ? items : [...items.slice(0, i), line, ...items.slice(i)];
+  }, [items, lost, visibleCalls]);
+  const selItem = Math.max(0, rows.findIndex((it) => it.kind === 'call' && it.at === selected));
+  const start = Math.max(0, Math.min(selItem - Math.floor(listRows / 2), rows.length - listRows));
+  const shownItems = rows.slice(start, start + listRows);
   const label = runLabel(run, kindFacts(store, run, calls.length));
 
   // Columns fitted to the list's width; a scope column for runs that use scopes (sub-agents,
@@ -450,17 +514,19 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     ];
     return <Row key={c.callNo} width={innerWidth} cells={cells} selected={sel ? (focus === 'list' ? 'focus' : 'blur') : null} />;
   };
-  const forkRow = () => {
+  const rule = (key: string, words: string, color: string) => {
     // Its words come from the recording (a forced reason, the request's paths): made safe to show.
-    const text = `── ${safeLine(divergenceSummary(divergence!))} `;
+    const text = `── ${safeLine(words)} `;
     return (
-      <Box key="fork" height={1} width={innerWidth} flexShrink={0}>
-        <Text wrap="truncate" color={theme.accent} bold>
+      <Box key={key} height={1} width={innerWidth} flexShrink={0}>
+        <Text wrap="truncate" color={color} bold>
           {text + '─'.repeat(Math.max(0, innerWidth - cells(text)))}
         </Text>
       </Box>
     );
   };
+  const forkRow = () => rule('fork', divergenceSummary(divergence!), theme.accent);
+  const lostRow = () => rule('lost', `lost here · blame, ${String(run.meta?.blame?.confidence ?? '')} confidence`, theme.err);
 
   const saved = wholeInput(summary.tokensNotRespent);
   // The header is one line: what matters most comes first, so a narrow terminal leaves out the least
@@ -491,7 +557,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   const hints: Hint[] =
     focus === 'inspector' || zoom
       ? INSPECTOR_KEYS.map(([k, d]) => (k === 'z' && zoom ? [k, 'unzoom'] : [k, d]) as Hint)
-      : TIMELINE_KEYS.filter(([k]) => (k === 'd' ? !!divergence : k === 'space' ? isModel : k === 'p' ? !!run.parentRunId : true));
+      : TIMELINE_KEYS.filter(([k]) => (k === 'd' ? !!divergence : k === 'b' ? lost !== null : k === 'space' ? isModel : k === 'p' ? !!run.parentRunId : k === '+ -' ? !!onMark : true));
   const filtering = query || filter !== 'all' ? `filter: ${[filter !== 'all' ? filter : '', query ? `/${query}` : ''].filter(Boolean).join(' ')} (${visibleCalls.length}/${calls.length})` : '';
   const modal = mode.kind !== 'timeline' && mode.kind !== 'search';
 
@@ -541,6 +607,11 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
           {header ? <Text color={theme.dim}> · {header}</Text> : null}
         </Text>
       </Box>
+      {verdictRow ? (
+        <Line width={width} tone={toneOf(verdict.facts)}>
+          {` ${{ err: '✗', warn: '!', ok: '✓', info: '·' }[toneOf(verdict.facts)]} ${fitItems(verdict.facts.map((f) => safeLine(f.text)), Math.max(0, width - 3))}`}
+        </Line>
+      ) : null}
       {mode.kind === 'actions' ? (
         <ActionsView actions={terminalActions(run, current, { ...actionContext(store, current), recording })} title={forkMenuTitle(current)} width={width} height={bodyHeight} active cliAvailable={!!spawnCli} onPick={pick} onClose={() => setMode({ kind: 'timeline' })} />
       ) : mode.kind === 'prompt' ? (
@@ -597,7 +668,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
           {zoom ? null : (
             <Box flexDirection="column" width={listWidth} height={bodyHeight} borderStyle="round" borderColor={focus === 'list' ? theme.accent : theme.faint}>
               {visibleCalls.length === 0 ? <Line width={innerWidth}>{calls.length ? ' no calls match · Esc clears' : ' no calls recorded yet'}</Line> : null}
-              {shownItems.map((it) => (it.kind === 'fork' ? forkRow() : callRow(visibleCalls[it.at]!, it.at)))}
+              {shownItems.map((it) => (it.kind === 'fork' ? forkRow() : it.kind === 'lost' ? lostRow() : callRow(visibleCalls[it.at]!, it.at)))}
             </Box>
           )}
           <Inspector
@@ -609,7 +680,8 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
             play={play}
             onPlayTick={onPlayTick}
             onView={onView}
-            divergence={divergence}
+            run={run}
+            facts={facts}
             width={width - listWidth}
             height={bodyHeight}
             focused={focus === 'inspector' || zoom}

@@ -105,8 +105,9 @@ describe('TUI', () => {
       unmount();
       return [lines[0], lines.at(-1)];
     };
-    expect(await at(100)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  q quit']);
-    expect(await at(60)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  q quit']);
+    expect(await at(100)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  + - good/bad  q quit']);
+    // Whole keys only, help first: what doesn't fit is left out, never cut.
+    expect(await at(60)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete']);
     store.close();
   });
 
@@ -156,9 +157,9 @@ describe('TUI', () => {
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
     await frameMatching(lastFrame, /> #3\s/);
-    stdin.write('+');
-    stdin.write('+');
-    stdin.write('+'); // ×1 → ×2 → ×4 → instant
+    stdin.write('>');
+    stdin.write('>');
+    stdin.write('>'); // ×1 → ×2 → ×4 → instant
     stdin.write(' ');
     const frame = await frameWith(lastFrame, '⚙ search_web');
     expect(frame).toContain('response');
@@ -269,12 +270,14 @@ describe('ease of use', () => {
       return a.runId;
     });
     const { lastFrame, stdin } = renderAt(<App store={store} columns={140} rows={30} />, 140, 30);
-    await frameWith(lastFrame, '3 runs');
+    // Folded under the run they belong to, with how many passed by verify's own verdicts.
+    const list = await frameWith(lastFrame, '1 run');
+    expect(list).toContain('2 verify attempts, 1 passed');
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
     stdin.write(runId.slice(0, 10));
     stdin.write('\r');
-    await frameWith(lastFrame, '1/3 runs');
+    await frameWith(lastFrame, '1/1 run');
     stdin.write('x');
     await frameWith(lastFrame, `delete run ${runId.slice(0, 10)}, the 2 attempts bundled under it and their calls?`);
     stdin.write('y');

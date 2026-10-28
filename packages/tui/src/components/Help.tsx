@@ -24,6 +24,8 @@ export const HELP: Record<HelpContext, Group[]> = {
         ['/', 'filter by id, command, revision or label; esc clears'],
         ['o', 'open the run in the dashboard'],
         ['x', 'delete the selected run with its attempts, as rm does; asks first'],
+        ['+ -', 'mark it good (a fix must keep it working) or bad (one to fix)'],
+        ['a', 'list the attempts folded under their runs one by one, or fold them'],
         ['esc  q', 'quit'],
       ],
     },
@@ -34,15 +36,15 @@ export const HELP: Record<HelpContext, Group[]> = {
       keys: [
         ['↑ ↓  j k  g G', 'move in the focused pane; g G ends, PgUp PgDn pages'],
         ['← →  h l', 'focus the calls or the inspector'],
-        ['J K', 'scroll the inspector from the calls'],
-        ['z', 'widen the inspector to the whole screen'],
+        ['J K  z', 'scroll the inspector from the calls; z widens it'],
       ],
     },
     {
       title: 'Look',
       keys: [
-        ['tab  1–5', 'conversation, request, response, meta, diff'],
-        ['space  + -', 'play the response at its recorded pacing; + - speed'],
+        ['tab  1–6', 'the call’s four tabs, 5 a fork’s diff, 6 the verdict'],
+        ['v  b', 'the verdict: why it failed, blame, its fix; b where it was lost'],
+        ['space  < >', 'play the response at its recorded pacing; < > speed'],
         ['y  w', 'copy the request (or response); w writes the call to a file'],
       ],
     },
@@ -52,7 +54,7 @@ export const HELP: Record<HelpContext, Group[]> = {
         ['/', 'filter calls as you type'],
         ['f', 'only the calls that ran live, replayed, or were fenced'],
         ['[ ]', 'previous, next call that ran live, was fenced or failed'],
-        ['n  d', 'the call the run forked at; d shows what changed there'],
+        ['n  d', 'the call the run forked at; d what changed and what it did'],
       ],
     },
     {
@@ -60,6 +62,7 @@ export const HELP: Record<HelpContext, Group[]> = {
       keys: [
         [':', 'fork menu: fork here, repeat, stub writes, find the commit'],
         ['p  o', 'the parent run; o opens this call in the dashboard'],
+        ['+ -', 'mark the run good (a fix must keep it working) or bad'],
         ['esc  q', 'back one step (filter, zoom, focus); q back to the runs'],
       ],
     },

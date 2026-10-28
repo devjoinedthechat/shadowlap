@@ -1,6 +1,7 @@
 import { Box, Text } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import type { CallRecord, DivergenceReport, Store } from '@shadowlap/engine';
+import type { CallRecord, DivergenceReport, RunRecord, Store } from '@shadowlap/engine';
+import { forkLines, runLines, type RunFacts } from '../run-lines.js';
 import { estimateCost, formatDuration, formatTokens, formatUsd, normalizeResponse, type SummaryOptions } from '@shadowlap/engine';
 import { conversationAt, loadRequest, loadResponseBytes } from '../data.js';
 import { diffLines } from '../diff.js';
@@ -8,16 +9,21 @@ import { conversationLines, formatBytes, jsonLines, truncate, wrap, type Rendere
 import { streamView } from '../sse.js';
 import { useTheme, type Theme } from '../theme.js';
 
-export type Tab = 'conversation' | 'request' | 'response' | 'meta' | 'diff';
+export type Tab = 'conversation' | 'request' | 'response' | 'meta' | 'diff' | 'verdict';
 export const TABS: Tab[] = ['conversation', 'request', 'response', 'meta'];
+/** Every tab, by the number key that opens it: 5 is always a fork's diff and 6 the verdict, whichever a run has. */
+export const TAB_KEYS: readonly Tab[] = [...TABS, 'diff', 'verdict'];
 
-/** The tabs a run's inspector has: a fork's has its diff as well, fifth so the others keep their keys. */
+/**
+ * The tabs a run's inspector has: the call's four, a fork's diff, then the run's verdict: how it
+ * stands (its checks, blame, fix, unrecorded tools and attempts), whichever call is selected.
+ */
 export function tabsFor(divergence: DivergenceReport | null): Tab[] {
-  return divergence ? [...TABS, 'diff'] : TABS;
+  return divergence ? [...TABS, 'diff', 'verdict'] : [...TABS, 'verdict'];
 }
 
 /** Shorter names for a pane too narrow for the full ones. */
-const SHORT: Record<Tab, string> = { conversation: 'chat', request: 'req', response: 'resp', meta: 'meta', diff: 'diff' };
+const SHORT: Record<Tab, string> = { conversation: 'chat', request: 'req', response: 'resp', meta: 'meta', diff: 'diff', verdict: 'verd' };
 
 export interface PlayState {
   playing: boolean;
@@ -45,8 +51,10 @@ interface Props {
   width: number;
   height: number;
   focused?: boolean;
-  /** The run's divergence, for the diff tab. */
-  divergence?: DivergenceReport | null;
+  /** The run, for its diff and verdict tabs. */
+  run?: RunRecord | null;
+  /** What those tabs show, worked out once a run. */
+  facts?: RunFacts | null;
   /** Told where the view is after each render. */
   onView?: (view: InspectorView) => void;
   /** Price table and model resolver for the cost row of the meta tab. */
@@ -99,8 +107,9 @@ function metaLines(call: CallRecord, width: number, theme: Theme, options?: Summ
   return out;
 }
 
-export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, divergence = null, onView, summaryOptions }: Props) {
+export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, run = null, facts = null, onView, summaryOptions }: Props) {
   const theme = useTheme();
+  const divergence = run?.divergence ?? null;
   const call = calls[index];
   // Border (2) and a column of padding each side (2).
   const innerWidth = Math.max(16, width - 4);
@@ -145,7 +154,9 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     let next: RenderedLine[];
     let start = 0;
     if (tab === 'diff') {
-      next = diffLines(divergence, innerWidth, theme);
+      next = [...diffLines(divergence, innerWidth, theme), ...forkLines(facts?.fork ?? null, innerWidth, theme)];
+    } else if (tab === 'verdict') {
+      next = run && facts ? runLines(run, facts, innerWidth, theme) : [];
     } else if (!call) {
       next = [];
     } else if (tab === 'conversation') {
@@ -192,7 +203,7 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     setAnchor(start);
     // Playback moves only the response tab: the others aren't worked out again on each of its ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- playOnResponse stands in for play
-  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, playOnResponse, responseBytes, summaryOptions, divergence, theme]);
+  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, playOnResponse, responseBytes, summaryOptions, run, facts, divergence, theme]);
 
   // A view opened at its anchor may end short of the pane's foot, so the newest turn heads it.
   const maxScroll = Math.max(0, lines.length - bodyHeight, Math.min(anchor, lines.length - 1));
@@ -206,10 +217,11 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
   const tabs = tabsFor(divergence);
   const position = lines.length > bodyHeight ? `${offset + 1}–${Math.min(lines.length, offset + bodyHeight)}/${lines.length}` : '';
   const full = tabs.reduce((n, t) => n + t.length + 2, 0);
-  const short = tabs.reduce((n, t) => n + SHORT[t].length + 2, 0);
-  // Full names, short ones, or in the narrowest pane only the open tab and which of them it is; the
-  // line count goes before the names are shortened further.
-  const names: string[] = full <= innerWidth ? tabs : short <= innerWidth ? tabs.map((t) => SHORT[t]) : [];
+  // Full names; the open tab's full and the others short; all short; or in the narrowest pane only the
+  // open tab and which of them it is. The line count goes before the names are shortened further.
+  const mixed = tabs.map((t) => (t === tab ? t : SHORT[t]));
+  const widthOf = (names: readonly string[]) => names.reduce((n, t) => n + t.length + 2, 0);
+  const names: string[] = full <= innerWidth ? tabs : widthOf(mixed) <= innerWidth ? mixed : widthOf(tabs.map((t) => SHORT[t])) <= innerWidth ? tabs.map((t) => SHORT[t]) : [];
   const shownWidth = names.length ? names.reduce((n, t) => n + t.length + 2, 0) : SHORT[tab].length + 6;
 
   return (
