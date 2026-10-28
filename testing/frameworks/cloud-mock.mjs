@@ -1,7 +1,9 @@
 // A scripted stand-in for the cloud model APIs Shadowlap captures in-process: Amazon Bedrock
 // (InvokeModel, InvokeModelWithResponseStream, Converse, ConverseStream, with AWS event streams),
 // Vertex AI (Anthropic rawPredict/streamRawPredict, Gemini generateContent) and Azure OpenAI (chat
-// completions, JSON and SSE). Replies echo the last user message, so a changed prompt changes the answer.
+// completions, JSON and SSE). Replies echo the last user message, so a changed prompt changes the answer,
+// unless a script answers Converse: `converse(body)` returns the reply's content blocks (text or
+// toolUse) and its stop reason, sent as JSON or as the ConverseStream events a tool call streams as.
 //
 // Bedrock requests must carry a valid AWS Signature Version 4 for the host the client signed for
 // (bedrock-runtime.<region>.amazonaws.com), checked with the test secret: the proof that capture
@@ -92,7 +94,24 @@ const anthropicEvents = (text) => [
 ];
 const anthropicMessage = (text) => ({ id: 'msg_1', type: 'message', role: 'assistant', model: 'claude', content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 12, output_tokens: 5 } });
 
-export async function startCloudMock() {
+/** A scripted Converse reply as ConverseStream's events: a text block in a few deltas, a toolUse block with its input as one JSON string. */
+function converseEvents({ content, stopReason }) {
+  const events = [['messageStart', { role: 'assistant' }]];
+  content.forEach((block, contentBlockIndex) => {
+    if (block.toolUse) {
+      events.push(['contentBlockStart', { contentBlockIndex, start: { toolUse: { toolUseId: block.toolUse.toolUseId, name: block.toolUse.name } } }]);
+      events.push(['contentBlockDelta', { contentBlockIndex, delta: { toolUse: { input: JSON.stringify(block.toolUse.input) } } }]);
+    } else {
+      for (const t of block.text.match(/.{1,6}/g)) events.push(['contentBlockDelta', { contentBlockIndex, delta: { text: t } }]);
+    }
+    events.push(['contentBlockStop', { contentBlockIndex }]);
+  });
+  events.push(['messageStop', { stopReason }], ['metadata', { usage: { inputTokens: 12, outputTokens: 5, totalTokens: 17 }, metrics: { latencyMs: 10 } }]);
+  return events;
+}
+
+/** `converse(body)`: a scripted Converse reply, `{ content, stopReason }`, in place of the echo. */
+export async function startCloudMock({ converse } = {}) {
   // `seen`: each request's method and URL (path and query), for a test to say where a request went.
   const stats = { requests: 0, http2Requests: 0, signaturesOk: 0, signatureFailures: [], seen: [] };
   const handler = (req, res) => {
@@ -128,10 +147,16 @@ export async function startCloudMock() {
         stats.signaturesOk++;
         const op = bedrock[2];
         const stream = { 'content-type': 'application/vnd.amazon.eventstream', 'x-amzn-requestid': 'req-1' };
+        const scripted = converse && op.startsWith('converse') ? converse(body) : null;
         if (op === 'invoke') return json(200, anthropicMessage(reply), { 'x-amzn-requestid': 'req-1' });
-        if (op === 'converse') return json(200, { output: { message: { role: 'assistant', content: [{ text: reply }] } }, stopReason: 'end_turn', usage: { inputTokens: 12, outputTokens: 5, totalTokens: 17 }, metrics: { latencyMs: 10 } });
+        if (op === 'converse') {
+          const { content, stopReason } = scripted ?? { content: [{ text: reply }], stopReason: 'end_turn' };
+          return json(200, { output: { message: { role: 'assistant', content } }, stopReason, usage: { inputTokens: 12, outputTokens: 5, totalTokens: 17 }, metrics: { latencyMs: 10 } });
+        }
         res.writeHead(200, stream);
-        if (op === 'invoke-with-response-stream') {
+        if (scripted) {
+          for (const [type, payload] of converseEvents(scripted)) res.write(eventFrame({ ':event-type': type, ':content-type': 'application/json', ':message-type': 'event' }, JSON.stringify(payload)));
+        } else if (op === 'invoke-with-response-stream') {
           for (const event of anthropicEvents(reply)) res.write(eventFrame({ ':event-type': 'chunk', ':content-type': 'application/json', ':message-type': 'event' }, JSON.stringify({ bytes: Buffer.from(JSON.stringify(event)).toString('base64') })));
         } else {
           const events = [
