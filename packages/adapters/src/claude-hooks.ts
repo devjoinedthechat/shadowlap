@@ -215,6 +215,8 @@ export interface SettingsDocument {
   data: unknown;
   /** The organization's: the managed settings file, a drop-in beside it, or the query's `managedSettings`. */
   managed: boolean;
+  /** Which settings it is, for keys Claude Code takes from some only (a repository's can't turn telemetry on). */
+  scope: 'user' | 'project' | 'local' | 'managed' | 'query';
 }
 
 type Fs = typeof import('node:fs');
@@ -281,28 +283,28 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
     }
   };
   const docs: SettingsDocument[] = [];
-  const add = (file: string, managed = false) => {
-    if (fs.existsSync(file)) docs.push({ source: file, data: read(file), managed });
+  const add = (file: string, scope: SettingsDocument['scope']) => {
+    if (fs.existsSync(file)) docs.push({ source: file, data: read(file), managed: scope === 'managed', scope });
   };
-  if (sources.includes('user')) add(path.join(configDirOf(env, path, os.homedir()), 'settings.json'));
-  if (sources.includes('project')) add(path.join(cwd, '.claude', 'settings.json'));
+  if (sources.includes('user')) add(path.join(configDirOf(env, path, os.homedir()), 'settings.json'), 'user');
+  if (sources.includes('project')) add(path.join(cwd, '.claude', 'settings.json'), 'project');
   if (sources.includes('local')) {
     // The session folder's, as the Agent SDK documents it; and, as Claude Code itself reads it from a
     // folder inside a repository, the repository root's, and for a linked worktree the main
     // checkout's (the settings page's "Where Claude Code keeps the local file in a git repository").
     const { root, main } = repositoryRoots(fs, path, cwd);
-    for (const dir of new Set([cwd, ...(root ? [root] : []), ...(main ? [main] : [])])) add(path.join(dir, '.claude', 'settings.local.json'));
+    for (const dir of new Set([cwd, ...(root ? [root] : []), ...(main ? [main] : [])])) add(path.join(dir, '.claude', 'settings.local.json'), 'local');
   }
   const managed = managedFileOf(places, path);
   if (managed) {
-    add(managed, true);
+    add(managed, 'managed');
     // Claude Code merges the drop-ins after the file, in alphabetical order, skipping hidden files and any not ending in .json.
     const dropins = path.join(path.dirname(managed), 'managed-settings.d');
-    for (const name of listDir(fs, dropins).filter((n) => n.endsWith('.json') && !n.startsWith('.')).sort()) add(path.join(dropins, name), true);
+    for (const name of listDir(fs, dropins).filter((n) => n.endsWith('.json') && !n.startsWith('.')).sort()) add(path.join(dropins, name), 'managed');
   }
   // The query's own settings: an object, JSON text, or a file, as `--settings` takes them.
   for (const given of [places.settings].flat()) {
-    if (isRecord(given)) docs.push({ source: "the query's settings option", data: given, managed: false });
+    if (isRecord(given)) docs.push({ source: "the query's settings option", data: given, managed: false, scope: 'query' });
     else if (typeof given === 'string' && given.trim()) {
       let parsed: unknown;
       try {
@@ -310,10 +312,10 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
       } catch {
         parsed = read(path.resolve(cwd, given));
       }
-      docs.push({ source: isRecord(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false });
+      docs.push({ source: isRecord(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false, scope: 'query' });
     }
   }
-  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true });
+  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true, scope: 'managed' });
   return docs;
 }
 
@@ -467,6 +469,67 @@ export async function componentPreToolUse(places: SettingsPlaces, cwd: string): 
       continue;
     }
     out.push(...preToolUse(data, f));
+  }
+  return out;
+}
+
+/** A hook Claude Code runs itself, of any event: its type, and the command it runs or the URL it posts to. */
+export interface HookItem {
+  source: string;
+  type: string;
+  command?: string;
+  url?: string;
+}
+
+/** Every hook of every event in one settings document (or a frontmatter's `hooks`, or a plugin's hooks.json). */
+function hookItemsOf(settings: unknown, source: string): HookItem[] {
+  if (!isRecord(settings) || !isRecord(settings.hooks)) return [];
+  const out: HookItem[] = [];
+  for (const entries of Object.values(settings.hooks)) {
+    if (!Array.isArray(entries)) continue;
+    for (const e of entries) {
+      if (!isRecord(e) || !Array.isArray(e.hooks)) continue;
+      for (const h of e.hooks) {
+        if (!isRecord(h)) continue;
+        out.push({ source, type: typeof h.type === 'string' ? h.type : 'command', ...(typeof h.command === 'string' ? { command: h.command } : {}), ...(typeof h.url === 'string' ? { url: h.url } : {}) });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Every hook Claude Code runs for the query, of every event, as `settingsPreToolUse` finds the
+ * PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
+ * frontmatter or a hooks file it can't read is one of `type` `unreadable`. `disableAllHooks` in a
+ * managed document turns them all off, and in any other only the ones outside managed settings, as
+ * Claude Code's hooks reference says.
+ */
+export async function hookItems(places: SettingsPlaces, cwd: string): Promise<HookItem[]> {
+  const { fs } = await nodeModules();
+  const docs = await settingsDocuments(places, cwd);
+  const off = (managed: boolean) => docs.some((d) => d.managed === managed && isRecord(d.data) && d.data.disableAllHooks === true);
+  if (off(true)) return [];
+  const managedOnly = off(false);
+  const out = docs.filter((d) => d.managed || !managedOnly).flatMap((d) => hookItemsOf(d.data, d.source));
+  if (managedOnly) return out;
+  const files = await componentFiles(places, cwd);
+  for (const file of [...files.skills, ...files.agents]) {
+    const text = readText(fs, file);
+    const hooks = (text === null ? null : frontmatter(text))?.get('hooks');
+    if (!hooks) continue;
+    if ('unreadable' in hooks) out.push({ source: file, type: 'unreadable' });
+    else out.push(...hookItemsOf({ hooks: hooks.value }, file));
+  }
+  for (const file of files.pluginHooks) {
+    let data: unknown;
+    try {
+      data = JSON.parse(readText(fs, file) ?? '');
+    } catch {
+      out.push({ source: file, type: 'unreadable' });
+      continue;
+    }
+    out.push(...hookItemsOf(data, file));
   }
   return out;
 }
