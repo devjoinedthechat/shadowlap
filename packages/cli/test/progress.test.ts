@@ -82,6 +82,26 @@ describe('the progress of blame, verify and repair', () => {
     progress.done();
   });
 
+  it("folds blame's pairs into a count of each call's attempts, which the check's verdict replaces", () => {
+    const out = Object.assign(stream(true), { columns: 100 });
+    const progress = progressLog(out);
+    const check = '  check of #5 (fresh pairs at #5 and #6: does rescue drop at #5, or fall gradually?)';
+    progress.log(check);
+    // Under --concurrency 2 a pair's two attempts end in either order.
+    progress.log('    \x1b[2mpair 1, #6\x1b[22m  \x1b[31m✗\x1b[39m issue_refund called 1 time · 7 live · 219ms · 01M5TPWGFH');
+    progress.log('    \x1b[2mpair 1, #5\x1b[22m  \x1b[32m✓ passed\x1b[39m · 7 live · 348ms · 01M5TPWGBN');
+    expect(screen(out.text)).toEqual([check, '    1 pair: #5 1 passed · #6 0 passed, 1 failed']);
+    progress.log('    pair 2, #5  ✓ passed · 7 live · 401ms · 01M5TPWGHC');
+    progress.log('    pair 2, #6  ? the judge could not be asked · 7 live · 359ms · 01M5TPWGDF');
+    expect(screen(out.text)).toEqual([check, '    2 pairs: #5 2 passed · #6 0 passed, 1 failed, 1 not decided']);
+    progress.log('    could not be decided: a check could not be decided');
+    // The next probe's attempts, at the same indent, count afresh.
+    progress.log('  model call #7 (4 of 5)');
+    progress.log('    attempt 1  ✓ passed · 3 live · 305ms · 01M5TPWHBF');
+    expect(screen(out.text)).toEqual([check, '    could not be decided: a check could not be decided', '  model call #7 (4 of 5)', '    1 attempt: 1 passed']);
+    progress.done();
+  });
+
   it('puts what else is written meanwhile above the count, and gives the stream back when done', () => {
     const out = stream(true);
     const write = out.write;

@@ -163,7 +163,7 @@ With `--concurrency`, attempts run at the same time through one sidecar; each at
 shadowlap blame <run> [options] [-- <command> [args...]]
 ```
 
-Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of; with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
+Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of, and the pairs of a pinned call's check into one that counts each call's attempts (`3 pairs: #5 3 passed · #6 1 passed, 2 failed`); with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
 
 | Option | Effect |
 |---|---|
