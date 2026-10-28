@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { loadApiRequest, Store } from '@shadowlap/engine';
+import { fromClaudeCode, loadApiRequest, Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { Sidecar } from '../src/index.js';
 
@@ -67,6 +67,31 @@ describe('a Claude Code session in metadata.user_id', () => {
       expect((divergence!.hints ?? []).filter((h) => h.normalizer?.path === '$.metadata.user_id')).toEqual([]);
     } finally {
       await sidecar.close();
+      store.close();
+    }
+  });
+
+  it("keeps on the run that its model calls came with Claude Code's user agent, which tells its built-ins apart", async () => {
+    const store = Store.open(':memory:');
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    let open = true;
+    try {
+      // Claude Code's user agent, with a user_id that is no session of Claude Code's: the user agent says it.
+      const cc = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+      await ask(sidecar, cc.runId, randomUUID());
+      // Another agent on the same SDK, which sends its own user agent.
+      const plain = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+      const client = new Anthropic({ apiKey: 'k', baseURL: sidecar.envFor(plain.runId).ANTHROPIC_BASE_URL, maxRetries: 0 });
+      await client.messages.create({ model: 'claude-opus-5', max_tokens: 64, messages: [{ role: 'user', content: 'Fix the failing test.' }], metadata: { user_id: randomUUID() } });
+      sidecar.endRun(plain.runId, 'completed');
+      await sidecar.close();
+      open = false;
+      expect(store.getRun(cc.runId)?.meta?.claudeCode).toBe(true);
+      expect(fromClaudeCode(store, cc.runId)).toBe(true);
+      expect(store.getRun(plain.runId)?.meta?.claudeCode).toBeUndefined();
+      expect(fromClaudeCode(store, plain.runId)).toBe(false);
+    } finally {
+      if (open) await sidecar.close();
       store.close();
     }
   });

@@ -147,7 +147,7 @@ export { notWaited, recordedDurations } from './waits.js';
 export type { NotWaited, RunSelection } from './waits.js';
 export { inferInterventions, overrideSources, recordNotRecorded, redactRunFacts, runInterventions, toolResultLine, unrecordedProjectTools } from './run-facts.js';
 // Tools the model called that a run recorded no call of, read from its answers (contract: name, count, firstCallNo, effect).
-export { FENCED_BUILT_INS, mcpToolName, parseUnrecordedConfig, toolNameEffect, UNRECORDED_KEY, unrecordedEffect, unrecordedFix, unrecordedTools, type UnrecordedEffect, type UnrecordedFix, type UnrecordedOptions, type UnrecordedTool } from './unrecorded-tools.js';
+export { FENCED_BUILT_INS, fromClaudeCode, mcpToolName, parseUnrecordedConfig, toolNameEffect, UNRECORDED_KEY, unrecordedEffect, unrecordedFix, unrecordedTools, type UnrecordedEffect, type UnrecordedFix, type UnrecordedOptions, type UnrecordedTool } from './unrecorded-tools.js';
 // A run's about line: one quiet line that says what the run was, worked out from it and never edited.
 export { ABOUT_FROM, ABOUT_MAX, aboutOf, batchInput, changeWords, firstSentence, goldenWords, sourceWords } from './about.js';
 export type { AboutFacts, AboutFrom, AboutIntervention, RunAbout, RunAsk } from './about.js';

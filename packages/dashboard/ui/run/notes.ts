@@ -118,9 +118,10 @@ function unrecordedNote(u: NonNullable<NotesInput['unrecorded']>, mode: string):
 }
 
 /**
- * How to have a tool recorded, in the CLI's words (its howToRecord): a Claude Code built-in through
- * the Claude Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped
- * where the agent runs it. Null for a built-in that keeps to Claude Code's session.
+ * How to have a tool recorded, in the CLI's words (its howToRecord): a Claude Code built-in (in a run
+ * from Claude Code only, which the tool's `fix` says) through the Claude Agent SDK's fence, an MCP
+ * server's tool through `shadowlap mcp`, anything else wrapped where the agent runs it, in Node or
+ * Python. Null for a built-in that keeps to Claude Code's session.
  */
 function howToRecord(t: UnrecordedToolView): NotePart[] | null {
   switch (t.fix) {
@@ -129,11 +130,13 @@ function howToRecord(t: UnrecordedToolView): NotePart[] | null {
     case 'fence-effects':
       return ['To have it recorded, name it in ', { code: 'withFence' }, '’s effects, ', { code: `withFence(options, { effects: { ${literal(t.name)}: 'write' } })` }, ', which records it and refuses to run it again on replay'];
     case 'mcp':
-      return ['To have it recorded and replayed, connect Claude Code to its MCP server through ', { code: 'shadowlap mcp' }, ', which records and fences its calls'];
+      return ['To have it recorded and replayed, connect your agent to its MCP server through ', { code: 'shadowlap mcp' }, ', which records and fences its calls'];
     case 'none':
       return null;
-    default:
-      return ['Wrap each where your agent runs it, so it is recorded and replayed: ', { code: `tool(${literal(t.name)}, { effect: '${t.effect === 'read' ? 'read' : 'write'}' }, fn)` }, ' with ', { code: '@shadowlap/sdk' }];
+    default: {
+      const effect = t.effect === 'read' ? 'read' : 'write';
+      return ['Wrap each where your agent runs it, so it is recorded and replayed: ', { code: `tool(${literal(t.name)}, { effect: '${effect}' }, fn)` }, ' with ', { code: '@shadowlap/sdk' }, ' (', { code: `@tool(${JSON.stringify(t.name)}, effect="${effect}")` }, ' from ', { code: 'shadowlap' }, ' in Python)'];
+    }
   }
 }
 

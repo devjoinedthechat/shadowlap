@@ -60,9 +60,10 @@ export function unrecordedLines(tools: readonly UnrecordedTool[], indent = '    
 export const literal = (name: string) => `'${name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 /**
- * How to have a tool recorded and replayed, as a clause: a Claude Code built-in through the Claude
- * Agent SDK's fence, an MCP server's tool through `shadowlap mcp`, anything else wrapped where the
- * agent runs it, with the effect it has. Null for a built-in that keeps to Claude Code's session.
+ * How to have a tool recorded and replayed, as a clause: a Claude Code built-in (in a run from Claude
+ * Code only, which the tool's `fix` says) through the Claude Agent SDK's fence, an MCP server's tool
+ * through `shadowlap mcp`, anything else wrapped where the agent runs it, in Node or Python, with the
+ * effect it has. Null for a built-in that keeps to Claude Code's session.
  */
 export function howToRecord(tool: Pick<UnrecordedTool, 'name' | 'effect' | 'fix'>): string | null {
   switch (tool.fix) {
@@ -71,11 +72,13 @@ export function howToRecord(tool: Pick<UnrecordedTool, 'name' | 'effect' | 'fix'
     case 'fence-effects':
       return `name it in withFence's effects, withFence(options, { effects: { ${literal(tool.name)}: 'write' } }) (with_fence in Python), which records it and refuses to run it again on replay`;
     case 'mcp':
-      return 'connect Claude Code to its MCP server through shadowlap mcp, which records and fences its calls';
+      return 'connect your agent to its MCP server through shadowlap mcp, which records and fences its calls';
     case 'none':
       return null;
-    default:
-      return `wrap it where your agent runs it: tool(${literal(tool.name)}, { effect: '${tool.effect === 'read' ? 'read' : 'write'}' }, fn) with @shadowlap/sdk`;
+    default: {
+      const effect = tool.effect === 'read' ? 'read' : 'write';
+      return `wrap it where your agent runs it: tool(${literal(tool.name)}, { effect: '${effect}' }, fn) with @shadowlap/sdk (@tool(${JSON.stringify(tool.name)}, effect="${effect}") from shadowlap in Python)`;
+    }
   }
 }
 

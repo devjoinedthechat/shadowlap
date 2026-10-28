@@ -246,6 +246,11 @@ class RunContext {
   readonly warnings: string[] = [];
   readonly providersUsed = new Set<string>();
   readonly sdksSeen = new Set<string>();
+  /**
+   * A model call came from Claude Code, as its user agent names it (`claude-cli/…`): kept on the run
+   * (`meta.claudeCode`), whose Claude Code built-ins are then told apart by name (fromClaudeCode).
+   */
+  claudeCode = false;
   readonly unguarded = new Map<string, { count: number; action: 'warned' | 'blocked' }>();
   // ---- the preloads' hellos and the SDKs' versions (preloads.ts) ----
   /** The guard the CLI started the run's agent with, preloads and all (expectPreloads); null when it started none. */
@@ -1062,7 +1067,11 @@ export class Sidecar {
     // WebSockets (OpenAI Realtime): what went over them is in no recording.
     const websockets = [...ctx.websockets.entries()].map(([target, v]): WebSocketUse => ({ target, ...v })).sort((a, b) => b.count - a.count);
     // Kept on the run for its page: what its preloads said and its WebSockets. The summary goes, the run stays.
-    const patch: Partial<RunMeta> = { ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}), ...(preloads.unguarded ? { unguarded: preloads.unguarded } : {}) } } : {}), ...(websockets.length ? { websockets } : {}) };
+    const patch: Partial<RunMeta> = {
+      ...(preloads ? { preloads: { guard: preloads.guard, hellos: preloads.hellos, ...(preloads.missing ? { missing: preloads.missing } : {}), ...(preloads.unguarded ? { unguarded: preloads.unguarded } : {}) } } : {}),
+      ...(websockets.length ? { websockets } : {}),
+      ...(ctx.claudeCode ? { claudeCode: true as const } : {}),
+    };
     const endedAt = Date.now();
     if (ctx.lost === null) {
       this.writer.write({
@@ -1485,6 +1494,7 @@ export class Sidecar {
     // its format: its name is the project's own, and this list goes into telemetry.
     if (!judge) ctx.providersUsed.add(provider.format && !hostedProviders.includes(provider) ? provider.format : provider.id);
     const headers = lowerHeaders(req.headers);
+    if (!judge && CLAUDE_CODE_AGENT.test(headers['user-agent'] ?? '')) ctx.claudeCode = true;
     let body: unknown;
     let exact: unknown;
     if (rawBody.length === 0) body = exact = null;
@@ -2950,6 +2960,9 @@ export interface CompleteBody {
 }
 
 // ---- helpers ----
+
+/** The user agent Claude Code sends with its model calls: `claude-cli/2.1.0 (external, cli)`, `… sdk-ts)` under the Claude Agent SDK. */
+const CLAUDE_CODE_AGENT = /^claude-cli\//i;
 
 /**
  * Coarse SDK language, only ever used as a telemetry category: from the `x-shadowlap-sdk` header

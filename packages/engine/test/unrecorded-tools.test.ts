@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mcpToolName, parseToolTrust, parseUnrecordedConfig, Store, toolNameEffect, unrecordedEffect, unrecordedFix, unrecordedTools } from '../src/index.js';
-import { messageStream, RunBuilder, text, toolUse, user } from './run-fixtures.js';
+import { CLAUDE_CODE_USER, messageStream, RunBuilder, text, toolUse, user } from './run-fixtures.js';
 
 /**
  * The tools a run's model called that the run recorded no call of: read from the model's own
@@ -14,8 +14,8 @@ describe('unrecordedTools', () => {
   it('reads the tools every format asks for, leaves out those the run recorded and those the provider runs itself', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
-    // Anthropic, as JSON: two Bash calls in one answer, and a lookup the agent wraps.
-    b.model({ messages: [user('Fix the build.')] }, [text('Looking.'), toolUse('Bash', { command: 'npm test' }, 't1'), toolUse('Bash', { command: 'git status' }, 't2'), toolUse('lookup_order', { id: 'A-1' }, 't3')]);
+    // Anthropic, as JSON, from Claude Code, which names its session in every request: two Bash calls in one answer, and a lookup the agent wraps.
+    b.model({ messages: [user('Fix the build.')], metadata: { user_id: CLAUDE_CODE_USER } }, [text('Looking.'), toolUse('Bash', { command: 'npm test' }, 't1'), toolUse('Bash', { command: 'git status' }, 't2'), toolUse('lookup_order', { id: 'A-1' }, 't3')]);
     b.tool('lookup_order', { id: 'A-1' }, { amount: 40 });
     // Anthropic, streamed: Write, and a server tool Anthropic runs itself (web search), never the agent.
     b.model({ messages: [user('more')] }, null, { raw: { body: messageStream([toolUse('Write', { file_path: 'a.ts' }, 't4')]), contentType: 'text/event-stream' } });
@@ -47,6 +47,34 @@ describe('unrecordedTools', () => {
     store.close();
   });
 
+  it("tells Claude Code's built-ins apart only in a run from Claude Code: another agent's tools of those names are its own", () => {
+    const store = Store.open(':memory:');
+    const asked = [toolUse('TaskCreate', { subject: 'x' }, 'a'), toolUse('CronCreate', { cron: '* * * * *' }, 'b'), toolUse('Skill', { skill: 'deploy' }, 'c'), toolUse('Read', { file_path: 'a' }, 'd')];
+    // A plain Node agent's own tools: read by their names, and refused when they may write.
+    const plain = RunBuilder.start(store);
+    plain.model({ messages: [user('go')] }, asked);
+    expect(unrecordedTools(store, plain.end()).map((t) => [t.name, t.effect, t.fix])).toEqual([
+      ['TaskCreate', 'write', 'wrap'],
+      ['CronCreate', 'write', 'wrap'],
+      ['Skill', 'unknown', 'wrap'],
+      ['Read', 'read', 'wrap'],
+    ]);
+    // From Claude Code, by the fence's hello for its CLI, or the session it names in its requests.
+    const helloed = RunBuilder.start(store, { meta: { preloads: { guard: 'warn', hellos: { 'claude-code': 1 } } } });
+    helloed.model({ messages: [user('go')] }, asked);
+    const named = RunBuilder.start(store);
+    named.model({ messages: [user('go')], metadata: { user_id: CLAUDE_CODE_USER } }, asked);
+    for (const runId of [helloed.end(), named.end()]) {
+      expect(unrecordedTools(store, runId).map((t) => [t.name, t.effect, t.fix])).toEqual([
+        ['TaskCreate', 'read', 'none'],
+        ['CronCreate', 'read', 'none'],
+        ['Skill', 'read', 'none'],
+        ['Read', 'read', 'fence'],
+      ]);
+    }
+    store.close();
+  });
+
   it('takes the effect the config declares over a built-in’s and a name’s, by the name or the MCP tool’s own', () => {
     const store = Store.open(':memory:');
     const b = RunBuilder.start(store);
@@ -74,16 +102,21 @@ describe('unrecordedTools', () => {
 
 describe('an unrecorded tool’s effect', () => {
   it('knows the agent runtimes’ built-ins, and reads a name by the verb it leads with', () => {
-    expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'computer', 'computer.type', 'str_replace_based_edit_tool', 'local_shell', 'apply_patch'].map((n) => unrecordedEffect(n).effect)).toEqual(Array(10).fill('write'));
-    expect(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map((n) => unrecordedEffect(n).effect)).toEqual(Array(5).fill('read'));
+    const cc = { claudeCode: true };
+    expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'].map((n) => unrecordedEffect(n, {}, cc).effect)).toEqual(Array(5).fill('write'));
+    expect(['computer', 'computer.type', 'str_replace_based_edit_tool', 'local_shell', 'apply_patch'].map((n) => unrecordedEffect(n).effect)).toEqual(Array(5).fill('write'));
+    expect(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map((n) => unrecordedEffect(n, {}, cc).effect)).toEqual(Array(5).fill('read'));
     // Claude Code's built-ins by what they do: a subagent, a skill, the task list and the plan mode keep to the session.
     const sessions = ['Agent', 'Task', 'Workflow', 'Skill', 'AskUserQuestion', 'TodoWrite', 'TaskCreate', 'TaskUpdate', 'EnterPlanMode', 'ExitPlanMode', 'ToolSearch', 'LSP'];
-    expect(sessions.map((n) => [n, unrecordedEffect(n).effect, unrecordedFix(n)])).toEqual(sessions.map((n) => [n, 'read', 'none']));
-    expect(unrecordedEffect('Agent')).toEqual({ effect: 'read', why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart' });
+    expect(sessions.map((n) => [n, unrecordedEffect(n, {}, cc).effect, unrecordedFix(n, cc)])).toEqual(sessions.map((n) => [n, 'read', 'none']));
+    expect(unrecordedEffect('Agent', {}, cc)).toEqual({ effect: 'read', why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart' });
     // Those that run a command or send something out write; the fence records some as it is, others once its effects name them.
     const writes = ['PowerShell', 'Monitor', 'TaskStop', 'EnterWorktree', 'Artifact', 'PushNotification', 'RemoteTrigger', 'SendMessage', 'SendUserFile', 'ShareOnboardingGuide'];
-    expect(writes.map((n) => [n, unrecordedEffect(n).effect, unrecordedFix(n)])).toEqual(writes.map((n) => [n, 'write', 'fence-effects']));
-    expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map(unrecordedFix)).toEqual(Array(10).fill('fence'));
+    expect(writes.map((n) => [n, unrecordedEffect(n, {}, cc).effect, unrecordedFix(n, cc)])).toEqual(writes.map((n) => [n, 'write', 'fence-effects']));
+    expect(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].map((n) => unrecordedFix(n, cc))).toEqual(Array(10).fill('fence'));
+    // Outside a run from Claude Code they are any agent's names, wrapped where the agent runs them.
+    expect(['Bash', 'Skill', 'TaskCreate'].map((n) => unrecordedFix(n))).toEqual(['wrap', 'wrap', 'wrap']);
+    expect(unrecordedEffect('Agent').effect).toBe('unknown');
     expect([unrecordedFix('mcp__kb__search'), unrecordedFix('send_email')]).toEqual(['mcp', 'wrap']);
     expect(unrecordedEffect('sendEmail')).toEqual({ effect: 'write', why: '"send" changes something' });
     expect(unrecordedEffect('get_weather')).toEqual({ effect: 'read', why: '"get" only looks' });

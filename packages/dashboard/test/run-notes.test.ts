@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { storeApiRequest, Store, type RunMeta } from '@shadowlap/engine';
-import { RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
+import { CLAUDE_CODE_USER, RunBuilder, text, toolUse, user } from '../../engine/test/run-fixtures.js';
 import { callDetail, provenance, runDetail } from '../src/api.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
 import { runUnrecorded, runWebSockets } from '../src/run-unrecorded.js';
@@ -36,7 +36,7 @@ describe('the notes under a run’s banner', () => {
     const AGENT = { name: 'Agent', count: 1, firstCallNo: 2, effect: 'read' as const, why: 'a Claude Code built-in that starts a subagent, whose own tool calls are named apart', fix: 'none' as const };
     expect(runNotes({ unrecorded: { tools: [AGENT], partial: false }, mode: 'record' })[0].hint).toBeUndefined();
     const MCP = { name: 'mcp__issues__close_issue', count: 1, firstCallNo: 4, effect: 'write' as const, why: '"close" changes something', fix: 'mcp' as const };
-    expect(noteText(runNotes({ unrecorded: { tools: [AGENT, MCP], partial: false }, mode: 'record' })[0].hint!.parts)).toContain('connect Claude Code to its MCP server through shadowlap mcp');
+    expect(noteText(runNotes({ unrecorded: { tools: [AGENT, MCP], partial: false }, mode: 'record' })[0].hint!.parts)).toContain('connect your agent to its MCP server through shadowlap mcp');
     // A tool whose effect nothing says is declared a write, the safe guess.
     expect(declareSnippet([{ name: 'frobnicate', effect: 'unknown' }])).toBe('"tools": { "unrecorded": { "frobnicate": "write" } }');
   });
@@ -130,7 +130,8 @@ afterEach(async () => {
 /** A recording whose model asked for Bash twice and lookup_order once, of which the agent wrapped only lookup_order. */
 function recording(s: Store, meta?: RunMeta): string {
   const b = RunBuilder.start(s, meta ? { meta } : {});
-  b.model({ messages: [user('Fix the build.')] }, [text('Looking.'), toolUse('Bash', { command: 'npm test' }, 't1'), toolUse('lookup_order', { id: 'A-1' }, 't2')]);
+  // From Claude Code, whose Bash it is.
+  b.model({ messages: [user('Fix the build.')], metadata: { user_id: CLAUDE_CODE_USER } }, [text('Looking.'), toolUse('Bash', { command: 'npm test' }, 't1'), toolUse('lookup_order', { id: 'A-1' }, 't2')]);
   b.tool('lookup_order', { id: 'A-1' }, { amount: 40 });
   b.model({ messages: [user('more')] }, [toolUse('Bash', { command: 'git status' }, 't3')]);
   return b.end();
