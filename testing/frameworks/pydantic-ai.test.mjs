@@ -1,5 +1,5 @@
 // Pydantic AI: a real Agent run by FunctionModel, tools registered with @agent.tool over the Shadowlap
-// Python @tool decorator (exclude=("ctx",)), as a subprocess against an in-process sidecar.
+// Python @tool decorator, as a subprocess against an in-process sidecar.
 // Needs a Python with pydantic-ai-slim; SHADOWLAP_PYTHON picks the interpreter.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -69,11 +69,17 @@ describe('Pydantic AI with the Shadowlap Python SDK', { skip: PYTHON ? false : '
     assert.equal(fork.summary.divergence?.name, 'open_ticket');
   });
 
-  it('forks on a changed query and blocks the email', async () => {
+  // Pydantic AI ends the run on a tool's error, but for ToolFailed, a failure the model reads and is
+  // not asked to retry: the refusal is one, so the model reads it and the run goes on.
+  it('forks on a changed query; the model reads the blocked email as a failed tool call and the run finishes', async () => {
     const fork = await h.replay(recorded, agent('replay'));
     assert.equal(fork.error, undefined, fork.error?.stack);
+    assert.equal(fork.value.error, null);
     assert.deepEqual(fork.value.executed, ['search_web']);
-    assert.match(fork.value.error, /^ShadowlapWriteBlocked/);
     assert.deepEqual(toolTrace(fork.calls), ['search_web:read:live:ok', 'send_email:write:blocked:error']);
+    const email = fork.value.returns.find((r) => r.tool === 'send_email');
+    assert.equal(email.outcome, 'failed');
+    assert.match(email.content, /^write tool send_email blocked after divergence/);
+    assert.match(fork.value.output, /^Done: .*replay #1.*; write tool send_email blocked after divergence/);
   });
 });

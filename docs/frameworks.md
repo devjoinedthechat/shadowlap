@@ -178,6 +178,8 @@ async def search_web(ctx: RunContext[Deps], query: str) -> dict:
 def send_email(to: str, body: str) -> dict: ...
 ```
 
+After a fork, a blocked write is also Pydantic AI's `ToolFailed`: the model reads it as the tool's failed result, without being asked to retry, and the run carries on. `except ShadowlapWriteBlocked` still catches it.
+
 ### OpenAI Agents SDK (Python)
 
 `function_tool` from the adapter is the SDK's own, with an effect. The SDK still builds the schema, validates the model's arguments and turns a blocked write into an error message for the model.
@@ -209,6 +211,8 @@ def search_web(query: str, state: Annotated[dict, InjectedState]) -> str:
 
 tools = ToolNode([with_effect(search_web, "read"), with_effect(SendEmail(), "write")])
 ```
+
+After a fork, a blocked write is also LangGraph's `ToolInvocationError`, the one error `ToolNode` (and so `create_agent`) hands the model as an error `ToolMessage` as it comes, so the run carries on. Without LangGraph it is a `ToolException`, which LangChain reports to the model for a tool whose `handle_tool_error` is set. `except ShadowlapWriteBlocked` still catches it.
 
 ### Google ADK
 
