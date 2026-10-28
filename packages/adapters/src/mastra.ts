@@ -11,6 +11,10 @@ import { toOptions, wrapFirstArg, type EffectSpec } from './core.js';
  *
  *   export const searchWeb = createTool(withEffect({ id: 'search_web', inputSchema, execute }, 'read'));
  *
+ * An agent shows the model each tool under its key in `tools` (`tools: { searchWeb }` → `searchWeb`),
+ * whatever its `id`, so a call an agent makes is recorded under that key, which its context's writer
+ * carries; a call from anywhere else (a workflow step, your own code) under the `id`.
+ *
  * Mastra 0.x called `execute({ context, runtimeContext, ... })`; use `withEffectV0` there.
  */
 
@@ -19,9 +23,17 @@ interface MastraToolDefinition {
   execute?: (inputData: never, ...rest: never[]) => unknown;
 }
 
+/** The name the model called the tool by: the agent's key for it, on the context of a call an agent made. */
+function agentKey(context?: unknown): string | undefined {
+  if (typeof context !== 'object' || context === null) return undefined;
+  const { agent, writer } = context as { agent?: unknown; writer?: { name?: unknown } };
+  if (typeof agent !== 'object' || agent === null) return undefined;
+  return typeof writer?.name === 'string' && writer.name ? writer.name : undefined;
+}
+
 export function withEffect<T extends MastraToolDefinition>(definition: T, spec: EffectSpec): T {
   if (!definition.execute) return definition;
-  const execute = wrapFirstArg(definition.id, spec, definition.execute as (inputData: unknown, ...rest: unknown[]) => unknown);
+  const execute = wrapFirstArg(definition.id, spec, definition.execute as (inputData: unknown, ...rest: unknown[]) => unknown, agentKey);
   return { ...definition, execute };
 }
 

@@ -188,6 +188,20 @@ describe('framework adapters', () => {
     deactivate();
   });
 
+  it('record a Mastra tool an agent calls under its key in the agent’s tools, and one called elsewhere under its id', async () => {
+    const def = withMastraEffect({ id: 'get-weather', execute: async (input: { city: string }, _context?: unknown) => ({ city: input.city, sky: 'clear' }) }, 'read');
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    // As Mastra's tool builder passes it for an agent's call: the agent's handles, and a writer named by the key.
+    await def.execute({ city: 'Oslo' }, { agent: { agentId: 'weather', toolCallId: 'call_1', messages: [] }, writer: { name: 'weatherTool' } });
+    // A workflow step, or your own code: no agent, so the id.
+    await def.execute({ city: 'Bergen' }, { workflow: { workflowId: 'w' }, writer: { name: 'step' } });
+    await def.execute({ city: 'Tromsø' });
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['weatherTool', 'get-weather', 'get-weather']);
+    deactivate();
+  });
+
   it('support the Mastra 0.x execute({ context }) shape with withEffectV0', async () => {
     const def = withMastraEffectV0(
       {
