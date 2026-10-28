@@ -8,7 +8,7 @@ import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSourc
 import { copyToClipboard } from '../clipboard.js';
 import { attemptBundles, commandIsImported, lostAt, withAttempts, type Normalizer, type RunAbout } from '@shadowlap/engine';
 import { aboutRun, fitAbout } from '../about.js';
-import { expectError, fixActions, settleJob, type BlameAction, type FixContext, type FixJob } from '../fix-actions.js';
+import { expectError, fixActions, fixJob, settleJob, type BlameAction, type FixContext, type FixJob } from '../fix-actions.js';
 import { attemptTallies } from '../attempts.js';
 import { forkEffects } from '../fork-effects.js';
 import type { RunFacts } from '../run-lines.js';
@@ -87,8 +87,11 @@ type Mode =
   | { kind: 'consent'; action: Action; args: string[]; refresh?: boolean }
   /** Blame: what a passing run does, then the command runs. */
   | { kind: 'fix'; fix: BlameAction }
-  /** Repair or verify the run's fix: the command line, what stands in the way, and a yes; `again` says why it is asked once more. */
-  | { kind: 'job'; job: FixJob; again?: string }
+  /**
+   * Repair or verify the run's fix: the command line, what stands in the way, and a yes; `again` says
+   * why it is asked once more, and `shown` counts the showings, so each starts with nothing typed.
+   */
+  | { kind: 'job'; job: FixJob; again?: string; shown: number }
   /** A note on the selected call. */
   | { kind: 'note'; callNo: number | null }
   /** Filtering as you type; Esc puts back the filter and the selection from before. */
@@ -353,10 +356,12 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
    * A yes to a repair or a verify, answered against the store as it is now (`settleJob`): it runs the
    * line it showed, or shows the new one when what it would run, or whom the question names, changed.
    */
-  const runJob = (shown: FixJob) => {
-    const settled = settleJob(store, run, shown, fixContext);
+  const showings = useRef(0);
+  const showJob = (job: FixJob, again?: string) => setMode({ kind: 'job', job, shown: ++showings.current, ...(again ? { again } : {}) });
+  const runJob = (shown: FixJob, typed: boolean) => {
+    const settled = settleJob(store, run, shown, fixContext, typed);
     if ('run' in settled) return runAction(settled.run, true);
-    if ('again' in settled) return setMode({ kind: 'job', job: settled.again, again: 'What it runs changed since it was shown: read it again.' });
+    if ('again' in settled) return showJob(settled.again, 'What it runs changed since it was shown: read it again.');
     setMode({ kind: 'timeline' });
     say(`not run: ${settled.refused}`, 8000, 'warn');
   };
@@ -367,7 +372,13 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     if (action.disabled || !spawnCli) return;
     const fix = fixes.find((f) => f.key === action.key);
     if (fix?.kind === 'blame') return setMode({ kind: 'fix', fix });
-    if (fix) return setMode({ kind: 'job', job: fix });
+    // Built as the store and the config stand now, not when the menu was drawn: who is asked, and whom the question names.
+    if (fix) {
+      const job = fixJob(store, store.getRun(run.runId) ?? run, fix.key, fixContext);
+      if (!job.disabled) return showJob(job);
+      setMode({ kind: 'timeline' });
+      return say(`not run: ${job.disabled}`, 6000, 'warn');
+    }
     if (action.imported === 'confirm') setMode({ kind: 'consent', action, args: action.prompt!.build('yes') });
     else if (action.prompt) setMode({ kind: 'prompt', action });
     else if (action.args) runAction(action.args);
@@ -717,11 +728,12 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         </Box>
       ) : mode.kind === 'job' ? (
         <FixJobView
+          key={mode.shown}
           job={mode.job}
           {...(mode.again ? { again: mode.again } : {})}
           width={width}
           height={bodyHeight}
-          onYes={() => runJob(mode.job)}
+          onYes={(typed) => runJob(mode.job, typed)}
           onDecline={() => {
             setMode({ kind: 'timeline' });
             say('not run: it runs only once you type yes', 4000, 'warn');

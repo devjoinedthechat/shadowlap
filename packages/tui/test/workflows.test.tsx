@@ -205,7 +205,9 @@ describe('repair and verify from the terminal, as the dashboard runs them', () =
     const theirs = needsConsent({ runs: selectedRuns(s, repairArgv(s, rec)), yes: undefined, args: r.args });
     expect('ask' in theirs && theirs.ask.confirm).toBe(r.ask!.confirm);
     expect(r.ask!.text).toMatch(new RegExp(`^${packed.slice(0, 10)} came from an imported pack: this runs the command it was recorded with \\(node agent.js A-77\\)`));
-    expect(settleJob(s, s.getRun(id)!, r, ctx)).toEqual({ run: [...r.args, '--yes'] });
+    expect(settleJob(s, s.getRun(id)!, r, ctx, true)).toEqual({ run: [...r.args, '--yes'] });
+    // Enter alone is no answer to the question.
+    expect('again' in settleJob(s, s.getRun(id)!, r, ctx, false)).toBe(true);
     // A repairer the config names goes unnamed, as the CLI reads it from there.
     const named = fixJob(s, s.getRun(id)!, 'R', { ...ctx, repairer: () => 'anthropic' });
     expect(named.args).toEqual(repairArgv(s, rec));
@@ -226,22 +228,30 @@ describe('repair and verify from the terminal, as the dashboard runs them', () =
     expect(shown.ask).toBeNull();
     // A run from a pack labelled good since: the line reads the same, but it now runs that run's command.
     const packed = run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
-    const settled = settleJob(s, s.getRun(id)!, shown, ctx);
+    const settled = settleJob(s, s.getRun(id)!, shown, ctx, false);
     expect('again' in settled && settled.again.ask!.text).toMatch(new RegExp(`^${packed.slice(0, 10)} came from an imported pack`));
-    // The config named a repairer since: the line changed.
+    // The config named a repairer since: the line changed. Another named in its place: the line reads the same, but someone else is asked.
     const asked = fixJob(s, s.getRun(id)!, 'R', ctx);
-    expect('again' in settleJob(s, s.getRun(id)!, asked, { ...ctx, repairer: () => 'anthropic' })).toBe(true);
+    expect('again' in settleJob(s, s.getRun(id)!, asked, { ...ctx, repairer: () => 'anthropic' }, true)).toBe(true);
+    const anthropic = fixJob(s, s.getRun(id)!, 'R', { ...ctx, repairer: () => 'anthropic' });
+    const openai = settleJob(s, s.getRun(id)!, anthropic, { ...ctx, repairer: () => 'openai' }, true);
+    expect('again' in openai && openai.again.who).toBe('openai (from shadowlap.config.json)');
     // Claude Code can't be found: nothing runs, and it says how to point at it.
     process.env.SHADOWLAP_CLAUDE = '/nowhere/claude';
     const blocked = fixJob(s, s.getRun(id)!, 'R', ctx);
     expect(blocked.blocked).toMatch(/SHADOWLAP_CLAUDE names, was not found/);
-    expect(settleJob(s, s.getRun(id)!, blocked, ctx)).toEqual({ refused: blocked.blocked });
+    expect(settleJob(s, s.getRun(id)!, blocked, ctx, true)).toEqual({ refused: blocked.blocked });
     // A run in no fix, and a fix verified already, which can still be verified again.
     expect(fixJob(s, s.getRun(packed)!, 'R', ctx).disabled).toBe('for a run in a fix: B blames it, which opens one');
     s.updateFix(fix.fixId, { status: 'verified', verifiedAt: Date.now() });
     expect(fixJob(s, s.getRun(id)!, 'R', ctx).disabled).toBe('its fix is verified already: a change was verified for it');
     expect(fixJob(s, s.getRun(id)!, 'V', ctx).disabled).toBeUndefined();
     expect(fixJob(s, s.getRun(id)!, 'V', { ...ctx, recording: true }).disabled).toBe('once the recording finishes');
+    // The run deleted while it was shown: its fix keeps its link, but nothing is left to run.
+    const stale = s.getRun(id)!;
+    s.deleteRun(id);
+    expect(fixJob(s, stale, 'V', ctx).disabled).toBe('none of its fix’s failing runs is left in the store, so there is nothing to verify');
+    expect(settleJob(s, stale, shown, ctx, true)).toEqual({ refused: `${id.slice(0, 10)} is gone from the store` });
     s.close();
   });
 
@@ -274,6 +284,32 @@ describe('repair and verify from the terminal, as the dashboard runs them', () =
     stdin.write('\r');
     await frameWhere(lastFrame, (f) => f.includes('done') || f.includes('exited'));
     expect(asked).toEqual([['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code', '--yes']]);
+    unmount();
+    s.close();
+  });
+
+  it('asks again with nothing typed when the line changed after yes was typed, so one more Enter runs nothing', async () => {
+    const s = Store.open(':memory:');
+    const { id } = failing(s, ['double-email']);
+    run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
+    const { asked, spawnCli } = cli('');
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={id} spawnCli={spawnCli} repairer={() => null} columns={140} rows={34} />, 140, 34);
+    await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
+    stdin.write(':');
+    await frameWhere(lastFrame, (f) => f.includes('Fixes'));
+    stdin.write('V');
+    await frameWhere(lastFrame, (f) => f.includes('Type yes to run it:'));
+    stdin.write('yes');
+    await frameWhere(lastFrame, (f) => f.includes('› yes'));
+    // Another agent's run labelled good meanwhile: the keeps go by id now, a line the yes was not to.
+    run(s, { argv: ['python', 'other_agent.py'], labels: ['good'] });
+    stdin.write('\r');
+    const frame = await frameWhere(lastFrame, (f) => f.includes('What it runs changed since it was shown'));
+    expect(frame).not.toContain('--keeps label:good');
+    // Its answer starts empty (“yes” there is the placeholder): Enter is no yes to the new line.
+    stdin.write('\r');
+    await frameWhere(lastFrame, (f) => f.includes('not run: it runs only once you type yes'));
+    expect(asked).toEqual([]);
     unmount();
     s.close();
   });

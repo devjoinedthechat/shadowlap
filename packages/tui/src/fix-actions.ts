@@ -200,8 +200,10 @@ function jobOf(store: Store, run: RunRecord, key: 'R' | 'V', ctx: FixContext): {
   const named = { id: shortFix(fix), title: fix.title };
   if (key === 'R' && fix.status !== 'open') return none(`its fix is ${fix.status} already: a change was verified for it`, named);
   const rec = fixRecords(store, fix);
+  // Without a failing run left, a label would select nothing, as the dashboard says.
+  if (!rec.failing.some((id) => store.getRun(id) !== null)) return none(`none of its fix’s failing runs is left in the store, so there is nothing to ${kind}`, named);
   const argv = key === 'R' ? repairArgv(store, rec) : verifyArgv(store, rec);
-  if (!argv.length) return none('its fix’s check or its blame’s scope can’t go on a command line', named);
+  if (!argv.length) return none(key === 'R' ? 'its fix’s check or its blame’s scope can’t go on a command line' : 'its fix’s check can’t go on a command line', named);
   const configured = key === 'R' ? ctx.repairer?.()?.trim() || null : null;
   const args = key === 'R' ? repairJobArgv(argv, configured) : argv;
   // Every run the line will select, as the CLI selects it: a label can bring in an imported run.
@@ -218,15 +220,18 @@ function jobOf(store: Store, run: RunRecord, key: 'R' | 'V', ctx: FixContext): {
 
 /**
  * A yes to the job the user was shown (`shown`), answered against the store as it is now: the line
- * to run (with `--yes` when a question was asked and answered), or the job asked again when the line
- * it would run, or the lines the question showed, changed since (a pull, a label, the config's
- * repairer), or why it can't run now.
+ * to run (with `--yes` when a question was asked and `typed` says yes was typed to it), or the job
+ * asked again when the line it would run, the repairer it names, or the lines the question showed,
+ * changed since (a pull, a label, the config), or why it can't run now.
  */
-export function settleJob(store: Store, run: RunRecord, shown: FixJob, ctx: FixContext): { run: string[] } | { again: FixJob } | { refused: string } {
-  const { job, selects } = jobOf(store, store.getRun(run.runId) ?? run, shown.key, ctx);
+export function settleJob(store: Store, run: RunRecord, shown: FixJob, ctx: FixContext, typed: boolean): { run: string[] } | { again: FixJob } | { refused: string } {
+  const now = store.getRun(run.runId);
+  if (!now) return { refused: `${run.runId.slice(0, 10)} is gone from the store` };
+  const { job, selects } = jobOf(store, now, shown.key, ctx);
   if (job.disabled) return { refused: job.disabled };
   if (job.blocked) return { refused: job.blocked };
-  if (JSON.stringify(job.args) !== JSON.stringify(shown.args)) return { again: job };
-  const consent = needsConsent({ runs: selects, yes: shown.ask?.confirm, args: job.args });
+  // A repairer the config names goes unnamed on the line, so another one named since changes only who is asked.
+  if (JSON.stringify(job.args) !== JSON.stringify(shown.args) || job.who !== shown.who) return { again: job };
+  const consent = needsConsent({ runs: selects, yes: typed ? shown.ask?.confirm : undefined, args: job.args });
   return 'ask' in consent ? { again: job } : { run: [...job.args, ...consent.yes] };
 }

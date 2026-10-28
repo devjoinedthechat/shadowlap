@@ -10,8 +10,8 @@ interface Props {
   again?: string;
   width: number;
   height: number;
-  /** The user said yes: Enter, or `yes` typed when it asks about someone else's runs. */
-  onYes: () => void;
+  /** The user said yes: Enter (`typed` false), or `yes` typed to the question about someone else's runs (`typed` true). */
+  onYes: (typed: boolean) => void;
   /** Anything but `yes` typed to the question: nothing runs, and it says so. */
   onDecline: () => void;
   onCancel: () => void;
@@ -30,7 +30,7 @@ export function FixJobView({ job, again, width, height, onYes, onDecline, onCanc
   useInput(
     (input, key) => {
       if (key.escape || input === 'q') onCancel();
-      else if (key.return && !job.blocked) onYes();
+      else if (key.return && !job.blocked && !job.ask) onYes(false);
     },
     { isActive: !asks },
   );
@@ -60,7 +60,7 @@ export function FixJobView({ job, again, width, height, onYes, onDecline, onCanc
             label="Type yes to run it:"
             placeholder="yes"
             active
-            onSubmit={(value) => (/^y(es)?$/i.test(value.trim()) ? onYes() : onDecline())}
+            onSubmit={(value) => (/^y(es)?$/i.test(value.trim()) ? onYes(true) : onDecline())}
             onCancel={onCancel}
           />
         </>

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as engine from '@shadowlap/engine';
-import { fixRecords, quoteArgv, recordBlame, Store, type StoredFix } from '@shadowlap/engine';
-import { blameReport, makeRun } from '../../engine/test/fix-fixtures.js';
+import { fixRecords, quoteArgv, recordBlame, recordVerdict, Store, type StoredFix } from '@shadowlap/engine';
+import { blameReport, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { agentOfArgv, fixDetail, repairArgv } from '../src/fixes.js';
 import { repairerProblem } from '../src/repairer-check.js';
 import { startDashboard, type Dashboard } from '../src/index.js';
@@ -43,8 +43,8 @@ afterEach(async () => {
 const EXPECT = { tools: { send_email: 1 } };
 const PACK = { imported: { at: 1, from: 'pack' } };
 
-function blame(runId: string, scope: string | null = null): StoredFix {
-  return recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope, command: `shadowlap blame ${runId.slice(0, 10)}`, title: 'send_email called twice', checkText: 'send_email called once' }).fix;
+function blame(runId: string, scope: string | null = null, outcome: 'blamed' | 'unrescuable' = 'blamed'): StoredFix {
+  return recordBlame(store, { runId, report: blameReport(runId, outcome), expect: EXPECT, scope, command: `shadowlap blame ${runId.slice(0, 10)}`, title: 'send_email called twice', checkText: 'send_email called once' }).fix;
 }
 
 /** The dashboard's repair job for a fix, as the page starts it: its question (409) first, if any, then the line it spawns once the page says yes. */
@@ -96,7 +96,8 @@ describe('the engine’s fix commands against the dashboard’s', () => {
   it('keep out the failing run and other agents’ good runs, and ask about the good run a pack brought', async () => {
     const failing = makeRun(store, { labels: ['double-email', 'good'], argv: ['node', 'agent.mjs', 'A-1150'] });
     const other = makeRun(store, { labels: ['good'], status: 'completed', argv: ['python', 'other_agent.py', '--persona', 'calm'] });
-    makeRun(store, { labels: ['good'], status: 'completed', mode: 'replay', parent: other, argv: ['python', 'other_agent.py', '--persona', 'calm'] });
+    // A replay of the other agent's run, whatever command it names: the agent is its recording's.
+    makeRun(store, { labels: ['good'], status: 'completed', mode: 'replay', parent: other, argv: ['node', 'agent.mjs', 'A-9'] });
     const same = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-1151'] });
     const packed = makeRun(store, { labels: ['good'], status: 'completed', argv: ['node', 'agent.mjs', 'A-77'], meta: PACK });
     const fix = blame(failing);
@@ -140,6 +141,33 @@ describe('the engine’s fix commands against the dashboard’s', () => {
     expect(fixDetail(store, fix.fixId)!.actions.repair!.noFix).toBe(engine.noFixToTry(store, fixRecords(store, fix), 'billing'));
     const verify = verifyLines(fix);
     expect(verify.engine).toBe(verify.dashboard);
+  });
+
+  it('keep the good runs a verify of the fix kept, before any labelled good', async () => {
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const kept = makeRun(store, { status: 'completed', argv: ['python', 'other_agent.py'] });
+    makeRun(store, { labels: ['good'], status: 'completed' });
+    const fix = blame(failing);
+    recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: false }, { runId: kept, role: 'good', pass: true }]), expect: EXPECT, command: 'shadowlap verify' });
+    const ours = engineRepair(fix);
+    expect(ours.argv).toEqual(repairArgv(store, fixRecords(store, fix)));
+    expect(ours.argv).toEqual(['repair', '--fixes', 'label:double-email', '--keeps', kept, '--expect', JSON.stringify(EXPECT)]);
+    expect(ours.spawned).toEqual((await dashboardRepair(fix.fixId)).spawned);
+    const verify = verifyLines(fix);
+    expect(verify.engine).toBe(verify.dashboard);
+  });
+
+  it('say alike why a repair would find no fix to try, and refuse a scope that reads as a flag', () => {
+    const failing = makeRun(store, { labels: ['double-email'] });
+    const fix = blame(failing, null, 'unrescuable');
+    store.updateRunMeta(failing, { blame: { at: 1, outcome: 'unrescuable', oracle: fix.check.oracle, scope: null } } as never);
+    const noFix = fixDetail(store, fix.fixId)!.actions.repair!.noFix;
+    expect(noFix).toMatch(/No fix to try/);
+    expect(engine.noFixToTry(store, fixRecords(store, fix), null)).toBe(noFix);
+    const flagged = makeRun(store, { labels: ['wrong-refund'] });
+    const scoped = blame(flagged, '--apply');
+    expect(engine.repairArgv(store, fixRecords(store, scoped))).toEqual([]);
+    expect(repairArgv(store, fixRecords(store, scoped))).toEqual([]);
   });
 
   it('ask nothing when no run it selects came from someone else', async () => {
