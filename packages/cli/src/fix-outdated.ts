@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { maskedChange, Store, type DiffEntry, type DivergenceReport } from '@shadowlap/engine';
+import { goldensNeedingConsent, maskedChange, Store, type DiffEntry, type DivergenceReport } from '@shadowlap/engine';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
 import { testGolden } from './golden-test.js';
@@ -14,6 +14,8 @@ import { takeoverReader } from './tasks.js';
  * `shadowlap test` replays a golden that may not fork, in a store of its own that nothing keeps,
  * and listed when it diverged on the patch's change: a request field that now holds text the patch
  * added, or no longer holds text it removed. `shadowlap test <goldens> --update` re-records them.
+ * A golden from a pack the repository doesn't track, recorded elsewhere, runs its command only after
+ * a yes (golden-consent.ts): this check asks none, so it leaves such a golden out, saying so.
  */
 
 export interface OutdatedGolden {
@@ -30,7 +32,11 @@ const CHECK_MS = 120_000;
 /** The goldens checked (none when the project has no other), and those the patch left behind. */
 export async function outdatedGoldens(store: Store, o: { cwd: string; goldens: string; patch: string; skip: readonly string[]; log: (line: string) => void }): Promise<{ checked: number; outdated: OutdatedGolden[] }> {
   const skip = new Set(o.skip.map((g) => goldenName(g, o.cwd)));
-  const others = projectGoldens(o.cwd, o.goldens).filter((g) => !g.error && !skip.has(g.path));
+  const listed = projectGoldens(o.cwd, o.goldens).filter((g) => !g.error && !skip.has(g.path));
+  // Replayed in a store of their own, every golden would read as imported: the project's store says which this machine recorded.
+  const asked = new Set(goldensNeedingConsent(store, listed.map((g) => g.path), o.cwd).map((a) => a.dir));
+  for (const g of listed) if (asked.has(g.path)) o.log(`  ! ${g.path} was not replayed: its pack isn't one this repository tracks, so its recorded command runs only with a yes (shadowlap test ${g.path})`);
+  const others = listed.filter((g) => !asked.has(g.path));
   if (!others.length) return { checked: 0, outdated: [] };
   const config = loadConfig(o.cwd);
   let tests: ReturnType<typeof loadTests> = [];

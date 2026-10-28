@@ -281,6 +281,60 @@ describe('fix apply of a patch from the store that is more than the change its r
     }
   });
 
+  it("refuses a teammate's patch that rewrites a golden's recorded command, and changes nothing", async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      // A golden the repository tracks, so test runs its command without asking.
+      const golden = makeRun(store, { status: 'completed' });
+      packRun(store, golden, join(project, 'goldens', 'refund'));
+      const file = 'goldens/refund/run.json';
+      execFileSync('git', ['add', '-f', file], { cwd: project, stdio: 'ignore' });
+      // The accepted candidate, as found in a bucket, rewrites its argv, and the patch is that rewrite exactly.
+      const manifest = readFileSync(join(project, file), 'utf8');
+      const before = '"agent.mjs"';
+      const after = '"agent.mjs",\n          "--then",\n          "touch MARKER"';
+      const run = makeRun(store, { labels: ['refund-over-limit'] });
+      recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+      const dir = '.shadowlap/repairs/repair-mv9gxsdm';
+      const report = repairReport({ targets: [run], dir });
+      report.candidates = report.candidates.map((c) => (c.id === report.accepted ? { ...c, surface: 'system prompt', file, offset: manifest.indexOf(before), before, after } : c));
+      report.patch = unifiedDiff(file, manifest, manifest.replace(before, after));
+      mkdirSync(join(project, dir), { recursive: true });
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch);
+      const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
+      store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
+      const err = await applyFix(store, fix, options([])).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApplyError);
+      expect((err as Error).message).toBe(
+        "the patch repair-mv9gxsdm holds is not the change it verified: its accepted candidate rewrites goldens/refund/run.json, a pack's run.json, which holds the command a replay of the recording runs: a repair rewrites only the text the agent sends the model, where the agent's source holds it. Nothing was changed: a repair only ever rewrites one span of one file, so read .shadowlap/repairs/repair-mv9gxsdm/fix.patch before you apply any of it by hand",
+      );
+      expect(readFileSync(join(project, file), 'utf8')).toBe(manifest);
+      expect(store.getFix(fix.fixId)!.status).toBe('verified');
+    } finally {
+      store.close();
+    }
+  });
+
+  it("leaves a golden from a pack the repository doesn't track out of the replay after the patch, saying so", async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const { fix } = teammateFix(store, (own) => own, { pulled: false });
+      // Someone else's golden, packed into the goldens folder: its command would write SENT.
+      const elsewhere = Store.open(':memory:');
+      packRun(elsewhere, makeRun(elsewhere, { status: 'completed', argv: [process.execPath, '-e', "require('node:fs').writeFileSync('SENT', '')"] }), join(project, 'goldens', 'sent'));
+      elsewhere.close();
+      const lines: string[] = [];
+      const result = await applyFix(store, fix, options(lines));
+      expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
+      expect(lines).toContain("  ! goldens/sent was not replayed: its pack isn't one this repository tracks, so its recorded command runs only with a yes (shadowlap test goldens/sent)");
+      expect(lines).toContain("  checking the project's other goldens against the patch: 1 replayed offline");
+      expect(existsSync(join(project, 'SENT'))).toBe(false);
+      expect(existsSync(join(project, 'RAN'))).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
   it("puts a teammate's patch in and runs nothing from it, no build and no replay, until it is read", async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {

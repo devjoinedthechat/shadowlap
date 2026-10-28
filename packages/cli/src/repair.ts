@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole, lostWhere, type RepairRange } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, repairNeverRewrites, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole, lostWhere, type RepairRange } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -503,7 +503,13 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     // details (a customer's name filled in), so it is read from the masked copy, while the spans a fix
     // may rewrite are the project's source.
     const instructions = surfacesOf(learned[0]!.shownRequest ?? learned[0]!.request);
-    const anchors = findAnchors(surfaces, files);
+    // A span a recording holds (a golden's run.json, its calls) or Shadowlap's config is no fix's to
+    // rewrite: they are read, so a copy of a span there keeps it from passing for its source's only
+    // one, but no anchor is placed in them (repairNeverRewrites, which a patch from the team store is
+    // held to as well).
+    const anchors = findAnchors(surfaces, files)
+      .filter((a) => !repairNeverRewrites(a.file))
+      .map((a, i) => ({ ...a, id: i + 1 }));
     report.anchors = anchors.length;
     const failingTexts = learned.map((b) => b.caseText ?? '');
     const allowedTexts = [...surfaces.map((x) => x.text), ...input.good.map((g) => lastExchange(store, g.parent.runId))];
