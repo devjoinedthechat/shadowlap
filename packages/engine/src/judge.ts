@@ -7,7 +7,7 @@ import { agentCallsOf } from './judge-scope.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse, type Block } from './responses.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import type { CallKind, CallRecord, Effect, Normalizer } from './types.js';
 
 /**
@@ -147,7 +147,7 @@ export interface GivenAnswer {
 }
 
 /** A model call's response, or the answer given in its place, with the rules applied as a copy of the run applies them. */
-function responseBlocks(store: Store, call: CallRecord, rules: readonly Normalizer[], given?: GivenAnswer): { blocks: Block[]; stopReason: string | null } | null {
+function responseBlocks(store: StoreOf<'recording'>, call: CallRecord, rules: readonly Normalizer[], given?: GivenAnswer): { blocks: Block[]; stopReason: string | null } | null {
   const ref = call.end?.responseRef;
   const bytes = given ? given.bytes : ref ? store.getBlob(ref) : null;
   if (!bytes) return null;
@@ -171,7 +171,7 @@ const textRules = (rules: readonly Normalizer[]) => rules.filter((n) => n.path =
  * The dates a run's requests are matched against (clock.ts), as the sidecar matches them: its own
  * start, and for a replay its recording's start too. None under `"clock": "exact"`.
  */
-export function matchedClockOf(store: Store, runId: string, mode: ClockMode | undefined): ClockReference | undefined {
+export function matchedClockOf(store: StoreOf<'recording'>, runId: string, mode: ClockMode | undefined): ClockReference | undefined {
   if (mode === 'exact') return undefined;
   const run = store.getRun(runId);
   if (!run) return undefined;
@@ -282,7 +282,7 @@ function turnLines(turn: Turn, effects: ReadonlyMap<string, Effect>, toolNames: 
  * A tool call's arguments and what it got back, with the rules applied as a copy of the run applies
  * them, and its arguments masked as replay matching masks them.
  */
-function toolCallLine(store: Store, call: CallRecord, rules: readonly Normalizer[], masks: MatchMasks): string {
+function toolCallLine(store: StoreOf<'recording'>, call: CallRecord, rules: readonly Normalizer[], masks: MatchMasks): string {
   let args: unknown = null;
   try {
     const request = call.requestRef ? (redactedRequest(store, call, [...rules]) as { args?: unknown } | null) : null;

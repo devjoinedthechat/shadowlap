@@ -1,4 +1,4 @@
-import { applyNormalizers, canonicalize, clipText, compareDecisions, effectsOf, finalAnswer, isHandover, isJudgeCall, outcomeLabel, RANK_LABELS, rewriteText, type CallRecord, type DecisionCall, type DecisionChangeKind, type DecisionRank, type Effect, type ModelDecision, type Normalizer, type RunStatus, type Store } from '@shadowlap/engine';
+import { applyNormalizers, canonicalize, clipText, compareDecisions, effectsOf, finalAnswer, isHandover, isJudgeCall, outcomeLabel, RANK_LABELS, rewriteText, type CallRecord, type DecisionCall, type DecisionChangeKind, type DecisionRank, type Effect, type ModelDecision, type Normalizer, type RunStatus, type Store, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { links } from './links.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
@@ -82,7 +82,7 @@ const oneLine = (v: unknown, max = VALUE_SHOWN): string => {
 };
 
 /** A tool call's arguments as stored (`{ args }`), masked by the project's normalizers for that tool. */
-function argsOf(store: Store, c: CallRecord, normalizers: readonly Normalizer[]): unknown {
+function argsOf(store: StoreOf<'recording'>, c: CallRecord, normalizers: readonly Normalizer[]): unknown {
   let request: unknown;
   try {
     request = c.requestRef ? store.getJson(c.requestRef) : null;

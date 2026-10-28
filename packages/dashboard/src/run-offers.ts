@@ -1,4 +1,4 @@
-import { abandonedRuns, checkStatus, hasRecordedCommand, storeView, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { abandonedRuns, checkStatus, hasRecordedCommand, storeView, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { parseStoreUrl, shortStoreName, storeKey, teamRunInStore } from '@shadowlap/remote';
 import { lookupRun } from './api.js';
 import { loadRunIndex } from './run-index.js';
@@ -203,7 +203,7 @@ function sameRule(written: unknown, rule: Normalizer): boolean {
  * passed since this one, which shows the rule worked (or the update after it did). `goldens`, those
  * on disk, give the checks an update would run.
  */
-export function testOffer(store: Store, run: RunRecord, normalize: unknown, goldens: readonly GoldenSource[] = []): TestOffer | null {
+export function testOffer(store: StoreOf<'recording' | 'tests'>, run: RunRecord, normalize: unknown, goldens: readonly GoldenSource[] = []): TestOffer | null {
   const banner = testRunBanner(store, run.runId);
   if (!banner) return null;
   const rules = Array.isArray(normalize) ? normalize : [];

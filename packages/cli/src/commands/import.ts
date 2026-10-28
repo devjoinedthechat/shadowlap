@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { append, importCaptured, type Captured, type ImportResult, type Skip } from '../import-capture.js';
 import { EXIT } from '../exit-codes.js';
 import { readHar } from '../import-har.js';
@@ -65,7 +65,7 @@ function author(): string | null {
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Writes each trace as a run and settles the import. */
-function importTraces(store: Store, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
+function importTraces(store: StoreOf<'recording' | 'activity'>, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
   // A trace store's trace keeps its id with the run, so a later import of the same trace skips it.
   const results = traces.map((trace) => ({ trace, imported: importTrace(store, trace, { source: o.source, labels: [format], author: o.author, ...(format !== 'otel' && trace.id ? { key: trace.id } : {}) }) }));
   const kept: TraceKept = { traces: traces.length, spans: o.spans, modelCalls: 0, modelCallsImported: 0, withSettings: 0, withToolDefinitions: 0, toolCalls: 0, toolCallsKept: 0 };

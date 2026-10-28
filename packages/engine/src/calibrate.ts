@@ -2,7 +2,7 @@ import { CLOCK_PLACEHOLDERS } from './clock.js';
 import { firstDifference, hintsFor, isHeaderEntry } from './diff.js';
 import { compilePattern, normalizerApplies } from './normalize.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { DiffEntry, DivergenceReport, Normalizer, RunRecord } from './types.js';
 
 /**
@@ -138,7 +138,7 @@ export function proposeNormalizers(d: DivergenceReport, existing: Normalizer[] =
  * pack or a capture runs someone else's command, or none). Null when there is none to calibrate,
  * which the dashboard shows as "Record a run first".
  */
-export function calibrationTarget(store: Store, options: { setupRunId?: string | null } = {}): { run: RunRecord; source: 'setup' | 'newest' } | null {
+export function calibrationTarget(store: StoreOf<'recording'>, options: { setupRunId?: string | null } = {}): { run: RunRecord; source: 'setup' | 'newest' } | null {
   const usable = (r: RunRecord) => r.mode === 'record' && (r.status === 'completed' || r.status === 'failed') && hasRecordedCommand(r) && !commandIsImported(r);
   if (options.setupRunId) {
     const run = store.getRun(options.setupRunId);

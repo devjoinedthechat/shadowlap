@@ -3,7 +3,7 @@ import { normalizeConversation, type TurnBlock } from './conversation.js';
 import { conversationRequest, runConversations, type RunConversations } from './conversations.js';
 import { isReservedScope } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
 
 /**
@@ -27,7 +27,7 @@ function userText(blocks: readonly TurnBlock[]): string {
 }
 
 /** The first user message a model request holds, as text, or null. */
-function firstUserMessage(store: Store, call: CallRecord): string | null {
+function firstUserMessage(store: StoreOf<'recording'>, call: CallRecord): string | null {
   if (!call.requestRef) return null;
   let body: unknown;
   try {

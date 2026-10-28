@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { epochMs, isObject, str } from './import-trace.js';
 import { EXIT } from './exit-codes.js';
 import { fetchJson, TraceStoreError, type TraceStoreOptions } from './import-fetch.js';
@@ -203,7 +203,7 @@ export async function listLogfireTraces(o: LogfireListOptions, w: BulkWindow): P
  * what an earlier one, or the import of one trace, brought in. A run deleted since is no longer
  * there to skip.
  */
-export function importedTraces(store: Store, format: 'langfuse' | 'phoenix' | 'logfire'): Map<string, string> {
+export function importedTraces(store: StoreOf<'recording'>, format: 'langfuse' | 'phoenix' | 'logfire'): Map<string, string> {
   const out = new Map<string, string>();
   for (const run of store.allRuns()) {
     const imported = run.meta?.imported;

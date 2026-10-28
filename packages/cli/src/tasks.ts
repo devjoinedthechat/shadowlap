@@ -31,6 +31,7 @@ import {
   type ReadPolicy,
   type RunRecord,
   type Store,
+  type StoreOf,
   type Task,
   type TaskCheck,
   type TaskFields,
@@ -86,7 +87,7 @@ export function taskChecks(spec: TestSpec | null): TaskCheck[] {
  * session is still testing, or one a signal cut short, has no result there yet, so the one before it
  * counts. `shadowlap test` keeps its history in the project's store, or the one `--db` names.
  */
-export function lastResults(store: Store | null, root: string): Map<string, TestResult> {
+export function lastResults(store: StoreOf<'tests'> | null, root: string): Map<string, TestResult> {
   const out = new Map<string, TestResult>();
   if (!store) return out;
   for (const r of store.latestTestResults()) {
@@ -124,7 +125,7 @@ export function lastTest(r: TestResult | undefined, spec: TestSpec | null): Last
 }
 
 /** The runs a golden's run came from, nearest first, as far as the store has them. */
-function ancestorsOf(store: Store | null, run: RunRecord): RunRecord[] {
+function ancestorsOf(store: StoreOf<'recording'> | null, run: RunRecord): RunRecord[] {
   const out: RunRecord[] = [];
   let parent = run.parentRunId;
   while (store && parent && out.length < 100) {
@@ -501,7 +502,7 @@ export interface KeptScores {
  * answering) is kept only when there was nothing before, so a cut-short re-score never wipes a whole
  * one. Each attempt keeps what its judge checks cost apart from its own spend, as it reports them.
  */
-export function keepScores(store: Store, target: ModelTarget, score: TaskScore, session: string, asked: number): KeptScores {
+export function keepScores(store: StoreOf<'training'>, target: ModelTarget, score: TaskScore, session: string, asked: number): KeptScores {
   const before = store.listTaskScores().filter((r) => r.model === target.model && r.baseUrl === target.scoreBase && r.golden === score.task);
   if (!score.attempts.length) return { outcome: 'none', before };
   if (score.attempts.length < asked && before.length) return { outcome: 'kept', before };

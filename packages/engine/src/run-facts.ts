@@ -1,5 +1,5 @@
 import { rewriteText, type RewriteObserver } from './normalize.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, Normalizer, NotRecorded, RunMeta, RunRecord } from './types.js';
 
 /**
@@ -46,7 +46,7 @@ export interface InterventionFlag {
 const FORCED = /^forced live by (--fail-at|--diverge-at|--prompt-from|--live-tool) (\S+)/;
 
 /** The result an overridden call of the replay recorded, in one line: the override as the run kept it. */
-function overriddenResult(store: Store, c: CallRecord): string {
+function overriddenResult(store: StoreOf<'recording'>, c: CallRecord): string {
   let result: unknown;
   try {
     result = c.end?.responseRef ? store.getJson<{ result?: unknown }>(c.end.responseRef)?.result : null;
@@ -64,7 +64,7 @@ const overriddenFrom = (c: CallRecord): number => (typeof c.end?.meta.overridden
  * Changes to requests (`--inject`, `--model`, `--set`) look like any edit to the agent and are
  * not guessed.
  */
-export function inferInterventions(store: Store, run: RunRecord, calls: readonly CallRecord[]): InterventionFlag[] {
+export function inferInterventions(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): InterventionFlag[] {
   if (run.mode !== 'replay') return [];
   const out: InterventionFlag[] = [];
   const has = (flag: string, callNo: number | null) => out.some((x) => x.flag === flag && x.callNo === callNo);
@@ -86,7 +86,7 @@ export function inferInterventions(store: Store, run: RunRecord, calls: readonly
  * own command names it). An override given inline is shown as the result its call recorded, which a
  * redacted copy has masked.
  */
-export function runInterventions(store: Store, run: RunRecord, calls: readonly CallRecord[]): InterventionFlag[] {
+export function runInterventions(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): InterventionFlag[] {
   const stored: unknown = run.meta?.interventions;
   if (stored === undefined) return inferInterventions(store, run, calls);
   if (!Array.isArray(stored)) return [];
@@ -158,7 +158,7 @@ export function toolResultLine(call: CallRecord, payload: unknown): string | nul
  * Merges what a run did unrecorded into its metadata: the guard's hosts at the end of any run,
  * the project's tools without an effect after a recording.
  */
-export function recordNotRecorded(store: Store, runId: string, found: Partial<NotRecorded>): void {
+export function recordNotRecorded(store: StoreOf<'recording'>, runId: string, found: Partial<NotRecorded>): void {
   const run = store.getRun(runId);
   if (!run) return;
   const was = run.meta?.notRecorded;

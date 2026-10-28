@@ -1,7 +1,7 @@
 import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
 import type { CallRecord, RunIntervention, RunRecord } from './types.js';
 import { normalizeAddArgs } from './volatile.js';
@@ -71,7 +71,7 @@ export interface ActionContext {
 }
 
 /** Whether a process is recording the run now: marked `running`, and its recorder still there. */
-export function recordingNow(store: Store, run: RunRecord): boolean {
+export function recordingNow(store: StoreOf<'recording'>, run: RunRecord): boolean {
   return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
@@ -81,7 +81,7 @@ export function isUserInput(call: CallRecord | undefined): boolean {
 }
 
 /** The selected call's recorded result, for the actions that start from it. */
-export function actionContext(store: Store, call: CallRecord | undefined): ActionContext {
+export function actionContext(store: StoreOf<'recording'>, call: CallRecord | undefined): ActionContext {
   if (!call || call.kind !== 'tool' || !call.end?.responseRef || call.end.outcome !== 'ok') return {};
   try {
     const payload = store.getJson<{ result?: unknown }>(call.end.responseRef);

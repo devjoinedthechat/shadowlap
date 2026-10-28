@@ -6,7 +6,7 @@ import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
 import { estimateCost, formatUsd, type Price } from './prices.js';
 import { safeLine, safeText } from './text.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
 
 /** A token count, as every report and the dashboard write one (tokens.ts). */
@@ -21,7 +21,7 @@ export interface SummaryOptions {
 }
 
 /** Reads the model out of the stored request, for runs recorded before `meta.model` was stored. */
-export function storedModelResolver(store: Store): ModelResolver {
+export function storedModelResolver(store: StoreOf<'recording'>): ModelResolver {
   const cache = new Map<string, string | null>();
   return (call) => {
     if (call.kind !== 'api' || !call.requestRef) return null;

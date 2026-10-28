@@ -1,4 +1,4 @@
-import { estimateCost, importedRecording, JUDGE_SCOPE, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type Store, type Usage } from '@shadowlap/engine';
+import { estimateCost, importedRecording, JUDGE_SCOPE, shortModel, type CallRecord, type JudgeSummary, type ModelResolver, type Origin, type Price, type RunRecord, type RunSummary, type StoreOf, type Usage } from '@shadowlap/engine';
 
 /**
  * What a run's page says of the whole run, worked out in SQL over its call events without reading
@@ -144,7 +144,7 @@ export interface RunWholeFacts {
  * The run's summary, origins and models, as `summarizeRun`, the strip and the run page work them out
  * from every call, read in SQL. `name` gives a model as the page names it (run-page.ts `modelName`).
  */
-export function runWholeFacts(store: Store, run: RunRecord, o: { prices?: Record<string, Price>; modelOf: ModelResolver; name: (model: string) => string }): RunWholeFacts {
+export function runWholeFacts(store: StoreOf<'readModels'>, run: RunRecord, o: { prices?: Record<string, Price>; modelOf: ModelResolver; name: (model: string) => string }): RunWholeFacts {
   let origins = '';
   const groups: Group[] = [];
   const extraReads: RunSummary['extraReads'] = [];
@@ -236,7 +236,7 @@ function judgeOf(groups: readonly Group[], imported: boolean, prices: Record<str
  * Where blame's call stands among the agent's model calls that were answered in its scope (the run
  * page's "model call k of m"), read in SQL; null when the call is not one of them.
  */
-export function blameStep(store: Store, runId: string, callNo: number, scope: string | null): { k: number; m: number } | null {
+export function blameStep(store: StoreOf<'readModels'>, runId: string, callNo: number, scope: string | null): { k: number; m: number } | null {
   const within = scope || null;
   const row = store.query(STEPS_SQL, callNo, callNo, runId, within, within, within, within)[0];
   return row && Number(row.hit) > 0 ? { k: Number(row.k), m: Number(row.m) } : null;

@@ -1,4 +1,4 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoreOf, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
@@ -40,7 +40,7 @@ const MAX_EXPECT = 16 * 1024;
 const short = (id: string) => id.slice(0, 13);
 
 /** A fix by its id or a unique prefix of it; a FixIdError (unknown, or ambiguous) as the 404 it is. */
-function findFix(store: Store, id: unknown): StoredFix {
+function findFix(store: StoreOf<'fixes'>, id: unknown): StoredFix {
   if (typeof id !== 'string' || !id.trim()) throw new HttpError(400, 'fixId is required');
   try {
     const fix = resolveFix(store, id);
@@ -67,7 +67,7 @@ function configuredRepairer(ctx: RouteContext): string | null {
  * every one of them. Whether each patch it could apply is in the project's working tree already, as
  * git says it there, is asked here first and handed over as data; none without a project folder.
  */
-async function fixAnswer(ctx: RouteContext, store: Store, fix: StoredFix): Promise<ReadAnswer> {
+async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes'>, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
   const patches = project ? patchesToCheck(store, [fix]) : [];
   const check = project && patches.length ? await patchesInTree(project, patches) : null;
@@ -134,7 +134,7 @@ function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[
  * The runs a repair command line gives its `--fixes`, `--holdout` and `--keeps`, as the CLI selects
  * them when it runs: run ids, and `label:<name>` for every run with that label, imported ones too.
  */
-function selectedRuns(store: Store, argv: readonly string[]): RunRecord[] {
+function selectedRuns(store: StoreOf<'recording'>, argv: readonly string[]): RunRecord[] {
   const out = new Map<string, RunRecord>();
   let listing = false;
   for (const a of argv) {

@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { agentCallsOf, applyEdit, BLAME_DEFAULTS, repairNeverRewrites, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole, lostWhere, type RepairRange } from '@shadowlap/engine';
+import { agentCallsOf, applyEdit, BLAME_DEFAULTS, repairNeverRewrites, unavailableStop, CHARS_PER_TOKEN, checkEdit, commitTitle, eachRun, describeBlocks, editSize, estimateCost, findAnchors, footprintDelta, forbiddenDetails, formatUsd, isJudgeCall, loadApiRequest, NO_REPAIRER, normalizeConversation, notTheAnswer, packRun, redactRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, rewriteGrowth, rewriteText, safeLine, Store, type StoreOf, takeLock, toolDefinitions, unifiedDiff, unrescuedWords, unsettledFirst, type Anchor, type Conversation, type HeldLock, type Normalizer, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type Surface, type VerifyRole, lostWhere, type RepairRange } from '@shadowlap/engine';
 import { STOP_SIGNALS } from './agent-signals.js';
 import { judgeRecording, oracleLabels, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { BlameError, inScope, responseBlocks, runBlame } from './blame.js';
@@ -252,13 +252,13 @@ function conversationText(c: Conversation | null): string {
     .join('\n');
 }
 
-function requestAt(store: Store, runId: string, callNo: number): unknown {
+function requestAt(store: StoreOf<'recording'>, runId: string, callNo: number): unknown {
   const call = store.getCalls(runId).find((c) => c.callNo === callNo);
   return call?.requestRef ? loadApiRequest(store, call.requestRef) : null;
 }
 
 /** A run's last model request and answer: what a good run shows the model, for telling a case detail from a rule. A judge check's is none of the agent's. */
-function lastExchange(store: Store, runId: string): string {
+function lastExchange(store: StoreOf<'recording'>, runId: string): string {
   const calls = store.getCalls(runId).filter((c) => c.kind === 'api' && c.requestRef && !isJudgeCall(c));
   const last = calls.at(-1);
   if (!last?.requestRef) return '';
@@ -271,7 +271,7 @@ function lastExchange(store: Store, runId: string): string {
  * rules applied as `export html` applies them (a copy that is read, never replayed), so the path
  * rules reach what calls got back too. The project's store is never changed.
  */
-function maskedView(store: Store, rules: Normalizer[]): { of: (...runIds: string[]) => Store; close: () => void } {
+function maskedView(store: StoreOf<'recording'>, rules: Normalizer[]): { of: (...runIds: string[]) => Store; close: () => void } {
   const copy = Store.open(':memory:');
   const copied = new Set<string>();
   return {
@@ -718,7 +718,7 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
     // The request as recorded, for the prompt a fix rewrites, which lives in the project's files; what
     // the repairer is shown of the run (the conversation, both answers, how it fails), with the rules applied.
     const request = requestAt(store, runId, callNo!);
-    const exchange = (from: Store) => {
+    const exchange = (from: StoreOf<'recording'>) => {
       const asked = requestAt(from, runId, callNo!);
       return {
         conversation: isObject(asked) ? normalizeConversation(asked) : null,

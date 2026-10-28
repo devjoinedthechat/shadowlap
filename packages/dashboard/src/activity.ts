@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
@@ -197,14 +197,14 @@ function gradualOf(range: unknown): { from: number; to: number } | null {
  * run was lost between takes them from the blame kept on its run, when that is the same blame (the
  * same call).
  */
-function eventData(store: Store, e: StoredEvent): Record<string, unknown> {
+function eventData(store: StoreOf<'recording'>, e: StoredEvent): Record<string, unknown> {
   const d = e.data ?? {};
   if (e.kind !== 'blame.done' || 'range' in d || !e.runId || typeof d.callNo !== 'number') return d;
   const b = store.getRun(e.runId)?.meta?.blame;
   return b && b.callNo === d.callNo && b.range ? { ...d, range: b.range } : d;
 }
 
-function storedItem(store: Store, e: StoredEvent): ActivityItem {
+function storedItem(store: StoreOf<'recording'>, e: StoredEvent): ActivityItem {
   const describe = EVENT_TEXT.get(e.kind);
   let t: EventText;
   try {
@@ -501,7 +501,7 @@ function inBursts<T>(items: T[], key: (item: T) => string, at: (item: T) => numb
  * "Imported litellm.jsonl · 3 runs · 40 model calls". An event that lists its runs (`runIds`) is an
  * import of its own.
  */
-function importStubs(store: Store, events: StoredEvent[]): Stub[] {
+function importStubs(store: StoreOf<'recording'>, events: StoredEvent[]): Stub[] {
   const key = (e: StoredEvent) => (Array.isArray(e.data?.runIds) ? `event:${e.eventId}` : `${e.actor ?? ''}\n${str(e.data?.from) ?? e.ref ?? ''}\n${str(e.data?.format) ?? ''}`);
   return inBursts(events, key, (e) => e.at, (e) => e.eventId).map((group) => {
     // The entry takes the newest event's place in the feed: when the import ended.

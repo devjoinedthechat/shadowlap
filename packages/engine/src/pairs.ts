@@ -9,7 +9,7 @@ import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import { isModelRequest } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
@@ -706,7 +706,7 @@ const scopeList = (scopes: Array<string | null>) => scopes.map((s) => (s === nul
  * (or of a run it came from) was limited to. When none was, every model call is the agent's if they
  * were all made in one scope; when they were made in several, nothing says which is the agent's.
  */
-function agentScope(r: Reader, store: Store, byId: Map<string, RunRecord>, recordings: string[], attempts: RunRecord[]): { scope: string | null } | { several: Array<string | null> } {
+function agentScope(r: Reader, store: StoreOf<'recording'>, byId: Map<string, RunRecord>, recordings: string[], attempts: RunRecord[]): { scope: string | null } | { several: Array<string | null> } {
   for (const id of recordings) {
     let run = byId.get(id) ?? store.getRun(id);
     for (let depth = 0; run && depth < 100; depth++) {
@@ -731,7 +731,7 @@ const memo = new WeakMap<Store, { signature: string; result: PairsResult }>();
  * groups). A run still recording is never read for pairs (blame, verify and --repeat read only
  * attempts that ended), so the calls it records change nothing until it ends, and its status says so.
  */
-function signature(store: Store, runs: readonly RunRecord[]): string {
+function signature(store: StoreOf<'readModels'>, runs: readonly RunRecord[]): string {
   const h = createHash('sha256');
   for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}\n`);
   // A repair keeps its report once its candidates are verified: the verifies are named after them then.
@@ -745,7 +745,7 @@ const REPORTS_SQL = 'SELECT (SELECT COUNT(*) FROM verdicts) AS verdicts, (SELECT
  * The repair candidate each verify attempt checked, by the attempt's run: what the verdicts and the
  * repair reports in the store say, as Fixes names the same verifies ("repair candidate 3").
  */
-function candidateAttempts(store: Store): Map<string, number> {
+function candidateAttempts(store: StoreOf<'fixes'>): Map<string, number> {
   const out = new Map<string, number>();
   const note = (runs: ReadonlyArray<{ attempts: ReadonlyArray<{ runId: string }> }>, candidate: number) => {
     for (const x of runs) for (const a of x.attempts) if (!out.has(a.runId)) out.set(a.runId, candidate);
@@ -1072,7 +1072,7 @@ function answerMessage(answer: PairAnswer, rules: ReturnType<typeof pathRules>):
  * neutral messages `export dataset` writes, and the two answers. Rows whose request can't be read
  * are left out.
  */
-export function pairRows(store: Store, pairs: readonly Pair[], options: PairRowsOptions): unknown[] {
+export function pairRows(store: StoreOf<'recording'>, pairs: readonly Pair[], options: PairRowsOptions): unknown[] {
   const rules = options.redact ?? [];
   const paths = pathRules(rules);
   const pathless = rules.filter((x) => x.path === undefined && x.pattern !== undefined).map((x) => ({ re: compilePattern(x.pattern!), replace: x.replace }));

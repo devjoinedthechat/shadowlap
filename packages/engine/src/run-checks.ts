@@ -1,5 +1,5 @@
 import { resolve, sep } from 'node:path';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { RunRecord } from './types.js';
 
 /**
@@ -13,7 +13,7 @@ import type { RunRecord } from './types.js';
  * `shadowlap test` replayed (`meta.test.golden`, relative to the project) and the pack it was
  * unpacked from (`meta.imported.from`).
  */
-export function recordingsOfRun(store: Store, run: RunRecord): string[] {
+export function recordingsOfRun(store: StoreOf<'recording'>, run: RunRecord): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (let r: RunRecord | null = run; r && !seen.has(r.runId); r = r.parentRunId ? store.getRun(r.parentRunId) : null) {

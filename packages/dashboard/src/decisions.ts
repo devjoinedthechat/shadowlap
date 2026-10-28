@@ -1,4 +1,4 @@
-import { commandIsImported, goldensNeedingConsent, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type Store } from '@shadowlap/engine';
+import { commandIsImported, goldensNeedingConsent, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { jobConsent, type JobConsent } from './consent.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
@@ -74,7 +74,7 @@ export interface RetirementsView {
  * ranked most consequential, at the call of that change, as Needs a look opens a preview; Runs for a
  * session that kept no run.
  */
-function sessionHref(store: Store, sessionId: string): string {
+function sessionHref(store: StoreOf<'readModels'>, sessionId: string): string {
   const top = store.query(`SELECT run_id AS id, data FROM decision_runs WHERE session_id = ? ORDER BY rank IS NULL, rank, position LIMIT 1`, sessionId)[0];
   if (!top) return links.runs();
   return runHref(String(top.id), top.data);
@@ -93,7 +93,7 @@ function runHref(runId: string, data: unknown): string {
   return links.run(runId, ranked?.callNo ?? null);
 }
 
-export function decisionSessions(store: Store, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
+export function decisionSessions(store: StoreOf<'readModels' | 'decisions'>, o: { limit?: number; kind?: 'decisions' | 'migrate' } = {}): DecisionSessionView[] {
   return store.listDecisionSessions(o).map((s) => ({ ...s, href: sessionHref(store, s.sessionId) }));
 }
 
@@ -110,7 +110,7 @@ export function decisionRow(run: DecisionRun): DecisionRow {
  * report `migrate --json` printed, its decisions' runs filled in from their rows; with the matrix
  * the page draws (one row per run, one cell per model call). Null for an id the store doesn't have.
  */
-export function decisionSession(store: Store, sessionId: string): (Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: DecisionRow[] }) | null {
+export function decisionSession(store: StoreOf<'decisions'>, sessionId: string): (Record<string, unknown> & { kind: 'decisions' | 'migrate'; matrix: DecisionRow[] }) | null {
   if (!/^(dc|mg)-[0-9A-Z]{26}$/.test(sessionId)) return null;
   const s = store.getDecisionSession(sessionId);
   if (!s) return null;
@@ -124,7 +124,7 @@ export function decisionSession(store: Store, sessionId: string): (Record<string
 }
 
 /** A run's decisions under each session that asked its model calls again, newest first, for its page's Decisions view. */
-export function runDecisions(store: Store, runId: string, limit = 10): { runId: string; sessions: Array<{ sessionId: string; kind: 'decisions' | 'migrate'; at: number; change: string; rank: number | null; changed: number; href: string; row: DecisionRow; run: DecisionRun }> } {
+export function runDecisions(store: StoreOf<'decisions'>, runId: string, limit = 10): { runId: string; sessions: Array<{ sessionId: string; kind: 'decisions' | 'migrate'; at: number; change: string; rank: number | null; changed: number; href: string; row: DecisionRow; run: DecisionRun }> } {
   return {
     runId,
     sessions: store.decisionsOfRun(runId, limit).map((r) => {
@@ -139,7 +139,7 @@ export function runDecisions(store: Store, runId: string, limit = 10): { runId: 
  * Shadowlap: each with the goldens that use it, the soonest first. A golden not in the store yet
  * (never tested here) can't be read, and is left out.
  */
-export function retirementsView(store: Store, goldens: readonly GoldenSource[], now = Date.now()): RetirementsView {
+export function retirementsView(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], now = Date.now()): RetirementsView {
   const byModel = new Map<string, RetirementNotice & { goldens: string[] }>();
   for (const g of goldens) {
     if (!g.runId || !store.getRun(g.runId)) continue;
@@ -187,7 +187,7 @@ function setArgs(raw: unknown): string[] | { error: string } {
 }
 
 /** The runs and goldens a request names: run ids from the store, goldens from the project's list. */
-function targetArgs(store: Store, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[]; byId: string[]; packs: string[] } | { error: string; status?: number } {
+function targetArgs(store: StoreOf<'recording'>, req: JobRequest, goldens: readonly GoldenSource[]): { args: string[]; runIds: string[]; byId: string[]; packs: string[] } | { error: string; status?: number } {
   const args: string[] = [];
   const runIds: string[] = [];
   // Runs named by id, and goldens by their pack folder: each asks for a yes as a test asks of it.
@@ -241,7 +241,7 @@ function scopeArgs(raw: unknown): string[] | { error: string } {
  * under the change and 3 times as recorded, the control, six requests a step. `samples` given is
  * passed on whatever it is, 1 too, which asks once and has no control.
  */
-export function decisionsJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+export function decisionsJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   const targets = targetArgs(store, req, goldens);
   if ('error' in targets) return targets;
   if (req.model !== undefined && (typeof req.model !== 'string' || !MODEL.test(req.model))) return { error: 'model is a model name, such as claude-sonnet-5-5' };
@@ -272,7 +272,7 @@ export function decisionsJob(req: JobRequest, store: Store, goldens: readonly Go
 }
 
 /** `shadowlap migrate` as a job: `{ to, goldens?, runs?, from?, scope?, set?, yes? }`; every golden when none are named. */
-export function migrateJob(req: JobRequest, store: Store, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
+export function migrateJob(req: JobRequest, store: StoreOf<'recording'>, goldens: readonly GoldenSource[], projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.to !== 'string' || !MODEL.test(req.to)) return { error: 'to is the model to switch to, such as claude-sonnet-5-5' };
   const named = req.goldens !== undefined || req.runs !== undefined;
   const targets = named ? targetArgs(store, req, goldens) : targetArgs(store, { goldens: 'all' }, goldens);
@@ -295,7 +295,7 @@ export function migrateJob(req: JobRequest, store: Store, goldens: readonly Gold
  * checks, in the role its recording plays under them, with the session's change, and keeps what it
  * finds in the session.
  */
-export function verifyFlaggedJob(req: JobRequest, store: Store, projectDir: string = process.cwd()): JobBuildResult {
+export function verifyFlaggedJob(req: JobRequest, store: StoreOf<'recording' | 'decisions'>, projectDir: string = process.cwd()): JobBuildResult {
   if (typeof req.sessionId !== 'string') return { error: 'sessionId is required' };
   const session = decisionSession(store, req.sessionId);
   if (!session) return { error: `no session ${req.sessionId.slice(0, 40)}`, status: 404 };
@@ -333,7 +333,7 @@ export const commandLine = (args: readonly string[]) => quoteArgv(['shadowlap', 
  * this machine didn't record (goldensNeedingConsent), as `shadowlap test` asks of one. The CLI gets
  * `--yes` only once that question was asked and answered (JobConsent).
  */
-function commandConsent(store: Store, runIds: readonly string[], packs: readonly string[], projectDir: string, yes: unknown): JobConsent {
+function commandConsent(store: StoreOf<'recording'>, runIds: readonly string[], packs: readonly string[], projectDir: string, yes: unknown): JobConsent {
   const imported = runIds.map((id) => store.getRun(id)).filter((r): r is NonNullable<typeof r> => r !== null && commandIsImported(r));
   const sent = packs.length ? goldensNeedingConsent(store, packs, projectDir) : [];
   const named = [

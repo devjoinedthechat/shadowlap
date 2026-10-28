@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { parseChaosFields } from './chaos-config.js';
 
 /**
@@ -1179,7 +1179,7 @@ export function judgeSource(j: JudgeOutcome): string | null {
  * The input checks read from a run in the store: its calls in order, each tool call's arguments
  * and result (read once each), the last model response, and each model call's cost under `prices`.
  */
-export function storedCheckInput(store: Store, calls: CallRecord[], output: string, prices?: Record<string, Price>): CheckInput {
+export function storedCheckInput(store: StoreOf<'recording'>, calls: CallRecord[], output: string, prices?: Record<string, Price>): CheckInput {
   return {
     calls,
     output,
@@ -1190,7 +1190,7 @@ export function storedCheckInput(store: Store, calls: CallRecord[], output: stri
 }
 
 /** How to read a run's tool calls in the store: each call's recorded arguments and result, read once each. */
-export function storedCalls(store: Store): Pick<CheckInput, 'argsOf' | 'resultOf'> {
+export function storedCalls(store: StoreOf<'recording'>): Pick<CheckInput, 'argsOf' | 'resultOf'> {
   const args = new Map<string, unknown>();
   const results = new Map<string, unknown>();
   const read = <T>(ref: string | null | undefined, pick: (doc: T) => unknown): unknown => {

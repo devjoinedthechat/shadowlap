@@ -1,4 +1,4 @@
-import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type Store, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { addPair, attemptsToPass, BASELINE_DEFAULTS, unavailableStop, decideAgainstHistoryAround, decidePairedAround, decideVerify, dropEndsRisk, footprintOf, gateHistory, gateResult, gateVerdict, historyDrop, KEPT_DEFAULTS, keptVerdict, NO_PAIRS, outcomeOf, pairedDrop, pairsOf, recordingsOfRun, runVerdict, sameModel, SPRT_DEFAULTS, rateBound, type BaselineRule, type GateHistory, type PairCounts, type SprtGate, type StoreOf, type VerifiedRun, type VerifyAttempt, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, formatBudget, type Attempt, type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { describeAttempt } from './blame.js';
@@ -73,7 +73,7 @@ export interface VerifyInput {
 const ROLE: Record<VerifyRole, string> = { target: 'target', holdout: 'held-out', good: 'good' };
 
 /** A good run's golden, as `shadowlap test` names it in its history: the one it was replayed from, or the pack it came from. */
-function goldenOf(store: Store, run: AttemptTarget['parent'], cwd: string): string | null {
+function goldenOf(store: StoreOf<'recording'>, run: AttemptTarget['parent'], cwd: string): string | null {
   const dir = recordingsOfRun(store, run)[0];
   return dir ? goldenName(dir, cwd) : null;
 }

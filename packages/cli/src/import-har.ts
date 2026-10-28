@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -102,6 +102,6 @@ export function readHar(har: unknown): Captured {
 }
 
 /** Reads a HAR and imports it as one run. */
-export function importHar(store: Store, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
+export function importHar(store: StoreOf<'recording'>, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
   return importCaptured(store, readHar(source), opts);
 }

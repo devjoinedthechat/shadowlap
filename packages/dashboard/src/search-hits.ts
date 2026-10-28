@@ -1,4 +1,4 @@
-import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type Store } from '@shadowlap/engine';
+import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type Store, type StoreOf } from '@shadowlap/engine';
 import { serverIdle } from './idle.js';
 import { keepingIndex, loadRunIndex, type RunIndex } from './run-index.js';
 
@@ -70,7 +70,7 @@ WHERE search_docs MATCH ? AND search_docs.rowid IN (
 )
 ORDER BY rank`;
 
-function hits(store: Store, sql: string, match: string, runs: readonly string[], limit: number, attemptOf: (runId: string) => string | null): RecordedHit[] {
+function hits(store: StoreOf<'readModels'>, sql: string, match: string, runs: readonly string[], limit: number, attemptOf: (runId: string) => string | null): RecordedHit[] {
   const out: RecordedHit[] = [];
   for (const row of store.query(sql, match, match, JSON.stringify(runs), PER_RUN, limit)) {
     // A run or a call gone since the index was brought up to date is left out, as the engine's search does.

@@ -2,7 +2,7 @@ import { countAttempts, isAttempt as isAttemptRun } from '../run-roles.js';
 import { hasRecordedCommand } from '../pack.js';
 import type { Price } from '../prices.js';
 import { summarizeRun } from '../report.js';
-import type { Store, StoredEvent } from '../store.js';
+import type { StoreOf, StoredEvent } from '../store.js';
 import type { Effect, RunRecord, RunStatus } from '../types.js';
 import type { ModelServer } from './record.js';
 
@@ -281,7 +281,7 @@ export interface RunTotals {
   durationMs: number | null;
 }
 
-export function runTotals(store: Store, runId: string, prices?: Record<string, Price>): RunTotals | null {
+export function runTotals(store: StoreOf<'recording'>, runId: string, prices?: Record<string, Price>): RunTotals | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const summary = summarizeRun(run, store.getCalls(runId), [], [], prices ? { prices } : {});

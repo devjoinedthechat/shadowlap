@@ -1,4 +1,4 @@
-import { cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, quoteArgv, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, quoteArgv, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type StoreOf, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { jobConsent } from './consent.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
@@ -103,7 +103,7 @@ function row(r: StoredInjectionResult): InjectionRow {
 }
 
 /** The results kept, newest first: of one run tested, one golden, or all. */
-export function injectionResults(store: Store, o: { runId?: string; golden?: string; limit?: number } = {}): { results: InjectionRow[] } {
+export function injectionResults(store: StoreOf<'injection'>, o: { runId?: string; golden?: string; limit?: number } = {}): { results: InjectionRow[] } {
   return { results: store.listInjectionResults(o).map(row) };
 }
 
@@ -111,7 +111,7 @@ export function injectionResults(store: Store, o: { runId?: string; golden?: str
  * One result as `--json` printed it, with its row, and the runs it names that are no longer in the
  * store (gc took them): a cell whose attempt is gone can't open it.
  */
-export function injectionResult(store: Store, resultId: string): { row: InjectionRow; report: InjectionReport; gone: string[] } | null {
+export function injectionResult(store: StoreOf<'recording' | 'injection'>, resultId: string): { row: InjectionRow; report: InjectionReport; gone: string[] } | null {
   const r = store.getInjectionResult(resultId);
   if (!r) return null;
   const report = r.data as unknown as InjectionReport;
@@ -126,7 +126,7 @@ export function injectionResult(store: Store, resultId: string): { row: Injectio
  * the line that joins them. The planted text itself is in the run's interventions
  * (`--inject-result`), as for any planted replay.
  */
-export function runInjection(store: Store, runId: string, tools?: ToolTrust): { untrusted: Array<{ callNo: number; name: string; from: TrustSource }>; results: InjectionRow[]; attempt: (InjectionMark & { line: string | null; proof: string | null }) | null } {
+export function runInjection(store: StoreOf<'recording' | 'injection'>, runId: string, tools?: ToolTrust): { untrusted: Array<{ callNo: number; name: string; from: TrustSource }>; results: InjectionRow[]; attempt: (InjectionMark & { line: string | null; proof: string | null }) | null } {
   const run = store.getRun(runId);
   const mark = run?.meta?.injection ?? null;
   const of = mark ? store.getInjectionResult(mark.result) : null;
@@ -139,7 +139,7 @@ export function runInjection(store: Store, runId: string, tools?: ToolTrust): { 
  * Needs a look: the newest result of each run or golden whose attempts obeyed (or were influenced),
  * or whose test showed too little to say (inconclusive), as one line each.
  */
-export function injectionNeedsLook(store: Store, limit = 20): Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' | 'inconclusive' }> {
+export function injectionNeedsLook(store: StoreOf<'injection'>, limit = 20): Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' | 'inconclusive' }> {
   const seen = new Set<string>();
   const out: Array<{ resultId: string; runId: string; golden: string | null; text: string; href: string; severity: 'obeyed' | 'influenced' | 'inconclusive' }> = [];
   for (const r of store.listInjectionResults({ limit: 500 })) {
@@ -169,7 +169,7 @@ export interface ToolTrustRow {
  * were recorded with (the recording machine's config, the SDK's `trust`, an MCP server's
  * openWorldHint; untrusted wins when they differ), else trusted.
  */
-export function toolTrust(store: Store, tools: ToolTrust | undefined): { tools: ToolTrustRow[] } {
+export function toolTrust(store: StoreOf<'readModels'>, tools: ToolTrust | undefined): { tools: ToolTrustRow[] } {
   const rows = store.query(
     `SELECT name, COUNT(*) AS calls,
        MAX(CASE WHEN json_extract(meta, '$.trust') = 'untrusted' THEN 1 ELSE 0 END) AS untrusted,

@@ -1,4 +1,4 @@
-import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type Store, type StoredCheck } from '@shadowlap/engine';
+import { addPair, agentCallsOf, attemptsToPass, BLAME_DEFAULTS, canonicalize, checkStatus, decideCountUnavailable, decideUnavailable, endedEarlyCount, formatDivergence, formatDuration, formatUsd, gateResult, maxProbes, NO_PAIRS, normalizeResponse, pinRisk, pinRule, pinWords, probeFinding, probeGate, probeRisk, probeTally, searchBlame, unsettledFirst, decidePin, type BlameAttempt, type BlameProbe, type BlameReport, type PinCheck, type Block, type CallRecord, type FixStatus, type GateDecision, type RunRecord, type SprtGate, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptSettings } from './attempts.js';
 import { recordBlameFix } from './fixes.js';
@@ -540,7 +540,7 @@ export function metFailedWrite(calls: readonly CallRecord[], forkedAt: number, f
 }
 
 /** A model call's response as blocks (text, tool calls, reasoning), whatever the provider. */
-export function responseBlocks(store: Store, call: CallRecord | undefined): Block[] {
+export function responseBlocks(store: StoreOf<'recording'>, call: CallRecord | undefined): Block[] {
   const end = call?.end;
   if (!end?.responseRef) return [];
   try {

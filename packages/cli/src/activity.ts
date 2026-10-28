@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { ciProvider, recordEvent, resolveAuthor, Store, type RecordEventInput, type RunMeta } from '@shadowlap/engine';
+import { ciProvider, recordEvent, resolveAuthor, Store, type StoreOf, type RecordEventInput, type RunMeta } from '@shadowlap/engine';
 import { defaultDbPath } from './config.js';
 import type { GlobalOpts } from './shared.js';
 
@@ -27,7 +27,7 @@ export function newRunMeta(): Partial<RunMeta> {
 }
 
 /** Marks a run with who made it. Never throws: a run without an author is still a run. */
-export function stampAuthor(store: Store, runId: string): void {
+export function stampAuthor(store: StoreOf<'recording'>, runId: string): void {
   const meta = newRunMeta();
   if (!Object.keys(meta).length) return;
   try {
@@ -38,7 +38,7 @@ export function stampAuthor(store: Store, runId: string): void {
 }
 
 /** Records an activity event in a store the command has open, as the person running it. Never throws. */
-export function logActivity(store: Store, input: Omit<RecordEventInput, 'actor'>): void {
+export function logActivity(store: StoreOf<'activity'>, input: Omit<RecordEventInput, 'actor'>): void {
   recordEvent(store, { ...input, actor: currentAuthor() });
 }
 

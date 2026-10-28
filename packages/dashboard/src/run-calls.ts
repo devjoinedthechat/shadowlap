@@ -1,4 +1,4 @@
-import type { CallRecord, Store } from '@shadowlap/engine';
+import type { CallRecord, Store, StoreOf } from '@shadowlap/engine';
 
 /**
  * A run's calls as the store holds them now, read once and kept while they stay the same: the run
@@ -33,7 +33,7 @@ const KEEP = 4;
 
 const kept = new WeakMap<Store, Map<string, Kept>>();
 
-function ownStamp(store: Store, runId: string): Stamp {
+function ownStamp(store: StoreOf<'readModels'>, runId: string): Stamp {
   const row = store.query(`SELECT MAX(rowid) AS m, COUNT(*) AS n FROM call_events WHERE run_id = ?`, runId)[0];
   return { last: Number(row?.m ?? 0), events: Number(row?.n ?? 0) };
 }
@@ -45,7 +45,7 @@ const sameStamp = (a: Stamp, b: Stamp) => a.last === b.last && a.events === b.ev
  * of them on, read again, after the calls before them as they were. Null when the run lost events
  * instead (calls deleted): it is read whole.
  */
-function grown(store: Store, runId: string, had: Kept, now: Stamp): CallRecord[] | null {
+function grown(store: StoreOf<'recording' | 'readModels'>, runId: string, had: Kept, now: Stamp): CallRecord[] | null {
   if (now.events <= had.own.events || now.last <= had.own.last) return null;
   // Events are numbered as they are written: the run's new ones come after the newest read before.
   // Looked up by that number (`+run_id` keeps SQLite on it), so the cost is what was written since.

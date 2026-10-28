@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { append, headerMap, importCaptured, type Captured, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -146,6 +146,6 @@ export function readLitellmGroups(contents: string): LitellmGroup[] {
 }
 
 /** Reads a capture file and imports one run per correlation id. */
-export function importLitellm(store: Store, contents: string, opts: { source: string; cwd?: string }): Array<ImportResult & { key: string | null }> {
+export function importLitellm(store: StoreOf<'recording'>, contents: string, opts: { source: string; cwd?: string }): Array<ImportResult & { key: string | null }> {
   return readLitellmGroups(contents).map((group) => ({ key: group.key, ...importCaptured(store, group, opts) }));
 }

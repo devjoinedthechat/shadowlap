@@ -1,5 +1,5 @@
 import { Lru } from './conversations.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import type { CallRecord, RunRecord } from './types.js';
 
 /**
@@ -26,7 +26,7 @@ function timingOf(c: CallRecord): Timing {
 class Ancestry {
   private readonly runs = new Map<string, RunRecord | null>();
   private readonly timings = new Map<string, Map<number, Timing>>();
-  constructor(private readonly store: Store) {}
+  constructor(private readonly store: StoreOf<'recording'>) {}
   run(runId: string): RunRecord | null {
     if (!this.runs.has(runId)) this.runs.set(runId, this.store.getRun(runId));
     return this.runs.get(runId)!;
@@ -73,7 +73,7 @@ function durations(a: Ancestry, run: RunRecord, calls: readonly CallRecord[], fo
  * How long the recording waited for each of a run's replayed calls, by call number. A replayed call
  * whose recording is gone (deleted, or a pack's run whose parent was not packed) has no entry.
  */
-export function recordedDurations(store: Store, run: RunRecord, calls?: readonly CallRecord[]): Map<number, number> {
+export function recordedDurations(store: StoreOf<'recording'>, run: RunRecord, calls?: readonly CallRecord[]): Map<number, number> {
   return durations(new Ancestry(store), run, calls ?? store.getCalls(run.runId));
 }
 

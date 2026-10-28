@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { links, liveKeys } from '@shadowlap/dashboard';
-import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
+import { ciProvider, ConfigConflictError, ConfigFileError, editConfigFile, recordEvent, repairMarkdown, resolveAuthor, safeText, Store, type StoreOf, teamRunCounts, ulid, type RunRecord } from '@shadowlap/engine';
 import {
   accessPolicy,
   checkStore,
@@ -441,7 +441,7 @@ export interface StoreStatus {
   check: LastCheck | null;
 }
 
-export function storeStatus(store: Store, loc: StoreLocation, value: string): StoreStatus {
+export function storeStatus(store: StoreOf<'recording' | 'readModels' | 'team'>, loc: StoreLocation, value: string): StoreStatus {
   const key = storeKey(loc);
   const sync = store.teamSync(key);
   const counts = teamRunCounts(store, key, 0);
@@ -488,7 +488,7 @@ export function storeShow(t: TeamEnv, flags: { json?: boolean } = {}): number {
 
 // ---------------------------------------------------------------------------------------------- push, pull, share
 
-function runList(store: Store, args: string[]): string[] {
+function runList(store: StoreOf<'recording'>, args: string[]): string[] {
   return args.map((arg) => {
     const run = store.findRun(arg);
     if (!run) throw new TeamError(`no run matches "${arg}" (see: shadowlap ls)`);
@@ -501,7 +501,7 @@ function runList(store: Store, args: string[]): string[] {
  * attempts), told apart as the Runs page tells them: a push or a pull says how many runs it moved,
  * with their attempts, so its numbers read like every screen's.
  */
-function byRun(store: Store, ids: readonly string[]): { runs: number; attempts: number } {
+function byRun(store: StoreOf<'recording'>, ids: readonly string[]): { runs: number; attempts: number } {
   let attempts = 0;
   for (const id of ids) {
     const run = store.getRun(id);
@@ -517,7 +517,7 @@ function runsAnd(n: { runs: number; attempts: number }): string {
 }
 
 /** The runs a pull brought, their attempts counted apart, and the runs by who made them. */
-function pulledRuns(store: Store, ids: readonly string[]): { runs: string[]; attempts: number; byAuthor: Record<string, number> } {
+function pulledRuns(store: StoreOf<'recording'>, ids: readonly string[]): { runs: string[]; attempts: number; byAuthor: Record<string, number> } {
   const runs: string[] = [];
   const byAuthor: Record<string, number> = {};
   let attempts = 0;
@@ -536,7 +536,7 @@ function pulledRuns(store: Store, ids: readonly string[]): { runs: string[]; att
 }
 
 /** Runs only on this machine, and in the store, by run: what store show, push and pull say. */
-function runCounts(store: Store, loc: StoreLocation): { inStore: number; onlyLocal: number } {
+function runCounts(store: StoreOf<'recording' | 'readModels'>, loc: StoreLocation): { inStore: number; onlyLocal: number } {
   const c = teamRunCounts(store, storeKey(loc), 0);
   return { inStore: c.inStore, onlyLocal: c.onlyLocal };
 }
@@ -612,7 +612,7 @@ export async function teamPush(t: TeamEnv, runArgs: string[], flags: { all?: boo
 type Moved = Record<'pushed' | 'updated' | 'unchanged' | 'queued', { runs: number; attempts: number }>;
 
 /** What a push moved, by run: the attempts filed under runs are counted apart, as every screen counts them. */
-function movedByRun(store: Store, result: PushResult): Moved {
+function movedByRun(store: StoreOf<'recording'>, result: PushResult): Moved {
   return { pushed: byRun(store, result.pushed), updated: byRun(store, result.updated), unchanged: byRun(store, result.unchanged), queued: byRun(store, result.queued) };
 }
 
@@ -751,7 +751,7 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
  * already. The recordings a repair made of the fixed runs (its goldens) aren't among them: a golden
  * runs the command it recorded when it is tested, so it comes from the repository, never the store.
  */
-function writeRepairFiles(t: TeamEnv, store: Store, repairIds: readonly string[]): string[] {
+function writeRepairFiles(t: TeamEnv, store: StoreOf<'fixes'>, repairIds: readonly string[]): string[] {
   const written: string[] = [];
   for (const id of repairIds) {
     const r = store.getRepair(id);

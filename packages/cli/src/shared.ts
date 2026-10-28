@@ -2,7 +2,7 @@ import { existsSync, statSync } from 'node:fs';
 import { dirname, relative } from 'node:path';
 import { createRequire } from 'node:module';
 import { InvalidArgumentError } from 'commander';
-import { formatDivergence, formatSummary, formatTokens, importedCommandSource, pulledRun, recordEvent, resolveAuthor, shortModel, Store, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
+import { formatDivergence, formatSummary, formatTokens, importedCommandSource, pulledRun, recordEvent, resolveAuthor, shortModel, Store, type StoreOf, summarizeRun, wholeInput, type CallRecord, type RecordEventInput, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { defaultDbPath } from './config.js';
 import { usageError } from './exit-codes.js';
@@ -180,7 +180,7 @@ export function requireRun(store: Store, idOrPrefix: string): RunRecord {
  * recording part way. A run its process left marked running counts as ended: nothing will add to it.
  * `lineage` is the runs the copy holds besides `run` (ancestorsOf).
  */
-export function stillRecording(store: Store, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): string | null {
+export function stillRecording(store: StoreOf<'recording'>, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): string | null {
   const short = (r: RunRecord) => r.runId.slice(0, 10);
   const all = [run, ...lineage];
   if (!all.some((r) => r.status === 'running')) return null;
@@ -191,7 +191,7 @@ export function stillRecording(store: Store, run: RunRecord, verb: string, linea
 }
 
 /** Refuses to copy or replay a run still recording, as the dashboard's Share, Replay and Fork do (stillRecording). */
-export function requireEnded(store: Store, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): void {
+export function requireEnded(store: StoreOf<'recording'>, run: RunRecord, verb: string, lineage: readonly RunRecord[] = []): void {
   const why = stillRecording(store, run, verb, lineage);
   if (why) throw usageError(why);
 }
@@ -205,7 +205,7 @@ export function unredacted(configured: number, holds: string): string {
 }
 
 /** The runs a run was forked from, its recording first: what `--lineage` adds to a copy of it. */
-export function ancestorsOf(store: Store, run: RunRecord): RunRecord[] {
+export function ancestorsOf(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
   const out: RunRecord[] = [];
   let parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   while (parent && out.length < 64 && !out.some((r) => r.runId === parent!.runId)) {
@@ -258,12 +258,12 @@ export function statusWord(status: RunStatus, left = false): string {
 }
 
 /** The runs whose recorder went away while they were marked running, when any of `runs` is: they read as interrupted. */
-export function leftRunning(store: Store, runs: readonly Pick<RunRecord, 'status'>[]): ReadonlySet<string> {
+export function leftRunning(store: StoreOf<'recording'>, runs: readonly Pick<RunRecord, 'status'>[]): ReadonlySet<string> {
   if (!runs.some((r) => r.status === 'running')) return new Set();
   return new Set(store.recordingRuns().abandoned.map((a) => a.run.runId));
 }
 
-export function describeCall(store: Store, c: CallRecord): string[] {
+export function describeCall(store: StoreOf<'recording'>, c: CallRecord): string[] {
   const end = c.end;
   const outcome = end ? (end.outcome === 'ok' ? p.green('ok') : p.red(end.meta.status ? `error ${end.meta.status}` : 'error')) : p.yellow('pending');
   // An injected failure is stored as live, because it did not come from the recording — but it did

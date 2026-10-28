@@ -1,4 +1,4 @@
-import type { Normalizer, Store } from '@shadowlap/engine';
+import type { Normalizer, StoreOf } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { liveChaosSession } from '../chaos.js';
 import { ciWorkflows, fixPreview, gitFacts, goldenProviders, parseCiOptions } from '../ci-workflows.js';
@@ -84,7 +84,7 @@ export function testsBusy(jobs: ReadonlyArray<{ kind: string; args?: readonly st
  * replay their packs too. The store keeps each session's process, so one whose process was killed
  * holds nothing up.
  */
-export function sessionBusy(store: Store, verb: string): string | null {
+export function sessionBusy(store: StoreOf<'tests' | 'chaos'>, verb: string): string | null {
   const live = liveTestSession(store) ?? liveChaosSession(store);
   if (!live) return null;
   const command = live.command.join(' ');
@@ -136,7 +136,7 @@ export function register(router: Router, ctx: RouteContext): void {
     }
   };
   // Another job replaying or rewriting the goldens, then a session from a terminal: the job is named first.
-  const busy = (store: Store, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
+  const busy = (store: StoreOf<'tests' | 'chaos'>, projectId: string | null, verb: string) => testsBusy(ctx.jobs.list(), projectId, verb) ?? sessionBusy(store, verb);
 
   router.get('/tests', async (r) => {
     r.tagged(await rangesInCheckout(testsView(ctx.store, goldens(), { folder: FOLDER, normalizers: normalizers() }), ctx.project?.path));

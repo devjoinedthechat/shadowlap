@@ -10,7 +10,7 @@ import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
 import { PatternBudgetError, patternProblem, regexProblem, withinPatternBudget } from './safe-regex.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import type { CallRecord, Effect, RunRecord } from './types.js';
 
 /**
@@ -96,7 +96,7 @@ function outcomeOf(store: Store, run: Pick<RunRecord, 'status'>, api: readonly C
 }
 
 /** A model call's stop reason as its response says it, for a call recorded without one in its metadata. */
-function stopReasonOf(store: Store, call: CallRecord): string | null {
+function stopReasonOf(store: StoreOf<'recording'>, call: CallRecord): string | null {
   const end = call.end;
   if (!end?.responseRef) return null;
   try {
@@ -132,7 +132,7 @@ export function sharedSteps(a: readonly string[], b: readonly string[]): number 
  * a golden's own calls) filling in, and what a run being read records winning for that run. A tool
  * recorded under several effects takes the one that does the most: a write over a read over pure.
  */
-export function storeEffects(store: Store, extra: ReadonlyMap<string, Effect> = new Map()): Map<string, Effect> {
+export function storeEffects(store: StoreOf<'readModels'>, extra: ReadonlyMap<string, Effect> = new Map()): Map<string, Effect> {
   const known = new Map<string, Effect>(extra);
   for (const t of store.toolUsage()) if (t.effect) known.set(t.name, strongest(known.get(t.name), t.effect));
   return known;
@@ -271,7 +271,7 @@ export interface InferredCommand {
  * which someone else chose, nor a capture's, which has none). The store is read once, on the first
  * capture asked about: every run's first model call, in one pass.
  */
-export function commandFinder(store: Store): (capture: RunRecord) => InferredCommand | null {
+export function commandFinder(store: StoreOf<'recording' | 'readModels'>): (capture: RunRecord) => InferredCommand | null {
   let index: { byFingerprint: Map<string, string[]>; byRef: Map<string, string[]> } | null = null;
   const read = () => {
     // SQLite returns the other columns of the row MIN() picked: each run's first model call.
@@ -314,7 +314,7 @@ export function commandFinder(store: Store): (capture: RunRecord) => InferredCom
 }
 
 /** The command that reproduces one capture ({@link commandFinder}), or null when no run here says it. */
-export function inferCommand(store: Store, capture: RunRecord): InferredCommand | null {
+export function inferCommand(store: StoreOf<'recording' | 'readModels'>, capture: RunRecord): InferredCommand | null {
   return commandFinder(store)(capture);
 }
 
@@ -324,7 +324,7 @@ export function inferCommand(store: Store, capture: RunRecord): InferredCommand 
  * `{message}` stands for when `coverage --pack` starts the agent for a capture. Null when the run's
  * first model call holds no user text.
  */
-export function firstMessage(store: Store, runId: string): string | null {
+export function firstMessage(store: StoreOf<'recording'>, runId: string): string | null {
   const first = store.getCalls(runId).find((c) => c.kind === 'api' && c.requestRef);
   if (!first?.requestRef) return null;
   try {

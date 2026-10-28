@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { Store, StoreOf } from '@shadowlap/engine';
 import {
   accessPolicy,
   CI_PROVIDERS,
@@ -121,7 +121,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** The setup recorded for a store, as team_sync's data keeps it. */
-export function setupRecord(store: Store, key: string): SetupRecord {
+export function setupRecord(store: StoreOf<'team'>, key: string): SetupRecord {
   const raw = store.teamSync(key)?.data.setup;
   const s = isObject(raw) ? raw : {};
   return {
@@ -133,7 +133,7 @@ export function setupRecord(store: Store, key: string): SetupRecord {
 }
 
 /** Records a step of the setup of a store: merged into what was recorded before. */
-export function recordSetup(store: Store, key: string, patch: Partial<SetupRecord>): SetupRecord {
+export function recordSetup(store: StoreOf<'team'>, key: string, patch: Partial<SetupRecord>): SetupRecord {
   store.setTeamSync(key, { data: { setup: { ...setupRecord(store, key), ...patch } } });
   return setupRecord(store, key);
 }

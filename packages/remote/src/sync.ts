@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, credentialFreeArgv, credentialFreeCallName, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeArgv, credentialFreeCallName, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type StoreOf, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -145,7 +145,7 @@ export function teamRunInStore(row: TeamRunRow): boolean {
 }
 
 /** Every blob a run's calls need: what they point at, and the parts of each chunked model request. */
-export function runBlobs(store: Store, calls: readonly CallRecord[]): string[] {
+export function runBlobs(store: StoreOf<'recording'>, calls: readonly CallRecord[]): string[] {
   const out = new Set<string>();
   for (const c of calls) {
     for (const h of callRefs(c)) out.add(h);
@@ -158,7 +158,7 @@ export function runBlobs(store: Store, calls: readonly CallRecord[]): string[] {
  * The run an attempt is filed under (the run it replayed), as the Runs page files it, or null for
  * a run that is no attempt. The fork blame rescued a run with is a probe that shows as a fork.
  */
-export function attemptOfRun(store: Store, run: RunRecord): string | null {
+export function attemptOfRun(store: StoreOf<'recording'>, run: RunRecord): string | null {
   const parent = run.parentRunId ? store.getRun(run.parentRunId) : null;
   return classifyRun(run, { rescued: parent?.meta?.blame?.rescuedRunId === run.runId }).attemptOf;
 }
@@ -182,7 +182,7 @@ export function indexEntry(run: RunRecord, calls: number, hash: string, attemptO
 }
 
 /** Gives this machine's copy of a run the synced metadata agreed with the store, when it differs. */
-function applySynced(store: Store, run: RunRecord, synced: SharedMeta): void {
+function applySynced(store: StoreOf<'recording'>, run: RunRecord, synced: SharedMeta): void {
   if (metaHash(run.meta) !== metaHash(synced)) store.updateRunMeta(run.runId, syncedPatch(synced));
 }
 
@@ -283,7 +283,7 @@ async function repairParts(ctx: SyncContext, run: RunRecord, known: Set<string>,
  * ended. An older push took an import of old captures for a run its process had left, ended it as
  * interrupted and sent what was written so far; the import then went on and finished here.
  */
-function cutShort(store: Store, run: RunRecord, row: TeamRunRow | null): boolean {
+function cutShort(store: StoreOf<'recording'>, run: RunRecord, row: TeamRunRow | null): boolean {
   const entry = row?.entry as Partial<IndexEntry> | null | undefined;
   if (run.status === 'running' || entry?.status !== 'crashed' || typeof entry.calls !== 'number') return false;
   return store.countCalls(run.runId) > entry.calls;
@@ -437,7 +437,7 @@ async function pushRun(ctx: SyncContext, run: RunRecord, known: Set<string>, tal
   return { kind, entry, index, repaired };
 }
 
-function withAncestors(store: Store, runId: string): RunRecord[] {
+function withAncestors(store: StoreOf<'recording'>, runId: string): RunRecord[] {
   const out: RunRecord[] = [];
   let run = store.getRun(runId);
   while (run && out.length < 64) {
@@ -579,7 +579,7 @@ export async function push(ctx: SyncContext, options: PushOptions): Promise<Push
 }
 
 /** Runs queued while recording that have ended since: what the next push will send. */
-export function queuedRuns(store: Store, remote: string): { ready: string[]; recording: string[] } {
+export function queuedRuns(store: StoreOf<'recording' | 'team'>, remote: string): { ready: string[]; recording: string[] } {
   const ready: string[] = [];
   const recording: string[] = [];
   for (const row of store.teamRuns(remote)) {

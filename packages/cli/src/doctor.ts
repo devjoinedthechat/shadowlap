@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, JUDGE_REQUEST_VERSION, SCHEMA_VERSION, Store, type StoreOf, judgeTarget, loadApiRequest, maskLocation, quoteArgv, retirementOf, toolDefinitions, type CallRecord, type JudgeProvider, type RunRecord } from '@shadowlap/engine';
 // Whether a process runs, as every command asks it (liveness.ts): a pid of 0 or below is none.
 import { processAlive as alive } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
@@ -278,7 +278,7 @@ export function preloadCheck(runs: readonly RunRecord[]): Check | null {
 }
 
 /** The tools a run's model was offered: in any of its requests, or in its first that names them (empty when none says). */
-function offeredTools(store: Store, calls: readonly CallRecord[], everyRequest: boolean): Set<string> {
+function offeredTools(store: StoreOf<'recording'>, calls: readonly CallRecord[], everyRequest: boolean): Set<string> {
   const offered = new Set<string>();
   for (const c of calls) {
     if (c.kind !== 'api' || !c.requestRef) continue;
@@ -536,7 +536,7 @@ function rulesAgainst(entries: readonly TestEntry[], { byKey, read }: TestPacks,
   const stores: Store[] = [];
   try {
     const held: Held[] = [];
-    const hold = (store: Store, calls: CallRecord[], everyRequest: boolean) => held.push({ calls, input: storedCalls(store), offered: offeredTools(store, calls, everyRequest) });
+    const hold = (store: StoreOf<'recording'>, calls: CallRecord[], everyRequest: boolean) => held.push({ calls, input: storedCalls(store), offered: offeredTools(store, calls, everyRequest) });
     // The packs are read already (readTestPacks); a pack that can't be read is not among them.
     for (const { run, store } of read.values()) hold(store, store.getCalls(run.runId), true);
     const packsRead = read.size;

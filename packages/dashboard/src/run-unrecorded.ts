@@ -1,4 +1,4 @@
-import { unrecordedTools, type RunRecord, type Store, type UnrecordedTool } from '@shadowlap/engine';
+import { unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
 
 /**
  * What a run did that Shadowlap did not record, read from the run itself, for its page: the tools the
@@ -21,7 +21,7 @@ export interface UnrecordedView {
 }
 
 /** The run's unrecorded tools, under the effects the project's config declares. */
-export function runUnrecorded(store: Store, run: Pick<RunRecord, 'runId' | 'meta'>, declared: Readonly<Record<string, 'read' | 'write'>> = {}): UnrecordedView {
+export function runUnrecorded(store: StoreOf<'recording'>, run: Pick<RunRecord, 'runId' | 'meta'>, declared: Readonly<Record<string, 'read' | 'write'>> = {}): UnrecordedView {
   let tools: UnrecordedTool[];
   try {
     tools = unrecordedTools(store, run.runId, { declared });

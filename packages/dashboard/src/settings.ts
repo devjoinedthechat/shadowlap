@@ -28,6 +28,7 @@ import {
   type RunAbout,
   type RunRecord,
   type Store,
+  type StoreOf,
 } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { skillOffer, type SkillOffer } from './agent-skill.js';
@@ -1329,7 +1330,7 @@ export class SettingsRefusal extends Error {
 const RUN_REF = /^[0-9A-Za-z]{1,26}$/;
 
 /** The run an id or a unique prefix names, or a refusal that says why there is none. */
-function findRun(store: Store, ref: string): RunRecord {
+function findRun(store: StoreOf<'recording'>, ref: string): RunRecord {
   if (!RUN_REF.test(ref)) throw new SettingsRefusal(400, 'name a run by its id or a unique prefix of it');
   let run: RunRecord | null;
   try {
@@ -1349,7 +1350,7 @@ function findRun(store: Store, ref: string): RunRecord {
  * offline. A replay or a fork is calibrated through the recording it came from; an import runs
  * someone else's command, or none.
  */
-export function notCalibratable(store: Store, run: RunRecord): string | null {
+export function notCalibratable(store: StoreOf<'recording'>, run: RunRecord): string | null {
   const id = shortRun(run.runId);
   if (run.mode !== 'record') return `${id} is a replay; calibrate the recording it came from${run.parentRunId ? ` (${shortRun(run.parentRunId)})` : ''}`;
   if (store.recordingRuns().live.some((r) => r.run.runId === run.runId)) return `${id} is still recording; calibrate it once it has ended`;

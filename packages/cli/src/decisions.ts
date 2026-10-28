@@ -75,6 +75,7 @@ import {
   type RunRecord,
   type SprtGate,
   type Store,
+  type StoreOf,
   type TokenCount,
   type Usage,
   type VerifyRole,
@@ -135,7 +136,7 @@ export class DecisionsError extends Error {}
  * from has (a golden `shadowlap test` replayed, the pack it was unpacked from), as a replay of it
  * finds them; none when no entry names it.
  */
-export function storeTarget(store: Store, run: RunRecord, cwd: string): DecisionTarget {
+export function storeTarget(store: StoreOf<'recording'>, run: RunRecord, cwd: string): DecisionTarget {
   const own = checksOfRun(store, run, cwd);
   if (!own) return { run, golden: null, spec: null, expect: null };
   let expect: Record<string, unknown> | null = null;
@@ -424,7 +425,7 @@ export function inScope(callScope: unknown, scope: string | null): boolean {
 }
 
 /** The models the runs' model calls were made with (the agent's: Shadowlap's own scopes left out, and other scopes than `scope`), with how many calls each: most used first. */
-export function modelUse(store: Store, targets: readonly DecisionTarget[], scope: string | null): Array<{ model: string; provider: string | null; calls: number }> {
+export function modelUse(store: StoreOf<'recording'>, targets: readonly DecisionTarget[], scope: string | null): Array<{ model: string; provider: string | null; calls: number }> {
   const use = new Map<string, { model: string; provider: string | null; calls: number }>();
   for (const t of targets) {
     for (const c of store.getCalls(t.run.runId)) {
@@ -485,7 +486,7 @@ function maskChange(c: DecisionChange, m: Mask): DecisionChange {
 }
 
 /** What the working tree sends against the recording, for the report's change. */
-function fromCodeChange(captures: Map<string, FromCodeCapture>, store: Store, planned: Planned[], version: string | null, m: Mask): FromCodeChange {
+function fromCodeChange(captures: Map<string, FromCodeCapture>, store: StoreOf<'recording'>, planned: Planned[], version: string | null, m: Mask): FromCodeChange {
   let instructions: FromCodeChange['instructions'] = null;
   const tools = { added: new Set<string>(), removed: new Set<string>(), changed: new Set<string>() };
   let calls = 0;
@@ -509,7 +510,7 @@ function fromCodeChange(captures: Map<string, FromCodeCapture>, store: Store, pl
 const FAMILY_NAMES = { claude: 'Claude', openai: 'OpenAI', gemini: 'Gemini' } as const;
 
 /** Plans the request for each recorded model call of a run: the recorded one with only the change swapped in. */
-function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, from: string[] | null, capture: FromCodeCapture | null, batchEffects: Map<string, Effect>, config: ShadowlapConfig, remedies: Remedies, env: NodeJS.ProcessEnv): Planned[] {
+function planRun(store: StoreOf<'recording'>, target: DecisionTarget, s: DecisionsSettings, from: string[] | null, capture: FromCodeCapture | null, batchEffects: Map<string, Effect>, config: ShadowlapConfig, remedies: Remedies, env: NodeJS.ProcessEnv): Planned[] {
   const calls = store.getCalls(target.run.runId);
   const runEffects = effectsOf(calls);
   // What each tool does: what the config declares today first, then the run's own calls, the other
@@ -894,7 +895,7 @@ function maskJudge(j: DecisionJudge, m: Mask): DecisionJudge {
  * that did not complete is judged by none, as the judge runtime judges none (cannotJudge): it fails
  * its checks whatever a judge says, so asking would only cost. Those runs are returned, for a note.
  */
-async function judgeTextSteps(store: Store, targets: readonly DecisionTarget[], planned: readonly Planned[], judge: TextJudge, expect: TestSpec | null, concurrency: number): Promise<{ outputJudges: string[]; incomplete: string[] }> {
+async function judgeTextSteps(store: StoreOf<'recording'>, targets: readonly DecisionTarget[], planned: readonly Planned[], judge: TextJudge, expect: TestSpec | null, concurrency: number): Promise<{ outputJudges: string[]; incomplete: string[] }> {
   const outputJudges = new Set<string>();
   const incomplete: string[] = [];
   const work: Array<() => Promise<void>> = [];
@@ -1311,7 +1312,7 @@ export function newSessionId(kind: 'decisions' | 'migrate', at: number = Date.no
  * Keeps a session in the store, its runs as rows of their own (ranked by what most samples show, as
  * the session flags them), and its activity line; its id, or null when the store can't take it.
  */
-export function keepDecisions(store: Store, report: DecisionsReport | (Record<string, unknown> & { runs: DecisionRun[]; flagged: string[]; change: { text: string }; at: number }), kind: 'decisions' | 'migrate', sessionId: string = newSessionId(kind, report.at), extra: Record<string, unknown> = {}, event = true): string | null {
+export function keepDecisions(store: StoreOf<'activity' | 'decisions'>, report: DecisionsReport | (Record<string, unknown> & { runs: DecisionRun[]; flagged: string[]; change: { text: string }; at: number }), kind: 'decisions' | 'migrate', sessionId: string = newSessionId(kind, report.at), extra: Record<string, unknown> = {}, event = true): string | null {
   const actor = resolveAuthor({ cwd: process.cwd() });
   const { runs, ...rest } = report as { runs: DecisionRun[] } & Record<string, unknown>;
   const data = { ...rest, ...extra, [kind === 'migrate' ? 'migrateId' : 'decisionsId']: sessionId };

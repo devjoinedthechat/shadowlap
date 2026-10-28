@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
+import { asTheyStand, carriesCredentials, redactRunWithDetails, Store, type StoreOf, type Normalizer, type Price, type RunRecord } from '@shadowlap/engine';
 import { callDetailFrom, compare, lineage, listRuns, runDetail, type ConversationMemo } from './api.js';
 import { forkDifferences } from './fork-differences.js';
 import { runCalls } from './run-calls.js';
@@ -225,7 +225,7 @@ export function exportHtml(opts: ExportHtmlOptions): ExportHtmlResult {
   }
 }
 
-function depth(store: Store, runId: string): number {
+function depth(store: StoreOf<'recording'>, runId: string): number {
   let n = 0;
   let run: RunRecord | null = store.getRun(runId);
   while (run?.parentRunId) {
@@ -237,7 +237,7 @@ function depth(store: Store, runId: string): number {
 }
 
 /** A run and its ancestors, oldest first, for `--lineage`. */
-export function withAncestors(store: Store, runId: string): string[] {
+export function withAncestors(store: StoreOf<'recording'>, runId: string): string[] {
   const ids: string[] = [];
   let run: RunRecord | null = store.getRun(runId);
   while (run) {

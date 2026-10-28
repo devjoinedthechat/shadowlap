@@ -3,7 +3,7 @@ import { applyFixDoc, fixDocBytes, fixDocHash, fixDocOf, fixKey, FIXES_PREFIX, i
 import { LayoutError } from './layout.js';
 import { isPrecondition, StoreError, type GetResult, type ObjectStore } from './object-store.js';
 import { storeKey } from './url.js';
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 
 /**
  * Fixes travel with the team store: every push sends the fixes that changed here, and every pull
@@ -43,7 +43,7 @@ export interface FixPullResult {
 }
 
 interface FixSyncContext {
-  store: Store;
+  store: StoreOf<'fixes' | 'team'>;
   remote: ObjectStore;
   now?: () => number;
 }

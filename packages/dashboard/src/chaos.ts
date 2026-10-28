@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type Store } from '@shadowlap/engine';
+import { CHAOS_PRESETS, isChaosPreset, parsePresets, PRESET_LABELS, presetHits, recorderGone, type ChaosResult, type ChaosResultData, type ChaosSession, type ChaosVerdict, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Error-path presets as the dashboard shows them: the results `test --chaos` and `replay --chaos`
@@ -149,14 +149,14 @@ function matrices(results: readonly ChaosResult[]): ChaosMatrix[] {
     .sort((a, b) => b.at - a.at || a.runId.localeCompare(b.runId) || (a.golden ?? '').localeCompare(b.golden ?? ''));
 }
 
-const sessionView = (store: Store, s: ChaosSession): ChaosSessionView => ({ ...s, live: chaosSessionLive(store, s) });
+const sessionView = (store: StoreOf<'chaos'>, s: ChaosSession): ChaosSessionView => ({ ...s, live: chaosSessionLive(store, s) });
 
 /**
  * Whether a session of presets that hasn't ended is running now: the process the store names for it
  * is still there (on this machine; elsewhere, it was heard from lately: its newest result, else its
  * start), as for a test session. One whose process was killed, or that names none, did not finish.
  */
-export function chaosSessionLive(store: Store, s: ChaosSession): boolean {
+export function chaosSessionLive(store: StoreOf<'chaos'>, s: ChaosSession): boolean {
   if (s.endedAt !== null) return false;
   const owner = store.chaosSessionOwner(s.sessionId);
   return owner !== null && !recorderGone(owner, store.listChaosResults({ sessionId: s.sessionId, limit: 1 })[0]?.at ?? s.startedAt);
@@ -168,7 +168,7 @@ export function chaosSessionLive(store: Store, s: ChaosSession): boolean {
  * jobs that replay or rewrite them wait, as they wait for a test session. Presets on a run (`replay
  * --chaos`) touch no golden.
  */
-export function liveChaosSession(store: Store): ChaosSession | null {
+export function liveChaosSession(store: StoreOf<'chaos'>): ChaosSession | null {
   for (const s of store.listChaosSessions({ limit: 20 })) if (s.endedAt === null && onGoldens(s) && chaosSessionLive(store, s)) return s;
   return null;
 }
@@ -177,14 +177,14 @@ export function liveChaosSession(store: Store): ChaosSession | null {
 const onGoldens = (s: ChaosSession): boolean => s.command[1] === 'test';
 
 /** Every recording's presets, and the newest sessions. */
-export function chaosView(store: Store, o: { sessions?: number } = {}): ChaosView {
+export function chaosView(store: StoreOf<'chaos'>, o: { sessions?: number } = {}): ChaosView {
   return { presets: PRESET_INFO, matrices: matrices(store.latestChaosResults()), sessions: store.listChaosSessions({ limit: o.sessions ?? 20 }).map((s) => sessionView(store, s)) };
 }
 
 /** A session's results on one recording (every session's, under an empty session id), read once for every attempt of a family that asks. */
 type SessionResults = Map<string, ChaosResult[]>;
 
-function sessionResults(store: Store, sessionId: string, runId: string, read: SessionResults): ChaosResult[] {
+function sessionResults(store: StoreOf<'chaos'>, sessionId: string, runId: string, read: SessionResults): ChaosResult[] {
   const key = `${sessionId}\n${runId}`;
   let list = read.get(key);
   if (!list) read.set(key, (list = store.listChaosResults(sessionId ? { sessionId, runId } : { runId })));
@@ -197,7 +197,7 @@ function sessionResults(store: Store, sessionId: string, runId: string, read: Se
  * presets run again; else those of whichever session's result lists it. Empty for a run no preset
  * made, or one no kept result lists.
  */
-function attemptResults(store: Store, run: RunRecord, read: SessionResults = new Map()): ChaosResult[] {
+function attemptResults(store: StoreOf<'chaos'>, run: RunRecord, read: SessionResults = new Map()): ChaosResult[] {
   const chaos = run.meta?.chaos;
   if (!chaos || !run.parentRunId) return [];
   const golden = typeof chaos.golden === 'string' ? chaos.golden : null;
@@ -215,7 +215,7 @@ function attemptResults(store: Store, run: RunRecord, read: SessionResults = new
  * decided in, on its recording (an attempt opens on its recording's matrix as that session left it),
  * else the recording's newest. Null when no preset has run on either.
  */
-export function chaosOfRun(store: Store, runId: string): ChaosMatrix | null {
+export function chaosOfRun(store: StoreOf<'recording' | 'chaos'>, runId: string): ChaosMatrix | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const latest = store.latestChaosResults();
@@ -241,7 +241,7 @@ export interface PresetMark {
  * too, which the recording's newest matrix no longer lists): its preset's words and its own verdict.
  * A family's runs read each session's results once.
  */
-export function presetMarks(store: Store, runs: readonly RunRecord[]): Map<string, PresetMark> {
+export function presetMarks(store: StoreOf<'chaos'>, runs: readonly RunRecord[]): Map<string, PresetMark> {
   const out = new Map<string, PresetMark>();
   const read: SessionResults = new Map();
   for (const run of runs) {
@@ -288,12 +288,12 @@ export function presetsSummary(m: ChaosMatrix, kept: (runId: string) => boolean 
 }
 
 /** Every recording's presets as their matrices, newest first, without the sessions: what Needs a look and Tests read. */
-export function chaosMatrices(store: Store): ChaosMatrix[] {
+export function chaosMatrices(store: StoreOf<'chaos'>): ChaosMatrix[] {
   return matrices(store.latestChaosResults());
 }
 
 /** A Tests row's presets: the newest matrix of a golden, by its name. */
-export function chaosOfGolden(store: Store, golden: string): ChaosMatrix | null {
+export function chaosOfGolden(store: StoreOf<'chaos'>, golden: string): ChaosMatrix | null {
   return matrices(store.latestChaosResults().filter((r) => r.golden === golden))[0] ?? null;
 }
 

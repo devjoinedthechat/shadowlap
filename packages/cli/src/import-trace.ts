@@ -1,4 +1,4 @@
-import { canonicalize, safeLine, type Store } from '@shadowlap/engine';
+import { canonicalize, safeLine, type StoreOf } from '@shadowlap/engine';
 import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 import { readPythonRepr } from './python-repr.js';
 
@@ -942,7 +942,7 @@ export interface TraceImport {
 }
 
 /** Writes one trace as a partial recording: its model calls, and the tool calls whose every call it kept. */
-export function importTrace(store: Store, trace: Trace, opts: ImportOptions): TraceImport {
+export function importTrace(store: StoreOf<'recording'>, trace: Trace, opts: ImportOptions): TraceImport {
   const calls = callsInOrder(trace);
   const tools = calls.filter((c): c is TraceToolCall => c.kind === 'tool');
   // Grouped in place and looked up in a set: a trace is a file from anywhere, and copying per call

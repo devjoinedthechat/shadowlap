@@ -52,6 +52,7 @@ import {
   type RepairOutcome,
   type RunRecord,
   type Store,
+  type StoreOf,
   type StoredBlame,
   type StoredFix,
   type StoredRepair,
@@ -665,7 +666,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
  * The title each fix was opened with, by fix id: what its failing run did, as blame titled the fix
  * when it opened it (`blame.done`, `opened`). Read once per answer, and only once a fix was renamed.
  */
-function openingTitles(store: Store): () => ReadonlyMap<string, string> {
+function openingTitles(store: StoreOf<'activity'>): () => ReadonlyMap<string, string> {
   let titles: Map<string, string> | null = null;
   return () => {
     if (titles) return titles;
@@ -686,7 +687,7 @@ function failedOf(rec: FixRecords, opening: () => ReadonlyMap<string, string>): 
   return opening().get(f.fixId) ?? rec.blames.map((b) => b.report.recordedFailures?.[0]).find((x): x is string => typeof x === 'string' && x.trim() !== '') ?? null;
 }
 
-function rowOf(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
+function rowOf(store: StoreOf<'recording' | 'activity' | 'fixes'>, rec: FixRecords, opening: () => ReadonlyMap<string, string> = openingTitles(store)): FixRow {
   const f = rec.fix;
   const cost = fixCost([rec]);
   const { label, labels } = fixLabelInfo(store, f);
@@ -715,7 +716,7 @@ function rowOf(store: Store, rec: FixRecords, opening: () => ReadonlyMap<string,
 // ---- The list ----------------------------------------------------------------------------------
 
 /** Every fix, the most recently opened first, with the counts for the filter chips. */
-export function fixList(store: Store, options: { status?: FixStatus | 'all' } = {}): FixList {
+export function fixList(store: StoreOf<'recording' | 'activity' | 'fixes'>, options: { status?: FixStatus | 'all' } = {}): FixList {
   const opening = openingTitles(store);
   const all = store.listFixes().map((f) => rowOf(store, fixRecords(store, f), opening));
   const open = all.filter((f) => f.status === 'open').length;
@@ -725,7 +726,7 @@ export function fixList(store: Store, options: { status?: FixStatus | 'all' } = 
 
 // ---- A fix -------------------------------------------------------------------------------------
 
-function runRef(store: Store, runId: string): FixRunRef {
+function runRef(store: StoreOf<'recording'>, runId: string): FixRunRef {
   const run = store.getRun(runId);
   return { runId, href: runHref(runId), exists: run !== null, status: run?.status ?? null, startedAt: run?.startedAt ?? null, labels: run?.meta?.labels ?? [] };
 }
@@ -895,7 +896,7 @@ function patchNote(patch: string | null): string {
  * it reused, kept from before, ran nothing; one it ran is kept like any other blame, the latest of
  * its run by the time the repair was kept.
  */
-function repairAttempts(store: Store, r: StoredRepair): number {
+function repairAttempts(store: StoreOf<'fixes'>, r: StoredRepair): number {
   const verify = r.report.candidates.reduce((n, c) => n + (c.verify?.attempts ?? 0), 0);
   const blame = r.report.targets.reduce((n, t) => {
     // A run that passed, or that blame couldn't run on, left no blame to count.
@@ -911,7 +912,7 @@ function repairAttempts(store: Store, r: StoredRepair): number {
  * repair command, in place of the command line it ran on their machine, which is never offered to
  * copy.
  */
-function repairStep(store: Store, rec: FixRecords, r: StoredRepair, fixId: string, pulled: boolean, fallback: string): RepairStep {
+function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRepair, fixId: string, pulled: boolean, fallback: string): RepairStep {
   const rep = r.report;
   const c = acceptedCandidate(r);
   const v = c?.verify ?? null;
@@ -1191,7 +1192,7 @@ function blameCount(r: BlameReport, pulled = false): string[] | null {
  * one whose command came from a capture, which has none to run again, or a blame kept before its
  * flags were.
  */
-function blameNext(store: Store, rec: FixRecords, b: StoredBlame | null): Pick<FixActions, 'blameAgain' | 'blameStronger'> {
+function blameNext(store: StoreOf<'recording'>, rec: FixRecords, b: StoredBlame | null): Pick<FixActions, 'blameAgain' | 'blameStronger'> {
   const none = { blameAgain: null, blameStronger: null };
   if (rec.fix.status !== 'open' || !b || b.outcome === 'blamed') return none;
   const run = store.getRun(b.runId);
@@ -1314,7 +1315,7 @@ function verifyMore(v: StoredVerdict): VerifyMore | null {
  * fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the failure
  * it was recorded for), and every one of the fix's. Anything else would be repaired as failing.
  */
-function labelSelectsFix(store: Store, label: string, left: readonly string[]): boolean {
+function labelSelectsFix(store: StoreOf<'recording'>, label: string, left: readonly string[]): boolean {
   const failing = new Set(left);
   const labelled = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
   return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
@@ -1339,7 +1340,7 @@ export function agentOfArgv(argv: readonly string[]): string | null {
 }
 
 /** The agent a run ran: its recording's, for a replay, a fork or an attempt; null for a run with no command (an import). */
-function agentOfRun(store: Store, run: RunRecord): string | null {
+function agentOfRun(store: StoreOf<'recording'>, run: RunRecord): string | null {
   let root = run;
   const seen = new Set([root.runId]);
   while (root.parentRunId) {
@@ -1357,7 +1358,7 @@ function agentOfRun(store: Store, run: RunRecord): string | null {
  * (`label:good` when that is all of them, else by id), since a good run of another agent checks
  * nothing a change to this one touches; else none.
  */
-function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): string[] {
+function keepArgs(store: StoreOf<'recording'>, rec: FixRecords, left: readonly string[]): string[] {
   const own = rec.good.filter((id) => store.getRun(id) !== null);
   if (own.length) return own;
   const agents = new Set(left.map((id) => agentOfRun(store, store.getRun(id)!)).filter((a): a is string => a !== null));
@@ -1370,7 +1371,7 @@ function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): strin
 }
 
 /** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
-function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
+function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
   if (!left.length) return null;
@@ -1391,7 +1392,7 @@ function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: st
  * calls and reuses that blame rather than make it again, and its check. Empty when none of its
  * failing runs is left in the store.
  */
-export function repairArgv(store: Store, rec: FixRecords): string[] {
+export function repairArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
   // A blame's scope (a pulled one's too) goes as `--scope` only when it is a name, never a flag.
   const scope = scopeArg(shownBlame(rec)?.scope);
@@ -1407,7 +1408,7 @@ export function repairArgv(store: Store, rec: FixRecords): string[] {
  * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
  * were lost, or nothing rescued them.
  */
-function noFixToTry(store: Store, rec: FixRecords, scope: string | null): string | null {
+function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): string | null {
   const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
   if (!runs.length) return null;
   const oracle = JSON.stringify(rec.fix.check.oracle);
@@ -1426,7 +1427,7 @@ function noFixToTry(store: Store, rec: FixRecords, scope: string | null): string
 }
 
 /** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
-function verifyArgv(store: Store, rec: FixRecords): string[] {
+function verifyArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
   if (!runs) return [];
   return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
@@ -1479,7 +1480,7 @@ function patchToCheck(rec: FixRecords): string | null {
  * git answers asynchronously and a read model works synchronously, so a route asks git about them
  * first (`patchesInTree`, patch-in-tree.ts) and hands the read model the answers.
  */
-export function patchesToCheck(store: Store, fixes: readonly StoredFix[] = store.listFixes()): string[] {
+export function patchesToCheck(store: StoreOf<'fixes'>, fixes: readonly StoredFix[] = store.listFixes()): string[] {
   const out: string[] = [];
   for (const fix of fixes) {
     if (fix.status !== 'verified') continue;
@@ -1695,7 +1696,7 @@ function checkSuggestion(run: RunRecord, fixes: Array<{ fix: StoredFix; labels: 
   return scored[0] ? { expect: scored[0].fix.check.expect } : null;
 }
 
-const labelledFixes = (store: Store) => store.listFixes().map((fix) => ({ fix, labels: fixLabelInfo(store, fix).labels }));
+const labelledFixes = (store: StoreOf<'recording' | 'fixes'>) => store.listFixes().map((fix) => ({ fix, labels: fixLabelInfo(store, fix).labels }));
 
 export interface NeedsLookItem {
   /**
@@ -1832,7 +1833,7 @@ export interface FixForRun {
   expect?: unknown;
 }
 
-function fixRef(store: Store, fix: StoredFix): FixRef {
+function fixRef(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): FixRef {
   return { fixId: fix.fixId, href: fixHref(fix.fixId), title: fix.title, status: fix.status, label: fixLabelInfo(store, fix).label, check: fix.check.text };
 }
 
@@ -1976,7 +1977,7 @@ export interface FixBundle {
 const FAMILY_LIMIT = 5000;
 
 /** A run's family: its root recording and every run that descends from it. */
-function familyOf(store: Store, run: RunRecord): Map<string, RunRecord> {
+function familyOf(store: StoreOf<'recording'>, run: RunRecord): Map<string, RunRecord> {
   let root = run;
   const up = new Set([root.runId]);
   while (root.parentRunId) {
@@ -2240,7 +2241,7 @@ export function fixBundles(store: Store, runId: string): FixBundle[] | null {
  * ("verify · good" under a good run three fixes kept): there, each title names its fix, by its label
  * or its short id ("verify · good · refund-bug").
  */
-function nameSharedBundles(store: Store, bundles: FixBundle[]): void {
+function nameSharedBundles(store: StoreOf<'recording' | 'fixes'>, bundles: FixBundle[]): void {
   const fixesUnder = new Map<string, Set<string>>();
   for (const b of bundles) if (b.fixId) fixesUnder.set(b.parentRunId, (fixesUnder.get(b.parentRunId) ?? new Set()).add(b.fixId));
   const names = new Map<string, string>();
@@ -2284,7 +2285,7 @@ export function failedChecks(run: RunRecord): string[] {
  * replayed, or the pack it was unpacked from, through its ancestors), or undefined when no entry
  * names one. `tests` is the config's `tests` as written; `configDir` the folder it is in.
  */
-export function configExpect(store: Store, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
+export function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
   if (!plainObject(tests)) return undefined;
   const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
   for (const dir of recordingsOfRun(store, run)) {
@@ -2302,7 +2303,7 @@ export function configExpect(store: Store, run: RunRecord, tests: unknown, confi
  * with an error. A run that failed a check none of these name gets null rather than the exit code:
  * blaming on the exit alone would look for another failure than the one it had.
  */
-export function blameCheckFor(store: Store, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
+export function blameCheckFor(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
   const judged = run.meta?.expect;
   if (plainObject(judged)) return { expect: judged, from: 'replay' };
   const configured = options.configDir ? configExpect(store, run, options.tests, options.configDir) : undefined;

@@ -3,7 +3,7 @@ import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { links } from '@shadowlap/dashboard';
-import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, type StoreOf, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta } from './activity.js';
@@ -131,7 +131,7 @@ export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upst
  * it treats an input it doesn't hold as a change, where one of a run recorded before input was
  * recorded runs the agent's reads live (`RunMeta.inputs`).
  */
-export function recordsInput(store: Store, runId: string): void {
+export function recordsInput(store: StoreOf<'recording'>, runId: string): void {
   store.updateRunMeta(runId, { inputs: true });
 }
 

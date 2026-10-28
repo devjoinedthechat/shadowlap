@@ -1,6 +1,6 @@
 import { kindLabel, runKind, type ClassifiableRun, type KindFacts } from './classify.js';
 import { storedModelResolver, type ModelResolver } from './report.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 
 // A run's kind in words, and the model of each of its calls, as the terminal UI and the dashboard both
 // show them: worked out here, in the engine, so the dashboard needs nothing of the terminal UI.
@@ -25,7 +25,7 @@ export type LabelledRun = Pick<ClassifiableRun, 'mode' | 'status' | 'divergence'
  * of a recording that failed the same way reproduced that failure (a clean replay). The run it
  * replayed is read only then.
  */
-export function kindFacts(store: Store, run: LabelledRun & Pick<ClassifiableRun, 'runId' | 'parentRunId'>, calls: number): KindFacts {
+export function kindFacts(store: StoreOf<'recording'>, run: LabelledRun & Pick<ClassifiableRun, 'runId' | 'parentRunId'>, calls: number): KindFacts {
   if (run.mode !== 'replay' || run.divergence || run.status !== 'failed' || !run.parentRunId) return { calls };
   const parent = store.getRun(run.parentRunId);
   // The agent's calls on both sides: a judge check's calls are none of what the replay reproduced.

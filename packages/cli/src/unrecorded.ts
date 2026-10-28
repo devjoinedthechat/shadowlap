@@ -1,4 +1,4 @@
-import { unrecordedTools, type RunRecord, type Store, type UnrecordedTool } from '@shadowlap/engine';
+import { unrecordedTools, type RunRecord, type StoreOf, type UnrecordedTool } from '@shadowlap/engine';
 import { loadConfig } from './config.js';
 import { usageError } from './exit-codes.js';
 import { palette as p, quoteArgv, safe, shortId } from './ui.js';
@@ -42,7 +42,7 @@ export function declaredUnrecorded(cwd: string): Record<string, 'read' | 'write'
 }
 
 /** A run's unrecorded tools, or none when the run can't be read. */
-export function unrecordedOf(store: Store, runId: string, declared: Readonly<Record<string, 'read' | 'write'>>): UnrecordedTool[] {
+export function unrecordedOf(store: StoreOf<'recording'>, runId: string, declared: Readonly<Record<string, 'read' | 'write'>>): UnrecordedTool[] {
   try {
     return unrecordedTools(store, runId, { declared });
   } catch {
@@ -141,7 +141,7 @@ export function unrecordedRefusal(run: RunRecord, tools: readonly UnrecordedTool
  * (`tools.unrecorded` in the shadowlap.config.json of the folder the command started in, which a
  * candidate's or a baseline's worktree shares).
  */
-export function refuseUnrecorded(store: Store, run: RunRecord, allowed: ReadonlySet<string> | undefined): void {
+export function refuseUnrecorded(store: StoreOf<'recording'>, run: RunRecord, allowed: ReadonlySet<string> | undefined): void {
   const refusal = unrecordedRefusal(run, unrecordedOf(store, run.runId, declaredUnrecorded(process.cwd())), allowed ?? new Set(), allowed ? ['shadowlap', ...process.argv.slice(2)] : null);
   if (refusal) throw usageError(refusal);
 }

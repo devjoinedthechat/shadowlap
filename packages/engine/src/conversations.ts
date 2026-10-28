@@ -5,7 +5,7 @@ import { deepEqual } from './diff.js';
 import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
 import { parseSse } from './sse.js';
-import type { Store } from './store.js';
+import type { Store, StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
 
 /**
@@ -263,7 +263,7 @@ function idField(v: unknown): string | null {
 }
 
 /** A model request reduced to what continuity needs; null when it is not a conversation. */
-function digest(store: Store, call: CallRecord, cache: StoreCaches): Digest | null {
+function digest(store: StoreOf<'recording'>, call: CallRecord, cache: StoreCaches): Digest | null {
   if (!conversationRequest(call)) return null;
   const ref = call.requestRef!;
   let manifest: RequestManifest | null;

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { abandonedRuns, teamRunCounts, type Store, type TeamRunCounts } from '@shadowlap/engine';
+import { abandonedRuns, teamRunCounts, type Store, type StoreOf, type TeamRunCounts } from '@shadowlap/engine';
 import { CREDENTIAL_HINTS, credentialsHere, formatStoreUrl, lastCheck, parseStoreUrl, shortStoreName, storeKey, storeKindName, type LastCheck, type Provider, type StoreLocation } from '@shadowlap/remote';
 
 /**
@@ -93,7 +93,7 @@ const kept = new WeakMap<Store, { key: string; version: string; facts: TeamFacts
  * What changes the counts: a run added, ended, changed or deleted, a row of what this machine knows
  * of the store, and the recordings whose recorder is gone (which a push ends and sends).
  */
-function versionOf(store: Store, ended: ReadonlySet<string>): string {
+function versionOf(store: StoreOf<'readModels'>, ended: ReadonlySet<string>): string {
   const counters = new Map(store.query(COUNTERS_SQL).map((r) => [String(r.name), Number(r.n)]));
   const v = counters.has('runs') && counters.has('team') ? `${counters.get('runs')!}|${counters.get('team')!}` : (() => {
     const row = store.query(VERSION_SQL)[0];

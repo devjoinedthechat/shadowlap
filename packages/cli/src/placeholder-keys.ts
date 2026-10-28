@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { isReservedScope, type CallRecord, type Store } from '@shadowlap/engine';
+import { isReservedScope, type CallRecord, type StoreOf } from '@shadowlap/engine';
 import { hostedProviders, providers as routed, type Provider } from '@shadowlap/sidecar';
 
 /** Every provider whose SDKs take a key from the environment, the hosts of another's format among them (Claude on Foundry). */
@@ -190,7 +190,7 @@ export function placeholderKeys(env: Env, recording: { calls: readonly Pick<Call
 }
 
 /** Placeholders for a replay of `parent`, from its calls and note in `store`. */
-export function placeholdersFor(store: Store, parent: { runId: string; meta?: { keyEnv?: unknown } | null }, mode: 'offline' | 'replay', env: Env = process.env): Record<string, string> {
+export function placeholdersFor(store: StoreOf<'recording'>, parent: { runId: string; meta?: { keyEnv?: unknown } | null }, mode: 'offline' | 'replay', env: Env = process.env): Record<string, string> {
   return placeholderKeys(env, { calls: store.getCalls(parent.runId), keyEnv: parent.meta?.keyEnv }, mode);
 }
 
@@ -200,7 +200,7 @@ export function placeholdersFor(store: Store, parent: { runId: string; meta?: { 
  * an agent that ran on placeholders took its key from the environment all the same. Nothing when it
  * can't be read: the run is what matters.
  */
-export function keyEnvPatch(store: Store, parentRunId: string | null, env: Env = process.env): { keyEnv?: Record<string, string[]> } {
+export function keyEnvPatch(store: StoreOf<'recording'>, parentRunId: string | null, env: Env = process.env): { keyEnv?: Record<string, string[]> } {
   try {
     const note = keyEnvOf(env);
     const recorded = parentRunId ? keyEnvNote(store.getRun(parentRunId)?.meta?.keyEnv) : null;
@@ -216,7 +216,7 @@ export function keyEnvPatch(store: Store, parentRunId: string | null, env: Env =
  * (`keyEnv`). A replay adds its recording's note: an agent that ran on placeholders took its key
  * from the environment all the same. Never throws: the run is what matters.
  */
-export function stampKeyEnv(store: Store, runId: string, env: Env = process.env): void {
+export function stampKeyEnv(store: StoreOf<'recording'>, runId: string, env: Env = process.env): void {
   try {
     const patch = keyEnvPatch(store, store.getRun(runId)?.parentRunId ?? null, env);
     if (patch.keyEnv) store.updateRunMeta(runId, patch);

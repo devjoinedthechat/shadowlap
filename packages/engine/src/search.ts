@@ -11,7 +11,7 @@ import { classifyRun } from './classify.js';
 import { normalizeConversation, type TurnBlock } from './conversation.js';
 import { loadApiRequest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
-import type { SearchState, Store } from './store.js';
+import type { SearchState, StoreOf } from './store.js';
 import type { CallKind, CallRecord } from './types.js';
 
 const DOC_MAX = 100_000;
@@ -68,7 +68,7 @@ type Doc = { callNo: number; field: string; text: string };
  * What a call's start adds to the index: the turns a model call's request adds to its conversation
  * (`scopes`, the turns already indexed per scope, moves on), or a tool call's arguments.
  */
-function startDocs(store: Store, c: CallRecord, scopes: Record<string, number>): Doc[] {
+function startDocs(store: StoreOf<'recording'>, c: CallRecord, scopes: Record<string, number>): Doc[] {
   try {
     if (c.kind === 'api' && c.requestRef) {
       const conv = normalizeConversation(loadApiRequest(store, c.requestRef));
@@ -97,7 +97,7 @@ function startDocs(store: Store, c: CallRecord, scopes: Record<string, number>):
 }
 
 /** What a call's answer adds to the index: a model's response, or a tool's result. */
-function endDocs(store: Store, c: CallRecord): Doc[] {
+function endDocs(store: StoreOf<'recording'>, c: CallRecord): Doc[] {
   const end = c.end;
   if (!end?.responseRef) return [];
   try {
@@ -174,7 +174,7 @@ function settled(c: CallRecord, running: boolean): boolean {
  * after the last one indexed, stopping early past `deadline`. False when there was nothing to index;
  * 'busy' when another command was writing the store and `briefly` would not wait for it.
  */
-function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null, deadline: number, briefly: boolean): boolean | 'busy' {
+function indexBatch(store: StoreOf<'recording' | 'search'>, run: SearchIndexRun, state: SearchState | null, deadline: number, briefly: boolean): boolean | 'busy' {
   let p = state ? progressOf(state) : { last: 0, scopes: {}, open: [] };
   let fresh = false;
   let indexed = state && p ? state.calls : 0;
@@ -222,12 +222,12 @@ function indexBatch(store: Store, run: SearchIndexRun, state: SearchState | null
 }
 
 /** The store's runs as the index needs them, newest first. */
-function storeRuns(store: Store): SearchIndexRun[] {
+function storeRuns(store: StoreOf<'recording'>): SearchIndexRun[] {
   return store.allRuns().map((r) => ({ runId: r.runId, status: r.status, calls: store.countCalls(r.runId) }));
 }
 
 /** How many of `runs` (every run in the store when not given) the index is behind on: calls not indexed yet, or a run that ended since. */
-export function searchIndexBehind(store: Store, runs: readonly SearchIndexRun[] = storeRuns(store)): number {
+export function searchIndexBehind(store: StoreOf<'recording' | 'search'>, runs: readonly SearchIndexRun[] = storeRuns(store)): number {
   const states = store.searchStates();
   return runs.filter((r) => standing(r, states.get(r.runId)) === 'behind').length;
 }
@@ -242,7 +242,7 @@ export function searchIndexBehind(store: Store, runs: readonly SearchIndexRun[] 
  * could not write, writing nothing more (`busy`), and a later one goes on. Returns the batches
  * written, and how many runs the index is still behind on (0 when it caught up).
  */
-export function indexSearch(store: Store, options: { budgetMs?: number; runs?: readonly SearchIndexRun[]; briefly?: boolean } = {}): { batches: number; behind: number; busy?: true } {
+export function indexSearch(store: StoreOf<'recording' | 'search'>, options: { budgetMs?: number; runs?: readonly SearchIndexRun[]; briefly?: boolean } = {}): { batches: number; behind: number; busy?: true } {
   const deadline = performance.now() + (options.budgetMs ?? Number.POSITIVE_INFINITY);
   const runs = options.runs ?? storeRuns(store);
   const states = store.searchStates();
@@ -262,7 +262,7 @@ export function indexSearch(store: Store, options: { budgetMs?: number; runs?: r
 }
 
 /** Brings the index up to date: runs that are new, still recording, or changed since they were indexed. Returns how many runs it indexed. */
-export function updateSearchIndex(store: Store): number {
+export function updateSearchIndex(store: StoreOf<'recording' | 'search'>): number {
   const runs = storeRuns(store);
   const states = store.searchStates();
   const touched = runs.filter((r) => standing(r, states.get(r.runId)) !== 'none');
@@ -294,7 +294,7 @@ export function searchExpression(query: string): string | null {
  * people made: a search shows the recording before five copies of it. A search within one run
  * (`runId`) keeps the index's order.
  */
-export function searchCalls(store: Store, query: string, opts: { limit?: number; runId?: string } = {}): SearchHit[] {
+export function searchCalls(store: StoreOf<'recording' | 'search'>, query: string, opts: { limit?: number; runId?: string } = {}): SearchHit[] {
   const match = searchExpression(query);
   if (!match) return [];
   updateSearchIndex(store);

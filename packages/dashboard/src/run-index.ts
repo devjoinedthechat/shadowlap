@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
@@ -326,7 +326,7 @@ function versionOf(store: Store): Version {
 }
 
 /** Reads into the index what recordings' users asked that was kept since it last looked. */
-function readAsks(store: Store, entry: KeptIndex): void {
+function readAsks(store: StoreOf<'readModels'>, entry: KeptIndex): void {
   let rows: Array<Record<string, unknown>>;
   try {
     rows = store.query(ASKS_SQL, entry.asksAt);
@@ -386,7 +386,7 @@ export function loadRunIndex(store: Store): RunIndex {
  * it can't (the store keeps no log of runs written, or one gone past what the log keeps, or too many
  * runs written to be worth it, or an event of a run it doesn't know), and the index is read whole.
  */
-function patch(store: Store, entry: KeptIndex, v: Version): boolean {
+function patch(store: StoreOf<'readModels'>, entry: KeptIndex, v: Version): boolean {
   const runsMoved = v.runs !== entry.runs;
   const fixesMoved = v.fixes !== entry.fixes;
   let written: string[] = [];

@@ -16,6 +16,7 @@ import {
   responseInfo,
   safeLine,
   Store,
+  type StoreOf,
   type CallMeta,
   type CallRecord,
   type CoverageGroup,
@@ -162,7 +163,7 @@ function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | n
   return found;
 }
 
-function readMcpMeta(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
+function readMcpMeta(store: StoreOf<'readModels'>, tool: string): NonNullable<CallMeta['mcp']> | null {
   const row = store.query(`SELECT json_extract(meta, '$.mcp') AS mcp FROM call_events WHERE phase = 'start' AND kind = 'tool' AND name = ? AND json_extract(meta, '$.mcp') IS NOT NULL ORDER BY at DESC LIMIT 1`, tool)[0];
   if (!row || typeof row.mcp !== 'string') return null;
   try {
@@ -180,7 +181,7 @@ function readMcpMeta(store: Store, tool: string): NonNullable<CallMeta['mcp']> |
  * no answer back (the capture ends before it, or the agent never sent it) is left out whole: its
  * calls run live in the replay, writes stubbed.
  */
-export function rebuildCapture(source: Store, target: Store, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
+export function rebuildCapture(source: Store, target: StoreOf<'recording'>, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
   const calls = source.getCalls(capture.runId);
   for (const hash of source.runBlobRefs(capture.runId)) {
     const bytes = source.getBlob(hash);

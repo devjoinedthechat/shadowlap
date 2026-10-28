@@ -1,4 +1,4 @@
-import { agentCallsOf, FixIdError, fixRecords, pathOf, resolveFix, type StoredBlame, type Store } from '@shadowlap/engine';
+import { agentCallsOf, FixIdError, fixRecords, pathOf, resolveFix, type StoredBlame, type StoreOf } from '@shadowlap/engine';
 import { links } from './links.js';
 
 /**
@@ -64,7 +64,7 @@ interface Attempt {
 const verdictOf = (a: Attempt): AttemptVerdict => a.verdict ?? (a.passed ? 'passed' : 'failed');
 
 /** Attempts grouped by their path and how they came out, the biggest group first, a failing one first among equals. */
-export function groupAttempts(store: Store, attempts: readonly Attempt[]): { groups: AttemptGroup[]; cut: boolean } {
+export function groupAttempts(store: StoreOf<'recording'>, attempts: readonly Attempt[]): { groups: AttemptGroup[]; cut: boolean } {
   const groups = new Map<string, AttemptGroup>();
   for (const a of attempts.slice(0, MAX_ATTEMPTS)) {
     const run = store.getRun(a.runId);
@@ -87,7 +87,7 @@ function shownBlame(blames: readonly StoredBlame[]): StoredBlame | null {
 }
 
 /** The attempts of a fix's blame and verifies, grouped by what each did; null for no such fix. */
-export function fixAttemptGroups(store: Store, idOrPrefix: string): FixAttemptGroups | null {
+export function fixAttemptGroups(store: StoreOf<'recording' | 'fixes'>, idOrPrefix: string): FixAttemptGroups | null {
   let fix;
   try {
     fix = resolveFix(store, idOrPrefix);

@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { liveRuns } from './meta.js';
 import type { ChangesView } from './views.js';
 
@@ -33,7 +33,7 @@ function decode(text: string | null | undefined): Cursor | null {
   }
 }
 
-export function changesView(store: Store, o: { boot: string; jobsVersion: number; since?: string | null }): ChangesView {
+export function changesView(store: StoreOf<'recording' | 'readModels' | 'activity'>, o: { boot: string; jobsVersion: number; since?: string | null }): ChangesView {
   const counts: Record<string, number> = { ...store.changeCounts(), jobs: o.jobsVersion };
   const cursor = encode({ b: o.boot, c: counts });
   const prev = decode(o.since);

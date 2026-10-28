@@ -1,4 +1,4 @@
-import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type StoreOf, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
 import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
@@ -622,7 +622,7 @@ export function cacheUseOf(t: CacheTotals | null): RunCacheUse | null {
  * The recorded duration of a parent's calls, following replayed calls back through their parents:
  * each run's calls are read once, level by level, and resolved from memory.
  */
-function recordedDurations(store: Store, index: RunIndex, tables: Map<string, Map<number, { latency: number; source: number | null }>>, runs: Array<string | null>): (runId: string | null, callNo: number) => number {
+function recordedDurations(store: StoreOf<'readModels'>, index: RunIndex, tables: Map<string, Map<number, { latency: number; source: number | null }>>, runs: Array<string | null>): (runId: string | null, callNo: number) => number {
   let wanted = new Set(runs.filter((r): r is string => !!r));
   // Parents already read whose calls point further back.
   for (const [runId, table] of tables) for (const e of table.values()) if (e.source !== null) addParent(index, runId, tables, wanted);

@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -68,7 +68,7 @@ export interface TaskUpdate {
 }
 
 /** What Update the golden runs for a task blocked by an early fork, or null for any other task. */
-export function taskUpdate(store: Store, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
+export function taskUpdate(store: StoreOf<'recording'>, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
   if (task.status !== 'blocked' || !task.fork || !task.takeover) return null;
   const run = task.fork.runId ? store.getRun(task.fork.runId) : null;
   const found = run?.divergence ? volatileValues(run.divergence, normalizers) : null;
@@ -806,7 +806,7 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
  * config, never from the request: a `normalize add` for each value that changes every run, then
  * `test <golden> --update`, which re-records it (or `test <golden>` when those rules are the fix).
  */
-export function taskUpdateJob(body: unknown, store: Store, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
+export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
   const golden = isObject(body) ? body.golden : undefined;
   if (typeof golden !== 'string' || !golden) return { error: 'name the golden to update' };
   const task = tasks.find((t) => t.golden === golden);

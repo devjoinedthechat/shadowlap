@@ -1,5 +1,5 @@
 import { attemptBundles, withAttempts } from './classify.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { RunRecord } from './types.js';
 
 /**
@@ -26,7 +26,7 @@ export interface DeletionPlan {
  * `live` is the runs in progress, as `recordingRuns` tells them, when the caller has asked already
  * (`gc` asks once, as of its own now).
  */
-export function deletionPlan(store: Store, runIds: readonly string[], o: { forks?: boolean; live?: readonly RunRecord[] } = {}): DeletionPlan {
+export function deletionPlan(store: StoreOf<'recording'>, runIds: readonly string[], o: { forks?: boolean; live?: readonly RunRecord[] } = {}): DeletionPlan {
   const all = store.allRuns();
   const bundles = attemptBundles(all);
   const children = new Map<string, string[]>();

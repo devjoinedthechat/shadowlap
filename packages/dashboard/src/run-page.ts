@@ -32,6 +32,7 @@ import {
   type RunRecord,
   type ShowJson,
   type Store,
+  type StoreOf,
   type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/engine';
@@ -242,7 +243,7 @@ export function windowAnalysis(store: Store, run: RunRecord, calls: readonly Cal
  * was replayed from, as the engine's `recordedDurations` finds it, reading of each run only the calls
  * it is asked about: for the calls around a page, where the engine reads every call of each.
  */
-function recordedOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
+function recordedOf(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
   const out = new Map<number, number>();
   const replayedFrom = (c: CallRecord) => (c.origin === 'replayed' && typeof c.end?.meta.replayedFrom === 'number' ? c.end.meta.replayedFrom : null);
   let pending = new Map<number, number>();
@@ -599,7 +600,7 @@ function storedNotRecorded(run: RunRecord): NotRecorded {
 }
 
 /** Attempts run together: one `--repeat` group, or one golden in one test session, under the same parent. */
-function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
+function attemptsOf(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
   const repeat = str(run.meta?.repeat?.group);
   const session = str(run.meta?.test?.session);
   const golden = str(run.meta?.test?.golden);
@@ -608,7 +609,7 @@ function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
   return together.length ? together : [run];
 }
 
-function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
+function checksOf(store: StoreOf<'recording'>, run: RunRecord): RunCheck[] | null {
   const own = storedChecks(run);
   if (!own.length) return null;
   const attempts = attemptsOf(store, run).map(storedChecks);
@@ -620,7 +621,7 @@ function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
 }
 
 /** The run's own hosts; the tools come from the recording when the run is a replay of it. */
-function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
+function notRecordedOf(store: StoreOf<'recording'>, run: RunRecord): NotRecorded | null {
   const own = storedNotRecorded(run);
   let tools = own.tools;
   const seen = new Set([run.runId]);

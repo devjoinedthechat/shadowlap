@@ -1,4 +1,4 @@
-import { checkCommandTemplate, describeBehaviour, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type Store, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
+import { checkCommandTemplate, describeBehaviour, NO_COMMAND, OUTCOME_WORDS, quoteArgv, type Behaviour, type BehaviourOutcome, type CoverageScan, type StoreOf, type StoredCoverageGroup, type StoredCoveragePack } from '@shadowlap/engine';
 import { splitCommandLine } from './settings.js';
 import { links } from './links.js';
 
@@ -78,7 +78,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
  * their traffic ran. As the scan reads them: with no command of their own (a golden made of a
  * capture, unpacked by a test, is no traffic).
  */
-function importedSince(store: Store, at: number): number {
+function importedSince(store: StoreOf<'readModels'>, at: number): number {
   const row = store.query(
     `SELECT COUNT(*) AS n FROM runs WHERE mode = 'record' AND json_valid(meta) AND json_type(meta, '$.covers') = 'array' AND json_array_length(meta, '$.covers') > 0 AND json_extract(meta, '$.imported.at') > ?
        AND json_valid(command) AND json_extract(command, '$.argv[0]') = ?`,
@@ -88,7 +88,7 @@ function importedSince(store: Store, at: number): number {
   return Number(row?.n ?? 0);
 }
 
-export function coverageView(store: Store): CoverageView {
+export function coverageView(store: StoreOf<'recording' | 'readModels' | 'coverage'>): CoverageView {
   const scan = store.listCoverageScans(1)[0] ?? null;
   const groups = scan ? store.coverageGroups() : [];
   const packs = new Map(store.coveragePacks().map((p) => [p.key, p]));
@@ -150,7 +150,7 @@ function lookOf(count: number, newest: { path: readonly string[]; sources: reado
  * groups no golden covers, without working out every group's view; null before a scan, or once
  * every behaviour has a golden.
  */
-export function coverageLook(store: Store): CoverageLook | null {
+export function coverageLook(store: StoreOf<'recording' | 'coverage'>): CoverageLook | null {
   const scan = store.listCoverageScans(1)[0] ?? null;
   if (!scan) return null;
   const uncovered = store.coverageGroups().filter((g) => !g.coveredBy.length);
@@ -177,7 +177,7 @@ export interface CoveragePackPlan {
  * golden that forks, `fork: true` with the checks (`expect`) that say what it must do instead. A
  * golden that forks is one somebody chose: it needs a key.
  */
-export function coveragePackArgs(store: Store, req: Record<string, unknown>): CoveragePackPlan | { error: string } {
+export function coveragePackArgs(store: StoreOf<'coverage'>, req: Record<string, unknown>): CoveragePackPlan | { error: string } {
   const groups = store.coverageGroups();
   let keys: string[] = [];
   if (req.key !== undefined) {

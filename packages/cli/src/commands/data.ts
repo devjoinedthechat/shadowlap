@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
+import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
@@ -379,7 +379,7 @@ function cutoffOf(flags: GcFlags, now: number): number | null {
  * follow); one its process abandoned is picked like any ended run, and a real gc marks it
  * interrupted.
  */
-export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
+export function cleanUp(store: StoreOf<'recording' | 'cleanup'>, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const all = store.allRuns(); // newest first
   const bundled = new Set([...attemptBundles(all).values()].flat());
   const runs = all.filter((r) => !bundled.has(r.runId));

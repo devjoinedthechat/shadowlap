@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -79,6 +79,6 @@ export function readVcr(cassette: unknown): Captured {
 }
 
 /** Reads a JSON VCR cassette and imports it as one run. */
-export function importVcr(store: Store, cassette: unknown, opts: { source: string; cwd?: string }): ImportResult {
+export function importVcr(store: StoreOf<'recording'>, cassette: unknown, opts: { source: string; cwd?: string }): ImportResult {
   return importCaptured(store, readVcr(cassette), opts);
 }

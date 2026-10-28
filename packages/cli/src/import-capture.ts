@@ -1,4 +1,4 @@
-import { apiCallName, credentialFreeQuery, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { apiCallName, credentialFreeQuery, fingerprintApi, fingerprintTool, NO_COMMAND, normalizersHash, safeLine, storeApiRequest, type CallMeta, type Effect, type RunMeta, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
 import { identityQuery, providers, withoutHeaderParameters, type Provider } from '@shadowlap/sidecar';
 
 /**
@@ -169,7 +169,7 @@ export class ImportWriter {
   private readonly occurrences = new Map<string, number>();
 
   constructor(
-    private readonly store: Store,
+    private readonly store: StoreOf<'recording'>,
     opts: ImportOptions & { startedAt: number; covers: NonNullable<RunMeta['covers']> },
   ) {
     const labels = [IMPORTED_LABEL, ...(opts.labels ?? []).filter((l) => l !== IMPORTED_LABEL)];
@@ -348,7 +348,7 @@ export function writeImport<T>(writer: ImportWriter, write: () => T): T {
 }
 
 /** Turns captured calls into one run in `store`. A capture of the network only ever saw model API calls. */
-export function importCaptured(store: Store, captured: Captured, opts: ImportOptions): ImportResult {
+export function importCaptured(store: StoreOf<'recording'>, captured: Captured, opts: ImportOptions): ImportResult {
   const startedAt = captured.calls.find((c) => typeof c.startedAt === 'number' && Number.isFinite(c.startedAt))?.startedAt ?? Date.now();
   const writer = new ImportWriter(store, { ...opts, startedAt, covers: ['api'] });
   return writeImport(writer, () => {

@@ -17,6 +17,7 @@ export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearCloc
 export { BUILTIN_STRIPPED_KEYS, CLAUDE_CODE_SESSION, FINGERPRINT_VERSION, apiCallName, apiNumbers, fingerprintApi, fingerprintMisc, fingerprintTool, isClaudeCodeSession, maskClaudeCodeSession, maskGeminiCallIds, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store, storeView } from './store.js';
+export type { StoreOf, StorePartName } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
 export type { SqlValue } from './store.js';
 // The sidecar's writes queued while another process holds the store, and the ids of runs it starts before they are written.

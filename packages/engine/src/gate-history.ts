@@ -1,5 +1,5 @@
 import type { GateHistory, Tally } from './stats.js';
-import type { Store, TestResult } from './store.js';
+import type { StoreOf, TestResult } from './store.js';
 
 /**
  * A golden's baseline for a gate against its history: the attempts of its last sessions in the
@@ -112,7 +112,7 @@ export function notBaseline(r: Pick<TestResult, 'ok' | 'failure' | 'data' | 'rev
  * of its last `window` results under the same recording and checks, pooled, and what an attempt cost
  * on average (USD, null with none priced). Null when it has no such result.
  */
-export function recentAttempts(store: Store, golden: string, f: { window: number; goldenRunId?: string | null; checks?: readonly string[] | null }): (Tally & { costPerAttempt: number | null }) | null {
+export function recentAttempts(store: StoreOf<'tests'>, golden: string, f: { window: number; goldenRunId?: string | null; checks?: readonly string[] | null }): (Tally & { costPerAttempt: number | null }) | null {
   let passes = 0;
   let attempts = 0;
   let spent = 0;
@@ -174,7 +174,7 @@ export function sessionAttempts(r: Pick<TestResult, 'ok' | 'failure' | 'data'>, 
  * those whose gates had decided by then were the quickest to, a sample tilted towards the attempts
  * that pass.
  */
-export function gateHistory(store: Store, golden: string, f: HistoryFilter): PooledHistory {
+export function gateHistory(store: StoreOf<'tests'>, golden: string, f: HistoryFilter): PooledHistory {
   const pooled: HistorySession[] = [];
   const excluded = new Set(typeof f.excludeSession === 'string' ? [f.excludeSession] : (f.excludeSession ?? []));
   const stopped = new Map<string, boolean>();

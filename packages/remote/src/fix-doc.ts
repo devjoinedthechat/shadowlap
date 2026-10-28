@@ -1,4 +1,4 @@
-import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type Store, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
+import { canonicalize, FIX_STATUSES, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -406,7 +406,7 @@ export function sharedFix(fix: StoredFix): StoredFix {
  * but for control characters a model wrote (U+FFFD in their place), which a teammate's pull would
  * refuse; whether it is applied here stays here (`sharedFix`).
  */
-export function fixDocOf(store: Store, fixId: string): FixDoc | null {
+export function fixDocOf(store: StoreOf<'fixes'>, fixId: string): FixDoc | null {
   const fix = store.getFix(fixId);
   if (!fix) return null;
   const links = store.fixLinks(fixId).map((l) => ({ kind: l.kind, ref: l.ref, at: l.at, data: l.data }));
@@ -523,7 +523,7 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
  * pulled (`pulled`, from `from`): someone else's, which the Fixes page runs again only from checked
  * fields and with the user's yes.
  */
-export function applyFixDoc(store: Store, doc: FixDoc, o: { from?: string; at?: number } = {}): { created: boolean; repairs: string[] } {
+export function applyFixDoc(store: StoreOf<'fixes' | 'team'>, doc: FixDoc, o: { from?: string; at?: number } = {}): { created: boolean; repairs: string[] } {
   const fix = sharedFix(doc.fix);
   return store.transaction(() => {
     const here = store.getFix(fix.fixId);

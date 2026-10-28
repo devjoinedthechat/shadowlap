@@ -1,4 +1,4 @@
-import type { QueuedWrites, Store } from '@shadowlap/engine';
+import type { QueuedWrites, StoreOf } from '@shadowlap/engine';
 
 /**
  * How the sidecar's writes wait for the store. `waitMs`: the longest one attempt holds the thread for
@@ -77,7 +77,7 @@ export class StoreWriter implements QueuedWrites {
   private readonly deadlineMs: number;
 
   constructor(
-    private readonly store: Store,
+    private readonly store: StoreOf<'recording'>,
     opts: StoreWrites,
     private readonly log: (line: string) => void,
   ) {

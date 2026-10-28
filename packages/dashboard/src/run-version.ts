@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { RunRecord, Store } from '@shadowlap/engine';
+import type { RunRecord, Store, StoreOf } from '@shadowlap/engine';
 import { loadRunIndex } from './run-index.js';
 import { bundleOf, runState } from './runs-list.js';
 
@@ -19,12 +19,12 @@ const FORMAT = 'v3';
 /** As far back as the answer looks for the tools a replay's recording kept off the record. */
 const ANCESTORS = 16;
 
-function callsStamp(store: Store, runId: string): string {
+function callsStamp(store: StoreOf<'readModels'>, runId: string): string {
   const row = store.query(`SELECT MAX(rowid) AS m, COUNT(*) AS n FROM call_events WHERE run_id = ?`, runId)[0];
   return `${String(row?.m ?? 0)}:${String(row?.n ?? 0)}`;
 }
 
-function familyRows(store: Store, run: RunRecord): RunRecord[] {
+function familyRows(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
   const rows: RunRecord[] = [run];
   const seen = new Set([run.runId]);
   for (let at = run.parentRunId; at && !seen.has(at) && seen.size <= ANCESTORS; ) {

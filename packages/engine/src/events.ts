@@ -1,4 +1,4 @@
-import type { NewStoredEvent, Store, StoredEvent } from './store.js';
+import type { NewStoredEvent, StoreOf, StoredEvent } from './store.js';
 
 /**
  * Activity events: what a command did that leaves nothing else in the store. The activity feed
@@ -75,7 +75,7 @@ export interface RecordEventInput {
  * Records one activity event. Never throws: losing an activity line must not fail the command
  * that did the work (a read-only store, or one opened by an older build, simply skips it).
  */
-export function recordEvent(store: Store, input: RecordEventInput): StoredEvent | null {
+export function recordEvent(store: StoreOf<'activity'>, input: RecordEventInput): StoredEvent | null {
   try {
     const event: NewStoredEvent = { kind: input.kind };
     if (input.actor !== undefined) event.actor = input.actor;

@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type StoreOf, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
@@ -282,7 +282,7 @@ export function listRuns(store: Store, options: ReadOptions & { includeAttempts?
 }
 
 /** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
-export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
+export function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord | null {
   if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return null;
   try {
     return store.findRun(idOrPrefix);
@@ -682,7 +682,7 @@ export function importedConsent(run: RunRecord, args: readonly string[], yes: un
 }
 
 /** The CLI arguments for an action, rebuilt on the server from the run and call: the browser never sends a command line. */
-export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
+export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];
@@ -704,7 +704,7 @@ export function actionArgs(store: Store, idOrPrefix: string, callNo: number | nu
 }
 
 /** Adds and removes labels on a run: the labels it has now, or why they could not be changed. */
-export function changeLabels(store: Store, idOrPrefix: string, add: unknown, remove: unknown): { labels: string[] } | { error: string; status: number } {
+export function changeLabels(store: StoreOf<'recording'>, idOrPrefix: string, add: unknown, remove: unknown): { labels: string[] } | { error: string; status: number } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `no run ${idOrPrefix}`, status: 404 };
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -724,7 +724,7 @@ export function changeLabels(store: Store, idOrPrefix: string, add: unknown, rem
 }
 
 /** Adds a note to a run or one of its calls: the call's (or run's) notes now. */
-export function addNote(store: Store, idOrPrefix: string, callNo: unknown, text: unknown): { notes: RunNote[] } | { error: string; status: number } {
+export function addNote(store: StoreOf<'recording'>, idOrPrefix: string, callNo: unknown, text: unknown): { notes: RunNote[] } | { error: string; status: number } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `no run ${idOrPrefix}`, status: 404 };
   const n = typeof callNo === 'number' && Number.isInteger(callNo) ? callNo : null;
@@ -860,7 +860,7 @@ function withGate(t: LineageNode['test'], gateFor: (t: NonNullable<LineageNode['
  * replay's one attempt settles it, with no rule to state. Null when the golden has no gate, the gate
  * decided nothing (stopped by a check it couldn't judge, or by a signal), or what was kept can't be read.
  */
-function sessionGate(store: Store, session: string, golden: string): { verdict: string; rule: string | null } | null {
+function sessionGate(store: StoreOf<'tests'>, session: string, golden: string): { verdict: string; rule: string | null } | null {
   try {
     const g = store.listTestResults({ sessionId: session, golden, limit: 1 })[0]?.data?.gate;
     if (!g || g.decision === 'continue') return null;
@@ -879,7 +879,7 @@ function testOf(r: RunRecord): LineageNode['test'] {
   return { golden, session, attempt: Number.isInteger(attempt) ? (attempt as number) : null };
 }
 
-export function compare(store: Store, a: string, b: string): RunComparison | null {
+export function compare(store: StoreOf<'recording'>, a: string, b: string): RunComparison | null {
   const ra = lookupRun(store, a);
   const rb = lookupRun(store, b);
   if (!ra || !rb) return null;

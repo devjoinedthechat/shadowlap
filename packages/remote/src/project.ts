@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { awsCredentialsHere } from './aws-credentials.js';
 import { azureCredentialsHere, parseConnectionString } from './azure-auth.js';
 import { googleCredentialsHere } from './gcp-auth.js';
@@ -60,11 +60,11 @@ export interface LastCheck {
   credentials: string | null;
 }
 
-export function lastCheck(store: Store, url: string): LastCheck | null {
+export function lastCheck(store: StoreOf<'team'>, url: string): LastCheck | null {
   const data = store.teamSync(url)?.data.check;
   return typeof data === 'object' && data !== null && typeof (data as LastCheck).ok === 'boolean' ? (data as LastCheck) : null;
 }
 
-export function recordCheck(store: Store, url: string, check: LastCheck): void {
+export function recordCheck(store: StoreOf<'team'>, url: string, check: LastCheck): void {
   store.setTeamSync(url, { data: { check } });
 }

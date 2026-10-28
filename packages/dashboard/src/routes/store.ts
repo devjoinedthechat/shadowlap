@@ -1,4 +1,4 @@
-import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { resolveAuthor, type Store, type StoreOf } from '@shadowlap/engine';
 import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import { liveKeys } from '../ci-workflows.js';
@@ -30,7 +30,7 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
  * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store show` all say that one), counted
  * the way these tags are: by run, a run whose attempts are only here counted once with them.
  */
-export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
+export function localRunIds(store: StoreOf<'readModels'>, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
   const rows = store.query(
     `SELECT r.run_id AS id FROM runs r WHERE r.run_id IN (SELECT value FROM json_each(?))
