@@ -531,8 +531,8 @@ be asked) or `not-applicable` (the recording has no call the preset can hit, or 
 change, such as a binary one or one that is empty already). The provider failing for real, beyond
 the failure a preset plays in, is the provider's, as under `test`
 ([gating](./gating.md#when-the-provider-is-unavailable)): an attempt it failed before the model
-answered is run again and never counted, one it cut short after is counted against either verdict
-by a `chaos.gate` and run again under `repeat`, and three in a row leave the preset inconclusive
+answered is run again and never counted, one it cut short after is counted against either verdict,
+by a `chaos.gate` and by the golden's `repeat` alike, and three in a row leave the preset inconclusive
 with the provider named, never failed. An attempt stops after `chaos.timeout`
 seconds (default 300) and fails: an error path can hang. `"chaos": false` leaves a golden out of
 `test --chaos`. Each attempt is a run bundled under the golden's recording, and the session and

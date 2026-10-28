@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { UNAVAILABLE_RETRY, agentCallsOf, decideCount, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, providerUnavailable, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, judgedUnder, maskedChange, providerUnavailable, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { oracleLabels } from './attempts.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
@@ -194,7 +194,8 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   let unjudged = 0;
   // What the provider did to the attempts: those never counted, those cut short and counted by the
   // gate, how many in a row, and whether too many in a row stopped it.
-  const providers = new ProviderRetry({ retry, sleep, onUnavailable: ctx.onUnavailable, count: !!gate });
+  // A gate and a fixed count alike count an attempt cut short after the model answered, against either verdict.
+  const providers = new ProviderRetry({ retry, sleep, onUnavailable: ctx.onUnavailable, count: true });
   // Attempts that count: every one but those the provider was unavailable for and nobody counts.
   let counted = 0;
   // Of the attempts carried over, those the provider cut short.
@@ -269,20 +270,23 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const passed = mine.filter((a) => !a.failure).length;
   const required = gate ? null : (spec?.passes ?? 1);
   const judged = mine.filter((a) => attemptVerdict(a) !== 'inconclusive');
+  // A fixed count's verdict with every attempt the provider cut short counted against it (decideCountUnavailable).
+  const cut = mine.filter((a) => a.cutShort).length;
+  const byCount = gate ? null : decideCountUnavailable(passed, judged.length, cut, repeat, required!);
   const carried = carry ? carry.outcomes : [];
   // An attempt a check could not decide stopped the golden. A gate stops as soon as it decides, so
   // that attempt came while it was still open: the golden is inconclusive, and its gate decided
   // nothing. A fixed count runs its attempts whatever they settle, so the ones judged before that
   // attempt may have settled it already (enough passed, or too many failed for the attempts left to
   // make up): their verdict stands, as an attempt that says nothing either way changes no settled count.
-  const undecided = unjudged > 0 && (gate !== null || decideCount(passed, judged.length, repeat, required!) === 'continue');
+  const undecided = unjudged > 0 && (gate !== null || byCount === 'continue');
   // The provider unavailable too many attempts in a row stops it the same way: a gate still open, or
   // a count not yet settled, is inconclusive, never failed.
-  const unavailableStop = gaveUp !== null && (gate !== null ? decision === 'continue' : decideCount(passed, judged.length, repeat, required!) === 'continue');
+  const unavailableStop = gaveUp !== null && (gate !== null ? decision === 'continue' : byCount === 'continue');
   // The positions, among the gate's outcomes, of the attempts the provider cut short: carried over and this session's.
   const unavailableAt = [...(carry?.unavailableAt ?? []), ...judged.flatMap((a, k) => (a.cutShort ? [carried.length + k] : []))];
   const result = gate && !undecided ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision, carried: carried.length, unavailable, ...(unavailableAt.length ? { unavailableAt } : {}) }) : null;
-  const verdict: RecordingOutcome['verdict'] = undecided || unavailableStop ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : passed >= required! ? 'passed' : 'failed';
+  const verdict: RecordingOutcome['verdict'] = undecided || unavailableStop ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : byCount === 'pass' ? 'passed' : byCount === 'fail' ? 'failed' : 'inconclusive';
   const unjudgedAttempt = undecided ? mine.find((a) => attemptVerdict(a) === 'inconclusive') : undefined;
   const unavailableAttempt = unavailableStop ? attempts.at(-1) : undefined;
   const shown = verdict === 'passed' ? mine.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? unavailableAttempt ?? mine.find((a) => attemptVerdict(a) === 'failed') ?? mine.find((a) => a.failure) ?? attempts.at(-1)!);
@@ -312,6 +316,12 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       message: `${result.sentence}${f && verdict === 'failed' ? `. Attempt ${carried.length + attempts.indexOf(shown) + 1}: ${f.message}` : ''}`,
       details: `${tally}\n${each()}${f ? `\n\n${f.details}` : ''}`,
     };
+  } else if (!gate && verdict === 'inconclusive' && cut) {
+    // The attempts the provider cut short decide the count either way: no verdict rests on how they would have ended.
+    failure = {
+      message: `inconclusive: ${passed} of ${mine.length} attempts passed, ${cut} of them cut short by the provider, ${required!} needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended`,
+      details: each(),
+    };
   } else if (!gate && verdict === 'failed') {
     const f = shown.failure!;
     // An attempt a check could not decide after the count was lost is counted apart, never as failed.
@@ -319,7 +329,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
       attempts.length === 1
         ? f
         : {
-            message: `${passed} of ${mine.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${required!} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
+            message: `${passed} of ${mine.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}${cut ? `, ${cut} cut short by the provider, counted against either verdict` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${required!} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
             details: `${each()}\n\n${f.details}`,
           };
   }

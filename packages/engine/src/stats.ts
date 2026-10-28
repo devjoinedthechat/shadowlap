@@ -323,6 +323,24 @@ export function decideCount(passes: number, attempts: number, of: number, needed
   return attempts >= of ? 'fail' : 'continue';
 }
 
+/**
+ * A fixed count when the provider cut `cut` of the attempts short after the model had answered
+ * (unavailable.ts): each counted against either verdict, as a gate counts them (decideUnavailable).
+ * It passes once `needed` passed with every cut-short attempt a failure, and fails once, with every
+ * one of them a pass, the attempts left can no longer reach `needed`. With neither once all `of`
+ * have run it is inconclusive: the count turned on how the attempts the provider cut short would
+ * have ended. Running them again instead keeps a count's failures from counting when the agent's
+ * failing course is what ran into the error: with 3 failures in 10 cut short, 4 of 5 at 70% passed
+ * 67.3% of the time, not 52.8%.
+ */
+export function decideCountUnavailable(passes: number, attempts: number, cut: number, of: number, needed: number): GateDecision {
+  if (!cut) return decideCount(passes, attempts, of, needed);
+  checkTally(passes + cut, attempts);
+  if (decideCount(passes, attempts, of, needed) === 'pass') return 'pass';
+  if (decideCount(passes + cut, attempts, of, needed) === 'fail') return 'fail';
+  return attempts >= of ? 'inconclusive' : 'continue';
+}
+
 // ---- Distributions ----------------------------------------------------------------------------
 
 /** ln Γ(x) for x > 0 (Lanczos, g = 7): good to about 15 digits. */

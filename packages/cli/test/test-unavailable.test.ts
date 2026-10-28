@@ -136,6 +136,26 @@ describe('shadowlap test while the provider is unavailable', () => {
     }
   }, 180_000);
 
+  it('counts one against either verdict under a fixed count too: 3 of 3 needed, one cut short, leaves the count unsettled rather than run it again', async () => {
+    cutShort = 1;
+    try {
+      const counted = { 'goldens/reference-agent': { fork: true, repeat: 3, passes: 3, expect: CHECKS } };
+      const r = await shadowlapTest(counted, join(work, 'count-cut-short.db'));
+      expect(r.code, r.out).toBe(3);
+      const result = r.report.results[0];
+      // 2 passed and 1 cut short: as a failure the count is lost, as a pass it is met.
+      expect(result).toMatchObject({ verdict: 'inconclusive', failure: 'inconclusive', attempts: { total: 3, passed: 2, cutShort: 1 } });
+      expect(result.message).toBe('inconclusive: 2 of 3 attempts passed, 1 of them cut short by the provider, 3 needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended');
+      // Needing 2 of 3, the same attempts pass it: the attempt cut short counted as a failure.
+      cutShort = 1;
+      const two = await shadowlapTest({ 'goldens/reference-agent': { fork: true, repeat: 3, passes: 2, expect: CHECKS } }, join(work, 'count-cut-short-2.db'));
+      expect(two.code, two.out).toBe(0);
+      expect(two.report.results[0]).toMatchObject({ verdict: 'passed', attempts: { total: 3, passed: 2, cutShort: 1 } });
+    } finally {
+      cutShort = 0;
+    }
+  }, 180_000);
+
   it('is inconclusive after three in a row, with the provider named, and fails no attempt of the agent\'s', async () => {
     overloaded = 1000;
     try {

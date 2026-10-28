@@ -213,7 +213,8 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
         if (a.cutShort) result.cutShort = (result.cutShort ?? 0) + 1;
       };
       // Under a gate, an attempt the provider cut short after the model answered is counted against either verdict; a fixed count runs it again.
-      const late = s.gate ? ('count' as const) : ('retry' as const);
+      // A gate and a fixed count alike count an attempt cut short after the model answered, against either verdict.
+      const late = 'count' as const;
       /** The change's attempts the gate counted, and which of them the provider cut short. */
       const counted = () => {
         const judged = result.attempts.filter((x) => x.verdict !== 'inconclusive' || x.cutShort);
@@ -239,7 +240,7 @@ export async function runVerify(input: VerifyInput): Promise<VerifyReport> {
       const byGate = async (): Promise<void> => {
         const settle = () => {
           if (s.gate) Object.assign(result, gateVerdict(result.passes, result.attempts.length, s.gate, result.deterministic, result.cutShort ?? 0));
-          else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic);
+          else result.verdict = runVerdict(result.passes, result.attempts.length, s.attempts, s.needed, result.deterministic, result.cutShort ?? 0);
         };
         if (result.attempts.length) settle();
         while (result.verdict === 'open' && result.decision !== 'inconclusive' && result.attempts.length < limit && !(s.failFast && failed) && canStart()) {

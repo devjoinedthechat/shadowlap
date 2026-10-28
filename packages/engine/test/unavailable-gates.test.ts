@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { decideAgainstHistory, decideAgainstHistoryAround, decidePairedAround, historyBounds, KEPT_DEFAULTS, pairedKeptLog, pairedOdds, type BaselineRule } from '../src/noninferiority.js';
-import { decide, decideUnavailable, gateOdds, passesPerFailure, SPRT_DEFAULTS, type SprtGate } from '../src/stats.js';
+import { binomialTail, decide, decideCount, decideCountUnavailable, decideUnavailable, gateOdds, passesPerFailure, SPRT_DEFAULTS, type SprtGate } from '../src/stats.js';
 import { planSuite } from '../src/suite.js';
 import { UNAVAILABLE_RETRY } from '../src/unavailable.js';
 
@@ -191,6 +191,44 @@ describe('a gate, when the provider cuts attempts short', () => {
       return `errors on ${pct(e)} of attempts: passed ${pct(o.pass)}`;
     });
     console.log(`an agent at 95%, its provider failing at random after the model answered:\n${rows.join('\n')}`);
+  });
+});
+
+describe('a fixed count, when the provider cuts attempts short', () => {
+  /**
+   * Every sequence of `of` attempts at an agent that passes `p` of the time, where a failure is cut
+   * short by the provider `e` of the time: each attempt a pass, a plain failure or a cut-short one,
+   * decided after each by `rule`, as test, verify, blame and chaos decide a count.
+   */
+  function count(of: number, needed: number, p: number, e: number, rule: (passes: number, done: number, cut: number) => string): { pass: number; fail: number; inconclusive: number } {
+    const out = { pass: 0, fail: 0, inconclusive: 0 };
+    const walk = (passes: number, done: number, cut: number, mass: number) => {
+      const d = rule(passes, done, cut);
+      if (d !== 'continue' || done === of) {
+        out[(d === 'continue' ? 'inconclusive' : d) as keyof typeof out] += mass;
+        return;
+      }
+      walk(passes + 1, done + 1, cut, mass * p);
+      walk(passes, done + 1, cut, mass * (1 - p) * (1 - e));
+      if (e > 0) walk(passes, done + 1, cut + 1, mass * (1 - p) * e);
+    };
+    walk(0, 0, 0, 1);
+    return out;
+  }
+
+  it('passes 4 of 5 at 70% as often as with no provider error, where running cut-short failures again passed it up to 67% of the time', () => {
+    const exact = binomialTail(5, 4, 0.7);
+    for (const e of [0, 0.1, 0.2, 0.3]) {
+      const now = count(5, 4, 0.7, e, (passes, done, cut) => decideCountUnavailable(passes, done, cut, 5, 4));
+      expect(now.pass, `cut short ${e}`).toBeCloseTo(exact, 12);
+      // Run again instead, a failure cut short is replaced by a fresh attempt: the count sees an agent at 0.7 / (1 - 0.3 e).
+      const before = binomialTail(5, 4, 0.7 / (1 - 0.3 * e));
+      expect(before).toBeGreaterThanOrEqual(exact - 1e-12);
+      // And it fails it only when even counted as passes the cut-short failures can't make the count.
+      expect(now.fail).toBeCloseTo(count(5, 4, 0.7, e, (passes, done, cut) => decideCount(passes + cut, done, 5, 4)).fail, 12);
+    }
+    expect(exact).toBeCloseTo(0.52822, 5);
+    expect(binomialTail(5, 4, 0.7 / (1 - 0.3 * 0.3))).toBeCloseTo(0.6733, 4);
   });
 });
 

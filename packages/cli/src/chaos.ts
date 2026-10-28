@@ -1,6 +1,7 @@
 import {
   UNAVAILABLE_RETRY,
   chaosTargets,
+  decideCountUnavailable,
   decideUnavailable,
   describeGate,
   effectsFor,
@@ -142,13 +143,6 @@ export interface ChaosContext {
 }
 
 type FixedGate = { repeat: number; passes: number };
-
-/** Today's fixed counts as a decision after each attempt: the same verdict, reached as soon as it can't change. */
-function decideFixed(passes: number, attempts: number, g: FixedGate): GateDecision {
-  if (passes >= g.passes) return 'pass';
-  if (attempts - passes > g.repeat - g.passes) return 'fail';
-  return attempts >= g.repeat ? 'fail' : 'continue';
-}
 
 /** The gate in words, its rule: `tells 90%+ from 70%- at <= 5% risk, up to 20 attempts`, or `1 of 1 attempt must pass`. */
 export function gateWords(g: PresetOutcome['gate']): string {
@@ -296,9 +290,10 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
     let spent = 0;
     let decision: GateDecision = 'continue';
     let unreached: string | null = null;
-    // The provider failing for real, as `shadowlap test` reads it: counted against either verdict by
-    // a sequential gate when it cut an attempt short, else run again; three in a row stop the preset.
-    const providers = new ProviderRetry({ retry: ctx.unavailable ?? UNAVAILABLE_RETRY, sleep: ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped)), onUnavailable: ctx.onUnavailable, count: 'kind' in gate });
+    // The provider failing for real, as `shadowlap test` reads it: an attempt it cut short after the
+    // model answered counted against either verdict, by a sequential gate or the fixed count, one it
+    // failed before run again; three in a row stop the preset.
+    const providers = new ProviderRetry({ retry: ctx.unavailable ?? UNAVAILABLE_RETRY, sleep: ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped)), onUnavailable: ctx.onUnavailable, count: true });
     // Attempts that count, and of them those the provider cut short.
     let counted = 0;
     let cut = 0;
@@ -374,7 +369,7 @@ export async function runPresets(parent: RunRecord, golden: TestSpec | null, cha
         if (passed) passes++;
         runs.push({ runId: s.runId, verdict: passed ? 'passed' : 'failed', passed, exitCode: attempt.code, checks: attempt.checks, reason: attempt.failure?.message ?? null, lastLine: attempt.kind === 'exit' ? lastLine(attempt.output) : null });
       }
-      decision = 'kind' in gate ? decideUnavailable(passes, counted, cut, gate) : decideFixed(passes, counted, gate);
+      decision = 'kind' in gate ? decideUnavailable(passes, counted, cut, gate) : decideCountUnavailable(passes, counted, cut, gate.repeat, gate.passes);
     }
     // The provider unavailable too often stopped it before it decided: inconclusive, the provider named.
     if (gaveUp && decision === 'continue') unreached = gaveUp;
