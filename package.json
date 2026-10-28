@@ -38,7 +38,7 @@
     "bench:dashboard": "node scripts/dashboard-scale.mjs",
     "video": "node scripts/dashboard-video.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.test-dom.json --noEmit",
-    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0 && uvx ruff@0.17.0 check",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0 && uvx ruff@0.17.0 check && uvx --from mypy==2.4.0 mypy --config-file packages/cli/guard/mypy.ini",
     "test:browser": "npm run test:browser --workspace packages/dashboard --"
   },
   "devDependencies": {

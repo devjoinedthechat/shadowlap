@@ -16,6 +16,8 @@ talks to its parent over a pipe, an MCP server for one, is left alone; so is ``s
 message from Slack) and goes through this module when it is loaded, so nothing is recorded twice.
 """
 
+from __future__ import annotations
+
 import builtins
 import contextlib
 import contextvars
@@ -27,17 +29,23 @@ import time
 import urllib.error
 import urllib.request
 
+# Typing's names for mypy alone (mypy.ini beside this file): at run time the module imports nothing it needn't.
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from typing import Any, Callable, Optional, TextIO
+
 _url = os.environ.get("SHADOWLAP_URL")
 _run = os.environ.get("SHADOWLAP_RUN_ID")
 # A context variable, not a thread-local: asyncio.to_thread() and run_in_executor carry it into the
 # worker thread, so input() read there for shadowlap.user_input_async() isn't recorded a second time.
-_depth = contextvars.ContextVar("shadowlap_input_passthrough", default=0)
+_depth: contextvars.ContextVar[int] = contextvars.ContextVar("shadowlap_input_passthrough", default=0)
 
 active = False
 original_input = builtins.input
 
 
-def _stdin_origin():
+def _stdin_origin() -> Optional[str]:
     """'person' when someone may type on fd 0, 'nobody' when it is the null device, else None."""
     try:
         if os.isatty(0):
@@ -60,7 +68,7 @@ def _stdin_origin():
 
 
 @contextlib.contextmanager
-def passthrough():
+def passthrough() -> Iterator[None]:
     """Reads inside this block go straight to the real input, unrecorded: the recording is made around them."""
     token = _depth.set(_depth.get() + 1)
     try:
@@ -69,22 +77,22 @@ def passthrough():
         _depth.reset(token)
 
 
-def _passing_through():
+def _passing_through() -> bool:
     return _depth.get() > 0
 
 
-def _scope():
+def _scope() -> Optional[str]:
     var = getattr(sys, "_shadowlap_scope_var", None)
     scope = var.get() if var is not None else None
     if scope:
-        return scope
+        return str(scope)
     raw = (os.environ.get("SHADOWLAP_SCOPE") or "").strip()
     if raw and len(raw) <= 200 and not any(ord(c) < 32 or ord(c) == 127 for c in raw):
         return raw
     return None
 
 
-def _scope_header(scope):
+def _scope_header(scope: str) -> str:
     """The scope as x-shadowlap-scope carries it: % and anything outside printable ASCII percent-encoded
     (UTF-8), as the SDK sends it, so a name of any language fits a header."""
     from urllib.parse import quote
@@ -92,14 +100,14 @@ def _scope_header(scope):
     return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
 
 
-def _post(path, body):
+def _post(path: str, body: dict[str, Any]) -> Any:
     headers = {"content-type": "application/json", "user-agent": "shadowlap-input-python"}
     if _run:
         headers["x-shadowlap-run"] = _run
     scope = _scope()
     if scope:
         headers["x-shadowlap-scope"] = _scope_header(scope)
-    req = urllib.request.Request(_url.rstrip("/") + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+    req = urllib.request.Request(str(_url).rstrip("/") + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     try:
         # Never through a proxy (HTTP_PROXY): the sidecar is on this machine's loopback.
         with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=30) as res:
@@ -113,12 +121,12 @@ def _post(path, body):
         raise RuntimeError("shadowlap sidecar %s failed (%s): %s" % (path, e.code, message)) from None
 
 
-def text_of(result):
+def text_of(result: Any) -> str:
     """The text of a recorded answer: ``{"text": ...}``, or a bare string from an override."""
     if isinstance(result, str):
         return result
     if isinstance(result, dict) and isinstance(result.get("text"), str):
-        return result["text"]
+        return str(result["text"])
     return "" if result is None else json.dumps(result)
 
 
@@ -126,7 +134,7 @@ class _ServedEnd(EOFError):
     """The recording says the input ended here."""
 
 
-def record(prompt, read_live):
+def record(prompt: str, read_live: Callable[[], dict[str, Any]]) -> tuple[dict[str, Any], bool]:
     """One person's answer: from the recording when the replay has it, else ``read_live()`` and recorded.
 
     ``read_live`` returns the result to record, ``{"text": ...}``, or raises EOFError when the input
@@ -146,7 +154,7 @@ def record(prompt, read_live):
         raise RuntimeError("shadowlap: unexpected origin %r for user input" % origin)
     started = time.time()
 
-    def complete(body):
+    def complete(body: dict[str, Any]) -> None:
         body["latencyMs"] = int((time.time() - started) * 1000)
         _post("/v1/calls/%d/complete" % r["callNo"], body)
 
@@ -163,7 +171,7 @@ def record(prompt, read_live):
     return result, False
 
 
-def _show(prompt, text):
+def _show(prompt: str, text: Optional[str]) -> None:
     """A served answer as the terminal would have shown it: the prompt, and the line as if typed."""
     out = sys.stdout
     try:
@@ -176,7 +184,7 @@ def _show(prompt, text):
         pass
 
 
-def recorded_input(prompt=""):
+def recorded_input(prompt: object = "") -> str:
     if _passing_through():
         return original_input(prompt)
     prompt = str(prompt)
@@ -188,30 +196,30 @@ def recorded_input(prompt=""):
         raise EOFError() from None
     if served:
         _show(prompt, result["text"])
-    return result["text"]
+    return str(result["text"])
 
 
 class RecordedStdin:
     """``sys.stdin`` with each read recorded; everything else is the real stream's."""
 
-    def __init__(self, real):
+    def __init__(self, real: TextIO) -> None:
         self._real = real
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._real, name)
 
     # Looked up on the type, not through __getattr__.
-    def __enter__(self):
+    def __enter__(self) -> RecordedStdin:
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, *exc: Any) -> Any:
         return self._real.__exit__(*exc)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return repr(self._real)
 
-    def _line(self):
-        def live():
+    def _line(self) -> str:
+        def live() -> dict[str, Any]:
             line = self._real.readline()
             if line == "":
                 raise EOFError()
@@ -224,57 +232,59 @@ class RecordedStdin:
             result, _ = record("", live)
         except EOFError:
             return ""
-        return result["text"] + ("" if result.get("newline") is False else "\n")
+        return str(result["text"]) + ("" if result.get("newline") is False else "\n")
 
-    def readline(self, size=-1):
+    def readline(self, size: Optional[int] = -1) -> str:
         if _passing_through() or (size is not None and size >= 0):
-            return self._real.readline(size)
+            # None reads as -1 does: up to the line's end.
+            return self._real.readline(-1 if size is None else size)
         return self._line()
 
-    def read(self, size=-1):
+    def read(self, size: Optional[int] = -1) -> str:
         if _passing_through() or (size is not None and size >= 0):
-            return self._real.read(size)
+            # None reads as -1 does: to the end.
+            return self._real.read(-1 if size is None else size)
 
         try:
             result, _ = record("", lambda: {"text": self._real.read()})
         except EOFError:
             return ""
-        return result["text"]
+        return str(result["text"])
 
-    def readlines(self, hint=-1):
+    def readlines(self, hint: int = -1) -> list[str]:
         if _passing_through():
             return self._real.readlines(hint)
-        lines = []
+        lines: list[str] = []
         while True:
             line = self.readline()
             if not line:
                 return lines
             lines.append(line)
 
-    def __iter__(self):
+    def __iter__(self) -> RecordedStdin:
         return self
 
-    def __next__(self):
+    def __next__(self) -> str:
         line = self.readline()
         if not line:
             raise StopIteration
         return line
 
 
-def _install():
+def _install() -> None:
     global active
     if not _url or getattr(builtins, "_shadowlap_input", False) or _stdin_origin() is None:
         return
-    builtins._shadowlap_input = True
+    setattr(builtins, "_shadowlap_input", True)
     builtins.input = recorded_input
     if sys.stdin is not None and not isinstance(sys.stdin, RecordedStdin):
-        sys.stdin = RecordedStdin(sys.stdin)
+        setattr(sys, "stdin", RecordedStdin(sys.stdin))
     # A password is never recorded: getpass falls back to reading sys.stdin without a terminal.
     import getpass
 
     unrecorded = getpass.getpass
 
-    def getpass_unrecorded(*args, **kwargs):
+    def getpass_unrecorded(*args: Any, **kwargs: Any) -> str:
         with passthrough():
             return unrecorded(*args, **kwargs)
 

@@ -24,6 +24,7 @@
     "LICENSE",
     "guard",
     "!guard/tsconfig.json",
+    "!guard/mypy.ini",
     "!**/__pycache__"
   ],
   "engines": {

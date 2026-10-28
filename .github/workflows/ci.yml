@@ -30,8 +30,9 @@ jobs:
     uses: ./.github/workflows/scope.yml
 
   # ESLint over every package, its tests and the repository's JavaScript, with typescript-eslint's
-  # typed rules, and ruff over the Python: `npm run lint`, which fails on any finding. ESLint reads
-  # the packages through their built declarations, so the job builds first; ruff runs through uvx.
+  # typed rules, ruff over the Python and mypy --strict over the Python guard: `npm run lint`, which
+  # fails on any finding. ESLint reads the packages through their built declarations, so the job
+  # builds first; ruff and mypy run through uvx.
   lint:
     name: lint
     runs-on: ubuntu-24.04
