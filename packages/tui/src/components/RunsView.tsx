@@ -3,9 +3,11 @@ import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, sa
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
-import { fitItems, truncate } from '../render.js';
+import { fitColumns, fitItems, sharedPrefix } from '../render.js';
+import { useTheme, type Theme } from '../theme.js';
 import type { OpenDashboard } from './TimelineView.js';
 import { copyToClipboard } from '../clipboard.js';
+import { cell, KeyHints, Line, Row, type Hint, type Tone } from './Row.js';
 import { TextInput } from './TextInput.js';
 
 interface Props {
@@ -20,28 +22,38 @@ interface Props {
   onQuit: () => void;
   onHelp: () => void;
   openDashboard?: OpenDashboard;
+  /** Help is open over it: it keeps its state and takes no keys. */
+  paused?: boolean;
 }
 
-type Mode = { kind: 'list' } | { kind: 'search' } | { kind: 'confirm-delete'; runId: string; attempts: number };
+type Mode = { kind: 'list' } | { kind: 'search'; before: string } | { kind: 'confirm-delete'; runId: string; attempts: number };
 
 /**
- * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, in green,
- * red when one failed, yellow when one could not be decided; `–` when none applied. Empty for a run
- * that has none.
+ * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, lime when
+ * all passed, red when one failed, amber when one could not be decided; `–` when none applied.
+ * Empty for a run that has none.
  */
-function checksOf(run: RunNode['run']): { text: string; color: 'green' | 'red' | 'yellow' | 'gray' } | null {
+function checksOf(run: RunNode['run'], theme: Theme): { text: string; color: string } | null {
   const n = engineChecksOf(run);
   if (!n) return null;
   const applied = n.total - (n.notApplicable ?? 0);
-  if (!applied) return { text: '– 0/0', color: 'gray' };
+  if (!applied) return { text: '– 0/0', color: theme.dim };
   const failed = failedChecks(n) > 0;
-  return { text: `${failed ? '✗' : n.inconclusive ? '?' : '✓'} ${n.passed}/${applied}`, color: failed ? 'red' : n.inconclusive ? 'yellow' : 'green' };
+  return { text: `${failed ? '✗' : n.inconclusive ? '?' : '✓'} ${n.passed}/${applied}`, color: failed ? theme.err : n.inconclusive ? theme.warn : theme.ok };
 }
 
 /** The confirm before `x` deletes a run, naming the attempts that go with it, as `rm` deletes them. */
 export function deletePrompt(runId: string, attempts: number): string {
   const bundled = attempts ? `, the ${attempts === 1 ? 'attempt' : `${attempts} attempts`} bundled under it` : '';
   return `delete run ${runId.slice(0, 10)}${bundled} and ${attempts ? 'their' : 'its'} calls? forks keep their data but lose the link. y / n`;
+}
+
+/** The same question in fewer words, for a narrower terminal: the shortest that fits `width` is asked. */
+export function fittedDeletePrompt(runId: string, attempts: number, width: number): string {
+  const id = runId.slice(0, 10);
+  const more = attempts ? ` and ${attempts} attempt${attempts === 1 ? '' : 's'}` : '';
+  const asks = [deletePrompt(runId, attempts), `delete run ${id}${more}? its forks keep their data. y / n`, `delete ${id}${more}? y / n`];
+  return asks.find((a) => a.length <= width) ?? asks.at(-1)!;
 }
 
 /** The footer's words for a run's checks: `checks 1/3 passed, 2 not applicable`, a check that did not apply never counted as passed. */
@@ -51,7 +63,38 @@ function checksLine(run: RunNode['run']): string {
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
-export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard }: Props) {
+/** A run's status where it says something: a finished run needs no word, the others do. */
+function statusOf(n: RunNode): string {
+  if (n.run.status === 'running') return n.interrupted ? 'interrupted' : 'recording';
+  return n.run.status === 'completed' ? '' : n.run.status;
+}
+
+/** Everything about the selected run that the row has no room for, cut by whole items. */
+function detailItems(n: RunNode): string[] {
+  const r = n.run;
+  return [
+    r.runId,
+    r.meta?.checks?.length ? checksLine(r) : '',
+    r.meta?.covers?.length ? `partial: ${r.meta.covers.join('/')} only` : '',
+    r.meta?.labels?.length ? r.meta.labels.join(', ') : '',
+    r.meta?.notes?.length ? `${r.meta.notes.length} note${r.meta.notes.length === 1 ? '' : 's'}` : '',
+    safeLine(r.command.argv.join(' ')),
+    r.codeVersion ? `@${r.codeVersion}` : '',
+    r.endedAt !== null ? formatDuration(r.endedAt - r.startedAt) : '',
+    n.spent ? `≈${formatUsd(n.spent)} spent` : '',
+    n.captured ? `≈${formatUsd(n.captured)} of traffic captured` : '',
+    n.saved ? `${formatUsd(n.saved)} not re-spent` : '',
+    r.divergence ? (r.divergence.type === 'ended_early' ? `ended early at #${r.divergence.callNo}` : `diverged at #${r.divergence.callNo} (${r.divergence.type})`) : '',
+  ]
+    .filter(Boolean)
+    // From the recording, a pack or a teammate: shown with any escape sequence made visible.
+    .map(safeLine);
+}
+
+const ID = 10;
+
+export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false }: Props) {
+  const theme = useTheme();
   const [query, setQuery] = useState('');
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -64,7 +107,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         (n.run.meta?.labels ?? []).some((l) => l.toLowerCase().includes(q)),
     );
   }, [nodes, query]);
-  const [toast, setToast] = useState<{ text: string; ms: number } | null>(null);
+  const [toast, setToast] = useState<{ text: string; ms: number; tone: Tone } | null>(null);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), toast.ms);
@@ -76,21 +119,21 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
     if (selected > visible.length - 1) setSelected(Math.max(0, visible.length - 1));
   }, [visible.length, selected]);
 
-  // Header, optional search line, the detail line at the bottom.
-  const rows = Math.max(1, height - (mode.kind === 'search' ? 4 : 3));
+  // The header, the list, the selected run's details, the footer.
+  const rows = Math.max(1, height - 3);
   const start = Math.max(0, Math.min(selected - Math.floor(rows / 2), visible.length - rows));
   const shown = visible.slice(start, start + rows);
   const current = visible[selected];
 
   const toDashboard = (runId: string) => {
-    if (!openDashboard) return setToast({ text: 'the dashboard is not available here; run shadowlap dashboard', ms: 2500 });
-    setToast({ text: 'starting the dashboard…', ms: 10_000 });
+    if (!openDashboard) return setToast({ text: 'the dashboard is not available here; run shadowlap dashboard', ms: 2500, tone: 'warn' });
+    setToast({ text: 'starting the dashboard…', ms: 10_000, tone: 'info' });
     openDashboard(runId).then(
       ({ url, opened }) => {
-        if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500 });
-        void copyToClipboard(url).then((copied) => setToast({ text: `dashboard${copied ? ' (link copied)' : ''}: ${url}`, ms: 30_000 }));
+        if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500, tone: 'ok' });
+        void copyToClipboard(url).then((copied) => setToast({ text: `dashboard${copied ? ' (link copied)' : ''}: ${url}`, ms: 30_000, tone: 'info' }));
       },
-      (err: unknown) => setToast({ text: `could not start the dashboard: ${err instanceof Error ? err.message : String(err)}`, ms: 8000 }),
+      (err: unknown) => setToast({ text: `could not start the dashboard: ${err instanceof Error ? err.message : String(err)}`, ms: 8000, tone: 'err' }),
     );
   };
 
@@ -99,7 +142,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (mode.kind === 'confirm-delete') {
         if (input === 'y' || input === 'Y') {
           const refused = onDelete(mode.runId);
-          if (refused) setToast({ text: refused, ms: 4000 });
+          setToast(refused ? { text: refused, ms: 4000, tone: 'warn' } : { text: `deleted ${mode.runId.slice(0, 10)}`, ms: 2500, tone: 'ok' });
           setMode({ kind: 'list' });
         } else if (key.escape || input === 'n' || input === 'N' || input === 'q') setMode({ kind: 'list' });
         return;
@@ -107,9 +150,13 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (key.escape) {
         if (query) setQuery('');
         else onQuit();
-      } else if (input === 'q') onQuit();
+        return;
+      }
+      // Ctrl and Alt chords are none of these keys (Ctrl-G is not g).
+      if (key.ctrl || key.meta) return;
+      if (input === 'q') onQuit();
       else if (input === '?') onHelp();
-      else if (input === '/') setMode({ kind: 'search' });
+      else if (input === '/') setMode({ kind: 'search', before: query });
       else if (key.downArrow || input === 'j') setSelected((s) => Math.min(visible.length - 1, s + 1));
       else if (key.upArrow || input === 'k') setSelected((s) => Math.max(0, s - 1));
       else if (key.pageDown) setSelected((s) => Math.min(visible.length - 1, s + rows));
@@ -120,106 +167,157 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       else if (input === 'o' && current) toDashboard(current.run.runId);
       else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId, attempts: attemptsOf?.(current.run.runId) ?? 0 });
     },
-    { isActive: mode.kind !== 'search' },
+    { isActive: mode.kind !== 'search' && !paused },
   );
 
-  const idWidth = 26;
-  const costWidth = 9;
-  const fixed = 1 + idWidth + 14 + 11 + 11 + costWidth + 9;
-  const cmdWidth = Math.max(0, width - fixed);
-  // The count, then as many whole keys as the width takes: ` · …` stands for the rest.
-  const brand = ' Shadowlap ';
-  const keys = fitItems([`${visible.length}${query ? `/${nodes.length}` : ''} run${nodes.length === 1 ? '' : 's'}`, 'Enter open', 'o dashboard', '/ search', 'x delete', '? help', 'q quit'], width - brand.length);
+  // Columns sized to what the shown runs hold, then fitted to the width: the least telling go
+  // first (cost, call count, labels, age), never the cursor, the id, what the run is or its checks.
+  const indentOf = (n: RunNode) => (n.depth === 0 ? '' : '  '.repeat(n.depth - 1) + '\\_ ');
+  const longest = (f: (n: RunNode) => string) => shown.reduce((m, n) => Math.max(m, f(n).length), 0);
+  const costText = (n: RunNode) => (n.spent ? `≈${formatUsd(n.spent)}` : n.captured ? `≈${formatUsd(n.captured)}` : '');
+  const labelsText = (n: RunNode) => (n.run.meta?.labels ?? []).join(' ');
+  const checkW = longest((n) => checksOf(n.run, theme)?.text ?? '');
+  const labelsW = longest(labelsText);
+  const statusW = longest(statusOf);
+  const w = fitColumns(
+    [
+      { key: 'mark', min: 2 },
+      { key: 'id', min: Math.min(24, longest((n) => indentOf(n) + 'x'.repeat(ID))) + 2 },
+      { key: 'label', min: Math.min(16, longest((n) => n.label)) + 2 },
+      { key: 'checks', min: checkW ? checkW + 2 : 0 },
+      { key: 'status', min: statusW ? statusW + 2 : 0, drop: 1 },
+      { key: 'labels', min: labelsW ? Math.min(labelsW, 10) + 2 : 0, max: labelsW ? Math.min(labelsW, 28) + 2 : 0, drop: 3 },
+      { key: 'calls', min: longest((n) => `${n.calls} calls`) + 2, drop: 4 },
+      { key: 'cost', min: longest(costText) ? longest(costText) + 2 : 0, drop: 5 },
+      { key: 'age', min: longest((n) => ago(n.run.startedAt)) + 2, drop: 2 },
+      { key: 'command', min: 0, max: Number.POSITIVE_INFINITY },
+    ],
+    width,
+  );
+  // The part of the ids every shown run shares (the day they were made, in a ULID) is drawn faint.
+  const common = sharedPrefix(shown.map((n) => n.run.runId.slice(0, ID)));
+  const count = `${visible.length}${query ? `/${nodes.length}` : ''} run${nodes.length === 1 ? '' : 's'}`;
+
+  const hints: Hint[] = nodes.length
+    ? [
+        ['?', 'help'],
+        ['enter', 'open'],
+        ['/', 'filter'],
+        ['o', 'dashboard'],
+        ['x', 'delete'],
+        ['q', 'quit'],
+      ]
+    : [
+        ['?', 'help'],
+        ['q', 'quit'],
+      ];
+
+  const footer =
+    mode.kind === 'search' ? (
+      <TextInput
+        label="filter runs:"
+        initial={query}
+        placeholder="id, command, revision or label"
+        enterDoes="keep"
+        width={width}
+        active
+        onChange={(v) => {
+          setQuery(v.trim());
+          setSelected(0);
+        }}
+        onSubmit={(v) => {
+          setQuery(v.trim());
+          setMode({ kind: 'list' });
+        }}
+        onCancel={() => {
+          setQuery(mode.before);
+          setMode({ kind: 'list' });
+        }}
+      />
+    ) : mode.kind === 'confirm-delete' ? (
+      <Line width={width} tone="err">
+        {' '}
+        {fittedDeletePrompt(mode.runId, mode.attempts, width - 1)}
+      </Line>
+    ) : toast ? (
+      <Line width={width} tone={toast.tone}>
+        {' '}
+        {toast.text}
+      </Line>
+    ) : (
+      <KeyHints hints={hints} width={width} />
+    );
 
   return (
     <Box flexDirection="column" width={width} height={height}>
       {/* One truncating Text with nested spans: sibling Texts get flex-shrunk on overflow and lose characters. */}
       <Box height={1}>
         <Text wrap="truncate">
-          <Text bold>{brand}</Text>
-          <Text color="gray">{keys}</Text>
+          <Text backgroundColor={theme.band} color={theme.onBand} bold>
+            {' shadowlap '}
+          </Text>
+          <Text color={theme.dim}> {count}</Text>
+          {query ? <Text color={theme.dim}>{` · filter: ${query}`}</Text> : null}
         </Text>
       </Box>
-      {mode.kind === 'search' ? (
-        <Box paddingX={1}>
-          <TextInput
-            label="run id, command, revision or label contains:"
-            initial={query}
-            placeholder="agent.js"
-            active
-            onSubmit={(v) => {
-              setQuery(v.trim());
-              setSelected(0);
-              setMode({ kind: 'list' });
-            }}
-            onCancel={() => setMode({ kind: 'list' })}
-          />
-        </Box>
-      ) : null}
       {nodes.length === 0 ? (
-        <Text color="gray"> no runs yet: shadowlap run -- {'<command>'}</Text>
+        <Box flexDirection="column" paddingX={2} paddingTop={1}>
+          <Text wrap="truncate">Record a run of your agent, then replay it and fork it at any call.</Text>
+          <Text> </Text>
+          <Text wrap="truncate">
+            <Text color={theme.accent}>{'shadowlap run -- node agent.js'.padEnd(32)}</Text>
+            <Text color={theme.dim}>record your agent, whatever starts it</Text>
+          </Text>
+          <Text wrap="truncate">
+            <Text color={theme.accent}>{'shadowlap demo'.padEnd(32)}</Text>
+            <Text color={theme.dim}>or watch the whole loop on a sample agent</Text>
+          </Text>
+          <Text> </Text>
+          <Text color={theme.dim} wrap="truncate">
+            Runs show up here as they record.
+          </Text>
+        </Box>
       ) : visible.length === 0 ? (
-        <Text color="gray"> no runs match "{query}" · Esc clears</Text>
+        <Line width={width}> no runs match "{query}" · Esc clears</Line>
       ) : (
         shown.map((n, i) => {
-          const idx = start + i;
-          const sel = idx === selected;
-          const label = n.label;
-          const labelColor = n.run.divergence ? 'yellow' : label === 'clean replay' ? 'cyan' : 'white';
-          // A run its recording process left marked running is interrupted, as the dashboard and gc call it.
-          const status = n.run.status === 'running' && n.interrupted ? 'interrupted' : n.run.status;
-          const statusColor = status === 'completed' ? 'green' : status === 'running' ? 'yellow' : 'red';
-          const indent = n.depth === 0 ? '' : '  '.repeat(n.depth - 1) + '\\_ ';
-          // Check results and labels lead the command column: they are what the run is known by.
-          const checks = checksOf(n.run);
-          const labels = (n.run.meta?.labels ?? []).join(' ');
-          const checksText = checks ? `${checks.text} ` : '';
-          const labelsText = labels ? truncate(labels, Math.min(labels.length, Math.max(Math.floor(cmdWidth / 2), cmdWidth - checksText.length - 12))) + ' ' : '';
-          const cmd = truncate(n.run.command.argv.join(' '), Math.max(0, cmdWidth - checksText.length - labelsText.length));
+          const sel = start + i === selected;
+          const checks = checksOf(n.run, theme);
+          const status = statusOf(n);
+          const id = n.run.runId.slice(0, ID);
+          const labelColor = n.run.divergence ? theme.accent : n.label === 'clean replay' ? theme.ok : undefined;
           return (
-            <Box key={n.run.runId} height={1} flexShrink={0}>
-              <Text inverse={sel}>{sel ? '>' : ' '}</Text>
-              <Text bold={sel}>{truncate(` ${indent}${n.run.runId.slice(0, 10)}`, idWidth - 1).padEnd(idWidth)}</Text>
-              <Text color={labelColor}>{label.padEnd(14).slice(0, 14)}</Text>
-              <Text color={statusColor}>{(status === 'running' ? 'recording' : status).padEnd(11).slice(0, 11)}</Text>
-              <Text>{`${n.calls} calls`.padEnd(11).slice(0, 11)}</Text>
-              <Text color="gray">{(n.spent ? `≈${formatUsd(n.spent)}` : n.captured ? `≈${formatUsd(n.captured)} capt` : '').padEnd(costWidth).slice(0, costWidth)}</Text>
-              <Text color="gray">{ago(n.run.startedAt).padEnd(9).slice(0, 9)}</Text>
-              {checks && cmdWidth >= 6 ? <Text color={checks.color}>{checksText}</Text> : null}
-              {labelsText && cmdWidth >= 12 ? <Text color="magenta">{labelsText}</Text> : null}
-              {cmdWidth >= 6 ? <Text color="gray">{cmd}</Text> : null}
-            </Box>
+            <Row
+              key={n.run.runId}
+              width={width}
+              selected={sel ? 'focus' : null}
+              cells={[
+                cell(sel ? '>' : '', w.mark),
+                {
+                  width: w.id,
+                  gap: 2,
+                  spans: [
+                    { text: indentOf(n), color: theme.faint },
+                    { text: id.slice(0, common), color: theme.faint },
+                    { text: id.slice(common), bold: true },
+                  ],
+                },
+                cell(n.label, w.label, labelColor ? { color: labelColor } : {}, 2),
+                cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
+                cell(status, w.status, { color: status === 'recording' ? theme.warn : theme.err }, 2),
+                cell(labelsText(n), w.labels, { color: theme.dim }, 2),
+                cell(`${n.calls} calls`, w.calls, {}, 2),
+                cell(costText(n), w.cost, { color: theme.dim }, 2),
+                cell(ago(n.run.startedAt), w.age, { color: theme.dim }, 2),
+                cell(n.run.command.argv.join(' '), w.command, { color: theme.faint }, 0),
+              ]}
+            />
           );
         })
       )}
       <Box flexGrow={1} />
-      {mode.kind === 'confirm-delete' ? (
-        <Text color="red"> {deletePrompt(mode.runId, mode.attempts)}</Text>
-      ) : toast ? (
-        <Text color="yellow" wrap="truncate">
-          {' '}
-          {toast.text}
-        </Text>
-      ) : current ? (
-        <Text color="gray" wrap="truncate">
-          {' '}
-          {current.run.runId}
-          {current.run.meta?.checks?.length ? ` · ${checksLine(current.run)}` : ''}
-          {current.run.meta?.covers?.length ? ` · partial: ${current.run.meta.covers.join('/')} only` : ''}
-          {current.run.meta?.labels?.length ? ` · ${current.run.meta.labels.join(', ')}` : ''}
-          {current.run.meta?.notes?.length ? ` · ${current.run.meta.notes.length} note${current.run.meta.notes.length === 1 ? '' : 's'}` : ''}
-          {' · '}
-          {safeLine(current.run.command.argv.join(' '))}
-          {current.run.codeVersion ? ` · @${current.run.codeVersion}` : ''}
-          {current.run.endedAt !== null ? ` · ${formatDuration(current.run.endedAt - current.run.startedAt)}` : ''}
-          {current.spent ? ` · ≈${formatUsd(current.spent)} spent` : ''}
-          {current.captured ? ` · ≈${formatUsd(current.captured)} of traffic captured` : ''}
-          {current.saved ? ` · ${formatUsd(current.saved)} not re-spent` : ''}
-          {current.run.divergence ? (current.run.divergence.type === 'ended_early' ? ` · ended early at #${current.run.divergence.callNo}` : ` · diverged at #${current.run.divergence.callNo} (${current.run.divergence.type})`) : ''}
-        </Text>
-      ) : (
-        <Text> </Text>
-      )}
+      <Line width={width}>{current ? ` ${fitItems(detailItems(current), Math.max(0, width - 1))}` : ' '}</Line>
+      {footer}
     </Box>
   );
 }

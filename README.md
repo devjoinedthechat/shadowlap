@@ -224,28 +224,27 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, with conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: where a fork left its parent, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
 
 ```text
  01M5NW76RA fork @17 of 01M5NW7430 · 32 calls · 15 replayed · …
 ╭──────────────────────────────────────────────────────────────╮
-│ Actions                                                      │
+│ Fork menu                                                    │
 │ At #16 · lookup_policy · pure tool                           │
-│ > o Override this tool’s result    --override 16=…           │
-│   t Answer with a tool error       --fail-at 16=timeout      │
-│   l Force lookup_policy live       --live-tool lookup_poli…  │
-│   a Diverge here                   --diverge-at 16           │
+│ > o  Override this tool’s result             --override 16=… │
+│   t  Answer with a tool error           --fail-at 16=timeout │
+│   l  Force lookup_policy live      --live-tool lookup_policy │
+│   a  Diverge here                            --diverge-at 16 │
 │ The whole run                                                │
-│   e Repeat the replay and compare  --repeat 5                │
-│   s Stub the writes                --writes stub             │
-│   b Find the commit that changed…  bisect --good …           │
+│   e  Repeat the replay and comp…                  --repeat 5 │
+│   s  Stub the writes                           --writes stub │
+│   b  Find the commit that chang…             bisect --good … │
 │ ────────────────────────                                     │
-│   r Replay this run (clean if no…  replay                    │
-│   p Pack this run to a directory…  pack                      │
+│   r  Replay this run (clean if …                      replay │
+│   p  Pack this run to a directo…                        pack │
 │ The agent gets this instead of the recorded result. Calls b… │
-│ Enter or the letter to run · Esc to close                    │
 ╰──────────────────────────────────────────────────────────────╯
- : actions · / search · [ ] jump · o dashboard · y copy · …
+ a letter runs its action  enter run  j/k move  esc close
 ```
 
 ## How it works

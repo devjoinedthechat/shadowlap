@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { providers } from '../../../packages/sidecar/src/providers.js';
 import { TABS } from '../../../packages/tui/src/components/Inspector.js';
+import { FORK_MENU_KEYS, FORK_MENU_LEAD, INSPECTOR_KEYS, TIMELINE_KEYS } from '../../../packages/tui/src/components/TimelineView.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const readme = readFileSync(join(root, 'README.md'), 'utf8');
@@ -50,19 +51,32 @@ describe('the terminal UI section', () => {
     expect(shown).toEqual([...TABS]);
   });
 
-  it('shows the footer the TUI renders, cut only where the TUI cuts it', () => {
-    const source = readFileSync(join(root, 'packages', 'tui', 'src', 'components', 'TimelineView.tsx'), 'utf8');
-    const footer = /' (: actions · [^']+)'/.exec(source)?.[1];
-    expect(footer, 'no timeline footer in TimelineView.tsx').toBeDefined();
-    const line = readme.split('\n').find((l) => l.trimStart().startsWith(': actions'));
-    expect(line, 'no footer in the README sample').toBeDefined();
-    // The sample is a frame at a fixed width, so it may end in the TUI's own " · …", after the last
-    // whole key that fits; before that, it must be the footer itself, hint for hint and in order, not
-    // a paraphrase that drifts.
-    const shown = line!.trim().replace(/ · …$/, '');
-    expect(shown.endsWith('…'), 'the README footer is cut inside a hint').toBe(false);
-    expect(footer === shown || footer!.startsWith(`${shown} · `), `the README shows "${shown}"; the TUI renders "${footer}"`).toBe(true);
-    expect(shown.split(' · ').length, 'the README footer shows too little of the real one').toBeGreaterThanOrEqual(4);
+  it('shows a footer the TUI renders, cut only where the TUI cuts it', () => {
+    const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
+    expect(frame, 'no terminal UI frame in the README').toBeDefined();
+    const footer = frame!.split('\n').at(-1)!.trim();
+    // The footer is whole hints, a key and what it does, two spaces apart, after what the keys act on
+    // when there is one: the sample is a frame at a fixed width, so it may stop after the last hint
+    // that fits, but each hint it shows is the TUI's own, in the TUI's order, not a paraphrase.
+    const shown = footer.split(/ {2}/);
+    const footers: Array<[string | null, ReadonlyArray<readonly [string, string]>]> = [
+      [null, TIMELINE_KEYS],
+      [null, INSPECTOR_KEYS],
+      [FORK_MENU_LEAD, FORK_MENU_KEYS],
+    ];
+    const rendered = footers.some(([lead, keys]) => {
+      const hints = lead === null ? shown : shown[0] === lead ? shown.slice(1) : null;
+      if (!hints) return false;
+      const all = keys.map(([k, d]) => `${k} ${d}`);
+      let at = 0;
+      for (const hint of hints) {
+        at = all.indexOf(hint, at);
+        if (at < 0) return false;
+        at++;
+      }
+      return hints.length >= Math.min(3, all.length);
+    });
+    expect(rendered, `the README shows "${footer}"; no footer of the TUI reads like that`).toBe(true);
   });
 
   it('is one frame at one width, header and footer as the TUI fits them to it', () => {

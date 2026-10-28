@@ -1,4 +1,4 @@
-import { Box, useApp, useInput, useStdout } from 'ink';
+import { Box, useApp, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
 import { attemptBundles, deletionPlan, withAttempts, type CallRecord, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { recordingNow } from './actions.js';
@@ -6,6 +6,7 @@ import { Help } from './components/Help.js';
 import { RunsView } from './components/RunsView.js';
 import { TimelineView, type OpenDashboard, type SpawnCli } from './components/TimelineView.js';
 import { loadRunTree, summaryOptions } from './data.js';
+import { THEMES, ThemeContext, type ThemeName } from './theme.js';
 
 export interface AppProps {
   store: Store;
@@ -22,11 +23,21 @@ export interface AppProps {
   rows?: number;
   /** USD per million tokens by model prefix (shadowlap.config.json `prices`), on top of the built-in table. */
   prices?: Record<string, Price>;
+  /** The palette for the terminal's background (`launchTui` asks the terminal); dark, the dashboard's, by default. */
+  theme?: ThemeName;
 }
 
 type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number };
 
-export function App({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices }: AppProps) {
+export function App({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, theme = 'dark' }: AppProps) {
+  return (
+    <ThemeContext.Provider value={THEMES[theme]}>
+      <Screens store={store} {...(runId !== undefined ? { runId } : {})} {...(callNo !== undefined ? { callNo } : {})} {...(spawnCli ? { spawnCli } : {})} {...(openDashboard ? { openDashboard } : {})} {...(columns !== undefined ? { columns } : {})} {...(rows !== undefined ? { rows } : {})} {...(prices ? { prices } : {})} />
+    </ThemeContext.Provider>
+  );
+}
+
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices }: Omit<AppProps, 'theme'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });
@@ -75,17 +86,10 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the timers follow the view's kind, run and status: the view and open are new on every refresh, and taking them in would restart the timers each time
   }, [view.kind, view.kind === 'timeline' ? view.run.runId : '', view.kind === 'timeline' ? view.run.status : '']);
 
-  useInput(
-    () => {
-      setHelp(false);
-    },
-    { isActive: help },
-  );
-
-  if (help) return <Help width={width} height={height} />;
+  let screen;
   if (view.kind === 'timeline') {
     const { run, calls, initialCall } = view;
-    return (
+    screen = (
       <TimelineView
         key={run.runId}
         store={store}
@@ -103,11 +107,11 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
         {...(openDashboard ? { openDashboard } : {})}
         {...(initialCall !== undefined ? { initialCall } : {})}
         summaryOptions={options}
+        paused={help}
       />
     );
-  }
-  return (
-    <Box>
+  } else {
+    screen = (
       <RunsView
         nodes={nodes}
         width={width}
@@ -130,7 +134,15 @@ export function App({ store, runId, callNo, spawnCli, openDashboard, columns, ro
         onQuit={() => exit()}
         onHelp={() => setHelp(true)}
         {...(openDashboard ? { openDashboard } : {})}
+        paused={help}
       />
+    );
+  }
+  // Help is drawn over the view, which stays as it was (its filter, zoom, tab and scroll) and takes no keys meanwhile.
+  return (
+    <Box flexDirection="column">
+      {help ? <Help width={width} height={height} context={view.kind === 'timeline' ? 'timeline' : 'runs'} onClose={() => setHelp(false)} /> : null}
+      <Box display={help ? 'none' : 'flex'}>{screen}</Box>
     </Box>
   );
 }

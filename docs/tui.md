@@ -9,24 +9,24 @@ shadowlap ui <run> --call 17   # opened at call 17
 The terminal UI is the quick look: where a run forked, what a call sent and got back, and a fork from the call in front of you, without leaving the terminal. The [dashboard](./dashboard.md) is the full inspector, with turns, context and cache charts, the timeline of what ran in parallel, a run's family of forks, search across runs, comparison, and label and note editing. `o` opens the run, at the selected call, in the dashboard. `shadowlap search` ends each match with the `shadowlap ui <run> --call <n>` that opens it.
 
 ```
- 01K5CQ4P2R fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 12.4k input tokens not re-spent · 2s ago
-┌─────────────────────────────────────────────────┐┌───────────────────────────────────────────────┐
-│  #15  tool  fetch_page        replayed ok  {"url"││ conversation  request  response  meta         │
-│  #16  tool  read_file         replayed ok  {"path││ ■ 14 events over 1.3s · stop tool_use · space │
-│>!#17  api   messages          live     ok  980>40││                                               │
-│  #18  tool  search_web        live     ok  {"quer││ Sending the summary.                          │
-│  #19  tool  send_email        blocked  ERR {"to":││ ⚙ send_email {"to":"team@example.com",…       │
-└─────────────────────────────────────────────────┘└───────────────────────────────────────────────┘
- : actions · / search · [ ] jump · o dashboard · y copy · w write · p parent · space play · d diff · f filter · ? help
+ 01K5CQ4P2R fork @17 of 01K5CQ4N7G · 30 calls · 16 replayed · 13 live · 1 blocked · 2s ago
+╭──────────────────────────────────────────────────────╮╭──────────────────────────────────────────╮
+│  #15  tool  fetch_page          replayed ok  {"url":…││  conversation  request  response  meta  │
+│  #16  tool  read_file           replayed ok  {"path"…││  diff                                    │
+│── forked at #17 · the request changed: $.system ─────││ ✗ Diverged at call 17 (api POST          │
+│> #17  model -> send_email       live     ok  opus-5 …││ /v1/messages): 16 calls replayed before  │
+│  #18  tool  search_web          live     ok  {"query…││ divergence                               │
+│  #19  tool  send_email          blocked  ERR {"to":"…││                                          │
+╰──────────────────────────────────────────────────────╯╰──────────────────────────────────────────╯
+ ? help  : fork  d diff  / filter  z zoom  [ ] notable  space play  o dashboard  y copy  w write
 ```
 
 ## Screens
 
-- **Runs**: the run tree, forks nested under their parents, with status, call count, cost, age, `shadowlap test` check results (`✓ 3/3`, `✗ 2/3`) and labels. `Enter` opens.
-- **Timeline**: one row per call with kind, scope (when the run uses [scopes](./sdk.md#scopes)), name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure Shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure)), outcome, and for model calls the tokens, model and stop reason (`1.2k>40 tok · opus-5 · tool_use`), for tools the arguments. The divergence row is marked `!`.
-- **Inspector** tabs: *conversation* (the full conversation as sent at the selected call), *request* (structured), *response* (rendered stream, or JSON), *meta* (origin, latency, usage, attempts, headers, the changed-implementation warning).
+- **Runs**: the run tree, forks nested under their parents, with what each run is (`recording`, `fork @3`, `clean replay`), `shadowlap test` check results (`✓ 3/3`, `✗ 2/3`), labels, a status when a run isn't finished (`recording`, `interrupted`, `failed`), call count, cost and age, then its command. The columns fit the terminal: in a narrow one cost, the call count, labels and age give way, in that order, and the cursor, the run, what it is and its checks stay. The part of the ids every listed run shares, the day they were made, is drawn faint. The line under the list has the selected run in full. `Enter` opens.
+- **Timeline**: one row per call with kind (`model`, `tool`, `clock`, `rand`), scope (when the run uses [scopes](./sdk.md#scopes)), what the call was, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`, or `injected` for a failure Shadowlap answered with under [`--fail-at`](./interventions.md#inject-a-failure)), outcome, and the model and tokens of a model call (`opus-5 · 1.2k in, 40 out`) or a tool's arguments. A model call is named by what it did: the tools it called (`-> search_web, read_file`), the first words of what it said, `cut off: max_tokens`, or the HTTP status it failed with. On a fork, a line across the list marks where it forked and says what changed there (`── forked at #17 · the request changed: $.system`), and the calls replayed before it are drawn quieter than those after.
+- **Inspector** tabs: *conversation* (the full conversation as sent at the selected call; it opens on the turns this call added since the model call before it, marked `new`, and tool results that are JSON are laid out as JSON), *request* (structured), *response* (rendered stream, or JSON), *meta* (origin, latency, usage, attempts, the changed-implementation warning, then the response headers), and on a fork *diff*: the divergence report with the normalizer hint. A fork opened at its divergence opens on the diff. `z` widens the inspector to the whole terminal.
 - **Play mode**: replays the selected response at its recorded pacing (×1, ×2, ×4, instant) from the per-event timing stored with the recording. Watch the run happen, at zero cost.
-- **Diff**: the divergence report with the normalizer hint.
 - **Actions**: see below.
 
 The conversation tab needs no state reconstruction: every model request carries the whole conversation, so call *k*'s request *is* the state at *k*.
@@ -35,23 +35,28 @@ The conversation tab needs no state reconstruction: every model request carries 
 
 | Key | Action |
 |---|---|
-| `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`/`G` | Move in the focused pane |
+| `↑`/`↓`, `j`/`k`, `PgUp`/`PgDn`, `g`/`G` | Move in the focused pane: the selected row is filled in lime |
 | `←`/`→`, `h`/`l` | Focus the call list or the inspector; the inspector then scrolls with the same keys |
-| `Tab`, `Shift-Tab`, `1`–`4` | Inspector tabs |
-| `J`/`K` | Scroll the inspector or the diff without changing focus |
+| `Tab`, `Shift-Tab`, `1`–`5` | Inspector tabs; `5` is a fork's diff |
+| `z` | Widen the inspector to the whole terminal, and back; `Esc` too |
+| `J`/`K` | Scroll the inspector without leaving the call list |
 | `space`, `+`/`-` | Play the selected response; speed |
-| `/` | Filter calls by name, arguments, origin or scope; `Esc` clears. In the runs view, filter runs by id, command, revision or label |
+| `/` | Filter calls by name, arguments, origin or scope as you type: `Enter` keeps the filter, `Esc` puts back the one before, and `Esc` again clears it. In the runs view, filter runs by id, command, revision or label |
 | `[` / `]` | Previous / next call that ran live, was fenced, or failed |
-| `n`, `d` | Jump to the divergence; show its diff |
+| `n`, `d` | Jump to the call the run forked at; show what changed there on the diff tab |
 | `f` | Cycle the origin filter: all / live / replayed / fenced |
 | `:` | Actions for the selected call |
 | `y`, `w` | Copy the request (or the response, on that tab) to the clipboard; write request and response to `shadowlap-<run>-call<n>.json` |
 | `p` | Open the parent run |
 | `o` | Open the run, at the selected call, in the dashboard. The first `o` starts the dashboard in the same process; it stops when you quit, and so do the jobs started from it (they are killed at once when the terminal closes). Without a browser (over SSH), the link is shown and copied |
 | `x` | Delete the selected run with the attempts bundled under it (`--repeat`, blame's probes, verify's attempts, and theirs in turn), as `rm` does (runs view; asks first, naming how many attempts go with it). A run still recording, one a replay in progress reads from, and one with an attempt still running stay, and the reason is shown |
-| `?`, `Esc`/`q` | Help; back / quit |
+| `?`, `Esc`/`q` | Help: the keys of the view it was opened from. `Esc` steps back one thing at a time (a filter, the zoom, the inspector's focus, then the view); `q` goes back to the runs, or quits from them |
 
-The header line summarizes the run: calls, how many replayed, ran live, were blocked or stubbed, tokens saved and what they were worth, the approximate cost of the live calls, wall time, status, age and revision. A run that is still recording is tailed live. The layout follows terminal resizes; the minimum is 60×12. In a terminal too narrow for all of the header or the keys in the footer, what fits is shown whole, in order, and ` · …` stands for the rest, as it does for the keys above the run tree.
+The header line summarizes the run: calls, how many replayed, ran live, were blocked or stubbed, tokens saved and what they were worth, the approximate cost of the live calls, wall time, status, age and revision. A run that is still recording is tailed live. The layout follows terminal resizes; the minimum is 60×12, and every screen fits it. In a terminal too narrow for all of the header, what fits is shown whole, in order, and ` · …` stands for the rest. The footer line is the keys of the pane in focus, `? help` first, or a message, or what a filter or a delete asks.
+
+## Colours
+
+The terminal UI uses the dashboard's colours: lime for what Shadowlap adds (a replayed call, the fork point, the focused pane, the selected row), the terminal's own text colour for what was said and what ran live, and red, amber and violet for failures, fenced and stubbed calls, and overrides. Lime that reads well on a dark background disappears on a light one, so before it draws anything the UI asks the terminal for its background colour, as Neovim does, and picks a palette to suit: on a light background, lime text is darkened and lime stays behind the selected row. A terminal that doesn't say gets its own sixteen colours, which its theme already suits to its background, as does one with fewer than 256 colours; `COLORFGBG`, which rxvt, Konsole and iTerm2 set, is read when the terminal doesn't answer. `SHADOWLAP_UI_THEME=dark`, `light` or `ansi` chooses for it. The `>` before the selected row marks it in a terminal without colour.
 
 ## Cost, model and stop reason
 

@@ -1,11 +1,11 @@
-import { render } from 'ink-testing-library';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { normalizeConversation, normalizeResponse, Store, unpackRun } from '@shadowlap/engine';
 import { App } from '../src/app.js';
-import { diffLines } from '../src/components/DiffView.js';
+import { diffLines } from '../src/diff.js';
 import { Help } from '../src/components/Help.js';
 import { conversationLines, fitItems } from '../src/render.js';
+import { renderAt } from './terminal.js';
 import { parseSse, streamView } from '../src/sse.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -54,7 +54,7 @@ async function frameWithout(lastFrame: LastFrame, text: string, timeoutMs = 5000
 }
 
 /** What the runs view asks while its search is open. */
-const RUN_SEARCH = 'run id, command, revision or label contains';
+const RUN_SEARCH = 'filter runs:';
 
 function goldenStore(): { store: Store; runId: string } {
   const store = Store.open(':memory:');
@@ -69,7 +69,7 @@ describe('TUI', () => {
     store.setDivergence(fork.runId, { type: 'request_changed', callNo: 3, kind: 'api', name: 'POST /v1/messages', replayedBefore: 2, diff: [{ path: '$.system', op: 'changed', before: 'a', after: 'b' }] });
     store.endRun(fork.runId, 'completed');
 
-    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} columns={100} rows={30} />, 100, 30);
     const frame = await frameWith(lastFrame, '2 runs');
     expect(frame).toContain(runId.slice(0, 10));
     expect(frame).toContain('recording');
@@ -82,7 +82,7 @@ describe('TUI', () => {
     let timeline = await frameWith(lastFrame, 'no model request before this call'); // #1 is the clock read
     expect(timeline).toContain('#1');
     expect(timeline).toContain('now');
-    expect(timeline).toMatch(/api\s+messages/); // the endpoint without its method and version
+    expect(timeline).toMatch(/#3\s+model\s+-> search_web, read_file/); // a model call, by the tools it called
     expect(timeline).toContain('conversation');
 
     stdin.write('j');
@@ -97,18 +97,16 @@ describe('TUI', () => {
     store.close();
   });
 
-  it("fits the runs view's key line to the terminal by whole keys, the rest as ` · …`", async () => {
+  it("names the runs view, and fits its keys to the terminal by whole keys, help first", async () => {
     const { store } = goldenStore();
     const at = async (columns: number) => {
-      const { lastFrame, unmount } = render(<App store={store} columns={columns} rows={20} />);
-      const line = (await frameWith(lastFrame, '1 run')).split('\n')[0];
+      const { lastFrame, unmount } = renderAt(<App store={store} columns={columns} rows={20} />, columns, 20);
+      const lines = (await frameWith(lastFrame, '1 run')).split('\n');
       unmount();
-      return line;
+      return [lines[0], lines.at(-1)];
     };
-    expect(await at(100)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · x delete · ? help · q quit');
-    // One row whatever the width: whole keys, then ` · …`, never a key cut or the name squeezed.
-    expect(await at(80)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · x delete · ? help · …');
-    expect(await at(60)).toBe(' Shadowlap 1 run · Enter open · o dashboard · / search · …');
+    expect(await at(100)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  q quit']);
+    expect(await at(60)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  q quit']);
     store.close();
   });
 
@@ -133,19 +131,27 @@ describe('TUI', () => {
     });
     store.endRun(fork.runId, 'completed');
 
-    const { lastFrame, stdin } = render(<App store={store} runId={fork.runId} columns={100} rows={30} />);
-    await frameWith(lastFrame, '>!#3'); // divergence row marked and selected
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={fork.runId} columns={100} rows={30} />, 100, 30);
+    // Opened at the divergence, under the line that says what changed there, on the diff tab.
+    const frame = await frameWhere(lastFrame, (f) => /> #3\s/.test(f) && f.includes('Diverged at call 3'));
+    const lines = frame.split('\n');
+    const at = lines.findIndex((l) => /> #3\s/.test(l));
+    expect(lines[at - 1]).toContain('── forked at #3 · the request changed: $.system');
+    expect(frame).toContain('Diverged at call 3');
+    expect(frame).toContain('~ $.system');
+    expect(frame).toContain('- "Today is 2026-09-15."');
+    expect(frame).toContain('shadowlap normalize add --kind api');
+    // Another tab, then d comes back to the diff.
+    stdin.write('1');
+    await frameWithout(lastFrame, 'Diverged at call 3');
     stdin.write('d');
-    const diff = await frameWith(lastFrame, 'Diverged at call 3');
-    expect(diff).toContain('~ $.system');
-    expect(diff).toContain('- "Today is 2026-09-15."');
-    expect(diff).toContain('shadowlap normalize add --kind api');
+    await frameWith(lastFrame, 'Diverged at call 3');
     store.close();
   });
 
   it('plays a streamed response instantly', async () => {
     const { store, runId } = goldenStore();
-    const { lastFrame, stdin } = render(<App store={store} runId={runId} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={runId} columns={100} rows={30} />, 100, 30);
     await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
@@ -176,10 +182,10 @@ describe('ease of use', () => {
     }
     store.endRun(fork.runId, 'completed');
     for (const columns of [64, 80, 120]) {
-      const { lastFrame, unmount } = render(<App store={store} runId={fork.runId} columns={columns} rows={20} />);
+      const { lastFrame, unmount } = renderAt(<App store={store} runId={fork.runId} columns={columns} rows={20} />, columns, 20);
       const frame = await frameWith(lastFrame, '#4');
       unmount();
-      const row = (n: number) => frame.split('\n').find((l) => new RegExp(`[ >!]#${n} `).test(l)) ?? '';
+      const row = (n: number) => frame.split('\n').find((l) => new RegExp(`[ >]#${n} `).test(l)) ?? '';
       expect(row(4), `${columns} columns`).toMatch(/ overridden +ok /);
       expect(row(5)).toMatch(/ stubbed +ok /);
       expect(row(3)).toMatch(/ replayed +ok /);
@@ -202,8 +208,8 @@ describe('ease of use', () => {
     store.setDivergence(fork.runId, { type: 'request_changed', callNo: 17, kind: 'api', name: 'POST /v1/messages', replayedBefore: 16 });
     store.endRun(fork.runId, 'completed');
 
-    const { lastFrame, stdin } = render(<App store={store} runId={fork.runId} columns={100} rows={30} />);
-    let frame = await frameWith(lastFrame, '>!#17'); // opened at the divergence
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={fork.runId} columns={100} rows={30} />, 100, 30);
+    let frame = await frameWith(lastFrame, '> #17'); // opened at the divergence
     expect(frame).toContain(`fork @17 of ${runId.slice(0, 10)}`);
     expect(frame).toContain('16 replayed');
     expect(frame).toContain('13 live'); // 14 calls after the fork, one of them blocked
@@ -212,22 +218,22 @@ describe('ease of use', () => {
     stdin.write(']'); // next notable call after #17: #18 ran live
     await frameWith(lastFrame, '> #18');
     stdin.write('['); // and back
-    await frameWith(lastFrame, '>!#17');
+    await frameWith(lastFrame, '> #17');
 
     stdin.write('/');
-    await frameWith(lastFrame, 'Filter calls');
+    await frameWith(lastFrame, 'filter calls:');
     stdin.write('send_email');
     stdin.write('\r');
     frame = await frameWith(lastFrame, 'filter: /send_email (1/30)');
-    expect(frame).toContain('tool send_email'); // the list row
-    expect(frame).not.toContain('tool search_web'); // filtered out of the list (the inspector may still mention it)
+    expect(frame).toMatch(/tool\s+send_email/); // the list row
+    expect(frame).not.toMatch(/tool\s+search_web/); // filtered out of the list
     stdin.write('\x1b'); // Esc clears the filter
     await frameWithout(lastFrame, 'filter:');
 
     stdin.write('l'); // focus the inspector
-    await frameWith(lastFrame, 'inspector: j/k scroll');
+    await frameWith(lastFrame, 'j/k scroll');
     stdin.write('h');
-    await frameWith(lastFrame, ': actions');
+    await frameWith(lastFrame, ': fork');
     store.close();
   });
 
@@ -235,7 +241,7 @@ describe('ease of use', () => {
     const { store, runId } = goldenStore();
     const other = store.createRun({ mode: 'record', command: { argv: ['python', 'triage.py'], cwd: '.' } });
     store.endRun(other.runId, 'completed');
-    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} columns={100} rows={30} />, 100, 30);
     await frameWith(lastFrame, '2 runs');
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
@@ -262,7 +268,7 @@ describe('ease of use', () => {
       store.endRun(a.runId, 'completed');
       return a.runId;
     });
-    const { lastFrame, stdin } = render(<App store={store} columns={140} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} columns={140} rows={30} />, 140, 30);
     await frameWith(lastFrame, '3 runs');
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
@@ -278,8 +284,8 @@ describe('ease of use', () => {
   });
 
   it('says in its help that x deletes the attempts bundled under the run with it', () => {
-    const { lastFrame, unmount } = render(<Help width={140} height={30} />);
-    expect(plain(lastFrame())).toContain('delete the selected run with its attempts, as rm does (runs view; asks first)');
+    const { lastFrame, unmount } = renderAt(<Help width={140} height={30} context="runs" />, 140, 30);
+    expect(plain(lastFrame())).toContain('delete the selected run with its attempts, as rm does; asks first');
     unmount();
   });
 
@@ -287,7 +293,7 @@ describe('ease of use', () => {
     const { store } = goldenStore();
     // Recorded by this process, which is still running.
     const live = store.createRun({ mode: 'record', command: { argv: ['python', 'chat.py'], cwd: '.' } });
-    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} columns={100} rows={30} />, 100, 30);
     await frameWith(lastFrame, live.runId.slice(0, 10));
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
@@ -311,7 +317,7 @@ describe('a recording whose process was killed', () => {
     // first depends on the day the test runs (the golden was recorded on a fixed day).
     const left = { ...store.getRun(runId)!, runId: '01M4Y6TKZZLEFT000000000000', status: 'running' as const, endedAt: null, startedAt: Date.now() - 2 * 86_400_000, meta: {} };
     store.importRun(left);
-    const { lastFrame, stdin, unmount } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin, unmount } = renderAt(<App store={store} columns={100} rows={30} />, 100, 30);
     const list = await frameWith(lastFrame, left.runId.slice(0, 10));
     expect(list.split('\n').find((l) => l.includes(left.runId.slice(0, 10)))).toContain('interrupted');
     stdin.write('/');
@@ -352,15 +358,17 @@ describe('scopes, labels and the dashboard', () => {
       return { url: 'http://127.0.0.1:4777/#token=t', opened: true };
     };
 
-    const { lastFrame, stdin } = render(<App store={store} runId={scoped.runId} callNo={4} openDashboard={openDashboard} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={scoped.runId} callNo={4} openDashboard={openDashboard} columns={100} rows={30} />, 100, 30);
     const frame = await frameMatching(lastFrame, /> #4\s+tool\s+researcher\s+search_web/); // opened at #4, with its scope before the name
-    expect(frame).toMatch(/#3\s+api\s+planner/);
+    expect(frame).toMatch(/#3\s+model\s+planner/);
     stdin.write('/');
-    await frameWith(lastFrame, 'Filter calls');
+    await frameWith(lastFrame, 'filter calls:');
     stdin.write('planner');
     stdin.write('\r');
     await frameWith(lastFrame, '(3/6)'); // the filter matches scopes too
-    stdin.write('j'); // #3, the second planner call
+    // #4 isn't a planner call: the next one shown after it, #5, stands in; k goes up to #3.
+    await frameMatching(lastFrame, /> #5\s/);
+    stdin.write('k');
     await frameMatching(lastFrame, /> #3\s/);
     stdin.write('4'); // meta tab
     await frameMatching(lastFrame, /scope\s+planner/);
@@ -378,8 +386,8 @@ describe('scopes, labels and the dashboard', () => {
     let url = '';
     const openDashboard = async (id: string) => ({ url: (url = `http://127.0.0.1:4777/#token=t&open=/run/${id}`), opened: false });
 
-    const { lastFrame, stdin } = render(<App store={store} openDashboard={openDashboard} columns={100} rows={30} />);
-    await frameWith(lastFrame, '✗ 1/2 refund eu');
+    const { lastFrame, stdin } = renderAt(<App store={store} openDashboard={openDashboard} columns={100} rows={30} />, 100, 30);
+    await frameMatching(lastFrame, /✗ 1\/2\s+refund eu/);
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('refund');
@@ -403,10 +411,10 @@ describe('check results in the runs list', () => {
     const other = store.createRun({ mode: 'record', command: { argv: ['python', 'triage.py'], cwd: '.' } });
     store.endRun(other.runId, 'completed');
     store.updateRunMeta(other.runId, { labels: ['triage'], checks: [{ status: 'passed', ok: true, label: 'a', detail: null }, { status: 'inconclusive', ok: false, label: 'judge "j" answers yes', detail: 'not judged' }] });
-    const { lastFrame, stdin } = render(<App store={store} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} columns={100} rows={30} />, 100, 30);
     // Passed of those that applied; amber when one could not be decided.
-    await frameWith(lastFrame, '✓ 1/1 refund');
-    await frameWith(lastFrame, '? 1/2 triage');
+    await frameMatching(lastFrame, /✓ 1\/1\s+refund/);
+    await frameMatching(lastFrame, /\? 1\/2\s+triage/);
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
     stdin.write('refund');
@@ -430,14 +438,14 @@ describe('actions palette', () => {
       return spawn(process.execPath, ['-e', `console.log('args: ' + JSON.stringify(process.argv.slice(1))); console.error('[shadowlap] replaying run ${fork.runId}'); console.log('done')`, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     };
 
-    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />, 100, 30);
     await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call
     await frameMatching(lastFrame, /> #3\s/);
     stdin.write(':');
     let frame = await frameWith(lastFrame, 'At #3 · model call');
-    expect(frame).toContain('Actions');
+    expect(frame).toContain('Fork menu');
     expect(frame).toContain('Inject an instruction');
     expect(frame).toContain('--inject 3=… --inject-as user'); // each line carries its flag
     expect(frame).toContain('Switch the model from here');
@@ -477,7 +485,7 @@ describe('actions palette', () => {
       spawned.push(args);
       throw new Error('nothing is run here');
     };
-    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={120} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={runId} spawnCli={spawnCli} columns={120} rows={30} />, 120, 30);
     await frameWith(lastFrame, '> #1');
     stdin.write(':');
     await frameWith(lastFrame, 'The whole run');
@@ -512,7 +520,7 @@ describe('actions palette', () => {
     const spawnCli = () => {
       throw new Error('nothing is run here');
     };
-    const { lastFrame, stdin } = render(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />);
+    const { lastFrame, stdin } = renderAt(<App store={store} runId={runId} spawnCli={spawnCli} columns={100} rows={30} />, 100, 30);
     await frameWith(lastFrame, '> #1');
     stdin.write('j');
     stdin.write('j'); // #3, the first model call

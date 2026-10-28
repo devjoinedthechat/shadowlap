@@ -2,6 +2,7 @@ import { Box, Text, useInput } from 'ink';
 import { useEffect, useState } from 'react';
 import type { ChildProcess } from 'node:child_process';
 import { truncate } from '../render.js';
+import { useTheme } from '../theme.js';
 
 interface Props {
   title: string;
@@ -20,6 +21,7 @@ const RUN_LINE = /(?:recording|replaying) run ([0-9A-Z]{26})/;
 
 /** Streams a spawned CLI command's output; when it exits, offers to open the run it created. */
 export function OutputPane({ title, child, width, height, active, onExit, onClose, onOpenRun }: Props) {
+  const theme = useTheme();
   const [lines, setLines] = useState<string[]>([]);
   const [exit, setExit] = useState<{ code: number | null; runId: string | null } | null>(null);
 
@@ -75,7 +77,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
       : `exited with code ${exit.code ?? '?'} · Esc closes`
     : 'running…';
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={exit ? (exit.code === 0 ? 'green' : 'red') : 'yellow'} paddingX={1}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={exit ? (exit.code === 0 ? theme.ok : theme.err) : theme.warn} paddingX={1}>
       <Text bold>{truncate(title, inner)}</Text>
       {visible.map((l, i) => (
         <Text key={i} wrap="truncate">
@@ -83,7 +85,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
         </Text>
       ))}
       <Box flexGrow={1} />
-      <Text color="gray">{status}</Text>
+      <Text color={exit ? (exit.code === 0 ? theme.ok : theme.err) : theme.dim}>{status}</Text>
     </Box>
   );
 }

@@ -1,14 +1,23 @@
 import { Box, Text } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import type { CallRecord, Store } from '@shadowlap/engine';
+import type { CallRecord, DivergenceReport, Store } from '@shadowlap/engine';
 import { estimateCost, formatDuration, formatTokens, formatUsd, normalizeResponse, type SummaryOptions } from '@shadowlap/engine';
 import { conversationAt, loadRequest, loadResponseBytes } from '../data.js';
+import { diffLines } from '../diff.js';
 import { conversationLines, formatBytes, jsonLines, truncate, wrap, type RenderedLine } from '../render.js';
 import { streamView } from '../sse.js';
-import { roleColor } from '../theme.js';
+import { useTheme, type Theme } from '../theme.js';
 
-export type Tab = 'conversation' | 'request' | 'response' | 'meta';
+export type Tab = 'conversation' | 'request' | 'response' | 'meta' | 'diff';
 export const TABS: Tab[] = ['conversation', 'request', 'response', 'meta'];
+
+/** The tabs a run's inspector has: a fork's has its diff as well, fifth so the others keep their keys. */
+export function tabsFor(divergence: DivergenceReport | null): Tab[] {
+  return divergence ? [...TABS, 'diff'] : TABS;
+}
+
+/** Shorter names for a pane too narrow for the full ones. */
+const SHORT: Record<Tab, string> = { conversation: 'chat', request: 'req', response: 'resp', meta: 'meta', diff: 'diff' };
 
 export interface PlayState {
   playing: boolean;
@@ -17,22 +26,34 @@ export interface PlayState {
   upto: number;
 }
 
+/** Where the inspector is scrolled, and how far it can go, for keys that move it by a line or a page. */
+export interface InspectorView {
+  offset: number;
+  max: number;
+  page: number;
+}
+
 interface Props {
   store: Store;
   calls: CallRecord[];
   index: number;
   tab: Tab;
-  scroll: number;
+  /** Lines scrolled from the top; null opens where the tab starts reading (a conversation's newest turns). */
+  scroll: number | null;
   play: PlayState;
   onPlayTick: (next: PlayState) => void;
   width: number;
   height: number;
   focused?: boolean;
+  /** The run's divergence, for the diff tab. */
+  divergence?: DivergenceReport | null;
+  /** Told where the view is after each render. */
+  onView?: (view: InspectorView) => void;
   /** Price table and model resolver for the cost row of the meta tab. */
   summaryOptions?: SummaryOptions;
 }
 
-function metaLines(call: CallRecord, width: number, options?: SummaryOptions): string[] {
+function metaLines(call: CallRecord, width: number, theme: Theme, options?: SummaryOptions): RenderedLine[] {
   const end = call.end;
   const model = end?.meta.model ?? call.meta.model ?? options?.modelOf?.(call) ?? null;
   const rows: Array<[string, string]> = [
@@ -49,7 +70,7 @@ function metaLines(call: CallRecord, width: number, options?: SummaryOptions): s
     const u = end.meta.usage;
     rows.push([
       'usage',
-      `${formatTokens(u.inputTokens)} in → ${formatTokens(u.outputTokens)} out` +
+      `${formatTokens(u.inputTokens)} in, ${formatTokens(u.outputTokens)} out` +
         (u.cacheReadInputTokens ? `, ${formatTokens(u.cacheReadInputTokens)} cache read` : '') +
         (u.cacheCreationInputTokens ? `, ${formatTokens(u.cacheCreationInputTokens)} cache write` : ''),
     ]);
@@ -67,14 +88,22 @@ function metaLines(call: CallRecord, width: number, options?: SummaryOptions): s
   rows.push(['occurrence', String(call.occurrence)], ['fingerprint', call.fingerprint.slice(0, 16) + '…']);
   if (call.meta.implHash) rows.push(['impl hash', String(call.meta.implHash).slice(0, 16) + '…']);
   if (end?.meta.error) rows.push(['error', `${end.meta.error.name}: ${end.meta.error.message}`]);
-  if (end?.meta.headers) for (const [k, v] of Object.entries(end.meta.headers)) rows.push([`h: ${k}`, v]);
   const keyWidth = 12;
-  return rows.flatMap(([k, v]) => wrap(v, width - keyWidth - 1).map((line, i) => (i === 0 ? k.padEnd(keyWidth) : ' '.repeat(keyWidth)) + ' ' + line));
+  const out: RenderedLine[] = rows.flatMap(([k, v]) => wrap(v, width - keyWidth - 1).map((line, i) => ({ text: (i === 0 ? k.padEnd(keyWidth) : ' '.repeat(keyWidth)) + ' ' + line })));
+  // Response headers under a heading of their own: their names are longer than the column above.
+  const headers = Object.entries(end?.meta.headers ?? {});
+  if (headers.length) {
+    out.push({ text: '' }, { text: 'response headers', role: 'label', head: true });
+    for (const [k, v] of headers) for (const line of wrap(`${k}: ${v}`, width)) out.push({ text: line, color: theme.dim });
+  }
+  return out;
 }
 
-export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, summaryOptions }: Props) {
+export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, width, height, focused = false, divergence = null, onView, summaryOptions }: Props) {
+  const theme = useTheme();
   const call = calls[index];
-  const innerWidth = Math.max(20, width - 2);
+  // Border (2) and a column of padding each side (2).
+  const innerWidth = Math.max(16, width - 4);
   // Border (2) plus the tab row (1).
   const bodyHeight = Math.max(1, height - 3);
 
@@ -108,16 +137,28 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
     return () => clearTimeout(t);
   }, [play, isSse, events.length, deltas, onPlayTick]);
 
+  const playOnResponse = tab === 'response' ? play : null;
   const [lines, setLines] = useState<RenderedLine[]>([]);
+  // Where a tab starts reading when nothing has scrolled it: a conversation's first new turn.
+  const [anchor, setAnchor] = useState(0);
   useEffect(() => {
-    if (!call) {
-      setLines([]);
-      return;
-    }
     let next: RenderedLine[];
-    if (tab === 'conversation') {
+    let start = 0;
+    if (tab === 'diff') {
+      next = diffLines(divergence, innerWidth, theme);
+    } else if (!call) {
+      next = [];
+    } else if (tab === 'conversation') {
       const conv = conversationAt(store, calls, index);
-      next = conv ? [{ text: `conversation as sent in call #${conv.fromCallNo}`, role: 'label' }, { text: '' }, ...conversationLines(conv.turns, innerWidth)] : [{ text: '(no model request before this call)', role: 'label' }];
+      if (conv) {
+        const fresh = conv.freshFrom;
+        const turns = conversationLines(conv.turns, innerWidth, fresh ?? Number.POSITIVE_INFINITY);
+        const intro = `conversation as sent in call #${conv.fromCallNo}${fresh !== undefined && fresh < conv.turns.length ? ` · ${conv.turns.length - fresh} new since the last model call` : ''}`;
+        next = [{ text: intro, role: 'label' }, { text: '' }, ...turns];
+        // Opens with the first turn this call added at the top, the turns before it a scroll up.
+        const first = next.findIndex((l) => l.fresh);
+        start = first > 2 ? first : 0;
+      } else next = [{ text: '(no model request before this call)', role: 'label' }];
     } else if (tab === 'request') {
       next = jsonLines(loadRequest(store, call), innerWidth).map((text) => ({ text }));
     } else if (tab === 'response') {
@@ -145,30 +186,71 @@ export function Inspector({ store, calls, index, tab, scroll, play, onPlayTick, 
         next = jsonLines(parsed, innerWidth).map((text) => ({ text }));
       } else next = [{ text: '(empty response)', role: 'label' }];
     } else {
-      next = metaLines(call, innerWidth, summaryOptions).map((text) => ({ text }));
+      next = metaLines(call, innerWidth, theme, summaryOptions);
     }
     setLines(next);
-  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, play, responseBytes, summaryOptions]);
+    setAnchor(start);
+    // Playback moves only the response tab: the others aren't worked out again on each of its ticks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- playOnResponse stands in for play
+  }, [store, calls, index, call, tab, innerWidth, isSse, events, deltas, response, playOnResponse, responseBytes, summaryOptions, divergence, theme]);
 
-  const maxScroll = Math.max(0, lines.length - bodyHeight);
-  const offset = Math.min(scroll, maxScroll);
+  // A view opened at its anchor may end short of the pane's foot, so the newest turn heads it.
+  const maxScroll = Math.max(0, lines.length - bodyHeight, Math.min(anchor, lines.length - 1));
+  const offset = Math.max(0, Math.min(scroll ?? anchor, maxScroll));
   const visible = lines.slice(offset, offset + bodyHeight);
+  useEffect(() => {
+    onView?.({ offset, max: maxScroll, page: bodyHeight });
+  }, [onView, offset, maxScroll, bodyHeight]);
+
+  // The tab row: full names when they fit, short ones when they don't, and the line count after.
+  const tabs = tabsFor(divergence);
+  const position = lines.length > bodyHeight ? `${offset + 1}–${Math.min(lines.length, offset + bodyHeight)}/${lines.length}` : '';
+  const full = tabs.reduce((n, t) => n + t.length + 2, 0);
+  const short = tabs.reduce((n, t) => n + SHORT[t].length + 2, 0);
+  // Full names, short ones, or in the narrowest pane only the open tab and which of them it is; the
+  // line count goes before the names are shortened further.
+  const names: string[] = full <= innerWidth ? tabs : short <= innerWidth ? tabs.map((t) => SHORT[t]) : [];
+  const shownWidth = names.length ? names.reduce((n, t) => n + t.length + 2, 0) : SHORT[tab].length + 6;
 
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="single" borderColor={focused ? 'cyan' : 'gray'}>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={focused ? theme.accent : theme.faint} paddingX={1}>
       <Box height={1} flexShrink={0}>
-        {TABS.map((t) => (
-          <Text key={t} inverse={t === tab} {...(t === tab ? {} : { color: 'gray' })}>
-            {` ${t} `}
-          </Text>
-        ))}
-        <Text color="gray">{lines.length > bodyHeight ? `  ${offset + 1}–${Math.min(lines.length, offset + bodyHeight)}/${lines.length}` : ''}</Text>
-      </Box>
-      {visible.map((l, i) => (
-        <Text key={i} wrap="truncate" {...(l.role && roleColor[l.role] ? { color: roleColor[l.role]! } : {})} bold={l.role === 'label'}>
-          {truncate(l.text, innerWidth) || ' '}
+        <Text wrap="truncate">
+          {names.length ? (
+            tabs.map((t, i) => (
+              <Text key={t} {...(t === tab ? { backgroundColor: theme.band, color: theme.onBand, bold: true } : { color: theme.dim })}>
+                {` ${names[i] ?? t} `}
+              </Text>
+            ))
+          ) : (
+            <Text>
+              <Text backgroundColor={theme.band} color={theme.onBand} bold>{` ${SHORT[tab]} `}</Text>
+              <Text color={theme.faint}>{` ${tabs.indexOf(tab) + 1}/${tabs.length}`}</Text>
+            </Text>
+          )}
+          {position && shownWidth + position.length + 2 <= innerWidth ? <Text color={theme.faint}>{`  ${position}`}</Text> : null}
         </Text>
-      ))}
+      </Box>
+      {visible.map((l, i) => {
+        const text = truncate(l.text, innerWidth) || ' ';
+        if (l.head && l.role !== 'label' && !l.color) {
+          // A turn's name: bold, the system prompt's quieter, and a new turn says so in lime.
+          return (
+            <Text key={i} wrap="truncate">
+              <Text bold {...(l.role === 'system' ? { color: theme.dim } : {})}>
+                {text}
+              </Text>
+              {l.fresh ? <Text color={theme.accent}> · new</Text> : null}
+            </Text>
+          );
+        }
+        const color = l.color ?? (l.role === 'label' || l.aside ? theme.dim : undefined);
+        return (
+          <Text key={i} wrap="truncate" {...(color ? { color } : {})} bold={l.head === true}>
+            {text}
+          </Text>
+        );
+      })}
     </Box>
   );
 }

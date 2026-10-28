@@ -2,6 +2,7 @@ import { render } from 'ink';
 import { createElement } from 'react';
 import type { Store } from '@shadowlap/engine';
 import { App, type AppProps } from './app.js';
+import { detectTheme } from './terminal-theme.js';
 
 export { App } from './app.js';
 export type { AppProps } from './app.js';
@@ -11,7 +12,9 @@ export type { Action } from './components/ActionsView.js';
 export { parseSse, streamView } from './sse.js';
 export { conversationLines, blockLines, wrap } from './render.js';
 export type { ConversationAt } from './data.js';
-export { diffLines } from './components/DiffView.js';
+export { diffLines, divergenceSummary } from './diff.js';
+export { THEMES, type Theme, type ThemeName } from './theme.js';
+export { detectTheme, themeFromColorFgBg, themeFromEnv, themeFromOsc11 } from './terminal-theme.js';
 
 /** Opens the TUI on a store and resolves when the user quits. */
 export async function launchTui(store: Store, options: Omit<AppProps, 'store'> = {}): Promise<void> {
@@ -19,7 +22,9 @@ export async function launchTui(store: Store, options: Omit<AppProps, 'store'> =
   if ((process.stdout.columns ?? 80) < 60 || (process.stdout.rows ?? 24) < 12) {
     throw new Error(`shadowlap ui needs a terminal of at least 60×12 (this one is ${process.stdout.columns}×${process.stdout.rows})`);
   }
-  const instance = render(createElement(App, { store, ...options }), { exitOnCtrlC: true });
+  // The palette for the terminal's background, asked before Ink reads the keyboard.
+  const theme = options.theme ?? (await detectTheme());
+  const instance = render(createElement(App, { store, ...options, theme }), { exitOnCtrlC: true });
   try {
     await instance.waitUntilExit();
   } finally {
