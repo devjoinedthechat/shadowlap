@@ -140,6 +140,18 @@ export function parseHello(body: unknown): Hello | null {
   };
 }
 
+/**
+ * What one process said in all its hellos, as one: a second query in the same process (a second
+ * fence) says hello again, and what either said its CLI can reach still holds, so the paths are the
+ * union of both, kept to 20. A hello that said nothing of them leaves them unknown.
+ */
+export function mergeHello(prev: Hello, next: Hello): Hello {
+  const { reach: _next, ...rest } = next;
+  if (!prev.reach || !next.reach) return rest;
+  const union = [...new Set([...prev.reach, ...next.reach])];
+  return { ...rest, reach: union.length > 20 ? [...union.slice(0, 19), `${union.length - 19} more`] : union };
+}
+
 /** Processes per runtime, each process once. */
 export function countHellos(hellos: Iterable<Hello>): Record<string, number> {
   const out: Record<string, number> = {};

@@ -78,7 +78,7 @@ import { asResponse, requestUpstream } from './upstream.js';
 import { refuseUpgrade, tunnelWebSocket } from './websocket.js';
 import { StoreWriter, type StoreWrites } from './writer.js';
 // The preloads' hellos and the SDKs' versions: rv-guard's part of the sidecar.
-import { countHellos, MAX_HELLOS, missingPreload, parseHello, parseSdkHeader, sdkMismatch, unguardedReport, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
+import { countHellos, MAX_HELLOS, mergeHello, missingPreload, parseHello, parseSdkHeader, sdkMismatch, unguardedReport, type GuardMode, type Hello, type PreloadReport } from './preloads.js';
 
 export type { Interventions } from './interventions.js';
 export { requestUpstream } from './upstream.js';
@@ -1325,7 +1325,10 @@ export class Sidecar {
       this.noteSdk(ctx, req);
       if (hello) {
         const key = `${hello.runtime}:${hello.pid}`;
-        if (ctx.hellos.has(key) || ctx.hellos.size < MAX_HELLOS) ctx.hellos.set(key, hello);
+        // A process says hello again for each query it starts: what each said holds (mergeHello).
+        const prev = ctx.hellos.get(key);
+        if (prev) ctx.hellos.set(key, mergeHello(prev, hello));
+        else if (ctx.hellos.size < MAX_HELLOS) ctx.hellos.set(key, hello);
         else ctx.hellosBeyond.set(hello.runtime, (ctx.hellosBeyond.get(hello.runtime) ?? 0) + 1);
       }
       return json(res, 202, { ok: true });
