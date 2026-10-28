@@ -438,9 +438,10 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
  * blobs are verified against their hash, and every blob a call needs must be present. Runs that
  * already exist are skipped, and said to differ (`mismatched`) when the store's run under that id is
  * not the pack's recording. Imported runs are marked, because replaying them runs a command that
- * someone else recorded.
+ * someone else recorded; `madeHere` holds them unmarked instead, for a pack this process has just
+ * made from runs of its own (`coverage --pack`'s golden), whatever the pack itself claims.
  */
-export function unpackRun(store: Store, dir: string): UnpackResult {
+export function unpackRun(store: Store, dir: string, o: { madeHere?: boolean } = {}): UnpackResult {
   const root = resolve(dir);
   const manifestPath = join(root, 'run.json');
   if (!existsSync(manifestPath)) throw new PackError(`${dir} is not a Shadowlap pack (no run.json)`);
@@ -544,9 +545,9 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
         continue;
       }
       // Whatever the pack claims, the run is marked as imported here.
-      const { imported: _claimed, commandFromImport: _also, ...rest } = run.meta ?? {};
+      const { imported: _claimed, commandFromImport: _also, commandFromClient: _sent, ...rest } = run.meta ?? {};
       const own = calls.filter((c) => c.runId === run.runId);
-      store.importRun({ ...asImportedRun(run, own), meta: { ...rest, imported: { at, from } } });
+      store.importRun({ ...asImportedRun(run, own), meta: o.madeHere ? rest : { ...rest, imported: { at, from } } });
       appendCalls(store, own);
       imported.push(run.runId);
       commands.push({ runId: run.runId, argv: run.command.argv });
@@ -571,17 +572,22 @@ export function unpackRun(store: Store, dir: string): UnpackResult {
   return { imported, skipped, commands, mismatched };
 }
 
-/** Whether replaying this run would execute a command that came from an imported pack, or from the team store. */
+/**
+ * Whether replaying this run would execute a command that came from an imported pack, from the team
+ * store, or from a program that sent it to the sidecar (`commandFromClient`).
+ */
 export function commandIsImported(run: RunRecord): boolean {
-  return Boolean(run.meta?.imported || run.meta?.commandFromImport);
+  return Boolean(run.meta?.imported || run.meta?.commandFromImport || run.meta?.commandFromClient);
 }
 
 /**
  * Where an imported run's command came from, as the question before replaying it says:
- * "the team store" for a run pulled from it (a teammate's or CI's recording), else "an imported pack".
+ * "the team store" for a run pulled from it (a teammate's or CI's recording), "a program that sent
+ * the sidecar its command" for one started through the sidecar's API, else "an imported pack".
  */
-export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'an imported pack' {
-  return pulledRun(run) ? 'the team store' : 'an imported pack';
+export function importedCommandSource(run: Pick<RunRecord, 'meta'>): 'the team store' | 'a program that sent the sidecar its command' | 'an imported pack' {
+  if (pulledRun(run)) return 'the team store';
+  return !run.meta?.imported && run.meta?.commandFromClient ? 'a program that sent the sidecar its command' : 'an imported pack';
 }
 
 /**

@@ -1,5 +1,6 @@
-import { cleanBound, cleanDecided, commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { cleanBound, cleanDecided, commandIsImported, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, quoteArgv, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
+import { askConsent, saidYes } from './consent.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
 import { links } from './links.js';
@@ -221,7 +222,8 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
     const id = run.runId.slice(0, 10);
     if (run.status === 'running') return { error: recordingNow(b.store, run) ? `${id} is still recording: test it once it has ended` : `${id} was interrupted: its recorder stopped before it ended`, status: 409 };
     if (!hasRecordedCommand(run)) return { error: `${id} ${withoutCommand(run)} and has no command to re-run: replay it once with yours (shadowlap replay ${id} -- <command>) and test that run`, status: 409 };
-    if (commandIsImported(run) && req.yes !== true) return { error: `${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${run.command.argv.join(' ')}). Confirm it to run it`, status: 409 };
+    // The yes is to the command the question showed (consent.ts).
+    if (commandIsImported(run) && !saidYes(req.yes, [run.command.argv])) return askConsent(`${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}). Confirm it to run it`, [run.command.argv]);
     target = run.runId;
     runId = run.runId;
   } else return { error: 'name the run (runId) or the golden (golden) to test' };
@@ -259,6 +261,6 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
   if (repeat !== undefined) args.push('--repeat', String(repeat));
   if (req.liveReads !== undefined && typeof req.liveReads !== 'boolean') return { error: 'liveReads is true or false' };
   if (req.liveReads === true) args.push('--live-reads');
-  if (req.yes === true) args.push('--yes');
+  if (typeof req.yes === 'string') args.push('--yes');
   return { args, runId, title: clean !== undefined ? `Testing whether #${clean} caused the writes` : 'Testing for injection' };
 }

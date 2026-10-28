@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
@@ -270,22 +270,28 @@ const CLAUDE_SESSION_VARS = ['CLAUDECODE', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_
 
 /**
  * How Claude Code is started for a repair, where the only input is injectable content (a recorded
- * agent's prompts and tool output): print mode, no tools of any kind, no MCP server, no hook, no
- * project or user settings, and the answer held to the schema. The system prompt is read from
- * `systemFile`, replacing the default, so no CLAUDE.md reaches it. The prompt itself goes on stdin.
+ * agent's prompts and tool output): print mode, restricted, no tools of any kind, no MCP server, no
+ * hook, no project or user settings, nothing kept on disk, and the answer held to the schema. The
+ * system prompt is read from `systemFile`, replacing the default, so no CLAUDE.md reaches it. The
+ * prompt itself goes on stdin. Each flag is checked against Claude Code's CLI reference
+ * (https://code.claude.com/docs/en/cli-reference):
  *
+ * - `--restricted` (Claude Code 2.1.248 or later, CLAUDE_CODE_MIN) loads only managed settings and
+ *   `--settings`, which is given none, so no user, project or local settings, and with them no hook,
+ *   permission rule or plugin, ever run on this content; it also refuses bypassPermissions and
+ *   confines file tools to the working directory. Managed policy, set by an administrator rather
+ *   than by this content, still applies, and the user's own sign-in (an API key or an OAuth login,
+ *   read from the environment or the keychain, not from settings) is untouched, so the repair is
+ *   still billed to the account they chose.
  * - `--tools ''` removes every built-in tool, and `--disallowed-tools mcp__*` every MCP tool, so a
  *   candidate the model proposes is text and nothing it says runs a command or reads a file.
  * - `--strict-mcp-config` with no `--mcp-config` loads no MCP server, so none a project's `.mcp.json`
- *   or the user's config names connects.
- * - `--setting-sources ''` loads no user, project or local settings, so a hook, a permission rule or
- *   a plugin one of them carries never runs on this content (checked against https://code.claude.com/docs:
- *   settings and CLAUDE.md arrive through those sources, and an empty list is how to load none).
- *   Managed policy settings, set by an administrator rather than by this content, still apply, and
- *   the user's own sign-in (an API key or an OAuth login, read from the environment or the keychain,
- *   not from settings) is untouched, so the repair is still billed to the account they chose.
+ *   or the user's config names connects. Under an organization's managed-mcp.json Claude Code exits
+ *   at startup with it (cannotAsk says so before a repair spends anything).
+ * - `--no-session-persistence` saves no session to disk, so what the failing runs held isn't kept
+ *   under ~/.claude after the repair.
  *
- * Neither flag holds a line break on the command line, which on Windows an npm-installed `claude` (a
+ * No flag holds a line break on the command line, which on Windows an npm-installed `claude` (a
  * batch file, run through cmd.exe) could not carry.
  */
 export function claudeCodeArgs(systemFile: string, model: string | null): string[] {
@@ -298,8 +304,8 @@ export function claudeCodeArgs(systemFile: string, model: string | null): string
     '--disallowed-tools',
     'mcp__*',
     '--strict-mcp-config',
-    '--setting-sources',
-    '',
+    '--restricted',
+    '--no-session-persistence',
     '--max-turns',
     '2',
     '--system-prompt-file',
@@ -357,6 +363,8 @@ async function askClaudeCode(r: Repairer, prompt: { system: string; user: string
   try {
     d = JSON.parse(stdout) as typeof d;
   } catch {
+    if (/enterprise MCP config|managed-mcp/i.test(stderr)) throw new RepairerError(`Claude Code won't start a repair while your organization's managed-mcp.json is deployed`, 'that file takes control of MCP servers, and Claude Code exits at startup when asked to load none of them (--strict-mcp-config), which a repair needs. Use another repairer, such as --repairer anthropic:<model>');
+    if (/unknown option.*--(?:restricted|no-session-persistence)/i.test(stderr)) throw new RepairerError(`this Claude Code has no restricted mode`, `a repair runs it with --restricted, which needs Claude Code ${CLAUDE_CODE_MIN} or later: claude update`);
     throw new RepairerError(`Claude Code did not answer with its JSON report (exit ${code})`, stderr.trim() ? safeLine(stderr.trim().split('\n').at(-1)!) : null);
   }
   if (d.is_error) throw new RepairerError('Claude Code answered with an error', safeLine(String(d.result ?? 'no detail')));
@@ -380,15 +388,108 @@ function unsent(err: unknown): RepairerError {
   return new RepairerError('the Anthropic SDK could not send the request', said);
 }
 
+/** The oldest Claude Code a repair runs: the first that runs restricted (`--restricted`), per its CLI reference. */
+export const CLAUDE_CODE_MIN = '2.1.248';
+
+/**
+ * Where an organization deploys its managed-mcp.json (https://code.claude.com/docs/en/managed-mcp),
+ * which takes exclusive control of MCP servers: Claude Code exits at startup when asked to load none
+ * of them (`--strict-mcp-config`).
+ */
+export function managedMcpPath(platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'darwin') return '/Library/Application Support/ClaudeCode/managed-mcp.json';
+  return platform === 'win32' ? 'C:\\Program Files\\ClaudeCode\\managed-mcp.json' : '/etc/claude-code/managed-mcp.json';
+}
+
+/** What cannotAsk reads of the machine for Claude Code: tests give their own. */
+export interface ClaudeCodeChecks {
+  /** Where the organization's managed-mcp.json would be (managedMcpPath). */
+  managedMcp?: string;
+  /** What `claude --version` prints, or null when it says nothing. */
+  version?: (signal?: AbortSignal) => Promise<string | null>;
+  /** Stops a check still running, as Ctrl-C stops the repair. */
+  signal?: AbortSignal;
+}
+
+/** How long `claude --version` may take before the check leaves the run to find out. */
+const VERSION_TIMEOUT_MS = 10_000;
+
+/** A version number in what `claude --version` prints (`2.1.248 (Claude Code)`). */
+const VERSION = /(?<![\d.])(\d+)\.(\d+)\.(\d+)(?![\d.])/;
+
+/**
+ * What `claude --version`, or the program SHADOWLAP_CLAUDE names, prints when started as a repair
+ * starts it, or null when it can't be started, fails, takes too long or is stopped.
+ */
+function claudeVersion(signal?: AbortSignal): Promise<string | null> {
+  const env = { ...process.env };
+  for (const v of CLAUDE_SESSION_VARS) delete env[v];
+  const start = startCommand(process.env.SHADOWLAP_CLAUDE || 'claude', ['--version'], { env, stdio: ['ignore', 'pipe', 'ignore'] });
+  return new Promise((resolve) => {
+    let out = '';
+    let ended = false;
+    const child = spawn(start.command, start.args, start.options);
+    const end = () => {
+      ended = true;
+      killTree(child, 'SIGTERM');
+      setTimeout(() => killTree(child, 'SIGKILL'), 3_000).unref();
+    };
+    const timer = setTimeout(end, VERSION_TIMEOUT_MS);
+    if (signal?.aborted) end();
+    else signal?.addEventListener('abort', end, { once: true });
+    const done = (said: string | null) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', end);
+      resolve(said);
+    };
+    child.stdout!.on('data', (d: Buffer) => (out += d.toString()));
+    child.on('error', () => done(null));
+    child.on('close', (c) => done(!ended && c === 0 ? out : null));
+  });
+}
+
+/** Whether version `a` (`x.y.z`) comes before `b`. */
+function before(a: readonly number[], b: readonly number[]): boolean {
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  return false;
+}
+
+/**
+ * Why the user's Claude Code can't run a repair, or null: an organization's managed-mcp.json, which
+ * stops it starting with no MCP server, or a version older than CLAUDE_CODE_MIN, which has no
+ * restricted mode. One that doesn't say its version is left for the run to find out: a Claude Code
+ * older than that rejects `--restricted` with an unknown-option error (Claude Code's errors
+ * reference), which askClaudeCode names as plainly, so it never runs a repair unrestricted.
+ */
+async function cannotAskClaudeCode(o: ClaudeCodeChecks): Promise<RepairerError | null> {
+  const managed = o.managedMcp ?? managedMcpPath();
+  let deployed = false;
+  try {
+    JSON.parse(readFileSync(managed, 'utf8'));
+    deployed = true;
+  } catch {
+    // none, or one Claude Code can't read either
+  }
+  if (deployed) return new RepairerError(`Claude Code won't start a repair while your organization's ${managed} is deployed`, 'that file takes control of MCP servers, and Claude Code exits at startup when asked to load none of them (--strict-mcp-config), which a repair needs. Use another repairer, such as --repairer anthropic:<model>');
+  const said = await (o.version ?? claudeVersion)(o.signal);
+  const m = said === null ? null : VERSION.exec(said);
+  if (!m) return null;
+  const v = m.slice(1, 4).map(Number);
+  return before(v, CLAUDE_CODE_MIN.split('.').map(Number)) ? new RepairerError(`Claude Code ${v.join('.')} can't run a repair restricted`, `a repair runs it with --restricted, which needs Claude Code ${CLAUDE_CODE_MIN} or later: claude update`) : null;
+}
+
 /**
  * Why the repairer can't be asked, found out before a repair spends anything on blame, or null. An
  * Anthropic repairer is asked of the Models API (`GET /v1/models/<model>`, which reads no prompt and
  * spends no tokens) with the credentials it would ask with: the SDK finds none to sign in with, or
  * the API refuses them. Anything else (a gateway with no Models API, a model it doesn't list, a
- * server out of reach) tells nothing for certain, so it is null, and asking finds out. Other
- * repairers are found out when they are asked.
+ * server out of reach) tells nothing for certain, so it is null, and asking finds out. Claude Code
+ * is checked for what stops a repair for certain (cannotAskClaudeCode): an organization's
+ * managed-mcp.json, or a version with no restricted mode. Other repairers are found out when they
+ * are asked.
  */
-export async function cannotAsk(r: Repairer): Promise<RepairerError | null> {
+export async function cannotAsk(r: Repairer, o: ClaudeCodeChecks = {}): Promise<RepairerError | null> {
+  if (r.provider === 'claude-code') return await cannotAskClaudeCode(o);
   if (r.provider !== 'anthropic') return null;
   let sdk: typeof import('@anthropic-ai/sdk');
   try {

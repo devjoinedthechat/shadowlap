@@ -207,7 +207,7 @@ describe('credentials in a captured body', () => {
       { name: 'file', filename: 'a.txt', contentType: 'text/plain', sha256: parseMultipart(raw)![2].sha256, bytes: 5 },
     ]);
     expect(maskMultipartBytes(masked)).toBeNull();
-    // A file whose name reads as a credential is a file, not a field: left as uploaded.
+    // A file under a field whose name only holds a credential's words (`api_key_file`) is left as uploaded.
     const keyFile = Buffer.from(raw.toString('latin1').replace('name="file"; filename="a.txt"', 'name="api_key_file"; filename="key.pem"'), 'latin1');
     expect(maskMultipartBytes(keyFile)!.toString('utf8')).toContain('hello');
     expect(maskMultipartBytes(Buffer.from('not a form'))).toBeNull();

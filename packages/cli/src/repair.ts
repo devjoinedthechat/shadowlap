@@ -446,9 +446,11 @@ async function repairHere(input: RepairInput, cwd: string, root: string, restore
   };
 
   try {
-    // 0. A repairer that can't sign in is found out before blame spends anything. Only a fix that
-    // needs no model (--stronger) is left to look for then; without one, there is nothing to blame for.
-    const unaskable = s.repairerConfigured === false ? null : await cannotAsk(repairer);
+    // 0. A repairer that can't sign in, or a Claude Code that can't run a repair, is found out before
+    // blame spends anything. Only a fix that needs no model (--stronger) is left to look for then;
+    // without one, there is nothing to blame for.
+    const unaskable = s.repairerConfigured === false ? null : await cannotAsk(repairer, { signal: asking.signal });
+    if (interrupted) return stopped('interrupted');
     if (unaskable) log(`  ${p.yellow('!')} ${NO_REPAIRER.notAsked}: ${unaskable.message}${s.stronger ? `; only a switch to ${s.stronger} is looked for` : '; nothing is blamed'}`);
     if (unaskable && !s.stronger) {
       notAsked(unaskable);

@@ -62,17 +62,23 @@ export function batchFile(command: string, o: { cwd: string; path: string; pathe
 
 /**
  * Whether a batch file has cmd.exe read its arguments a second time, so they are escaped twice: an npm
- * bin in node_modules\.bin, or a file that passes them on with `%*`, as every bin npm, pnpm and yarn
- * install, globally too, and npm's own npm.cmd and npx.cmd do. Escaped once for such a file, a quote
- * inside an argument would end its quoting there, and a `&` or `|` after it would run what follows as
- * a command of its own: text from production, such as a capture's message `coverage --pack` puts in
- * the agent's command, could run anything. `read` gives a file's text, null when it can't be read;
- * such a file is taken to pass them on, the safer guess.
+ * bin in node_modules\.bin, or a file whose text refers to them anywhere but as `"%~1"`. One that
+ * passes them on (`%*`, as every bin npm, pnpm and yarn install does, globally too, and npm's own
+ * npm.cmd and npx.cmd), or puts one in its line (`%1`, `%~1`, `"%1"`, `%~dp1`), has cmd.exe read it
+ * again: escaped once, a quote inside an argument would end its quoting there, or `%~1` would take
+ * the quotes off, and a `&` or `|` after it would run what follows as a command of its own; text
+ * from production, such as a capture's message `coverage --pack` puts in the agent's command, could
+ * run anything. Only `"%~1"`, the argument unquoted and quoted again by the file, is read safely
+ * escaped once, and escaped twice would reach its program garbled. `read` gives a file's text, null
+ * when it can't be read; such a file is taken to read them again, the safer guess.
  */
 export function passesArgumentsOn(file: string, read: (file: string) => string | null): boolean {
   if (/node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i.test(file)) return true;
   const text = read(file);
-  return text === null || text.includes('%*');
+  if (text === null || text.includes('%*')) return true;
+  // Each reference to an argument, `%1` to `%9`, with `~` and its modifiers (`%~f1`, `%~$PATH:1`) or not.
+  for (const m of text.matchAll(/(")?%(~[a-z]*(?:\$[^:%\s]*:)?)?[1-9](")?/gi)) if (!(m[1] && m[2] && m[3])) return true;
+  return false;
 }
 
 /** A batch file's text, or null when it can't be read or is larger than a launcher would be (1 MiB). */

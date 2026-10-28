@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { asksConsent } from '../actions.js';
+import { consentAsked } from '../actions.js';
 import { ApiError, JOB_KINDS } from '../api.js';
 import { CmdLine } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
@@ -21,7 +21,7 @@ import { useTreeBusy } from './tree.js';
 export function RunBlameButton({ runId, failed = [], className = 'linkbtn', title = 'Find the model call where this run was lost', icon = false }: { runId: string; failed?: readonly string[]; className?: string; /** The hover when nothing stops it. */ title?: string; /** With the fix loop's icon, as the run page's lead button. */ icon?: boolean }) {
   const app = useApp();
   const busy = useTreeBusy('reads', 'blame');
-  const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; fields: Record<string, unknown> }>(null);
+  const [asking, setAsking] = useState<null | { kind: 'check' } | { kind: 'consent'; why: string; confirm: string; fields: Record<string, unknown> }>(null);
   const why = app.actionsOff ?? busy;
   /**
    * Starts the blame. What the check dialog should show instead comes back: why the server refused
@@ -41,7 +41,8 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           return 'expect' in fields ? err.message : null;
         }
         if (err instanceof ApiError && err.status === 400 && 'expect' in fields) return err.message;
-        if (err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setAsking({ kind: 'consent', why: err.message, fields });
+        const asked = fields.yes === undefined ? consentAsked(err) : null;
+        if (asked) setAsking({ kind: 'consent', ...asked, fields });
         else {
           setAsking(null);
           app.watchJob(Promise.reject(err));
@@ -70,9 +71,9 @@ export function RunBlameButton({ runId, failed = [], className = 'linkbtn', titl
           ok="Run blame"
           onClose={() => setAsking(null)}
           onOk={() => {
-            const fields = asking.fields;
+            const { fields, confirm } = asking;
             setAsking(null);
-            void start({ ...fields, yes: true });
+            void start({ ...fields, yes: confirm });
           }}
         />
       ) : null}

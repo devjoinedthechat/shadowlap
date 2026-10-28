@@ -21,6 +21,7 @@ import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
 import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { Turns } from '../turns.js';
+import { goldenNeedsConsent } from '../golden-consent.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
 import { expandRecordings, goldenName, isPack, rawExpectFor } from '../goldens.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
@@ -39,6 +40,11 @@ import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** How many failing goldens a dashboard job links to by their replay; Tests has every one. */
 const FAILED_LINKS = 3;
+
+/** Asks whether a golden from someone else's pack may run its recorded command, as `replay` asks of an imported run. */
+function confirmGoldenCommand(run: RunRecord, dir: string): Promise<boolean> {
+  return confirmImportedCommand(run, run.command.argv, `shadowlap test ${dir} --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${dir} --yes), or add the pack to the repository.`);
+}
 
 /**
  * `shadowlap serve --recordings`: the host a test-runner plugin starts once per worker process.
@@ -269,7 +275,8 @@ export function register(program: Command): void {
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
     .option(ALLOW_UNRECORDED, 'run these tools again for real though a golden never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)', collectNames)
-    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded?: string[] }) {
+    .option('-y, --yes', "run the recorded command of a golden from someone else's pack that this repository doesn't track, without asking (without it, such a golden asks first, and without a terminal isn't run)")
+    .action(async function (this: Command, packArgs: string[], flags: { junit?: string; json?: string; markdown?: string; annotations?: boolean; update?: boolean; online?: boolean; writes: WritePolicy; cwd?: string; guard: GuardMode; push?: boolean; inconclusive: InconclusiveMode; maxAttempts?: number; suiteRisk?: number; continue?: boolean; chaos?: boolean; presets?: string; chaosTool?: string; allowUnrecorded?: string[]; yes?: boolean }) {
       const opts = program.opts<GlobalOpts>();
       // A golden whose model called a tool its recording never recorded, which writes, would run it
       // again for real: refused before anything runs, every such golden named. Reads only warn.
@@ -281,7 +288,7 @@ export function register(program: Command): void {
       }
       if (flags.chaos) {
         if (flags.update || flags.push || flags.annotations || flags.maxAttempts || flags.continue || flags.suiteRisk !== undefined) throw new InvalidArgumentError('--chaos runs the error-path presets, not a test session: --update, --push, --annotations, --max-attempts, --suite-risk and --continue are for a test session');
-        const chaosFlags = { ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}), allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded) };
+        const chaosFlags = { ...(flags.yes ? { yes: true } : {}), ...(flags.presets ? { presets: flags.presets } : {}), ...(flags.chaosTool ? { chaosTool: flags.chaosTool } : {}), ...(this.getOptionValueSource('writes') === 'cli' ? { writes: flags.writes } : {}), guard: flags.guard, inconclusive: flags.inconclusive, ...(flags.json ? { json: flags.json } : {}), ...(flags.junit ? { junit: flags.junit } : {}), ...(flags.markdown ? { markdown: flags.markdown } : {}), ...(flags.cwd ? { cwd: flags.cwd } : {}), allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded) };
         await testChaos(opts, packArgs, chaosFlags, givenCommand(process.argv, 'test'));
         return;
       }
@@ -349,6 +356,13 @@ export function register(program: Command): void {
       const stopped = () => signal !== null;
       // The goldens a signal cut short: no result this time.
       const cut: string[] = [];
+      // One question at a time: goldens tested side by side each wait for the one asked before them.
+      let asking: Promise<unknown> = Promise.resolve();
+      const askInTurn = (run: RunRecord, dir: string): Promise<boolean> => {
+        const answer = asking.then(() => confirmGoldenCommand(run, dir));
+        asking = answer.catch(() => undefined);
+        return answer;
+      };
       /** A golden's spec, its gate with its share of the session's risk, and how its replays run. */
       const prepare = (packDir: string) => {
         const golden = goldenName(packDir, projectDir);
@@ -379,6 +393,8 @@ export function register(program: Command): void {
           ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
           ...(flags.continue ? { continue: true } : {}),
           allowUnrecorded: allowedUnrecorded(flags.allowUnrecorded),
+          // A golden from someone else's pack, which the repository doesn't track, asks first (golden-consent.ts).
+          ...(flags.yes ? {} : { confirmCommand: (run: RunRecord, dir: string) => (goldenNeedsConsent(run, dir, projectDir) ? askInTurn(run, dir) : Promise.resolve(true)) }),
         };
         return { golden, spec, expect, ctx };
       };

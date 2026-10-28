@@ -19,8 +19,14 @@ import type { StepRerun } from '@shadowlap/engine';
 const RUN_ID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 /** A model name: `claude-opus-5-5`, `gpt-4o-2024-08-06`, `us.anthropic.claude-…:0`, `models/gemini-2.5-pro`. */
 const MODEL = /^[A-Za-z0-9][\w.:/@[\]+-]{0,199}$/;
-/** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space. */
-const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f]{0,199}$/u;
+/**
+ * What disguises a command line a person is asked to say yes to: a control character, a format
+ * character (a right-to-left override, a zero-width space) or a line or paragraph separator. A value
+ * holding one is never run again from here.
+ */
+const HIDDEN = /[\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]/u;
+/** A name (a tool's, a scope's): one line, at most 200 characters, never starting like a flag, a file or a space, and nothing hidden in it. */
+const NAME = /^[^\s@-][^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{0,199}$/u;
 /** A request field's dotted path, as `--set` takes it. */
 const FIELD = /^[A-Za-z_][\w.]{0,199}$/;
 const USD = /^\d{1,9}(?:\.\d{1,9})?$/;
@@ -30,15 +36,16 @@ const SHARE = /^(?:0?\.\d{1,12}|0)$/;
 /** A git revision as `--base` takes it: a ref, a hash, `HEAD~1`; never an option. */
 const REVISION = /^[A-Za-z0-9_][\w./@{}^~-]{0,199}$/;
 /** A shell command `--build` runs: one line. */
-const LINE = /^[^\u0000-\u001f\u007f-\u009f]{1,4096}$/u;
+const LINE = /^[^\u0000-\u001f\u007f-\u009f\p{Cf}\p{Zl}\p{Zp}]{1,4096}$/u;
 
 export type RerunKind = 'blame' | 'verify';
 
-/** A flag's value shape (null for a flag that takes none), and whether it is this machine's own. */
+/** A flag's value shape (null for a flag that takes none), whether it is this machine's own, and the most a pulled record may give it. */
 interface FlagRule {
   value: RegExp | null;
   check?: (value: string) => boolean;
   own?: true;
+  pulledMax?: number;
 }
 
 const STEP: Record<string, FlagRule> = {
@@ -50,7 +57,8 @@ const STEP: Record<string, FlagRule> = {
 
 /** The flags each command is run again with, beyond what its report and record hold. */
 const RERUN_FLAGS: Readonly<Record<RerunKind, Readonly<Record<string, FlagRule>>>> = {
-  blame: { ...STEP, '--scan': { value: /^\d{1,3}$/ } },
+  // A pulled blame probes at most its default 2 calls past the boundary: one yes spends no more than Shadowlap would.
+  blame: { ...STEP, '--scan': { value: /^\d{1,3}$/, pulledMax: 2 } },
   verify: {
     ...STEP,
     '--from': { value: MODEL },
@@ -83,7 +91,8 @@ function isCommand(v: readonly string[]): boolean {
  * A kept blame's or verdict's flags, checked: every one a flag `RERUN_FLAGS` allows for its kind,
  * each value of its shape, `drop` (flags the caller sets itself) left out. Null when the record has
  * none (kept before they were) or anything is not of its shape: then it is not run again from here.
- * Of a pulled record, `--base`, `--build` and the command after `--` are left out (`left`).
+ * Of a pulled record, `--base`, `--build` and the command after `--` are left out (`left`), and a
+ * figure is held to the most a pulled record may give it (`pulledMax`).
  */
 export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined, o: { pulled: boolean; drop?: ReadonlySet<string> }): RerunFlags | null {
   if (!rerun || !Array.isArray(rerun.flags)) return null;
@@ -109,7 +118,9 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
       if (!left.includes(flag)) left.push(flag);
       continue;
     }
-    flags.push(flag, ...(value === null ? [] : [value]));
+    // A pulled record's figure held to the most it may give (one yes spends no more than Shadowlap would).
+    const held = value !== null && o.pulled && rule.pulledMax !== undefined && Number(value) > rule.pulledMax ? String(rule.pulledMax) : value;
+    flags.push(flag, ...(held === null ? [] : [held]));
   }
   let command: string[] | null = null;
   if (rerun.command?.length) {
@@ -120,11 +131,12 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
   return { flags, command, left, dropped };
 }
 
-/** `--expect` with a check's JSON, nothing for the exit code alone; null for a check that is no object, which is not run again. */
+/** `--expect` with a check's JSON, nothing for the exit code alone; null for a check that is no object, or that holds a character that would disguise the command line, which is not run again. */
 export function expectArgs(expect: unknown): string[] | null {
   if (expect === null || expect === undefined) return [];
   if (typeof expect !== 'object' || Array.isArray(expect)) return null;
-  return ['--expect', JSON.stringify(expect)];
+  const json = JSON.stringify(expect);
+  return HIDDEN.test(json) ? null : ['--expect', json];
 }
 
 /** A string `--set` would read back as something else (`1`, `true`, `[1]`), so it goes as JSON. */
@@ -139,7 +151,8 @@ function readsAsJson(v: string): boolean {
 
 /**
  * Request fields as `--model` and `--set` take them, read back as they were: a string that would
- * parse as JSON goes quoted. Null when a field's path or the model isn't of its shape.
+ * parse as JSON goes quoted. Null when a field's path or the model isn't of its shape, or a value
+ * holds a character that would disguise the command line (HIDDEN).
  */
 export function fieldArgs(fields: Record<string, unknown> | null | undefined): string[] | null {
   const out: string[] = [];
@@ -150,7 +163,9 @@ export function fieldArgs(fields: Record<string, unknown> | null | undefined): s
       continue;
     }
     if (!FIELD.test(k) || v === undefined) return null;
-    out.push('--set', `${k}=${typeof v === 'string' && !readsAsJson(v) ? v : JSON.stringify(v)}`);
+    const arg = `${k}=${typeof v === 'string' && !readsAsJson(v) ? v : JSON.stringify(v)}`;
+    if (HIDDEN.test(arg)) return null;
+    out.push('--set', arg);
   }
   return out;
 }

@@ -8,6 +8,7 @@ import { Store, type DivergenceReport } from '@shadowlap/engine';
 import { divergenceCause } from '../src/golden-test.js';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
+import { trackInGit } from './tracked.js';
 
 /**
  * `shadowlap test` keeping its history, and `test --update`, through the CLI. The committed golden of
@@ -35,6 +36,8 @@ beforeEach(() => {
   work = mkdtempSync(join(tmpdir(), 'sl-history-'));
   dirs.push(work);
   cpSync(GOLDEN, join(work, 'goldens', 'reference-agent'), { recursive: true });
+  // Committed, as CI's checkout holds its goldens: their recorded command runs without asking.
+  trackInGit(work, 'goldens');
 });
 
 interface Result {
@@ -113,6 +116,7 @@ describe('shadowlap test history', () => {
 
   it('ends a dashboard job over several goldens on Tests, with the replay of each that failed beside it', async () => {
     cpSync(GOLDEN, join(work, 'goldens', 'no-email'), { recursive: true });
+    trackInGit(work, 'goldens/no-email');
     // The same recording, with a check its agent breaks: it sends the email the check rules out.
     writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { 'goldens/no-email': { expect: { tools: { send_email: 0 } } } } }));
     const r = await shadowlap(['test', 'goldens/*', '--cwd', ROOT]);
@@ -392,6 +396,8 @@ describe('a redacted golden', () => {
     expect(recorded.code, recorded.out).toBe(0);
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/redacted'])).out).toContain('with 1 redaction rule');
+    // Committed, as CI's checkout holds it: from another store its run is the pack's, and runs without asking.
+    trackInGit(work, 'goldens/redacted');
     // The store has the run as recorded, with its real user id; the pack has it redacted.
     const local = await shadowlap(['test', 'goldens/redacted']);
     expect(local.code, local.out).toBe(0);
@@ -407,6 +413,7 @@ describe('a redacted golden', () => {
     const recorded = await shadowlap(['run', '--', process.execPath, VOLATILE]);
     const runId = /recording run (\w{26})/.exec(recorded.out)![1];
     expect((await shadowlap(['pack', runId, 'goldens/repacked'])).code).toBe(0);
+    trackInGit(work, 'goldens/repacked');
     // Another store imports the pack with its one rule.
     expect((await shadowlap(['--db', 'other.db', 'test', 'goldens/repacked'])).code).toBe(0);
     // The masks move from normalize to redact, and the run is packed again with all three rules.

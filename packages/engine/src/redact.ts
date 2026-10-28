@@ -245,17 +245,94 @@ export function keptAsRecorded(call: Pick<CallScope, 'kind'>): boolean {
   return call.kind === 'clock' || call.kind === 'random';
 }
 
+/** The rules without a path that apply to a call, by its kind and name, each with its place in `rules` and its regex. */
+function textRules(rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>): Array<{ rule: Normalizer; i: number; regex: RegExp }> {
+  return rules.flatMap((rule, i) => (rule.path === undefined && rule.pattern !== undefined && normalizerApplies(rule, call.kind, call.name) ? [{ rule, i, regex: compilePattern(rule.pattern) }] : []));
+}
+
+/** `text` with each of `applying` replaced in turn, each change told to `observer`. */
+function replacedBy(text: string, applying: ReadonlyArray<{ rule: Normalizer; i: number; regex: RegExp }>, observer?: RewriteObserver): string {
+  let out = text;
+  for (const { rule, i, regex } of applying) {
+    regex.lastIndex = 0;
+    const next = out.replace(regex, rule.replace);
+    if (next !== out) observer?.changed?.(i, out, next, countMatches(out, regex));
+    out = next;
+  }
+  return out;
+}
+
+/** A path segment as the provider reads it, decoded; the segment as it is when it isn't encoding. */
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * A model call's path with the rules without a path that apply to the call applied to each of its
+ * segments, read decoded as the provider reads them: a Bedrock model's ARN is one segment
+ * (`arn%3Aaws%3Abedrock%3Aus-east-1%3A123456789012%3A…`), so a rule that masks an AWS account id
+ * (`\b\d{12}\b`) finds it there as it finds it in a body. A segment a rule changed is written again,
+ * encoded; every other byte stays. A replay of the copy reads a live call's path through it too, so
+ * both sides match alike.
+ */
+export function redactApiPath(path: string, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): string {
+  const applying = textRules(rules, call);
+  if (!applying.length) return path;
+  const [route = '', ...rest] = path.split('?');
+  const masked = route
+    .split('/')
+    .map((segment) => {
+      const text = decodedSegment(segment);
+      const out = replacedBy(text, applying, observer);
+      return out === text ? segment : encodeURIComponent(out);
+    })
+    .join('/');
+  return rest.length ? `${masked}?${rest.join('?')}` : masked;
+}
+
+/**
+ * The header parameters a model call keeps for its identity (`meta.fingerprintHeaders`: a Bedrock
+ * guardrail's identifier, an ARN that names the account) with the rules without a path that apply to
+ * the call applied to each value, as every copy writes them and a replay of the copy reads a live
+ * call's. The same object when no rule changes any.
+ */
+export function redactHeaderValues(headers: Record<string, string>, rules: readonly Normalizer[], call: Pick<CallRecord, 'kind' | 'name'>, observer?: RewriteObserver): Record<string, string> {
+  const applying = textRules(rules, call);
+  if (!applying.length) return headers;
+  let changed = false;
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    const next = typeof value === 'string' ? replacedBy(value, applying, observer) : value;
+    if (next !== value) changed = true;
+    out[name] = next;
+  }
+  return changed ? out : headers;
+}
+
 /**
  * A call's name as every copy writes it. A captured HTTP call (a host under "http" in the config) is
  * named after the address the agent asked for, `GET api.example.com/contacts/alice@example.com`,
  * so the rules without a path that apply to tool calls mask its name as they mask the address in its
- * arguments. Any other call's name is the code's (a tool, a model API path) and stays as it is.
+ * arguments. A model call is named after its API path, whose segments can hold what a rule masks
+ * (a Bedrock model's ARN, with the account id): those are masked as redactApiPath masks them. Any
+ * other call's name is the code's (a tool, a read) and stays as it is.
  *
  * A rule scoped to a call by its `name` masks that call's name, as it masks only that call's
  * arguments. A replay of the copy matches such a call by its masked name (matchedAs). `observer`
  * hears each rule's change, by its place in `rules`.
  */
 export function redactedCallName(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, rules: readonly Normalizer[], observer?: RewriteObserver): string {
+  if (call.kind === 'api') {
+    const space = call.name.indexOf(' ');
+    if (space < 0) return call.name;
+    const path = call.name.slice(space + 1);
+    const masked = redactApiPath(path, rules, call, observer);
+    return masked === path ? call.name : `${call.name.slice(0, space)} ${masked}`;
+  }
   if (call.kind !== 'tool' || typeof call.meta.http !== 'string') return call.name;
   let name = call.name;
   rules.forEach((rule, i) => {
@@ -533,6 +610,8 @@ function redactMeta(meta: RunMeta | undefined, rules: Normalizer[], observer?: R
  */
 function redactCallMeta(meta: CallMeta, rules: Normalizer[], call: CallScope | undefined, observer?: RewriteObserver): CallMeta {
   const out: CallMeta = { ...meta };
+  // The model a call names as it ended: a Bedrock model's ARN, with the account id.
+  if (typeof meta.model === 'string') out.model = rewriteText(meta.model, rules, observer);
   if (meta.error) out.error = redactedError(meta.error, rules, observer, call);
   if (isObject(meta.failure) && typeof meta.failure.message === 'string') out.failure = { ...meta.failure, message: rewriteText(meta.failure.message, rules, observer) };
   if (meta.headers) out.headers = Object.fromEntries(Object.entries(credentialFreeHeaders(meta.headers)).map(([k, v]) => [k, rewriteText(v, rules, observer)]));
@@ -572,10 +651,19 @@ export function redactQuery(query: string, rules: readonly Normalizer[], call: P
     .join('&');
 }
 
-/** A call's own metadata as a copy keeps it: a model call's query masked (redactQuery), the rest as it is. */
+/**
+ * A call's own metadata as a copy keeps it: a model call's query masked (redactQuery), and the
+ * header parameters it keeps for its identity (redactHeaderValues), the rest as it is.
+ */
 function redactStartMeta(call: CallRecord, rules: readonly Normalizer[], observer?: RewriteObserver): CallMeta {
-  if (typeof call.meta.query !== 'string') return call.meta;
-  const { query: recorded, ...rest } = call.meta;
+  let meta = call.meta;
+  if (call.kind === 'api' && isObject(meta.fingerprintHeaders)) {
+    const recorded = meta.fingerprintHeaders as Record<string, string>;
+    const fingerprintHeaders = redactHeaderValues(recorded, rules, call, observer);
+    if (fingerprintHeaders !== recorded) meta = { ...meta, fingerprintHeaders };
+  }
+  if (typeof meta.query !== 'string') return meta;
+  const { query: recorded, ...rest } = meta;
   const query = redactQuery(recorded, rules, call, observer);
   return query === undefined ? rest : { ...rest, query };
 }
@@ -603,6 +691,35 @@ export function credentialFreeCall(call: CallRecord): CallRecord {
   const last = call.end ? end(call.end) : null;
   if (meta === call.meta && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
   return { ...call, meta, end: last, attempts };
+}
+
+/**
+ * A run's calls as a push sends them: each as credentialFreeCall leaves it, and a captured HTTP
+ * call's stored request and results as a recording stores them now (credentialFreeRequest,
+ * credentialFreeResult), so a run an earlier version recorded, which kept a credential in a body or
+ * in a header there, goes up without it, as a pack does. Each masked blob is put in `store`
+ * (content-addressed, beside the one it stands for), where a push sends it from like any other; a
+ * call with nothing to mask is the same object.
+ */
+export function credentialFreeCalls(store: Store, calls: readonly CallRecord[]): CallRecord[] {
+  return calls.map((recorded) => {
+    const call = credentialFreeCall(recorded);
+    if (!capturedHttp(call)) return call;
+    const masked = (ref: string | null, mask: (bytes: Buffer) => Buffer | null): string | null => {
+      const bytes = ref ? store.getBlob(ref) : null;
+      const clean = bytes ? mask(bytes) : null;
+      return clean ? store.putBlob(clean) : ref;
+    };
+    const end = (e: CallEndRow): CallEndRow => {
+      const responseRef = masked(e.responseRef, credentialFreeResult);
+      return responseRef === e.responseRef ? e : { ...e, responseRef };
+    };
+    const requestRef = masked(call.requestRef, credentialFreeRequest);
+    const attempts = call.attempts.map(end);
+    const last = call.end ? end(call.end) : null;
+    if (requestRef === call.requestRef && last === call.end && attempts.every((a, i) => a === call.attempts[i])) return call;
+    return { ...call, requestRef, end: last, attempts };
+  });
 }
 
 /**

@@ -453,10 +453,10 @@ Call 2's fingerprint is the SHA-256 of `{"args":{"id":"A-17"},"kind":"tool","nam
 }
 ```
 
-Check a pack you wrote with [`shadowlap test`](./cli.md#test): it brings the pack in as a reader must, runs its command with every provider offline, and passes only when the agent sent every recorded request unchanged, and no other:
+Check a pack you wrote with [`shadowlap test`](./cli.md#test): it brings the pack in as a reader must, runs its command with every provider offline, and passes only when the agent sent every recorded request unchanged, and no other. Its command came from your producer, not from a recording made here, so until your repository tracks the pack, `test` asks before it runs it; `--yes` says yes:
 
 ```sh
-shadowlap test refund-flow
+shadowlap test refund-flow --yes
 ```
 
 ```
@@ -531,7 +531,7 @@ Call it when a test starts, before the agent runs.
 | `slot` | yes | This worker's slot. |
 | `mode` | no | `missing` (default): replay when a recording exists, record when it doesn't. `all`: always record. `none`: only replay, and fail when there is nothing to replay. |
 | `name` | no | The test's name, used in the run's command line when none is given. |
-| `command` | no | The command to record as the run's own, for `shadowlap replay` later. Without one the run records `<test>` and the test's name, and has no command to run again: replaying it, finding its commit or forking it needs yours after `--`, as for a capture. |
+| `command` | no | The command to record as the run's own, for `shadowlap replay` later. Whoever holds the session token chose it, so the run is marked as a pack's is: replaying it asks before running that command, unless `--yes` is given or yours follows `--`. Without one the run records `<test>` and the test's name, and has no command to run again: replaying it, finding its commit or forking it needs yours after `--`, as for a capture. |
 
 It answers `201`:
 

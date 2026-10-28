@@ -2,6 +2,7 @@ import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
 import type { Store } from './store.js';
+import { quoteArgv } from './text.js';
 import type { CallRecord, RunIntervention, RunRecord } from './types.js';
 import { normalizeAddArgs } from './volatile.js';
 
@@ -522,7 +523,8 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
 function guardImported(run: RunRecord, actions: Action[]): Action[] {
   if (!commandIsImported(run)) return actions;
   // Only a pack or a pulled run carries someone else's command; a capture has none, and is handled above.
-  const cmd = run.command.argv.join(' ');
+  // Quoted as a shell would read it, each hidden character shown: the words it runs, exactly.
+  const cmd = quoteArgv(run.command.argv);
   const warning = `This run came from ${importedCommandSource(run)}; replaying it runs: ${cmd}`;
   return actions.map((a): Action => {
     const replays = (a.args?.[0] ?? '') === 'replay' || (a.prompt && a.prompt.build('x')[0] === 'replay');

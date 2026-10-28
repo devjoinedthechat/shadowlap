@@ -297,7 +297,11 @@ describe('the injection job', () => {
     expect(error({ runId: '01NOSUCH' })).toBe('no run 01NOSUCH');
     const pulled = recordRun({ meta: { imported: { at: 1, from: 'pack.zip' } } });
     expect(error({ runId: pulled.runId })).toMatch(/came from .*: this runs the command it was recorded with \(node agent\.js\)\. Confirm it to run it$/);
-    expect(injectionJob({ runId: pulled.runId, yes: true }, b, goldens)).toMatchObject({ args: ['injection', pulled.runId, '--json', '--yes'] });
+    // The yes is the question's confirm, for the command it named; a bare true is none.
+    const asked = injectionJob({ runId: pulled.runId }, b, goldens) as { error: string; status: number; confirm: string };
+    expect(asked).toMatchObject({ status: 409, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(injectionJob({ runId: pulled.runId, yes: true }, b, goldens)).toMatchObject({ status: 409 });
+    expect(injectionJob({ runId: pulled.runId, yes: asked.confirm }, b, goldens)).toMatchObject({ args: ['injection', pulled.runId, '--json', '--yes'] });
     // A payload file the browser sent is passed by its path.
     expect(injectionJob({ runId: recording.runId, payloadsUpload: 'u1' }, { store, upload: () => ({ path: '/tmp/u1-payloads.txt', name: 'payloads.txt', original: 'payloads.txt', bytes: 10 }) }, goldens)).toMatchObject({ args: ['injection', recording.runId, '--json', '--payloads', '/tmp/u1-payloads.txt'] });
   });

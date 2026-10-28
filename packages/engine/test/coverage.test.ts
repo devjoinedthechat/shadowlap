@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, inferCommand, nearestGolden, requestMessage, runBehaviour, sharedSteps, storeApiRequest, storeEffects, Store, type Behaviour, type CoverageMember } from '../src/index.js';
+import { behaviourKey, behaviourSlug, checkCommandTemplate, commandFinder, describeBehaviour, effectsFor, fillCommand, firstMessage, groupCoverage, inferCommand, nearestGolden, requestMessage, runBehaviour, setPatternBudget, sharedSteps, storeApiRequest, storeEffects, Store, type Behaviour, type CoverageMember } from '../src/index.js';
 import { assistant, messageStream, RunBuilder, text, toolResult, toolUse, user } from './run-fixtures.js';
 
 /**
@@ -218,7 +218,37 @@ describe('a command for each capture', () => {
     expect(checkCommandTemplate(['node', '-e', '{message}'])).toBe("{message} after -e would run as code: give the agent's own command, with {message} as one of its arguments");
     expect(checkCommandTemplate(['python', '-m', '{message}'])).toMatch(/^\{message\} after -m would run as code/);
     expect(checkCommandTemplate(['node', '--require', '{message}', 'agent.mjs'])).toMatch(/after --require would run as code/);
-    expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/(/}'])).toMatch(/^\{message:\/\(\/\}: Invalid regular expression/);
+    expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/(/}'])).toMatch(/^\{message:\/\(\/\}: it isn't a regular expression/);
+  });
+
+  it('checks a placeholder’s pattern as a redaction rule’s, since it runs on text from production', () => {
+    // One whose matching could take time that grows exponentially with the message: refused.
+    for (const pattern of ['(a+)+$', '(\\w|\\d)*x', '(.*)*!']) {
+      expect(checkCommandTemplate(['node', 'agent.mjs', `{message:/${pattern}/}`]), pattern).toMatch(/: matching it could take too long: /);
+      // Filling the command refuses it too, before it runs on any message.
+      expect(fillCommand(['node', 'agent.mjs', `{message:/${pattern}/}`], `${'a'.repeat(40)}`), pattern).toEqual({ why: expect.stringMatching(/^\/.*\/: matching it could take too long/) });
+    }
+    expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/[A-Z]-\\d+/}'])).toBeNull();
+    // One the check lets through runs within the time a redaction rule gets: on a long message, a
+    // pattern that reads on from every place it could start is stopped, and that capture left out.
+    setPatternBudget(50);
+    try {
+      expect(fillCommand(['node', 'agent.mjs', '{message:/a*b/}'], 'a'.repeat(200_000))).toEqual({ why: '/a*b/ ran too long on its first message and was stopped' });
+    } finally {
+      setPatternBudget(null);
+    }
+  });
+
+  it('never lets the message be what a package runner or a subcommand of one runs', () => {
+    // npm exec, pnpm dlx, bun x, uv run, pipx run and cross-env each run the command, package or
+    // script named next; npm, yarn or uv's first word otherwise names one of their subcommands.
+    for (const argv of [['pipx', 'run', '{message}'], ['npm', 'exec', '{message}'], ['npm', 'x', '{message}'], ['npm', '--silent', 'exec', '{message}'], ['npm', 'exec', '--package=agent', '--', '{message}'], ['npm', 'run', '{message}'], ['npm', '{message}'], ['pnpm', 'dlx', '{message}'], ['yarn', 'dlx', '{message}'], ['bun', 'x', '{message}'], ['bun', 'run', '{message}'], ['deno', 'run', '-A', '{message}'], ['uv', 'run', '{message}'], ['uv', 'tool', 'run', '{message}'], ['uv', 'run', 'python', '{message}'], ['poetry', 'run', '{message}'], ['cross-env', 'A=1', '{message}'], ['cross-env', 'A=1', 'node', '{message}']]) {
+      expect(checkCommandTemplate(argv), argv.join(' ')).toMatch(/would name what runs|would run as code/);
+    }
+    // The message as an argument of the agent such a runner starts.
+    for (const argv of [['pipx', 'run', 'triage-agent', '{message}'], ['npm', 'exec', '--', 'tsx', 'agent.ts', '{message}'], ['npm', 'run', 'agent', '--', '{message}'], ['pnpm', 'dlx', 'triage-agent', '{message}'], ['bun', 'x', 'triage-agent', '{message}'], ['bun', 'agent.ts', '{message}'], ['deno', 'run', '--allow-read', 'agent.ts', '{message}'], ['uv', 'run', 'agent.py', '{message}'], ['uv', 'run', 'python', 'agent.py', '{message}'], ['uv', 'tool', 'run', 'triage-agent', '{message}'], ['poetry', 'run', 'python', 'agent.py', '--question={message}'], ['cross-env', 'A=1', 'node', 'agent.js', '{message}'], ['bun', 'agent.ts', '{message}', 'run']]) {
+      expect(checkCommandTemplate(argv), argv.join(' ')).toBeNull();
+    }
   });
 
   it('never lets the message name what runs, nor start one of its flags', () => {

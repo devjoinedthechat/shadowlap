@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { asksConsent } from '../actions.js';
-import { ApiError, JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
+import { consentAsked } from '../actions.js';
+import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { CmdLine, Seg } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
@@ -56,7 +56,7 @@ export function editBody(mode: 'json' | 'text', text: string, answer: boolean): 
 export function EditAndFork({ runId, detail, live }: { runId: string; detail: CallDetail; live: boolean }) {
   const app = useApp();
   const [open, setOpen] = useState(false);
-  const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string } | null>(null);
+  const [consent, setConsent] = useState<{ fields: Record<string, unknown>; why: string; confirm: string } | null>(null);
   const action = overrideAction(detail);
   if (app.exported || !action || !app.hasKind(JOB_KINDS.override)) return null;
   const off = live ? 'Fork once the recording finishes' : (app.actionsOff ?? action.disabled ?? null);
@@ -65,7 +65,8 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
     app.client.startJob(JOB_KINDS.override, fields).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {
-        if (fields.yes !== true && err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ fields, why: err.message });
+        const asked = fields.yes === undefined ? consentAsked(err) : null;
+        if (asked) setConsent({ fields, ...asked });
         else app.watchJob(Promise.reject(err));
       },
     );
@@ -83,7 +84,7 @@ export function EditAndFork({ runId, detail, live }: { runId: string; detail: Ca
           onOk={() => {
             const c = consent;
             setConsent(null);
-            app.guard(() => void start({ ...c.fields, yes: true }));
+            app.guard(() => void start({ ...c.fields, yes: c.confirm }));
           }}
         />
       ) : null}

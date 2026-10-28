@@ -192,7 +192,7 @@ describe('a fix in the team store', () => {
       const doc = JSON.parse(JSON.stringify({ ...good, fix: { ...good.fix, fixId: id } })) as FixDoc;
       remote.objects.set(fixKey(id), { body: Buffer.from(JSON.stringify(change(doc) ?? doc)), version: `x-${id}`, contentType: 'application/json' });
     };
-    const ids = ['fx-01M3RZ0000000000000000000A', 'fx-01M3RZ0000000000000000000B', 'fx-01M3RZ0000000000000000000C', 'fx-01M3RZ0000000000000000000D', 'fx-01M3RZ0000000000000000000E'];
+    const ids = ['fx-01M3RZ0000000000000000000A', 'fx-01M3RZ0000000000000000000B', 'fx-01M3RZ0000000000000000000C', 'fx-01M3RZ0000000000000000000D', 'fx-01M3RZ0000000000000000000E', 'fx-01M3RZ0000000000000000000F', 'fx-01M3RZ0000000000000000000G', 'fx-01M3RZ0000000000000000000H'];
     hostile(ids[0], (d) => void (d.fix.title = 'owned\u001b]0;title\u0007'));
     hostile(ids[1], (d) => {
       const r = repairReport({ targets: [run], dir: '../../.ssh' });
@@ -202,6 +202,11 @@ describe('a fix in the team store', () => {
     hostile(ids[2], (d) => ({ ...d, fix: { ...d.fix, fixId: ids[0] } }));
     hostile(ids[3], (d) => ({ ...d, version: FIX_VERSION + 1 }));
     hostile(ids[4], (d) => void (d.blames[0].report.probes = 'all of them' as never));
+    // A title that, shown, reads backwards past a right-to-left override.
+    hostile(ids[5], (d) => void (d.fix.title = `Refunds ${String.fromCharCode(0x202e)}detimil`));
+    // A blame's flag holding a zero-width space, and its command a line separator.
+    hostile(ids[6], (d) => void (d.blames[0].rerun = { flags: ['--scan', `3${String.fromCharCode(0x200b)}`], command: null }));
+    hostile(ids[7], (d) => void (d.blames[0].rerun = { flags: [], command: ['node', `agent.js${String.fromCharCode(0x2028)}`] }));
     remote.objects.set('fixes/not-a-fix.json', { body: Buffer.from('{}'), version: 'y', contentType: 'application/json' });
     const maya = machine(remote, 'maya@northwind.example');
     const got = await pull(maya);
@@ -212,10 +217,13 @@ describe('a fix in the team store', () => {
       [ids[2], expect.stringMatching(/holds another fix/)],
       [ids[3], expect.stringMatching(/is version 2; this Shadowlap reads version 1/)],
       [ids[4], expect.stringMatching(/probes: must be a list/)],
+      [ids[5], expect.stringMatching(/fix\.title: must be one line|contains control characters/)],
+      [ids[6], expect.stringMatching(/contains control characters|must be one line/)],
+      [ids[7], expect.stringMatching(/contains control characters|must be one line/)],
     ]);
     for (const id of ids) expect(maya.store.getFix(id)).toBeNull();
     // Tried again on the next pull, still refused.
-    expect((await pull(maya)).fixes.failed).toHaveLength(5);
+    expect((await pull(maya)).fixes.failed).toHaveLength(8);
   });
 
   it("brings a blame decided by a gate, and keeps out one whose gate, decision or rate is malformed", async () => {

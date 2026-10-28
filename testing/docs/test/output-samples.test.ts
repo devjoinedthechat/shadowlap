@@ -4,7 +4,7 @@
 // puts a new UUID in every request's metadata, packs it beside the reference agent's golden, runs both
 // commands, and compares, with run ids and UUIDs masked. When the CLI's words change, the failure shows
 // what it prints now.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -90,6 +90,8 @@ describe.skipIf(process.platform === 'win32')('the output the docs show', () => 
     if (packed.code !== 0) throw new Error(packed.stdout + packed.stderr);
     // The reference agent's golden runs `node testing/reference-agent/dist/main.js` from the project.
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'triage-inbox'), { recursive: true });
+    // Committed, as a project holds its goldens: a pack from elsewhere that it doesn't track asks first.
+    for (const args of [['init', '-q'], ['add', 'goldens']]) execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
     symlinkSync(join(ROOT, 'testing'), join(dir, 'testing'), 'dir');
     // goldens/* as a shell expands it.
     tested = await cli(['test', join('goldens', 'summarize-thread'), join('goldens', 'triage-inbox')]);

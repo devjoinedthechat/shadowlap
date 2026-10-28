@@ -9,18 +9,20 @@ import { render, type Rendered } from './ui-render.js';
 
 /**
  * A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
- * their command. The server refuses it until the request says yes, naming the command (409); the
- * page shows that in a dialog of its own, after whatever the action asked first, and only its Run
- * sends the yes.
+ * their command. The server refuses it until the request says yes, naming the command (409) with
+ * the confirm that says yes to it; the page shows that in a dialog of its own, after whatever the
+ * action asked first, and only its Run sends the yes: that confirm, tied to the lines it named.
  */
 
 const RUN = '01M5GRX8K406H4KHQ7DEKYWTSZ';
 const why = (flags: string) => `01M5GRX8K4 came from an imported pack: this runs the command it was recorded with (node agent.mjs), under shadowlap replay ${RUN}${flags}. Confirm it to run it`;
+/** The confirm the server gives with its question, for the command lines it named. */
+const confirmOf = (flags: string) => `c0ffee${flags.length.toString(16).padStart(2, '0')}`.padEnd(32, '0');
 
 interface Asked {
   key: string;
   value?: string;
-  yes: boolean;
+  yes: string | null;
 }
 
 function app(asked: Asked[], watched: Array<Promise<JobView>>, refuse: (a: Asked) => Error | null): AppState {
@@ -33,8 +35,8 @@ function app(asked: Asked[], watched: Array<Promise<JobView>>, refuse: (a: Asked
     watchJob: (p: Promise<JobView>) => void watched.push(p.catch(() => ({ id: 'failed' }) as JobView)),
     registerLayer: () => () => undefined,
     client: {
-      action: async (_run: string, key: string, _callNo: number | null, value?: string, yes?: boolean) => {
-        const a: Asked = { key, ...(value !== undefined ? { value } : {}), yes: yes === true };
+      action: async (_run: string, key: string, _callNo: number | null, value?: string, yes?: string) => {
+        const a: Asked = { key, ...(value !== undefined ? { value } : {}), yes: yes ?? null };
         asked.push(a);
         const err = refuse(a);
         if (err) throw err;
@@ -63,8 +65,8 @@ const open = async (action: ActionItem, state: AppState) => {
   return r;
 };
 
-/** Until the request is confirmed, the server names the command and refuses it. */
-const unconfirmed = (flags: string) => (a: Asked) => (a.yes ? null : new ApiError(409, why(flags)));
+/** Until the request says yes with the question's confirm, the server names the command and refuses it. */
+const unconfirmed = (flags: string) => (a: Asked) => (a.yes === confirmOf(flags) ? null : new ApiError(409, why(flags), confirmOf(flags)));
 
 describe('an action on someone else’s run', () => {
   it('shows the command the server named, and runs it with the yes only from the dialog’s Run', async () => {
@@ -80,8 +82,8 @@ describe('an action on someone else’s run', () => {
     await page.click(page.byText('.dlg-ok', 'Run'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
-      { key: 'r', yes: false },
-      { key: 'r', yes: true },
+      { key: 'r', yes: null },
+      { key: 'r', yes: confirmOf('') },
     ]);
     expect(page.all('[role="dialog"]')).toEqual([]);
   });
@@ -96,7 +98,7 @@ describe('an action on someone else’s run', () => {
     // Enter on a button clicks it, in a browser: here, the button the focus is on.
     await page.click(page.focused());
     expect(page.all('[role="dialog"]')).toEqual([]);
-    expect(asked).toEqual([{ key: 'r', yes: false }]);
+    expect(asked).toEqual([{ key: 'r', yes: null }]);
     expect(watched).toEqual([]);
   });
 
@@ -105,7 +107,7 @@ describe('an action on someone else’s run', () => {
     // with ConsentDialog, never a dialog of its own that would open on its Run.
     const ui = join(import.meta.dirname, '..', 'ui');
     const files = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tsx'));
-    const asking = files.filter((f) => readFileSync(join(ui, f), 'utf8').includes('asksConsent('));
+    const asking = files.filter((f) => readFileSync(join(ui, f), 'utf8').includes('consentAsked('));
     expect(asking.length).toBeGreaterThanOrEqual(5);
     for (const f of asking) {
       const src = readFileSync(join(ui, f), 'utf8');
@@ -125,8 +127,8 @@ describe('an action on someone else’s run', () => {
     await page.click(page.byText('.dlg-ok', 'Run'));
     await page.until('the job', () => watched.length === 1);
     expect(asked).toEqual([
-      { key: 'e', value: '3', yes: false },
-      { key: 'e', value: '3', yes: true },
+      { key: 'e', value: '3', yes: null },
+      { key: 'e', value: '3', yes: confirmOf(' --repeat 3') },
     ]);
   });
 
@@ -149,6 +151,6 @@ describe('an action on someone else’s run', () => {
     await again.click(again.one('.go'));
     await again.until('the error', () => shown.length === 1);
     expect(again.all('[role="dialog"]')).toEqual([]);
-    expect(other).toEqual([{ key: 'r', yes: false }]);
+    expect(other).toEqual([{ key: 'r', yes: null }]);
   });
 });

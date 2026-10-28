@@ -106,6 +106,8 @@ function project(packs: string[], tests: unknown): string {
     for (const file of ['run.json', 'calls.jsonl']) writeFileSync(join(pack, file), readFileSync(join(pack, file), 'utf8').split(original).join(id));
   });
   writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tests }));
+  // Committed, as the job's checkout holds its goldens: their recorded command runs without asking.
+  for (const args of [['init', '-q'], ['add', 'goldens']]) spawnSync('git', args, { cwd: dir, stdio: 'ignore' });
   symlinkSync(join(ROOT, 'testing'), join(dir, 'testing'), 'dir');
   mkdirSync(join(dir, 'bin'));
   writeFileSync(join(dir, 'bin', 'shadowlap'), `#!/bin/sh\nexec "${process.execPath}" "${CLI}" "$@"\n`);

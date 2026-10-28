@@ -191,16 +191,22 @@ export interface DialogContext {
  * A run from someone else's pack, or a teammate's pulled from the team store, asks first, and says
  * what replaying it runs: that question is the field's label.
  */
-const PACK_WARNING = /^This run came from (?:an imported pack|the team store)/;
+const PACK_WARNING = /^This run came from (?:an imported pack|the team store|a program that sent the sidecar its command)/;
 
-/** A job the server holds until the command of the run it replays is confirmed (409): a pack's, or a pulled run's. */
-export function asksConsent(message: string): boolean {
-  return /came from (?:an imported pack|the team store): this runs the command/.test(message);
+/**
+ * The question a job's 409 asks before it runs someone else's command (a pack's, a pulled run's, one
+ * a program sent the sidecar): its words, and the `confirm` that says yes to the lines it names,
+ * sent back as the job's `yes`. Null for any other error, a 409 that asks nothing among them.
+ */
+export function consentAsked(err: unknown): { why: string; confirm: string } | null {
+  const e = err as { status?: unknown; confirm?: unknown; message?: unknown } | null;
+  return e && e.status === 409 && typeof e.confirm === 'string' && typeof e.message === 'string' ? { why: e.message, confirm: e.confirm } : null;
 }
 
 /** The title of the question a job's consent asks, after where the command came from. */
 export function consentTitle(message: string): string {
-  return /came from the team store:/.test(message) ? 'Run a command from the team store?' : 'Run a command from an imported pack?';
+  if (/came from the team store:/.test(message)) return 'Run a command from the team store?';
+  return /came from a program that sent the sidecar its command:/.test(message) ? 'Run a command a program sent the sidecar?' : 'Run a command from an imported pack?';
 }
 
 /**

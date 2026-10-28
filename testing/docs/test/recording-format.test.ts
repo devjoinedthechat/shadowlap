@@ -139,7 +139,8 @@ describe('its worked example', () => {
     writeFileSync(join(dir, 'agent.mjs'), exampleAgent(pathToFileURL(join(ROOT, 'packages', 'sdk', 'dist', 'index.js')).href));
     const out = await new Promise<{ code: number | null; text: string }>((resolve) => {
       // Offline, as shadowlap test always is; the upstream is set only so nothing could reach a real API.
-      const child = spawn(process.execPath, [CLI, 'test', 'refund-flow'], { cwd: dir, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', CI: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      // With the yes the page gives it: the pack is the producer's, which no repository tracks yet.
+      const child = spawn(process.execPath, [CLI, 'test', 'refund-flow', '--yes'], { cwd: dir, env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: 'http://127.0.0.1:9', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', CI: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
       let text = '';
       child.stdout.on('data', (d: Buffer) => (text += d.toString()));
       child.stderr.on('data', (d: Buffer) => (text += d.toString()));

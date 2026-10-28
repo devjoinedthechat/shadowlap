@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from '@shadowlap/sidecar';
-import { answered, ciEnv, CLI, findPython, HERE, node, recorded, refusal, ROOT, run, startProviders, workdir, type ProviderId, type Providers } from './clients.js';
+import { answered, ciEnv, CLI, committed, findPython, HERE, node, recorded, refusal, ROOT, run, startProviders, workdir, type ProviderId, type Providers } from './clients.js';
 
 /**
  * Agents that build their model client the default way, with each official SDK, take their key
@@ -89,6 +89,7 @@ for (const agent of AGENTS) {
       expect(providers.seen(agent.provider).at(-1) && agent.carried(providers.seen(agent.provider).at(-1)!.headers, providers.seen(agent.provider).at(-1)!.path)).toContain(Object.values(agent.keys)[0]);
       const packed = await shadowlap(['pack', runId, golden]);
       expect(packed.code, packed.out).toBe(0);
+      committed(work.dir, golden);
     });
 
     it('fails before it sends anything without Shadowlap, as in a CI job without secrets', async () => {

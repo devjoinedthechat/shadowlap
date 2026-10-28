@@ -5,7 +5,7 @@
  * WAL and brings an older store up to this version under one write lock, or the read-only one
  * Store.openReadOnly makes. A store a newer Shadowlap wrote is refused either way.
  */
-import { chmodSync, closeSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants as fsConstants, lstatSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync, rollBack, type SqliteDatabase } from './core.js';
 
@@ -545,6 +545,16 @@ export function storedSchemaVersion(db: SqliteDatabase): number | null {
 }
 
 /** Creates a file readable only by its owner, unless something already exists at the path. */
+/** Whether something is at `path`, a link to nothing included. */
+function lexists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function createOnce(path: string, content: string): void {
   try {
     writeFileSync(path, content, { mode: 0o600, flag: 'wx' });
@@ -586,7 +596,33 @@ function createStoreFile(path: string): void {
   closeSync(fd);
 }
 
-/** Why a store, or its WAL or shared-memory file, can't be opened as it stands; null when each that exists is a regular file of this user's. */
+/**
+ * Why the directory a store is in can't hold one, or null: a store is kept only in a real directory
+ * of this user's that not every user can write to, never through a link to one elsewhere. Whoever
+ * can write there can put a link where the store's files go after each is checked, before SQLite
+ * opens it, and node:sqlite can't open a file without following one.
+ */
+export function storeDirProblem(dir: string): string | null {
+  let st;
+  try {
+    st = lstatSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+  if (st.isSymbolicLink()) return `${dir} is a symbolic link: a store is kept only in a directory of its own, never through a link to one elsewhere. Point --db at a store in the directory itself, or remove the link`;
+  if (!st.isDirectory()) return `${dir} is not a directory: point --db at a store's file`;
+  const why = "since whoever can write there can put a link where the store's files go";
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return `${dir} belongs to another user (uid ${st.uid}): a store is kept only in a directory of yours, ${why}. Point --db at a store in a directory of your own`;
+  // Windows keeps no such bit: who may write there is its access control's to say.
+  if (process.platform !== 'win32' && st.mode & 0o002) return `${dir} can be written by every user: a store is kept only in a directory that not everyone can write to, ${why}. Take that away (chmod o-w), or point --db at a store in a directory of your own`;
+  return null;
+}
+
+/**
+ * Why a store, or its WAL or shared-memory file, can't be opened as it stands; null when its
+ * directory can hold a store (storeDirProblem) and each that exists is a regular file of this user's.
+ */
 export function storeFileProblem(path: string): string | null {
   for (const file of [path, `${path}-wal`, `${path}-shm`]) {
     let st;
@@ -600,7 +636,7 @@ export function storeFileProblem(path: string): string | null {
     if (!st.isFile()) return `${file} is not a file: point --db at a store's file`;
     if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return `${file} belongs to another user (uid ${st.uid}): a store is opened only when it is yours, since it holds what your agents sent and got. Point --db at a store of your own`;
   }
-  return null;
+  return storeDirProblem(dirname(path));
 }
 
 /** Takes group and other permissions off a store created by an earlier version. */
@@ -620,8 +656,12 @@ function restrictToOwner(path: string): void {
 export function openDatabase(path: string): SqliteDatabase {
   if (path !== ':memory:') {
     const dir = dirname(path);
-    // Recordings hold prompts and tool I/O: a new directory is the owner's alone.
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Recordings hold prompts and tool I/O: a new directory is the owner's alone. One already there
+    // (or a link where it goes) holds a store only when it is a directory of this user's that not
+    // every user can write to (storeDirProblem); nothing is written into it before that.
+    if (!lexists(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const unfit = storeDirProblem(dir);
+    if (unfit) throw new Error(unfit);
     // Keep the directory out of git without touching the project's .gitignore. `wx` never follows
     // a symbolic link a checkout could have planted there.
     createOnce(join(dir, '.gitignore'), '*\n');

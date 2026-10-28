@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hasRecordedCommand, Store, withoutCommand } from '@shadowlap/engine';
+import { commandIsImported, hasRecordedCommand, Store, withoutCommand } from '@shadowlap/engine';
+import { Sidecar } from '@shadowlap/sidecar';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { envLines } from '../src/commands/testing.js';
 
@@ -123,5 +124,45 @@ describe('a run a test recorded without a command', () => {
     expect(r.code, r.out).toBe(2);
     expect(r.out).toContain(`${recorded.runId.slice(0, 10)} was recorded by a test run, which records what was sent but not what sent it, so it has no command to re-run. Give yours after --`);
     expect(r.out).not.toContain('<test>');
+  });
+});
+
+describe('a run a program started through the sidecar, with a command it sent', () => {
+  it('is marked, so replaying it asks before running that command, as for a pack', async () => {
+    // Whoever holds the session token, an agent the sidecar records among them, can start a run and
+    // name its command: here, one that writes a marker file, the stand-in for anything harmful.
+    const db = join(project, 'sent.db');
+    const marker = join(project, 'sent-ran.txt');
+    const store = Store.open(db);
+    const sidecar = await Sidecar.start({ store, upstreams: { anthropic: mock.url } });
+    const post = (path: string, body: unknown) => fetch(`${sidecar.url}/${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    let runId: string;
+    try {
+      const started = await post('v1/runs', { mode: 'record', command: { argv: [process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`], cwd: project } });
+      expect(started.status).toBe(201);
+      runId = ((await started.json()) as { run: { runId: string } }).run.runId;
+      expect((await post(`v1/runs/${runId}/end`, { status: 'completed' })).status).toBe(200);
+      // One started with no command has none to run again, and nothing to ask about.
+      const none = await post('v1/runs', { mode: 'record' });
+      const noneId = ((await none.json()) as { run: { runId: string } }).run.runId;
+      await post(`v1/runs/${noneId}/end`, { status: 'completed' });
+      expect(store.getRun(noneId)!.meta?.commandFromClient).toBeUndefined();
+    } finally {
+      await sidecar.close();
+    }
+    const held = store.getRun(runId)!;
+    store.close();
+    expect(held.meta?.commandFromClient).toBe(true);
+    expect(commandIsImported(held)).toBe(true);
+    // No terminal to ask: refused, saying where the command came from and how to run it anyway.
+    const refused = await shadowlap(['--db', db, 'replay', runId]);
+    expect(refused.code, refused.out).toBe(2);
+    expect(refused.out).toContain(`Run ${runId.slice(0, 10)} was started by a program that sent the sidecar its command. Replaying it runs the command it was recorded with`);
+    expect(refused.out).toContain('--yes');
+    expect(existsSync(marker)).toBe(false);
+    // A command of your own runs without asking.
+    const own = await shadowlap(['--db', db, 'replay', runId, '--', process.execPath, '-e', '0']);
+    expect(own.out).not.toContain('was started by a program');
+    expect(existsSync(marker)).toBe(false);
   });
 });

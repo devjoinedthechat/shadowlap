@@ -29,7 +29,7 @@ In Node and Python agents the calls are captured in the process, whatever client
 
 Each call is a tool call named after its method, host and path, such as `POST pricing.internal.example.com/v1/quote`: the request's method, URL and body are its arguments, and the response's status, headers and body its result ([the recording format](./recording-format.md#blobs)). `shadowlap show <run>` lists them with the run's other calls.
 
-Request headers are never stored, so a token the agent sends to the service stays out of the recording, and a credential in a query string, a form body, a JSON body or a multipart body's fields, or one the service hands back in a response, is stored as `<CREDENTIAL>` ([HTTP services](./sdk.md#http-services-without-wrapping) has the rules). Headers take no part in matching either: a trace header the agent sends with every call, such as `traceparent`, changes nothing.
+Request headers are never stored, so a token the agent sends to the service stays out of the recording, and a credential in a query string or a body (a form, JSON whatever its content type says, lines of JSON, a multipart body's fields, an event stream, XML), or one the service hands back in a response, is stored as `<CREDENTIAL>` ([HTTP services](./sdk.md#http-services-without-wrapping) has the rules). Headers take no part in matching either: a trace header the agent sends with every call, such as `traceparent`, changes nothing.
 
 ## Replaying without the service
 

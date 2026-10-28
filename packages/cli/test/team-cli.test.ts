@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { Store } from '@shadowlap/engine';
 import { parseSegment } from '@shadowlap/remote';
 import { startFakeS3, type FakeS3 } from '../../remote/test/fakes/s3.js';
@@ -76,6 +77,7 @@ function checkout(name: string, folder: string): string {
   const dir = join(work, name);
   cpSync(GOLDEN, join(dir, 'goldens', 'reference-agent'), { recursive: true });
   writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ store: storeUrl(folder) }));
+  trackInGit(dir, 'goldens', 'shadowlap.config.json');
   return dir;
 }
 

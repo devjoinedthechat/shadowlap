@@ -7,6 +7,7 @@ import { chaosFor, DEFAULT_CHAOS, type ChaosSpec } from './chaos-config.js';
 import { chaosJunit, chaosMarkdown, chaosReport, chaosTotals, formatPresets, judgedOnExit, runPresets, type ChaosRecordingResult, type PresetOutcome } from './chaos.js';
 import { parseExpect, specFor, type TestSpec } from './checks.js';
 import { codeVersion, defaultDbPath, loadConfig, loadTests } from './config.js';
+import { goldenNeedsConsent, notRunMessage } from './golden-consent.js';
 import { importGolden } from './golden-test.js';
 import { expandRecordings, goldenName, readPackHead, testsKeyFor } from './goldens.js';
 import { EXIT, inconclusiveStatus, signalExit } from './exit-codes.js';
@@ -14,7 +15,7 @@ import { emitJobEvent } from './job-events.js';
 import { junitXml } from './junit.js';
 import { unavailableWords } from './provider-retry.js';
 import { type GuardMode } from './run-agent.js';
-import { telemetry, type GlobalOpts } from './shared.js';
+import { confirmImportedCommand, telemetry, type GlobalOpts } from './shared.js';
 import { palette as p, safe, shortId } from './ui.js';
 
 /**
@@ -36,6 +37,8 @@ export interface ChaosFlags {
   cwd?: string;
   /** The tools `--allow-unrecorded` lets a preset run again though the recording never recorded them and they write. */
   allowUnrecorded?: ReadonlySet<string>;
+  /** Run a golden from someone else's pack, which the repository doesn't track, without asking (golden-consent.ts). */
+  yes?: boolean;
 }
 
 /** What the presets asked for on the command line change in a recording's own: which ones, and the tool they hit. */
@@ -153,6 +156,8 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
       try {
         parent = importGolden(store, packDir);
         if (!hasRecordedCommand(parent)) throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run`);
+        // Its presets run its recorded command: from someone else's pack the repository doesn't track, only after a yes.
+        if (!flags.yes && goldenNeedsConsent(parent, packDir, projectDir) && !(await confirmImportedCommand(parent, parent.command.argv, `shadowlap test ${packDir} --chaos --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${packDir} --chaos --yes), or add the pack to the repository.`))) throw new Error(notRunMessage(packDir));
       } catch (err) {
         process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
         results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null });

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +84,64 @@ describe('Store', () => {
     symlinkSync(join(root, 'elsewhere.txt'), join(planted, '.gitignore'));
     Store.open(join(planted, 'shadowlap.db')).close();
     expect(existsSync(join(root, 'elsewhere.txt'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps a store only in a directory of its own user that not every user can write to, never through a link', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fp-store-dir-'));
+    try {
+      // A link where the store's directory goes, to a directory elsewhere: refused, and nothing
+      // written there, a .gitignore included.
+      const elsewhere = join(root, 'elsewhere');
+      mkdirSync(elsewhere, { mode: 0o700 });
+      const linked = join(root, '.shadowlap');
+      symlinkSync(elsewhere, linked);
+      expect(() => Store.open(join(linked, 'shadowlap.db'))).toThrow(`${linked} is a symbolic link: a store is kept only in a directory of its own, never through a link to one elsewhere`);
+      expect(readdirSync(elsewhere)).toEqual([]);
+      // A store already there, read through the link: refused too.
+      Store.open(join(elsewhere, 'shadowlap.db')).close();
+      expect(() => Store.openReadOnly(join(linked, 'shadowlap.db'))).toThrow(`${linked} is a symbolic link`);
+      expect(() => Store.open(join(linked, 'shadowlap.db'))).toThrow(`${linked} is a symbolic link`);
+      // A link to no directory yet isn't followed to make one.
+      const dangling = join(root, 'dangling');
+      symlinkSync(join(root, 'made-elsewhere'), dangling);
+      expect(() => Store.open(join(dangling, 'shadowlap.db'))).toThrow(`${dangling} is a symbolic link`);
+      expect(existsSync(join(root, 'made-elsewhere'))).toBe(false);
+      // A directory every user can write to, with the sticky bit a shared /tmp has too: whoever can
+      // write there can put a link where the WAL goes. Refused, and nothing written there.
+      for (const mode of [0o777, 0o1777, 0o703]) {
+        const open = join(root, `open-${mode.toString(8)}`);
+        mkdirSync(open);
+        chmodSync(open, mode);
+        expect(() => Store.open(join(open, 'shadowlap.db')), mode.toString(8)).toThrow(`${open} can be written by every user: a store is kept only in a directory that not everyone can write to`);
+        expect(readdirSync(open)).toEqual([]);
+        // Nor is a store there read once it is.
+        chmodSync(open, 0o700);
+        Store.open(join(open, 'shadowlap.db')).close();
+        chmodSync(open, mode);
+        expect(() => Store.openReadOnly(join(open, 'shadowlap.db')), mode.toString(8)).toThrow(`${open} can be written by every user`);
+      }
+      // One that belongs to another user, as lstat would say it: refused, and nothing written there.
+      const theirs = join(root, 'theirs');
+      mkdirSync(theirs, { mode: 0o700 });
+      const uid = process.getuid!();
+      const asked = vi.spyOn(process, 'getuid').mockReturnValue(uid + 1);
+      try {
+        expect(() => Store.open(join(theirs, 'shadowlap.db'))).toThrow(`${theirs} belongs to another user (uid ${uid}): a store is kept only in a directory of yours`);
+      } finally {
+        asked.mockRestore();
+      }
+      expect(readdirSync(theirs)).toEqual([]);
+      // A directory of this user's that only they, or their group, can write to holds one.
+      for (const mode of [0o700, 0o750, 0o775]) {
+        const mine = join(root, `mine-${mode.toString(8)}`);
+        mkdirSync(mine);
+        chmodSync(mine, mode);
+        Store.open(join(mine, 'shadowlap.db')).close();
+        Store.openReadOnly(join(mine, 'shadowlap.db')).close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it.skipIf(process.platform === 'win32')('opens a store only as a regular file of its own user, never through a link, and makes a new one so', () => {

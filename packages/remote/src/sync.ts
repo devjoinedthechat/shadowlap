@@ -1,5 +1,5 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
-import { asImportedRun, callRefs, classifyRun, credentialFreeCall, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
+import { asImportedRun, callRefs, classifyRun, credentialFreeCalls, loadApiRequest, manifestRefs, PACK_LIMITS, sha256, validateCall, type CallRecord, type RunRecord, type Store, type TeamRunRow } from '@shadowlap/engine';
 import { pullFixes, pushFixes, type FixPullResult, type FixPushResult } from './fix-sync.js';
 import { isRunId, keys, LAYOUT_VERSION, LayoutError, newSegmentId, parseRunDoc, parseSegment, RUN_FORMAT, INDEX_FORMAT, storeProblem, type IndexEntry, type IndexSegment, type StoredRunDoc } from './layout.js';
 import { asTheStoreHolds, keptHere, madeHere, metaHash, reconcile, sharedMeta, syncedMeta, syncedPatch, withSynced, type SharedMeta } from './merge.js';
@@ -247,12 +247,13 @@ type PushOutcome =
   | { kind: 'refused'; reason: string };
 
 /**
- * A run's calls as the store holds them, as `shadowlap pack` writes them, gzipped: as recorded, but
- * for a credential a recording made before it was known to be one kept in a call's metadata (a model
- * call's query, a response header), which never goes up (credentialFreeCall).
+ * A run's calls as `shadowlap pack` writes them, gzipped, from the calls a push sends
+ * (credentialFreeCalls): as recorded, but for a credential a recording made before it was known to be
+ * one kept, in a call's metadata (a model call's query, a response header) or a captured call's
+ * body, which never goes up.
  */
 function callsFile(calls: readonly CallRecord[]): { lines: Buffer; gz: Buffer } {
-  const lines = Buffer.from(calls.map((c) => JSON.stringify(credentialFreeCall(c))).join('\n') + (calls.length ? '\n' : ''), 'utf8');
+  const lines = Buffer.from(calls.map((c) => JSON.stringify(c)).join('\n') + (calls.length ? '\n' : ''), 'utf8');
   return { lines, gz: gzipSync(lines) };
 }
 
@@ -263,7 +264,7 @@ function callsFile(calls: readonly CallRecord[]): { lines: Buffer; gz: Buffer } 
  * by name. Ancestors pushed along with a run, and runs pushed by --all, aren't checked this way.
  */
 async function repairParts(ctx: SyncContext, run: RunRecord, known: Set<string>, tally: PushResult['blobs']): Promise<boolean> {
-  const calls = ctx.store.getCalls(run.runId);
+  const calls = credentialFreeCalls(ctx.store, ctx.store.getCalls(run.runId));
   const blobs = runBlobs(ctx.store, calls);
   if (localProblem(ctx, calls, blobs)) return false; // this machine's copy can't mend it
   let sent = false;
@@ -298,7 +299,7 @@ async function mendCutShort(ctx: SyncContext, run: RunRecord, there: StoredRunDo
   const held = ctx.store.countCalls(run.runId);
   const short = (doc: StoredRunDoc) => run.status !== 'running' && doc.run.status === 'crashed' && doc.calls < held;
   if (!short(there)) return null;
-  const calls = ctx.store.getCalls(run.runId);
+  const calls = credentialFreeCalls(ctx.store, ctx.store.getCalls(run.runId));
   const blobs = runBlobs(ctx.store, calls);
   if (localProblem(ctx, calls, blobs)) return null; // this machine's copy can't mend it
   const { lines, gz } = callsFile(calls);
@@ -332,7 +333,7 @@ type Written = { doc: StoredRunDoc; synced: SharedMeta; fresh: boolean; wrote: b
 async function writeRun(ctx: SyncContext, run: RunRecord, row: TeamRunRow | null, known: Set<string>, tally: PushResult['blobs']): Promise<Written> {
   let existing = await ctx.remote.get(keys.run(run.runId), { maxBytes: PACK_LIMITS.manifestBytes });
   if (!existing) {
-    const calls = ctx.store.getCalls(run.runId);
+    const calls = credentialFreeCalls(ctx.store, ctx.store.getCalls(run.runId));
     const first: StoredRunDoc = { format: RUN_FORMAT, version: LAYOUT_VERSION, run: { ...run, meta: sharedMeta(run.meta) }, calls: calls.length, pushedAt: now(ctx), pushedBy: ctx.actor };
     const blobs = runBlobs(ctx.store, calls);
     const problem = storeProblem(first.run, calls) ?? localProblem(ctx, calls, blobs);

@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { asksConsent } from '../actions.js';
-import { ApiError } from '../api.js';
+import { consentAsked } from '../actions.js';
 import { tipCard } from '../components/HoverCard.js';
 import { ConsentDialog } from '../components/Dialog.js';
 import { useApp } from '../state.js';
@@ -40,7 +39,7 @@ export function FixJobButton({
   const app = useApp();
   const busy = useTreeBusy('reads', verb);
   const [asking, setAsking] = useState(false);
-  const [consent, setConsent] = useState<{ why: string; fields: Record<string, unknown> } | null>(null);
+  const [consent, setConsent] = useState<{ why: string; confirm: string; fields: Record<string, unknown> } | null>(null);
   if (app.exported) return null;
   const missing = app.hasKind(kind) ? null : 'This dashboard doesn’t run it: run the command in a terminal.';
   const why = app.actionsOff ?? missing ?? busy;
@@ -48,7 +47,8 @@ export function FixJobButton({
     app.client.startJob(kind, { ...fields, ...more }).then(
       (job) => app.watchJob(Promise.resolve(job)),
       (err: unknown) => {
-        if (err instanceof ApiError && err.status === 409 && asksConsent(err.message)) setConsent({ why: err.message, fields: more });
+        const asked = more.yes === undefined ? consentAsked(err) : null;
+        if (asked) setConsent({ ...asked, fields: more });
         else app.watchJob(Promise.reject(err));
       },
     );
@@ -81,7 +81,7 @@ export function FixJobButton({
           onOk={() => {
             const c = consent;
             setConsent(null);
-            app.guard(() => void start({ ...c.fields, yes: true }));
+            app.guard(() => void start({ ...c.fields, yes: c.confirm }));
           }}
         />
       ) : null}

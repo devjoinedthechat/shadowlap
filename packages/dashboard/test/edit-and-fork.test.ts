@@ -137,10 +137,13 @@ describe('Edit and fork', () => {
     const before = spawned.length;
     const refused = await post(dash, 'jobs', { kind: 'override', runId: imported, callNo: 2, uploadId });
     expect(refused.status).toBe(409);
-    expect(await errorOf(refused)).toMatch(/^01\w{8} came from an imported pack: this runs the command it was recorded with \(node agent\.mjs\), under shadowlap replay 01\w{24} --override .+\. Confirm it to run it$/);
+    const asked = (await refused.json()) as { error: string; confirm: string };
+    expect(asked.error).toMatch(/^01\w{8} came from an imported pack: this runs the command it was recorded with \(node agent\.mjs\), under shadowlap replay 01\w{24} --override .+\. Confirm it to run it$/);
     expect(spawned.length).toBe(before);
+    // A bare yes is none: the yes is the question's confirm, for the lines it named.
+    expect((await post(dash, 'jobs', { kind: 'override', runId: imported, callNo: 2, uploadId, yes: true })).status).toBe(409);
     // Confirmed in the page, the same upload goes with the yes, which the CLI gets too.
-    expect(await forked({ runId: imported, callNo: 2, uploadId, yes: true })).toEqual(['replay', imported, '--override', '2={"order_id":"A-1042","amount":40}', '--yes']);
+    expect(await forked({ runId: imported, callNo: 2, uploadId, yes: asked.confirm })).toEqual(['replay', imported, '--override', '2={"order_id":"A-1042","amount":40}', '--yes']);
   });
 
   it('changes nothing on a read-only dashboard', async () => {

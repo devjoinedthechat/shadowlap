@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { Store } from '@shadowlap/engine';
 
 /**
@@ -113,7 +114,8 @@ describe('a captured HTTP call', () => {
     expect(otel.code).toBe(0);
     expect(otel.out).not.toContain(ADDRESS);
 
-    // Where the pack is all there is, as CI replays it: the live call matches the masked one.
+    // Where the pack is all there is, as CI replays it, committed: the live call matches the masked one.
+    trackInGit(cwd, 'goldens/contact');
     const before = received.length;
     const ci = await shadowlap(['--db', ':memory:', 'test', 'goldens/contact']);
     expect(ci.code, ci.out).toBe(0);

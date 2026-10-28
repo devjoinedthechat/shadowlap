@@ -11,6 +11,7 @@ import {
   loadApiRequest,
   normalizeConversation,
   packRun,
+  unpackRun,
   requestMessage,
   responseInfo,
   safeLine,
@@ -372,6 +373,10 @@ function packGolden(mem: Store, runId: string, group: CoverageGroup, capture: Ru
   const dir = resolve(o.projectDir, rel);
   mkdirSync(resolve(o.projectDir, folder), { recursive: true });
   const packed = packRun(mem, runId, dir, { redact: o.config.redact });
+  // The golden is this machine's: made here, from the agent's own command. Kept in the project's
+  // store as a recording of its own, so `test` runs its command without asking, as it runs any golden
+  // recorded here (golden-consent.ts); a pack someone sent is held as imported.
+  unpackRun(o.store, dir, { madeHere: true });
   const where = relative(o.projectDir, dir).split('\\').join('/');
   if (mode === 'fork' && o.fork) {
     const expect = o.fork.expect;

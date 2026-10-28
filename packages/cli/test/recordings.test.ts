@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Store } from '@shadowlap/engine';
+import { commandIsImported, Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { message, startMockAnthropic, text, toolUse, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { RecordingHost, type RecordedCalls, type RecordingResult } from '../src/recordings.js';
@@ -44,6 +44,30 @@ async function tool(name: string, effect: 'read' | 'write', args: unknown, resul
 }
 const ask = (content: string) => post(`${sidecar.envForSlot('w').ANTHROPIC_BASE_URL}/v1/messages`, { model: 'claude-opus-5', max_tokens: 16, messages: [{ role: 'user', content }] });
 const api = <T>(path: string, body: unknown) => post<T>(`${sidecar.url}/v1/recordings/${path}`, body);
+
+describe('a command a test sends', () => {
+  it('is marked as a program’s, recording and replaying, so replaying the run later asks first, as of a pack’s', async () => {
+    const command = ['sh', '-c', 'echo a program chose this'];
+    const rec = (await api<{ runId: string }>('start', { recording: 'recs/sent-command', slot: 'w', command })).body;
+    await ask('refund A-1042');
+    expect((await api<RecordingResult>('end', { runId: rec.runId, passed: true })).body).toMatchObject({ saved: true });
+    const recorded = store.getRun(rec.runId)!;
+    expect(recorded.command.argv).toEqual(command);
+    expect(recorded.meta?.commandFromClient).toBe(true);
+    expect(commandIsImported(recorded)).toBe(true);
+    // Its replay too, while it runs: a clean one isn't kept once it ends.
+    const replay = (await api<{ runId: string }>('start', { recording: 'recs/sent-command', slot: 'w', mode: 'none', command })).body;
+    await ask('refund A-1042');
+    await api('calls', { runId: replay.runId });
+    expect(store.getRun(replay.runId)!.meta?.commandFromClient).toBe(true);
+    await api('end', { runId: replay.runId, passed: true });
+    // A test that sends none starts its agent itself: its run has no command to run again.
+    const own = (await api<{ runId: string }>('start', { recording: 'recs/no-command', slot: 'w' })).body;
+    await ask('refund A-1042');
+    await api('end', { runId: own.runId, passed: true });
+    expect(store.getRun(own.runId)!.meta?.commandFromClient).toBeUndefined();
+  });
+});
 
 describe('recorded calls for tests', () => {
   it('lists the calls a test made so far and its last answer, while recording and while replaying', async () => {

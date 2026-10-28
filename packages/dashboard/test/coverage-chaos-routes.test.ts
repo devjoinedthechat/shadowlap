@@ -325,8 +325,11 @@ describe('error-path presets', () => {
     expect(spawned.at(-1)).toEqual(['replay', golden, '--chaos']);
     const asked = await startJob({ kind: 'chaos', runId: packRun });
     expect(asked.status).toBe(409);
-    expect(((await asked.json()) as { error: string }).error).toBe('This run came from an imported pack: each preset runs its command (node theirs.mjs). Confirm to run it.');
-    expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: true })).status).toBe(202);
+    const question = (await asked.json()) as { error: string; confirm: string };
+    expect(question.error).toBe('This run came from an imported pack: each preset runs its command (node theirs.mjs). Confirm to run it.');
+    // A bare true is no yes: the yes is the question's confirm, for the command it named.
+    expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: true })).status).toBe(409);
+    expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: question.confirm })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--yes']);
     for (const [body, error] of [
       [{ golden: 'goldens/none' }, 'no golden goldens/none on disk'],

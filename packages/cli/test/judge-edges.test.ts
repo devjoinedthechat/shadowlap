@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { trackInGit } from './tracked.js';
 import { JUDGE_SCOPE, Store, type CallRecord } from '@shadowlap/engine';
 import { judgeRequests, message, startMockAnthropic, text, withJudge, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { departures } from './json-shapes.js';
@@ -255,8 +256,9 @@ describe('what a judge cost', () => {
     config({ tests: { 'goldens/fresh': {} } });
     const rec = await record();
     expect((await shadowlap(['pack', rec, 'goldens/fresh'])).code).toBe(0);
-    // A fresh clone: the store is gone, and the golden comes in from its pack.
+    // A fresh clone: the store is gone, and the golden comes in from its pack, committed.
     rmSync(join(work, '.shadowlap'), { recursive: true, force: true });
+    trackInGit(work, 'goldens/fresh');
     expect((await test('goldens/fresh')).code).toBe(0);
     config({ tests: { 'goldens/fresh': { expect: { judge: [judge({})] } } } });
     const before = asked();

@@ -267,6 +267,12 @@ export interface RunMeta {
   /** The run replayed a command that came from an imported pack. */
   commandFromImport?: boolean;
   /**
+   * The run's command was sent by a program through the sidecar's API (`POST /v1/runs`, or
+   * `/v1/recordings/start` with a `command`), not given on this machine's command line, so whoever
+   * held the session token chose it: replaying the run asks first, as of an imported run's.
+   */
+  commandFromClient?: boolean;
+  /**
    * The providers whose credentials the environment the run's agent started in held, each with the
    * variables among those its SDKs read that held its key (none for a credential of another kind: a
    * profile, AWS's shared files, an identity). Names only, never a value. `shadowlap replay` gives

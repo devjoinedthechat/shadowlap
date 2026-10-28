@@ -624,7 +624,8 @@ export async function startDashboard(opts: DashboardOptions): Promise<Dashboard>
       // `notFound`, so the browser logs no failed load for it. Any other client gets the 404.
       if (status === 404 && req.method === 'GET' && req.headers['x-shadowlap-not-found'] === 'answer') return json(res, 200, { error, notFound: true });
       // A body refused part way is not read to its end: close the connection so the client stops sending it.
-      json(res, status, { error }, status === 413 ? { connection: 'close' } : {});
+      const confirm = err instanceof HttpError && err.confirm !== undefined ? { confirm: err.confirm } : {};
+      json(res, status, { error, ...confirm }, status === 413 ? { connection: 'close' } : {});
     });
   });
 
