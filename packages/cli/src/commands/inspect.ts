@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { kindFacts, lostWhere } from '@shadowlap/engine';
+import { kindFacts, lostWhere, type Normalizer } from '@shadowlap/engine';
 import { checksOf, cleanLabel, compareRuns, isChaosPreset, PRESET_LABELS, formatComparison, formatDivergence, formatDuration, formatTokens, formatUsd, hasRecordedCommand, kindLabel, loadApiRequest, MATCH_END, MATCH_START, pulledRun, runKind, runsDiffer, searchCalls, showJson, storedModelResolver, summarizeRun, unrecordedTools, unrescuedWords, untrustedReads, wholeInput, withLabels, withNote, type RunRecord, type TrustSource } from '@shadowlap/engine';
 import { ProjectHost, ProjectRegistry } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
@@ -126,7 +126,14 @@ export function register(program: Command): void {
         return { url, opened: !process.env.CI && (await openInBrowser(url)) };
       };
       try {
-        await launchTui(store, { spawnCli, openDashboard, ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}) });
+        // The project's normalizers, so a fork's differences leave out what they mask, and its declared unrecorded tools.
+        let normalizers: Normalizer[] = [];
+        try {
+          normalizers = uiConfig.normalize;
+        } catch {
+          // A broken normalizer stops the commands that apply it, not a look at the runs.
+        }
+        await launchTui(store, { spawnCli, openDashboard, normalizers, ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.unrecorded ? { unrecorded: uiConfig.unrecorded } : {}) });
       } finally {
         await dashboard.close();
         store.close();

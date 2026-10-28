@@ -6,16 +6,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
 import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
-import { attemptBundles, lostAt } from '@shadowlap/engine';
-import { attemptsOf } from '../attempts.js';
+import { attemptBundles, lostAt, withAttempts, type Normalizer } from '@shadowlap/engine';
+import { attemptTallies } from '../attempts.js';
+import { forkEffects } from '../fork-effects.js';
+import type { RunFacts } from '../run-lines.js';
 import { ago, kindFacts, loadRequest, loadResponseBytes, modelAction, runLabel, type ModelAction } from '../data.js';
 import { markKey, type RunMark } from '../marks.js';
-import { failing, toneOf, verdictOf, type Declared } from '../verdict.js';
+import { blameReport, isFailing, toneOf, verdictOf, type Declared } from '../verdict.js';
 import { divergenceSummary } from '../diff.js';
 import { cells, fitColumns, fitItems } from '../render.js';
 import { displayOrigin, kindLabel, useTheme } from '../theme.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
-import { Inspector, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
+import { Inspector, TAB_KEYS, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
 import { OutputPane } from './OutputPane.js';
 import { cell, KeyHints, Line, Row, type Cell, type Hint, type Tone } from './Row.js';
 import { TextInput } from './TextInput.js';
@@ -48,6 +50,17 @@ interface Props {
   onMark?: (runId: string, mark: RunMark) => string;
   /** `tools.unrecorded` from shadowlap.config.json, for the unrecorded-tools warning. */
   declared?: Declared;
+  /** The project's normalizers: what they mask is no difference between a fork and its parent. */
+  normalizers?: readonly Normalizer[];
+  /** The view was asked to open at a call (`--call`): it opens there, on the call, whatever the run's verdict. */
+  askedCall?: boolean;
+}
+
+/** The runs an attempt of `run` can be among: its descendants and its siblings (a test's are filed under a sibling). */
+function runsAround(store: Store, run: RunRecord): RunRecord[] {
+  const out = [run, ...(run.parentRunId ? store.childRuns(run.parentRunId) : [])];
+  for (let i = 0; i < out.length && out.length < 5000; i++) if (i === 0 || out[i]!.parentRunId !== run.parentRunId) out.push(...store.childRuns(out[i]!.runId));
+  return [...new Map(out.map((r) => [r.runId, r])).values()];
 }
 
 type Mode =
@@ -133,7 +146,7 @@ export const FORK_MENU_KEYS: readonly Hint[] = [
 /** A row of the call list: a call, or a line drawn before one: where the run forked from its parent, or where blame found it lost. */
 type Item = { kind: 'call'; at: number } | { kind: 'fork' } | { kind: 'lost' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -173,12 +186,22 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
   }, [calls, filter, query]);
   // A run that ended early forked past its last call: it opens at that last call.
   const atFork = !!divergence && initialCall === divergence.callNo;
-  // How the run stands (its checks, blame, fix, unrecorded tools) and the attempts bundled under it.
+  // How the run stands (its checks, blame, fix, unrecorded tools), the attempts bundled under it,
+  // blame's report and what a fork did differently: each worked out once a run, not on each key.
   const verdict = useMemo(() => verdictOf(store, run, calls, declared), [store, run, calls, declared]);
   const attempts = useMemo(() => {
-    const ids = attemptBundles(store.allRuns()).get(run.runId) ?? [];
-    return attemptsOf(ids.flatMap((id) => store.getRun(id) ?? []));
-  }, [store, run]);
+    const around = runsAround(store, run);
+    const ids = withAttempts(attemptBundles(around), run.runId);
+    const byId = new Map(around.map((r) => [r.runId, r]));
+    return ids.length ? attemptTallies(ids.flatMap((id) => byId.get(id) ?? [])) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempts change when the run ends, not each time it is read again
+  }, [store, run.runId, run.status]);
+  const blameAt = run.meta?.blame?.at;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new blame of the run is what changes its report
+  const blame = useMemo(() => blameReport(store, run.runId), [store, run.runId, blameAt]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a fork's effects change as its calls come, not each time it is read again
+  const fork = useMemo(() => forkEffects(store, run, calls, normalizers), [store, run.runId, run.status, calls.length, normalizers]);
+  const facts = useMemo<RunFacts>(() => ({ verdict, attempts, blame, fork }), [verdict, attempts, blame, fork]);
   const lost = lostAt(run);
   const [initialIndex] = useState(() => {
     const i = initialCall !== undefined ? calls.findIndex((c) => c.callNo === initialCall) : -1;
@@ -208,9 +231,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     });
   const [focus, setFocus] = useState<'list' | 'inspector'>('list');
   const [zoom, setZoom] = useState(false);
-  // A fork opened at its divergence shows what changed there first.
-  // A fork opened at its divergence shows what changed there; a failed run shows why it failed.
-  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : failing(verdict.outcome) ? 'run' : 'conversation'));
+  // A fork opened at its divergence shows what changed there; a failed run shows its verdict, unless
+  // a call was asked for (`--call`, as each `shadowlap search` match opens one).
+  const [tab, setTab] = useState<Tab>(() => (atFork ? 'diff' : !askedCall && isFailing(verdict.outcome, verdict.fix) ? 'verdict' : 'conversation'));
   const [scroll, setScroll] = useState<number | null>(null);
   const view = useRef<InspectorView>({ offset: 0, max: 0, page: 1 });
   const onView = useCallback((v: InspectorView) => {
@@ -359,8 +382,9 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       if (key.tab && key.shift) return setTab((t) => tabs[(tabs.indexOf(t) + tabs.length - 1) % tabs.length]!);
       if (key.tab) return setTab((t) => tabs[(tabs.indexOf(t) + 1) % tabs.length]!);
       if (/^[1-9]$/.test(input)) {
-        const t = tabs[Number(input) - 1];
-        if (t) setTab(t);
+        // By the tab's own number, which a run without one leaves unused: 5 is a fork's diff, 6 the verdict.
+        const t = TAB_KEYS[Number(input) - 1];
+        if (t && tabs.includes(t)) setTab(t);
         return;
       }
       if (input === 'J') return scrollBy(1);
@@ -370,7 +394,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         return setTab('diff');
       }
       if (input === 'f') return setFilter((f) => FILTERS[(FILTERS.indexOf(f) + 1) % FILTERS.length]!);
-      if (input === 'v') return setTab('run');
+      if (input === 'v') return setTab('verdict');
       if (input === 'b') {
         if (lost === null) return say(run.meta?.blame ? 'blame placed the failure on no call' : `not blamed: shadowlap blame ${run.runId.slice(0, 10)} finds where it was lost`);
         const i = visibleCalls.findIndex((c) => c.callNo >= lost);
@@ -657,8 +681,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
             onPlayTick={onPlayTick}
             onView={onView}
             run={run}
-            verdict={verdict}
-            attempts={attempts}
+            facts={facts}
             width={width - listWidth}
             height={bodyHeight}
             focused={focus === 'inspector' || zoom}

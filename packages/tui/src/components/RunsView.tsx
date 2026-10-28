@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
-import { attemptsText } from '../attempts.js';
+import { allPassed, attemptsText } from '../attempts.js';
 import { markKey, type RunMark } from '../marks.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { RunNode } from '../data.js';
@@ -123,11 +123,19 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
     const t = setTimeout(() => setToast(null), toast.ms);
     return () => clearTimeout(t);
   }, [toast]);
-  const [selected, setSelected] = useState(Math.max(0, nodes.length - 1));
+  // The selected run, by its id: folding attempts in or out, a filter, or a run that finished moving
+  // the rows never puts the cursor (and the next + or Enter) on another run.
+  const [selectedId, setSelectedId] = useState<string | null>(() => nodes.at(-1)?.run.runId ?? null);
+  const found = visible.findIndex((n) => n.run.runId === selectedId);
+  const selected = found >= 0 ? found : Math.min(Math.max(0, visible.length - 1), 0);
+  const move = (by: number | 'first' | 'last') =>
+    setSelectedId((id) => {
+      if (!visible.length) return id;
+      const at = Math.max(0, visible.findIndex((n) => n.run.runId === id));
+      const to = by === 'first' ? 0 : by === 'last' ? visible.length - 1 : Math.max(0, Math.min(visible.length - 1, at + by));
+      return visible[to]!.run.runId;
+    });
   const [mode, setMode] = useState<Mode>({ kind: 'list' });
-  useEffect(() => {
-    if (selected > visible.length - 1) setSelected(Math.max(0, visible.length - 1));
-  }, [visible.length, selected]);
 
   // The header, the list, the selected run's details, the footer.
   const rows = Math.max(1, height - 3);
@@ -167,12 +175,12 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (input === 'q') onQuit();
       else if (input === '?') onHelp();
       else if (input === '/') setMode({ kind: 'search', before: query });
-      else if (key.downArrow || input === 'j') setSelected((s) => Math.min(visible.length - 1, s + 1));
-      else if (key.upArrow || input === 'k') setSelected((s) => Math.max(0, s - 1));
-      else if (key.pageDown) setSelected((s) => Math.min(visible.length - 1, s + rows));
-      else if (key.pageUp) setSelected((s) => Math.max(0, s - rows));
-      else if (input === 'g') setSelected(0);
-      else if (input === 'G') setSelected(Math.max(0, visible.length - 1));
+      else if (key.downArrow || input === 'j') move(1);
+      else if (key.upArrow || input === 'k') move(-1);
+      else if (key.pageDown) move(rows);
+      else if (key.pageUp) move(-rows);
+      else if (input === 'g') move('first');
+      else if (input === 'G') move('last');
       else if (key.return && current) onOpen(current.run.runId);
       else if (input === 'o' && current) toDashboard(current.run.runId);
       else if (input === 'x' && current) setMode({ kind: 'confirm-delete', runId: current.run.runId, attempts: attemptsOf?.(current.run.runId) ?? 0 });
@@ -241,10 +249,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         enterDoes="keep"
         width={width}
         active
-        onChange={(v) => {
-          setQuery(v.trim());
-          setSelected(0);
-        }}
+        onChange={(v) => setQuery(v.trim())}
         onSubmit={(v) => {
           setQuery(v.trim());
           setMode({ kind: 'list' });
@@ -326,7 +331,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                 cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
                 cell(status, w.status, { color: status === 'recording' ? theme.warn : theme.err }, 2),
                 cell(labelsText(n), w.labels, { color: theme.dim }, 2),
-                cell(n.attempts ? attemptsText(n.attempts) : '', w.attempts, { color: n.attempts && n.attempts.passed < n.attempts.count ? theme.warn : theme.dim }, 2),
+                cell(n.attempts ? attemptsText(n.attempts) : '', w.attempts, { color: n.attempts && !allPassed(n.attempts) ? theme.warn : theme.dim }, 2),
                 cell(`${n.calls} calls`, w.calls, {}, 2),
                 cell(costText(n), w.cost, { color: theme.dim }, 2),
                 cell(ago(n.run.startedAt), w.age, { color: theme.dim }, 2),

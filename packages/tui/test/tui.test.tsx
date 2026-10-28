@@ -270,9 +270,9 @@ describe('ease of use', () => {
       return a.runId;
     });
     const { lastFrame, stdin } = renderAt(<App store={store} columns={140} rows={30} />, 140, 30);
-    // Folded under the run they belong to, with how many passed.
+    // Folded under the run they belong to, with how many passed by verify's own verdicts.
     const list = await frameWith(lastFrame, '1 run');
-    expect(list).toContain('2 verify attempts, 2 passed');
+    expect(list).toContain('2 verify attempts, 1 passed');
     stdin.write('/');
     await frameWith(lastFrame, RUN_SEARCH);
     stdin.write(runId.slice(0, 10));

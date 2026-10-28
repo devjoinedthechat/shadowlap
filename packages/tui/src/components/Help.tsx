@@ -42,8 +42,8 @@ export const HELP: Record<HelpContext, Group[]> = {
     {
       title: 'Look',
       keys: [
-        ['tab  1–6', 'the call’s four tabs, a fork’s diff, then the run'],
-        ['v  b', 'the run: why it failed, blame, its fix; b where it was lost'],
+        ['tab  1–6', 'the call’s four tabs, 5 a fork’s diff, 6 the verdict'],
+        ['v  b', 'the verdict: why it failed, blame, its fix; b where it was lost'],
         ['space  < >', 'play the response at its recorded pacing; < > speed'],
         ['y  w', 'copy the request (or response); w writes the call to a file'],
       ],

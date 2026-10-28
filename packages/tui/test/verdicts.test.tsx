@@ -1,11 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Store, unpackRun, type CallRecord } from '@shadowlap/engine';
+import { Store, unpackRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
 import { App } from '../src/app.js';
-import { attemptsText } from '../src/attempts.js';
+import { attemptResult, attemptsText, attemptTallies } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
 import { marked, markToast } from '../src/marks.js';
-import { failedCheckText, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
+import { failedCheckText, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
 import { renderAt } from './terminal.js';
 
 const GOLDEN = fileURLToPath(new URL('../../../testing/golden/reference-agent/', import.meta.url));
@@ -130,24 +130,52 @@ describe('how a run stands, in the terminal', () => {
     s.close();
   });
 
-  it('says what a fork did differently: a write fenced, a read asked otherwise, and that it no longer fails', async () => {
+  it('says what a fork did differently, as the dashboard compares it: the engine’s decisions, then its writes and how each ended', async () => {
     const { s, fork } = story();
     const run = s.getRun(fork)!;
     const fx = forkEffects(s, run, s.getCalls(fork))!;
-    expect(fx.most).toBe('a write changed');
-    expect(fx.changes.map((c) => c.text)).toEqual([
-      '~ send_email is fenced, where its parent\'s ran',
-      'it does not fail, where its parent did',
-      '~ search_web asked differently: {"query":"agent determinism"} → {"query":"refund policy EU limit"}',
+    expect(fx.most).toBe('it stops, hands over or is judged differently');
+    expect(fx.changes.map((c) => [c.detail, c.before, c.after])).toEqual([
+      ['it does not fail, where its parent did', 'failed, lost at #9', '1 check passed'],
+      ['search_web is asked differently', '{"query":"agent determinism"}', '{"query":"refund policy EU limit"}'],
     ]);
-    expect(fx.ends).toEqual({ parent: 'failed, lost at #9', fork: '1 check passed' });
-    // On the diff tab, under what changed at the fork.
+    // Its email was fenced: no different decision, but a write that didn't reach the world.
+    expect(fx.writes.map((w) => [w.tool, w.fate])).toEqual([['send_email', 'blocked']]);
+    expect(fx.ended.fork.words).toBe('1 check passed');
+    // Reads asked in another order are no change, as decisions treats a turn's reads as a set.
     const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={fork} columns={120} rows={40} />, 120, 40);
     await frameWhere(lastFrame, (f) => f.includes('Diverged at call 9'));
     stdin.write('z');
-    const frame = await frameWhere(lastFrame, (f) => f.includes('What the fork did differently'));
-    expect(frame).toContain('~ send_email is fenced, where its parent\'s ran');
+    const frame = await frameWhere(lastFrame, (f) => f.includes('Its writes'));
+    expect(frame).toContain('it does not fail, where its parent did');
+    expect(frame).toContain('#29 send_email');
+    expect(frame).toContain('· blocked');
     expect(frame).toContain('parent  failed, lost at #9');
+    unmount();
+    s.close();
+  });
+
+  it('opens a failed run on the call --call names, and keeps the tabs\' numbers whichever a run has', async () => {
+    const { s, rec } = story();
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={rec} callNo={3} columns={120} rows={30} />, 120, 30);
+    let frame = await frameWhere(lastFrame, (f) => /> #3\s/.test(f) && f.includes('conversation as sent'));
+    expect(frame).toContain('conversation as sent in call #3');
+    stdin.write('5'); // a fork's diff: this run has none, so nothing changes
+    stdin.write('6');
+    frame = await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
+    expect(frame).toContain('How this run stands');
+    unmount();
+    s.close();
+  });
+
+  it('keeps the cursor on its run when attempts fold in or out', async () => {
+    const { s } = story();
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} columns={140} rows={30} />, 140, 30);
+    await frameWhere(lastFrame, (f) => f.includes('2 runs'));
+    expect(plain(lastFrame()).split('\n').find((l) => l.startsWith('>'))).toContain('fork @9');
+    stdin.write('a');
+    const frame = await frameWhere(lastFrame, (f) => f.includes('7 runs'));
+    expect(frame.split('\n').find((l) => l.startsWith('>'))).toContain('fork @9');
     unmount();
     s.close();
   });
@@ -163,12 +191,26 @@ describe('how a run stands, in the terminal', () => {
     s.close();
   });
 
-  it('words a check, an attempt bundle and a mark as the dashboard does', () => {
+  it('words a check, attempts and a mark as the dashboard does', () => {
     expect(failedCheckText({ ok: false, label: 'send_email called 1 time', detail: 'called 2 times (2 blocked)' })).toBe('check failed: send_email called 1 time, but called 2 times (2 blocked)');
-    expect(attemptsText({ kind: 'repeat', count: 5, passed: 4 })).toBe('5 attempts, 4 passed');
-    expect(attemptsText({ kind: 'probe', count: 1, passed: 0 })).toBe('1 probe, 0 passed');
+    expect(attemptsText([{ kind: 'repeat', count: 5, passed: 4, interrupted: 0 }])).toBe('5 attempts, 4 passed');
+    expect(attemptsText([{ kind: 'probe', count: 12, passed: 3, interrupted: 0 }, { kind: 'verify', count: 6, passed: 5, interrupted: 1 }])).toBe('12 probes, 3 passed · 6 verify attempts, 5 passed, 1 interrupted');
     expect(marked(['refund', 'bad'], 'good')).toEqual({ labels: ['refund', 'good'], on: true });
     expect(marked(['refund', 'good'], 'good')).toEqual({ labels: ['refund'], on: false });
     expect(markToast('01M5GRX8K4ABCDEF', 'good', true)).toBe('01M5GRX8K4 is good: a fix must not make it worse than its own baseline (--keeps label:good)');
+  });
+
+  it('counts an attempt by its own verdict, an interrupted one apart, as the dashboard does', () => {
+    const run = (meta: object, status = 'completed') => ({ runId: 'r', parentRunId: 'p', mode: 'replay', status, meta }) as unknown as RunRecord;
+    expect(attemptResult(run({ probe: { of: 'p', callNo: 3, passed: false, verdict: 'unavailable' } }))).toBe('inconclusive');
+    expect(attemptResult(run({ verify: { role: 'target', passed: true } }))).toBe('passed');
+    expect(attemptResult(run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'))).toBe('interrupted');
+    expect(attemptTallies([run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'), run({ repeat: { group: 'g', attempt: 2, of: 2 } })])).toEqual([{ kind: 'repeat', count: 2, passed: 1, interrupted: 1 }]);
+  });
+
+  it('says blame confirmed it fails, not that the agent exited with an error, for a blamed run that exited 0', () => {
+    const run = { status: 'completed', meta: { blame: { outcome: 'unrescuable' } } } as unknown as RunRecord;
+    expect(standing(run, { kind: 'check-failed', check: null })).toEqual({ text: 'blame confirmed it fails', tone: 'err' });
+    expect(standing({ ...run, status: 'failed' }, { kind: 'check-failed', check: null })!.text).toBe('the agent exited with an error');
   });
 });

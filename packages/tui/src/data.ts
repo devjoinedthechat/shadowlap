@@ -1,6 +1,6 @@
-import { attemptBundles, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { attemptBundles, withAttempts, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
 
-import { attemptsOf, type Attempts } from './attempts.js';
+import { attemptTallies, type AttemptTally } from './attempts.js';
 
 // The run's kind in words and the model of its calls, as the dashboard shows them, are the engine's.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from '@shadowlap/engine';
@@ -20,8 +20,8 @@ export interface RunNode {
   captured: number;
   /** Marked running, but the process recording it is gone: nothing will add to it (the store's recordingRuns). */
   interrupted: boolean;
-  /** The attempts bundled under it (a `--repeat`'s, blame's probes, verify's) and how many passed. */
-  attempts: Attempts | null;
+  /** The attempts bundled under it (a `--repeat`'s, blame's probes, verify's, and theirs in turn) and how many passed, kind by kind. */
+  attempts: AttemptTally[] | null;
 }
 
 export interface CostOptions {
@@ -56,7 +56,11 @@ export function loadRunTree(store: Store, options: CostOptions & { attempts?: bo
   const bundles = attemptBundles(runs);
   const folded = options.attempts ? new Set<string>() : new Set([...bundles.values()].flat());
   const byId = new Map(runs.map((r) => [r.runId, r]));
-  const attemptsUnder = (id: string) => attemptsOf((bundles.get(id) ?? []).flatMap((a) => byId.get(a) ?? []));
+  // Counted as a delete counts them (`withAttempts`): those bundled under it, and theirs in turn.
+  const attemptsUnder = (id: string) => {
+    const ids = withAttempts(bundles, id);
+    return ids.length ? attemptTallies(ids.flatMap((a) => byId.get(a) ?? [])) : null;
+  };
   const roots = runs.filter((r) => (!r.parentRunId || !ids.has(r.parentRunId)) && !folded.has(r.runId)).sort((a, b) => a.startedAt - b.startedAt);
   const out: RunNode[] = [];
   const left = runs.some((r) => r.status === 'running') ? new Set(store.recordingRuns().abandoned.map((r) => r.run.runId)) : new Set<string>();

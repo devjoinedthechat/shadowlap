@@ -1,6 +1,6 @@
 import { Box, useApp, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import { attemptBundles, deletionPlan, lostAt, withAttempts, type CallRecord, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptBundles, deletionPlan, lostAt, withAttempts, type CallRecord, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
 import { marked, markToast, type RunMark } from './marks.js';
 import type { Declared } from './verdict.js';
 import { recordingNow } from './actions.js';
@@ -29,9 +29,11 @@ export interface AppProps {
   theme?: ThemeName;
   /** `tools.unrecorded` from shadowlap.config.json, which the unrecorded-tools warning reads (`launchTui` reads it). */
   unrecorded?: Declared;
+  /** The project's normalizers (`normalize` in shadowlap.config.json): what they mask is no difference between a fork and its parent. */
+  normalizers?: readonly Normalizer[];
 }
 
-type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number };
+type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean };
 
 export function App({ theme = 'dark', ...rest }: AppProps) {
   return (
@@ -41,7 +43,7 @@ export function App({ theme = 'dark', ...rest }: AppProps) {
   );
 }
 
-function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded }: Omit<AppProps, 'theme'>) {
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers }: Omit<AppProps, 'theme'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });
@@ -69,7 +71,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
     const calls = store.getCalls(id);
     // A fork opens where it forked, a blamed run where blame found it lost.
     const initialCall = at ?? run.divergence?.callNo ?? lostAt(run) ?? undefined;
-    return { kind: 'timeline', run, calls, ...(initialCall !== undefined ? { initialCall } : {}) };
+    return { kind: 'timeline', run, calls, askedCall: at !== undefined, ...(initialCall !== undefined ? { initialCall } : {}) };
   };
   const [view, setView] = useState<View>(() => (runId ? open(runId, callNo) : { kind: 'runs' }));
 
@@ -130,7 +132,9 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         summaryOptions={options}
         paused={help}
         onMark={mark}
+        askedCall={view.askedCall}
         {...(unrecorded ? { declared: unrecorded } : {})}
+        {...(normalizers ? { normalizers } : {})}
       />
     );
   } else {

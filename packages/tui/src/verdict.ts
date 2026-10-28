@@ -2,6 +2,7 @@ import {
   checkStatus,
   fixOfRun,
   formatBlame,
+  isFailedOutcome,
   kindFacts,
   lostWhere,
   plain,
@@ -45,18 +46,26 @@ export function failedCheckText(c: StoredCheck): string {
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
-/** Why the run failed, or how it passed: the first thing its banner says. Null while it records. */
+/** A check that failed: not passed, and not one that could not be decided, which is no failure of the agent's. */
+const failedOne = (c: StoredCheck) => !c.ok && c.status !== 'inconclusive';
+
+/**
+ * Why the run failed, in the order the dashboard's banner says it (`failureText`): a failed check,
+ * the agent's exit, the check a fix names, an interruption, blame's confirmation. Else how it came
+ * out, when it says something. Null while it records.
+ */
 export function standing(run: RunRecord, outcome: RunOutcome): Fact | null {
-  const failed = (run.meta?.checks ?? []).find((c) => checkStatus(c) === 'failed');
+  const failed = (run.meta?.checks ?? []).find(failedOne);
+  if (failed) return { text: failedCheckText(failed), tone: 'err' };
+  if (run.status === 'failed') return { text: 'the agent exited with an error', tone: 'err' };
+  if (outcome.kind === 'check-failed' && outcome.check) return { text: `check failed: “${outcome.check}”`, tone: 'err' };
+  if (run.status === 'crashed') return { text: 'the run was interrupted', tone: 'warn' };
+  if (run.meta?.blame) return { text: 'blame confirmed it fails', tone: 'err' };
   switch (outcome.kind) {
-    case 'check-failed':
-      return { text: failed ? failedCheckText(failed) : outcome.check ? `check failed: ${outcome.check}` : 'the agent exited with an error', tone: 'err' };
-    case 'lost':
-      return { text: failed ? failedCheckText(failed) : 'blame confirmed it fails', tone: 'err' };
     case 'inconclusive':
       return { text: `check inconclusive${outcome.check ? `: ${outcome.check}` : ''}`, tone: 'warn' };
     case 'diverged':
-      return { text: `diverged at #${outcome.callNo}`, tone: 'warn' };
+      return { text: `diverged at #${outcome.callNo}`, tone: 'err' };
     case 'passed':
       return { text: statusTally(run.meta?.checks ?? []) || 'passed', tone: 'ok' };
     case 'clean':
@@ -66,8 +75,8 @@ export function standing(run: RunRecord, outcome: RunOutcome): Fact | null {
   }
 }
 
-/** Whether the outcome is a failure the Fixes flow is for. */
-export const failing = (o: RunOutcome) => o.kind === 'check-failed' || o.kind === 'lost';
+/** Whether the run failed, as the dashboard counts it: by its outcome, or because a fix lists it among its failing runs. */
+export const isFailing = (o: RunOutcome, fix: StoredFix | null) => isFailedOutcome(o) || fix !== null;
 
 /** What `shadowlap blame` found, as `shadowlap show` says it. */
 export function blameFact(run: RunRecord): Fact | null {
@@ -91,7 +100,7 @@ export function fixFor(store: Store, runId: string): StoredFix | null {
 /** How the run's fix stands, in the dashboard's words; what to run next when there is none. */
 export function fixFact(run: RunRecord, fix: StoredFix | null, outcome: RunOutcome): Fact | null {
   if (fix) return fix.status === 'open' ? { text: `no fix yet for “${fix.title}”`, tone: 'warn' } : { text: `fixed: “${fix.title}”, ${fix.status}`, tone: 'ok' };
-  if (!failing(outcome)) return null;
+  if (!isFailing(outcome, fix)) return null;
   return run.meta?.blame ? { text: 'no fix yet', tone: 'warn' } : { text: 'not blamed yet', tone: 'info' };
 }
 
@@ -144,7 +153,7 @@ export function toneOf(facts: readonly Fact[]): Tone {
   return 'info';
 }
 
-/** A check as the run tab lists it: its mark, its label and, when it says something, its detail. */
+/** A check as the verdict tab lists it: its mark, its label and, when it says something, its detail. */
 export function checkLine(c: StoredCheck): Fact {
   const s = checkStatus(c);
   const mark = s === 'passed' ? '✓' : s === 'failed' ? '✗' : s === 'inconclusive' ? '?' : '–';
