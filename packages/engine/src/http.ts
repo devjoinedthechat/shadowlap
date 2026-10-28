@@ -1,5 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
+import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 
 /**
@@ -248,8 +248,24 @@ export function maskPathCredentials(path: string, byName = false): string {
 }
 
 /**
+ * A URL's authority (`//user:password@host`) with the credential in its user info masked: its
+ * password, or, with none, a name that reads as a credential (credentialValue), as a token given in
+ * its place is (`https://ghp_…@github.com`). The same string when there is nothing to mask.
+ */
+function maskUserInfo(authority: string): string {
+  const at = authority.lastIndexOf('@');
+  if (at <= 2) return authority;
+  const info = authority.slice(2, at);
+  const colon = info.indexOf(':');
+  const name = colon < 0 ? info : info.slice(0, colon);
+  const password = colon < 0 ? '' : info.slice(colon + 1);
+  if (password) return password === CREDENTIAL_PLACEHOLDER ? authority : `//${name}:${CREDENTIAL_PLACEHOLDER}${authority.slice(at)}`;
+  return name && name !== CREDENTIAL_PLACEHOLDER && credentialValue(decodedParam(name)) ? `//${CREDENTIAL_PLACEHOLDER}${info.slice(name.length)}${authority.slice(at)}` : authority;
+}
+
+/**
  * A URL with its credentials masked: the password in its user info (`https://svc:…@host`,
- * `postgres://app:…@db`), a webhook's secret and each path parameter that is one
+ * `postgres://app:…@db`) or a token given as its name (`https://ghp_…@github.com`), a webhook's secret and each path parameter that is one
  * (maskPathCredentials), and its query and fragment's parameters (maskParams: a URL inside one too,
  * as a redirect's `next` holds one). `byName` reads each parameter by its name alone, as a
  * redirect's are. The same string when there is nothing to mask.
@@ -258,11 +274,8 @@ export function maskUrlCredentials(url: string, byName = false, depth = 0): stri
   const m = URL_PARTS.exec(url);
   if (!m) return url;
   const [, scheme = '', authority = '', path = '', query = '', fragment = ''] = m;
-  const at = authority.lastIndexOf('@');
-  const colon = at > 2 ? authority.indexOf(':', 2) : -1;
-  const password = colon >= 0 && colon < at - 1 ? authority.slice(colon + 1, at) : null;
-  const auth = password !== null && password !== CREDENTIAL_PLACEHOLDER ? `${authority.slice(0, colon + 1)}${CREDENTIAL_PLACEHOLDER}${authority.slice(at)}` : authority;
   const params = maskPathCredentials(path, byName);
+  const auth = maskUserInfo(authority);
   const q = query ? `?${maskParams(query.slice(1), byName, depth)}` : '';
   const f = fragment.includes('=') ? `#${maskParams(fragment.slice(1), byName, depth)}` : fragment;
   return `${scheme}${auth}${params}${q}${f}`;
@@ -474,7 +487,8 @@ export function maskJsonTextCredentials(text: string): string | null {
  * whatever a content type said: JSON (also behind a byte-order mark, an anti-XSSI prefix or inside a
  * JSONP call); a URL; a form's or a query string's parameters; a connection string; a multipart
  * body's fields and parts; an event stream's data; lines of JSON (NDJSON); XML elements and
- * attributes; a GraphQL query's arguments; and the JSON objects among other text (maskEmbeddedJson).
+ * attributes; a GraphQL query's arguments; `key: value` and `key = value` lines (YAML, an INI or a
+ * .env file); and the JSON objects among other text (maskEmbeddedJson).
  * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
  * name alone, as a redirect's are. Every character it doesn't replace stays as it was; null when it
  * replaced nothing.
@@ -499,7 +513,8 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
-    maskLooseForm(text, byName, depth);
+    maskLooseForm(text, byName, depth) ??
+    maskKeyValueLines(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER);
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run
   // together, in a page's script. What a shape masked already is read again, and stays as it is.
   if (!text.includes('{')) return shaped;
@@ -677,14 +692,22 @@ export const CREDENTIAL_HEADERS: readonly string[] = [
 /**
  * Response headers whose value holds a credential among other text, masked in place: a URL that
  * carries an OAuth code or token in its query or fragment, or a password in its user info (a
- * redirect's `location`, a `content-location`, a proxy's `x-original-url`, each URL of a `link`, the
- * one a `refresh` sends the client to), and a `www-authenticate` challenge whose token the server
+ * redirect's `location`, a `content-location`, a proxy's `x-original-url`, `x-original-uri` and
+ * `x-forwarded-uri`, htmx's `hx-redirect` and its kin, each URL of a `link`, the one a `refresh`
+ * sends the client to), and a `www-authenticate` challenge whose token the server
  * hands back (a Negotiate/NTLM blob, a `token=` parameter).
  */
 export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>> = {
   location: maskLocation,
   'content-location': maskLocation,
   'x-original-url': maskLocation,
+  'x-original-uri': maskLocation,
+  'x-forwarded-uri': maskLocation,
+  // htmx's: where the page goes next, a URL, or for hx-location a URL or JSON naming one.
+  'hx-redirect': maskLocation,
+  'hx-push-url': maskLocation,
+  'hx-replace-url': maskLocation,
+  'hx-location': (value) => (value.trimStart().startsWith('{') ? (maskTextCredentials(value, 0, true) ?? value) : maskLocation(value)),
   link: maskLinks,
   refresh: maskRefresh,
   'www-authenticate': maskChallenge,
@@ -697,12 +720,19 @@ export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 /**
  * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
- * `*-key`), or a session's (`x-session`, `*-session`). The explicit list covers the echoed request
- * headers, which read by their words alone aren't credentials.
+ * `*-key`), a session's (`x-session`, `*-session`) or an auth header of a service's own (`x-auth`,
+ * `*-auth`). The explicit list covers the echoed request headers, which read by their words alone
+ * aren't credentials.
  */
 export function credentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)session$/.test(lower);
+  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower);
+}
+
+/** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */
+function jwtValue(value: string): boolean {
+  const v = value.trim();
+  return JWT.test(v) || JWT.test(v.replace(/^[A-Za-z][\w-]*[ \t]+/, ''));
 }
 
 /**
@@ -745,7 +775,7 @@ export function maskChallenge(value: string): string {
 
 /**
  * Headers as a recording keeps them: each credential header (credentialHeader), and each whose value
- * is a JWT, with CREDENTIAL_PLACEHOLDER for its value; the credential inside a URL a header names or
+ * is a JWT (alone or after a scheme, `Bearer eyJ…`), with CREDENTIAL_PLACEHOLDER for its value; the credential inside a URL a header names or
  * a challenge masked in place (TOKEN_IN_VALUE); and the headers that set a cookie or name the account
  * a call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
  * nothing changes.
@@ -756,7 +786,7 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
     const lower = name.toLowerCase();
     const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
     const inValue = !state ? TOKEN_IN_VALUE[lower] : undefined;
-    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower) || JWT.test(value.trim()));
+    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower) || jwtValue(value));
     const masked = inValue ? inValue(value) : value;
     if (!state && !credential && masked === value) continue;
     out ??= { ...headers };

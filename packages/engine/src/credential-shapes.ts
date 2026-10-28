@@ -522,10 +522,14 @@ export function maskXml(text: string, credential: (name: string, value: string) 
   return out.length ? out.join('') + text.slice(copied) : null;
 }
 
-/** A GraphQL document: an operation or a fragment, or a query in its shorthand form (`{ … }`). */
-const GRAPHQL_START = /^\s*(?:(?:query|mutation|subscription|fragment)\b|\{)/;
-/** A string argument or input field: `password: "…"`, `apiKey:"…"`; a name is read from its start only, so a long word costs its length once. */
-const GRAPHQL_STRING_ARGUMENT = /(?<![_0-9A-Za-z])([_A-Za-z][_0-9A-Za-z]*)(\s*:\s*)"((?:[^"\\\n]|\\.)*)"/g;
+/** A GraphQL document: an operation or a fragment, or a query in its shorthand form (`{ … }`), after any comment lines. */
+const GRAPHQL_START = /^\s*(?:#[^\n]*\n\s*)*(?:(?:query|mutation|subscription|fragment)\b|\{)/;
+/**
+ * A string argument or input field: `password: "…"`, `apiKey:"…"`, or a block string, `password:
+ * """…"""` (in which `\"""` stands for three quotes, a backslash taking the character after it); a
+ * name is read from its start only, so a long word costs its length once.
+ */
+const GRAPHQL_STRING_ARGUMENT = /(?<![_0-9A-Za-z])([_A-Za-z][_0-9A-Za-z]*)(\s*:\s*)(?:"""((?:[^"\\]|\\[^]|"(?!""))*)"""|"((?:[^"\\\n]|\\.)*)")/g;
 
 /** Whether a text reads as a GraphQL document. */
 export function graphqlShaped(text: string): boolean {
@@ -540,18 +544,52 @@ export function graphqlShaped(text: string): boolean {
 export function maskGraphqlArguments(text: string, credential: (name: string, value: string) => boolean, replacement: string): string | null {
   if (!graphqlShaped(text)) return null;
   let changed = false;
-  const out = text.replace(GRAPHQL_STRING_ARGUMENT, (whole, name: string, colon: string, raw: string) => {
+  const out = text.replace(GRAPHQL_STRING_ARGUMENT, (whole, name: string, colon: string, block: string | undefined, raw: string | undefined) => {
     let value: string;
-    try {
-      value = JSON.parse(`"${raw}"`) as string;
-    } catch {
-      return whole;
-    }
+    if (block !== undefined) value = block.replaceAll('\\"""', '"""');
+    else
+      try {
+        value = JSON.parse(`"${raw ?? ''}"`) as string;
+      } catch {
+        return whole;
+      }
     if (value === replacement || !credential(name, value)) return whole;
     changed = true;
-    return `${name}${colon}${JSON.stringify(replacement)}`;
+    return `${name}${colon}${block !== undefined ? `"""${replacement}"""` : JSON.stringify(replacement)}`;
   });
   return changed ? out : null;
+}
+
+/**
+ * A line that sets a value: YAML's `key: value` (in a list too, `- key: value`), an INI file's
+ * `key = value`, a .env file's `KEY=value` and `export KEY=value`. Its value is the rest of the line.
+ */
+const KEY_VALUE_LINE = /^(\s*(?:-[ \t]+)?(?:export[ \t]+)?)([A-Za-z_][\w.-]*)([ \t]*[:=][ \t]*)(\S(?:.*\S)?)[ \t]*$/;
+
+/**
+ * Text written as `key: value` or `key = value` lines (YAML, an INI file, a .env file), each value
+ * whose key `credential` reads as one, with it, replaced by `replacement`, inside its quotes when it
+ * is quoted; every other character as it was. A line of any other shape is left as it is, and so is
+ * a sentence that starts `name=`: written with no space around its `=`, a value is one word unless
+ * it is quoted, as a .env file writes one. Null when nothing changed.
+ */
+export function maskKeyValueLines(text: string, credential: (name: string, value: string) => boolean, replacement: string): string | null {
+  const lines = text.split('\n');
+  let changed = false;
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k]!;
+    const cr = line.endsWith('\r');
+    const m = KEY_VALUE_LINE.exec(cr ? line.slice(0, -1) : line);
+    if (!m) continue;
+    const [, lead = '', key = '', sep = '', raw = ''] = m;
+    const quote = raw.length >= 2 && (raw[0] === '"' || raw[0] === "'") && raw.endsWith(raw[0]) ? raw[0] : '';
+    const value = quote ? raw.slice(1, -1) : raw;
+    if (sep === '=' && !quote && /\s/.test(value)) continue;
+    if (!value || value === replacement || !credential(key, value)) continue;
+    lines[k] = `${lead}${key}${sep}${quote}${replacement}${quote}${cr ? '\r' : ''}`;
+    changed = true;
+  }
+  return changed ? lines.join('\n') : null;
 }
 
 /** One part of a multipart body: its header lines as written, and its content. */

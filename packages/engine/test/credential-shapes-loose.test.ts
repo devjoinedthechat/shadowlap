@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER as C, maskTextCredentials } from '../src/http.js';
+import { CREDENTIAL_PLACEHOLDER as C, credentialFreeHeaders, maskLocation, maskTextCredentials } from '../src/http.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -11,6 +11,8 @@ import { times, timesOf } from './timing.js';
 
 const S = (n: string) => `SLSEC_BP_${n}_q1w2e3r4`;
 const tok = (n: string) => JSON.stringify({ access_token: S(n), refresh_token: S(`${n}R`) });
+const b64u = (s: string) => Buffer.from(s).toString('base64url');
+const jwt = (n: string) => `${b64u('{"alg":"HS256"}')}.${b64u(JSON.stringify({ sub: S(n) }))}.c2ln`;
 /** What `tok` is masked as. */
 const MASKED = JSON.stringify({ access_token: C, refresh_token: C });
 const leftIn = (text: string) => [...new Set([...text.matchAll(/SLSEC_BP_[A-Z0-9]+/g)].map((m) => m[0]))];
@@ -83,5 +85,43 @@ describe('name-value XML and HTML', () => {
     const sts = `<?xml version="1.0"?><a:R xmlns:a="u"><a:SessionToken><![CDATA[${S('XMLCDATA')}]]></a:SessionToken><Credentials SecretAccessKey="${S('XMLATTR')}"/><Expiration>2026-10-26</Expiration></a:R>`;
     expect(maskTextCredentials(sts)).toBe(`<?xml version="1.0"?><a:R xmlns:a="u"><a:SessionToken><![CDATA[${C}]]></a:SessionToken><Credentials SecretAccessKey="&lt;CREDENTIAL&gt;"/><Expiration>2026-10-26</Expiration></a:R>`);
     for (const page of ['<html><body><p>token: hello</p><input name="q" value="refund"><br>after</body></html>', '<r><code>EU</code><key>checkout_v2</key></r>']) expect(maskTextCredentials(page), page).toBeNull();
+  });
+});
+
+describe('the cheaper shapes', () => {
+  it('masks a token given as a URL’s name, in a body, a redirect and doctor’s view of an address', () => {
+    expect(maskTextCredentials(JSON.stringify({ remote: `https://ghp_${S('GHUSERNAME')}@github.com/o/r.git`, plain: 'https://alice@example.com/x' }))).toBe(JSON.stringify({ remote: `https://${C}@github.com/o/r.git`, plain: 'https://alice@example.com/x' }));
+    expect(maskLocation(`https://ghp_${S('LOCUSERNAME')}@github.com/x`)).toBe(`https://${C}@github.com/x`);
+    expect(maskLocation(`https://x-access-token:${S('LOCPASS')}@github.com/x`)).toBe(`https://x-access-token:${C}@github.com/x`);
+  });
+
+  it('masks `key: value` and `key = value` lines: YAML, an INI file, a .env file of several lines', () => {
+    expect(maskTextCredentials(`apiVersion: v1\npassword: ${S('YAML')}\napi_key: "${S('YAMLQ')}"\nreplicas: 2\n`)).toBe(`apiVersion: v1\npassword: ${C}\napi_key: "${C}"\nreplicas: 2\n`);
+    expect(maskTextCredentials(`[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = ${S('INI')}\nregion = eu-west-1\n`)).toBe(`[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = ${C}\nregion = eu-west-1\n`);
+    expect(maskTextCredentials(`OPENAI_API_KEY=${S('DOTENV')}\nexport DB_PASSWORD='${S('DOTENVQ')}'\nDEBUG=1\n`)).toBe(`OPENAI_API_KEY=${C}\nexport DB_PASSWORD='${C}'\nDEBUG=1\n`);
+    expect(maskTextCredentials('title: Refund policy\ncode: EU\nnotes: none\n')).toBeNull();
+    // A sentence that starts `name=` stays a sentence: written so, a value is one word unless quoted.
+    expect(maskTextCredentials('client_secret=s is a secret\nso is the rest\n')).toBeNull();
+  });
+
+  it('masks a GraphQL block string, and a document that opens with a comment', () => {
+    expect(maskTextCredentials(`mutation { login(user: "bob", password: """${S('GQLBLOCK')}""") { token } }`)).toBe(`mutation { login(user: "bob", password: """${C}""") { token } }`);
+    expect(maskTextCredentials(`# login\nmutation { login(password: "${S('GQLCOMMENT')}") { token } }`)).toBe(`# login\nmutation { login(password: "${C}") { token } }`);
+    expect(maskTextCredentials('mutation { note(text: """a "quoted" word""") { id } }')).toBeNull();
+  });
+
+  it('masks a JWT under any header name, after its scheme too, a service’s own auth header, and the URL headers name', () => {
+    const headers = credentialFreeHeaders({
+      'x-upstream-auth': `Bearer ${jwt('HDRBEARER')}`,
+      'x-user-jwt': jwt('HDRUSERJWT'),
+      'x-auth': S('HDRXAUTH'),
+      'x-forwarded-uri': `/cb?access_token=${S('HDRFWDURI')}&page=2`,
+      'hx-redirect': `/x?code=${S('HDRHX')}`,
+      'hx-location': `{"path":"/x?code=${S('HDRHXLOC')}","target":"#main"}`,
+      'content-type': 'application/json',
+      'x-request-id': 'req_123',
+    });
+    expect(JSON.stringify(headers)).not.toMatch(/SLSEC_BP_|eyJ/);
+    expect(headers).toEqual({ 'x-upstream-auth': C, 'x-user-jwt': C, 'x-auth': C, 'x-forwarded-uri': `/cb?access_token=${C}&page=2`, 'hx-redirect': `/x?code=${C}`, 'hx-location': `{"path":"/x?code=${C}","target":"#main"}`, 'content-type': 'application/json', 'x-request-id': 'req_123' });
   });
 });
