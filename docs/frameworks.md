@@ -25,7 +25,7 @@ const tools = withEffects(
 await generateText({ model, tools, prompt });
 ```
 
-Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, its last value is recorded as the result the model is shown, and a replay yields that value alone. An aborted stream stops the tool, as it does without Shadowlap, and records the last value it had passed on.
+Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, its last value is recorded as the result the model is shown, and a replay yields that value alone. An aborted stream stops the tool, as it does without Shadowlap, and records the last value it had passed on. A write blocked after a fork reaches the model as the tool's error, as the AI SDK passes on any tool that threw, and `generateText` or `streamText` goes on to the agent's answer.
 
 ## OpenAI Agents SDK
 
