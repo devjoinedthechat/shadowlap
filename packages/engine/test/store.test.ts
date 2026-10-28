@@ -315,6 +315,23 @@ describe('Store', () => {
     expect(store.recordingRuns().live.map((r) => r.run.runId)).toEqual([run.runId]);
     store.close();
   });
+
+  it('ends a run whole or not at all: its status and end, and the process that recorded it let go', () => {
+    const store = Store.open(':memory:');
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+    const run = store.createRun({ mode: 'record', command: cmd });
+    // The last of its writes refused, as a full disk refuses one.
+    db.exec(`CREATE TEMP TRIGGER refuse_release BEFORE DELETE ON run_owners BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`);
+    expect(() => store.endRun(run.runId, 'completed')).toThrow('database or disk is full');
+    // Still recording, as its process still holds it: never ended with an owner left behind.
+    expect(store.getRun(run.runId)?.status).toBe('running');
+    expect(store.recordingRuns().live.map((r) => r.run.runId)).toEqual([run.runId]);
+    db.exec('DROP TRIGGER refuse_release');
+    store.endRun(run.runId, 'completed', 5_000);
+    expect(store.getRun(run.runId)).toMatchObject({ status: 'completed', endedAt: 5_000 });
+    expect(store.recordingRuns().live).toEqual([]);
+    store.close();
+  });
 });
 
 describe('a judge check’s calls', () => {
