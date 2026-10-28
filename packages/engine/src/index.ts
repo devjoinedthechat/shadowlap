@@ -88,6 +88,11 @@ export { attemptKindOf, countAttempts, isAttempt, rescuedForks, type RoleContext
 // A run's kind in words, and the actions a run and a call offer as CLI commands: the terminal UI's
 // and the dashboard's, here so the dashboard needs nothing of the terminal UI.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-label.js';
+// What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
+// what a fork did differently from its parent and how each ended, and the good/bad key.
+export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
+export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
+export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.
 export { BodyTooLarge, MODEL_BODY_LIMIT, readBody, type BodyLimits } from './body.js';
 // The one test of whether a value is an object to read fields from, and the one reading of what a caught

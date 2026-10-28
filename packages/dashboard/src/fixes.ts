@@ -22,6 +22,7 @@ import {
   GOOD_LABEL,
   hasRecordedCommand,
   isObject,
+  keptAttemptVerdict,
   NO_REPAIRER,
   noRepairerOf,
   outcomeOf,
@@ -43,6 +44,7 @@ import {
   unrescuedWhy,
   verdictCounts,
   rateBound,
+  type AttemptVerdict,
   type Block,
   type BlameReport,
   type FixData,
@@ -836,7 +838,7 @@ function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: Stor
       title: `blame · probe #${x.callNo}`,
       blamed: x.callNo === blamedCall,
       passes: x.passes,
-      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, attemptVerdictOf(a)), spent: a.spent, href: runHref(a.runId) })),
+      attempts: x.attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed ? (a.runId === contrast?.rescuedRunId ? rescuedNote : 'passed') : attemptNote(false, a.failures[0], undefined, keptAttemptVerdict(a)), spent: a.spent, href: runHref(a.runId) })),
     })),
     callRow,
     cost: { attempts: r.attempts, upstreamRequests: r.upstreamRequests, spent: r.spent, unknownModels: r.unknownModels },
@@ -1100,7 +1102,7 @@ function verifyStep(rec: FixRecords, v: StoredVerdict, fallback: string): Verify
       href: runHref(x.runId),
       attempts: n,
       passes: x.passes,
-      inconclusive: x.attempts.filter((a) => attemptVerdictOf(a) === 'inconclusive').length,
+      inconclusive: x.attempts.filter((a) => keptAttemptVerdict(a) === 'inconclusive').length,
       deterministic: x.deterministic,
       outcome: outcomeOf(x),
       rate,
@@ -2011,16 +2013,6 @@ function storedReports(store: StoreOf<'activity' | 'fixes'>): { verdicts: Stored
   return read;
 }
 
-type AttemptVerdict = 'passed' | 'failed' | 'inconclusive';
-
-/**
- * An attempt's verdict as blame or verify kept it, or, for one kept before attempts had one, by whether
- * it passed. One its provider was unavailable for neither passed nor failed (attempts.ts in the CLI).
- */
-function attemptVerdictOf(a: { passed: boolean; verdict?: string | undefined }): AttemptVerdict {
-  return a.verdict === 'inconclusive' || a.verdict === 'unavailable' ? 'inconclusive' : a.passed ? 'passed' : 'failed';
-}
-
 /**
  * A failed attempt's first failure, from its run when the report kept none; for one that could not be
  * judged, the check that could not be decided, said as such: never as a failure.
@@ -2093,7 +2085,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
           role: null,
           counts: null,
           passes: attempts.filter((a) => a.passed).length,
-          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
+          attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: a.passed && a.runId === rescuedRunId ? rescuedNote : attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: a.runId === rescuedRunId })),
           spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt(attempts.map((a) => a.runId), b.at),
           verdictLine: v.line,
@@ -2120,7 +2112,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
           role: null,
           counts: null,
           passes: checked.filter((a) => a.passed).length,
-          attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
+          attempts: checked.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
           spent: checked.reduce((s2, a) => s2 + a.spent, 0),
           at: startedAt(checked.map((a) => a.runId), b.at),
           verdictLine: pinWords(check),
@@ -2152,7 +2144,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
       role: ROLE[x.role],
       counts,
       passes: attempts.filter((a) => a.passed).length,
-      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: attemptVerdictOf(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), attemptVerdictOf(a)), href: runHref(a.runId), rescued: false })),
+      attempts: attempts.map((a) => ({ runId: a.runId, passed: a.passed, verdict: keptAttemptVerdict(a), note: attemptNote(a.passed, a.failures[0], family.get(a.runId), keptAttemptVerdict(a)), href: runHref(a.runId), rescued: false })),
       spent: attempts.reduce((s2, a) => s2 + a.spent, 0),
       at: startedAt(attempts.map((a) => a.runId), at),
       verdictLine: v.line,
@@ -2209,7 +2201,7 @@ export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, r
     const rescuedRunId = lost?.rescuedRunId ?? null;
     const fix = g.kind === 'blame' ? fixOfRun(store, g.parent.runId) : null;
     const passed = (r: RunRecord) => (g.kind === 'blame' ? r.meta?.probe?.passed === true : r.meta?.verify?.passed === true);
-    const verdict = (r: RunRecord) => attemptVerdictOf({ passed: passed(r), verdict: g.kind === 'blame' ? r.meta?.probe?.verdict : r.meta?.verify?.verdict });
+    const verdict = (r: RunRecord) => keptAttemptVerdict({ passed: passed(r), verdict: g.kind === 'blame' ? r.meta?.probe?.verdict : r.meta?.verify?.verdict });
     out.push({
       kind: g.kind,
       key,
