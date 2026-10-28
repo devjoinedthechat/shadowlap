@@ -1,6 +1,8 @@
 import { Box, Text, useInput } from 'ink';
 import { useState } from 'react';
-import { truncate } from '../render.js';
+import { fitColumns, truncate } from '../render.js';
+import { useTheme } from '../theme.js';
+import { cell, Row } from './Row.js';
 
 export { actionContext, buildActions, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from '../actions.js';
 import type { Action } from '../actions.js';
@@ -27,6 +29,7 @@ export function menuOrder(actions: Action[]): Array<{ section: string | null; ac
 }
 
 export function ActionsView({ actions, title, width, height, active, cliAvailable, onPick, onClose }: Props) {
+  const theme = useTheme();
   const sections = menuOrder(actions);
   const ordered = sections.flatMap((s) => s.actions);
   const [selected, setSelected] = useState(0);
@@ -44,37 +47,60 @@ export function ActionsView({ actions, title, width, height, active, cliAvailabl
     { isActive: active },
   );
   const inner = Math.max(20, width - 4);
-  // Each line carries its flag on the right, the way a menu shows a shortcut.
+  // Each line carries its flag on the right, the way a menu shows a shortcut; the flags go first when the menu is narrow.
   const flagWidth = Math.min(Math.max(0, ...ordered.map((a) => (a.flag ?? '').length)), Math.floor(inner * 0.4));
-  const room = Math.max(10, inner - 5 - (flagWidth ? flagWidth + 2 : 0));
+  const w = fitColumns(
+    [
+      { key: 'mark', min: 2 },
+      { key: 'key', min: 3 },
+      { key: 'label', min: 10, max: Number.POSITIVE_INFINITY },
+      { key: 'flag', min: flagWidth ? flagWidth + 2 : 0, drop: 1 },
+    ],
+    inner,
+  );
   const current = ordered[selected];
+  // The menu's lines, then as many of them as the pane holds, the selected action always among them.
+  const lines: Array<{ section: string } | { action: Action; at: number }> = [];
   let index = 0;
+  for (const s of sections) {
+    if (s.section !== null) lines.push({ section: s.section || '─'.repeat(Math.min(inner, 24)) });
+    for (const a of s.actions) lines.push({ action: a, at: index++ });
+  }
+  const room = Math.max(1, height - 2 - (title ? 1 : 0) - 3);
+  const at = lines.findIndex((l) => 'action' in l && l.at === selected);
+  const start = Math.max(0, Math.min(at - Math.floor(room / 2), lines.length - room));
   return (
-    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold>Actions {cliAvailable ? '' : '(unavailable: no CLI attached)'}</Text>
-      {title ? <Text color="gray">{truncate(title, inner)}</Text> : null}
-      {sections.map((s) => (
-        <Box key={s.section ?? 'call'} flexDirection="column">
-          {s.section === null ? null : <Text color="gray">{s.section || '─'.repeat(Math.min(inner, 24))}</Text>}
-          {s.actions.map((a) => {
-            const i = index++;
-            return (
-              <Box key={a.key}>
-                <Text inverse={i === selected}>{i === selected ? '>' : ' '}</Text>
-                <Text color="cyan"> {a.key} </Text>
-                <Box width={room}>
-                  <Text bold={i === selected} {...(a.disabled ? { color: 'gray' } : {})}>
-                    {truncate(a.label + (a.disabled ? `  (${a.disabled})` : ''), room)}
-                  </Text>
-                </Box>
-                {flagWidth ? <Text color="gray">  {truncate(a.flag ?? '', flagWidth)}</Text> : null}
-              </Box>
-            );
-          })}
-        </Box>
-      ))}
-      {current?.hint ? <Text color="gray">{truncate(current.hint, inner)}</Text> : null}
-      <Text color="gray">Enter or the letter to run · Esc to close</Text>
+    <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={theme.accent} paddingX={1}>
+      <Text bold wrap="truncate">
+        Fork menu{cliAvailable ? '' : <Text color={theme.warn}> (unavailable: no CLI attached)</Text>}
+      </Text>
+      {title ? <Text color={theme.dim}>{truncate(title, inner)}</Text> : null}
+      {lines.slice(start, start + room).map((l, i) =>
+        'section' in l ? (
+          <Text key={`s${start + i}`} color={theme.dim} wrap="truncate">
+            {l.section}
+          </Text>
+        ) : (
+          <Row
+            key={l.action.key}
+            width={inner}
+            selected={l.at === selected ? 'focus' : null}
+            cells={[
+              cell(l.at === selected ? '>' : '', w.mark),
+              cell(l.action.key, w.key, { color: l.action.disabled ? theme.faint : theme.accent, bold: true }),
+              cell(l.action.label + (l.action.disabled ? `  (${l.action.disabled})` : ''), w.label, l.action.disabled ? { color: theme.faint } : {}, 2),
+              { spans: [{ text: l.action.flag ?? '', color: theme.dim }], width: w.flag, gap: 0, align: 'right' },
+            ]}
+          />
+        ),
+      )}
+      <Box flexGrow={1} />
+      <Text color={theme.dim} wrap="truncate">
+        {current?.hint ?? ' '}
+      </Text>
+      <Text color={theme.faint} wrap="truncate">
+        Enter or the letter to run · Esc to close
+      </Text>
     </Box>
   );
 }

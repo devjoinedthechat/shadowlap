@@ -24,6 +24,51 @@ export function fitItems(items: readonly string[], width: number, sep = ' · '):
   return shown ? `${shown}${more}` : truncate(all, width);
 }
 
+/**
+ * A list column: `min` wide (gap included), widened up to `max` when there is room (Infinity takes
+ * whatever is left), and dropped in order of `drop`, highest first, when the row can't hold every column.
+ */
+export interface Column<K extends string = string> {
+  key: K;
+  min: number;
+  max?: number;
+  drop?: number;
+}
+
+/**
+ * Widths for a row `width` columns wide. Columns with a `drop` go, highest first, until the rest
+ * fit at their minimum; then what is left widens the columns in order, each up to its `max`. A
+ * dropped column is 0 wide. Columns without `drop` always stay, so a list keeps its cursor, ids and
+ * verdicts and loses its least telling columns first.
+ */
+export function fitColumns<K extends string>(columns: ReadonlyArray<Column<K>>, width: number): Record<K, number> {
+  const kept = new Set(columns.map((c) => c.key));
+  const need = () => columns.reduce((n, c) => n + (kept.has(c.key) ? c.min : 0), 0);
+  for (const c of [...columns].filter((c) => c.drop !== undefined).sort((a, b) => b.drop! - a.drop!)) {
+    if (need() <= width) break;
+    kept.delete(c.key);
+  }
+  const out = {} as Record<K, number>;
+  for (const c of columns) out[c.key] = kept.has(c.key) ? c.min : 0;
+  let left = width - need();
+  for (const c of columns) {
+    if (left <= 0) break;
+    if (!kept.has(c.key)) continue;
+    const grow = Math.min(left, Math.max(0, (c.max ?? c.min) - c.min));
+    out[c.key] += grow;
+    left -= grow;
+  }
+  return out;
+}
+
+/** The longest prefix every id shares, which says nothing about which run is which: the list draws it faint. */
+export function sharedPrefix(ids: readonly string[]): number {
+  if (ids.length < 2) return 0;
+  let n = 0;
+  while (n < ids[0]!.length - 1 && ids.every((id) => id[n] === ids[0]![n])) n++;
+  return n;
+}
+
 export function wrap(text: string, width: number): string[] {
   text = safeText(text);
   const w = Math.max(8, width);
@@ -67,6 +112,28 @@ export function jsonLines(value: unknown, width: number, maxLines = 4000): strin
   return lines.length > maxLines ? [...lines.slice(0, maxLines), `… ${lines.length - maxLines} more lines`] : lines;
 }
 
+/** Lines of a tool result shown in a conversation; the request tab has all of it. */
+export const RESULT_LINES = 16;
+
+/**
+ * A tool result's content as lines: JSON on one line is laid out as JSON, so a wrap never lands
+ * inside a string, and a long result stops after RESULT_LINES with how many lines are left.
+ */
+function resultLines(head: string, content: string, width: number): string[] {
+  const trimmed = content.trim();
+  let parsed: unknown = undefined;
+  if (!content.includes('\n') && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      parsed = undefined;
+    }
+  }
+  const lines = typeof parsed === 'object' && parsed !== null ? [head, ...jsonLines(parsed, width)] : wrap(`${head} ${content}`, width);
+  if (lines.length <= RESULT_LINES + 1) return lines;
+  return [...lines.slice(0, RESULT_LINES), `… ${lines.length - RESULT_LINES} more lines in the request tab`];
+}
+
 /** Renders one block of a normalized conversation or response as lines. */
 export function blockLines(b: TurnBlock | Block, width: number): string[] {
   switch (b.type) {
@@ -78,7 +145,7 @@ export function blockLines(b: TurnBlock | Block, width: number): string[] {
       // While a streamed call plays back, its input is still partial JSON text.
       return wrap(`⚙ ${b.name} ${typeof b.input === 'string' ? b.input : JSON.stringify(b.input ?? {})}`, width);
     case 'tool_result':
-      return wrap(`${b.isError ? '↳ error result' : '↳ result'}${b.name ? ` from ${b.name}` : ''}: ${b.content}`, width);
+      return resultLines(`${b.isError ? '↳ error result' : '↳ result'}${b.name ? ` from ${b.name}` : ''}:`, b.content, width);
     case 'other':
       return [`[${b.label}]`];
   }
@@ -86,18 +153,35 @@ export function blockLines(b: TurnBlock | Block, width: number): string[] {
 
 export interface RenderedLine {
   text: string;
+  /** `label` is the inspector's own words (what a tab shows, a status); the rest name a turn's role. */
   role?: 'system' | 'user' | 'assistant' | 'tool' | 'label';
+  /** The line that names a turn (`user  #1`), drawn bold. */
+  head?: boolean;
+  /** A turn this call's request added since the model call before it. */
+  fresh?: boolean;
+  /** A tool call or result: secondary to what was said. */
+  aside?: boolean;
+  /** A colour of its own (a diff's removed and added lines), from the theme. */
+  color?: string;
 }
 
-/** Renders a conversation, whatever the provider, as role-labelled lines. System turns are not numbered. */
-export function conversationLines(turns: Turn[], width: number): RenderedLine[] {
+/**
+ * Renders a conversation, whatever the provider, as role-labelled lines. System turns are not
+ * numbered. Turns from `freshFrom` on are the ones this request added since the previous model
+ * call's: they are marked, and the inspector opens on the first of them.
+ */
+export function conversationLines(turns: Turn[], width: number, freshFrom = Number.POSITIVE_INFINITY): RenderedLine[] {
   const out: RenderedLine[] = [];
   let n = 0;
-  for (const turn of turns) {
-    out.push({ text: turn.role === 'system' ? 'system' : `${turn.role}  #${++n}`, role: 'label' });
-    for (const b of turn.blocks) for (const text of blockLines(b, width)) out.push({ text, role: turn.role });
+  turns.forEach((turn, i) => {
+    const fresh = i >= freshFrom;
+    out.push({ text: turn.role === 'system' ? 'system' : `${turn.role}  #${++n}`, role: turn.role, head: true, ...(fresh ? { fresh } : {}) });
+    for (const b of turn.blocks) {
+      const aside = b.type === 'tool_call' || b.type === 'tool_result';
+      for (const text of blockLines(b, width)) out.push({ text, role: turn.role, ...(aside ? { aside } : {}) });
+    }
     out.push({ text: '' });
-  }
+  });
   return out;
 }
 

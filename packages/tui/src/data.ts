@@ -1,4 +1,4 @@
-import { kindFacts, loadApiRequest, modelResolver, normalizeConversation, runLabel, summarizeRun, type CallRecord, type ModelResolver, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
 
 // The run's kind in words and the model of its calls, as the dashboard shows them, are the engine's.
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from '@shadowlap/engine';
@@ -72,7 +72,23 @@ export interface ConversationAt {
   turns: Turn[];
   /** The api call whose request this conversation is. */
   fromCallNo: number;
+  /**
+   * The first turn this request added to the one the model call before it sent, in the same scope;
+   * absent for a scope's first model call, whose turns are all it has.
+   */
+  freshFrom?: number;
 }
+
+function turnsOf(store: Store, c: CallRecord): Turn[] | null {
+  if (c.kind !== 'api' || !c.requestRef) return null;
+  try {
+    return normalizeConversation(loadApiRequest(store, c.requestRef))?.turns ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const scopeOf = (c: CallRecord) => (typeof c.meta.scope === 'string' ? c.meta.scope : '');
 
 /**
  * The conversation state at a call, whatever the provider. For a model call it is that call's own
@@ -83,14 +99,48 @@ export function conversationAt(store: Store, calls: CallRecord[], index: number)
   for (let i = index; i >= 0; i--) {
     const c = calls[i]!;
     if (c.kind !== 'api' || !c.requestRef) continue;
-    try {
-      const conv = normalizeConversation(loadApiRequest(store, c.requestRef));
-      return conv ? { turns: conv.turns, fromCallNo: c.callNo } : null;
-    } catch {
-      return null;
+    const turns = turnsOf(store, c);
+    if (!turns) return null;
+    // What the call before it in the same scope sent: a sub-agent's calls carry a conversation of their own.
+    for (let j = i - 1; j >= 0; j--) {
+      const p = calls[j]!;
+      if (p.kind !== 'api' || !p.requestRef || scopeOf(p) !== scopeOf(c)) continue;
+      const before = turnsOf(store, p)?.length;
+      // A shorter conversation than the last one is a new one, every turn of it fresh.
+      if (before !== undefined) return { turns, fromCallNo: c.callNo, freshFrom: before <= turns.length ? before : 0 };
+      break;
     }
+    return { turns, fromCallNo: c.callNo };
   }
   return null;
+}
+
+/** What a model call did, for its row: the tools it called, the first words it said, or how it ended. */
+export interface ModelAction {
+  text: string;
+  tone?: 'warn' | 'err';
+}
+
+const STOPPED_SHORT = /^(max_tokens|length|MAX_TOKENS|max_output_tokens|incomplete)$/;
+
+export function modelAction(store: Store, call: CallRecord): ModelAction {
+  const end = call.end;
+  if (!end) return { text: '…' };
+  if (end.outcome === 'error') return { text: end.meta.status ? `HTTP ${end.meta.status}` : (end.meta.error?.name ?? 'failed'), tone: 'err' };
+  let r: NormalizedResponse;
+  try {
+    const provider = end.meta.provider ?? call.meta.provider;
+    r = normalizeResponse(loadResponseBytes(store, call), end.meta.headers?.['content-type'], end.meta.chunks ?? [], typeof provider === 'string' ? provider : undefined);
+  } catch {
+    return { text: end.meta.stopReason ?? '' };
+  }
+  const stop = r.stopReason ?? end.meta.stopReason ?? null;
+  if (stop && STOPPED_SHORT.test(stop)) return { text: `cut off: ${stop}`, tone: 'warn' };
+  const tools = r.blocks.flatMap((b) => (b.type === 'tool_call' ? [b.name] : []));
+  if (tools.length) return { text: `-> ${tools.join(', ')}` };
+  const said = r.blocks.find((b) => b.type === 'text' && b.text.trim());
+  if (said?.type === 'text') return { text: `"${said.text.trim().replace(/\s+/g, ' ')}"` };
+  return { text: stop ?? '' };
 }
 
 export function ago(ms: number, now = Date.now()): string {
