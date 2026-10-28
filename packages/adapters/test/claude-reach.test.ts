@@ -66,3 +66,24 @@ describe('what the Claude Code CLI can reach that the guard can\'t watch', () =>
     expect(await claudeReach(rooted(c.query, root), rooted({ ...c.places, env }, root), env, c.shadowlapBase)).toEqual(rooted(c.expect, root));
   });
 });
+
+describe("the query's managedSettings, an embedding host's policy", () => {
+  // Not among the shared cases: the Python SDK has no managedSettings.
+  const BASE = 'http://127.0.0.1:9/r/run/anthropic';
+  const HOOK = { hooks: { Stop: [{ hooks: [{ type: 'command', command: './mine.sh' }] }] } };
+
+  it("is taken at its disableAllHooks false, but not at its true, which Claude Code ignores on a machine with managed settings of its own", async () => {
+    const root = world({ 'proj/.git/HEAD': 'ref: refs/heads/main\n', 'proj/.claude/settings.json': HOOK, 'home/.claude/settings.json': {} });
+    const env = { HOME: join(root, 'home'), CLAUDE_CONFIG_DIR: join(root, 'home', '.claude'), ANTHROPIC_BASE_URL: BASE, ANTHROPIC_API_KEY: 'sk-test', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' };
+    const reach = (managedSettings: Record<string, unknown>, user: Record<string, unknown> = {}) => {
+      writeFileSync(join(root, 'home', '.claude', 'settings.json'), JSON.stringify(user));
+      return claudeReach({ disallowedTools: ['WebFetch'] }, { cwd: join(root, 'proj'), sources: ['user', 'project', 'local'], managedFile: join(root, 'home', 'managed', 'managed-settings.json'), managedSettings, env }, env, BASE);
+    };
+    // Its true may be ignored: the project's hook may run, and is counted.
+    expect(await reach({ disableAllHooks: true })).toEqual(['the command hook mine.sh in .claude/settings.json']);
+    // Its false is the managed level's, over the user's true.
+    expect(await reach({ disableAllHooks: false }, { disableAllHooks: true })).toEqual(['the command hook mine.sh in .claude/settings.json']);
+    // Without it, the user's true leaves no hook outside managed settings.
+    expect(await reach({}, { disableAllHooks: true })).toEqual([]);
+  });
+});

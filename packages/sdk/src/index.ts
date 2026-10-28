@@ -49,7 +49,22 @@ export interface SerializedError {
   message: string;
   code?: string;
   data?: unknown;
+  /**
+   * The error's own fields that JSON keeps as they are, rebuilt on replay: a file system error's
+   * `errno`, `syscall`, `path` and `dest`, an HTTP client error's `status` (Octokit's RequestError,
+   * the OpenAI and Anthropic SDKs' APIError). Strings, finite numbers, booleans and null only:
+   * nothing nested, which can hold a request and its headers.
+   */
+  fields?: Record<string, ErrorField>;
 }
+
+/** A value of an error's own field a recording keeps. */
+export type ErrorField = string | number | boolean | null;
+
+/** What an error is rebuilt from, or holds of its own: never one of its fields. */
+const NOT_FIELDS = new Set(['name', 'message', 'stack', 'code', 'cause', 'data', 'fields']);
+
+const isField = (v: unknown): v is ErrorField => v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
 
 /** Thrown into the agent when a `write` tool is reached after divergence under the default `--writes block`. */
 export class ShadowlapWriteBlocked extends Error {
@@ -64,9 +79,10 @@ export class ShadowlapWriteBlocked extends Error {
 }
 
 /**
- * A recorded error, replayed. The original class is not preserved; name, message and code are. A
- * replayed tool error is an instance of a subclass named after the recorded error, so it reads as
- * that error did: `String(err)`, `util.inspect(err)` and the stack's first line are the same.
+ * A recorded error, replayed. The original class is not preserved; name, message and code are, and
+ * its own fields JSON keeps (`errno`, `syscall`, `path`, `status`). A replayed tool error is an
+ * instance of a subclass named after the recorded error, so it reads as that error did:
+ * `String(err)`, `util.inspect(err)` and the stack's first line are the same.
  */
 export class ReplayedError extends Error {
   readonly code: string | undefined;
@@ -76,6 +92,11 @@ export class ReplayedError extends Error {
     this.name = e.name;
     this.code = e.code;
     this.data = e.data;
+    // Its own fields as the original had them, where they shadow nothing an error has.
+    for (const [key, value] of Object.entries(e.fields ?? {})) {
+      if (NOT_FIELDS.has(key) || key in this || !isField(value)) continue;
+      Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
+    }
   }
 }
 
@@ -346,11 +367,28 @@ export async function completeToolCall(callNo: number, end: CallEnd): Promise<vo
   await post(cfg, `/v1/calls/${callNo}/complete`, end.outcome === 'ok' ? { outcome: 'ok', result: end.result ?? null, latencyMs: end.latencyMs ?? 0 } : { outcome: 'error', error: end.error, latencyMs: end.latencyMs ?? 0 });
 }
 
+/**
+ * An error as it is recorded: its name, message and string `code`, and its own fields that JSON
+ * keeps as they are (SerializedError's `fields`), so a replay can hand the agent what it reads off
+ * the error: a file system error's `path`, an HTTP client error's `status`.
+ */
 export function serializeError(err: unknown): SerializedError {
   if (err instanceof Error) {
     const out: SerializedError = { name: err.name, message: err.message };
     const code = (err as { code?: unknown }).code;
     if (typeof code === 'string') out.code = code;
+    const fields: Record<string, ErrorField> = {};
+    for (const key of Object.keys(err)) {
+      if (NOT_FIELDS.has(key)) continue;
+      let value: unknown;
+      try {
+        value = (err as unknown as Record<string, unknown>)[key];
+      } catch {
+        continue; // a getter that throws keeps nothing
+      }
+      if (isField(value)) fields[key] = value;
+    }
+    if (Object.keys(fields).length) out.fields = fields;
     return out;
   }
   return { name: 'Error', message: String(err) };

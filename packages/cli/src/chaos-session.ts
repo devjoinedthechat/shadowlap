@@ -113,10 +113,12 @@ async function endSession(s: Session, results: ChaosRecordingResult[], flags: Ch
   process.stdout.write(`\n${chaosTotals(report, upstream, spent)}${interrupted ? ' · interrupted' : ''}\n`);
   if (report.inconclusive && flags.inconclusive === 'warn') process.stdout.write(p.dim(`${report.inconclusive} inconclusive: reported, not failed (--inconclusive warn)\n`));
   await telemetry().flush();
-  // A signal, its status; a preset that failed or a golden that couldn't run, 1; an inconclusive preset not let through, 3.
-  const failed = report.failed > 0 || results.some((r) => r.error);
+  // A signal, its status; a preset that failed or a golden that couldn't run, 1; a golden from a pack
+  // it needs --yes to run, when nothing else failed, 2, as `test` ends; an inconclusive preset not
+  // let through, 3.
+  const failed = report.failed > 0 || results.some((r) => r.error && !r.unvouched);
   const sig = s.signal();
-  process.exitCode = sig ? signalExit(sig) : failed ? EXIT.failed : report.inconclusive > 0 ? inconclusiveStatus(flags.inconclusive) : EXIT.ok;
+  process.exitCode = sig ? signalExit(sig) : failed ? EXIT.failed : results.some((r) => r.unvouched) ? EXIT.usage : report.inconclusive > 0 ? inconclusiveStatus(flags.inconclusive) : EXIT.ok;
 }
 
 const ATTEMPT_LINE = (runId: string, what: string, preset: string, attempt: number) => p.dim(`[shadowlap] replaying run ${runId} for ${what}: ${preset}${attempt > 1 ? `, attempt ${attempt}` : ''}\n`);
@@ -153,14 +155,18 @@ export async function testChaos(opts: GlobalOpts, packArgs: string[], flags: Cha
         continue;
       }
       let parent: RunRecord;
+      let unvouched = false;
       try {
         parent = importGolden(store, packDir);
         if (!hasRecordedCommand(parent)) throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run`);
         // Its presets run its recorded command: from someone else's pack the repository doesn't track, only after a yes.
-        if (!flags.yes && goldenNeedsConsent(parent, packDir, projectDir) && !(await confirmImportedCommand(parent, parent.command.argv, `shadowlap test ${packDir} --chaos --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${packDir} --chaos --yes), or add the pack to the repository.`))) throw new Error(notRunMessage(packDir));
+        if (!flags.yes && goldenNeedsConsent(parent, packDir, projectDir) && !(await confirmImportedCommand(parent, parent.command.argv, `shadowlap test ${packDir} --chaos --yes`, `Its pack isn't one this repository tracks. Pass --yes to run it (shadowlap test ${packDir} --chaos --yes), or add the pack to the repository.`))) {
+          unvouched = true;
+          throw new Error(notRunMessage(packDir));
+        }
       } catch (err) {
         process.stdout.write(`${p.red('✗')} ${safe(golden)}: ${safe((err as Error).message)}\n`);
-        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null });
+        results.push({ golden, runId: null, outcomes: [], judge: null, error: (err as Error).message, skipped: null, ...(unvouched ? { unvouched: true as const } : {}) });
         continue;
       }
       // A redacted pack replays with its rules as normalizers, as `test` replays it.

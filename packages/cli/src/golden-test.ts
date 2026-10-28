@@ -492,6 +492,8 @@ export interface GoldenOutcome {
   interrupted: boolean;
   /** What to know about how its gate decided: that it had no history yet, what `--continue` carried over or why it couldn't. */
   notes: string[];
+  /** Not run: its recorded command came from a pack the repository doesn't track, and nobody said yes (golden-consent.ts). */
+  unvouched?: true;
 }
 
 /**
@@ -532,7 +534,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     parent = importGolden(ctx.store, dir);
     if (ctx.confirmCommand && !(await ctx.confirmCommand(parent, dir))) {
       const message = notRunMessage(dir);
-      return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: false, notes };
+      return { ...base, parent, result: null, failure: { message, details: message }, kind: 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: false, notes, unvouched: true };
     }
     // The store may hold the run as it was recorded, before the pack redacted it: importGolden made
     // sure it is the pack's recording, its redaction aside, and replays the pack's command. Replaying

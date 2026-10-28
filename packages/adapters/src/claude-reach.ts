@@ -209,7 +209,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
   }
   // Servers the organization provides in its managed settings files; --strict-mcp-config leaves them out, unless managed-mcp.json is there.
   if (!strict || takenOver) {
-    for (const d of docs) if (d.managed && d.source !== "the query's managedSettings option" && isRecord(d.data)) for (const s of unwatchedServers(d.data.managedMcpServers)) server(s, 'managed settings');
+    for (const d of docs) if (d.managed && !d.host && isRecord(d.data)) for (const s of unwatchedServers(d.data.managedMcpServers)) server(s, 'managed settings');
   }
   if (!strict && !takenOver) {
     const repo = projectDirs(fs, path, cwd);
@@ -314,7 +314,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
     docs.some((d) => isRecord(d.data) && typeof d.data.apiKeyHelper === 'string' && d.data.apiKeyHelper.trim() !== '') ||
     provider !== undefined ||
     // managed-mcp.json suppresses them, unless the organization's own settings allow them beside it.
-    (takenOver && !docs.some((d) => d.managed && d.source !== "the query's managedSettings option" && isRecord(d.data) && d.data.allowAllClaudeAiMcps === true));
+    (takenOver && !docs.some((d) => d.managed && !d.host && isRecord(d.data) && d.data.allowAllClaudeAiMcps === true));
   if (!connectorsOff) out.push('claude.ai connectors, which a claude.ai login brings');
   // Its OpenTelemetry export, which no nonessential-traffic switch turns off: on with
   // CLAUDE_CODE_ENABLE_TELEMETRY, in the environment or the env of a settings file that may set it (a

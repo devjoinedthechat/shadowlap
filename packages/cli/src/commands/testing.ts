@@ -328,6 +328,8 @@ export function register(program: Command): void {
       let upstreamRequests = 0;
       let updates = 0;
       const tested = new Map<string, { ok: boolean; fork: boolean }>();
+      // The goldens not run for want of a yes: someone else's packs, which a session of nothing else ends 2 for.
+      const unvouched = new Set<string>();
       // Goldens that diverged in a way an update would fix: not only on values that change every run.
       const updatable: string[] = [];
       // A golden that may fork and forked before its task's takeover passes, but no model can be scored
@@ -432,6 +434,7 @@ export function register(program: Command): void {
             return o;
           };
           let outcome = replayed(replays.get(packDir) ?? (await testGolden(packDir, golden, spec, ctx)));
+          if (outcome.unvouched) unvouched.add(packDir);
           // Cut short, it says nothing about the golden: no result, and nothing new after it. One stopped
           // before its first attempt started (waiting for its turn) never ran.
           if (outcome.interrupted) {
@@ -652,8 +655,21 @@ export function register(program: Command): void {
       for (const f of forkedEarly) process.stdout.write(p.dim(`${safe(f.golden)} forks at #${f.at}, before its task's takeover at #${f.takeover}, so no model can be scored on it. Update it: shadowlap test ${safe(quoteArgv([f.packDir]))} --update\n`));
       await telemetry().flush();
       // As a shell reports a command a signal stopped: 130 for Ctrl-C, 143 for SIGTERM. Then a golden
-      // that failed, 1; one that was inconclusive and not let through (--inconclusive warn), 3.
-      process.exitCode = signal ? signalExit(signal) : noPack.length ? EXIT.usage : results.some((r) => !r.ok && r.verdict === 'failed') ? EXIT.failed : results.some((r) => !r.ok) ? EXIT.inconclusive : EXIT.ok;
+      // that failed, 1, unless the only ones that did were packs it needs --yes to run, which are a
+      // usage error as `replay` makes one, 2; one that was inconclusive and not let through
+      // (--inconclusive warn), 3.
+      const failedHere = results.filter((r) => !r.ok && r.verdict === 'failed');
+      process.exitCode = signal
+        ? signalExit(signal)
+        : noPack.length
+          ? EXIT.usage
+          : failedHere.some((r) => !unvouched.has(r.dir))
+            ? EXIT.failed
+            : failedHere.length
+              ? EXIT.usage
+              : results.some((r) => !r.ok)
+                ? EXIT.inconclusive
+                : EXIT.ok;
     });
 
   program

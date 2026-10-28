@@ -488,22 +488,52 @@ def _hook_items_of(settings: Any, source: str) -> list[dict[str, Any]]:
     return out
 
 
+def _hooks_on(docs: list[dict[str, Any]], own_local: str) -> str:
+    """Which hooks Claude Code runs for the query by ``disableAllHooks``: ``"all"``, ``"managed"`` (the
+    managed settings' alone) or ``"none"``. It takes the key, as any other, from the highest level
+    that sets it: managed settings (the file, then each drop-in replacing what the one before said),
+    then the query's ``settings`` (``--settings``), the local file, the project's and the user's (the
+    settings page's "Settings precedence"; the hooks reference's "Disable or remove hooks"). A
+    ``true`` in managed settings turns every hook off, and one from any other level those outside
+    managed settings. Where Claude Code may not read a value, only its ``false`` is taken, so a hook
+    that may run is counted: a local file at the repository's root or the main checkout's
+    (``own_local`` is the session folder's, which it always reads), which it reads only with a home
+    folder, off Windows and in a repository the user owns; and a level whose files disagree."""
+
+    def said(d: dict[str, Any]) -> Optional[bool]:
+        value = d["data"].get("disableAllHooks") if isinstance(d["data"], dict) else None
+        return value if isinstance(value, bool) else None
+
+    managed: Optional[bool] = None
+    for d in docs:
+        if d["managed"] and not d.get("host") and said(d) is not None:
+            managed = said(d)
+    if managed is not None:
+        return "none" if managed else "all"
+    if any(d.get("host") and said(d) is False for d in docs):
+        return "all"
+    for scope in ("query", "local", "project", "user"):
+        level = [d for d in docs if d["scope"] == scope and not d["managed"]]
+        if any(said(d) is False for d in level):
+            return "all"
+        if any(said(d) is True and (scope != "local" or d["source"] == own_local) for d in level):
+            return "managed"
+    return "all"
+
+
 def hook_items(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
     """Every hook Claude Code runs for the query, of every event, as settings_pre_tool_use finds the
     PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
-    frontmatter or a hooks file it can't read is one of type ``unreadable``. ``disableAllHooks`` in a
-    managed document turns them all off, and in any other only the ones outside managed settings, as
-    Claude Code's hooks reference says."""
+    frontmatter or a hooks file it can't read is one of type ``unreadable``. ``disableAllHooks``, as
+    Claude Code resolves it (_hooks_on), turns them all off when managed settings set it, and when
+    another level does only the ones outside managed settings, as Claude Code's settings reference
+    says."""
     docs = settings_documents(places, cwd)
-
-    def off(managed: bool) -> bool:
-        return any(d["managed"] == managed and isinstance(d["data"], dict) and d["data"].get("disableAllHooks") is True for d in docs)
-
-    if off(True):
+    on = _hooks_on(docs, os.path.join(cwd, ".claude", "settings.local.json"))
+    if on == "none":
         return []
-    managed_only = off(False)
-    out = [h for d in docs if d["managed"] or not managed_only for h in _hook_items_of(d["data"], d["source"])]
-    if managed_only:
+    out = [h for d in docs if on == "all" or d["managed"] for h in _hook_items_of(d["data"], d["source"])]
+    if on == "managed":
         return out
     files = component_files(places, cwd)
     for path in [*files["skills"], *files["agents"]]:

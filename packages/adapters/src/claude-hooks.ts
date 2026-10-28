@@ -217,6 +217,8 @@ export interface SettingsDocument {
   managed: boolean;
   /** Which settings it is, for keys Claude Code takes from some only (a repository's can't turn telemetry on). */
   scope: 'user' | 'project' | 'local' | 'managed' | 'query';
+  /** The query's `managedSettings`: an embedding host's policy, which Claude Code ignores on a machine with managed settings of its own. */
+  host?: true;
 }
 
 type Fs = typeof import('node:fs');
@@ -315,7 +317,7 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
       docs.push({ source: isRecord(parsed) && given.trim().startsWith('{') ? "the query's settings option" : path.resolve(cwd, given), data: parsed, managed: false, scope: 'query' });
     }
   }
-  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true, scope: 'managed' });
+  if (isRecord(places.managedSettings)) docs.push({ source: "the query's managedSettings option", data: places.managedSettings, managed: true, scope: 'managed', host: true });
   return docs;
 }
 
@@ -498,21 +500,50 @@ function hookItemsOf(settings: unknown, source: string): HookItem[] {
   return out;
 }
 
+/** Which hooks `disableAllHooks` leaves Claude Code running: every one, the managed settings' alone, or none. */
+type HooksOn = 'all' | 'managed' | 'none';
+
+/**
+ * Which hooks Claude Code runs for the query by `disableAllHooks`. It takes the key, as any other,
+ * from the highest level that sets it: managed settings (the file, then each drop-in replacing what
+ * the one before said), then the query's `settings` (`--settings`), the local file, the project's
+ * and the user's (the settings page's "Settings precedence"; the hooks reference's "Disable or
+ * remove hooks"). A `true` in managed settings turns every hook off, and one from any other level
+ * those outside managed settings. Where Claude Code may not read a value, only its `false` is
+ * taken, so a hook that may run is counted: the query's `managedSettings`, which Claude Code ignores
+ * on a machine with managed settings of its own; a local file at the repository's root or the main
+ * checkout's (`ownLocal` is the session folder's, which it always reads), which it reads only with a
+ * home folder, off Windows and in a repository the user owns; and a level whose files disagree.
+ */
+function hooksOn(docs: readonly SettingsDocument[], ownLocal: string): HooksOn {
+  const said = (d: SettingsDocument) => (isRecord(d.data) && typeof d.data.disableAllHooks === 'boolean' ? d.data.disableAllHooks : undefined);
+  let managed: boolean | undefined;
+  for (const d of docs) if (d.managed && !d.host && said(d) !== undefined) managed = said(d);
+  if (managed !== undefined) return managed ? 'none' : 'all';
+  if (docs.some((d) => d.host && said(d) === false)) return 'all';
+  for (const scope of ['query', 'local', 'project', 'user'] as const) {
+    const level = docs.filter((d) => d.scope === scope && !d.managed);
+    if (level.some((d) => said(d) === false)) return 'all';
+    if (level.some((d) => said(d) === true && (scope !== 'local' || d.source === ownLocal))) return 'managed';
+  }
+  return 'all';
+}
+
 /**
  * Every hook Claude Code runs for the query, of every event, as `settingsPreToolUse` finds the
  * PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
- * frontmatter or a hooks file it can't read is one of `type` `unreadable`. `disableAllHooks` in a
- * managed document turns them all off, and in any other only the ones outside managed settings, as
- * Claude Code's hooks reference says.
+ * frontmatter or a hooks file it can't read is one of `type` `unreadable`. `disableAllHooks`, as
+ * Claude Code resolves it (hooksOn), turns them all off when managed settings set it, and when
+ * another level does only the ones outside managed settings, as Claude Code's settings reference
+ * says.
  */
 export async function hookItems(places: SettingsPlaces, cwd: string): Promise<HookItem[]> {
-  const { fs } = await nodeModules();
+  const { fs, path } = await nodeModules();
   const docs = await settingsDocuments(places, cwd);
-  const off = (managed: boolean) => docs.some((d) => d.managed === managed && isRecord(d.data) && d.data.disableAllHooks === true);
-  if (off(true)) return [];
-  const managedOnly = off(false);
-  const out = docs.filter((d) => d.managed || !managedOnly).flatMap((d) => hookItemsOf(d.data, d.source));
-  if (managedOnly) return out;
+  const on = hooksOn(docs, path.join(cwd, '.claude', 'settings.local.json'));
+  if (on === 'none') return [];
+  const out = docs.filter((d) => on === 'all' || d.managed).flatMap((d) => hookItemsOf(d.data, d.source));
+  if (on === 'managed') return out;
   const files = await componentFiles(places, cwd);
   for (const file of [...files.skills, ...files.agents]) {
     const text = readText(fs, file);
