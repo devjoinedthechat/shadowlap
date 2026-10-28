@@ -376,6 +376,34 @@ class RecordingRules(unittest.TestCase):
             self.assertEqual((type(clone).__name__, str(clone), repr(clone)), (type(err).__name__, str(err), repr(err)))
             self.assertIsInstance(clone, shadowlap.ReplayedError)
 
+    def test_a_replayed_error_keeps_its_own_plain_attributes_and_nothing_nested(self):
+        # What an agent reads off an HTTP client's error, as openai's: its status and request id. Its
+        # request, which holds the headers and so the key, never reaches the recording.
+        import copy
+        import pickle
+
+        @tool(effect="read")
+        def lookup(order: str):
+            raise APIStatusError("Not found", 404)
+
+        live = Sidecar({"origin": "live", "callNo": 1})
+        shadowlap._post = live
+        with self.assertRaises(APIStatusError):
+            lookup("A-17")
+        recorded = json.loads(json.dumps(live.sent[-1][1]["error"]))
+        self.assertNotIn("not-for-a-recording", json.dumps(recorded))
+        shadowlap._post = Sidecar({"origin": "replayed", "callNo": 1, "outcome": "error", "error": recorded})
+        with self.assertRaises(shadowlap.ReplayedError) as caught:
+            lookup("A-17")
+        err = caught.exception
+        self.assertEqual((type(err).__name__, str(err), err.args), ("APIStatusError", "Not found", ("Not found",)))
+        for again in (err, copy.copy(err), pickle.loads(pickle.dumps(err))):
+            self.assertEqual((getattr(again, "status_code", None), getattr(again, "request_id", None), getattr(again, "message", None)), (404, "req_017", "Not found"))
+            self.assertFalse(hasattr(again, "request") or hasattr(again, "body"))
+        # A field never shadows what an error has, and one that isn't plain is refused.
+        odd = shadowlap.ReplayedError({"name": "Error", "message": "m", "fields": {"with_traceback": 1, "_message": "x", "name": "y", "status": 500, "nested": {"a": 1}}})
+        self.assertEqual((str(odd), odd.name, getattr(odd, "status", None), hasattr(odd, "nested"), callable(odd.with_traceback)), ("m", "Error", 500, False, True))
+
     def test_a_replayed_error_reads_as_the_recorded_one(self):
         # An agent hands a tool's error to the model as f"error: {err}", or as repr(err) the way
         # LangGraph's ToolNode does: a replay of unchanged code must hand it the same text, or the
@@ -472,6 +500,20 @@ class RecordingRules(unittest.TestCase):
 
 class OrderMissing(Exception):
     """An error class of the agent's own, for the replayed-error test."""
+
+
+class APIStatusError(Exception):
+    """An HTTP client's error as openai's is: a status, the request id, and the request it made, whose
+    headers hold the key."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.request_id = "req_017"
+        self.code = None
+        self.request = {"method": "POST", "url": "https://api.example/v1/orders", "headers": {"authorization": "Bearer not-for-a-recording"}}
+        self.body = {"error": {"message": message}}
 
 if __name__ == "__main__":
     unittest.main()

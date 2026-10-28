@@ -86,6 +86,25 @@ def _recorded_args(error: Any) -> list[Any]:
 #: The file names an OSError holds apart from its arguments, as a recording keeps them.
 _OS_FILES = ("filename", "filename2")
 
+#: What an error is rebuilt from, or holds of its own: never one of its fields.
+_NOT_FIELDS = frozenset({"args", "name", "code", "data", "fields", "module", "errno", "strerror", "filename", "filename2", "winerror", "characters_written"})
+
+
+def _plain(value: Any) -> bool:
+    """Whether a value is one a recording keeps of an error's own attribute: str, int, a finite float, bool or None."""
+    return value is None or isinstance(value, (str, int)) or (isinstance(value, float) and math.isfinite(value))
+
+
+def _own_fields(err: BaseException) -> dict[str, Any]:
+    """An error's own attributes that JSON keeps as they are, as a recording keeps them: openai's
+    ``status_code``, ``request_id`` and ``code``, an HTTP client error's status. Plain values only
+    (_plain), nothing nested, so a ``request`` or ``response`` and the headers it holds stay out;
+    none private, and none the error is rebuilt from (its args, an OSError's errno and files)."""
+    own = getattr(err, "__dict__", None)
+    if not isinstance(own, dict):
+        return {}
+    return {k: v for k, v in own.items() if isinstance(k, str) and not k.startswith("_") and k not in _NOT_FIELDS and _plain(v)}
+
 
 def _os_error_args(cls: type, args: list[Any], error: Any) -> list[Any]:
     """An OSError's arguments with the file names it was recorded with, which its ``args`` leave out:
@@ -108,9 +127,10 @@ class ReplayedError(Exception):
     subclass named ``KeyError`` in the recorded module, holding the recorded arguments, so ``str()``,
     ``repr()``, ``type(e).__name__``, ``e.args`` and a traceback's last line are what they were when
     the call was recorded. A builtin's (ValueError, KeyError, FileNotFoundError) is an instance of that
-    builtin too, so the agent's ``except KeyError`` catches it as it caught the original. An agent that
-    hands a tool's error to the model hands it the same text on replay, and ``except ReplayedError``
-    still catches it."""
+    builtin too, so the agent's ``except KeyError`` catches it as it caught the original. Its own plain
+    attributes are set again (openai's ``status_code`` and ``request_id``), where they shadow nothing an
+    error has. An agent that hands a tool's error to the model hands it the same text on replay, and
+    ``except ReplayedError`` still catches it."""
 
     def __new__(cls, error: Optional[dict[str, Any]] = None, *args: Any, **kwargs: Any) -> ReplayedError:
         if cls is ReplayedError and isinstance(error, dict):
@@ -135,6 +155,15 @@ class ReplayedError(Exception):
         self.name: str = error.get("name", "Error")
         self.code: Optional[str] = error.get("code")
         self.data: Any = error.get("data")
+        # Its own attributes as the original had them (openai's status_code), where they shadow nothing an error has.
+        fields = error.get("fields")
+        for key, value in fields.items() if isinstance(fields, dict) else ():
+            if not isinstance(key, str) or not key.isidentifier() or key.startswith("_") or key in _NOT_FIELDS or key in vars(self) or hasattr(type(self), key) or not _plain(value):
+                continue
+            try:
+                setattr(self, key, value)
+            except (AttributeError, TypeError):
+                continue
 
     def __str__(self) -> str:
         # The recorded str(), which the arguments alone don't give back: str(KeyError("A-17")) is
@@ -147,6 +176,9 @@ class ReplayedError(Exception):
         error: dict[str, Any] = {"name": self.name, "message": self._message, "code": self.code, "data": self.data, "args": list(self.args)}
         if isinstance(self, OSError):
             error.update({key: getattr(self, key) for key in _OS_FILES if getattr(self, key, None) is not None})
+        fields = _own_fields(self)
+        if fields:
+            error["fields"] = fields
         module = type(self).__module__
         if module != __name__:
             error["module"] = module
@@ -485,7 +517,9 @@ def serialize_error(err: BaseException) -> dict[str, Any]:
     """An error as it is recorded: its class's name, ``str()`` as the message, a string ``code``, and,
     so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
     and its arguments when they aren't the message alone and survive JSON as they are. An OSError's
-    file names too (``filename``, ``filename2``), which its arguments leave out, when JSON keeps them."""
+    file names too (``filename``, ``filename2``), which its arguments leave out, when JSON keeps them,
+    and every error's own plain attributes (``fields``: openai's ``status_code``), as the Node SDK
+    keeps an error's own fields."""
     message = str(err)
     out: dict[str, Any] = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
@@ -508,6 +542,9 @@ def serialize_error(err: BaseException) -> dict[str, Any]:
             value = getattr(err, key, None)
             if isinstance(value, (str, int)) and not isinstance(value, bool):
                 out[key] = value
+    fields = _own_fields(err)
+    if fields:
+        out["fields"] = fields
     return out
 
 
