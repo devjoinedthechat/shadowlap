@@ -9,7 +9,7 @@ import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { parseChoice, readStore, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
-import { readExpectJson } from './fix.js';
+import { readExpectJson } from './fix-flags.js';
 
 /** `shadowlap coverage`: what imported runs did that no golden covers, and `--pack` to make goldens of them. */
 

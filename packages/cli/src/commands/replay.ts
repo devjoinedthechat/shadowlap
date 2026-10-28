@@ -17,7 +17,7 @@ import { confirmImportedCommand, givenCommand, openStore, printOutcome, readStor
 import { palette as p, safe, shortId } from '../ui.js';
 import { allowedUnrecorded, declaredUnrecorded, formatUnrecorded, unrecordedOf, unrecordedRefusal } from '../unrecorded.js';
 import { watchAndRerun } from '../watch.js';
-import { readExpect } from './fix.js';
+import { readExpect } from './fix-flags.js';
 
 /**
  * `shadowlap replay`: a recorded run replayed after a change, forking at the first changed call. It

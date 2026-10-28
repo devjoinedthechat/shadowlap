@@ -11,7 +11,7 @@ import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { readStore, requireRun, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
-import { readExpectJson, selectRuns } from './fix.js';
+import { readExpectJson, selectRuns } from './fix-flags.js';
 
 /** `shadowlap check`: recordings judged by checks from what they recorded, nothing replayed. */
 

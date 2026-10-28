@@ -12,7 +12,7 @@ import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config
 import { EXIT, interruptedStatus } from '../exit-codes.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
 import { confirmGolden } from '../golden-consent.js';
-import { readExpect } from './fix.js';
+import { readExpect } from './fix-flags.js';
 import { parseSuiteRisk, testPacks, type TestFlags } from './test-session.js';
 import type { InconclusiveMode } from '../golden-test.js';
 import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } from '../judge.js';
