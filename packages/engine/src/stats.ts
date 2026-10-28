@@ -446,6 +446,30 @@ function baselineFactor(a2: number, b2: number, drop: number, h: number): Float6
 }
 
 /**
+ * Each Simpson node of a drop's range, with ln x and ln(1 − x) there, which the density now needs at
+ * every node of every sum (NaN where the density takes x apart, at 0 or 1): the same nodes for every
+ * tally, so worked out once. The values are the ones the sum would compute, so keeping them changes
+ * nothing, and the sum takes half the time.
+ */
+const logsKept = new Map<number, { x: Float64Array; lx: Float64Array; l1x: Float64Array }>();
+const LOGS_KEPT = 16;
+
+function nodeLogs(drop: number, h: number): { x: Float64Array; lx: Float64Array; l1x: Float64Array } {
+  let v = logsKept.get(drop);
+  if (v) return v;
+  v = { x: new Float64Array(SIMPSON_STEPS + 1), lx: new Float64Array(SIMPSON_STEPS + 1), l1x: new Float64Array(SIMPSON_STEPS + 1) };
+  for (let i = 0; i <= SIMPSON_STEPS; i++) {
+    const x = i * h;
+    v.x[i] = x;
+    v.lx[i] = x > 0 && x < 1 ? Math.log(x) : NaN;
+    v.l1x[i] = x > 0 && x < 1 ? Math.log(1 - x) : NaN;
+  }
+  if (logsKept.size >= LOGS_KEPT) logsKept.delete(logsKept.keys().next().value!);
+  logsKept.set(drop, v);
+  return v;
+}
+
+/**
  * P(now < baseline − drop): the chance a golden's pass rate now is below its baseline's by `drop`
  * or more. Each rate is a Beta posterior under a uniform prior (Beta(1 + passes, 1 + failures));
  * with no baseline given, the baseline is 1, a golden that always passes. Integrated exactly enough
@@ -469,11 +493,13 @@ export function dropProbability(now: Tally, baseline: Tally | null, drop: number
   const lnB1 = lnBeta(a1, b1);
   const h = top / SIMPSON_STEPS;
   const above = baselineFactor(a2, b2, drop, h);
+  const { x, lx, l1x } = nodeLogs(drop, h);
   let sum = 0;
   for (let i = 0; i <= SIMPSON_STEPS; i++) {
-    const x = i * h;
     const w = i === 0 || i === SIMPSON_STEPS ? 1 : i % 2 ? 4 : 2;
-    sum += w * densityBeta(x, a1, b1, lnB1) * above[i]!;
+    // The density now at the node, as densityBeta works it out, from the logarithms kept for it.
+    const f = Number.isNaN(lx[i]!) ? densityBeta(x[i]!, a1, b1, lnB1) : Math.exp((a1 - 1) * lx[i]! + (b1 - 1) * l1x[i]! - lnB1);
+    sum += w * f * above[i]!;
   }
   const q = Math.min(1, Math.max(0, (sum * h) / 3));
   if (drops.size >= DROPS_KEPT) drops.clear();
