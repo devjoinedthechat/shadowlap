@@ -152,8 +152,8 @@ interface StoreCaches {
   runs: Lru<string, RunConversations>;
 }
 
-const caches = new WeakMap<Store, StoreCaches>();
-function cachesFor(store: Store): StoreCaches {
+const caches = new WeakMap<object, StoreCaches>();
+function cachesFor(store: StoreOf<never>): StoreCaches {
   let c = caches.get(store);
   if (!c) {
     c = { items: new Lru(50_000), wholes: new Lru(5_000), responses: new Lru(20_000), responseIds: new Lru(5_000), runs: new Lru(32) };
@@ -354,7 +354,7 @@ function streamedToolIds(bytes: Buffer): string[] {
 }
 
 /** A response's own id: `resp_…` from the Responses API, which a later request names as `previous_response_id`. */
-function responseIdOf(store: Store, call: CallRecord): string | null {
+function responseIdOf(store: StoreOf<'recording'>, call: CallRecord): string | null {
   const end = call.end;
   if (call.kind !== 'api' || !end?.responseRef || end.outcome !== 'ok') return null;
   const cache = cachesFor(store);
@@ -389,7 +389,7 @@ function responseIdOf(store: Store, call: CallRecord): string | null {
 const EMPTY_RESPONSE: ResponseInfo = Object.freeze({ sig: [], tools: [] });
 
 /** What a model call's response said and which tools it asked for; cached by response blob. */
-export function responseInfo(store: Store, call: CallRecord): ResponseInfo {
+export function responseInfo(store: StoreOf<'recording'>, call: CallRecord): ResponseInfo {
   const end = call.end;
   if (call.kind !== 'api' || !end?.responseRef || end.outcome !== 'ok') return EMPTY_RESPONSE;
   const cache = cachesFor(store);
@@ -552,7 +552,7 @@ class ScopeIndex {
    * a call: a model call read before its answer arrived (a run still recording) is read again once
    * it has one.
    */
-  ownerOf(store: Store, id: string, cur: (c: CallRecord) => CallRecord = (c) => c): Open | undefined {
+  ownerOf(store: StoreOf<'recording'>, id: string, cur: (c: CallRecord) => CallRecord = (c) => c): Open | undefined {
     if (!this.owners.has(id)) {
       for (; this.scanned < this.modelCalls.length; this.scanned++) {
         const [c, conv] = this.modelCalls[this.scanned]!;

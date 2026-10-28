@@ -191,7 +191,7 @@ export function sumCacheUse(runs: Iterable<{ runId: string; startedAt: number; u
 }
 
 /** Each finished run's part, per store: a finished run's calls never change, so the Overview reads them once. */
-const finishedUse = new WeakMap<Store, Lru<string, RunCacheUse | null>>();
+const finishedUse = new WeakMap<object, Lru<string, RunCacheUse | null>>();
 
 /**
  * Live model calls' cache use across the runs started since `since` (ms since the epoch): the

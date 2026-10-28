@@ -1,4 +1,4 @@
-import { aboutOf, runAsk, type CallRecord, type RunAbout, type RunAsk, type Store } from '@shadowlap/engine';
+import { aboutOf, runAsk, type CallRecord, type RunAbout, type RunAsk, type Store, type StoreOf } from '@shadowlap/engine';
 import type { IndexedRun, RunIndex } from './run-index.js';
 import { asksFor, asksOf } from './run-stats.js';
 
@@ -16,9 +16,9 @@ export type { RunAbout } from '@shadowlap/engine';
 const ANSWERED_SQL = `SELECT 1 AS yes FROM call_events WHERE run_id = ? AND call_no = ? AND phase = 'start' AND json_extract(meta, '$.input') = 1 LIMIT 1`;
 
 /** Answers to ANSWERED_SQL, per store: a recorded call never changes. */
-const answeredKept = new WeakMap<Store, Map<string, boolean>>();
+const answeredKept = new WeakMap<object, Map<string, boolean>>();
 
-function answered(store: Store, parentRunId: string | null, callNo: number | null): boolean {
+function answered(store: StoreOf<'readModels'>, parentRunId: string | null, callNo: number | null): boolean {
   if (!parentRunId || callNo === null) return false;
   let kept = answeredKept.get(store);
   if (!kept) {
@@ -79,7 +79,7 @@ function attemptIndex(index: RunIndex, r: IndexedRun): number | null {
 }
 
 /** A run's about line, given what its user asked when it is a recording. */
-function about(store: Store, index: RunIndex, r: IndexedRun, ask: RunAsk | null): RunAbout {
+function about(store: StoreOf<'readModels'>, index: RunIndex, r: IndexedRun, ask: RunAsk | null): RunAbout {
   const parent = r.parentRunId ? (index.byId.get(r.parentRunId) ?? null) : null;
   // An attempt whose place can't be told (0) says what it asked again without a number.
   const attempt = r.attemptKind && r.attemptOf ? { kind: r.attemptKind, index: attemptIndex(index, r) ?? 0 } : null;

@@ -236,7 +236,7 @@ function oneLine(v: unknown): string {
 }
 
 /** A call's row; `recording` while its run records, when a failure the agent may retry is marked so. */
-function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
+function row(store: StoreOf<'recording'>, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -295,7 +295,7 @@ export function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunR
  * Whether a run id prefix matches several runs and no run whole: `lookupRun` finds none for it, as
  * the CLI refuses it, and the dashboard says so rather than that there is no such run.
  */
-export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
+export function ambiguousRunId(store: StoreOf<'readModels'>, idOrPrefix: string): boolean {
   if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return false;
   const want = idOrPrefix.toUpperCase();
   let n = 0;
@@ -307,13 +307,13 @@ export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
 }
 
 /** The error for a run id that names no single run: several runs (409), or none (404). */
-export function noSuchRun(store: Store, idOrPrefix: string): { status: number; message: string } {
+export function noSuchRun(store: StoreOf<'readModels'>, idOrPrefix: string): { status: number; message: string } {
   const id = idOrPrefix.slice(0, 40);
   return ambiguousRunId(store, idOrPrefix) ? { status: 409, message: `run id prefix ${id} matches several runs: use more of the id` } : { status: 404, message: `no run ${id}` };
 }
 
 /** A run's children for its page, each attempt marked as the run lists bundle it. */
-function childRows(store: Store, runId: string): RunDetail['children'] {
+function childRows(store: StoreOf<'recording' | 'readModels'>, runId: string): RunDetail['children'] {
   const index = loadRunIndex(store);
   return store.childRuns(runId).map((r) => {
     const listed = index.byId.get(r.runId);
@@ -531,7 +531,7 @@ export function runCallsPage(store: Store, idOrPrefix: string, at: { from: numbe
  * lists show it as a fork of its own, so every run of the parent is read, not the run index's
  * bundles alone. Null for a run that names no group.
  */
-export function attemptPlace(store: Store, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
+export function attemptPlace(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
   const group: unknown = run.meta?.repeat?.group;
   if (typeof group !== 'string' || !group || !run.parentRunId) return null;
   const same = loadRunIndex(store).runs.filter((r) => r.parentRunId === run.parentRunId && r.meta.repeat?.group === group);
@@ -547,7 +547,7 @@ export function provenance(store: Store, idOrPrefix: string, options: ReadOption
 }
 
 /** `shadowlap show <run> --json` as the CLI prints it, for Copy show --json. */
-export function showRunJson(store: Store, idOrPrefix: string, options: ReadOptions & { tools?: ToolTrust } = {}): ReturnType<typeof runShowJson> | null {
+export function showRunJson(store: StoreOf<'recording'>, idOrPrefix: string, options: ReadOptions & { tools?: ToolTrust } = {}): ReturnType<typeof runShowJson> | null {
   const run = lookupRun(store, idOrPrefix);
   return run ? runShowJson(store, run, options) : null;
 }

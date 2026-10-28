@@ -1,5 +1,5 @@
 import { Lru } from './conversations.js';
-import type { Store, StoreOf } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, RunRecord } from './types.js';
 
 /**
@@ -95,14 +95,14 @@ export type RunSelection = readonly string[] | number | { since: number; until?:
  * it was followed through are kept with it: once one of them is deleted (`gc`), the part is
  * worked out again, as the run's page would.
  */
-const finishedWaits = new WeakMap<Store, Lru<string, { ms: number; calls: number; followed: Array<[string, boolean]> }>>();
+const finishedWaits = new WeakMap<object, Lru<string, { ms: number; calls: number; followed: Array<[string, boolean]> }>>();
 
 /**
  * The time replays did not wait, over the runs named or those started since a time (ms since the
  * epoch, or a window with an exclusive `until`). Ancestors shared by many runs are read once, and a
  * finished replay's calls once per store; a replay still running is read again each time.
  */
-export function notWaited(store: Store, which: RunSelection): NotWaited {
+export function notWaited(store: StoreOf<'recording'>, which: RunSelection): NotWaited {
   const a = new Ancestry(store);
   let runs: RunRecord[];
   if (Array.isArray(which)) runs = (which as readonly string[]).map((id) => a.run(id)).filter((r): r is RunRecord => r !== null);

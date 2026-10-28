@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type Store, type StoreOf } from '@shadowlap/engine';
+import { CHECK_STATUSES, classifyRun, filedTestAttempt, hasRecordedCommand, isFailedOutcome, kindLabel, runOutcome, type AttemptKind, type CheckStatus, type ClassifiableRun, type RunAsk, type RunKind, type RunMode, type RunOutcome, type RunStatus, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Every run in the store, classified, from one light query: the run columns, the few fields of
@@ -295,11 +295,11 @@ interface KeptIndex {
   filing: Map<string, Filing>;
 }
 
-const kept = new WeakMap<Store, KeptIndex>();
+const kept = new WeakMap<object, KeptIndex>();
 
 /** Stores known to keep the log of runs written: one opened by a build from before it keeps none until a newer one opens it to write. */
-const logged = new WeakSet<Store>();
-function keepsLog(store: Store): boolean {
+const logged = new WeakSet<object>();
+function keepsLog(store: StoreOf<'readModels'>): boolean {
   if (logged.has(store)) return true;
   if (!store.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_changes'`).length) return false;
   logged.add(store);
@@ -319,7 +319,7 @@ interface Version {
  * what it counts, by this connection or any other; a write the index doesn't read (run totals, the
  * search index) moves none.
  */
-function versionOf(store: Store): Version {
+function versionOf(store: StoreOf<'readModels'>): Version {
   const log = keepsLog(store);
   const v = store.query(versionSql(log))[0];
   return { runs: String(v?.runs), fixes: String(v?.fixes), calls: Number(v?.calls ?? 0), seq: log && v?.seq !== null && v?.seq !== undefined ? Number(v.seq) : null };
@@ -365,12 +365,12 @@ export function parseAsk(v: unknown): RunAsk | null {
  * that read it last answers for, and how many calls it has, as the index counts them: whether
  * another thread may take the request meanwhile, reading the run again.
  */
-export function runAffinity(store: Store, runId: string): { affinity: string; calls?: number } {
+export function runAffinity(store: StoreOf<'readModels'>, runId: string): { affinity: string; calls?: number } {
   const r = loadRunIndex(store).byId.get(runId);
   return r ? { affinity: runId, calls: r.calls } : { affinity: runId };
 }
 
-export function loadRunIndex(store: Store): RunIndex {
+export function loadRunIndex(store: StoreOf<'readModels'>): RunIndex {
   const v = versionOf(store);
   let entry = kept.get(store);
   if (!entry || !patch(store, entry, v)) {
@@ -578,12 +578,12 @@ function classified(r: BaseRun, p: Pick<IndexedRun, 'agentCalls' | 'status'> | u
  * asked, the search index), so the index read before stays current. Another connection's write
  * meanwhile moves the counters as any write does.
  */
-export function keepingIndex<T>(_store: Store, write: () => T): T {
+export function keepingIndex<T>(_store: StoreOf<never>, write: () => T): T {
   return write();
 }
 
 /** Every run read and classified, and where the store stood as they were read: its counters, its newest run written and its newest call event. */
-function readRunIndex(store: Store): Omit<KeptIndex, 'asksAt'> {
+function readRunIndex(store: StoreOf<'readModels'>): Omit<KeptIndex, 'asksAt'> {
   const log = keepsLog(store);
   const rows = store.query(indexSql(log));
   // No runs, no version read with them: the counters as they are now (no run, so no call event to count).

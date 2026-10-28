@@ -1,4 +1,4 @@
-import { countAttempts, type RunRecord, type Store } from '@shadowlap/engine';
+import { countAttempts, type RunRecord, type StoreOf } from '@shadowlap/engine';
 
 /**
  * Every run, read once per change to the runs table: the activity feed scans it, and between
@@ -18,12 +18,12 @@ export interface CachedRuns {
   attempts: number;
 }
 
-const cache = new WeakMap<Store, CachedRuns>();
+const cache = new WeakMap<object, CachedRuns>();
 
 /** Which runs are attempts, and how many of some runs are bundled: the engine's one rule (run-roles.ts). */
 export { countAttempts, isAttempt } from '@shadowlap/engine';
 
-export function cachedRuns(store: Store): CachedRuns {
+export function cachedRuns(store: StoreOf<'recording' | 'activity'>): CachedRuns {
   const version = store.changeCounts().runs ?? 0;
   const cached = cache.get(store);
   if (cached && cached.version === version) return cached;

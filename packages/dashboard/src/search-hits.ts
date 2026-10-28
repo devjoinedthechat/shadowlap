@@ -1,4 +1,4 @@
-import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type Store, type StoreOf } from '@shadowlap/engine';
+import { indexSearch, searchExpression, searchIndexBehind, type CallKind, type SearchHit, type SearchIndexRun, type StoreOf } from '@shadowlap/engine';
 import { serverIdle } from './idle.js';
 import { keepingIndex, loadRunIndex, type RunIndex } from './run-index.js';
 
@@ -96,7 +96,7 @@ function hits(store: StoreOf<'readModels'>, sql: string, match: string, runs: re
  * naming that run (`attemptOf`). At most PER_RUN hits of a run (of one run's attempts, together),
  * and `limit` in all. An attempt whose run is gone is listed like any run, so it is a run of its own.
  */
-export function searchRecorded(store: Store, query: string, limit: number, index: RunIndex = loadRunIndex(store)): RecordedHit[] {
+export function searchRecorded(store: StoreOf<'readModels'>, query: string, limit: number, index: RunIndex = loadRunIndex(store)): RecordedHit[] {
   const match = searchExpression(query);
   if (!match || limit < 1) return [];
   const attempts = index.runs.filter((r) => r.bundled && r.attemptOf !== null);
@@ -121,7 +121,7 @@ function indexRuns(runs: RunIndex['runs']): SearchIndexRun[] {
 }
 
 /** How many runs the index has yet to cover: runs new or ended since it looked, or with calls it hasn't read. */
-export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)): number {
+export function searchBehind(store: StoreOf<'recording' | 'search' | 'readModels'>, index: RunIndex = loadRunIndex(store)): number {
   return searchIndexBehind(store, indexRuns(index.runs));
 }
 
@@ -132,7 +132,7 @@ export function searchBehind(store: Store, index: RunIndex = loadRunIndex(store)
  * waits otherwise. Writing the index changes nothing the run index reads, so the run index read
  * before stays current.
  */
-export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): { behind: number; busy: boolean } {
+export function indexSearchSlice(store: StoreOf<'recording' | 'search' | 'readModels'>, budgetMs = SLICE_MS): { behind: number; busy: boolean } {
   const index = loadRunIndex(store);
   const done = keepingIndex(store, () => indexSearch(store, { budgetMs, runs: indexRuns(index.runs), briefly: true }));
   return { behind: done.behind, busy: done.busy === true };
@@ -145,7 +145,7 @@ export function indexSearchSlice(store: Store, budgetMs = SLICE_MS): { behind: n
  * behind on the run, would have the palette ask again every second for as long as it records. What
  * doesn't fit in the time is left to the slices, and the answer says the index is behind.
  */
-export function indexRecordings(store: Store, index: RunIndex = loadRunIndex(store)): void {
+export function indexRecordings(store: StoreOf<'recording' | 'search' | 'readModels'>, index: RunIndex = loadRunIndex(store)): void {
   const live = index.runs.filter((r) => r.status === 'running');
   if (!live.length) return;
   keepingIndex(store, () => indexSearch(store, { budgetMs: RECORDING_MS, runs: indexRuns(live), briefly: true }));
@@ -159,7 +159,7 @@ const GAP_MS = 20;
 /** After a slice found the store busy, or failed: the first wait before the next, doubled each time after, up to the last. */
 export const RETRY_MS = 1000;
 export const RETRY_MAX_MS = 8000;
-const catching = new WeakSet<Store>();
+const catching = new WeakSet<object>();
 
 /** A store closed under the slices: the dashboard stopped, or serves another project's store now. */
 export const closedStore = (err: unknown) => (err as { code?: unknown } | null)?.code === 'ERR_INVALID_STATE';
@@ -173,7 +173,7 @@ export const closedStore = (err: unknown) => (err as { code?: unknown } | null)?
  * (search-index.ts). The dashboard starts it when it starts and again with each search, which then
  * finds what has arrived since.
  */
-export function catchUpSearch(store: Store): void {
+export function catchUpSearch(store: StoreOf<'recording' | 'search' | 'readModels'>): void {
   if (catching.has(store)) return;
   catching.add(store);
   let retry = RETRY_MS;

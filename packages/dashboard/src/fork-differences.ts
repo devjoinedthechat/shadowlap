@@ -1,4 +1,4 @@
-import { applyNormalizers, canonicalize, clipText, compareDecisions, effectsOf, finalAnswer, isHandover, isJudgeCall, outcomeLabel, RANK_LABELS, rewriteText, type CallRecord, type DecisionCall, type DecisionChangeKind, type DecisionRank, type Effect, type ModelDecision, type Normalizer, type RunStatus, type Store, type StoreOf } from '@shadowlap/engine';
+import { applyNormalizers, canonicalize, clipText, compareDecisions, effectsOf, finalAnswer, isHandover, isJudgeCall, outcomeLabel, RANK_LABELS, rewriteText, type CallRecord, type DecisionCall, type DecisionChangeKind, type DecisionRank, type Effect, type ModelDecision, type Normalizer, type RunStatus, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import { links } from './links.js';
 import { loadRunIndex, type IndexedRun } from './run-index.js';
@@ -133,7 +133,7 @@ function fateOf(c: CallRecord): ForkWrite['fate'] {
  * What the fork `idOrPrefix` did differently from its parent; null for a run that isn't a fork of a
  * run in the store (a recording, a clean replay, a fork whose parent was deleted).
  */
-export function forkDifferences(store: Store, idOrPrefix: string, options: { normalizers?: readonly Normalizer[] } = {}): ForkDifferences | null {
+export function forkDifferences(store: StoreOf<'recording' | 'readModels'>, idOrPrefix: string, options: { normalizers?: readonly Normalizer[] } = {}): ForkDifferences | null {
   const run = lookupRun(store, idOrPrefix);
   if (!run || run.mode !== 'replay' || !run.parentRunId || !run.divergence) return null;
   const parent = store.getRun(run.parentRunId);

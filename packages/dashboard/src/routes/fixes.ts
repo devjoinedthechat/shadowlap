@@ -1,4 +1,4 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoreOf, type StoredFix } from '@shadowlap/engine';
+import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type StoreOf, type StoredFix } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
@@ -162,7 +162,7 @@ const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
  * call: the command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the
  * model asked for), built by the server from that blame, never from the browser's arguments.
  */
-function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
+function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   const id = short(fix.fixId);
@@ -188,7 +188,7 @@ function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
  * Run more attempts, or Verify again, for an incomplete verdict of a fix (`VerifyStep.more`): the
  * command the fix's page offers, built by the server from that verdict.
  */
-function verifyJob(req: JobRequest, store: Store): JobBuildResult {
+function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   if (typeof req.verifyId !== 'string' || !req.verifyId) return { error: 'verifyId is required' };
@@ -202,7 +202,7 @@ function verifyJob(req: JobRequest, store: Store): JobBuildResult {
   return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
 }
 
-function blameJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
+function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
   if (req.fixId !== undefined && (req.again === true || req.model !== undefined)) return fixBlameJob(req, store);
   if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
   const run = lookupRun(store, req.runId);
@@ -246,7 +246,7 @@ function repairerChanged(req: JobRequest, configured: string | null): JobBuildRe
   return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Repair from here again`, status: 409 };
 }
 
-function repairJob(req: JobRequest, store: Store, repairer: string | null): JobBuildResult {
+function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, repairer: string | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const configured = repairer?.trim() || null;
   const changed = repairerChanged(req, configured);
@@ -263,7 +263,7 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   return { args: [...args, ...consent.yes] };
 }
 
-function applyJob(req: JobRequest, store: Store): JobBuildResult {
+function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   const apply = d.actions.apply;

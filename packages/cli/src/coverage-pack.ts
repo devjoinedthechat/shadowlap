@@ -101,7 +101,7 @@ interface Asked {
  * Each tool call the model asked for in a capture, with the answer the agent sent back in a later
  * request: by the call's id where the provider gives one, else by name, in order.
  */
-export function askedTools(store: Store, calls: readonly CallRecord[]): Asked[] {
+export function askedTools(store: StoreOf<'recording'>, calls: readonly CallRecord[]): Asked[] {
   const api = calls.filter((c) => c.kind === 'api').sort((a, b) => a.callNo - b.callNo);
   const asked: Asked[] = [];
   for (const c of api) {
@@ -144,14 +144,14 @@ export function askedTools(store: Store, calls: readonly CallRecord[]): Asked[] 
 }
 
 /** What `mcpMetaOf` found, per store and tool: a pack rebuilds the same tools for several captures. */
-const mcpSeen = new WeakMap<Store, Map<string, NonNullable<CallMeta['mcp']> | null>>();
+const mcpSeen = new WeakMap<object, Map<string, NonNullable<CallMeta['mcp']> | null>>();
 
 /**
  * How this store last recorded a tool served through `shadowlap mcp`: its `meta.mcp`. An MCP tool's
  * answer reaches the agent as MCP content, so a rebuilt answer must take that shape too, or the
  * agent's MCP client would get a value it never sees from a server.
  */
-function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
+function mcpMetaOf(store: StoreOf<'readModels'>, tool: string): NonNullable<CallMeta['mcp']> | null {
   let seen = mcpSeen.get(store);
   if (!seen) {
     seen = new Map();
@@ -181,7 +181,7 @@ function readMcpMeta(store: StoreOf<'readModels'>, tool: string): NonNullable<Ca
  * no answer back (the capture ends before it, or the agent never sent it) is left out whole: its
  * calls run live in the replay, writes stubbed.
  */
-export function rebuildCapture(source: Store, target: StoreOf<'recording'>, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
+export function rebuildCapture(source: StoreOf<'recording' | 'cleanup' | 'readModels'>, target: StoreOf<'recording'>, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
   const calls = source.getCalls(capture.runId);
   for (const hash of source.runBlobRefs(capture.runId)) {
     const bytes = source.getBlob(hash);

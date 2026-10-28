@@ -1,4 +1,4 @@
-import { resolveAuthor, type Store, type StoreOf } from '@shadowlap/engine';
+import { resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import { liveKeys } from '../ci-workflows.js';
@@ -47,7 +47,7 @@ export function localRunIds(store: StoreOf<'readModels'>, remote: string, runIds
  * on this machine, at most `room` of them: pushing a run sends them too, as the Runs page shows them
  * under it, so a run pushed leaves nothing of its own behind.
  */
-export function localAttempts(store: Store, remote: string, runIds: readonly string[], room: number): string[] {
+export function localAttempts(store: StoreOf<'readModels'>, remote: string, runIds: readonly string[], room: number): string[] {
   if (room <= 0) return [];
   const index = loadRunIndex(store);
   const attempts = [...new Set(runIds.flatMap((id) => (index.attempts.get(id) ?? []).map((a) => a.runId)))];

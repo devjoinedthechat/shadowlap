@@ -63,7 +63,7 @@ export function openStoreIfExists(opts: GlobalOpts): Store | null {
 }
 
 /** Stores {@link readStore} stood in for, with what to say about the one that isn't there. */
-const missing = new WeakMap<Store, string>();
+const missing = new WeakMap<object, string>();
 
 /**
  * The store for a command that only reads it, or changes only what it already holds (a run's
@@ -83,7 +83,7 @@ export function readStore(opts: GlobalOpts): Store {
 }
 
 /** Why a store from {@link readStore} has nothing in it, when it is likely the wrong one; null otherwise. */
-export function missingStoreNote(store: Store): string | null {
+export function missingStoreNote(store: StoreOf<never>): string | null {
   return missing.get(store) ?? null;
 }
 
@@ -164,7 +164,7 @@ export async function confirmImportedCommand(run: RunRecord, argv: string[], own
 /** How a run came to have no command to run again: through serve, by a test, or from a capture. */
 export { withoutCommand } from '@shadowlap/engine';
 
-export function requireRun(store: Store, idOrPrefix: string): RunRecord {
+export function requireRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord {
   const run = store.findRun(idOrPrefix);
   if (!run) {
     const note = missingStoreNote(store);

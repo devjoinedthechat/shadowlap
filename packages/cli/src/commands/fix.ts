@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { applyLeft, BLAME_DEFAULTS, commandIsImported, unavailableStop, unsettledFirst, describeBaselineRule, dropBound, KEPT_DEFAULTS, riskPercent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type Store, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
+import { applyLeft, BLAME_DEFAULTS, commandIsImported, unavailableStop, unsettledFirst, describeBaselineRule, dropBound, KEPT_DEFAULTS, riskPercent, probeGate, describeGate, describeRescue, FIX_STATUSES, FixIdError, fixRecords, formatBlame, formatRepair, formatVerify, hasRecordedCommand, maxProbes, outcomeOf, parseGate, prNumber, probeFinding, rescueRule, resolveFix, setFixTitle, SPRT_DEFAULTS, type BlameReport, type FixStatus, type ReadPolicy, type RepairReport, type RunRecord, type SprtGate, type StoreOf, type StoredFix, type VerdictStanding, type VerifyOutcome, type VerifyReport, type VerifyRole } from '@shadowlap/engine';
 import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, repairerProblem, type PrRead } from '@shadowlap/dashboard';
 import { formatBudget, undecidableRefusal } from '../attempts.js';
 import { BlameError, inScope, runBlame, type BlameRun } from '../blame.js';
@@ -195,7 +195,7 @@ export function blameJson(r: BlameReport & Partial<Pick<BlameRun, 'fix'>>): Reco
  * The runs `--fixes`, `--holdout` and `--keeps` name: run ids or unique prefixes, and `label:<name>`
  * for every run with that label.
  */
-export function selectRuns(store: Store, specs: readonly string[], flag: string): RunRecord[] {
+export function selectRuns(store: StoreOf<'recording'>, specs: readonly string[], flag: string): RunRecord[] {
   const out: RunRecord[] = [];
   for (const spec of specs) {
     if (spec.startsWith('label:')) {
@@ -725,7 +725,7 @@ function configuredRepairer(): string | null {
 }
 
 /** A fix by its id or a unique prefix, or a FixIdError that says where to find one. */
-function requireFix(store: Store, idOrPrefix: string): StoredFix {
+function requireFix(store: StoreOf<'fixes'>, idOrPrefix: string): StoredFix {
   const fix = resolveFix(store, idOrPrefix);
   if (!fix) {
     const note = missingStoreNote(store);

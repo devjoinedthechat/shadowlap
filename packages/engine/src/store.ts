@@ -69,6 +69,7 @@ type PartsMethods<N extends StorePartName> = AllOf<{ [K in N]: MethodsOfPart<K> 
  * The store as code that uses some of its parts sees it: their methods, and the store's own
  * (transaction, close, schemaVersion). A function that takes a `StoreOf<'recording' | 'fixes'>` says
  * what of the store it reads and writes, and a test can hand it no more than that; any Store is one.
+ * `StoreOf<never>` is any store, to code that reads none of its parts: a cache kept by the store.
  */
 export type StoreOf<N extends StorePartName> = Pick<Store, 'transaction' | 'close' | 'schemaVersion'> & PartsMethods<N>;
 

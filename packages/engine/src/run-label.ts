@@ -1,13 +1,13 @@
 import { kindLabel, runKind, type ClassifiableRun, type KindFacts } from './classify.js';
 import { storedModelResolver, type ModelResolver } from './report.js';
-import type { Store, StoreOf } from './store.js';
+import type { StoreOf } from './store.js';
 
 // A run's kind in words, and the model of each of its calls, as the terminal UI and the dashboard both
 // show them: worked out here, in the engine, so the dashboard needs nothing of the terminal UI.
 
 /** One resolver per store: it caches request lookups for runs recorded before the model was stored per call. */
-const resolvers = new WeakMap<Store, ModelResolver>();
-export function modelResolver(store: Store): ModelResolver {
+const resolvers = new WeakMap<object, ModelResolver>();
+export function modelResolver(store: StoreOf<'recording'>): ModelResolver {
   let r = resolvers.get(store);
   if (!r) {
     r = storedModelResolver(store);

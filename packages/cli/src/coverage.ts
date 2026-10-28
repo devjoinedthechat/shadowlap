@@ -113,7 +113,7 @@ function recordedEffects(store: StoreOf<'recording'>, runId: string): Map<string
  * behaviour it tried, so the groups a new golden covers say so, and the scan keeps what wasn't packed.
  */
 export function scanCoverage(
-  store: Store,
+  store: StoreOf<'recording' | 'readModels' | 'coverage'>,
   o: { projectDir: string; tests: readonly TestEntry[]; config: Pick<ShadowlapConfig, 'mcp'>; actor: string | null; folder?: string; pack?: readonly PackJson[]; finder?: (capture: RunRecord) => InferredCommand | null; now?: number },
 ): CoverageScanResult {
   const finder = o.finder ?? commandFinder(store);

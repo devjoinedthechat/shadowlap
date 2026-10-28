@@ -51,7 +51,6 @@ import {
   type RepairCandidate,
   type RepairOutcome,
   type RunRecord,
-  type Store,
   type StoreOf,
   type StoredBlame,
   type StoredFix,
@@ -748,7 +747,7 @@ export function shortFailure(f: string | undefined): string {
  * The pairs a blamed run's attempts made, read from that run and its attempts alone, so a fix's page
  * doesn't read every run in the store. Training owns what a pair is; this only counts them.
  */
-function blamePairs(store: Store, runId: string): number | null {
+function blamePairs(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId: string): number | null {
   const run = store.getRun(runId);
   if (!run) return null;
   return findPairs(store, { runs: [run, ...store.childRuns(runId)] }).sources.find((x) => x.key === `blame:${runId}`)?.made ?? 0;
@@ -758,7 +757,7 @@ function blamePairs(store: Store, runId: string): number | null {
  * A blame as the Blame step shows it. `fallback` is the fix's own blame command, which a pulled
  * blame shows when its fields can't be made into one.
  */
-function blameStep(store: Store, b: StoredBlame, fallback: string): BlameStep {
+function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, b: StoredBlame, fallback: string): BlameStep {
   // The gate as it can be read: a malformed one reads as none, the fixed count's words then.
   const r = { ...b.report, gate: sprtGate(b.report.gate) };
   const run = store.getRun(b.runId);
@@ -1497,7 +1496,7 @@ export function patchesToCheck(store: StoreOf<'fixes'>, fixes: readonly StoredFi
  * (`repairerProblem`, which looks for claude on the PATH), and `patchInTree` whether a verified
  * fix's patch is in the working tree already: this stays a read of the store without them.
  */
-export function fixDetail(store: Store, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck } = {}): FixDetail | null {
+export function fixDetail(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, idOrPrefix: string, options: { repairer?: string | null; checkRepairer?: (repairer: string, configured: boolean) => string | null; patchInTree?: PatchCheck } = {}): FixDetail | null {
   let found: StoredFix | null;
   try {
     found = resolveFix(store, idOrPrefix);
@@ -1620,7 +1619,7 @@ export interface WeekWindows {
  * before, unless `windows` names them. The Overview passes its own, the viewer's days, so a blame
  * counts in the same week as the runs beside it.
  */
-export function fixesSummary(store: Store, now: number = Date.now(), windows?: WeekWindows, options: { patchInTree?: PatchCheck } = {}): FixesSummary {
+export function fixesSummary(store: StoreOf<'recording' | 'readModels' | 'fixes'>, now: number = Date.now(), windows?: WeekWindows, options: { patchInTree?: PatchCheck } = {}): FixesSummary {
   const fixes = store.listFixes();
   const records = fixes.map((f) => fixRecords(store, f));
   const cost = fixCost(records);
@@ -1664,7 +1663,7 @@ export function fixesSummary(store: Store, now: number = Date.now(), windows?: W
  * Tests', and an injection test's replay is judged by that test. A blame from before Fixes kept
  * blames (only `meta.blame` on the run) does not count: blaming it again opens its fix.
  */
-function isUnblamedFailure(store: Store, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
+function isUnblamedFailure(store: StoreOf<'readModels' | 'fixes'>, run: RunRecord, index: RunIndex = loadRunIndex(store)): boolean {
   if (run.mode === 'record' ? run.status !== 'failed' : !failedFork(index, run)) return false;
   return store.blamesOfRun(run.runId).length === 0 && store.linksTo(run.runId, 'failing').length === 0;
 }
@@ -1677,7 +1676,7 @@ function failedFork(index: RunIndex, run: RunRecord): boolean {
   return !r.attemptOf && !m.probe && !m.verify && !m.repeat && !m.test && !m.chaos && !run.meta?.injection;
 }
 
-function unblamedFailures(store: Store): RunRecord[] {
+function unblamedFailures(store: StoreOf<'recording' | 'readModels' | 'fixes'>): RunRecord[] {
   const index = loadRunIndex(store);
   return store.allRuns().filter((r) => isUnblamedFailure(store, r, index));
 }
@@ -1733,7 +1732,7 @@ function unaskedWords(r: StoredRepair): string | null {
  * What needs a look about fixes, most urgent first: applied fixes that don't hold, failures with no
  * fix yet (open fixes, then failed runs never blamed), then verified fixes not applied.
  */
-export function needsLookFixes(store: Store, options: { limit?: number; patchInTree?: PatchCheck } = {}): NeedsLookItem[] {
+export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixes'>, options: { limit?: number; patchInTree?: PatchCheck } = {}): NeedsLookItem[] {
   const broken: NeedsLookItem[] = [];
   const open: NeedsLookItem[] = [];
   const ready: NeedsLookItem[] = [];
@@ -1868,7 +1867,7 @@ function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
 }
 
 /** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. */
-export function fixForRun(store: Store, runId: string): FixForRun | null {
+export function fixForRun(store: StoreOf<'recording' | 'readModels' | 'fixes'>, runId: string): FixForRun | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const failing = fixOfRun(store, runId);
@@ -2001,8 +2000,8 @@ function familyOf(store: StoreOf<'recording'>, run: RunRecord): Map<string, RunR
  * Every verdict and repair report, read once for each change to fixes: the store's `fixes` counter
  * moves whenever one is written, so a Forks view polled while nothing changes parses none again.
  */
-const reportsRead = new WeakMap<Store, { n: number; verdicts: StoredVerdict[]; repairs: StoredRepair[] }>();
-function storedReports(store: Store): { verdicts: StoredVerdict[]; repairs: StoredRepair[] } {
+const reportsRead = new WeakMap<object, { n: number; verdicts: StoredVerdict[]; repairs: StoredRepair[] }>();
+function storedReports(store: StoreOf<'activity' | 'fixes'>): { verdicts: StoredVerdict[]; repairs: StoredRepair[] } {
   const n = store.changeCounts().fixes;
   const kept = reportsRead.get(store);
   if (kept && n !== undefined && kept.n === n) return kept;
@@ -2043,7 +2042,7 @@ function attemptNote(passed: boolean, failure: string | undefined, run: RunRecor
  * belongs to. Attempts no stored report names (a blame made before fixes kept blames) are bundled
  * from the marks on the runs themselves. Null for a run that isn't in the store.
  */
-export function fixBundles(store: Store, runId: string): FixBundle[] | null {
+export function fixBundles(store: StoreOf<'recording' | 'activity' | 'fixes'>, runId: string): FixBundle[] | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const family = familyOf(store, run);

@@ -80,7 +80,7 @@ export interface RunOffersInput {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-function teamOf(store: Store, run: RunRecord, raw: unknown): RunOffers['team'] {
+function teamOf(store: StoreOf<'recording' | 'readModels' | 'team'>, run: RunRecord, raw: unknown): RunOffers['team'] {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   let loc: ReturnType<typeof parseStoreUrl>;
   try {
@@ -106,7 +106,7 @@ function teamOf(store: Store, run: RunRecord, raw: unknown): RunOffers['team'] {
  * ended (or left by a recorder that is gone, which a push ends), not from a pull request's folder,
  * not in the store's index.
  */
-function localAttemptsOf(store: Store, key: string, runId: string): number {
+function localAttemptsOf(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string, runId: string): number {
   const attempts = loadRunIndex(store).attempts.get(runId) ?? [];
   const ended = attempts.some((a) => a.status === 'running') ? abandonedRuns(store) : new Set<string>();
   let n = 0;
@@ -139,13 +139,13 @@ export function goldenExpect(tests: unknown, golden: string): unknown {
   return isObject(entry) && isObject(entry.expect) ? entry.expect : undefined;
 }
 
-const modelCalls = new WeakMap<Store, Map<string, boolean>>();
+const modelCalls = new WeakMap<object, Map<string, boolean>>();
 
 /** Whether a run made a model call, from the index of its calls by kind: none of its calls read. */
 const MADE_MODEL_CALL_SQL = `SELECT EXISTS (SELECT 1 FROM call_events WHERE run_id = ? AND kind = 'api' AND phase = 'start') AS made`;
 
 /** Whether a run that has ended made a model call: blame asks model calls again, so it needs one. */
-function madeModelCall(store: Store, run: RunRecord): boolean {
+function madeModelCall(store: StoreOf<'readModels'>, run: RunRecord): boolean {
   let seen = modelCalls.get(store);
   if (!seen) {
     seen = new Map();
@@ -166,7 +166,7 @@ function madeModelCall(store: Store, run: RunRecord): boolean {
  * out) that failed no check: blame replays a run to see it fail as recorded first, and a stop is not
  * something the agent did, so it never does.
  */
-export function blameOffer(store: Store, run: RunRecord, tests: unknown): BlameOffer | null {
+export function blameOffer(store: StoreOf<'recording' | 'readModels' | 'fixes'>, run: RunRecord, tests: unknown): BlameOffer | null {
   if (run.status === 'running' || !hasRecordedCommand(run) || run.meta?.blame) return null;
   // A blame probe's or a verify attempt's outcome belongs to the fix it was made for, and a preset's
   // attempt failed on the failure the preset played in: its verdict is the preset's.

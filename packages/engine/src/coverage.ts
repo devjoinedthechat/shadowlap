@@ -10,7 +10,7 @@ import { loadApiRequest } from './manifest.js';
 import { commandIsImported, hasRecordedCommand } from './pack.js';
 import { normalizeResponse } from './responses.js';
 import { PatternBudgetError, patternProblem, regexProblem, withinPatternBudget } from './safe-regex.js';
-import type { Store, StoreOf } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, Effect, RunRecord } from './types.js';
 
 /**
@@ -68,7 +68,7 @@ function agentModelCalls(calls: readonly CallRecord[]): CallRecord[] {
  * say which of them write, and the last model call (and, for a recording, the agent's exit) says
  * how it ended.
  */
-export function runBehaviour(store: Store, run: Pick<RunRecord, 'status'>, calls: readonly CallRecord[], effectOf: EffectOf): Behaviour {
+export function runBehaviour(store: StoreOf<'recording'>, run: Pick<RunRecord, 'status'>, calls: readonly CallRecord[], effectOf: EffectOf): Behaviour {
   const api = agentModelCalls(calls);
   const path: string[] = [];
   for (const c of api) {
@@ -85,7 +85,7 @@ export function runBehaviour(store: Store, run: Pick<RunRecord, 'status'>, calls
   return { path, writes, unknown, outcome: outcomeOf(store, run, api) };
 }
 
-function outcomeOf(store: Store, run: Pick<RunRecord, 'status'>, api: readonly CallRecord[]): BehaviourOutcome {
+function outcomeOf(store: StoreOf<'recording'>, run: Pick<RunRecord, 'status'>, api: readonly CallRecord[]): BehaviourOutcome {
   if (run.status === 'failed' || run.status === 'crashed') return 'agent-error';
   const last = api.at(-1);
   if (!last) return 'no-model-calls';

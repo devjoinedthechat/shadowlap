@@ -1,4 +1,4 @@
-import type { Store, StoreOf } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import {
   accessPolicy,
   CI_PROVIDERS,
@@ -148,7 +148,7 @@ function locationOf(raw: string | null): StoreLocation | null {
 }
 
 /** What the setup's steps go by: whether the store is connected and pushed to, what a push would send, CI, finished. */
-function setupFacts(store: Store, key: string | null, setup: SetupRecord): SetupFacts & { check: LastCheck | null; pushedHere: number } {
+function setupFacts(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string | null, setup: SetupRecord): SetupFacts & { check: LastCheck | null; pushedHere: number } {
   const counts = countsOf(store, key ?? '');
   const check = key ? lastCheck(store, key) : null;
   const sync = key ? store.teamSync(key) : null;
@@ -160,7 +160,7 @@ function setupFacts(store: Store, key: string | null, setup: SetupRecord): Setup
  * not finished): its next step, which Needs a look leads to. Null otherwise, and for a store set
  * with the CLI, which has nothing under way.
  */
-export function setupUnderWay(store: Store, input: TeamStoreInput): { step: number; title: string } | null {
+export function setupUnderWay(store: StoreOf<'recording' | 'readModels' | 'team'>, input: TeamStoreInput): { step: number; title: string } | null {
   const loc = locationOf(input.store);
   if (!loc) return null;
   const key = storeKey(loc);
@@ -173,7 +173,7 @@ export function setupUnderWay(store: Store, input: TeamStoreInput): { step: numb
  * What the setup page shows: the providers, where the setup stands, the CI steps (with the keys the
  * goldens that run live need, `keys`, as `liveKeys` gives them) and the commit.
  */
-export function storeSetupView(store: Store, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string; keys?: CiStepKeys } = {}): StoreSetupView {
+export function storeSetupView(store: StoreOf<'recording' | 'readModels' | 'team'>, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string; keys?: CiStepKeys } = {}): StoreSetupView {
   const loc = locationOf(input.store);
   const key = loc ? storeKey(loc) : null;
   const setup: SetupRecord = key ? setupRecord(store, key) : { startedAt: null, ci: null, ciProvider: null, finishedAt: null };

@@ -88,7 +88,7 @@ export function taskUpdate(store: StoreOf<'recording'>, task: Task, normalizers:
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
 /** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
-export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
+export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
   const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
@@ -118,7 +118,7 @@ export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: 
  * (one verify can check the runs of several fixes), else under the first fix it counted for. A
  * `--repeat` belongs to none.
  */
-export function sourceFixes(store: Store): FixOf {
+export function sourceFixes(store: StoreOf<'recording' | 'readModels' | 'fixes'>): FixOf {
   const label = (f: { label: string | null; title: string }) => f.label ?? f.title;
   // What a verify source is: its verdict (or repair), the first fix that counted it, and every fix it was linked to.
   const verifies = new Map<string, { fix: SourceFix; linked: Set<string> } | null>();
