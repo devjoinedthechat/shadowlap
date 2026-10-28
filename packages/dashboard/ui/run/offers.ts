@@ -1,5 +1,5 @@
 import { num, shortId } from '../format.js';
-import { isObject } from '../is-object.js';
+import { isObject } from '../../../engine/src/is-object.js';
 import { bisectCost } from '../runspage/find-commit.js';
 import type { BisectOffer, BlameOffer, RunOffers, TestBannerOffer } from '../types.js';
 

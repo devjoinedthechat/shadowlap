@@ -1,7 +1,7 @@
 import { commandText } from './goldens.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
-import { isObject } from './is-object.js';
+import { isObject } from '../../engine/src/is-object.js';
 
 /**
  * Training's logic (`pages/Training.tsx`), without the DOM so the tests import it: which pair groups a

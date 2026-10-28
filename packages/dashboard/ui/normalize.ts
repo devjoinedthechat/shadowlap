@@ -1,5 +1,5 @@
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
-import { isObject } from './is-object.js';
+import { isObject } from '../../engine/src/is-object.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own

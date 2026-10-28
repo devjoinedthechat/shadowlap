@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { folderGoneText } from '../../../src/folder-gone.js';
 import { ApiError } from '../../api.js';
 import { useLoad, type Loaded } from '../../hooks.js';
-import { messageOf } from '../../message-of.js';
+import { messageOf } from '../../../../engine/src/message-of.js';
 import { useApp, type AppState } from '../../state.js';
 import { sentence } from '../../toast.js';
 import { onSettingsChanged } from './events.js';

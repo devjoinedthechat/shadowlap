@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Dialog } from '../components/Dialog.js';
-import { messageOf } from '../message-of.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type RemoveDialogView } from '../projects-api.js';
 import { nameMatches } from '../projects.js';
 import { href } from '../route.js';

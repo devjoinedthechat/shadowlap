@@ -43,8 +43,8 @@ const JS_TESTS = ['packages/*/test/**/*.{js,mjs,cjs}', 'testing/**/*.{js,mjs,cjs
  * below names, with `bans`, every ban its files are held to.
  */
 const BANS = {
-  // The engine's isObject is the one test for a plain object. The adapters and the dashboard's browser
-  // code, which can't load the engine, each have a copy in is-object.ts.
+  // The engine's isObject is the one test for a plain object. The adapters, which install nothing but
+  // the SDK, have a copy in is-object.ts.
   isObject: [
     {
       selector: ':matches(FunctionDeclaration, VariableDeclarator)[id.name=/^(isObject|isRecord|isPlainObject|plainObject)$/]',
@@ -60,7 +60,7 @@ const BANS = {
     },
     {
       selector: "ConditionalExpression[test.operator='instanceof'][test.right.name='Error'][consequent.property.name='message'][alternate.callee.name='String']",
-      message: "Read a caught value with messageOf(err) from '@shadowlap/engine' (or the browser code's message-of.ts).",
+      message: "Read a caught value with messageOf(err) from '@shadowlap/engine'.",
     },
   ],
   // The CLI's exit statuses are a contract (docs/cli.md, "Exit status"), each named in EXIT (exit-codes.ts).
@@ -210,8 +210,8 @@ export default defineConfig(
     },
   },
 
-  // The packages' code that loads the engine, and the browser code with its copy, read a caught value
-  // with messageOf; the CLI's names its exit statuses. Held out until the passes changing them merge:
+  // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
+  // value with messageOf; the CLI's names its exit statuses. Held out until the passes changing them merge:
   // the terminal UI, the dashboard's read pool and runs list, and the CLI's chaos runs and golden tests.
   {
     files: ['packages/{cli,collector,dashboard,engine,remote,sidecar,tui}/src/**/*.{ts,tsx}', 'packages/dashboard/ui/**/*.{ts,tsx}'],
@@ -223,15 +223,10 @@ export default defineConfig(
     ignores: HELD,
     rules: { 'no-restricted-syntax': bans('isObject', 'messageOf', 'exit') },
   },
-  // The helpers themselves, and their copies where the engine can't be loaded: the adapters and the
-  // browser code, and @shadowlap/test's recording.ts, whose CommonJS copy loads only its own files.
+  // The helpers themselves, and their copies where the engine can't be loaded: the adapters, and
+  // @shadowlap/test's recording.ts, whose CommonJS copy loads only its own files.
   {
-    files: [
-      'packages/engine/src/{is-object,message-of}.ts',
-      'packages/adapters/src/is-object.ts',
-      'packages/dashboard/ui/{is-object,message-of}.ts',
-      'packages/test/src/recording.ts',
-    ],
+    files: ['packages/engine/src/{is-object,message-of}.ts', 'packages/adapters/src/is-object.ts', 'packages/test/src/recording.ts'],
     rules: { 'no-restricted-syntax': 'off' },
   },
 

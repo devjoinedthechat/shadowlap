@@ -4,7 +4,7 @@ import { JOB_KINDS, type ActionItem, type CallDetail } from '../api.js';
 import { CmdLine, Seg } from '../components/bits.js';
 import { ConsentDialog, Dialog } from '../components/Dialog.js';
 import { shortId } from '../format.js';
-import { messageOf } from '../message-of.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { useApp } from '../state.js';
 
 /**

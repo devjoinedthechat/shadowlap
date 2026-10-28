@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type CallRow, type Client, type RunDetail } from '../api.js';
 import { useLatest } from '../hooks.js';
-import { messageOf } from '../message-of.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { parseOrigins, type Origin7 } from '../origins.js';
 import { isRead, nextRead, rangeOf, withPage, withRange, type Read } from './paging.js';
 

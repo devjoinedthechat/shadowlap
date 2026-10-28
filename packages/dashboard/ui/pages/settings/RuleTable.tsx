@@ -3,7 +3,7 @@ import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
-import { messageOf } from '../../message-of.js';
+import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';

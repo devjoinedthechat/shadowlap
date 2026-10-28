@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CmdLine, PageHeader } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { Page } from '../components/Page.js';
-import { messageOf } from '../message-of.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { expectProject, type AddProjectView } from '../projects-api.js';
 import { codeParts } from '../projects.js';
 import { href } from '../route.js';

@@ -1,5 +1,5 @@
 import { num } from '../format.js';
-import { isObject } from '../is-object.js';
+import { isObject } from '../../../engine/src/is-object.js';
 import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 

@@ -1,4 +1,4 @@
-import { messageOf } from './message-of.js';
+import { messageOf } from '../../engine/src/message-of.js';
 /**
  * Toasts, one at a time at the bottom of the window. A notice has the lime dot and goes after 2.6
  * seconds, as the design's do. An error (a job the server refused, a change that failed, a job that
