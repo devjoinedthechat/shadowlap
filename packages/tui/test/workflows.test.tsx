@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { Store, unpackRun } from '@shadowlap/engine';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fixRecords, needsConsent, recordBlame, repairArgv, repairJobArgv, selectedRuns, Store, unpackRun, verifyArgv, type StoredFix } from '@shadowlap/engine';
+import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fitAbout } from '../src/about.js';
 import { App } from '../src/app.js';
 import { markTerms } from '../src/components/SearchResults.js';
-import { blameCheck, expectError, fixActions } from '../src/fix-actions.js';
+import { blameCheck, expectError, fixActions, fixJob, settleJob, type BlameAction, type FixAction } from '../src/fix-actions.js';
 import { queryTerms, readSearch, searchArgs } from '../src/search.js';
 import { renderAt } from './terminal.js';
 
@@ -36,6 +37,13 @@ function stores() {
   }
   s.endRun(own.runId, 'completed');
   return { s, golden, own: own.runId };
+}
+
+/** The blame among a run's fix actions. */
+function blameOf(actions: FixAction[]): BlameAction {
+  const b = actions.find((a): a is BlameAction => a.kind === 'blame');
+  if (!b) throw new Error('no blame action');
+  return b;
 }
 
 /** A stand-in for the CLI: prints `out` and the arguments it was given, then exits with `code`. */
@@ -76,7 +84,7 @@ describe('the Fixes flow from the terminal', () => {
     const run = s.getRun(own)!;
     // It failed a check nothing names: blaming on the exit alone would look for another failure.
     expect(blameCheck(s, run)).toBeNull();
-    const [b] = fixActions(s, run, { failing: true, recording: false });
+    const b = blameOf(fixActions(s, run, { failing: true, recording: false }));
     expect([b.key, b.needsExpect, b.disabled ?? null]).toEqual(['B', true, null]);
     expect(b.build('{"tools":{"send_email":1}}')).toEqual(['blame', own, '--expect', '{"tools":{"send_email":1}}']);
     expect(expectError('', true)).toContain('say what a passing run does');
@@ -149,6 +157,150 @@ describe('the Fixes flow from the terminal', () => {
     stdin.write('\r');
     await frameWhere(lastFrame, (f) => f.includes('done') || f.includes('exited'));
     expect(asked).toEqual([['blame', golden, '--expect', '{"tools":{}}', '--yes']]);
+    unmount();
+    s.close();
+  });
+});
+
+describe('repair and verify from the terminal, as the dashboard runs them', () => {
+  // A repair asks the user's own Claude Code unless the config names a repairer, and claude must be
+  // found first: here it is this test's node, wherever claude is installed or not.
+  const claudeWas = process.env.SHADOWLAP_CLAUDE;
+  beforeEach(() => {
+    process.env.SHADOWLAP_CLAUDE = process.execPath;
+  });
+  afterEach(() => {
+    if (claudeWas === undefined) delete process.env.SHADOWLAP_CLAUDE;
+    else process.env.SHADOWLAP_CLAUDE = claudeWas;
+  });
+  const EXPECT = { tools: { send_email: 1 } };
+  const PACK = { imported: { at: 1, from: 'pack' } };
+  const ctx = { failing: true, recording: false };
+
+  function run(s: Store, o: { argv?: string[]; labels?: string[]; status?: 'failed' | 'completed'; meta?: Record<string, unknown> } = {}): string {
+    const r = s.createRun({ mode: 'record', command: { argv: o.argv ?? ['node', 'agent.js', 'A-1150'], cwd: '.' }, meta: { ...(o.labels ? { labels: o.labels } : {}), ...(o.meta ?? {}) } });
+    s.endRun(r.runId, o.status ?? 'completed');
+    return r.runId;
+  }
+  /** A failing run blamed, which opens its fix. */
+  function failing(s: Store, labels: string[]): { id: string; fix: StoredFix } {
+    const id = run(s, { labels, status: 'failed' });
+    const { fix } = recordBlame(s, { runId: id, report: blameReport(id), expect: EXPECT, scope: null, command: `shadowlap blame ${id.slice(0, 10)}`, title: 'send_email called twice', checkText: 'send_email called once' });
+    return { id, fix };
+  }
+
+  it('runs the engine’s line: the failing run and another agent’s runs kept out, the repairer the dashboard’s, and a yes over every run it selects', () => {
+    const s = Store.open(':memory:');
+    const { id, fix } = failing(s, ['double-email', 'good']);
+    run(s, { argv: ['python', 'other_agent.py'], labels: ['good'] });
+    const same = run(s, { argv: ['node', 'agent.js', 'A-1151'], labels: ['good'] });
+    const packed = run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
+    const rec = fixRecords(s, fix);
+    const r = fixJob(s, s.getRun(id)!, 'R', ctx);
+    expect(r.args).toEqual(repairJobArgv(repairArgv(s, rec), null));
+    expect(r.args.slice(r.args.indexOf('--keeps') + 1, r.args.indexOf('--expect')).sort()).toEqual([same, packed].sort());
+    expect(r.args.slice(-2)).toEqual(['--repairer', 'claude-code']);
+    expect(r.who).toBe('your own Claude Code (claude-code)');
+    // The question is the dashboard's, over every run the line selects: the good run from a pack among them.
+    const theirs = needsConsent({ runs: selectedRuns(s, repairArgv(s, rec)), yes: undefined, args: r.args });
+    expect('ask' in theirs && theirs.ask.confirm).toBe(r.ask!.confirm);
+    expect(r.ask!.text).toMatch(new RegExp(`^${packed.slice(0, 10)} came from an imported pack: this runs the command it was recorded with \\(node agent.js A-77\\)`));
+    expect(settleJob(s, s.getRun(id)!, r, ctx)).toEqual({ run: [...r.args, '--yes'] });
+    // A repairer the config names goes unnamed, as the CLI reads it from there.
+    const named = fixJob(s, s.getRun(id)!, 'R', { ...ctx, repairer: () => 'anthropic' });
+    expect(named.args).toEqual(repairArgv(s, rec));
+    expect(named.who).toBe('anthropic (from shadowlap.config.json)');
+    // Verify takes the same runs and check.
+    const v = fixJob(s, s.getRun(id)!, 'V', ctx);
+    expect(v.args).toEqual(verifyArgv(s, rec));
+    expect(v.ask!.confirm).not.toBe(r.ask!.confirm);
+    s.close();
+  });
+
+  it('asks again when what a yes would run changed since it was shown, and refuses what can’t run', () => {
+    const s = Store.open(':memory:');
+    const { id, fix } = failing(s, ['double-email']);
+    run(s, { labels: ['good'] });
+    const shown = fixJob(s, s.getRun(id)!, 'R', ctx);
+    expect(shown.args).toContain('label:good');
+    expect(shown.ask).toBeNull();
+    // A run from a pack labelled good since: the line reads the same, but it now runs that run's command.
+    const packed = run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
+    const settled = settleJob(s, s.getRun(id)!, shown, ctx);
+    expect('again' in settled && settled.again.ask!.text).toMatch(new RegExp(`^${packed.slice(0, 10)} came from an imported pack`));
+    // The config named a repairer since: the line changed.
+    const asked = fixJob(s, s.getRun(id)!, 'R', ctx);
+    expect('again' in settleJob(s, s.getRun(id)!, asked, { ...ctx, repairer: () => 'anthropic' })).toBe(true);
+    // Claude Code can't be found: nothing runs, and it says how to point at it.
+    process.env.SHADOWLAP_CLAUDE = '/nowhere/claude';
+    const blocked = fixJob(s, s.getRun(id)!, 'R', ctx);
+    expect(blocked.blocked).toMatch(/SHADOWLAP_CLAUDE names, was not found/);
+    expect(settleJob(s, s.getRun(id)!, blocked, ctx)).toEqual({ refused: blocked.blocked });
+    // A run in no fix, and a fix verified already, which can still be verified again.
+    expect(fixJob(s, s.getRun(packed)!, 'R', ctx).disabled).toBe('for a run in a fix: B blames it, which opens one');
+    s.updateFix(fix.fixId, { status: 'verified', verifiedAt: Date.now() });
+    expect(fixJob(s, s.getRun(id)!, 'R', ctx).disabled).toBe('its fix is verified already: a change was verified for it');
+    expect(fixJob(s, s.getRun(id)!, 'V', ctx).disabled).toBeUndefined();
+    expect(fixJob(s, s.getRun(id)!, 'V', { ...ctx, recording: true }).disabled).toBe('once the recording finishes');
+    s.close();
+  });
+
+  it('repairs from the fork menu: who pays, the command, the question about a pack’s run, then the line with its --yes', async () => {
+    const s = Store.open(':memory:');
+    const { id } = failing(s, ['double-email']);
+    const packed = run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
+    const { asked, spawnCli } = cli('');
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={id} spawnCli={spawnCli} repairer={() => null} columns={140} rows={34} />, 140, 34);
+    await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
+    stdin.write(':');
+    let frame = await frameWhere(lastFrame, (f) => f.includes('Fixes'));
+    expect(frame).toMatch(/R\s+Repair the fix it fails in\s+repair/);
+    expect(frame).toMatch(/V\s+Verify a change for the fix\s+verify/);
+    stdin.write('R');
+    frame = await frameWhere(lastFrame, (f) => f.includes('Type yes to run it:'));
+    expect(frame).toContain('It asks your own Claude Code (claude-code) for candidates, so that account pays for them.');
+    expect(frame).toContain(`It runs shadowlap repair --fixes label:double-email --keeps label:good --expect '{"tools":{"send_email":1}}' --repairer claude-code`);
+    expect(frame).toContain(`${packed.slice(0, 10)} came from an imported pack`);
+    // Enter alone is no yes to someone else's command.
+    stdin.write('\r');
+    await frameWhere(lastFrame, (f) => f.includes('not run: it runs only once you type yes'));
+    expect(asked).toEqual([]);
+    stdin.write(':');
+    await frameWhere(lastFrame, (f) => f.includes('Fixes'));
+    stdin.write('R');
+    await frameWhere(lastFrame, (f) => f.includes('Type yes to run it:'));
+    stdin.write('yes');
+    await frameWhere(lastFrame, (f) => f.includes('› yes'));
+    stdin.write('\r');
+    await frameWhere(lastFrame, (f) => f.includes('done') || f.includes('exited'));
+    expect(asked).toEqual([['repair', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--repairer', 'claude-code', '--yes']]);
+    unmount();
+    s.close();
+  });
+
+  it('verifies on Enter when it asks about no one’s runs, and shows the line again when it changed first', async () => {
+    const s = Store.open(':memory:');
+    const { id } = failing(s, ['double-email']);
+    run(s, { labels: ['good'] });
+    const { asked, spawnCli } = cli('');
+    const { lastFrame, stdin, unmount } = renderAt(<App store={s} runId={id} spawnCli={spawnCli} columns={140} rows={34} />, 140, 34);
+    await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
+    stdin.write(':');
+    await frameWhere(lastFrame, (f) => f.includes('Fixes'));
+    stdin.write('V');
+    let frame = await frameWhere(lastFrame, (f) => f.includes('runs it · Esc goes back'));
+    expect(frame).toContain(`It runs shadowlap verify --fixes label:double-email --keeps label:good --expect '{"tools":{"send_email":1}}'`);
+    // A pack's run labelled good while it was shown: the yes was to another question.
+    const packed = run(s, { argv: ['node', 'agent.js', 'A-77'], labels: ['good'], meta: PACK });
+    stdin.write('\r');
+    frame = await frameWhere(lastFrame, (f) => f.includes('What it runs changed since it was shown'));
+    expect(frame).toContain(`${packed.slice(0, 10)} came from an imported pack`);
+    expect(asked).toEqual([]);
+    stdin.write('yes');
+    await frameWhere(lastFrame, (f) => f.includes('› yes'));
+    stdin.write('\r');
+    await frameWhere(lastFrame, (f) => f.includes('done') || f.includes('exited'));
+    expect(asked).toEqual([['verify', '--fixes', 'label:double-email', '--keeps', 'label:good', '--expect', '{"tools":{"send_email":1}}', '--yes']]);
     unmount();
     s.close();
   });

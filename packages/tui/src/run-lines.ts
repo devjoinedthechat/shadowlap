@@ -1,4 +1,4 @@
-import type { RunRecord } from '@shadowlap/engine';
+import { safeLine, type RunRecord } from '@shadowlap/engine';
 import { allPassed, attemptsText, type AttemptTally } from './attempts.js';
 import type { ForkEffects } from './fork-effects.js';
 import { wrap, type RenderedLine } from './render.js';
@@ -64,8 +64,10 @@ function fix(out: Out, v: Verdict, width: number, theme: Theme) {
   if (!v.fix) return;
   heading(out, 'Fix', theme);
   const f = v.fix;
-  say(out, `${f.fixId} “${f.title}”: ${f.status}`, width, f.status === 'open' ? theme.warn : theme.ok);
-  say(out, `shadowlap fix show ${f.fixId} has its blame, repair and verify`, width, theme.dim);
+  say(out, safeLine(`${f.fixId} “${f.title}”: ${f.status}`), width, f.status === 'open' ? theme.warn : theme.ok);
+  // What the fork menu does for it from here, then where the rest of it is.
+  const next = f.status === 'open' ? ': then R repairs it, or V verifies a change you made for it' : ': then V verifies it again';
+  say(out, `${next}. shadowlap fix show ${f.fixId} has its blame, repair and verify`, width, theme.dim);
 }
 
 function unrecorded(out: Out, v: Verdict, width: number, theme: Theme) {

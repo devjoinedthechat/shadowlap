@@ -36,6 +36,8 @@ export interface AppProps {
   /** shadowlap.config.json's `tests` as written and the folder it is in: the check a golden's runs are blamed under. */
   tests?: unknown;
   configDir?: string | null;
+  /** The repairer shadowlap.config.json names now (`repair.repairer`), read each time a repair is shown or said yes to; none: the user's own Claude Code. */
+  repairer?: () => string | null;
 }
 
 type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean; initialTab?: Tab };
@@ -48,7 +50,7 @@ export function App({ theme = 'dark', ...rest }: AppProps) {
   );
 }
 
-function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null }: Omit<AppProps, 'theme'>) {
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null, repairer }: Omit<AppProps, 'theme'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });
@@ -170,6 +172,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         {...(tests !== undefined ? { tests } : {})}
         {...(unrecorded ? { declared: unrecorded } : {})}
         {...(normalizers ? { normalizers } : {})}
+        {...(repairer ? { repairer } : {})}
       />
     );
   } else {

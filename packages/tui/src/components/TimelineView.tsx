@@ -8,7 +8,7 @@ import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSourc
 import { copyToClipboard } from '../clipboard.js';
 import { attemptBundles, commandIsImported, lostAt, withAttempts, type Normalizer, type RunAbout } from '@shadowlap/engine';
 import { aboutRun, fitAbout } from '../about.js';
-import { expectError, fixActions, type FixAction } from '../fix-actions.js';
+import { expectError, fixActions, settleJob, type BlameAction, type FixContext, type FixJob } from '../fix-actions.js';
 import { attemptTallies } from '../attempts.js';
 import { forkEffects } from '../fork-effects.js';
 import type { RunFacts } from '../run-lines.js';
@@ -20,6 +20,7 @@ import { cells, fitColumns, fitItems } from '../render.js';
 import { displayOrigin, kindLabel, useTheme } from '../theme.js';
 import { actionContext, ActionsView, forkMenuTitle, notRun, recordingNow, terminalActions, type Action } from './ActionsView.js';
 import { Inspector, TAB_KEYS, tabsFor, type InspectorView, type PlayState, type Tab } from './Inspector.js';
+import { FixJobView } from './FixJobView.js';
 import { OutputPane } from './OutputPane.js';
 import { cell, KeyHints, Line, Row, type Cell, type Hint, type Tone } from './Row.js';
 import { TextInput } from './TextInput.js';
@@ -67,6 +68,8 @@ interface Props {
   onRefresh?: (runId: string) => void;
   /** Adds a note on a call of the run (`N`), as `shadowlap note` adds one; says what it did. */
   onNote?: (runId: string, callNo: number | null, text: string) => string;
+  /** The repairer shadowlap.config.json names now (`repair.repairer`), read when a repair is shown and again on its yes. */
+  repairer?: () => string | null;
 }
 
 /** The runs an attempt of `run` can be among: its descendants and its siblings (a test's are filed under a sibling). */
@@ -82,8 +85,10 @@ type Mode =
   | { kind: 'prompt'; action: Action }
   /** A replay of someone else's run, asked once more on its own: the exact command line it runs, then a yes. */
   | { kind: 'consent'; action: Action; args: string[]; refresh?: boolean }
-  /** Blame, repair or verify: what a passing run does, then the command runs. */
-  | { kind: 'fix'; fix: FixAction }
+  /** Blame: what a passing run does, then the command runs. */
+  | { kind: 'fix'; fix: BlameAction }
+  /** Repair or verify the run's fix: the command line, what stands in the way, and a yes; `again` says why it is asked once more. */
+  | { kind: 'job'; job: FixJob; again?: string }
   /** A note on the selected call. */
   | { kind: 'note'; callNo: number | null }
   /** Filtering as you type; Esc puts back the filter and the selection from before. */
@@ -189,7 +194,7 @@ function AboutLine({ about, facts, width }: { about: Pick<RunAbout, 'text' | 'fr
 /** A row of the call list: a call, or a line drawn before one: where the run forked from its parent, or where blame found it lost. */
 type Item = { kind: 'call'; at: number } | { kind: 'fork' } | { kind: 'lost' };
 
-export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false, onRefresh, onNote, initialTab, tests, configDir = null, version = 0 }: Props) {
+export function TimelineView({ store, run, calls, width, height, onBack, onHelp, onOpenRun, spawnCli, openDashboard, initialCall, summaryOptions, paused = false, onMark, declared, normalizers, askedCall = false, onRefresh, onNote, initialTab, tests, configDir = null, version = 0, repairer }: Props) {
   const theme = useTheme();
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
@@ -327,11 +332,13 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     const child = spawnCli(args);
     setMode({ kind: 'output', title: `shadowlap ${args.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`, child, refresh });
   };
-  // The Fixes flow from this run (B, R, V in the fork menu), and the good runs a change must keep passing.
-   
-  const fixes = useMemo(() => fixActions(store, run, { failing: isFailing(verdict.outcome, verdict.fix), recording, tests, configDir }), [store, run, verdict, recording, tests, configDir]);
+  // The Fixes flow from this run (B, R, V in the fork menu): blame the run, repair the fix it fails
+  // in, or verify a change for that fix.
+  const fixContext = useMemo<FixContext>(() => ({ failing: isFailing(verdict.outcome, verdict.fix), recording, tests, configDir, ...(repairer ? { repairer } : {}) }), [verdict, recording, tests, configDir, repairer]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a job (version) changes the fix the run is in, and what it selects
+  const fixes = useMemo(() => fixActions(store, run, fixContext), [store, run, fixContext, version]);
   const fixMenu = useMemo(() => fixes.map((f): Action => ({ key: f.key, label: f.label, flag: f.flag, hint: f.hint, opensRun: false, ...(f.disabled ? { disabled: f.disabled } : {}) })), [fixes]);
-  const runFix = (fix: FixAction, value: string) => {
+  const runFix = (fix: BlameAction, value: string) => {
     const wrong = expectError(value, fix.needsExpect);
     if (wrong) {
       setMode({ kind: 'timeline' });
@@ -342,13 +349,25 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
     if (commandIsImported(run)) setMode({ kind: 'consent', action: fixMenu.find((a) => a.key === fix.key)!, args: [...args, '--yes'], refresh: true });
     else runAction(args, true);
   };
+  /**
+   * A yes to a repair or a verify, answered against the store as it is now (`settleJob`): it runs the
+   * line it showed, or shows the new one when what it would run, or whom the question names, changed.
+   */
+  const runJob = (shown: FixJob) => {
+    const settled = settleJob(store, run, shown, fixContext);
+    if ('run' in settled) return runAction(settled.run, true);
+    if ('again' in settled) return setMode({ kind: 'job', job: settled.again, again: 'What it runs changed since it was shown: read it again.' });
+    setMode({ kind: 'timeline' });
+    say(`not run: ${settled.refused}`, 8000, 'warn');
+  };
   // A replay of a run from someone else's pack, or a teammate's pulled from the team store, runs
   // their command: whatever the action asked first (attempts, an instruction), it runs only once a
   // step of its own has shown the exact command line and been answered yes, as the dashboard asks.
   const pick = (action: Action) => {
     if (action.disabled || !spawnCli) return;
     const fix = fixes.find((f) => f.key === action.key);
-    if (fix) return setMode({ kind: 'fix', fix });
+    if (fix?.kind === 'blame') return setMode({ kind: 'fix', fix });
+    if (fix) return setMode({ kind: 'job', job: fix });
     if (action.imported === 'confirm') setMode({ kind: 'consent', action, args: action.prompt!.build('yes') });
     else if (action.prompt) setMode({ kind: 'prompt', action });
     else if (action.args) runAction(action.args);
@@ -696,6 +715,19 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
             onCancel={() => setMode({ kind: 'timeline' })}
           />
         </Box>
+      ) : mode.kind === 'job' ? (
+        <FixJobView
+          job={mode.job}
+          {...(mode.again ? { again: mode.again } : {})}
+          width={width}
+          height={bodyHeight}
+          onYes={() => runJob(mode.job)}
+          onDecline={() => {
+            setMode({ kind: 'timeline' });
+            say('not run: it runs only once you type yes', 4000, 'warn');
+          }}
+          onCancel={() => setMode({ kind: 'timeline' })}
+        />
       ) : mode.kind === 'note' ? (
         <Box flexDirection="column" width={width} height={bodyHeight} borderStyle="round" borderColor={theme.accent} paddingX={1}>
           <Text bold>Note {mode.callNo !== null ? `on #${mode.callNo}` : 'on the run'}</Text>

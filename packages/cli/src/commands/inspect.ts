@@ -135,7 +135,15 @@ export function register(program: Command): void {
         }
         // The config's tests, for the check blame judges a golden's runs by, as the dashboard reads them.
         const configFile = readConfigFile(cwd);
-        await launchTui(store, { spawnCli, openDashboard, normalizers, tests: configFile.data.tests, configDir: dirname(configFile.path), ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.unrecorded ? { unrecorded: uiConfig.unrecorded } : {}) });
+        // The repairer the config names, read each time a repair is shown and said yes to, as the dashboard reads it for each job.
+        const repairer = (): string | null => {
+          try {
+            return loadConfig(cwd).repair?.repairer ?? null;
+          } catch {
+            return null;
+          }
+        };
+        await launchTui(store, { spawnCli, openDashboard, normalizers, tests: configFile.data.tests, configDir: dirname(configFile.path), repairer, ...(runId ? { runId } : {}), ...(flags.call !== undefined ? { callNo: flags.call } : {}), ...(uiConfig.prices ? { prices: uiConfig.prices } : {}), ...(uiConfig.unrecorded ? { unrecorded: uiConfig.unrecorded } : {}) });
       } finally {
         await dashboard.close();
         store.close();
