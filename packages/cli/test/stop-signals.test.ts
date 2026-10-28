@@ -122,3 +122,57 @@ process.stderr.write('server ready\\n');
     }, 30_000);
   }
 });
+
+/**
+ * A stop signal that comes while the command is busy with synchronous work, as repair is when git
+ * removes its worktree after the last verify, waits for the event loop to read it. The command then
+ * ends, and its process with it: before, with the command's own status (1 for a repair with no fix),
+ * the signal never read. The entry point (runToEnd, which bin/shadowlap.js runs every command with)
+ * reads it first, so the process ends with 128 + n.
+ */
+describe.skipIf(process.platform === 'win32')('a stop signal during the last synchronous work', () => {
+  const EXIT_CODES = new URL('../dist/exit-codes.js', import.meta.url).href;
+
+  /** A command that says it is busy, works synchronously for a second, then sets its own status of 1 or throws a failure. */
+  async function busy(signal: NodeJS.Signals, opts: { throws: boolean; listens: boolean }): Promise<{ code: number | null; signal: NodeJS.Signals | null; out: string }> {
+    const child = spawn(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import { writeSync } from 'node:fs';
+const { failedError, runToEnd, watchStopSignals } = await import(${JSON.stringify(EXIT_CODES)});
+watchStopSignals();
+// A command winding down on a signal of its own, as repair does while it stops its repairer.
+if (${opts.listens}) process.on(${JSON.stringify(signal)}, () => {});
+runToEnd(async () => {
+  writeSync(1, 'busy\\n');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+  if (${opts.throws}) throw failedError('no candidate passed');
+  process.exitCode = 1;
+});`,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let out = '';
+    child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+    const ended = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('close', (code, sig) => resolve({ code, signal: sig })));
+    await new Promise<void>((resolve) => child.stdout.on('data', (d: Buffer) => d.toString().includes('busy') && resolve()));
+    child.kill(signal);
+    return { ...(await ended), out };
+  }
+
+  it('ends with the signal, not the status the command set, when it was the last thing to run', async () => {
+    // Nothing else listens: the process ends by the signal itself, as a shell reports 128 + n.
+    expect(await busy('SIGINT', { throws: false, listens: false })).toEqual({ code: null, signal: 'SIGINT', out: '' });
+    // The command listens too, so the status says it: 128 + n.
+    expect(await busy('SIGTERM', { throws: false, listens: true })).toEqual({ code: signalExit('SIGTERM'), signal: null, out: '' });
+  }, 20_000);
+
+  it('ends with the signal, not the failure the command threw after it', async () => {
+    expect((await busy('SIGHUP', { throws: true, listens: false })).signal).toBe('SIGHUP');
+    const listened = await busy('SIGINT', { throws: true, listens: true });
+    expect(listened.code, listened.out).toBe(signalExit('SIGINT'));
+    expect(listened.out).toBe('shadowlap: no candidate passed\n');
+  }, 20_000);
+});

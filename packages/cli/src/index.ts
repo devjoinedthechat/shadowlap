@@ -22,7 +22,7 @@ export { captureConfig, guardEnv, type GuardMode } from './run-agent.js';
 export { hasCredentials, keyEnvOf, placeholderKeys } from './placeholder-keys.js';
 export { quoteArgv } from './ui.js';
 // The exit status contract, for the entry point (bin/shadowlap.js) and for tools that run the CLI.
-export { CliError, EXIT, exitCodeOf, reportError, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
+export { afterPendingSignals, CliError, EXIT, exitCodeOf, reportError, runToEnd, signalExit, stoppedBy, watchStopSignals } from './exit-codes.js';
 
 export async function main(argv: string[]): Promise<void> {
   const program = new Command()

@@ -17,7 +17,7 @@ A store is created by the first command that records into it. Commands that only
 | `2` | Usage or configuration: a flag, argument or command it doesn't take, a run or fix it can't find or can't use yet (one still recording), a file it can't read, an invalid `shadowlap.config.json`, a live command with no key, a recorded command it needs `--yes` to run, a replay that would run a [write Shadowlap never recorded](./how-it-works.md#tools-shadowlap-did-not-record) again |
 | `3` | Inconclusive: a gate or check that could not decide (`0` when `--inconclusive warn` lets it through), a budget spent before a verdict, the provider unavailable |
 | `70` | Internal error: a bug in Shadowlap. The message says so: run the command again with `SHADOWLAP_DEBUG=1` to see where it happened, and report it |
-| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too) |
+| `128 + n` | Stopped by signal *n*: `130` for Ctrl-C, `129` for a closed terminal (SIGHUP), `143` for SIGTERM, however the command wound down (the dashboard, `serve`, `tasks serve`, `mcp`, `demo` and `replay --watch` too), and when the signal came as it finished (repair removing its worktree after its last verify) |
 
 `run` and `replay` end with the agent's own status where none of these applies, as the agent would have ended without Shadowlap: `127` for a command that isn't on the PATH, and `128 + n` for an agent a signal stopped. Each command's section says which statuses it ends with. `SHADOWLAP_DEBUG=1` prints the stack of any error, for a bug report.
 

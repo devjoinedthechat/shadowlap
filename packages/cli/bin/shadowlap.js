@@ -24,18 +24,13 @@ for (const stream of [process.stdout, process.stderr]) {
 
 // What a command throws ends it with the status the contract gives it (exit-codes.ts): the message
 // is what a person needs, and SHADOWLAP_DEBUG=1 adds the stack for a bug report. A stop signal ends
-// it with 128 + the signal's number, however the command wound down.
+// it with 128 + the signal's number, however the command wound down, one that came during its last
+// synchronous work too (runToEnd).
 import('../dist/index.js').then(
   (cli) => {
     cli.watchStopSignals();
     process.on('uncaughtException', (err) => process.exit(cli.reportError(err)));
-    cli.main(process.argv).then(
-      () => {
-        const signal = cli.stoppedBy();
-        if (signal) process.exitCode = cli.signalExit(signal);
-      },
-      (err) => process.exit(cli.reportError(err)),
-    );
+    cli.runToEnd(() => cli.main(process.argv));
   },
   (err) => {
     // The CLI's own files did not load: an installation that is broken, never what it was asked.
