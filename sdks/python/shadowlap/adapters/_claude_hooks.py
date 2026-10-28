@@ -425,12 +425,12 @@ def _read_text(path: str) -> Optional[str]:
         return None
 
 
-def component_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
-    """The PreToolUse hooks of the skills, subagents and local plugins the query loads. Claude Code keeps
-    a skill's for the rest of the session once the skill is invoked, which can come at any turn, so each
-    counts from the start; a subagent's run only while that subagent runs, so each is for that
-    subagent's calls alone. A frontmatter whose hooks can't be read counts as a hook on every tool."""
-    files = component_files(places, cwd)
+def _component_pre_tool_use(files: Mapping[str, list[str]]) -> list[dict[str, Any]]:
+    """The PreToolUse hooks of the skills, subagents and local plugins the query loads (``files``, as
+    _hook_sources leaves them). Claude Code keeps a skill's for the rest of the session once the skill
+    is invoked, which can come at any turn, so each counts from the start; a subagent's run only while
+    that subagent runs, so each is for that subagent's calls alone. A frontmatter whose hooks can't be
+    read counts as a hook on every tool."""
     out: list[dict[str, Any]] = []
 
     def from_frontmatter(path: str, agent: bool) -> None:
@@ -521,21 +521,32 @@ def _hooks_on(docs: list[dict[str, Any]], own_local: str) -> str:
     return "all"
 
 
-def hook_items(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
-    """Every hook Claude Code runs for the query, of every event, as settings_pre_tool_use finds the
-    PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
-    frontmatter or a hooks file it can't read is one of type ``unreadable``. ``disableAllHooks``, as
-    Claude Code resolves it (_hooks_on), turns them all off when managed settings set it, and when
-    another level does only the ones outside managed settings, as Claude Code's settings reference
-    says."""
+def _hook_sources(places: Mapping[str, Any], cwd: str) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
+    """The settings documents, and the skills, subagents and local plugins, whose hooks Claude Code runs
+    for the query, as ``disableAllHooks`` leaves them (_hooks_on): none when managed settings turn every
+    hook off; when another level turns them off, the managed settings' and the organization's skills
+    (in the folder beside the managed settings file) alone, as Claude Code's settings reference says it
+    keeps running managed hooks; else all of them."""
     docs = settings_documents(places, cwd)
     on = _hooks_on(docs, os.path.join(cwd, ".claude", "settings.local.json"))
     if on == "none":
-        return []
-    out = [h for d in docs if on == "all" or d["managed"] for h in _hook_items_of(d["data"], d["source"])]
-    if on == "managed":
-        return out
+        return [], {"skills": [], "agents": [], "plugin_hooks": []}
     files = component_files(places, cwd)
+    if on == "all":
+        return docs, files
+    managed = managed_file_of(places)
+    organization = os.path.join(os.path.dirname(managed), ".claude", "skills") + os.sep if managed else None
+    skills = [f for f in files["skills"] if organization is not None and f.startswith(organization)]
+    return [d for d in docs if d["managed"]], {"skills": skills, "agents": [], "plugin_hooks": []}
+
+
+def hook_items(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
+    """Every hook Claude Code runs for the query, of every event, as settings_pre_tool_use finds the
+    PreToolUse ones: the settings documents', and the skills', subagents' and local plugins', as
+    ``disableAllHooks`` leaves them (_hook_sources). A frontmatter or a hooks file it can't read is one
+    of type ``unreadable``."""
+    docs, files = _hook_sources(places, cwd)
+    out = [h for d in docs for h in _hook_items_of(d["data"], d["source"])]
     for path in [*files["skills"], *files["agents"]]:
         text = _read_text(path)
         keys = frontmatter(text) if text is not None else None
@@ -558,14 +569,16 @@ def hook_items(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
 def settings_pre_tool_use(places: Mapping[str, Any], cwd: str) -> list[dict[str, Any]]:
     """The PreToolUse hooks Claude Code runs beside the fence for the query, read as they are now (Claude
     Code reloads a file that changes): those of every settings document it reads (settings_documents),
-    and of the skills, subagents and local plugins it loads (component_pre_tool_use). ``places``:
+    and of the skills, subagents and local plugins it loads (_component_pre_tool_use). ``places``:
     ``sources`` (the query's ``setting_sources``; all three when absent), ``settings``, ``env`` (the
     CLI's: ``CLAUDE_CONFIG_DIR``, ``HOME``), ``managed_file`` (the managed settings file; the system's by
     default, None for none, its folder holding the organization's other files), ``add_dirs`` and
-    ``plugins`` (the local plugins' folders). A file that can't be read or parsed holds none, as Claude
-    Code skips it; a frontmatter is the exception, read as a hook on every tool."""
-    docs = settings_documents(places, cwd)
-    return [h for d in docs for h in _pre_tool_use(d["data"], d["source"])] + component_pre_tool_use(places, cwd)
+    ``plugins`` (the local plugins' folders). They are as ``disableAllHooks`` leaves them
+    (_hook_sources), so a hook Claude Code won't run refuses no recorded write; where Claude Code may not
+    read the value that would turn one off, the hook counts. A file that can't be read or parsed holds
+    none, as Claude Code skips it; a frontmatter is the exception, read as a hook on every tool."""
+    docs, files = _hook_sources(places, cwd)
+    return [h for d in docs for h in _pre_tool_use(d["data"], d["source"])] + _component_pre_tool_use(files)
 
 
 def hook_runs_for(hook: Mapping[str, Any], agent_type: str) -> bool:

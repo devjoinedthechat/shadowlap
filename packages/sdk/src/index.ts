@@ -56,13 +56,33 @@ export interface SerializedError {
    * nothing nested, which can hold a request and its headers.
    */
   fields?: Record<string, ErrorField>;
+  /**
+   * The HTTP response an HTTP client's error carries, as Axios's does (`err.response.status`): its
+   * `status` and `statusText` alone, never its headers, data or config, rebuilt on replay as a
+   * `response` holding just those.
+   */
+  response?: { status?: number; statusText?: string };
 }
 
 /** A value of an error's own field a recording keeps. */
 export type ErrorField = string | number | boolean | null;
 
 /** What an error is rebuilt from, or holds of its own: never one of its fields. */
-const NOT_FIELDS = new Set(['name', 'message', 'stack', 'code', 'cause', 'data', 'fields']);
+const NOT_FIELDS = new Set(['name', 'message', 'stack', 'code', 'cause', 'data', 'fields', 'response']);
+
+/** Of a response an error carries, its status and status text alone (SerializedError's `response`); null when it holds neither. */
+function responseStatus(response: unknown): { status?: number; statusText?: string } | null {
+  if (typeof response !== 'object' || response === null) return null;
+  let status: unknown;
+  let statusText: unknown;
+  try {
+    ({ status, statusText } = response as { status?: unknown; statusText?: unknown });
+  } catch {
+    return null; // a getter that throws keeps nothing
+  }
+  const kept = { ...(typeof status === 'number' && Number.isFinite(status) ? { status } : {}), ...(typeof statusText === 'string' ? { statusText } : {}) };
+  return Object.keys(kept).length ? kept : null;
+}
 
 const isField = (v: unknown): v is ErrorField => v === null || typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v));
 
@@ -79,10 +99,11 @@ export class ShadowlapWriteBlocked extends Error {
 }
 
 /**
- * A recorded error, replayed. The original class is not preserved; name, message and code are, and
- * its own fields JSON keeps (`errno`, `syscall`, `path`, `status`). A replayed tool error is an
- * instance of a subclass named after the recorded error, so it reads as that error did:
- * `String(err)`, `util.inspect(err)` and the stack's first line are the same.
+ * A recorded error, replayed. The original class is not preserved; name, message and code are, its
+ * own fields JSON keeps (`errno`, `syscall`, `path`, `status`), and its response's status and status
+ * text (Axios's `response.status`). A replayed tool error is an instance of a subclass named after
+ * the recorded error, so it reads as that error did: `String(err)`, `util.inspect(err)` and the
+ * stack's first line are the same.
  */
 export class ReplayedError extends Error {
   readonly code: string | undefined;
@@ -97,6 +118,9 @@ export class ReplayedError extends Error {
       if (NOT_FIELDS.has(key) || key in this || !isField(value)) continue;
       Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
     }
+    // The response's status, where the agent reads it (`err.response.status`), and nothing else of it.
+    const response = responseStatus(e.response);
+    if (response) Object.defineProperty(this, 'response', { value: response, enumerable: true, writable: true, configurable: true });
   }
 }
 
@@ -368,9 +392,10 @@ export async function completeToolCall(callNo: number, end: CallEnd): Promise<vo
 }
 
 /**
- * An error as it is recorded: its name, message and string `code`, and its own fields that JSON
- * keeps as they are (SerializedError's `fields`), so a replay can hand the agent what it reads off
- * the error: a file system error's `path`, an HTTP client error's `status`.
+ * An error as it is recorded: its name, message and string `code`, its own fields that JSON keeps as
+ * they are (SerializedError's `fields`), and the status of the response it carries (`response`), so
+ * a replay can hand the agent what it reads off the error: a file system error's `path`, an HTTP
+ * client error's `status`, Axios's `response.status`.
  */
 export function serializeError(err: unknown): SerializedError {
   if (err instanceof Error) {
@@ -389,6 +414,13 @@ export function serializeError(err: unknown): SerializedError {
       if (isField(value)) fields[key] = value;
     }
     if (Object.keys(fields).length) out.fields = fields;
+    let response: ReturnType<typeof responseStatus> = null;
+    try {
+      response = responseStatus((err as { response?: unknown }).response);
+    } catch {
+      // a getter that throws keeps nothing
+    }
+    if (response) out.response = response;
     return out;
   }
   return { name: 'Error', message: String(err) };

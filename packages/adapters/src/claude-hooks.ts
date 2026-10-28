@@ -440,14 +440,14 @@ function readText(fs: Fs, file: string): string | null {
 }
 
 /**
- * The PreToolUse hooks of the skills, subagents and local plugins the query loads. Claude Code keeps
- * a skill's for the rest of the session once the skill is invoked, which can come at any turn, so
- * each counts from the start; a subagent's run only while that subagent runs, so each is for that
- * subagent's calls alone. A frontmatter whose hooks can't be read counts as a hook on every tool.
+ * The PreToolUse hooks of the skills, subagents and local plugins the query loads (`files`, as
+ * hookSources leaves them). Claude Code keeps a skill's for the rest of the session once the skill
+ * is invoked, which can come at any turn, so each counts from the start; a subagent's run only while
+ * that subagent runs, so each is for that subagent's calls alone. A frontmatter whose hooks can't be
+ * read counts as a hook on every tool.
  */
-export async function componentPreToolUse(places: SettingsPlaces, cwd: string): Promise<SettingsHook[]> {
+async function componentPreToolUse(files: ComponentFiles): Promise<SettingsHook[]> {
   const { fs, path } = await nodeModules();
-  const files = await componentFiles(places, cwd);
   const out: SettingsHook[] = [];
   const fromFrontmatter = (file: string, agent: boolean) => {
     const text = readText(fs, file);
@@ -530,21 +530,34 @@ function hooksOn(docs: readonly SettingsDocument[], ownLocal: string): HooksOn {
 }
 
 /**
- * Every hook Claude Code runs for the query, of every event, as `settingsPreToolUse` finds the
- * PreToolUse ones: the settings documents', and the skills', subagents' and local plugins'. A
- * frontmatter or a hooks file it can't read is one of `type` `unreadable`. `disableAllHooks`, as
- * Claude Code resolves it (hooksOn), turns them all off when managed settings set it, and when
- * another level does only the ones outside managed settings, as Claude Code's settings reference
- * says.
+ * The settings documents, and the skills, subagents and local plugins, whose hooks Claude Code runs
+ * for the query, as `disableAllHooks` leaves them (hooksOn): none when managed settings turn every
+ * hook off; when another level turns them off, the managed settings' and the organization's skills
+ * (in the folder beside the managed settings file) alone, as Claude Code's settings reference says
+ * it keeps running managed hooks; else all of them.
  */
-export async function hookItems(places: SettingsPlaces, cwd: string): Promise<HookItem[]> {
-  const { fs, path } = await nodeModules();
+async function hookSources(places: SettingsPlaces, cwd: string): Promise<{ docs: SettingsDocument[]; files: ComponentFiles }> {
+  const { path } = await nodeModules();
   const docs = await settingsDocuments(places, cwd);
   const on = hooksOn(docs, path.join(cwd, '.claude', 'settings.local.json'));
-  if (on === 'none') return [];
-  const out = docs.filter((d) => on === 'all' || d.managed).flatMap((d) => hookItemsOf(d.data, d.source));
-  if (on === 'managed') return out;
+  if (on === 'none') return { docs: [], files: { skills: [], agents: [], pluginHooks: [] } };
   const files = await componentFiles(places, cwd);
+  if (on === 'all') return { docs, files };
+  const managed = managedFileOf(places, path);
+  const organization = managed === null ? null : path.join(path.dirname(managed), '.claude', 'skills') + path.sep;
+  return { docs: docs.filter((d) => d.managed), files: { skills: organization === null ? [] : files.skills.filter((f) => f.startsWith(organization)), agents: [], pluginHooks: [] } };
+}
+
+/**
+ * Every hook Claude Code runs for the query, of every event, as `settingsPreToolUse` finds the
+ * PreToolUse ones: the settings documents', and the skills', subagents' and local plugins', as
+ * `disableAllHooks` leaves them (hookSources). A frontmatter or a hooks file it can't read is one of
+ * `type` `unreadable`.
+ */
+export async function hookItems(places: SettingsPlaces, cwd: string): Promise<HookItem[]> {
+  const { fs } = await nodeModules();
+  const { docs, files } = await hookSources(places, cwd);
+  const out = docs.flatMap((d) => hookItemsOf(d.data, d.source));
   for (const file of [...files.skills, ...files.agents]) {
     const text = readText(fs, file);
     const hooks = (text === null ? null : frontmatter(text))?.get('hooks');
@@ -569,12 +582,14 @@ export async function hookItems(places: SettingsPlaces, cwd: string): Promise<Ho
  * The PreToolUse hooks Claude Code runs beside the fence for the query, read as they are now
  * (Claude Code reloads a file that changes): those of every settings document it reads
  * (settingsDocuments), and of the skills, subagents and local plugins it loads
- * (componentPreToolUse). A file that can't be read or parsed holds none, as Claude Code skips it;
- * a frontmatter is the exception, read as a hook on every tool.
+ * (componentPreToolUse), as `disableAllHooks` leaves them (hookSources), so a hook Claude Code
+ * won't run refuses no recorded write; where Claude Code may not read the value that would turn
+ * one off, the hook counts. A file that can't be read or parsed holds none, as Claude Code skips
+ * it; a frontmatter is the exception, read as a hook on every tool.
  */
 export async function settingsPreToolUse(places: SettingsPlaces, cwd: string): Promise<SettingsHook[]> {
-  const docs = await settingsDocuments(places, cwd);
-  return [...docs.flatMap((d) => preToolUse(d.data, d.source)), ...(await componentPreToolUse(places, cwd))];
+  const { docs, files } = await hookSources(places, cwd);
+  return [...docs.flatMap((d) => preToolUse(d.data, d.source)), ...(await componentPreToolUse(files))];
 }
 
 /** Whether a hook of `h` runs for a call of the subagent `agentType` (the main session's when empty). */
