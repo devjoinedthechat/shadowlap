@@ -400,6 +400,8 @@ class RecordingRules(unittest.TestCase):
         for again in (err, copy.copy(err), pickle.loads(pickle.dumps(err))):
             self.assertEqual((getattr(again, "status_code", None), getattr(again, "request_id", None), getattr(again, "message", None)), (404, "req_017", "Not found"))
             self.assertFalse(hasattr(again, "request") or hasattr(again, "body"))
+            # Its response's status and reason, as err.response.status_code reads them, and nothing else of it.
+            self.assertEqual(vars(again.response), {"status_code": 404, "reason_phrase": "Not Found"})
         # A field never shadows what an error has, and one that isn't plain is refused.
         odd = shadowlap.ReplayedError({"name": "Error", "message": "m", "fields": {"with_traceback": 1, "_message": "x", "name": "y", "status": 500, "nested": {"a": 1}}})
         self.assertEqual((str(odd), odd.name, getattr(odd, "status", None), hasattr(odd, "nested"), callable(odd.with_traceback)), ("m", "Error", 500, False, True))
@@ -513,7 +515,18 @@ class APIStatusError(Exception):
         self.request_id = "req_017"
         self.code = None
         self.request = {"method": "POST", "url": "https://api.example/v1/orders", "headers": {"authorization": "Bearer not-for-a-recording"}}
+        self.response = HttpResponse(status_code, "Not Found")
         self.body = {"error": {"message": message}}
+
+
+class HttpResponse:
+    """A response as httpx's is: its status, its reason, and headers that may hold a cookie."""
+
+    def __init__(self, status_code: int, reason_phrase: str) -> None:
+        self.status_code = status_code
+        self.reason_phrase = reason_phrase
+        self.headers = {"set-cookie": "session=not-for-a-recording"}
+        self.content = b"{}"
 
 if __name__ == "__main__":
     unittest.main()

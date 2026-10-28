@@ -20,6 +20,7 @@ import random as _random
 import re
 import sys
 import time
+import types
 import urllib.error
 import urllib.request
 import uuid as _uuid
@@ -87,7 +88,27 @@ def _recorded_args(error: Any) -> list[Any]:
 _OS_FILES = ("filename", "filename2")
 
 #: What an error is rebuilt from, or holds of its own: never one of its fields.
-_NOT_FIELDS = frozenset({"args", "name", "code", "data", "fields", "module", "errno", "strerror", "filename", "filename2", "winerror", "characters_written"})
+_NOT_FIELDS = frozenset({"args", "name", "code", "data", "fields", "module", "response", "errno", "strerror", "filename", "filename2", "winerror", "characters_written"})
+
+#: Of the HTTP response an error carries (httpx's, requests', openai's ``response``), what a recording keeps: its status and reason, never its headers or content.
+_RESPONSE_STATUS = (("status_code", int), ("reason_phrase", str), ("reason", str))
+
+
+def _response_status(response: Any) -> Optional[dict[str, Any]]:
+    """Of a response an error carries, its status code and reason alone, as ``{"status_code": 404,
+    "reason_phrase": "Not Found"}``: what an agent reads off ``err.response``. None when it holds
+    neither, or is no response at all."""
+    if response is None:
+        return None
+    kept: dict[str, Any] = {}
+    for key, kind in _RESPONSE_STATUS:
+        try:
+            value = response.get(key) if isinstance(response, dict) else getattr(response, key, None)
+        except Exception:  # a property that fails keeps nothing
+            continue
+        if isinstance(value, kind) and not isinstance(value, bool):
+            kept[key] = value
+    return kept or None
 
 
 def _plain(value: Any) -> bool:
@@ -129,8 +150,9 @@ class ReplayedError(Exception):
     the call was recorded. A builtin's (ValueError, KeyError, FileNotFoundError) is an instance of that
     builtin too, so the agent's ``except KeyError`` catches it as it caught the original. Its own plain
     attributes are set again (openai's ``status_code`` and ``request_id``), where they shadow nothing an
-    error has. An agent that hands a tool's error to the model hands it the same text on replay, and
-    ``except ReplayedError`` still catches it."""
+    error has, and its ``response`` holds the recorded status code and reason alone. An agent that
+    hands a tool's error to the model hands it the same text on replay, and ``except ReplayedError``
+    still catches it."""
 
     def __new__(cls, error: Optional[dict[str, Any]] = None, *args: Any, **kwargs: Any) -> ReplayedError:
         if cls is ReplayedError and isinstance(error, dict):
@@ -164,6 +186,11 @@ class ReplayedError(Exception):
                 setattr(self, key, value)
             except (AttributeError, TypeError):
                 continue
+        # Its response's status, where the agent reads it (err.response.status_code), and nothing else of it.
+        response = _response_status(error.get("response"))
+        if response and "response" not in vars(self) and not hasattr(type(self), "response"):
+            with contextlib.suppress(AttributeError, TypeError):
+                self.response = types.SimpleNamespace(**response)
 
     def __str__(self) -> str:
         # The recorded str(), which the arguments alone don't give back: str(KeyError("A-17")) is
@@ -179,6 +206,9 @@ class ReplayedError(Exception):
         fields = _own_fields(self)
         if fields:
             error["fields"] = fields
+        response = _response_status(getattr(self, "response", None))
+        if response:
+            error["response"] = response
         module = type(self).__module__
         if module != __name__:
             error["module"] = module
@@ -518,8 +548,9 @@ def serialize_error(err: BaseException) -> dict[str, Any]:
     so a replay prints as it did (``repr()``, a traceback), the class's module unless it is a builtin,
     and its arguments when they aren't the message alone and survive JSON as they are. An OSError's
     file names too (``filename``, ``filename2``), which its arguments leave out, when JSON keeps them,
-    and every error's own plain attributes (``fields``: openai's ``status_code``), as the Node SDK
-    keeps an error's own fields."""
+    and every error's own plain attributes (``fields``: openai's ``status_code``) and the status of the
+    response it carries (``response``: its ``status_code`` and reason, never its headers or content),
+    as the Node SDK keeps an error's own fields and its response's status."""
     message = str(err)
     out: dict[str, Any] = {"name": type(err).__name__, "message": message}
     code = getattr(err, "code", None)
@@ -545,6 +576,12 @@ def serialize_error(err: BaseException) -> dict[str, Any]:
     fields = _own_fields(err)
     if fields:
         out["fields"] = fields
+    try:
+        response = _response_status(getattr(err, "response", None))
+    except Exception:  # a property that fails keeps nothing
+        response = None
+    if response:
+        out["response"] = response
     return out
 
 

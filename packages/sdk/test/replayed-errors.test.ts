@@ -62,7 +62,27 @@ class HttpClientError extends Error {
   }
 }
 
+/** An HTTP client's error as Axios's is: the response it got, with its status, headers, data and the request's config. */
+class AxiosLikeError extends Error {
+  readonly response: { status: number; statusText: string; headers: Record<string, string>; data: unknown; config: { headers: Record<string, string> } };
+  constructor(status: number, statusText: string) {
+    super(`Request failed with status code ${status}`);
+    this.name = 'AxiosError';
+    this.response = { status, statusText, headers: { 'set-cookie': 'session=not-for-a-recording' }, data: { error: 'rate limited' }, config: { headers: { Authorization: 'Bearer not-for-a-recording' } } };
+  }
+}
+
 describe('a replayed error', () => {
+  it("keeps the status of the response an HTTP client's error carries, as Axios's does, and nothing else of it", async () => {
+    const { recorded, replayed } = await roundTrip(() => {
+      throw new AxiosLikeError(429, 'Too Many Requests');
+    });
+    expect(replayed).toBeInstanceOf(ReplayedError);
+    expect((replayed as { response?: unknown }).response).toEqual({ status: 429, statusText: 'Too Many Requests' });
+    expect(JSON.stringify(recorded)).not.toContain('not-for-a-recording');
+    expect(JSON.stringify(recorded)).not.toContain('rate limited');
+  });
+
   it("keeps a file system error's errno, syscall, path and dest", async () => {
     const missing = join(tmpdir(), `sl-replayed-errors-${process.pid}-missing`);
     const { original, replayed } = await roundTrip(() => {
