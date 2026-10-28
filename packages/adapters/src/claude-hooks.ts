@@ -263,10 +263,11 @@ function preToolUse(settings: unknown, source: string, agent?: string): Settings
 
 /**
  * The settings documents Claude Code reads for the query, in its order: the user's file (in
- * `CLAUDE_CONFIG_DIR`, else `~/.claude`), the project's and the local one in its working folder (the
- * Agent SDK reads both there, with no folder above it), the managed settings file and every `*.json`
- * in `managed-settings.d/` beside it in alphabetical order, the query's `settings`, and its
- * `managedSettings`. A file that isn't there is left out; one that can't be parsed holds null.
+ * `CLAUDE_CONFIG_DIR`, else `~/.claude`), the project's in its working folder, the local one there
+ * and at the root of the repository the folder is in, and of the main checkout for a linked
+ * worktree, the managed settings file and every `*.json` in `managed-settings.d/` beside it in
+ * alphabetical order, the query's `settings`, and its `managedSettings`. A file that isn't there is
+ * left out; one that can't be parsed holds null.
  */
 export async function settingsDocuments(places: SettingsPlaces, cwd: string): Promise<SettingsDocument[]> {
   const { fs, path, os } = await nodeModules();
@@ -285,7 +286,13 @@ export async function settingsDocuments(places: SettingsPlaces, cwd: string): Pr
   };
   if (sources.includes('user')) add(path.join(configDirOf(env, path, os.homedir()), 'settings.json'));
   if (sources.includes('project')) add(path.join(cwd, '.claude', 'settings.json'));
-  if (sources.includes('local')) add(path.join(cwd, '.claude', 'settings.local.json'));
+  if (sources.includes('local')) {
+    // The session folder's, as the Agent SDK documents it; and, as Claude Code itself reads it from a
+    // folder inside a repository, the repository root's, and for a linked worktree the main
+    // checkout's (the settings page's "Where Claude Code keeps the local file in a git repository").
+    const { root, main } = repositoryRoots(fs, path, cwd);
+    for (const dir of new Set([cwd, ...(root ? [root] : []), ...(main ? [main] : [])])) add(path.join(dir, '.claude', 'settings.local.json'));
+  }
   const managed = managedFileOf(places, path);
   if (managed) {
     add(managed, true);
@@ -320,6 +327,32 @@ export function projectDirs(fs: Fs, path: Path, cwd: string): string[] {
   }
 }
 
+/**
+ * The repository the session's folder is in: its root, the first folder up from it with a `.git`
+ * (a folder, or the file a linked worktree has), and for a linked worktree the main checkout's root,
+ * which its `.git` file names through the git folder's `commondir`. Nulls outside a repository, and
+ * for a main checkout there is none other than the root.
+ */
+export function repositoryRoots(fs: Fs, path: Path, cwd: string): { root: string | null; main: string | null } {
+  let root = cwd;
+  while (!fs.existsSync(path.join(root, '.git'))) {
+    if (path.dirname(root) === root) return { root: null, main: null };
+    root = path.dirname(root);
+  }
+  try {
+    const dotGit = path.join(root, '.git');
+    if (!fs.statSync(dotGit).isFile()) return { root, main: null };
+    const gitdir = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, 'utf8'))?.[1];
+    if (!gitdir) return { root, main: null };
+    const own = path.resolve(root, gitdir);
+    // A linked worktree's git folder names the repository's own (`commondir`); a submodule's names none.
+    const common = path.resolve(own, fs.readFileSync(path.join(own, 'commondir'), 'utf8').trim());
+    return { root, main: path.basename(common) === '.git' && path.dirname(common) !== root ? path.dirname(common) : null };
+  } catch {
+    return { root, main: null };
+  }
+}
+
 /** At most this many skill and subagent files are read for one query: a folder of thousands says nothing more. */
 const MAX_COMPONENT_FILES = 500;
 
@@ -345,15 +378,18 @@ export async function componentFiles(places: SettingsPlaces, cwd: string): Promi
   const config = configDirOf(env, path, os.homedir());
   const managed = managedFileOf(places, path);
   const plugins = (places.plugins ?? []).map((p) => path.resolve(cwd, p));
+  // In a linked worktree with none of its own, the main checkout's, as Claude Code loads its skills.
+  const { root, main } = repositoryRoots(fs, path, cwd);
+  const fromMain = (kind: 'skills' | 'agents') => (main && root && !fs.existsSync(path.join(root, '.claude', kind)) ? [path.join(main, '.claude', kind)] : []);
   const skillDirs = [
     ...(sources.includes('user') ? [path.join(config, 'skills')] : []),
-    ...(sources.includes('project') ? [...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'skills')) : []),
+    ...(sources.includes('project') ? [...[...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'skills')), ...fromMain('skills')] : []),
     ...(managed ? [path.join(path.dirname(managed), '.claude', 'skills')] : []),
     ...plugins.map((p) => path.join(p, 'skills')),
   ];
   const agentDirs = [
     ...(sources.includes('user') ? [path.join(config, 'agents')] : []),
-    ...(sources.includes('project') ? [...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'agents')) : []),
+    ...(sources.includes('project') ? [...[...projectDirs(fs, path, cwd), ...(places.addDirs ?? []).map((d) => path.resolve(cwd, d))].map((d) => path.join(d, '.claude', 'agents')), ...fromMain('agents')] : []),
     ...plugins.map((p) => path.join(p, 'agents')),
   ];
   let budget = MAX_COMPONENT_FILES;

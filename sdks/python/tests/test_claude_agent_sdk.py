@@ -433,6 +433,17 @@ class BesideOtherHooks(unittest.TestCase):
         self.assertEqual(cc.ran, [])
         self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "skills", "guard", "SKILL.md")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
 
+    def test_refuses_a_recorded_write_a_hook_in_the_repository_root_s_local_settings_could_rewrite(self) -> None:
+        # Claude Code reads that file at the root from a subfolder, and the main checkout's from a linked worktree.
+        recorded, _ = self.recorded(fenced())
+        hook = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "./mark.sh"}]}]}})
+        folder = self.project({".git/HEAD": "ref: refs/heads/main\n", "sub/.keep": "", ".claude/settings.local.json": hook})
+        shadowlap._post = Sidecar(recording=recorded.calls)
+        cc = session(fenced(settings={"sources": ["local"], "cwd": os.path.join(folder, "sub"), "managed_file": None, "env": {"HOME": folder}}), beside={"PreToolUse": [marking(0.15)]})
+        out = asyncio.run(agent(cc, self.BASH))
+        self.assertEqual(cc.ran, [])
+        self.assertIn(f'a PreToolUse hook in {os.path.join(folder, ".claude", "settings.local.json")} (matcher "Bash") runs beside Shadowlap\'s', out["results"][0]["content"])
+
     def test_refuses_a_recorded_write_a_subagent_s_own_hook_could_rewrite_in_its_calls_alone(self) -> None:
         recorded, _ = self.recorded(fenced())
         folder = self.project({".claude/agents/review.md": f"---\nname: reviewer\ndescription: d\n{self.BASH_HOOK}---\nReview.\n"})
