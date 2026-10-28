@@ -48,7 +48,7 @@ export type JudgeProvider = 'anthropic' | 'openai' | 'gemini';
 export const JUDGE_KEYS: Readonly<Record<JudgeProvider, readonly string[]>> = {
   anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
   openai: ['OPENAI_API_KEY'],
-  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+  gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
 };
 
 /** What a judge check asks, as the config's `judge` entries say it. */

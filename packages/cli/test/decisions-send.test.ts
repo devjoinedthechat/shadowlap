@@ -66,6 +66,9 @@ describe('where a request goes', () => {
     expect(missingCredentials(p('openai'), true, { OPENAI_API_KEY: 'k' })).toBeNull();
     expect(missingCredentials(p('gemini'), true, { GOOGLE_API_KEY: 'k' })).toBeNull();
     expect(missingCredentials(p('azure'), true, {})).toBe('no Azure OpenAI key: set AZURE_OPENAI_API_KEY');
+    // Where the AI SDK's providers, Mastra's model router and LiteLLM keep them.
+    expect(missingCredentials(p('gemini'), true, { GOOGLE_GENERATIVE_AI_API_KEY: 'k' })).toBeNull();
+    expect(missingCredentials(p('azure'), true, { AZURE_API_KEY: 'k' })).toBeNull();
   });
 });
 

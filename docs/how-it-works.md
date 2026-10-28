@@ -144,8 +144,8 @@ A live call carries your key: the sidecar forwards it upstream and never stores 
 |---|---|
 | Anthropic | `ANTHROPIC_API_KEY=shadowlap-offline-replay-placeholder` |
 | OpenAI | `OPENAI_API_KEY=shadowlap-offline-replay-placeholder` |
-| Gemini | The same value in `GEMINI_API_KEY` and `GOOGLE_API_KEY`, or in the one of them the recording's environment held |
-| Azure OpenAI | `AZURE_OPENAI_API_KEY=shadowlap-offline-replay-placeholder`, only when the recording's environment held `AZURE_OPENAI_API_KEY` |
+| Gemini | The same value in `GEMINI_API_KEY`, `GOOGLE_API_KEY` and `GOOGLE_GENERATIVE_AI_API_KEY` (the AI SDK's Google provider, and Mastra's model router), or in the one of them the recording's environment held |
+| Azure OpenAI | `AZURE_OPENAI_API_KEY=shadowlap-offline-replay-placeholder`, only when the recording's environment held `AZURE_OPENAI_API_KEY`; or `AZURE_API_KEY`, which the AI SDK's Azure provider and LiteLLM read, only when it held that |
 | Bedrock | `AWS_ACCESS_KEY_ID=SHADOWLAPREPLAY` and `AWS_SECRET_ACCESS_KEY=shadowlap-offline-replay-placeholder` |
 | Claude on Microsoft Foundry | `ANTHROPIC_FOUNDRY_API_KEY=shadowlap-offline-replay-placeholder`, only when the recording's environment held `ANTHROPIC_FOUNDRY_API_KEY` |
 | OpenAI's SDK on Bedrock | `AWS_BEARER_TOKEN_BEDROCK=shadowlap-offline-replay-placeholder`, only when the recording's environment held `AWS_BEARER_TOKEN_BEDROCK` |

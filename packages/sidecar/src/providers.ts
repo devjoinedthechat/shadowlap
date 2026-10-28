@@ -360,7 +360,9 @@ export const gemini: Provider = {
   // part of the call name, the fingerprint or the stored metadata.
   credentialHeaders: ['x-goog-api-key', ...COMMON_CREDENTIAL_HEADERS],
   // Google's SDKs read either variable (GOOGLE_API_KEY first), and other libraries one or the other.
-  keys: { placeholders: { GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY }, credentials: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'], set: 'GEMINI_API_KEY' },
+  // The AI SDK's Google provider (`@ai-sdk/google`, and Mastra's model router, which bundles it)
+  // reads GOOGLE_GENERATIVE_AI_API_KEY.
+  keys: { placeholders: { GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY, GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY }, credentials: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'], set: 'GEMINI_API_KEY' },
   isRetryableStatus: (status) => status === 408 || status === 429 || status >= 500,
   extractUsage(body, contentType) {
     if (contentType?.includes('text/event-stream')) {
@@ -400,8 +402,10 @@ export const azure: Provider = {
   fingerprintHeaders: ['openai-beta'],
   credentialHeaders: ['api-key', 'openai-organization', 'openai-project', ...COMMON_CREDENTIAL_HEADERS],
   // Microsoft Entra ID is a credential too. The Node client refuses a key beside a token provider,
-  // which the environment can't show: only a recording whose environment held the key gets one.
-  keys: { placeholders: { AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY }, credentials: ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_AD_TOKEN', 'AZURE_CLIENT_ID', 'AZURE_FEDERATED_TOKEN_FILE', 'IDENTITY_ENDPOINT', 'MSI_ENDPOINT'], set: 'AZURE_OPENAI_API_KEY', onlyWhereRecorded: true },
+  // which the environment can't show: only a recording whose environment held the key gets one, in
+  // the variable it held it in. The AI SDK's Azure provider (`@ai-sdk/azure`, and Mastra's model
+  // router) and LiteLLM read AZURE_API_KEY.
+  keys: { placeholders: { AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY, AZURE_API_KEY: PLACEHOLDER_KEY }, credentials: ['AZURE_OPENAI_API_KEY', 'AZURE_API_KEY', 'AZURE_OPENAI_AD_TOKEN', 'AZURE_CLIENT_ID', 'AZURE_FEDERATED_TOKEN_FILE', 'IDENTITY_ENDPOINT', 'MSI_ENDPOINT'], set: 'AZURE_OPENAI_API_KEY', onlyWhereRecorded: true },
   retryCountHeader: 'x-stainless-retry-count',
   isRetryableStatus: stainlessRetryable,
   extractUsage: (body, contentType) => openai.extractUsage(body, contentType),
