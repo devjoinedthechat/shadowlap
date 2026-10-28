@@ -277,7 +277,7 @@ function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts
  * The sidebar's Recent runs (`/api/runs`): the newest runs as a tree, each with its kind, outcome,
  * origins and the attempts bundled under it. Attempts are not rows unless asked for (`recentRuns`).
  */
-export function listRuns(store: Store, options: ReadOptions & { includeAttempts?: boolean; ids?: readonly string[] } = {}): RunRow[] {
+export function listRuns(store: Store, options: ReadOptions & { includeAttempts?: boolean; ids?: readonly string[]; known?: boolean } = {}): RunRow[] {
   return recentRuns(store, options);
 }
 

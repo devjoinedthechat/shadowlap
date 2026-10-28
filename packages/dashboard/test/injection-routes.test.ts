@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { injectionTemplates, recordEvent, Store, type CleanReport, type PlantReport, type RunRecord } from '@shadowlap/engine';
 import { startDashboard, type Dashboard } from '../src/index.js';
+import { consentKey } from '../src/consent.js';
 import { injectionJob, injectionLine, injectionNeedsLook, toolTrust } from '../src/injection.js';
 import { injectionReportHtml } from '../src/injection-report.js';
 import { commandTreeUse } from '../src/worktree.js';
@@ -296,12 +297,17 @@ describe('the injection job', () => {
     expect(error({ runId: recording.runId, clean: 1, templates: 'all' })).toBe('--clean plants nothing: leave out templates and payloads');
     expect(error({ runId: '01NOSUCH' })).toBe('no run 01NOSUCH');
     const pulled = recordRun({ meta: { imported: { at: 1, from: 'pack.zip' } } });
-    expect(error({ runId: pulled.runId })).toMatch(/came from .*: this runs the command it was recorded with \(node agent\.js\)\. Confirm it to run it$/);
-    // The yes is the question's confirm, for the command it named; a bare true is none.
+    expect(error({ runId: pulled.runId })).toMatch(/came from .*: this runs the command it was recorded with \(node agent\.js\), under shadowlap injection \S+ --json\. Confirm it to run it$/);
+    // The yes is the question's confirm, for the lines it named; a bare true is none.
     const asked = injectionJob({ runId: pulled.runId }, b, goldens) as { error: string; status: number; confirm: string };
     expect(asked).toMatchObject({ status: 409, confirm: expect.stringMatching(/^[0-9a-f]{32}$/) });
     expect(injectionJob({ runId: pulled.runId, yes: true }, b, goldens)).toMatchObject({ status: 409 });
     expect(injectionJob({ runId: pulled.runId, yes: asked.confirm }, b, goldens)).toMatchObject({ args: ['injection', pulled.runId, '--json', '--yes'] });
+    // A yes to one test runs no other: one of more attempts, or with reads live, is asked about again.
+    expect(injectionJob({ runId: pulled.runId, repeat: 5, yes: asked.confirm }, b, goldens)).toMatchObject({ status: 409, error: expect.stringMatching(/under shadowlap injection \S+ --json --repeat 5\. Confirm/) });
+    expect(injectionJob({ runId: pulled.runId, liveReads: true, yes: asked.confirm }, b, goldens)).toMatchObject({ status: 409 });
+    // Nor does a yes to the run's command alone, which the error-path presets asked for as well: each asks for its own line.
+    expect(injectionJob({ runId: pulled.runId, yes: consentKey([pulled.command.argv]) }, b, goldens)).toMatchObject({ status: 409 });
     // A payload file the browser sent is passed by its path.
     expect(injectionJob({ runId: recording.runId, payloadsUpload: 'u1' }, { store, upload: () => ({ path: '/tmp/u1-payloads.txt', name: 'payloads.txt', original: 'payloads.txt', bytes: 10 }) }, goldens)).toMatchObject({ args: ['injection', recording.runId, '--json', '--payloads', '/tmp/u1-payloads.txt'] });
   });

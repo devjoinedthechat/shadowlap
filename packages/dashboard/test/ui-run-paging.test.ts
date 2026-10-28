@@ -413,55 +413,134 @@ describe('a long run’s page', () => {
     expect(r.all('table.calls tbody tr[aria-busy] td.name')[0].textContent).toBe('Reading…');
   });
 
-  it('reads a recording’s pages before it shows it: its page follows the newest call', async () => {
+  it('shows a long recording at once, reads it as a run that has ended, and only what it makes as it grows', async () => {
     addressBar(`#/run/${RUN}`);
-    const { client, asked } = server(1200, 500, 'running');
-    const live = { ...app(client), live: [{ runId: RUN, calls: 1200 }] } as unknown as AppState;
-    r = await render(createElement(AppContext.Provider, { value: live }, createElement(RunPage, { id: RUN, call: null, view: null })));
-    await r.until('the calls', () => rows().length > 0);
-    expect(asked).toEqual([
-      { from: 501, limit: PAGE },
-      { from: 1001, limit: PAGE },
-    ]);
-    expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
-    expect(pending()).toHaveLength(0);
-    expect(r.all('.toolbar[role="status"]')).toHaveLength(0);
-  });
-
-  it('stays on a recording’s newest call when it ends, and reads none of its calls again', async () => {
-    const bar = addressBar(`#/run/${RUN}/1200`);
-    const { client, asked } = server(1200, 500, 'running');
-    let status = 'running';
-    // The run's page: whole while it records; after the calls a page has (`after`), what came since and how it stands.
+    let total = 1200;
     const runs: Array<number | undefined> = [];
-    const recording = {
-      ...client,
-      run: (_id: string, after?: number) => {
-        runs.push(after);
-        const d = answer(1200, 500, status);
-        return Promise.resolve(after === undefined ? d : { ...d, calls: [], callsNext: null, after });
+    const asked: Array<{ from: number; limit: number }> = [];
+    // Its pages come only as the test lets them: a long recording's pages take a while.
+    const held: Array<() => void> = [];
+    const client = {
+      ...server(total, 500, 'running').client,
+      run: (_id: string, after?: number) => (runs.push(after), Promise.resolve(answer(total, 500, 'running'))),
+      calls: (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
+        asked.push({ from, limit });
+        const to = Math.min(total, from + Math.min(limit, PAGE) - 1);
+        const page = { runId: RUN, calls: range(from, to).map(call), callsTotal: total, callsNext: to < total ? to + 1 : null };
+        return new Promise((resolve) => held.push(() => resolve(page)));
       },
     };
-    let end: () => void = () => undefined;
+    let grow: (n: number) => void = () => undefined;
     function Host() {
-      const [state, setState] = useState(() => ({ ...app(recording), live: [{ runId: RUN, calls: 1200 }] }));
-      end = () => setState((s) => ({ ...s, live: [], runsTick: s.runsTick + 1 }));
+      const [state, setState] = useState(() => ({ ...app(client), live: [{ runId: RUN, calls: total }] }));
+      grow = (n) => {
+        total = n;
+        setState((s) => ({ ...s, live: [{ runId: RUN, calls: n }] }));
+      };
+      return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: null, view: null }));
+    }
+    r = await render(createElement(Host));
+    // Its first page shows at once, with a row for each call to come: nothing is read whole first.
+    await r.until('the rows', () => rows().length > 0);
+    expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
+    // It grows while its pages are on their way: the count comes with the poll, its page (which works
+    // out the whole run) isn't asked for again so soon, and nothing is read again.
+    await r.wait(PAGES_AFTER_MS + 100);
+    grow(1300);
+    await r.until('its new count', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1301');
+    // Every page comes, until the line that says how many are read is gone.
+    for (let n = 0; n < 50 && r.all('.toolbar[role="status"]').length; n++) {
+      held.splice(0).forEach((answer_) => answer_());
+      await r.wait(ASKING_PAUSE_MS + 50);
+    }
+    expect(r.all('.toolbar[role="status"]')).toHaveLength(0);
+    expect(pending()).toHaveLength(0);
+    expect(runs).toEqual([undefined]);
+    // Each call read once: the calls it made while its first were read came after them.
+    const read = asked.flatMap(({ from, limit }) => range(from, Math.min(from + limit - 1, 1300)));
+    expect(new Set(read).size).toBe(read.length);
+    expect(read.length).toBe(1300 - 500);
+  });
+
+  it('reads again a recording’s call it read before it was answered, as the recording moves on', async () => {
+    addressBar(`#/run/${RUN}/1200`);
+    let total = 1200;
+    const asked: Array<{ from: number; limit: number }> = [];
+    // The newest call is on its way: no answer yet.
+    const row = (n: number) => (n === total ? { ...call(n), outcome: null, endedAt: null } : call(n));
+    const client = {
+      ...server(total, 500, 'running').client,
+      run: () => Promise.resolve(answer(total, 500, 'running')),
+      calls: (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
+        asked.push({ from, limit });
+        const to = Math.min(total, from + Math.min(limit, PAGE) - 1);
+        return Promise.resolve({ runId: RUN, calls: range(from, to).map(row), callsTotal: total, callsNext: to < total ? to + 1 : null } as CallsPage);
+      },
+    } as unknown as Client;
+    let grow: (n: number) => void = () => undefined;
+    function Host() {
+      const [state, setState] = useState(() => ({ ...app(client), live: [{ runId: RUN, calls: total }] }));
+      grow = (n) => {
+        total = n;
+        setState((s) => ({ ...s, live: [{ runId: RUN, calls: n }] }));
+      };
       return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: 1200, view: null }));
     }
     r = await render(createElement(Host));
-    await r.until('every call', () => rows().length > 0 && pending().length === 0 && asked.length === 2);
-    // The recording ends.
-    status = 'completed';
-    const pages = asked.length;
-    await r.wait(0);
-    end();
-    await r.until('the end', () => r!.all('.rhead').some((h) => !/in progress/.test(h.textContent)) && runs.length > 1);
-    await r.wait(PAGES_AFTER_MS + 100);
-    // Still on its newest call, the end merged into what it read: no page read again.
-    expect(bar.hash).toBe(`#/run/${RUN}/1200`);
-    expect(runs.at(-1)).toBe(1200);
-    expect(asked).toHaveLength(pages);
-    expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe('1201');
-    expect(pending()).toHaveLength(0);
+    await r.until('every call', () => rows().length > 0 && r!.all('.toolbar[role="status"]').length === 0);
+    const reads1200 = () => asked.filter(({ from, limit }) => from <= 1200 && from + limit - 1 >= 1200).length;
+    expect(reads1200()).toBe(1);
+    // #1200 is answered and #1201 made: #1200 is read again with it, and nothing else.
+    const before = asked.length;
+    grow(1201);
+    await r.until('the new call', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1202' && r!.all('.toolbar[role="status"]').length === 0 && asked.length > before);
+    await r.wait(ASKING_PAUSE_MS + PAGES_AFTER_MS);
+    expect(reads1200()).toBe(2);
+    expect(asked.slice(before).flatMap(({ from, limit }) => range(from, Math.min(from + limit - 1, 1201)))).toEqual([1200, 1201]);
+  });
+
+  it('stays on a recording’s newest call when it ends, and reads none of its calls again', async () => {
+    for (const [total, end_] of [
+      // A recording a page holds whole: what came since the calls that won't change is merged in.
+      [400, 400],
+      // One read a page at a time: its page is asked for again, as a run that has ended is.
+      [1200, undefined],
+    ] as const) {
+      const bar = addressBar(`#/run/${RUN}/${total}`);
+      const { client, asked } = server(total, 500, 'running');
+      let status = 'running';
+      // The run's page; after the calls a page has (`after`), what came since and how it stands.
+      const runs: Array<number | undefined> = [];
+      const recording = {
+        ...client,
+        run: (_id: string, after?: number) => {
+          runs.push(after);
+          const d = answer(total, 500, status);
+          return Promise.resolve(after === undefined ? d : { ...d, calls: [], callsNext: null, after });
+        },
+      };
+      let end: () => void = () => undefined;
+      function Host() {
+        const [state, setState] = useState(() => ({ ...app(recording), live: [{ runId: RUN, calls: total }] }));
+        end = () => setState((s) => ({ ...s, live: [], runsTick: s.runsTick + 1 }));
+        return createElement(AppContext.Provider, { value: state }, createElement(RunPage, { id: RUN, call: total, view: null }));
+      }
+      r = await render(createElement(Host));
+      await r.until('every call', () => rows().length > 0 && pending().length === 0 && r!.all('.toolbar[role="status"]').length === 0);
+      // The recording ends.
+      status = 'completed';
+      const pages = asked.length;
+      end();
+      await r.until('the end', () => r!.all('.rhead').some((h) => !/in progress/.test(h.textContent)) && runs.length > 1);
+      await r.wait(ASKING_PAUSE_MS + PAGES_AFTER_MS);
+      // Still on its newest call, what it read kept: no page read again.
+      expect(bar.hash).toBe(`#/run/${RUN}/${total}`);
+      expect(runs.at(-1)).toBe(end_);
+      expect(asked).toHaveLength(pages);
+      expect(r.one('table.calls').getAttribute('aria-rowcount')).toBe(String(total + 1));
+      expect(pending()).toHaveLength(0);
+      await r.unmount();
+      r = null;
+    }
   });
 });

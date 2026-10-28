@@ -5,6 +5,7 @@ import { injectionJob, injectionNeedsLook, injectionResult, injectionResults, in
 import { injectionReportHtml } from '../injection-report.js';
 import { sendAnswer } from '../read-pool.js';
 import type { Router } from '../router.js';
+import { runAffinity } from '../run-index.js';
 
 /**
  * Injection tests: what `shadowlap injection` kept, for the pages that show it, and the job that
@@ -72,7 +73,7 @@ export function register(router: Router, ctx: RouteContext): void {
   router.get('/injection/runs/:id', async (r) => {
     if (!store.getRun(r.params.id!)) throw new HttpError(404, `no run ${r.params.id!}`);
     const trust = tools();
-    sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}) }, { affinity: r.params.id! }));
+    sendAnswer(r, await ctx.reads.run({ kind: 'injection-run', runId: r.params.id!, ...(trust ? { tools: trust } : {}) }, runAffinity(ctx.store, r.params.id!)));
   });
   router.get('/injection/:id', (r) => {
     const found = injectionResult(store, r.params.id!);

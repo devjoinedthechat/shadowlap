@@ -121,6 +121,27 @@ export function knownAbouts(store: Store, index: RunIndex, runs: readonly Indexe
   return { abouts, pending };
 }
 
+/** How many of a long run's first calls a row quotes what its user asked from, while the whole of it is worked out beside the server (`rowAbouts`). */
+const FIRST_CALLS = 50;
+
+/**
+ * The about lines of a list's rows, as `aboutsOf` has them but for the runs named `quick`, too long to
+ * read inside the request: what their user asked is quoted from their first calls alone, unless it is
+ * known already, as a long recording's page first quotes it (`aboutOfRun`), and the warm-up works out
+ * the rest beside the server.
+ */
+export function rowAbouts(store: Store, index: RunIndex, runs: readonly IndexedRun[], quick: ReadonlySet<string>): Map<string, RunAbout> {
+  const out = aboutsOf(store, index, runs.filter((r) => !quick.has(r.runId)));
+  const later = runs.filter((r) => quick.has(r.runId) && !out.has(r.runId));
+  if (!later.length) return out;
+  const asks = asksOf(store, index, later.filter(asksFor), { known: true });
+  for (const r of later) {
+    const ask = asks.has(r.runId) ? (asks.get(r.runId) ?? null) : asksFor(r) && r.calls ? runAsk(store, store.getCalls(r.runId, { after: 0, limit: FIRST_CALLS })) : null;
+    out.set(r.runId, about(store, index, r, ask));
+  }
+  return out;
+}
+
 /** A recording this long or longer is quoted from its first words alone on its page's first answer (`aboutOfRun`). */
 const LONG = 1000;
 

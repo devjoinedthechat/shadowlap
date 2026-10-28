@@ -7,8 +7,8 @@ import type { Origin7 } from '../origins.js';
  * every call's origin (`origins`); the rest come from `GET /api/runs/:id/calls?from=`. The page lists
  * every call from the start, a placeholder for each not read yet, and reads the page that holds a
  * call as it comes into view or is asked for (a link, the fork, j and k), then the rest in order. A
- * recording's page reads every page at once: it follows the newest call. No DOM here: the tests
- * import it.
+ * recording's page is read the same way, the calls it makes read as they come (paged-run.ts). No DOM
+ * here: the tests import it.
  */
 
 /** At most this many calls come in a page: the server's `CALLS_PAGE`. */
@@ -101,8 +101,9 @@ export function listedCalls(have: readonly CallRow[], total: number, origins: re
 }
 
 /**
- * A recording's page with the calls after those it came with, read a page at a time to its end: a
- * recording's page follows its newest call, so it reads them all. Its origins go: its calls hold them.
+ * A page that holds a recording whole, with the calls after those it came with, read a page at a time
+ * to its end: what a recording followed whole made since the page last asked, when that is more than
+ * a page. Its origins go: its calls hold them.
  */
 export async function followPages(client: { calls(id: string, from: number, limit?: number): Promise<CallsPage> }, d: RunDetail): Promise<RunDetail> {
   let calls = d.calls;

@@ -64,19 +64,31 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
   // Loaded again when runs move (this one may have ended or changed), and while it records, when its
   // own calls do: another run recording asks this page for nothing.
   const recording = live.find((l) => (opened.current.runId ? l.runId === opened.current.runId : sameRun(opened.current.key, l.runId))) ?? null;
-  // What the page has: a recording it follows asks only for the calls after those that won't change,
-  // and so does the run once it has ended, the page holding every call of it: its end is merged in,
-  // where reading it again from its first page left the page on that page's last call (#200 of
-  // 20,124) and read every call again.
+  // What the page has: a recording it follows whole asks only for the calls after those that won't
+  // change, and so does the run once it has ended: its end is merged in, where reading it again from
+  // its first page left the page on that page's last call (#200 of 20,124) and read every call again.
+  // A recording too long for one page is paged as a run that has ended is (usePagedRun): read whole
+  // before it showed, every poll started the read again, and a recording of 60,000 calls showed no
+  // row until it ended, after 3,500 pages (800 MB). As it grows, its count comes with the poll and
+  // its calls a page at a time; its page, which works out the whole run (0.8 s at 60,000 calls), is
+  // asked again no sooner than ten times as long as it took, and at once when it ends.
   const had = useRef<{ key: string; run: RunDetail; part: RunDetail | null } | null>(null);
+  const pageAsked = useRef({ at: 0, took: 0 });
   const loaded = useLoad(
     () => {
       const key = opened.current.key;
       const asked = opened.current.runId ?? key;
       const prev = had.current?.key === key ? had.current : null;
       const whole = !!prev && prev.run.callsNext === null && prev.run.calls.length >= prev.run.callsTotal && (prev.run.run.status === 'running' || prev.part !== null);
-      // A recording's page follows its newest call: the pages after the one it came with are read at once.
-      if (!prev || !whole || (recording !== null && prev.run.run.runId !== recording.runId)) return client.run(asked).then((d) => (d.run.status === 'running' && d.callsNext !== null ? followPages(client, d) : d));
+      const paged = !!prev && !whole && prev.run.run.status === 'running' && recording !== null && prev.run.run.runId === recording.runId;
+      if (paged && Date.now() - pageAsked.current.at < Math.max(RUN_PAGE_EVERY_MS, pageAsked.current.took * 10)) return Promise.resolve(grown(prev.run, recording.calls));
+      if (!prev || !whole || (recording !== null && prev.run.run.runId !== recording.runId)) {
+        const t0 = Date.now();
+        return client.run(asked).then((d) => {
+          pageAsked.current = { at: Date.now(), took: Date.now() - t0 };
+          return d;
+        });
+      }
       return client.run(asked, settledThrough(prev.run.calls)).then(async (part) => {
         // The same answer again (a 304): the page as it was, so nothing redraws.
         if (part === prev.part) return prev.run;
@@ -107,6 +119,14 @@ export function RunPage({ id, call, view }: { id: string; call: number | null; v
     return <RunLoading />;
   }
   return <Workspace run={run} id={id} call={call} view={view} />;
+}
+
+/** At least this long between two asks of a long recording's page: its calls come between them a page at a time. */
+const RUN_PAGE_EVERY_MS = 2000;
+
+/** A long recording's page with the count the poll says: the calls after those it had are read as they come (usePagedRun). */
+function grown(run: RunDetail, calls: number): RunDetail {
+  return calls > run.callsTotal ? { ...run, callsTotal: calls } : run;
 }
 
 /** The parent run, and further back, for replayed calls' recorded durations and how a fork came about. */

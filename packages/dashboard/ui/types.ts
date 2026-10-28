@@ -42,6 +42,8 @@ export interface CheckCountsView {
 export interface RunListExtras {
   /** One character per call, in order (r replayed, l live, o overridden, i injected, f failed, b blocked, s stubbed), or origin names. */
   origins?: string | string[] | null;
+  /** Its totals (what it spent, its calls by origin) aren't added up yet: the list is asked again once they are. */
+  warming?: true | null;
   /** A replay made by `shadowlap test`: the golden and the test session. */
   test?: { golden: string; session?: string } | null;
   /** Set on runs made by `--repeat`, blame and verify: bundled under the run they came from, not listed. */

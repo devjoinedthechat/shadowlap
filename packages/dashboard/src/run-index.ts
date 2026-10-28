@@ -360,6 +360,16 @@ export function parseAsk(v: unknown): RunAsk | null {
  * what was written since, where every run was read and classified again (137 ms a poll at 10,000
  * runs). A store with no log, or one written further than the log keeps, is read whole.
  */
+/**
+ * What a request about a run tells the read-model threads (read-pool.ts): the run, which the thread
+ * that read it last answers for, and how many calls it has, as the index counts them: whether
+ * another thread may take the request meanwhile, reading the run again.
+ */
+export function runAffinity(store: Store, runId: string): { affinity: string; calls?: number } {
+  const r = loadRunIndex(store).byId.get(runId);
+  return r ? { affinity: runId, calls: r.calls } : { affinity: runId };
+}
+
 export function loadRunIndex(store: Store): RunIndex {
   const v = versionOf(store);
   let entry = kept.get(store);

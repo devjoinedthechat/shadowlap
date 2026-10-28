@@ -28,6 +28,8 @@ export interface RunLike {
   labels: string[];
   /** One character per call (see `ORIGIN_CODE`), or origin names. */
   origins?: unknown;
+  /** What it spent and its calls by origin aren't added up yet: the warm-up does, beside the server. */
+  warming?: true | null;
   /** A replay made by `shadowlap test`. */
   test?: { golden: string; session?: string } | null;
   /** For an attempt the list bundles: the run it is bundled under (`normalizeRuns`, from the server's `attemptOf`). */
@@ -350,8 +352,11 @@ export function runStatus(r: RunLike): { tone: ReturnType<typeof runOutcome>['to
  */
 export function runSpent(r: RunLike): { text: string; captured: boolean } {
   if (runType(r) === 'capture') return { text: money(r.captured), captured: true };
-  return { text: approx(r.spent || (r.imported ? r.captured : 0)), captured: false };
+  return { text: r.warming ? '…' : approx(r.spent || (r.imported ? r.captured : 0)), captured: false };
 }
+
+/** What a run spent, or an ellipsis while it is still being added up (`warming`). */
+const spentWords = (r: RunLike): string => (r.warming ? '…' : approx(r.spent));
 
 /** The Runs page's chips: the kinds, Failed, and with a team store Local, the runs only on this machine. */
 export type RunChip = 'all' | 'recording' | 'fork' | 'clean' | 'test' | 'capture' | 'failed' | 'local';
@@ -492,18 +497,18 @@ export function familyLine(r: RunLike): string {
   if (isInterrupted(r)) return `${kindWord(r)} · interrupted · ${plural(r.calls, 'call')}`;
   if (t === 'fork' && r.divergence) {
     const went = n ? `${num(n.rep)} replayed · ${num(n.live + n.fail)} live${n.block ? ` · ${num(n.block)} blocked` : ''}${n.stub ? ` · ${num(n.stub)} stubbed` : ''}` : plural(r.calls, 'call');
-    return `${forkAt(r.divergence)} · ${went} · ${approx(r.spent)}`;
+    return `${forkAt(r.divergence)} · ${went} · ${spentWords(r)}`;
   }
   if (t === 'clean') return n && n.rep === r.calls ? `clean replay · ${num(r.calls)}/${num(r.calls)} · 0 upstream` : `clean replay · ${plural(r.calls, 'call')}`;
   // A test of a golden that may fork went live from where it left the recording: what it did there, as
   // the sidebar says it. One that left it where its golden may not diverged there, and failed.
   if (t === 'test') {
     if (r.divergence && r.outcome?.kind === 'diverged') return `test · diverged at #${r.divergence.callNo} · ${plural(r.calls, 'call')}`;
-    return n && n.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(n.live)} live · ${approx(r.spent)}` : `test · replayed offline · ${plural(r.calls, 'call')}`;
+    return n && n.live && r.divergence ? `test · forked at #${r.divergence.callNo} · ${num(n.live)} live · ${spentWords(r)}` : `test · replayed offline · ${plural(r.calls, 'call')}`;
   }
   if (t === 'capture') return `capture · ${plural(r.calls, 'call')} · ${money(r.captured)} as captured`;
   if (t === 'replay') return `replay · ${plural(r.calls, 'call')} · ${r.status === 'completed' ? 'finished' : r.status}`;
-  return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${approx(r.spent)}`;
+  return `${isFailed(r) ? `${failedWord(r)} · ` : 'recording · '}${plural(r.calls, 'call')} · ${spentWords(r)}`;
 }
 
 /** The Forks view's line, with what went wrong set apart: "check failed" in red before the rest, as the sidebar has it. */
