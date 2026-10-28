@@ -162,6 +162,7 @@ describe('shadowlap test while the provider is unavailable', () => {
   it('stops a session of five goldens once the provider fails 4 attempts in a row across them, each left inconclusive, never failed', async () => {
     const copies = [2, 3, 4, 5].map((i) => `goldens/reference-agent-${i}`);
     for (const c of copies) cpSync(join(work, 'goldens', 'reference-agent'), join(work, c), { recursive: true });
+    trackInGit(work, ...copies);
     overloaded = 1000;
     try {
       const entry = { fork: true, gate: { good: 0.9, bad: 0.7, risk: 0.05, max: 20 }, expect: CHECKS };
