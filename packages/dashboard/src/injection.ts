@@ -1,6 +1,6 @@
 import { cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, quoteArgv, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type Store, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
-import { jobConsent, type JobConsent } from './consent.js';
+import { jobConsent } from './consent.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
 import { links } from './links.js';
@@ -211,8 +211,8 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
   };
   let target: string;
   let runId: string | null;
-  // The yes is to the command the question showed (consent.ts), and only a question asked passes --yes on.
-  let consent: JobConsent;
+  // The command someone else chose that the test runs, asked about once the test's own line is whole (below).
+  let theirs: { argv: readonly string[]; words: (line: string) => string } | null = null;
   if (typeof req.golden === 'string') {
     const g = goldens.find((x) => x.path === req.golden);
     if (!g || optionLike(g.path)) return { error: 'no such golden: name one of the packs in the goldens folder or under "tests" in the config' };
@@ -220,18 +220,17 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
     runId = g.runId;
     // A golden from a pack the repository doesn't track, recorded elsewhere, runs its command only with a yes, as test asks of one.
     const sent = goldensNeedingConsent(b.store, [g.path], b.project?.path ?? process.cwd())[0];
-    consent = jobConsent(sent ? [sent.argv] : [], req.yes, () => `${g.path} is from a pack this repository doesn't track: this runs the command it was recorded with (${quoteArgv(sent!.argv)}). Confirm it to run it`);
+    if (sent) theirs = { argv: sent.argv, words: (line) => `${g.path} is from a pack this repository doesn't track: this runs the command it was recorded with (${quoteArgv(sent.argv)}), under ${line}. Confirm it to run it` };
   } else if (typeof req.runId === 'string' && req.runId) {
     const run = lookupRun(b.store, req.runId);
     if (!run) return { error: `no run ${req.runId.slice(0, 40)}`, status: 404 };
     const id = run.runId.slice(0, 10);
     if (run.status === 'running') return { error: recordingNow(b.store, run) ? `${id} is still recording: test it once it has ended` : `${id} was interrupted: its recorder stopped before it ended`, status: 409 };
     if (!hasRecordedCommand(run)) return { error: `${id} ${withoutCommand(run)} and has no command to re-run: replay it once with yours (shadowlap replay ${id} -- <command>) and test that run`, status: 409 };
-    consent = jobConsent(commandIsImported(run) ? [run.command.argv] : [], req.yes, () => `${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}). Confirm it to run it`);
+    if (commandIsImported(run)) theirs = { argv: run.command.argv, words: (line) => `${id} came from ${importedCommandSource(run)}: this runs the command it was recorded with (${quoteArgv(run.command.argv)}), under ${line}. Confirm it to run it` };
     target = run.runId;
     runId = run.runId;
   } else return { error: 'name the run (runId) or the golden (golden) to test' };
-  if ('ask' in consent) return consent.ask;
 
   const args = ['injection', target, '--json'];
   const clean = whole(req.clean, 'clean', 1, 1_000_000);
@@ -266,6 +265,12 @@ export function injectionJob(req: JobRequest, b: Pick<JobBuildContext, 'store' |
   if (repeat !== undefined) args.push('--repeat', String(repeat));
   if (req.liveReads !== undefined && typeof req.liveReads !== 'boolean') return { error: 'liveReads is true or false' };
   if (req.liveReads === true) args.push('--live-reads');
+  // The yes is to the lines the question showed (consent.ts): the command someone else chose and the
+  // test's own line, so a yes to one test runs no other, and none of the run's error-path presets;
+  // only a question asked passes --yes on.
+  const line = ['shadowlap', ...args];
+  const consent = jobConsent(theirs ? [theirs.argv, line] : [], req.yes, () => theirs!.words(quoteArgv(line)));
+  if ('ask' in consent) return consent.ask;
   args.push(...consent.yes);
   return { args, runId, title: clean !== undefined ? `Testing whether #${clean} caused the writes` : 'Testing for injection' };
 }

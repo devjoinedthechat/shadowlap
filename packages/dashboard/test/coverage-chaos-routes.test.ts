@@ -326,9 +326,19 @@ describe('error-path presets', () => {
     const asked = await startJob({ kind: 'chaos', runId: packRun });
     expect(asked.status).toBe(409);
     const question = (await asked.json()) as { error: string; confirm: string };
-    expect(question.error).toBe('This run came from an imported pack: each preset runs its command (node theirs.mjs). Confirm to run it.');
-    // A bare true is no yes: the yes is the question's confirm, for the command it named.
+    expect(question.error).toBe(`This run came from an imported pack: each preset runs its command (node theirs.mjs), under shadowlap replay ${packRun} --chaos. Confirm to run it.`);
+    // A bare true is no yes: the yes is the question's confirm, for the lines it named.
     expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: true })).status).toBe(409);
+    // The yes to one preset runs no other: the line it said yes to is that preset's.
+    const one = (await (await startJob({ kind: 'chaos', runId: packRun, presets: ['429'] })).json()) as { error: string; confirm: string };
+    expect(one.error).toMatch(/under shadowlap replay \S+ --chaos --presets 429\. Confirm to run it\.$/);
+    expect(one.confirm).not.toBe(question.confirm);
+    const before = spawned.length;
+    expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: one.confirm })).status).toBe(409);
+    expect((await startJob({ kind: 'chaos', runId: packRun, presets: ['timeout'], confirmed: one.confirm })).status).toBe(409);
+    expect(spawned).toHaveLength(before);
+    expect((await startJob({ kind: 'chaos', runId: packRun, presets: ['429'], confirmed: one.confirm })).status).toBe(202);
+    expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--presets', '429', '--yes']);
     expect((await startJob({ kind: 'chaos', runId: packRun, confirmed: question.confirm })).status).toBe(202);
     expect(spawned.at(-1)).toEqual(['replay', packRun, '--chaos', '--yes']);
     for (const [body, error] of [

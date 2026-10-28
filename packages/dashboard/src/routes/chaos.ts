@@ -64,9 +64,12 @@ export function register(router: Router, ctx: RouteContext): void {
       if (run.status === 'running') return { error: 'the run is still recording: run the presets once it has ended' };
       if (!hasRecordedCommand(run)) return { error: 'A capture has no command. Replay it with yours first; the presets run on that replay.' };
       const imported = commandIsImported(run);
-      // The yes is to the command the question showed (consent.ts).
-      if (imported && !saidYes(req.confirmed, [run.command.argv])) return askConsent(`This run came from ${importedCommandSource(run)}: each preset runs its command (${quoteArgv(run.command.argv)}). Confirm to run it.`, [run.command.argv]);
-      return { args: ['replay', run.runId, '--chaos', ...flags, ...(imported ? ['--yes'] : [])], runId: run.runId };
+      const args = ['replay', run.runId, '--chaos', ...flags];
+      // The yes is to the lines the question showed (consent.ts): the run's command and the presets'
+      // own line, so a yes to one preset runs no other, and none an injection test of the run.
+      const lines = [run.command.argv, ['shadowlap', ...args]];
+      if (imported && !saidYes(req.confirmed, lines)) return askConsent(`This run came from ${importedCommandSource(run)}: each preset runs its command (${quoteArgv(run.command.argv)}), under ${quoteArgv(['shadowlap', ...args])}. Confirm to run it.`, lines);
+      return { args: [...args, ...(imported ? ['--yes'] : [])], runId: run.runId };
     },
   });
 }
