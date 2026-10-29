@@ -247,6 +247,7 @@ describe('the test history the GitHub Action keeps', () => {
   it('saves the store under a key per run, and restores the branch\'s newest, then the default branch\'s', () => {
     expect(plan({ branch: 'fix/refunds', defaultBranch: 'main' })).toEqual({
       keep: false,
+      refused: null,
       path: [join('/work', '.shadowlap', 'shadowlap.db'), `${join('/work', '.shadowlap', 'shadowlap.db')}-wal`, `${join('/work', '.shadowlap', 'shadowlap.db')}-shm`],
       key: 'shadowlap-history-fix-refunds-42-1',
       restoreKeys: ['shadowlap-history-fix-refunds-', 'shadowlap-history-main-'],
@@ -254,6 +255,24 @@ describe('the test history the GitHub Action keeps', () => {
     expect(plan({ store: 'ci/history.db' }).path[0]).toBe(resolve('/work', 'ci/history.db'));
     expect(plan().restoreKeys).toEqual(['shadowlap-history-main-']);
     expect(keyPart('feature/a b')).toBe('feature-a-b');
+  });
+
+  it('restores and saves nothing on an event the action refuses, whatever keep-history says', () => {
+    for (const event of ['pull_request_target', 'workflow_run', 'issue_comment']) {
+      expect(plan({ config: historyGate, event }), event).toMatchObject({ keep: false, refused: expect.stringContaining(`the action does not run on ${event}, which`) });
+      expect(plan({ keep: 'true', event }).keep, event).toBe(false);
+    }
+    expect(plan({ config: historyGate, event: 'pull_request' })).toMatchObject({ keep: true, refused: null });
+    // As its step runs it: keep is false, so action.yml's restore and save steps are skipped, and the log says why.
+    const dir = mkdtempSync(join(tmpdir(), 'fp-history-refused-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify(historyGate));
+    const output = join(dir, 'output');
+    writeFileSync(output, '');
+    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'history.mjs')], { env: { ...process.env, INPUT_WORKING_DIRECTORY: dir, INPUT_KEEP_HISTORY: 'true', INPUT_STORE: '', GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: 'pull_request_target', GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '7', GITHUB_RUN_ATTEMPT: '1', DEFAULT_BRANCH: 'main' }, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8')).toContain('keep=false\n');
+    expect(r.stdout).toContain('not keeping the test history between jobs: the action does not run on pull_request_target');
   });
 
   it('writes its outputs as GitHub reads them, the paths over several lines', () => {

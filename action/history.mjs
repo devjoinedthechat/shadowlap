@@ -6,6 +6,7 @@
 import { appendFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { refusal } from './events.mjs';
 import { annotation, logLine } from './log.mjs';
 
 /** @import { HistoryPlan } from './types.mjs' */
@@ -35,17 +36,20 @@ export const keyPart = (s) => String(s || 'none').replace(/[^\w.-]+/g, '-').slic
 /**
  * What the cache steps need: keep it for `true`, never for `false`, and for `auto` when a golden has a
  * gate against history; the store's file with its write-ahead log; a key for this run; and the keys to
- * restore from, this branch's newest first, then the default branch's (a branch's first job).
- * @param {{ keep: string; workdir: string; store: string; config: unknown; branch: string; defaultBranch: string; runId: string | undefined; attempt: string | undefined }} o
+ * restore from, this branch's newest first, then the default branch's (a branch's first job). On an
+ * `event` the action refuses (events.mjs), never, whatever `keep` says, and `refused` says why: such
+ * a job tests nothing, and the store in its checkout must not be saved as a branch's history.
+ * @param {{ keep: string; workdir: string; store: string; config: unknown; branch: string; defaultBranch: string; runId: string | undefined; attempt: string | undefined; event?: string | undefined }} o
  * @returns {HistoryPlan}
  */
-export function historyPlan({ keep, workdir, store, config, branch, defaultBranch, runId, attempt }) {
+export function historyPlan({ keep, workdir, store, config, branch, defaultBranch, runId, attempt, event }) {
   if (!['auto', 'true', 'false'].includes(keep)) throw new Error(`input keep-history must be auto, true or false, not "${keep}"`);
-  const on = keep === 'true' || (keep === 'auto' && hasHistoryGate(config));
+  const refused = refusal(event);
+  const on = !refused && (keep === 'true' || (keep === 'auto' && hasHistoryGate(config)));
   const db = store ? resolve(workdir, store) : join(workdir, '.shadowlap', 'shadowlap.db');
   const prefix = 'shadowlap-history-';
   const restore = [`${prefix}${keyPart(branch)}-`, ...(defaultBranch && defaultBranch !== branch ? [`${prefix}${keyPart(defaultBranch)}-`] : [])];
-  return { keep: on, path: [db, `${db}-wal`, `${db}-shm`], key: `${prefix}${keyPart(branch)}-${runId || 'local'}-${attempt || '1'}`, restoreKeys: restore };
+  return { keep: on, refused, path: [db, `${db}-wal`, `${db}-shm`], key: `${prefix}${keyPart(branch)}-${runId || 'local'}-${attempt || '1'}`, restoreKeys: restore };
 }
 
 /**
@@ -86,6 +90,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       defaultBranch: env.DEFAULT_BRANCH || '',
       runId: env.GITHUB_RUN_ID,
       attempt: env.GITHUB_RUN_ATTEMPT,
+      event: env.GITHUB_EVENT_NAME,
     });
   } catch (err) {
     // A config's error can quote the config, which a pull request may change.
@@ -94,5 +99,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   }
   const outputs = { keep: String(plan.keep), path: plan.path, key: plan.key, 'restore-keys': plan.restoreKeys };
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, outputLines(outputs));
-  process.stdout.write(plan.keep ? `${logLine(`keeping the test history between jobs: ${String(plan.path[0])}`)}\n` : 'not keeping the test history between jobs\n');
+  process.stdout.write(plan.keep ? `${logLine(`keeping the test history between jobs: ${String(plan.path[0])}`)}\n` : plan.refused ? `${logLine(`not keeping the test history between jobs: ${plan.refused}`)}\n` : 'not keeping the test history between jobs\n');
 }
