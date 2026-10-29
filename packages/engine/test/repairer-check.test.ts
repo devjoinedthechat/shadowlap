@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { findProgram, repairerProblem } from '../src/repairer-check.js';
+import { findProgram, repairerProblem } from '../src/fix-jobs.js';
 
 /**
- * Whether Repair from here can ask its repairer: claude must be found as the repair would start it,
- * on the PATH the dashboard's jobs get. Files are made up here (`isFile`), on either system.
+ * Whether a repair from a fix can ask its repairer, as the dashboard's Repair from here and the
+ * terminal UI ask it (fix-jobs.ts): claude must be found as the repair would start it, on the PATH a
+ * job gets. Files are made up here (`isFile`), on either system.
  */
 
 const files = (...paths: string[]) => (p: string) => paths.includes(p);

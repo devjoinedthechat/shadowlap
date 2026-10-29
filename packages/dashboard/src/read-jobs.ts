@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readStoreFacts, storeFacts, type Normalizer, type Price, type Store, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
+import { readStoreFacts, repairerProblem, storeFacts, type Normalizer, type Price, type Store, type StoreOf, type StoreFacts, type Task, type ToolTrust } from '@shadowlap/engine';
 import { activity } from './activity.js';
 import { callDetail, lineage, listRuns, lookupRun, noSuchRun, provenance, runCallsPage, runDetail, showRunJson, type ReadOptions } from './api.js';
 import { fixAttemptGroups } from './attempt-groups.js';
@@ -10,7 +10,6 @@ import { runInjection, toolTrust } from './injection.js';
 import { runUnrecorded } from './run-unrecorded.js';
 import { overviewKnown, overviewSummary } from './overview.js';
 import { patchesInTree } from './patch-in-tree.js';
-import { repairerProblem } from './repairer-check.js';
 import { localRunIds } from './routes/store.js';
 import type { MaskCount } from './run-mask.js';
 import { runCalls } from './run-calls.js';
