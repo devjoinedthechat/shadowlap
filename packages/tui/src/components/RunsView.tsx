@@ -1,7 +1,6 @@
 import { Box, Text, useInput } from 'ink';
-import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, messageOf, safeLine } from '@shadowlap/engine';
+import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, markKey, messageOf, safeLine, type RunMark } from '@shadowlap/engine';
 import { allPassed, attemptsText } from '../attempts.js';
-import { markKey, type RunMark } from '../marks.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';

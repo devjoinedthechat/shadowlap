@@ -1,10 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { Store, unpackRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
+import { markToast, Store, unpackRun, type CallRecord, type RunRecord } from '@shadowlap/engine';
 import { App } from '../src/app.js';
 import { attemptResult, attemptsText, attemptTallies } from '../src/attempts.js';
 import { forkEffects } from '../src/fork-effects.js';
-import { marked, markToast } from '../src/marks.js';
+import { marked } from '../src/marks.js';
 import { failedCheckText, standing, unrecordedConsequence, unrecordedName, verdictOf } from '../src/verdict.js';
 import { renderAt } from './terminal.js';
 
