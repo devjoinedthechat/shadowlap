@@ -60,8 +60,13 @@ export function storedRequestBody(bytes: Buffer, contentType: string | undefined
     return credentialFreeBody(body);
   } catch {
     // How a body is stored never holds its call up: one masking can't read is kept as a placeholder.
-    return { body: CREDENTIAL_PLACEHOLDER, encoding: 'text' };
+    return unreadBody();
   }
+}
+
+/** A body its masking couldn't read, as it is stored: a placeholder. */
+export function unreadBody(): StoredBody {
+  return { body: CREDENTIAL_PLACEHOLDER, encoding: 'text' };
 }
 
 /** A body as stored: parsed JSON, text, or base64 for anything else. */
@@ -123,8 +128,25 @@ export function storedResult(result: HttpResult, received: Buffer): Buffer {
     return storedResultMasked(result, received);
   } catch {
     // How a result is stored never loses its call: one masking can't read is kept as a placeholder.
-    return Buffer.from(JSON.stringify({ result: { status: result.status, headers: {}, body: CREDENTIAL_PLACEHOLDER, encoding: 'text' } }), 'utf8');
+    return unreadResult(result.status);
   }
+}
+
+/** A result whose body its masking couldn't read, as it is stored: its status, and a placeholder. */
+export function unreadResult(status: number): Buffer {
+  return Buffer.from(JSON.stringify({ result: { status, headers: {}, body: CREDENTIAL_PLACEHOLDER, encoding: 'text' } }), 'utf8');
+}
+
+/** What a captured call's answer is stored from, besides its body: its status, its headers as kept (keptResponseHeaders), and the content type its body is read by. */
+export interface ResponseHead {
+  status: number;
+  headers: Record<string, string>;
+  contentType: string | undefined;
+}
+
+/** A captured call's answer as stored: its body read by its content type (decodeBody), then stored as storedResult stores it. */
+export function storedResponse(head: ResponseHead, bytes: Buffer): Buffer {
+  return storedResult({ status: head.status, headers: head.headers, ...decodeBody(bytes, head.contentType) }, bytes);
 }
 
 function storedResultMasked(result: HttpResult, received: Buffer): Buffer {

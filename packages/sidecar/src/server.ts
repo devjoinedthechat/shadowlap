@@ -67,8 +67,9 @@ import { BodyTooLarge, MODEL_BODY_LIMIT, readBody as readWholeBody } from '@shad
 import { credentialFreeHeaders, maskPathCredentials } from '@shadowlap/engine';
 // A redacted copy's model calls: their path and header parameters as the copy's rules masked them.
 import { redactApiPath, redactHeaderValues } from '@shadowlap/engine';
+import { BodyThreads } from './body-threads.js';
 import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
-import { decodeBody, encodeBody, keptResponseHeaders, matchHttpRule, storedRequestBody, storedResponseBytes, storedResult, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
+import { encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, withoutCredentials, withoutStoredCredentials, type HttpResult, type HttpRule, type StoredBody } from './http.js';
 import { describeInterventions, RequestInterventions, type CallPlace, type Interventions } from './interventions.js';
 import { identityQuery } from './query.js';
 import { ProviderState } from './provider-state.js';
@@ -648,6 +649,8 @@ export class Sidecar {
   private readonly upstreamRequests = new Set<ClientRequest>();
   /** Every write of the runs and their calls to the store, in order, never holding up an answer (writer.ts). */
   private readonly writer: StoreWriter;
+  /** Where a captured call's long body is masked and stored, so the thread every agent's answers stream on goes on meanwhile (body-threads.ts). */
+  private readonly bodies = new BodyThreads();
   /** Takes the writer off the store's queues (Store.queueWrites), once it has made what it holds. */
   private readonly unqueue: () => void;
   /** WebSockets tunnelled and still open: an agent's connections, ended when the sidecar closes. */
@@ -781,9 +784,10 @@ export class Sidecar {
     // The servers close once every agent still connected has had its answer, so a request still
     // upstream now is one whose agent left before its answer came (stopped by Ctrl-C mid-call):
     // nobody is left to read it, and a slow model would keep this process running after it is done.
-    // Nothing more of it is recorded (`closed`).
+    // Nothing more of it is recorded (`closed`), nor of a body still being stored for one.
     this.closed = true;
     for (const req of this.upstreamRequests) req.destroy();
+    await this.bodies.close();
   }
 
   /** Environment variables that route a child process's SDK calls through this run. */
@@ -2246,9 +2250,12 @@ export class Sidecar {
       throw err;
     }
     if (client.gone) return null;
+    // A long body is stored on a thread of its own (BodyThreads): the agent can leave meanwhile.
+    const body = await this.bodies.request(rawBody, req.headers['content-type']);
+    if (client.gone) return null;
     // Stored and matched without the credentials in its address: a webhook's secret in its path, its query's (credentialFreeUrl).
     const path = maskPathCredentials(subpath);
-    const args = { method, url: `${origin.origin}${path}${withoutCredentials(search)}`, ...storedRequestBody(rawBody, req.headers['content-type']) };
+    const args = { method, url: `${origin.origin}${path}${withoutCredentials(search)}`, ...body };
     return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${path}`, url: `${origin.origin}${subpath}${search}`, search, args };
   }
 
@@ -2433,9 +2440,13 @@ export class Sidecar {
       return;
     }
     if (client.gone) return left();
-    const result: HttpResult = { status: upstream.status, headers: keptResponseHeaders(upstream.headers), ...decodeBody(bytes, upstream.headers.get('content-type') ?? undefined) };
-    this.endHttpCall(call, placed, storedResult(result, bytes), 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
-    res.writeHead(upstream.status, { ...result.headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'live' });
+    const headers = keptResponseHeaders(upstream.headers);
+    // A long answer is stored on a thread of its own (BodyThreads); the agent has it once it is stored, as before.
+    const stored = await this.bodies.response({ status: upstream.status, headers, contentType: upstream.headers.get('content-type') ?? undefined }, bytes);
+    if (this.closed) return;
+    if (client.gone) return left();
+    this.endHttpCall(call, placed, stored, 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });
+    res.writeHead(upstream.status, { ...headers, 'content-length': String(bytes.length), 'x-shadowlap-origin': 'live' });
     res.end(bytes);
   }
 
