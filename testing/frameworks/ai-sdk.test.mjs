@@ -153,14 +153,15 @@ describe('Vercel AI SDK streaming tools (async *execute) with withEffects', () =
     }
   });
 
-  it('records the final value, and replays it without running the tool', async () => {
+  it('records every value it yields, and replays them without running the tool', async () => {
     runs = 0;
     const recorded = await h.record(() => ask(withEffects({ weather: weather() }, { weather: 'read' })));
     assert.equal(recorded.error, undefined, recorded.error?.stack);
     assert.deepEqual(toolTrace(recorded.calls), ['weather:read:live:ok']);
     assert.deepEqual(shown(recorded.value), [{ status: 'done', city: 'Oslo', tempC: 7 }]);
     const call = recorded.calls.find((c) => c.name === 'weather');
-    assert.deepEqual(h.store.getJson(call.end.responseRef), { result: { status: 'done', city: 'Oslo', tempC: 7 } });
+    // Every value in order, the preliminary one too, so a replay yields them again (sdk.md, streaming tools).
+    assert.deepEqual(h.store.getJson(call.end.responseRef), { result: { shadowlap_stream: [{ status: 'loading' }, { status: 'done', city: 'Oslo', tempC: 7 }] } });
     assert.equal(runs, 1);
 
     const replay = await h.replay(recorded, () => ask(withEffects({ weather: weather() }, { weather: 'read' })));

@@ -168,7 +168,9 @@ export function keyEnvNote(value: unknown): Record<string, string[]> | null {
  * names. A provider whose calls reach the sidecar only by in-process capture (Azure OpenAI, Bedrock)
  * gets none when capture is off, since its calls would then go straight to the provider. Gemini's go
  * into the variable the recording's environment held its key in, when the note says, so Google's
- * SDKs don't warn that both are set.
+ * SDKs don't warn that both are set; an `onlyWhereRecorded` provider's only ever there (Azure's
+ * AZURE_OPENAI_API_KEY for the OpenAI SDKs, AZURE_API_KEY for the AI SDK and LiteLLM), so a client
+ * signing in another way finds no key beside it that it never had.
  */
 export function placeholderKeys(env: Env, recording: { calls: readonly Pick<CallRecord, 'meta'>[]; keyEnv?: unknown }, mode: 'offline' | 'replay', home = homedir()): Record<string, string> {
   // A call through a host of another's format (Claude on Foundry) takes that host's key, not the format's.
@@ -181,7 +183,7 @@ export function placeholderKeys(env: Env, recording: { calls: readonly Pick<Call
     const names = note?.[p.id];
     if (mode === 'replay' && !names) continue;
     if (p.keys.onlyWhereRecorded && !Object.keys(p.keys.placeholders).some((name) => names?.includes(name))) continue;
-    const alternatives = p.id === 'gemini' && names?.length ? names : Object.keys(p.keys.placeholders);
+    const alternatives = (p.id === 'gemini' || p.keys.onlyWhereRecorded) && names?.length ? names : Object.keys(p.keys.placeholders);
     for (const name of alternatives) out[name] = p.keys.placeholders[name]!;
   }
   return out;

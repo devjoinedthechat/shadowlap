@@ -66,6 +66,7 @@ export function untranslatable(provider: string | null | undefined, callName: st
   if (provider === 'bedrock') return 'it is a Bedrock request that asks no model for an answer';
   if (provider === 'vertex') return 'it is a Vertex AI request that asks no model for an answer';
   if (provider === 'azure') return 'it uses an Azure OpenAI API other than chat completions';
+  if (provider === 'ai-gateway') return "it is the AI SDK's own request to Vercel's AI Gateway";
   const what = provider ?? 'non-chat';
   return `it is ${/^[aeiou]/i.test(what) ? 'an' : 'a'} ${what} request (${path})`;
 }

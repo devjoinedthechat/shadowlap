@@ -58,12 +58,16 @@ describe('LangGraph (Python) with shadowlap.adapters.langchain', { skip: PYTHON 
     assert.equal(fork.value.answer, 'Hello cust-for-john@example.com');
   });
 
-  it('forks on a changed query and blocks the email', async () => {
+  // ToolNode, as it comes, ends the run on a tool's error but for ToolInvocationError, which it hands
+  // the model as an error ToolMessage: the refusal is one, so the model reads it and the run goes on.
+  it('forks on a changed query; ToolNode hands the blocked email to the model as an error and the run finishes', async () => {
     const fork = await h.replay(recorded, agent('replay'));
     assert.equal(fork.error, undefined, fork.error?.stack);
-    assert.ok(!fork.value.executed.includes('send_email'));
-    assert.ok(fork.calls.some((c) => c.name === 'send_email' && c.origin === 'blocked'));
-    // ToolNode either reports the refusal to the model as an error ToolMessage or lets it end the run.
-    assert.ok(fork.value.email_status === 'error' || /ShadowlapWriteBlocked/.test(fork.value.error ?? ''), JSON.stringify(fork.value));
+    assert.equal(fork.value.error, null, JSON.stringify(fork.value));
+    assert.deepEqual(fork.value.executed, ['search_web']); // read_notes is pure: its recorded result serves
+    assert.deepEqual(toolTrace(fork.calls).sort(), ['read_notes:pure:replayed:ok', 'search_web:read:live:ok', 'send_email:write:blocked:error']);
+    assert.equal(fork.value.email_status, 'error');
+    assert.match(fork.value.email, /^write tool send_email blocked after divergence/);
+    assert.match(fork.value.output, /^Done: .*replay #1.*; write tool send_email blocked after divergence/);
   });
 });

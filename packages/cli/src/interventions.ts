@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, isGatewayRequest, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -108,6 +108,7 @@ export function checkRequestInterventions(store: Store, parentCalls: CallRecord[
     const { fromCall, fields } = interventions.set;
     const { model, ...rest } = fields;
     const r = requestOf(fromCall);
+    if (r.shape === 'other' && isGatewayRequest(r.body)) throw new Error(`--${Object.keys(rest).length ? 'set' : 'model'} ${fromCall}: #${fromCall} can't be changed: ${GATEWAY_UNCHANGED}`);
     if (r.shape === 'other') throw new Error(`--${Object.keys(rest).length ? 'set' : 'model'} ${fromCall}: #${fromCall} is not a conversation (an embeddings call, or a model's native body), so it has no ${Object.keys(rest).length ? 'sampling settings' : 'model to switch'}; give the number of a model call that sends messages`);
     if (Object.keys(rest).length) {
       const patched = setRequestFields(r.shape, r.body, rest);

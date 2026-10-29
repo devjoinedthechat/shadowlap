@@ -219,3 +219,38 @@ describe('hosts of another provider\'s wire format', () => {
   });
 });
 
+
+describe("Vercel's AI Gateway", () => {
+  const gateway = providers.find((p) => p.id === 'ai-gateway')!;
+  const v4 = { inputTokens: { total: 120, noCache: 100, cacheRead: 20, cacheWrite: 0 }, outputTokens: { total: 12, text: 12, reasoning: 0 } };
+
+  it('is captured on its own host, and takes no base URL from the environment', () => {
+    expect(gateway.hosts.test('ai-gateway.vercel.sh')).toBe(true);
+    expect(gateway.hosts.test('ai-gateway.vercel.sh.evil.com')).toBe(false);
+    expect(gateway.env('http://127.0.0.1:1/ai-gateway')).toEqual({});
+  });
+
+  it('reads the model from the header the AI SDK names it in, and the spec version and streaming take part in matching', () => {
+    expect(gateway.extractModel('/v4/ai/language-model', { prompt: [] }, { 'ai-language-model-id': 'openai/gpt-5' })).toBe('openai/gpt-5');
+    expect(gateway.extractModel('/v4/ai/embedding-model', { values: ['a'] }, { 'ai-embedding-model-id': 'openai/text-embedding-3-small' })).toBe('openai/text-embedding-3-small');
+    expect(gateway.fingerprintHeaders).toEqual(expect.arrayContaining(['ai-language-model-id', 'ai-language-model-specification-version', 'ai-language-model-streaming']));
+    expect(gateway.credentialHeaders).toContain('authorization');
+  });
+
+  it("reads usage and the finish reason from a generate result and from a stream's finish part, the spec's version 4 and before", () => {
+    const result = Buffer.from(JSON.stringify({ content: [{ type: 'text', text: 'hi' }], finishReason: { unified: 'stop', raw: 'end_turn' }, usage: v4 }));
+    expect(gateway.extractUsage(result, JSON_CT)).toEqual({ inputTokens: 100, outputTokens: 12, cacheReadInputTokens: 20, cacheCreationInputTokens: 0 });
+    expect(gateway.extractStopReason(result, JSON_CT)).toBe('stop');
+    const stream = sse([[null, { type: 'stream-start', warnings: [] }], [null, { type: 'text-delta', id: 't', delta: 'hi' }], [null, { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_use' }, usage: v4 }]]);
+    expect(gateway.extractUsage(stream, SSE)).toEqual({ inputTokens: 100, outputTokens: 12, cacheReadInputTokens: 20, cacheCreationInputTokens: 0 });
+    expect(gateway.extractStopReason(stream, SSE)).toBe('tool-calls');
+    // Version 2 of the spec: numbers, cached input beside them, a finish reason as a string.
+    const v2 = Buffer.from(JSON.stringify({ content: [], finishReason: 'stop', usage: { inputTokens: 50, outputTokens: 5, cachedInputTokens: 10 } }));
+    expect(gateway.extractUsage(v2, JSON_CT)).toEqual({ inputTokens: 40, outputTokens: 5, cacheReadInputTokens: 10 });
+    expect(gateway.extractStopReason(v2, JSON_CT)).toBe('stop');
+  });
+
+  it('gives a replay a placeholder AI_GATEWAY_API_KEY, unless an API key or a Vercel OIDC token is there', () => {
+    expect(gateway.keys).toMatchObject({ placeholders: { AI_GATEWAY_API_KEY: expect.any(String) }, credentials: ['AI_GATEWAY_API_KEY', 'VERCEL_OIDC_TOKEN'] });
+  });
+});

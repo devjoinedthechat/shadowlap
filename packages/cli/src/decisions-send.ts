@@ -131,9 +131,9 @@ export function missingCredentials(provider: Provider, official: boolean, env: N
     case 'openai':
       return env.OPENAI_API_KEY ? null : 'no OpenAI key: set OPENAI_API_KEY';
     case 'gemini':
-      return env.GEMINI_API_KEY || env.GOOGLE_API_KEY ? null : 'no Gemini key: set GEMINI_API_KEY';
+      return env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY ? null : 'no Gemini key: set GEMINI_API_KEY';
     case 'azure':
-      return env.AZURE_OPENAI_API_KEY ? null : 'no Azure OpenAI key: set AZURE_OPENAI_API_KEY';
+      return env.AZURE_OPENAI_API_KEY || env.AZURE_API_KEY ? null : 'no Azure OpenAI key: set AZURE_OPENAI_API_KEY';
     default:
       // Bedrock and Vertex AI find their credentials as their SDKs do, when the request is signed.
       return null;
@@ -156,11 +156,15 @@ async function credentialHeaders(provider: Provider, url: URL, method: string, b
         ...(env.OPENAI_PROJECT_ID ? { 'openai-project': env.OPENAI_PROJECT_ID } : {}),
       };
     case 'gemini': {
-      const key = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+      // The AI SDK's Google provider, and Mastra's model router, read GOOGLE_GENERATIVE_AI_API_KEY.
+      const key = env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GOOGLE_GENERATIVE_AI_API_KEY;
       return key ? { 'x-goog-api-key': key } : {};
     }
-    case 'azure':
-      return env.AZURE_OPENAI_API_KEY ? { 'api-key': env.AZURE_OPENAI_API_KEY } : {};
+    case 'azure': {
+      // The AI SDK's Azure provider and LiteLLM read AZURE_API_KEY.
+      const key = env.AZURE_OPENAI_API_KEY || env.AZURE_API_KEY;
+      return key ? { 'api-key': key } : {};
+    }
     case 'vertex': {
       if (!official && !env.GOOGLE_OAUTH_ACCESS_TOKEN) return {};
       const token = await resolveGoogleToken({ env });

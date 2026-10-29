@@ -19,9 +19,49 @@ export const BUILTIN_STRIPPED_KEYS: readonly string[] = ['cache_control'];
  * Bump when fingerprints change meaning; stored fingerprints from another version are recomputed on
  * replay. 6: a model call's query string takes part (`ApiRequestShape.query`). 7: Claude Code's
  * session identifier in `metadata.user_id` is masked (`maskClaudeCodeSession`). 8: a clock or random
- * read's name takes part (`fingerprintMisc`), so `random()` is never `uuid()`.
+ * read's name takes part (`fingerprintMisc`), so `random()` is never `uuid()`. 9: a Gemini
+ * conversation's function call ids count by the order they first appear in (`maskGeminiCallIds`).
  */
-export const FINGERPRINT_VERSION = 8;
+export const FINGERPRINT_VERSION = 9;
+
+/**
+ * A Gemini request body (`contents`, on the Gemini API and Vertex AI) with each function call's id
+ * read as `<call-n>`, numbered in the order the ids first appear: Gemini's answers usually carry no id,
+ * so a client that pairs calls with results by id makes its own up (the AI SDK, and Mastra on it, a
+ * random one each run), and sends it back with the call and its result in every later request. Which
+ * result answers which call still counts; the spelling of a made-up id doesn't. The body itself when
+ * it has no such id.
+ */
+export function maskGeminiCallIds(body: unknown): unknown {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
+  const given = (body as Record<string, unknown>).contents;
+  if (!Array.isArray(given)) return body;
+  const contents = given as unknown[];
+  const numbered = new Map<string, string>();
+  const masked = (id: unknown) => {
+    if (typeof id !== 'string') return id;
+    if (!numbered.has(id)) numbered.set(id, `<call-${numbered.size + 1}>`);
+    return numbered.get(id);
+  };
+  const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const withId = (part: Record<string, unknown>, key: 'functionCall' | 'functionResponse') => {
+    const inner = part[key];
+    return isRecord(inner) && typeof inner.id === 'string' ? { ...part, [key]: { ...inner, id: masked(inner.id) } } : part;
+  };
+  let changed = false;
+  const out = contents.map((turn) => {
+    if (!isRecord(turn) || !Array.isArray(turn.parts)) return turn;
+    const before = turn.parts as unknown[];
+    const parts = before.map((p) => (isRecord(p) ? withId(withId(p, 'functionCall'), 'functionResponse') : p));
+    if (parts.some((p, i) => p !== before[i])) {
+      changed = true;
+      return { ...turn, parts };
+    }
+    return turn;
+  });
+  // Spread defines its keys, so a `__proto__` key in the body stays a key.
+  return changed ? { ...body, contents: out } : body;
+}
 
 // ---- Claude Code's session identifier ----
 
@@ -147,7 +187,7 @@ export function fingerprintApi(req: ApiRequestShape, normalizers: Normalizer[], 
   }
   // A form's parts, not its bytes: its client picks a new boundary for every request.
   const view = multipartView(apiNumbers(req.body, opts.roundNumbers === true));
-  const stripped = maskClaudeCodeSession(stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS));
+  const stripped = maskGeminiCallIds(maskClaudeCodeSession(stripKeysDeep(opts.withoutPrompt ? withoutPrompt(view) : view, BUILTIN_STRIPPED_KEYS)));
   const body = applyNormalizers(clock === undefined ? stripped : maskClock(stripped, clock), normalizers, 'api', name);
   // Left out when there is none, so a call without a query keeps the fingerprint it always had.
   const query = queryIdentity(req.query, normalizers, name, clock);

@@ -61,10 +61,18 @@ Config = tuple[str, Optional[str]]
 
 class ShadowlapWriteBlocked(RuntimeError):
     """Raised when a `write` tool is reached after divergence under the default `--writes block`.
-    `tool` is the tool's name and `tool_args` the arguments it was called with."""
+    `tool` is the tool's name and `tool_args` the arguments it was called with.
+
+    Inside an agent framework whose loop fails the run on a tool's error but reports one kind of
+    error to the model, the refusal is that kind too, so the model reads it and the run goes on:
+    Pydantic AI's ``ToolFailed``, and LangGraph's ``ToolInvocationError``, which ``ToolNode`` reports
+    by default (LangChain's ``ToolException`` without LangGraph). ``except ShadowlapWriteBlocked``
+    catches it all the same."""
 
     def __init__(self, tool: str, args: dict[str, Any], message: Optional[str] = None):
-        super().__init__(message or f"write tool {tool} blocked after divergence")
+        # Not super(): on Python 3.14 and later RuntimeError has no __init__ of its own, so in the
+        # refusal that is a framework's error too (_write_blocked) super() would reach that error's.
+        RuntimeError.__init__(self, message or f"write tool {tool} blocked after divergence")
         self.tool = tool
         # Not `self.args`: that is the exception's own message tuple, which str() and copy() use.
         self.tool_args = args
@@ -72,6 +80,51 @@ class ShadowlapWriteBlocked(RuntimeError):
     def __reduce__(self) -> tuple[Any, ...]:
         # copy, pickle and multiprocessing rebuild an exception from its constructor arguments.
         return (type(self), (self.tool, self.tool_args, str(self)))
+
+
+#: Per framework, the error its agent loop hands the model as a tool's failure where any other error
+#: ends the run, as (module, class) in order of preference: the first one the process has imported.
+#: Shadowlap imports no framework, so a framework that isn't running adds nothing.
+_REPORTED_ERRORS: tuple[tuple[tuple[str, str], ...], ...] = (
+    # A failure the model sees and is not asked to retry, so it spends no retry.
+    (("pydantic_ai.exceptions", "ToolFailed"),),
+    # ToolNode's default reports this one alone; a tool's handle_tool_error, any ToolException.
+    (("langgraph.prebuilt.tool_node", "ToolInvocationError"), ("langchain_core.tools.base", "ToolException")),
+)
+_BLOCKED_CLASSES: dict[tuple[type, ...], type] = {}
+
+
+def _reported_errors() -> tuple[type, ...]:
+    found = []
+    for choices in _REPORTED_ERRORS:
+        for module, name in choices:
+            cls = getattr(sys.modules.get(module), name, None)
+            if isinstance(cls, type) and issubclass(cls, Exception):
+                found.append(cls)
+                break
+    return tuple(found)
+
+
+def _rebuilt_blocked(self: ShadowlapWriteBlocked) -> tuple[Any, ...]:
+    return (_write_blocked, (self.tool, self.tool_args, str(self)))
+
+
+def _write_blocked(tool: str, args: dict[str, Any], message: Optional[str] = None) -> ShadowlapWriteBlocked:
+    """The refusal of a write after a fork: a ShadowlapWriteBlocked that is also the error each
+    framework running here reports to its model (``_REPORTED_ERRORS``), named ShadowlapWriteBlocked
+    all the same, so a traceback and a recorded error read as before."""
+    bases = _reported_errors()
+    if not bases:
+        return ShadowlapWriteBlocked(tool, args, message)
+    cls = _BLOCKED_CLASSES.get(bases)
+    if cls is None:
+        cls = type("ShadowlapWriteBlocked", (ShadowlapWriteBlocked, *bases), {"__module__": __name__, "__qualname__": "ShadowlapWriteBlocked", "__reduce__": _rebuilt_blocked})
+        _BLOCKED_CLASSES[bases] = cls
+    err = cast(ShadowlapWriteBlocked, cls(tool, args, message))
+    # What the frameworks read off their own error, which its constructor, not run here, would set:
+    # the message (Pydantic AI, LangGraph) and the rest of what LangGraph's carries.
+    vars(err).update(message=str(err), tool_name=tool, tool_kwargs=args, source=None, filtered_errors=None)
+    return err
 
 
 def _recorded_args(error: Any) -> list[Any]:
@@ -1029,7 +1082,7 @@ class _Tool:
         """Raises for an answer that runs nothing: a write blocked after the fork, or an origin this SDK doesn't know."""
         origin = r["origin"]
         if origin == "blocked":
-            raise ShadowlapWriteBlocked(self.name, bound, r["error"]["message"])
+            raise _write_blocked(self.name, bound, r["error"]["message"])
         if origin not in ("stubbed", "live"):
             raise _unknown_origin(self.name, origin)
 

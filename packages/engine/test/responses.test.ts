@@ -44,3 +44,35 @@ describe('streamed responses, read from their events whatever the provider id', 
     }
   });
 });
+
+describe("Vercel's AI Gateway: the AI SDK's own results and stream parts", () => {
+  it('reads a generate result, never as an Anthropic message although both hold content', () => {
+    const body = Buffer.from(JSON.stringify({ content: [{ type: 'reasoning', text: 'look it up' }, { type: 'text', text: 'Looking.' }, { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup_order', input: '{"order_id":"A-1"}' }], finishReason: { unified: 'tool-calls', raw: 'tool_use' }, usage: {} }));
+    expect(normalizeResponse(body, 'application/json', [], 'ai-gateway')).toMatchObject({
+      kind: 'json',
+      blocks: [{ type: 'thinking', text: 'look it up' }, { type: 'text', text: 'Looking.' }, { type: 'tool_call', name: 'lookup_order', input: { order_id: 'A-1' }, id: 'call_1' }],
+      stopReason: 'tool-calls',
+    });
+    // An Anthropic message still reads as one.
+    const anthropic = Buffer.from(JSON.stringify({ type: 'message', content: [{ type: 'tool_use', id: 'toolu_1', name: 'lookup_order', input: { order_id: 'A-1' } }], stop_reason: 'tool_use' }));
+    expect(normalizeResponse(anthropic, 'application/json').blocks).toEqual([{ type: 'tool_call', name: 'lookup_order', input: { order_id: 'A-1' }, id: 'toolu_1' }]);
+  });
+
+  it("reads a stream of parts: text by its id, each tool call once though its input streamed first, and the finish", () => {
+    const stream = sse([
+      { type: 'stream-start', warnings: [] },
+      { type: 'text-start', id: 't0' },
+      { type: 'text-delta', id: 't0', delta: 'Refunding ' },
+      { type: 'text-delta', id: 't0', delta: 'now.' },
+      { type: 'text-end', id: 't0' },
+      { type: 'tool-input-start', id: 'call_1', toolName: 'refund_order' },
+      { type: 'tool-input-delta', id: 'call_1', delta: '{"order_id":"A-1"}' },
+      { type: 'tool-input-end', id: 'call_1' },
+      { type: 'tool-call', toolCallId: 'call_1', toolName: 'refund_order', input: '{"order_id":"A-1"}' },
+      { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: {} },
+    ]);
+    const r = normalizeResponse(stream, SSE, [], 'ai-gateway');
+    expect(r.blocks).toEqual([{ type: 'text', text: 'Refunding now.' }, { type: 'tool_call', name: 'refund_order', input: { order_id: 'A-1' } }]);
+    expect(r.stopReason).toBe('tool-calls');
+  });
+});

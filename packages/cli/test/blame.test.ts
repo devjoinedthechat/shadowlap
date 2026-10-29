@@ -256,7 +256,7 @@ describe('shadowlap blame', () => {
     for (const args of [['blame', runId], ['verify', '--fixes', runId], ['repair', '--fixes', runId]]) {
       const r = await shadowlap([...args, '--expect', judged], noKey);
       expect(r.code, r.out).toBe(2);
-      expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
+      expect(r.out).toContain('--expect has a check no attempt can decide: judge "explains" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY))');
       expect(r.out).toContain(`so ${args[0]} would spend attempts to say nothing`);
     }
     expect(mock.requests.length).toBe(before);

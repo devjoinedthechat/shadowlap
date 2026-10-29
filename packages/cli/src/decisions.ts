@@ -32,6 +32,8 @@ import {
   recordEvent,
   refused,
   requestShape,
+  GATEWAY_UNCHANGED,
+  isGatewayRequest,
   resolveAuthor,
   retiredFields,
   retirementOf,
@@ -600,7 +602,7 @@ function planRun(store: Store, target: DecisionTarget, s: DecisionsSettings, fro
      */
     const make = (note: boolean): { body: unknown; path: string; promptChanged: boolean; modelChanged: boolean; fieldsChanged: boolean; thinking: number } | { skip: string } => {
       let body = loadApiRequest(store, call.requestRef!);
-      if (requestShape(provider, path, body) === 'other') return { skip: "it is not a conversation (an embeddings call, or a model's native body)" };
+      if (requestShape(provider, path, body) === 'other') return { skip: isGatewayRequest(body) ? GATEWAY_UNCHANGED : "it is not a conversation (an embeddings call, or a model's native body)" };
       const promptChanged = cap?.changed === true;
       if (promptChanged) body = withPrompt(body, cap.prompt);
       let at = path;

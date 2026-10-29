@@ -1,7 +1,8 @@
 """A Pydantic AI agent driven by FunctionModel (no API): the model asks for search_web and send_email,
-then answers. Tools are registered with @agent.tool over the Shadowlap @tool decorator,
-the documented pattern; the RunContext parameter is left out of the recording automatically. QUERY changes the search arguments so a replay forks.
-Prints a JSON summary."""
+then answers with what each returned. Tools are registered with @agent.tool over the Shadowlap @tool
+decorator, the documented pattern; the RunContext parameter is left out of the recording
+automatically. QUERY changes the search arguments so a replay forks. Prints a JSON summary, with each
+tool's return as the model read it: its content and whether it failed."""
 
 import asyncio
 import json
@@ -55,9 +56,10 @@ async def send_email(ctx: RunContext[Deps], to: str) -> dict:
 async def main() -> dict:
     try:
         result = await agent.run("Research and email the team.", deps=Deps(signature="ops"))
-        return {"output": result.output, "executed": executed, "error": None}
     except ShadowlapWriteBlocked as err:
-        return {"output": None, "executed": executed, "error": f"ShadowlapWriteBlocked: {err}"}
+        return {"output": None, "executed": executed, "returns": [], "error": f"ShadowlapWriteBlocked: {err}"}
+    returns = [{"tool": p.tool_name, "content": str(p.content), "outcome": getattr(p, "outcome", None)} for m in result.all_messages() for p in getattr(m, "parts", []) if isinstance(p, ToolReturnPart)]
+    return {"output": result.output, "executed": executed, "returns": returns, "error": None}
 
 
 if __name__ == "__main__":

@@ -47,6 +47,37 @@ describe('fingerprintApi', () => {
   });
 });
 
+describe("a Gemini conversation's function call ids", () => {
+  const gemini = { method: 'POST', path: '/v1beta/models/gemini-2.5-flash:generateContent', headers: {} };
+  const turns = (a: string, b: string, answers = [a, b]) => ({
+    contents: [
+      { role: 'user', parts: [{ text: 'Refund order A-1042.' }] },
+      { role: 'model', parts: [{ functionCall: { id: a, name: 'lookup', args: { id: 'A-1042' } } }, { functionCall: { id: b, name: 'lookup', args: { id: 'A-1043' } } }] },
+      { role: 'user', parts: [{ functionResponse: { id: answers[0], name: 'lookup', response: { amount: 240 } } }, { functionResponse: { id: answers[1], name: 'lookup', response: { amount: 90 } } }] },
+    ],
+  });
+
+  it('count by the order they first appear in, so ids a client made up afresh still match', () => {
+    // The AI SDK names Gemini's calls itself, with a new random id each run.
+    const recorded = fingerprintApi({ ...gemini, body: turns('PfyxZOhr4ro30QGk', 'q7Lx0aZr2bYc9WdE') }, [], []);
+    expect(fingerprintApi({ ...gemini, body: turns('Rb4nQypSnBKnJXzi', 'Hk2mVt8sP0aQx1Ze') }, [], []).fingerprint).toBe(recorded.fingerprint);
+    expect(recorded.canonical).toContain('<call-1>');
+    expect(recorded.canonical).not.toContain('PfyxZOhr4ro30QGk');
+  });
+
+  it('still tell which result answers which call', () => {
+    const paired = fingerprintApi({ ...gemini, body: turns('a', 'b') }, [], []);
+    expect(fingerprintApi({ ...gemini, body: turns('a', 'b', ['b', 'a']) }, [], []).fingerprint).not.toBe(paired.fingerprint);
+  });
+
+  it('leave a body without them as it is, and other formats alone', () => {
+    const plain = { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] };
+    expect(fingerprintApi({ ...gemini, body: plain }, [], []).canonical).toContain('"contents":[{"parts":[{"text":"hi"}],"role":"user"}]');
+    const anthropic = (id: string) => ({ messages: [{ role: 'assistant', content: [{ type: 'tool_use', id, name: 'lookup', input: {} }] }] });
+    expect(fingerprintApi({ ...base, body: anthropic('toolu_1') }, [], ALLOW).fingerprint).not.toBe(fingerprintApi({ ...base, body: anthropic('toolu_2') }, [], ALLOW).fingerprint);
+  });
+});
+
 describe('fingerprintTool / fingerprintMisc', () => {
   it('includes the tool name and canonical args', () => {
     expect(fingerprintTool('search', { q: 'a', n: 1 }, []).fingerprint).toBe(fingerprintTool('search', { n: 1, q: 'a' }, []).fingerprint);

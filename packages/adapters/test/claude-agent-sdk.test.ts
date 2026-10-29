@@ -570,4 +570,14 @@ describe('tools of an in-process MCP server', () => {
   it('needs an effect for every tool', () => {
     expect(() => withEffects('orders', [lookup, refund], { lookup_order: 'read' })).toThrow(/missing for issue_refund/);
   });
+
+  it('names a call as Claude Code does, with every character but a letter, a digit, _ or - turned into _', async () => {
+    // Claude Code shows the model `look up` of the server keyed `Order desk.v2` as mcp__Order_desk_v2__look_up.
+    const [named] = withEffects('Order desk.v2', [{ ...lookup, name: 'look up' }], { 'look up': 'read' });
+    const rec = sidecar.startRun({ mode: 'record', command });
+    within(rec);
+    await named.handler({ id: 'C-3' });
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['mcp__Order_desk_v2__look_up']);
+  });
 });
