@@ -133,7 +133,6 @@
     "packages/sidecar/src/provider-state.ts": 47,
     "packages/tui/src/components/Inspector.tsx": 41,
     "packages/tui/src/components/RunsView.tsx": 40,
-    "packages/tui/src/components/TimelineView.tsx": 76,
     "scripts/demo-store/models.mjs": 51,
     "testing/frameworks/cloud-mock.mjs": 32,
     "testing/mock-openai/src/index.ts": 59,
@@ -182,7 +181,6 @@
     "packages/engine/src/redact.ts": 187,
     "packages/remote/src/policy.ts": 156,
     "packages/tui/src/components/RunsView.tsx": 274,
-    "packages/tui/src/components/TimelineView.tsx": 583,
     "scripts/demo-store/models.mjs": 290
   },
   "max-depth": {
