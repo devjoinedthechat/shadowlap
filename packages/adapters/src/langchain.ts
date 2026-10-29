@@ -1,5 +1,6 @@
 import { tool } from '@shadowlap/sdk';
 import { toOptions, type EffectSpec } from './core.js';
+import { isObject } from './is-object.js';
 
 /**
  * LangChain / LangGraph (`@langchain/core` tools): wraps the tool instance's `_call`, the step
@@ -54,7 +55,6 @@ export function withEffect<T extends { name: string }>(instance: T, spec: Effect
 const TAG = '__shadowlap__';
 
 type Json = Record<string, unknown>;
-const isObject = (x: unknown): x is Json => typeof x === 'object' && x !== null;
 /** LangGraph's own test for a Command (and a Send): by name, so another copy of the package passes too. */
 const isCommand = (x: unknown): x is { graph?: unknown; update?: unknown; resume?: unknown; goto?: unknown } => isObject(x) && x.lg_name === 'Command';
 const isSend = (x: unknown): x is { node: string; args: unknown } => isObject(x) && x.lg_name === 'Send';

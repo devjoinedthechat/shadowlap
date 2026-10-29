@@ -362,6 +362,13 @@ export default defineConfig(
     // CommonJS loads its modules with require().
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
+  // The framework tests drive each framework's entry points, its older ones too (LangGraph's createReactAgent),
+  // as the agents written against them call them; and they lint the same whether those frameworks are
+  // installed here (testing/frameworks has packages of its own) or not, as on CI.
+  {
+    files: ['testing/frameworks/**'],
+    rules: { '@typescript-eslint/no-deprecated': 'off' },
+  },
   {
     files: ['testing/frameworks/jest-project/**'],
     languageOptions: { globals: { ...globals.jest } },
