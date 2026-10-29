@@ -517,8 +517,74 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     maskKeyValueLines(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER);
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run
   // together, in a page's script. What a shape masked already is read again, and stays as it is.
-  if (!text.includes('{')) return shaped;
-  return maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped;
+  const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped) : shaped;
+  // A URL's user info and a JWT, wherever they stand in what is left: a .env line's database URL, a sentence's token.
+  const read = embedded ?? text;
+  const loose = maskJwtsInText(maskUrlUserInfo(read));
+  return loose === read ? embedded : loose;
+}
+
+/** Whether a character is one a URL's scheme is written with: a letter, a digit, `+`, `.` or `-`. */
+const schemeChar = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a) || (c >= 0x30 && c <= 0x39) || c === 0x2b || c === 0x2e || c === 0x2d;
+/** What ends a URL's authority in text: its path, query or fragment (`/`, `?`, `#`), a space, or what quotes it (`"`, `'`, `<`, `>`, a backquote, a backslash). */
+const AUTHORITY_END = new Set([0x2f, 0x3f, 0x23, 0x22, 0x27, 0x3c, 0x3e, 0x60, 0x5c]);
+const isSpace = (c: number) => c === 0x20 || (c >= 0x09 && c <= 0x0d) || c === 0xa0 || c === 0x2028 || c === 0x2029;
+
+/**
+ * Text with the credential in the user info of each URL in it masked (maskUserInfo), wherever the
+ * URL stands: `postgres://app:…@db/app` in a .env line or a sentence, `redis://:…@cache` in a log
+ * line. Each `://` is read once, back over its scheme and on over its authority. The same string
+ * when there is nothing to mask.
+ */
+function maskUrlUserInfo(text: string): string {
+  const parts: string[] = [];
+  let copied = 0;
+  for (let at = text.indexOf('://'); at >= 0; at = text.indexOf('://', at + 3)) {
+    let s = at;
+    while (s > 0 && schemeChar(text.charCodeAt(s - 1))) s--;
+    const first = text.charCodeAt(s);
+    if (s === at || !((first >= 0x61 && first <= 0x7a) || (first >= 0x41 && first <= 0x5a))) continue;
+    let e = at + 3;
+    while (e < text.length && !AUTHORITY_END.has(text.charCodeAt(e)) && !isSpace(text.charCodeAt(e))) e++;
+    const authority = `//${text.slice(at + 3, e)}`;
+    const masked = maskUserInfo(authority);
+    if (masked === authority) continue;
+    parts.push(text.slice(copied, at + 1), masked);
+    copied = e;
+  }
+  return parts.length ? parts.join('') + text.slice(copied) : text;
+}
+
+/** Whether a character is one a JWT is written with: base64url, or the dot between its parts. */
+const jwtChar = (c: number) => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a) || (c >= 0x30 && c <= 0x39) || c === 0x2d || c === 0x5f || c === 0x2e;
+
+/**
+ * Text with each JWT in it masked, wherever it stands: after `Bearer `, in a sentence, in a log
+ * line. A JWT is a word of its own (`eyJ…` after a character it can't hold) to where the word ends,
+ * less the full stop a sentence puts after it. Each word is read once. The same string when there
+ * is none.
+ */
+function maskJwtsInText(text: string): string {
+  const parts: string[] = [];
+  let copied = 0;
+  for (let at = text.indexOf('eyJ'); at >= 0; ) {
+    if (at > 0 && jwtChar(text.charCodeAt(at - 1))) {
+      at = text.indexOf('eyJ', at + 3);
+      continue;
+    }
+    let e = at;
+    while (e < text.length && jwtChar(text.charCodeAt(e))) e++;
+    let end = e;
+    while (end > at && text.charCodeAt(end - 1) === 0x2e) end--;
+    // One without a signature ends with its dot: `header.payload.`.
+    const word = JWT.test(text.slice(at, end)) ? end : end < e && JWT.test(text.slice(at, end + 1)) ? end + 1 : -1;
+    if (word > 0) {
+      parts.push(text.slice(copied, at), CREDENTIAL_PLACEHOLDER);
+      copied = word;
+    }
+    at = text.indexOf('eyJ', e);
+  }
+  return parts.length ? parts.join('') + text.slice(copied) : text;
 }
 
 /** One parameter of a form written without encoding its values: a name, then `=`. */
@@ -717,16 +783,23 @@ export const TOKEN_IN_VALUE: Readonly<Record<string, (value: string) => string>>
 /** Response headers that set state in the client: never stored, nor handed to the agent on replay. */
 export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 
+/** Words that make a header's whole value a credential wherever they are in its name: `x-session-token-raw`, `x-api-secret-v2`. */
+const HEADER_SECRET_WORD = new Set(['token', 'secret', 'password', 'passwd', 'credential']);
+
 /**
  * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
- * `*-key`), a session's (`x-session`, `*-session`) or an auth header of a service's own (`x-auth`,
- * `*-auth`). The explicit list covers the echoed request headers, which read by their words alone
- * aren't credentials.
+ * `*-key`), a session's (`x-session`, `*-session`), an auth header of a service's own (`x-auth`,
+ * `*-auth`), or one with a token, secret, password or credential word anywhere in its name
+ * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
+ * explicit list covers the echoed request headers, which read by their words alone aren't
+ * credentials.
  */
 export function credentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower);
+  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower)) return true;
+  const words = wordsOf(lower);
+  return words.some((w) => HEADER_SECRET_WORD.has(w)) && !words.some((w) => CURSOR.includes(w));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */

@@ -25,9 +25,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * the JSON objects among other text (after a comment, before `;`, in a page's script). 8: and in an
  * event's data read across its lines, and lines of JSON with other lines among them. 9: and in XML
  * and HTML by an element's name or key attribute, and inside an element that attribute names as one.
- * 10: and in `key: value` lines, a GraphQL block string, and a token given as a URL's name.
+ * 10: and in `key: value` lines, a GraphQL block string, and a token given as a URL's name. 11: and
+ * a URL's user info wherever it stands in text (a .env line's database URL, a sentence). 12: and a
+ * JWT as a word of its own anywhere in text.
  */
-const CACHE_VERSION = 10;
+const CACHE_VERSION = 12;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
