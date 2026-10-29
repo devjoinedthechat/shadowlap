@@ -206,6 +206,8 @@ describe('how a run stands, in the terminal', () => {
     expect(attemptResult(run({ probe: { of: 'p', callNo: 3, passed: false, verdict: 'unavailable' } }))).toBe('inconclusive');
     expect(attemptResult(run({ verify: { role: 'target', passed: true } }))).toBe('passed');
     expect(attemptResult(run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'))).toBe('interrupted');
+    // Stopped before it ended, it is interrupted whatever blame kept on it: the engine's rule, the dashboard's too.
+    expect(attemptResult(run({ probe: { of: 'p', callNo: 3, passed: true } }, 'crashed'))).toBe('interrupted');
     expect(attemptTallies([run({ repeat: { group: 'g', attempt: 1, of: 2 } }, 'crashed'), run({ repeat: { group: 'g', attempt: 2, of: 2 } })])).toEqual([{ kind: 'repeat', count: 2, passed: 1, interrupted: 1 }]);
   });
 

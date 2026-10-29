@@ -1,5 +1,7 @@
 import {
   checkStatus,
+  FAILURE_WORDS,
+  failureReason,
   fixOfRun,
   formatBlame,
   isFailedOutcome,
@@ -46,21 +48,16 @@ export function failedCheckText(c: StoredCheck): string {
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
-/** A check that failed: not passed, and not one that could not be decided, which is no failure of the agent's. */
-const failedOne = (c: StoredCheck) => !c.ok && c.status !== 'inconclusive';
-
 /**
- * Why the run failed, in the order the dashboard's banner says it (`failureText`): a failed check,
- * the agent's exit, the check a fix names, an interruption, blame's confirmation. Else how it came
- * out, when it says something. Null while it records.
+ * Why the run failed, the engine's first reason (failureReason, which the dashboard's banner says
+ * too): a failed check, the agent's exit, the check a fix names, an interruption, blame's
+ * confirmation. Else how it came out, when it says something. Null while it records.
  */
 export function standing(run: RunRecord, outcome: RunOutcome): Fact | null {
-  const failed = (run.meta?.checks ?? []).find(failedOne);
-  if (failed) return { text: failedCheckText(failed), tone: 'err' };
-  if (run.status === 'failed') return { text: 'the agent exited with an error', tone: 'err' };
-  if (outcome.kind === 'check-failed' && outcome.check) return { text: `check failed: “${outcome.check}”`, tone: 'err' };
-  if (run.status === 'crashed') return { text: 'the run was interrupted', tone: 'warn' };
-  if (run.meta?.blame) return { text: 'blame confirmed it fails', tone: 'err' };
+  const reason = failureReason({ status: run.status, checks: run.meta?.checks ?? [], outcome, blame: run.meta?.blame });
+  if (reason?.kind === 'check') return { text: failedCheckText(reason.check), tone: 'err' };
+  if (reason?.kind === 'fix-check') return { text: `check failed: “${reason.check}”`, tone: 'err' };
+  if (reason) return { text: FAILURE_WORDS[reason.kind], tone: reason.kind === 'interrupted' ? 'warn' : 'err' };
   switch (outcome.kind) {
     case 'inconclusive':
       return { text: `check inconclusive${outcome.check ? `: ${outcome.check}` : ''}`, tone: 'warn' };
