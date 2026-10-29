@@ -1,6 +1,6 @@
 # Frameworks
 
-If your tools are defined through a framework, declare the effect once with an adapter. Execution is routed through `tool()` from `@shadowlap/sdk`; only the framework's *input* is recorded, never its context objects (run contexts, abort signals, tracing handles). API calls need no adapter at all, whatever the framework: the sidecar records them through the provider base URL.
+If your tools are defined through a framework, declare the effect once with an adapter. Execution is routed through `tool()` from `@shadowlap/sdk`; only the framework's *input* is recorded, never its context objects (run contexts, abort signals, tracing handles). Model calls need no adapter: under `shadowlap run` the sidecar records them through the provider base URL a framework's client reads, or, for a client that reads none, by capturing the provider's host in the agent's process. A model the framework sends to a host Shadowlap doesn't know (Hugging Face's router, Groq) is recorded once the project's config [declares that host](./providers.md#hosts-of-another-providers-format) in the format it speaks.
 
 The TypeScript adapters live in `@shadowlap/adapters` and the Python ones in `shadowlap.adapters`, part of the `shadowlap` package ([install](./sdk.md#install)). Both type the shapes they touch structurally and carry no framework dependencies.
 
@@ -25,7 +25,9 @@ const tools = withEffects(
 await generateText({ model, tools, prompt });
 ```
 
-Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, its last value is recorded as the result the model is shown, and a replay yields that value alone. An aborted stream stops the tool, as it does without Shadowlap, and records the last value it had passed on.
+Every executable tool needs an effect; `withEffects` throws listing the ones you forgot. Client-side tools (no `execute`) pass through. A streaming tool (`async *execute`) still streams: its progress values reach the UI as they come, every value it yields is recorded in order, and a replay yields them again, the last of them the result the model is shown. An aborted stream stops the tool, as it does without Shadowlap, and records the last value it had passed on. A write blocked after a fork reaches the model as the tool's error, as the AI SDK passes on any tool that threw, and `generateText` or `streamText` goes on to the agent's answer.
+
+The model calls need nothing more, whichever way the agent names its model. A provider instance (`anthropic('claude-sonnet-4-5')` from `@ai-sdk/anthropic`) reads its provider's base URL, which `shadowlap run` sets. A string (`model: 'openai/gpt-5'`) goes to Vercel's AI Gateway, which the AI SDK addresses itself, in its own format: `shadowlap run` captures those calls in the process and records them with their model, usage and cost, and a replay gets a placeholder `AI_GATEWAY_API_KEY`. Record, replay, forks, tests and checks work on them as on any model call, and a tool the agent didn't wrap is found from the model's answers. A change Shadowlap would make to the request itself takes a provider's own API: `--inject`, `--set`, `--model` and `--prompt-from` are refused before anything runs, and `decisions` and `migrate` leave the gateway's calls out, saying why.
 
 ## OpenAI Agents SDK
 
@@ -38,6 +40,8 @@ import { withEffect } from '@shadowlap/adapters/openai-agents';
 const searchWeb = tool(withEffect({ name: 'search_web', description: 'Search', parameters, execute: async ({ query }) => search(query) }, 'read'));
 ```
 
+A call is recorded under the name the model calls the tool by. `tool()` makes it from `name`, or from the `execute` function's own name when there is none, turning every character but a letter or a digit into `_`: `'lookup order'` is `lookup_order`, to the model and in the recording. A write blocked after a fork reaches the model as the tool's output, in the words the SDK gives any tool that failed, and `run()` goes on to the agent's answer, streamed (`{ stream: true }`) or not. The SDK's trace export goes to `api.openai.com` while recording, as it does without Shadowlap; a replay answers it itself and stays clean.
+
 ## Mastra
 
 ```ts
@@ -49,9 +53,15 @@ export const searchWeb = createTool(withEffect({ id: 'search_web', description: 
 
 For Mastra 1.x. The recorded input is the tool's input; the execution context (request context, tracing, agent and workflow handles) passes through. Mastra 0.x called `execute({ context, runtimeContext })`: import `withEffectV0` instead.
 
+An agent shows the model each tool under its key in `tools`, not its `id`, so a call an agent makes is recorded under that key: `tools: { searchWeb }` records `searchWeb`, the name a replay finds in the model's answers. A call from anywhere else, a workflow step made from the tool (`createStep(searchWeb)`) or your own code, is recorded under the `id`.
+
+The agent's model calls need nothing more. Mastra's model router builds the client for `openai/…` with `OPENAI_BASE_URL` and for `anthropic/…` with `ANTHROPIC_BASE_URL`, which `shadowlap run` sets, and Google's host (`google/…`) is captured in the process; a replay's placeholder key goes in the variable the recording held it in, `GOOGLE_GENERATIVE_AI_API_KEY` for Google. A model the router sends elsewhere (`groq/…`, `openrouter/…`) goes to a host Shadowlap doesn't know, and isn't recorded: `shadowlap init` names any your agents use. `mastra dev` and `mastra start` serve the agents and wait for requests, so record a script or a test that calls one (`await mastra.getAgent('support').generate('…')`).
+
+After a fork, a blocked write reaches an agent as the tool's error, which it hands the model, and the run goes on. A workflow has no model to tell: the step fails with `ShadowlapWriteBlocked`, and so does the run, unless the replay stubs writes (`--writes stub`).
+
 ## LangChain and LangGraph
 
-Wrap the tool instance; `ToolNode` invokes it as usual. The adapter records the step after LangChain has validated the input and before it builds the `ToolMessage`, so the recorded input is the parsed arguments (never the `ToolCall` envelope or its id) and replayed results come back as real `ToolMessage`s. Tool outputs must be JSON (strings, objects, or `[content, artifact]`).
+Wrap the tool instance; `ToolNode` invokes it as usual. The adapter records the step after LangChain has validated the input and before it builds the `ToolMessage`, so the recorded input is the parsed arguments (never the `ToolCall` envelope or its id) and replayed results come back as real `ToolMessage`s. Tool outputs must be JSON (strings, objects, or `[content, artifact]`), a LangGraph `Command` or a message. A tool that returns a `Command` (to update the graph's state) or a message such as a `ToolMessage` is recorded in a tagged JSON form, its messages as `toDict()` writes them, and gets a real `Command` or message back on replay, made by the agent's own `@langchain/langgraph` and `@langchain/core`, so the state update happens again.
 
 ```ts
 import { tool } from '@langchain/core/tools';
@@ -61,6 +71,8 @@ import { withEffect } from '@shadowlap/adapters/langchain';
 const searchWeb = withEffect(tool(async ({ query }) => search(query), { name: 'search_web', schema }), 'read');
 const tools = new ToolNode([searchWeb]);
 ```
+
+The same tools go to `createAgent` from `langchain` or LangGraph's prebuilt `createReactAgent`, whose `ToolNode` runs them. A write blocked after a fork reaches the model as the tool's message: both catch a tool's error by default (`handleToolErrors`), and the agent goes on to its answer, invoked or streamed. With `handleToolErrors: false` the block ends the run, as any tool error does. `ChatOpenAI` and `ChatAnthropic` with no base URL in code take theirs from `OPENAI_BASE_URL` and `ANTHROPIC_BASE_URL`, as `shadowlap run` sets them, but read `OPENAI_API_BASE` and `ANTHROPIC_API_URL` first: with either set, that model's calls bypass the sidecar, and the run says so.
 
 ## Anthropic tool runner
 
@@ -72,7 +84,7 @@ const searchWeb = betaZodTool(withEffect({ name: 'search_web', description: 'Sea
 const runner = client.beta.messages.toolRunner({ model: 'claude-opus-5', max_tokens: 1024, tools: [searchWeb], messages });
 ```
 
-The runner's API calls are recorded through `ANTHROPIC_BASE_URL`; nothing else is needed.
+The runner's API calls are recorded through `ANTHROPIC_BASE_URL`, run to the end or streamed (`stream: true`); nothing else is needed. A write blocked after a fork goes back to the model as a `tool_result` marked `is_error`.
 
 ## Claude Agent SDK
 
@@ -131,7 +143,7 @@ What hooks can't do, and what that means for a replay:
   The run's summary names each path left open. With none, nothing the guard can't watch remains, and the run passes `--guard block`, `shadowlap test`'s default; with any, the run fails under block, naming them, and the summary says the run was not watched, not that the agent exited with an error. Close a path as the table says, and reach a remote MCP server through [`shadowlap mcp`](./mcp.md), which records and fences its calls. Or accept the CLI as it is, keeping block for every Node and Python process: `"guard": { "accept": ["claude-code"] }` in [`shadowlap.config.json`](./cli.md#the-configuration-file), the GitHub Action's `guard-accept: claude-code` ([CI](./ci.md#the-network-guard)), or `SHADOWLAP_GUARD_ACCEPT=claude-code`; the paths are still named. `--guard warn` (the Action's `guard: warn`) accepts every connection the guard can't watch. What the fence doesn't read can still open one: an `env` block in a settings file, which could point `ANTHROPIC_BASE_URL` elsewhere, a plugin enabled from a marketplace, an organization's server-managed or MDM settings, and what a program the CLI starts runs in its turn, such as a Python hook's own `curl`. Used by hand, `fenceHooks` (`fence_hooks`) knows only what its `query` option is given; without it, what the CLI reaches is unknown, and the run fails under block.
 - **Only the SDK's hooks are fenced.** Claude Code run on its own (`claude -p`) and Codex run their built-in tools where no SDK hook reaches: their model calls are recorded, their tools aren't, and a replay runs them again.
 
-Tools of an in-process MCP server (`createSdkMcpServer`, `create_sdk_mcp_server`) run in the agent's own process: wrap them, and they are recorded and fenced like any SDK tool, under the name the model calls them by (`mcp__orders__issue_refund`). A write refused after a fork answers as a tool that failed, so the model reads the refusal and carries on.
+Tools of an in-process MCP server (`createSdkMcpServer`, `create_sdk_mcp_server`) run in the agent's own process: wrap them, naming the server by its key in the query's `mcpServers`, and they are recorded and fenced like any SDK tool, under the name the model calls them by (`mcp__orders__issue_refund`). A write refused after a fork answers as a tool that failed, so the model reads the refusal and carries on.
 
 ```ts
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
@@ -168,6 +180,8 @@ async def search_web(ctx: RunContext[Deps], query: str) -> dict:
 def send_email(to: str, body: str) -> dict: ...
 ```
 
+After a fork, a blocked write is also Pydantic AI's `ToolFailed`: the model reads it as the tool's failed result, without being asked to retry, and the run carries on. `except ShadowlapWriteBlocked` still catches it.
+
 ### OpenAI Agents SDK (Python)
 
 `function_tool` from the adapter is the SDK's own, with an effect. The SDK still builds the schema, validates the model's arguments and turns a blocked write into an error message for the model.
@@ -200,6 +214,8 @@ def search_web(query: str, state: Annotated[dict, InjectedState]) -> str:
 tools = ToolNode([with_effect(search_web, "read"), with_effect(SendEmail(), "write")])
 ```
 
+After a fork, a blocked write is also LangGraph's `ToolInvocationError`, the one error `ToolNode` (and so `create_agent`) hands the model as an error `ToolMessage` as it comes, so the run carries on. Without LangGraph it is a `ToolException`, which LangChain reports to the model for a tool whose `handle_tool_error` is set. `except ShadowlapWriteBlocked` still catches it.
+
 ### Google ADK
 
 Give ADK plain functions wrapped with `shadowlap.tool`; its `ToolContext` is left out of the recording. ADK fails a run when a tool raises, so give the agent `report_to_model` as its tool-error callback (or the runner `shadowlap_plugin()`): a write refused after a fork then reaches the model as the tool's answer, and the run carries on. Its Gemini calls are recorded through `GOOGLE_GEMINI_BASE_URL`.
@@ -220,7 +236,7 @@ agent = LlmAgent(name="support", model="gemini-2.5-flash", tools=[search_web, se
 
 ### LlamaIndex
 
-Make `FunctionTool`s from functions wrapped with `shadowlap.tool`. A workflow `Context` parameter is left out of the recording, and an agent such as `FunctionAgent` hands a blocked write to the model as the tool's error. The model calls are recorded through the provider's base URL, as LlamaIndex's Anthropic LLM reads `ANTHROPIC_BASE_URL`.
+Make `FunctionTool`s from functions wrapped with `shadowlap.tool`. A workflow `Context` parameter is left out of the recording, and an agent such as `FunctionAgent` hands a blocked write to the model as the tool's error. The model calls are recorded through the provider's base URL, as LlamaIndex's Anthropic LLM reads `ANTHROPIC_BASE_URL`, or captured in the process: its default LLM, OpenAI's from `llama-index-llms-openai`, reads no `OPENAI_BASE_URL`.
 
 ```python
 from llama_index.core.tools import FunctionTool
@@ -234,7 +250,7 @@ agent = FunctionAgent(tools=[FunctionTool.from_defaults(async_fn=search_web), Fu
 
 ### Microsoft Agent Framework, Strands, smolagents and Agno
 
-Give each framework functions wrapped with `shadowlap.tool`, the way it takes tools: Agent Framework and Agno take plain functions; Strands and smolagents take functions under their own `@tool`, with Shadowlap's underneath. Each reports a tool's error to its model, a blocked write included (Agent Framework says only that the function failed, unless its detailed errors are on). Their model calls are recorded through the provider's base URL.
+Give each framework functions wrapped with `shadowlap.tool`, the way it takes tools: Agent Framework and Agno take plain functions; Strands and smolagents take functions under their own `@tool`, with Shadowlap's underneath. Each reports a tool's error to its model, a blocked write included (Agent Framework says only that the function failed, unless its detailed errors are on); a smolagents `CodeAgent`, which calls the tools from the Python it writes, hands the model the error its code raised. Their model calls are recorded on each one's default model too: Agno's and Agent Framework's OpenAI clients through `OPENAI_BASE_URL`, Strands' `BedrockModel` captured in the process. smolagents' default, `InferenceClientModel`, calls Hugging Face's router: declare it in the config, `"providers": [{ "host": "router.huggingface.co", "format": "openai", "root": "/v1" }]`, and give a replay `HF_TOKEN` set to any `hf_` value, as the client won't start without one. Agno sends usage telemetry to its own host, which the network guard reports: `AGNO_TELEMETRY=false` turns it off.
 
 ```python
 from strands import Agent, tool as strands_tool
@@ -274,7 +290,12 @@ Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass 
 
 ## Tested against
 
-Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, Mastra's `createTool`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`, and, with their model calls recorded through the sidecar in front of a scripted model API, Google ADK's `Runner`, a LlamaIndex `FunctionAgent`, a Microsoft Agent Framework `Agent` on Chat Completions, a Strands `Agent`, a smolagents `ToolCallingAgent` and an Agno `Agent`; and the Claude Agent SDK's `query()` in TypeScript and Python, running the Claude Code CLI it brings against a scripted Anthropic API: a recording that changes the project, a replay that sends no model request and leaves it as it was, and a fork that refuses every write). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
+Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in. Each framework's own agent loop runs as a user writes it, on a real model client with nothing in the agent naming Shadowlap, in front of a scripted model API: through the CLI (`shadowlap run`, then `replay --strict`, then a fork on another request), or, for Google ADK and the case named last for a Python framework below, through a sidecar the test starts, with the base URLs `shadowlap run` sets. In each, the recording holds the model's calls and every tool's under the name the model called it by, the strict replay sends no request upstream and runs no tool, and the fork runs the read again, blocks the write, hands the model the refusal and the run completes.
+
+- **TypeScript:** a Vercel AI SDK agent on `@ai-sdk/anthropic`, and on a model named by a string through Vercel's AI Gateway (`generateText` and `streamText`); an OpenAI Agents SDK `Agent` run by `run()` on its default provider, the Responses API, streamed and not; LangChain's `createAgent` and LangGraph's `createReactAgent` on `ChatOpenAI` and `ChatAnthropic`; a Mastra `Agent` on its model router (OpenAI's Responses API, Anthropic streamed, and Google), a Mastra workflow made of the tools, and the agent in a Vitest test under `recorded()`; the Anthropic tool runner, streamed and not; and the Claude Agent SDK's `query()`, running the Claude Code CLI it brings, with built-in tools and an in-process MCP server's (`withEffects`).
+- **Python:** Pydantic AI on `Agent("openai:gpt-5")`; the OpenAI Agents SDK's `Runner` on its default client; LangChain's `create_agent` on `ChatOpenAI`; a CrewAI crew by `Crew.kickoff` on its `LLM`; Google ADK's `Runner` on Gemini; LlamaIndex's `FunctionAgent` on its default OpenAI LLM and on Anthropic; Microsoft Agent Framework on `OpenAIChatClient` (the Responses API) and on Chat Completions; Strands on its default `BedrockModel` and on Anthropic; smolagents' `CodeAgent` on OpenAI and on its default `InferenceClientModel` through a declared host, and a `ToolCallingAgent` on OpenAI; Agno on its default `OpenAIResponses` and on Claude; and the Claude Agent SDK's `query()`.
+
+Beside those, each adapter's own path runs with the framework's own pieces (the AI SDK's mock model with streaming tools, `FunctionTool.invoke`, LangGraph's `ToolNode` with a tool that returns a `Command`, Mastra's `createTool`, CrewAI's `BaseTool.run`, a compiled LangGraph graph). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
 
 | Framework | Pinned version |
 |---|---|
@@ -282,14 +303,14 @@ Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real fr
 | Its Anthropic provider (`@ai-sdk/anthropic`) | 4.0.85 |
 | OpenAI Agents SDK (`@openai/agents`) | 0.18.0 |
 | Mastra (`@mastra/core`) | 1.67.0 (`withEffectV0` for 0.x: a unit test of 0.x's tool shape) |
-| LangChain / LangGraph (`@langchain/core`, `@langchain/langgraph`) | 1.2.11 / 1.4.15 |
+| LangChain / LangGraph (`@langchain/core`, `@langchain/langgraph`, `langchain`, `@langchain/openai`, `@langchain/anthropic`) | 1.2.11 / 1.4.15 / 1.5.11 / 1.5.13 / 1.5.10 |
 | Anthropic tool runner (`@anthropic-ai/sdk`) | 0.126.0 |
 | Pydantic AI (`pydantic-ai-slim`) | 2.43.0 |
 | OpenAI Agents SDK for Python (`openai-agents`) | 0.20.0 |
-| LangGraph for Python (`langgraph`, `langchain-core`) | 1.2.11 / 1.6.3 |
+| LangGraph for Python (`langgraph`, `langchain-core`, `langchain`, `langchain-openai`) | 1.2.11 / 1.6.3 / 1.4.3 / 1.6.2 |
 | CrewAI (`crewai`) | 1.15.22 |
 | Google ADK (`google-adk`) | 2.12.0 |
-| LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`) | 0.14.25 / 0.12.3 |
+| LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`, `llama-index-llms-openai`) | 0.14.25 / 0.12.3 / 0.8.3 |
 | Microsoft Agent Framework (`agent-framework-core`, `agent-framework-openai`) | 1.23.0 / 1.17.0 |
 | Strands Agents (`strands-agents`) | 1.62.0 |
 | smolagents (`smolagents`) | 1.26.0 |

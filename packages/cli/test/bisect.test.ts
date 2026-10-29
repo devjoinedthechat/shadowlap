@@ -151,7 +151,7 @@ describe('shadowlap bisect', () => {
     const judged = JSON.stringify({ judge: [{ name: 'brief', question: 'Is the summary short?', model: 'gemini-2.5-flash' }] });
     const r = await shadowlap(['bisect', briefRun, '--good', rev['Start the ticket agent'], '--bad', rev['Mention the prompt'], '--expect', judged, '--fork'], { GEMINI_API_KEY: '', GOOGLE_API_KEY: '', SHADOWLAP_UPSTREAM_GEMINI: '' });
     expect(r.code, r.out).toBe(2);
-    expect(r.out).toContain('with --fork, a replay that forks asks its judge checks live, and one can\'t be asked: judge "brief" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY))');
+    expect(r.out).toContain('with --fork, a replay that forks asks its judge checks live, and one can\'t be asked: judge "brief" answers yes (an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY))');
     expect(mock.requests.length).toBe(hits);
     expect(sh('git', ['worktree', 'list']).split('\n')).toHaveLength(1);
   });

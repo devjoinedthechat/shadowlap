@@ -26,6 +26,7 @@ describe('placeholder keys on an offline replay', () => {
       OPENAI_API_KEY: PLACEHOLDER_KEY,
       GEMINI_API_KEY: PLACEHOLDER_KEY,
       GOOGLE_API_KEY: PLACEHOLDER_KEY,
+      GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY,
       AZURE_OPENAI_API_KEY: PLACEHOLDER_KEY,
       AWS_ACCESS_KEY_ID: PLACEHOLDER_AWS_ACCESS_KEY_ID,
       AWS_SECRET_ACCESS_KEY: PLACEHOLDER_KEY,
@@ -40,6 +41,9 @@ describe('placeholder keys on an offline replay', () => {
     expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: { azure: [] } }, 'offline', emptyHome())).toEqual({});
     expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: {} }, 'offline', emptyHome())).toEqual({});
     expect(placeholderKeys({}, { calls: calls('azure') }, 'offline', emptyHome())).toEqual({});
+    // The AI SDK's Azure provider (Mastra's model router on it) and LiteLLM read AZURE_API_KEY: theirs goes there, and only there.
+    expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: { azure: ['AZURE_API_KEY'] } }, 'offline', emptyHome())).toEqual({ AZURE_API_KEY: PLACEHOLDER_KEY });
+    expect(placeholderKeys({}, { calls: calls('azure'), keyEnv: { azure: ['AZURE_API_KEY'] } }, 'replay', emptyHome())).toEqual({ AZURE_API_KEY: PLACEHOLDER_KEY });
   });
 
   it("give Claude on Foundry its own key, only where the recording's environment held it, and not Anthropic's", () => {
@@ -165,7 +169,7 @@ describe('placeholder keys on an offline replay', () => {
   });
 
   it('are not given, with in-process capture off, for a provider only capture brings to the sidecar', () => {
-    expect(placeholderKeys({ SHADOWLAP_CAPTURE: 'off' }, { calls: ALL, keyEnv: AZURE_HELD }, 'offline', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, OPENAI_API_KEY: PLACEHOLDER_KEY, GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY });
+    expect(placeholderKeys({ SHADOWLAP_CAPTURE: 'off' }, { calls: ALL, keyEnv: AZURE_HELD }, 'offline', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, OPENAI_API_KEY: PLACEHOLDER_KEY, GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY, GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY });
     expect(placeholderKeys({ SHADOWLAP_CAPTURE: 'off' }, { calls: calls('azure', 'bedrock'), keyEnv: { azure: ['AZURE_OPENAI_API_KEY'], bedrock: ['AWS_ACCESS_KEY_ID'] } }, 'replay', emptyHome())).toEqual({});
   });
 });
@@ -187,8 +191,10 @@ describe('placeholder keys on shadowlap replay, which goes live from a fork', ()
   it("put Gemini's placeholder in the variable the recording's environment held its key in", () => {
     expect(placeholderKeys({}, { calls: calls('gemini'), keyEnv: { gemini: ['GOOGLE_API_KEY'] } }, 'replay', emptyHome())).toEqual({ GOOGLE_API_KEY: PLACEHOLDER_KEY });
     expect(placeholderKeys({}, { calls: calls('gemini'), keyEnv: { gemini: ['GEMINI_API_KEY'] } }, 'offline', emptyHome())).toEqual({ GEMINI_API_KEY: PLACEHOLDER_KEY });
-    // A credential of another kind: both.
-    expect(placeholderKeys({}, { calls: calls('gemini'), keyEnv: { gemini: [] } }, 'replay', emptyHome())).toEqual({ GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY });
+    // The AI SDK's Google provider, and Mastra's model router on it, read GOOGLE_GENERATIVE_AI_API_KEY.
+    expect(placeholderKeys({}, { calls: calls('gemini'), keyEnv: { gemini: ['GOOGLE_GENERATIVE_AI_API_KEY'] } }, 'replay', emptyHome())).toEqual({ GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY });
+    // A credential of another kind: each.
+    expect(placeholderKeys({}, { calls: calls('gemini'), keyEnv: { gemini: [] } }, 'replay', emptyHome())).toEqual({ GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY, GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY });
     // AWS's two go together, whichever of them the note names.
     expect(placeholderKeys({}, { calls: calls('bedrock'), keyEnv: { bedrock: ['AWS_ACCESS_KEY_ID'] } }, 'replay', emptyHome())).toEqual({ AWS_ACCESS_KEY_ID: PLACEHOLDER_AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY: PLACEHOLDER_KEY });
   });
@@ -196,7 +202,7 @@ describe('placeholder keys on shadowlap replay, which goes live from a fork', ()
   it("read a pack's note as untrusted: only providers and variables Shadowlap knows count", () => {
     const hostile = { anthropic: ['ANTHROPIC_API_KEY', 'NODE_OPTIONS'], gemini: ['PATH'], vertex: ['GOOGLE_API_KEY'], made_up: ['X'], openai: 'OPENAI_API_KEY' };
     expect(keyEnvNote(hostile)).toEqual({ anthropic: ['ANTHROPIC_API_KEY'], gemini: [] });
-    expect(placeholderKeys({}, { calls: calls('anthropic', 'gemini', 'openai'), keyEnv: hostile }, 'replay', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY });
+    expect(placeholderKeys({}, { calls: calls('anthropic', 'gemini', 'openai'), keyEnv: hostile }, 'replay', emptyHome())).toEqual({ ANTHROPIC_API_KEY: PLACEHOLDER_KEY, GEMINI_API_KEY: PLACEHOLDER_KEY, GOOGLE_API_KEY: PLACEHOLDER_KEY, GOOGLE_GENERATIVE_AI_API_KEY: PLACEHOLDER_KEY });
     for (const junk of [null, 'anthropic', ['anthropic'], 7]) expect(keyEnvNote(junk)).toBeNull();
   });
 });

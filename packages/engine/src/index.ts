@@ -14,7 +14,7 @@ export { calibrationTarget, covered, generalize, proposeNormalizers, type Calibr
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartContents, multipartView, parseMultipart, type MultipartContent, type MultipartPart, type MultipartView } from './multipart.js';
 export { CLOCK_PLACEHOLDERS, CLOCK_WINDOW_MS, maskClock, maskClockText, nearClock, type ClockMode, type ClockReference, type ClockSeen } from './clock.js';
-export { BUILTIN_STRIPPED_KEYS, CLAUDE_CODE_SESSION, FINGERPRINT_VERSION, apiCallName, apiNumbers, fingerprintApi, fingerprintMisc, fingerprintTool, isClaudeCodeSession, maskClaudeCodeSession, normalizersHash, queryPairs } from './fingerprint.js';
+export { BUILTIN_STRIPPED_KEYS, CLAUDE_CODE_SESSION, FINGERPRINT_VERSION, apiCallName, apiNumbers, fingerprintApi, fingerprintMisc, fingerprintTool, isClaudeCodeSession, maskClaudeCodeSession, maskGeminiCallIds, normalizersHash, queryPairs } from './fingerprint.js';
 export type { ApiRequestShape, Fingerprinted } from './fingerprint.js';
 export { noFullTextSearch, SCHEMA_VERSION, Store, storeView } from './store.js';
 export type { CreateRunInput, NewStoredEvent, SearchState, StoredEvent } from './store.js';
@@ -94,7 +94,7 @@ export { actionContext, actionMissing, bisectAction, buildActions, CAPTURE_NOTE,
 export type { AttemptKind, ClassifiableMeta, ClassifiableRun, ClassifyContext, DisplayOrigin, KindFacts, OriginCode, OriginCounts, OutcomeContext, RunClass, RunKind, RunOutcome } from './classify.js';
 export { IMPORT_FILE_FORMATS, guessImportFormat, type ImportFileFormat, type ImportFormatGuess } from './import-format.js';
 export { withoutPrompt } from './prompt.js';
-export { SHAPE_NAMES, applyInjection, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
+export { GATEWAY_UNCHANGED, SHAPE_NAMES, applyInjection, isGatewayRequest, formatToolFailure, literalValue, modelInRequest, noLateSystemMessage, parseToolFailure, placeFields, placeInjection, plantInResult, plantInToolResult, refused, requestShape, setRequestFields, switchModel, toolFailureError } from './interventions.js';
 export type { InjectAs, InjectionPlace, Refusal, RequestShape, ToolFailure } from './interventions.js';
 export { DATASET_FORMATS, datasetRows, type DatasetExample, type DatasetFormat } from './dataset.js';
 export { indexSearch, MATCH_END, MATCH_START, searchCalls, searchExpression, searchIndexBehind, updateSearchIndex, type SearchHit, type SearchIndexRun } from './search.js';

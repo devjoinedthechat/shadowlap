@@ -127,9 +127,9 @@ describe('whether a judge can be asked live', () => {
     expect(attemptJudgeMissing(judge, {}, { ANTHROPIC_API_KEY: 'k' })).toBeNull();
     expect(attemptJudgeMissing(judge, { anthropic: 'http://127.0.0.1:9' }, {})).toBeNull();
     const gemini = { ...judge, model: 'gemini-2.5-flash' };
-    expect(attemptJudgeMissing(gemini, {}, {})).toBe('an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY)');
+    expect(attemptJudgeMissing(gemini, {}, {})).toBe('an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY)');
     expect(undecidableChecks(parseExpect({ judge: [judge, { ...gemini, name: 'brief' }] }, 'expect'), (j) => attemptJudgeMissing(j, {}, { ANTHROPIC_API_KEY: 'k' }))).toEqual([
-      { label: 'judge "brief" answers yes', why: 'an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY)' },
+      { label: 'judge "brief" answers yes', why: 'an attempt is a fork, whose judge must be asked live: no key for gemini (GEMINI_API_KEY or GOOGLE_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY)' },
     ]);
   });
 

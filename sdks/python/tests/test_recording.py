@@ -365,6 +365,61 @@ class RecordingRules(unittest.TestCase):
 
         for clone in (copy.copy(err), pickle.loads(pickle.dumps(err))):
             self.assertEqual((str(clone), clone.tool, clone.tool_args), (str(err), err.tool, err.tool_args))
+        # No framework running: the refusal is ShadowlapWriteBlocked itself.
+        self.assertIs(type(err), ShadowlapWriteBlocked)
+
+    def test_a_blocked_write_is_the_error_a_running_framework_hands_its_model(self):
+        """Pydantic AI and LangGraph's ToolNode end the run on a tool's error, but for one kind they hand
+        the model as the tool's result. The refusal is that kind wherever the framework is imported, so
+        the run goes on; it stays a ShadowlapWriteBlocked, named so, and carries what each one reads."""
+        import copy
+        import pickle
+        import types
+        from unittest import mock
+
+        def module(name, **classes):
+            m = types.ModuleType(name)
+            for cls_name, cls in classes.items():
+                cls.__module__, cls.__qualname__ = name, cls_name
+                setattr(m, cls_name, cls)
+            return m
+
+        class ToolFailed(Exception):
+            def __init__(self, message):
+                self.message = message
+                super().__init__(message)
+
+        class ToolException(Exception):
+            pass
+
+        class ToolInvocationError(ToolException):
+            def __init__(self, tool_name, source, tool_kwargs, filtered_errors=None):  # never called for the refusal
+                raise AssertionError("constructed")
+
+        pydantic_ai = {"pydantic_ai.exceptions": module("pydantic_ai.exceptions", ToolFailed=ToolFailed)}
+        langchain = {"langchain_core.tools.base": module("langchain_core.tools.base", ToolException=ToolException)}
+        langgraph = {**langchain, "langgraph.prebuilt.tool_node": module("langgraph.prebuilt.tool_node", ToolInvocationError=ToolInvocationError)}
+
+        def refuse():
+            shadowlap._post = Sidecar({"origin": "blocked", "callNo": 1, "error": {"name": "ShadowlapWriteBlocked", "message": "write tool send blocked after divergence"}})
+
+            @tool(effect="write")
+            def send(to: str) -> str:
+                return "sent"
+
+            with self.assertRaises(ShadowlapWriteBlocked) as caught:
+                send("team@example.com")
+            return caught.exception
+
+        for modules, kinds in ((pydantic_ai, (ToolFailed,)), (langchain, (ToolException,)), (langgraph, (ToolInvocationError,)), ({**pydantic_ai, **langgraph}, (ToolFailed, ToolInvocationError))):
+            with self.subTest(sorted(modules)), mock.patch.dict(sys.modules, modules):
+                err = refuse()
+                for clone in (err, copy.copy(err), pickle.loads(pickle.dumps(err))):
+                    for kind in (ShadowlapWriteBlocked, *kinds):
+                        self.assertIsInstance(clone, kind)
+                    self.assertEqual((type(clone).__name__, str(clone), clone.tool, clone.tool_args), ("ShadowlapWriteBlocked", "write tool send blocked after divergence", "send", {"to": "team@example.com"}))
+                    self.assertEqual(clone.message, "write tool send blocked after divergence")
+                    self.assertEqual((clone.tool_name, clone.tool_kwargs), ("send", {"to": "team@example.com"}))
 
     def test_a_replayed_error_survives_copy_and_pickle(self):
         import copy

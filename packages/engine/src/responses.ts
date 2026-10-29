@@ -294,6 +294,68 @@ function geminiJson(body: Record<string, unknown>): { blocks: Block[]; stopReaso
   return { blocks, stopReason: isObject(c) && typeof c.finishReason === 'string' ? c.finishReason : null };
 }
 
+// ---- Vercel's AI Gateway: the AI SDK's own language-model results and stream parts ----
+
+/** A finish reason as the AI SDK's spec gives it: `{ unified, raw }` from version 3 on, a string before. */
+function gatewayFinish(v: unknown): string | null {
+  if (typeof v === 'string') return v;
+  return isObject(v) && typeof v.unified === 'string' ? v.unified : null;
+}
+
+/** A tool call as the spec gives it: its input is JSON text. One the provider runs itself is hosted. */
+function gatewayToolCall(c: Record<string, unknown>): Block {
+  return { type: 'tool_call', name: String(c.toolName ?? 'tool'), input: typeof c.input === 'string' ? parseJsonText(c.input) : (c.input ?? {}), ...(typeof c.toolCallId === 'string' ? { id: c.toolCallId } : {}), ...(c.providerExecuted === true ? { hosted: true as const } : {}) };
+}
+
+/** A generate result: `content` (text, reasoning, tool calls) and `finishReason`; Anthropic's has `stop_reason` instead. */
+function gatewayJson(body: Record<string, unknown>): { blocks: Block[]; stopReason: string | null } | null {
+  if (!Array.isArray(body.content) || !('finishReason' in body) || 'stop_reason' in body) return null;
+  const blocks: Block[] = [];
+  for (const c of body.content) {
+    if (!isObject(c)) continue;
+    if (c.type === 'text' && typeof c.text === 'string') blocks.push({ type: 'text', text: c.text });
+    else if (c.type === 'reasoning' && typeof c.text === 'string') blocks.push({ type: 'thinking', text: c.text });
+    else if (c.type === 'tool-call') blocks.push(gatewayToolCall(c));
+  }
+  return { blocks, stopReason: gatewayFinish(body.finishReason) };
+}
+
+/** The spec's stream parts, `text-delta`, `tool-call`, `finish` and the rest, each an event's data. */
+const GATEWAY_PARTS = new Set(['stream-start', 'response-metadata', 'text-start', 'text-delta', 'text-end', 'reasoning-start', 'reasoning-delta', 'reasoning-end', 'tool-input-start', 'tool-input-delta', 'tool-input-end', 'tool-call', 'tool-result', 'finish']);
+
+/**
+ * A stream of parts: text and reasoning by their `id`, and each tool call whole, as the `tool-call`
+ * part gives it after the `tool-input-*` parts that streamed its input (read once, from that part).
+ */
+function gatewayDeltas(events: Array<{ data: unknown }>, at: (i: number) => number): Delta[] {
+  const out: Delta[] = [];
+  const open = new Map<string, number>();
+  let next = 0;
+  events.forEach((e, n) => {
+    const d = e.data;
+    if (!isObject(d) || typeof d.type !== 'string') return;
+    const t = at(n);
+    const kind = d.type.startsWith('reasoning-') ? 'thinking' : 'text';
+    const key = `${kind}:${String(d.id ?? '')}`;
+    if (d.type === 'text-delta' || d.type === 'reasoning-delta') {
+      if (!open.has(key)) {
+        open.set(key, next);
+        out.push({ t, op: 'start', index: next++, block: kind });
+      }
+      if (typeof d.delta === 'string') out.push({ t, op: 'append', index: open.get(key)!, text: d.delta });
+    } else if (d.type === 'tool-call') {
+      const call = gatewayToolCall(d);
+      if (call.type !== 'tool_call') return;
+      const i = next++;
+      out.push({ t, op: 'start', index: i, block: 'tool_call', name: call.name, ...(call.hosted ? { hosted: true as const } : {}) }, { t, op: 'append', index: i, text: JSON.stringify(call.input) });
+    } else if (d.type === 'finish') {
+      const reason = gatewayFinish(d.finishReason);
+      if (reason) out.push({ t, op: 'stop', reason });
+    }
+  });
+  return out;
+}
+
 // ----
 
 /**
@@ -301,12 +363,13 @@ function geminiJson(body: Record<string, unknown>): { blocks: Block[]; stopReaso
  * streams Anthropic's events for Claude and Gemini's for Gemini, and Gemini's OpenAI-compatible
  * endpoint streams OpenAI's chunks, all under one id each.
  */
-function streamStyle(events: Array<{ data: unknown }>, provider: string | undefined): 'anthropic' | 'gemini' | 'openai' {
+function streamStyle(events: Array<{ data: unknown }>, provider: string | undefined): 'anthropic' | 'gemini' | 'openai' | 'gateway' {
   for (const { data } of events) {
     if (!isObject(data)) continue;
     if (typeof data.type === 'string') {
       if (data.type.startsWith('message') || data.type.startsWith('content_block')) return 'anthropic';
       if (data.type.startsWith('response.')) return 'openai';
+      if (GATEWAY_PARTS.has(data.type)) return 'gateway';
     }
     if (Array.isArray(data.candidates)) return 'gemini';
     if (Array.isArray(data.choices)) return 'openai';
@@ -331,12 +394,12 @@ export function normalizeResponse(bytes: Buffer | null, contentType: string | un
     const events = parseSse(bytes);
     const at = (i: number) => chunks[Math.min(i, chunks.length - 1)]?.[1] ?? i * 20;
     const style = streamStyle(events, provider);
-    const deltas = style === 'anthropic' ? anthropicDeltas(events, at) : style === 'gemini' ? geminiDeltas(events, at) : openaiDeltas(events, at);
+    const deltas = style === 'anthropic' ? anthropicDeltas(events, at) : style === 'gemini' ? geminiDeltas(events, at) : style === 'gateway' ? gatewayDeltas(events, at) : openaiDeltas(events, at);
     return { kind: 'sse', ...applyDeltas(deltas), deltas, events: events.length, raw };
   }
   const parsed = parseJsonText(text);
   if (isObject(parsed)) {
-    const normalized = anthropicJson(parsed) ?? openaiJson(parsed) ?? geminiJson(parsed) ?? converseJson(parsed) ?? { blocks: [], stopReason: null };
+    const normalized = gatewayJson(parsed) ?? anthropicJson(parsed) ?? openaiJson(parsed) ?? geminiJson(parsed) ?? converseJson(parsed) ?? { blocks: [], stopReason: null };
     return { kind: 'json', ...normalized, deltas: [], events: 0, raw: JSON.stringify(parsed, null, 2).slice(0, RAW_CAP) };
   }
   return { kind: 'text', blocks: [], stopReason: null, deltas: [], events: 0, raw };

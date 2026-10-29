@@ -542,12 +542,21 @@ interface SdkMcpToolLike {
   handler: (args: never, extra: never) => Promise<unknown>;
 }
 
+/** A server's or a tool's name as Claude Code puts it in `mcp__<server>__<tool>`: every character but a letter, a digit, `_` or `-` turned into `_`. */
+const mcpNamePart = (name: string): string => name.replace(/[^A-Za-z0-9_-]/g, '_');
+
 /**
  * The tools of an in-process MCP server (`createSdkMcpServer`), recorded and fenced like any SDK
- * tool under the name the model calls them by, `mcp__<server>__<tool>`:
+ * tool under the name the model calls them by, `mcp__<server>__<tool>`, where `server` is the
+ * server's key in the query's `mcpServers`:
  *
  *   const tools = withEffects('orders', [lookupOrder, issueRefund], { lookup_order: 'read', issue_refund: 'write' });
  *   const orders = createSdkMcpServer({ name: 'orders', version: '1.0.0', tools });
+ *   query({ prompt, options: { mcpServers: { orders } } });
+ *
+ * Claude Code turns every character but a letter, a digit, `_` or `-` in either name into `_`, and
+ * so does the recorded name: the `look up` tool of `order desk` is `mcp__order_desk__look_up`. The
+ * effects are keyed by each tool's own name.
  *
  * A write after a fork answers as an MCP tool that failed (`isError`), with the refusal as its text,
  * so the model reads it and carries on; under `--writes stub` it answers `onFork`'s result, or a text
@@ -557,7 +566,7 @@ export function withEffects<T extends SdkMcpToolLike>(server: string, tools: rea
   const missing = tools.filter((t) => effects[t.name] === undefined).map((t) => t.name);
   if (missing.length) throw new TypeError(`withEffects: every tool needs an effect; missing for ${missing.join(', ')}`);
   return tools.map((t) => {
-    const recordedName = `mcp__${server}__${t.name}`;
+    const recordedName = `mcp__${mcpNamePart(server)}__${mcpNamePart(t.name)}`;
     const spec = effects[t.name]!;
     const options = toOptions(spec, recordedName, t.handler as (...args: never[]) => unknown);
     const stubbed = options.onFork ?? (() => ({ content: [{ type: 'text', text: `${t.name} was not executed: write tools are stubbed after the fork (shadowlap replay --writes stub).` }] }));

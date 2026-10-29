@@ -29,15 +29,21 @@ const isAsyncGeneratorFunction = (fn: unknown): boolean => Object.prototype.toSt
  * passed through untouched. A fresh Shadowlap wrapper is created per call so trailing arguments
  * stay bound to that call under concurrency; its implementation hash is the user's function's.
  * An async generator function (a streaming tool) stays one: see `tool()`.
+ *
+ * `calledAs` names a call from its trailing arguments when the framework tells the model the tool's
+ * name only as it calls it (Mastra names a tool by its key in the agent's `tools`, not its `id`): the
+ * call is recorded under the name the model called, which is what a replay checks the model's tool
+ * calls against. `name` stands when it says nothing.
  */
-export function wrapFirstArg<A, Rest extends unknown[], R>(name: string, spec: EffectSpec<A, R>, impl: (input: A, ...rest: Rest) => R | Promise<R>): (input: A, ...rest: Rest) => Promise<R> {
+export function wrapFirstArg<A, Rest extends unknown[], R>(name: string, spec: EffectSpec<A, R>, impl: (input: A, ...rest: Rest) => R | Promise<R>, calledAs?: (...rest: Rest) => string | undefined): (input: A, ...rest: Rest) => Promise<R> {
   const options = toOptions(spec, name, impl);
+  const named = (rest: Rest) => calledAs?.(...rest) || name;
   if (isAsyncGeneratorFunction(impl)) {
     const stream = impl as unknown as (input: A, ...rest: Rest) => AsyncGenerator<R, unknown, undefined>;
     return ((input: A, ...rest: Rest) =>
-      tool<A, R>(name, options, async function* (i: A) {
+      tool<A, R>(named(rest), options, async function* (i: A) {
         return yield* stream(i, ...rest);
       })(input)) as unknown as (input: A, ...rest: Rest) => Promise<R>;
   }
-  return (input: A, ...rest: Rest) => tool<A, R>(name, options, (i) => impl(i, ...rest))(input);
+  return (input: A, ...rest: Rest) => tool<A, R>(named(rest), options, (i) => impl(i, ...rest))(input);
 }

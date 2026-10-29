@@ -188,6 +188,20 @@ describe('framework adapters', () => {
     deactivate();
   });
 
+  it('record a Mastra tool an agent calls under its key in the agent’s tools, and one called elsewhere under its id', async () => {
+    const def = withMastraEffect({ id: 'get-weather', execute: async (input: { city: string }, _context?: unknown) => ({ city: input.city, sky: 'clear' }) }, 'read');
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    // As Mastra's tool builder passes it for an agent's call: the agent's handles, and a writer named by the key.
+    await def.execute({ city: 'Oslo' }, { agent: { agentId: 'weather', toolCallId: 'call_1', messages: [] }, writer: { name: 'weatherTool' } });
+    // A workflow step, or your own code: no agent, so the id.
+    await def.execute({ city: 'Bergen' }, { workflow: { workflowId: 'w' }, writer: { name: 'step' } });
+    await def.execute({ city: 'Tromsø' });
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['weatherTool', 'get-weather', 'get-weather']);
+    deactivate();
+  });
+
   it('support the Mastra 0.x execute({ context }) shape with withEffectV0', async () => {
     const def = withMastraEffectV0(
       {
@@ -212,6 +226,22 @@ describe('framework adapters', () => {
     expect(sidecar.endRun(rep.runId, 'completed').summary.divergence).toBeNull();
     expect(executed).toEqual([]);
     deactivate();
+  });
+
+  it('name an OpenAI Agents tool as tool() names it to the model, from its name or its function', async () => {
+    const spaced = withOpenAIAgentsEffect({ name: 'lookup order', execute: async (input: unknown) => input }, 'read');
+    const unnamed = withOpenAIAgentsEffect({ execute: async function refund_order(input: unknown) { return input; } }, 'write');
+    // tool() takes the name from the definition: the wrapper's function has none to fall back on.
+    expect([spaced.name, unnamed.name]).toEqual(['lookup_order', 'refund_order']);
+    const [anonymous] = [async () => 1]; // a function with no name, which tool() refuses too
+    expect(() => withOpenAIAgentsEffect({ execute: anonymous }, 'read')).toThrow(/has no name/);
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '.' } });
+    activate(rec.runId);
+    await spaced.execute({ order_id: 'A-1' });
+    await unnamed.execute({ order_id: 'A-1' });
+    sidecar.endRun(rec.runId, 'completed');
+    deactivate();
+    expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['lookup_order', 'refund_order']);
   });
 
   it('refuse something that is not a LangChain tool', () => {

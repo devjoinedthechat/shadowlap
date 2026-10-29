@@ -98,7 +98,7 @@ Record the verdict with `shadowlap test <golden> --update`, or pack the golden a
 
 A check is also not judged, with the reason, when the agent exited with an error or was stopped, when the replay of a golden that may not fork diverged (the test fails on that anyway), when the judge's call failed, and when its answer held no verdict. A run that can't pass anyway asks no judge.
 
-A judge is asked live with its provider's key from the environment: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `GOOGLE_API_KEY`. An upstream set for its provider (`SHADOWLAP_UPSTREAM_ANTHROPIC`, or the SDK base URL a run would use) takes it there, key or no key, as it takes the agent's calls. A model under test never answers one: [`tasks score`](./training.md#scoring-a-model) sends the agent's calls to the model it scores, and the judge's to the judge, and reports what the judge's calls cost apart from each attempt's (`judge`), counting them against `--budget`.
+A judge is asked live with its provider's key from the environment: `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. An upstream set for its provider (`SHADOWLAP_UPSTREAM_ANTHROPIC`, or the SDK base URL a run would use) takes it there, key or no key, as it takes the agent's calls. A model under test never answers one: [`tasks score`](./training.md#scoring-a-model) sends the agent's calls to the model it scores, and the judge's to the judge, and reports what the judge's calls cost apart from each attempt's (`judge`), counting them against `--budget`.
 
 ## What a judge reads
 

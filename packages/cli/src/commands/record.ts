@@ -1,7 +1,7 @@
 import { writeFileSync } from 'node:fs';
 import { Command, InvalidArgumentError } from 'commander';
 import { links } from '@shadowlap/dashboard';
-import { addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, addRules, calibrationTarget, checkOutcome, commandIsImported, formatDivergence, formatSummary, hasRecordedCommand, formatRepeats, normalizeResponse, overrideSources, proposeNormalizers, setupRunOf, statusTally, summarizeRepeats, type CheckStatus, type Normalizer, type Proposal, type ReadPolicy, type ReplayOptions, type WritePolicy } from '@shadowlap/engine';
 import { replayChaos } from '../chaos-session.js';
 import { CHECK_MARKS, checkWords, type CheckResult, type TestSpec } from '../checks.js';
 import { EXIT, interruptedStatus, stoppedBy, usageError } from '../exit-codes.js';
@@ -185,6 +185,10 @@ export function register(program: Command): void {
         if (!target || target.kind !== 'api') {
           store.close();
           throw new InvalidArgumentError(`--prompt-from: call #${flags.promptFrom} is not a model call of ${shortId(parent.runId)} (see shadowlap show ${shortId(parent.runId)})`);
+        }
+        if ((target.meta.provider ?? target.end?.meta.provider) === 'ai-gateway') {
+          store.close();
+          throw new InvalidArgumentError(`--prompt-from: #${flags.promptFrom} can't be changed: ${GATEWAY_UNCHANGED}`);
         }
         // Reasoning a model produced under the old prompt goes back to it with the new one.
         const reasoned = parentCalls.some((c) => {

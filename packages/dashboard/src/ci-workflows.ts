@@ -413,6 +413,7 @@ export const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
   gemini: ['GEMINI_API_KEY'],
   azure: ['AZURE_OPENAI_API_KEY'],
   bedrock: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+  'ai-gateway': ['AI_GATEWAY_API_KEY'],
 };
 
 /** The providers a pack's recording called, by its calls.jsonl, kept while the file is the same. */
@@ -437,7 +438,7 @@ function packProviders(dir: string): string[] | null {
   } catch {
     return null;
   }
-  const providers = [...new Set([...text.matchAll(/"provider":"([a-z]+)"/g)].map((m) => m[1]!))].filter((p) => p in PROVIDER_KEYS || p === 'vertex');
+  const providers = [...new Set([...text.matchAll(/"provider":"([a-z-]+)"/g)].map((m) => m[1]!))].filter((p) => p in PROVIDER_KEYS || p === 'vertex');
   calledBy.set(file, { mtimeMs: st.mtimeMs, size: st.size, providers });
   return providers;
 }

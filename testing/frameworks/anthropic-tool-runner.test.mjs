@@ -1,6 +1,7 @@
 // The Anthropic SDK tool runner, end to end: client.beta.messages.toolRunner with betaZodTool over a
 // definition wrapped by withEffect. Model calls go through the sidecar (ANTHROPIC_BASE_URL) to the
-// scripted mock API; tool calls go through the adapter. Record, clean replay, fork.
+// scripted mock API; tool calls go through the adapter. Record, clean replay, fork. Run to the end
+// with runUntilDone(), and streamed (`stream: true`), each turn's message stream read event by event.
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
@@ -10,7 +11,7 @@ import { message, startMockAnthropic, text, toolUse } from '../mock-anthropic/di
 import { withEffect } from '../../packages/adapters/dist/anthropic.js';
 import { startHarness, toolTrace } from './harness.mjs';
 
-describe('Anthropic tool runner (@anthropic-ai/sdk) with @shadowlap/adapters/anthropic', () => {
+for (const stream of [false, true]) describe(`Anthropic tool runner (@anthropic-ai/sdk) with @shadowlap/adapters/anthropic${stream ? ', streamed' : ''}`, () => {
   let h;
   let mock;
   const executed = [];
@@ -64,8 +65,17 @@ describe('Anthropic tool runner (@anthropic-ai/sdk) with @shadowlap/adapters/ant
   // The client reads ANTHROPIC_BASE_URL when it is constructed, inside the run.
   const agent = (system) => async () => {
     const client = new Anthropic({ apiKey: 'test-key', maxRetries: 0 });
-    const runner = client.beta.messages.toolRunner({ model: 'claude-opus-5', max_tokens: 512, system, messages: [{ role: 'user', content: 'Research and email the team.' }], tools: tools() });
-    const final = await runner.runUntilDone(); // done() only waits; runUntilDone() drives the loop
+    const params = { model: 'claude-opus-5', max_tokens: 512, system, messages: [{ role: 'user', content: 'Research and email the team.' }], tools: tools() };
+    let final;
+    if (stream) {
+      // The runner yields each turn's message stream; it runs the tools once a stream has ended.
+      for await (const turn of client.beta.messages.toolRunner({ ...params, stream: true })) {
+        for await (const event of turn) void event;
+        final = await turn.finalMessage();
+      }
+    } else {
+      final = await client.beta.messages.toolRunner(params).runUntilDone(); // done() only waits; runUntilDone() drives the loop
+    }
     return final.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
   };
 
@@ -78,6 +88,7 @@ describe('Anthropic tool runner (@anthropic-ai/sdk) with @shadowlap/adapters/ant
     assert.equal(recorded.summary.byKind.api, 2);
     assert.deepEqual(toolTrace(recorded.calls).sort(), ['search_web:read:live:ok', 'send_email:write:live:ok']);
     assert.equal(mock.requests.length, 2);
+    assert.ok(mock.requests.every((r) => (r.body.stream ?? false) === stream));
   });
 
   it('replays with zero upstream requests and no tool executions', async () => {
