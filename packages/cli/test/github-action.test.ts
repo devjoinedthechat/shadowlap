@@ -307,15 +307,32 @@ describe('test reports', () => {
     expect(md).toContain('| ✅ | `refund-passed` | passed · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 1.00 · forked at call 3 | 2/5 | 1.2k |');
     expect(md).toContain('| 🟡 | `refund-inconclusive` | inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 20 attempts · pass^5 0.28 | 2/5 | 1.2k |');
     expect(md).not.toMatch(/at least|at most|% confidence/);
-    expect(md).toContain('It fails the run unless `--inconclusive warn` is given.');
+    // With no --inconclusive given, the default: it fails the run; under --inconclusive fail, the flag.
+    expect(md).toContain('By default an inconclusive recording fails the run; `--inconclusive warn` lets it through.');
+    expect(md).not.toContain('A gate against history whose golden has fewer than');
+    expect(markdownReport(testReport([passed, unsure, failed]), 'fail')).toContain('This run fails on each of them (`--inconclusive fail`).');
     // Under --inconclusive warn it is let through, and says so; the heading still counts it.
-    const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]));
+    const warned = markdownReport(testReport([passed, { ...unsure, ok: true }]), 'warn');
     expect(warned).toContain('### Shadowlap: 1 of 2 recordings is inconclusive');
     expect(warned).toContain('This run lets inconclusive recordings through (`--inconclusive warn`).');
     expect(testReport([passed, { ...unsure, ok: true }])).toMatchObject({ passed: 2, failed: 0, inconclusive: 1 });
     expect(githubAnnotations(testReport([passed, { ...unsure, ok: true }]))).toBe(
       '::warning file=goldens/refund-inconclusive/run.json,title=Shadowlap%3A refund-inconclusive::inconclusive · 16 of 20 · rate 0.56 to 0.95 (95%25) · gate: tells 90%25+ from 70%25- at <= 5%25 risk, up to 20 attempts%0A%0Apass^5 0.28',
     );
+  });
+
+  it('names the rule a young gate against history kept with no --inconclusive given, never --inconclusive warn', () => {
+    const unsure = gated('inconclusive', false, 16, 20);
+    // As inconclusiveFor decides them: one with too few sessions only warns, one whose plan reads a decline counts.
+    const young: PackResult = { ...unsure, name: 'refund-young', ok: true, warned: 'needs more history: 3 of 30 sessions' };
+    const declining: PackResult = { ...unsure, name: 'refund-declining', counted: 'counts though it has only 15 of 30 sessions: its last 10 sessions sit below the 5 before them, 44 of 57 attempts against 30 of 31, 99 to 1 likely or more: a decline' };
+    const md = markdownReport(testReport([young, declining]));
+    expect(md).not.toContain('--inconclusive warn`)');
+    expect(md).toContain('By default an inconclusive recording fails the run; `--inconclusive warn` lets it through. A gate against history whose golden has fewer than 30 sessions (three of its windows) only warns, unless the plan reads its last sessions below the ones before them, a decline at 99 to 1 or a drop: then it counts.');
+    expect(md).toContain('`refund-young` only warns (needs more history: 3 of 30 sessions).');
+    expect(md).toContain('`refund-declining` counts though it has only 15 of 30 sessions: its last 10 sessions sit below the 5 before them, 44 of 57 attempts against 30 of 31, 99 to 1 likely or more: a decline.');
+    // The rule is the default's: under a flag, the flag decided every one.
+    expect(markdownReport(testReport([{ ...unsure, ok: true }]), 'warn')).not.toContain('only warns');
   });
 
   it('says an injection gate that showed too little to say is why a golden is inconclusive, not a gate that ran out', () => {

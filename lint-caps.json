@@ -41,7 +41,7 @@
     "packages/cli/src/suite-plan.ts": 34,
     "packages/cli/src/tasks.ts": 37,
     "packages/cli/src/team.ts": 39,
-    "packages/cli/src/test-report.ts": 46,
+    "packages/cli/src/test-report.ts": 39,
     "packages/cli/src/verify.ts": 62,
     "packages/cli/test/checks-schema.test.ts": 46,
     "packages/cli/test/fake-mcp-http-server.ts": 33,
