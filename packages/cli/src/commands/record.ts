@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import type { ReadPolicy, WritePolicy } from '@shadowlap/engine';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, formatUnrecorded } from '../unrecorded.js';
 import { codeVersion, loadConfig } from '../config.js';
+import { agentCommands } from '../agent-registry.js';
 import { runMcp } from '../mcp.js';
 import { runUnderSidecar, type GuardMode } from '../run-agent.js';
 import { calibrate, type CalibrateFlags } from './calibrate.js';
@@ -101,7 +102,7 @@ export function register(program: Command): void {
     .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }) => {
       // What it throws ends it with the contract's status: 2 for a flag or config to fix, 1 for a
       // host that didn't answer, 70 for a bug.
-      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
+      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects, agentCommands(program));
     });
 
 }

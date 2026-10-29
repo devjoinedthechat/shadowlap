@@ -434,11 +434,11 @@ describe('shadowlap mcp started with a minimal environment', () => {
   let home: string;
   let cwd: string;
 
-  function shadowlap(args: string[], o: { home?: string } = {}): Promise<{ code: number | null; out: string }> {
+  function shadowlap(args: string[], o: { home?: string; env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {
       // The home folder is HOME, and on Windows USERPROFILE, which is where Node looks for it there.
       const homeEnv = { HOME: o.home ?? home, USERPROFILE: o.home ?? home };
-      const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, ...homeEnv, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [CLI, '--db', join(cwd, 'store.db'), ...args], { cwd, env: { ...process.env, ...homeEnv, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off', ...o.env }, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '';
       child.stdout.on('data', (d: Buffer) => (out += d.toString()));
       child.stderr.on('data', (d: Buffer) => (out += d.toString()));
@@ -502,4 +502,22 @@ describe('shadowlap mcp started with a minimal environment', () => {
     expect(rec.out).toContain('no run is registered for it');
     expect(server.calls.slice(before).map((x) => x.name)).toEqual(['read_note']);
   }, 60_000);
+
+  it("refuses the write under every command that runs the agent, injection's among them, when it can't find its run", async () => {
+    // Recorded where its proxy finds its run; then tested for injection, each attempt's proxy handed another home folder.
+    const rec = await shadowlap(['run', '--', process.execPath, MCP_AGENT, CLI, server.url]);
+    expect(rec.code, rec.out).toBe(0);
+    const runId = /recording run (\w{26})/.exec(rec.out)![1];
+    const store = Store.open(join(cwd, 'store.db'));
+    const read = store.getCalls(runId).find((x) => x.name === 'read_note')!.callNo;
+    store.close();
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-mcp-elsewhere-')));
+    const before = server.calls.length;
+    const neutral = JSON.stringify({ content: [{ type: 'text', text: '' }] });
+    const tested = await shadowlap(['injection', runId, '--clean', `${read}=${neutral}`, '--guard', 'off', '--json'], { env: { MCP_AGENT_PROXY_HOME: elsewhere } });
+    rmSync(elsewhere, { recursive: true, force: true });
+    // Every attempt ran the agent: its reads went through unrecorded, and its write never left.
+    expect(server.calls.slice(before).filter((x) => x.name === 'read_note').length, tested.out).toBeGreaterThan(0);
+    expect(server.calls.slice(before).map((x) => x.name), tested.out).not.toContain('send_note');
+  }, 90_000);
 });

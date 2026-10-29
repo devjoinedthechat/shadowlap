@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import type { Command } from 'commander';
 import { messageOf, processAlive, withLockFile } from '@shadowlap/engine';
 import { startCommand } from './start-command.js';
 
@@ -420,14 +421,23 @@ export function peerProcess(port: number, serverPort: number, note?: (why: strin
   }
 }
 
-/** The Shadowlap commands that start agents. */
-const STARTS_AGENTS = new Set(['run', 'replay', 'test', 'blame', 'verify', 'calibrate', 'repair', 'fix', 'bisect', 'tasks']);
+/**
+ * The Shadowlap commands that start agents, read off the CLI's own command tree, by the names a
+ * command line gives them: each that takes `--guard`, the network guard every agent it starts runs
+ * under, or has a subcommand that does (`tasks score`). Read so, a command added later that starts
+ * an agent is among them without a list to keep: it decides its agents' guard as every one does.
+ */
+export function agentCommands(program: Command): ReadonlySet<string> {
+  const guarded = (c: Command): boolean => c.options.some((o) => o.long === '--guard') || c.commands.some(guarded);
+  return new Set(program.commands.filter(guarded).flatMap((c) => [c.name(), ...c.aliases()]));
+}
 
 /**
- * Whether a command line is the Shadowlap CLI running a command that starts agents. Used only to
- * refuse writes when such an ancestor is seen but its sidecar can't be found.
+ * Whether a command line is the Shadowlap CLI running one of `commands`, those that start agents
+ * (agentCommands). Used only to refuse writes when such an ancestor is seen but its sidecar can't be
+ * found.
  */
-export function startsAgents(args: string | null): boolean {
+export function startsAgents(args: string | null, commands: ReadonlySet<string>): boolean {
   if (!args) return false;
   const tokens = args.split(/\s+/).filter(Boolean);
   const at = tokens.findIndex((t) => /(?:^|[\\/])shadowlap(?:\.[cm]?js|\.cmd|\.exe)?["']?$/i.test(t));
@@ -439,7 +449,7 @@ export function startsAgents(args: string | null): boolean {
       continue;
     }
     if (t.startsWith('-')) continue;
-    return STARTS_AGENTS.has(t);
+    return commands.has(t);
   }
   return false;
 }
@@ -556,10 +566,10 @@ export function parentRegistration(o: { cwd?: string; home?: string | null; skip
 /**
  * The run an MCP proxy started with a minimal environment belongs to: the registration of its
  * nearest Shadowlap-started ancestor. When an ancestor is a Shadowlap command that starts agents
- * but no registration turns up (not yet written, or written where this process can't see it), the
- * answer is `unusable`, so writes are refused rather than run unrecorded.
+ * (one of `agentCommands`) but no registration turns up (not yet written, or written where this
+ * process can't see it), the answer is `unusable`, so writes are refused rather than run unrecorded.
  */
-export async function lookupRegistration(o: { cwd?: string; home?: string | null; chain?: ProcessInfo[] | null; skip?: (reason: string) => void; waitMs?: number } = {}): Promise<SidecarLookup> {
+export async function lookupRegistration(o: { agentCommands: ReadonlySet<string>; cwd?: string; home?: string | null; chain?: ProcessInfo[] | null; skip?: (reason: string) => void; waitMs?: number }): Promise<SidecarLookup> {
   const dirs = lookupDirs(o.cwd, o.home);
   const chain = o.chain === undefined ? processAncestors(o.skip) : o.chain;
   if (!chain) {
@@ -568,7 +578,7 @@ export async function lookupRegistration(o: { cwd?: string; home?: string | null
   }
   const found = findRegistration(chain, dirs, o.skip);
   if (found) return found;
-  const shadowlap = chain.slice(1).find((p) => startsAgents(p.args));
+  const shadowlap = chain.slice(1).find((p) => startsAgents(p.args, o.agentCommands));
   if (!shadowlap) return { kind: 'none' };
   // The CLI writes the registration as soon as the agent has started; give it a moment.
   const deadline = Date.now() + (o.waitMs ?? 2000);

@@ -50,9 +50,11 @@ export function parseEffectFlags(flags: string[]): Record<string, Effect> {
 
 /**
  * `shadowlap mcp`: the proxy in front of a local server (`argv`) or a remote one (`--url`), with the
- * sidecar of the run it was started under, if any. Resolves with the exit code.
+ * sidecar of the run it was started under, if any: `agentCommands` are the CLI's commands that start
+ * agents (agentCommands), under which a proxy that finds no run refuses writes. Resolves with the
+ * exit code.
  */
-export async function runMcp(argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }, effectsFromConfig: Record<string, Effect> | undefined): Promise<number> {
+export async function runMcp(argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }, effectsFromConfig: Record<string, Effect> | undefined, agentCommands: ReadonlySet<string>): Promise<number> {
   if (flags.url && argv.length) throw new Error('give the server as a command after -- or as --url, not both');
   if (!flags.url && !argv.length) throw new Error('give the MCP server: shadowlap mcp -- <server command>, or shadowlap mcp --url <server>');
   if (!flags.url && flags.header.length) throw new Error('--header is for a server reached with --url');
@@ -63,7 +65,7 @@ export async function runMcp(argv: string[], flags: { url?: string; header: stri
   const headers = parseHeaderFlags(flags.header);
   const url = flags.url ? mcpServerUrl(flags.url, Object.keys(headers).length > 0, flags.allowHttp === true) : null;
   const at = flags.listen !== undefined ? listenAddress(flags.listen) : null;
-  const found = await findSidecar(process.env, process.cwd(), log);
+  const found = await findSidecar(process.env, process.cwd(), log, { agentCommands });
   if (url && at) return listen(url, at, headers, effects, found, log);
   let sidecar: ProxySidecar = null;
   if (found.kind === 'sidecar') {

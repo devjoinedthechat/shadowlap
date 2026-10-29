@@ -2,8 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { findRegistration, firstError, lookupRegistration, parentFromProcStat, parentRegistration, powershellArgs, processAncestors, registerAgent, registryDirs, startsAgents, WINDOWS_PROCESS_TABLE, type ProcessInfo } from '../src/agent-registry.js';
+import { Command } from 'commander';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentCommands, findRegistration, firstError, lookupRegistration, parentFromProcStat, parentRegistration, powershellArgs, processAncestors, registerAgent, registryDirs, startsAgents, WINDOWS_PROCESS_TABLE, type ProcessInfo } from '../src/agent-registry.js';
 import { findSidecar } from '../src/mcp.js';
 import { isLoopbackHost } from '../src/loopback.js';
 
@@ -15,6 +16,24 @@ const posix = process.platform !== 'win32';
 let home: string;
 let project: string;
 const children: ChildProcessWithoutNullStreams[] = [];
+
+/** The CLI's own command tree, as main() builds it, and the commands in it that start agents. */
+let program: Command;
+let commands: ReadonlySet<string>;
+beforeAll(async () => {
+  // main() builds the program and hands it to parseAsync; keep it instead of running it.
+  const spy = vi.spyOn(Command.prototype, 'parseAsync').mockImplementation(async function (this: Command) {
+    program = this;
+    return this;
+  });
+  try {
+    const { main } = await import('../src/index.js');
+    await main(['node', 'shadowlap']);
+  } finally {
+    spy.mockRestore();
+  }
+  commands = agentCommands(program);
+}, 120_000);
 
 beforeEach(() => {
   home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-reg-home-')));
@@ -181,13 +200,13 @@ describe('the agent registry', () => {
 
   it('refuses rather than passes through when a Shadowlap command is an ancestor but no run turns up', async () => {
     const chain = tree();
-    expect(await lookupRegistration({ cwd: project, home, chain, waitMs: 150 })).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('no run is registered for it') });
+    expect(await lookupRegistration({ agentCommands: commands, cwd: project, home, chain, waitMs: 150 })).toMatchObject({ kind: 'unusable', reason: expect.stringContaining('no run is registered for it') });
     // Under anything else, the proxy is simply not under Shadowlap.
     const plain = chain.map((p) => ({ ...p, args: 'python agent.py' }));
-    expect(await lookupRegistration({ cwd: project, home, chain: plain, waitMs: 150 })).toEqual({ kind: 'none' });
+    expect(await lookupRegistration({ agentCommands: commands, cwd: project, home, chain: plain, waitMs: 150 })).toEqual({ kind: 'none' });
     // A registration that appears while it waits is taken: the CLI writes it as soon as the agent starts.
     setTimeout(() => registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01LATE' }, { cwd: project, home }), 50);
-    expect(await lookupRegistration({ cwd: project, home, chain, waitMs: 2000 })).toMatchObject({ kind: 'sidecar', target: { runId: '01LATE' } });
+    expect(await lookupRegistration({ agentCommands: commands, cwd: project, home, chain, waitMs: 2000 })).toMatchObject({ kind: 'sidecar', target: { runId: '01LATE' } });
   });
 
   it('finds the parent agent without the process tree, and only while the command that registered it runs', () => {
@@ -205,7 +224,7 @@ describe('the agent registry', () => {
 
   it('looks for the parent first on Windows, where the process tree takes PowerShell', async () => {
     registerAgent(process.ppid, { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, { cwd: project, home });
-    const found = await findSidecar({}, project, () => {}, { home, platform: 'win32', waitMs: 0 });
+    const found = await findSidecar({}, project, () => {}, { agentCommands: commands, home, platform: 'win32', waitMs: 0 });
     expect(found).toEqual({ kind: 'sidecar', target: { url: 'http://127.0.0.1:5000/t/abc', runId: '01WIN' }, from: join(home, '.shadowlap', 'agents', `${process.ppid}.json`) });
   });
 
@@ -229,7 +248,7 @@ describe('the agent registry', () => {
     registerAgent(4242, { url: 'http://127.0.0.1:5000/t/abc', runId: '01PROJ' }, { cwd: project, home: null });
     const nested = join(project, 'src', 'deep');
     mkdirSync(nested, { recursive: true });
-    expect(await lookupRegistration({ cwd: nested, home, chain: tree(), waitMs: 0 })).toMatchObject({ kind: 'sidecar', target: { runId: '01PROJ' } });
+    expect(await lookupRegistration({ agentCommands: commands, cwd: nested, home, chain: tree(), waitMs: 0 })).toMatchObject({ kind: 'sidecar', target: { runId: '01PROJ' } });
   });
 
   it('reads this process and its ancestors from the system', () => {
@@ -261,13 +280,25 @@ describe('the agent registry', () => {
   });
 
   it('knows a Shadowlap command that starts agents by its command line', () => {
-    expect(startsAgents('node /opt/shadowlap/packages/cli/bin/shadowlap.js --db /x/store.db replay 01ABC --repeat 2')).toBe(true);
-    expect(startsAgents('shadowlap -v test goldens/*')).toBe(true);
-    expect(startsAgents('/usr/local/bin/shadowlap blame 01ABC --expect {}')).toBe(true);
-    expect(startsAgents('node /opt/shadowlap/bin/shadowlap.js mcp --url https://x/run')).toBe(false);
-    expect(startsAgents('shadowlap ui')).toBe(false);
-    expect(startsAgents('python agent.py run test')).toBe(false);
-    expect(startsAgents(null)).toBe(false);
+    expect(startsAgents('node /opt/shadowlap/packages/cli/bin/shadowlap.js --db /x/store.db replay 01ABC --repeat 2', commands)).toBe(true);
+    expect(startsAgents('shadowlap -v test goldens/*', commands)).toBe(true);
+    expect(startsAgents('/usr/local/bin/shadowlap blame 01ABC --expect {}', commands)).toBe(true);
+    for (const line of ['shadowlap injection goldens/notes --clean 9', 'shadowlap decisions --model claude-x -- python agent.py', 'shadowlap migrate --to claude-x', 'shadowlap coverage --pack 3', 'shadowlap tasks score goldens/notes']) expect(startsAgents(line, commands), line).toBe(true);
+    expect(startsAgents('node /opt/shadowlap/bin/shadowlap.js mcp --url https://x/run', commands)).toBe(false);
+    expect(startsAgents('shadowlap ui', commands)).toBe(false);
+    expect(startsAgents('python agent.py run test', commands)).toBe(false);
+    expect(startsAgents(null, commands)).toBe(false);
+  });
+
+  it('takes every command of the CLI that runs an agent, and only those, from the command tree: each that decides its guard', () => {
+    // Walked whole: a command takes --guard, the guard its agents run under, or a subcommand of it does.
+    const walk = (c: Command, path: string[]): Array<{ path: string[]; guard: boolean }> =>
+      c.commands.flatMap((sub) => [{ path: [...path, sub.name()], guard: sub.options.some((o) => o.long === '--guard') }, ...walk(sub, [...path, sub.name()])]);
+    const all = walk(program, []);
+    expect(all.length).toBeGreaterThan(60);
+    const starting = new Set(all.filter((x) => x.guard).map((x) => x.path[0]));
+    for (const { path } of all) expect(startsAgents(`node /opt/shadowlap/bin/shadowlap.js ${path.join(' ')} x`, commands), path.join(' ')).toBe(starting.has(path[0]));
+    expect([...starting].sort()).toEqual(['bisect', 'blame', 'calibrate', 'coverage', 'decisions', 'injection', 'migrate', 'repair', 'replay', 'run', 'tasks', 'test', 'verify']);
   });
 
   it('knows this machine by name and address', () => {
