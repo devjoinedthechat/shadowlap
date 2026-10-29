@@ -10,7 +10,7 @@ import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
 import { cutSigned, isSignedMark, SIGNED_MARK, signedTexts, type Place } from './signed.js';
 import { redactRunFacts } from './run-facts.js';
 import { storeView, type Store, type StoreOf } from './store.js';
-import { quoteArgv } from './text.js';
+import { decodedSegment, quoteArgv } from './text.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
 import { isObject } from './is-object.js';
 
@@ -261,15 +261,6 @@ function replacedBy(text: string, applying: ReadonlyArray<{ rule: Normalizer; i:
     out = next;
   }
   return out;
-}
-
-/** A path segment as the provider reads it, decoded; the segment as it is when it isn't encoding. */
-function decodedSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
 }
 
 /**
