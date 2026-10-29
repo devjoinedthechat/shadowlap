@@ -79,8 +79,8 @@ export interface Provider {
   extractUsage(body: Buffer, contentType: string | undefined): Usage | null;
   /** The provider's stop / finish reason, for the timeline. */
   extractStopReason(body: Buffer, contentType: string | undefined): string | null;
-  /** The requested model: in the body for most providers, in the path for Gemini. */
-  extractModel(subpath: string, body: unknown): string | null;
+  /** The requested model: in the body for most providers, in the path for Gemini, in a header for Vercel's AI Gateway. */
+  extractModel(subpath: string, body: unknown, headers?: Readonly<Record<string, string>>): string | null;
   /**
    * The provider's API hosts. In-process capture sends requests for these hosts to the sidecar with
    * the host they were going to, and the sidecar forwards only to hosts that match, so it is never
@@ -579,8 +579,74 @@ export const bedrockMantle: Provider = hostOf(openai, {
   keys: { placeholders: { AWS_BEARER_TOKEN_BEDROCK: PLACEHOLDER_KEY }, credentials: ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID', 'AWS_PROFILE', 'AWS_WEB_IDENTITY_TOKEN_FILE', 'AWS_CONTAINER_CREDENTIALS_FULL_URI', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'], set: 'AWS_BEARER_TOKEN_BEDROCK', onlyWhereRecorded: true },
 });
 
+// ---- Vercel's AI Gateway ----
+
+/**
+ * The AI SDK's usage, as the gateway returns it: from version 3 of its spec, `inputTokens` and
+ * `outputTokens` are objects (`{ total, noCache, cacheRead, cacheWrite }`); before, numbers, with
+ * `cachedInputTokens` beside them.
+ */
+function gatewayUsage(u: unknown): Usage | null {
+  if (!isObject(u)) return null;
+  const input = u.inputTokens;
+  const output = u.outputTokens;
+  const total = (v: unknown) => num(isObject(v) ? v.total : v);
+  const usage: Usage = { inputTokens: 0, outputTokens: total(output) };
+  if (isObject(input)) {
+    const cacheRead = num(input.cacheRead);
+    const cacheWrite = num(input.cacheWrite);
+    usage.inputTokens = input.noCache !== undefined ? num(input.noCache) : Math.max(0, num(input.total) - cacheRead - cacheWrite);
+    if (input.cacheRead !== undefined) usage.cacheReadInputTokens = cacheRead;
+    if (input.cacheWrite !== undefined) usage.cacheCreationInputTokens = cacheWrite;
+  } else {
+    const cached = num(u.cachedInputTokens);
+    usage.inputTokens = Math.max(0, num(input) - cached);
+    if (u.cachedInputTokens !== undefined) usage.cacheReadInputTokens = cached;
+  }
+  return usage;
+}
+
+/** `{ unified, raw }` from version 3 of the spec on, a string before. */
+const gatewayFinish = (v: unknown): string | null => (typeof v === 'string' ? v : isObject(v) && typeof v.unified === 'string' ? v.unified : null);
+
+/**
+ * Vercel's AI Gateway, where the AI SDK sends a model named by a string (`model: 'openai/gpt-5'`):
+ * `POST <base>/language-model` (and `/embedding-model`) with the SDK's own call options as the body,
+ * the model and the spec's version in headers, and the SDK's own results back, as JSON or a stream of
+ * its parts. Its client takes no base URL from the environment, so its calls are captured in the
+ * process. The model, the spec version and whether the call streams are headers, so they match.
+ */
+export const aiGateway: Provider = {
+  id: 'ai-gateway',
+  upstream: '',
+  env: () => ({}),
+  fingerprintHeaders: ['ai-language-model-id', 'ai-language-model-specification-version', 'ai-language-model-streaming', 'ai-embedding-model-id', 'ai-embedding-model-specification-version'],
+  credentialHeaders: ['ai-gateway-auth-method', ...COMMON_CREDENTIAL_HEADERS],
+  // An API key, or the OIDC token a Vercel deployment and `vercel env pull` give.
+  keys: { placeholders: { AI_GATEWAY_API_KEY: PLACEHOLDER_KEY }, credentials: ['AI_GATEWAY_API_KEY', 'VERCEL_OIDC_TOKEN'], set: 'AI_GATEWAY_API_KEY' },
+  isRetryableStatus: (status) => status === 408 || status === 429 || status >= 500,
+  extractUsage(body, contentType) {
+    if (contentType?.includes('text/event-stream')) {
+      let usage: Usage | null = null;
+      for (const obj of sseDataObjects(body.toString('utf8'))) if (obj.type === 'finish') usage = gatewayUsage(obj.usage) ?? usage;
+      return usage;
+    }
+    return gatewayUsage(parseJson(body)?.usage);
+  },
+  extractStopReason(body, contentType) {
+    if (contentType?.includes('text/event-stream')) {
+      let reason: string | null = null;
+      for (const obj of sseDataObjects(body.toString('utf8'))) if (obj.type === 'finish') reason = gatewayFinish(obj.finishReason) ?? reason;
+      return reason;
+    }
+    return gatewayFinish(parseJson(body)?.finishReason);
+  },
+  extractModel: (_subpath, body, headers) => headers?.['ai-language-model-id'] ?? headers?.['ai-embedding-model-id'] ?? modelInBody(body),
+  hosts: /^ai-gateway\.vercel\.sh$/,
+};
+
 /** The providers the sidecar routes to, `/<id>/…`: each provider's own hosts. */
-export const providers: Provider[] = [anthropic, openai, gemini, azure, vertex, bedrock];
+export const providers: Provider[] = [anthropic, openai, gemini, azure, vertex, bedrock, aiGateway];
 
 /**
  * Hosts of another provider's format that are built in, each reached through the route of the

@@ -2,7 +2,7 @@ export { Sidecar, HttpError } from './server.js';
 export { describeInterventions, RequestInterventions, type CallPlace, type Rewrite } from './interventions.js';
 export { credentialsFromEnvironment, resignSigV4, signingKeyId, type AwsCredentials, type CredentialsFor } from './sigv4.js';
 export type { SidecarOptions, StartRunInput, Interventions, EndRunResult, ResolveBody, ResolveResponse, CompleteBody, ApiRoute } from './server.js';
-export { activeProviders, anthropic, bedrockMantle, declareFormatHosts, formatHostProblem, formatHostProvider, foundry, hostedProviders, openai, gemini, providers, sdkBasesFromEnvironment, sseDataObjects, withoutHeaderParameters } from './providers.js';
+export { activeProviders, aiGateway, anthropic, bedrockMantle, declareFormatHosts, formatHostProblem, formatHostProvider, foundry, hostedProviders, openai, gemini, providers, sdkBasesFromEnvironment, sseDataObjects, withoutHeaderParameters } from './providers.js';
 export type { FormatHost, Provider } from './providers.js';
 export { SseTimer } from './sse.js';
 export { carriesPlaceholder, PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY, placeholderRefusal } from './placeholders.js';

@@ -49,9 +49,12 @@ export const DEFAULT_PRICES: Record<string, Price> = {
 /**
  * A model id as the price table and the timeline know it, whatever platform served it: Bedrock's
  * `us.anthropic.claude-sonnet-4-5-20250929-v1:0` and Vertex's `claude-sonnet-4-5@20250929` are both
- * `claude-sonnet-4-5-20250929`.
+ * `claude-sonnet-4-5-20250929`, and Vercel's AI Gateway's `anthropic/claude-sonnet-4.5` is
+ * `claude-sonnet-4-5` (a Claude version's dot is a dash; GPT's, `gpt-4.1`, stays).
  */
 export function canonicalModel(model: string): string {
+  const routed = /^(anthropic|openai|google|xai|mistral|deepseek|meta|amazon|cohere|vercel|groq|perplexity)\/(.+)$/i.exec(model);
+  if (routed) model = /^claude-/i.test(routed[2]!) ? routed[2]!.replace(/(\d)\.(\d)/g, '$1-$2') : routed[2]!;
   return model
     .replace(/^(us|eu|apac|jp|au|ca|us-gov|global)\./i, '')
     .replace(/^(anthropic|amazon|meta|mistral|cohere|ai21|deepseek|openai|qwen|writer)\./i, '')

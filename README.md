@@ -257,6 +257,7 @@ shadowlap run -- node agent.mjs
 ├─ sidecar  127.0.0.1 on a free port, a token in every path
 │  ├─ /anthropic/* /openai/* /gemini/*  model APIs
 │  ├─ /bedrock/* /vertex/* /azure/*     cloud clients
+│  ├─ /ai-gateway/*                     Vercel's AI Gateway
 │  ├─ /http/*                           HTTP services
 │  └─ /v1/calls/*                       tools, clock, randomness
 ├─ store    .shadowlap/shadowlap.db (SQLite), out of git

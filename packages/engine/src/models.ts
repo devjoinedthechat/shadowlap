@@ -164,6 +164,7 @@ function providerApi(provider: string | null): string {
   if (provider === 'bedrock') return 'Amazon Bedrock';
   if (provider === 'vertex') return 'Vertex AI';
   if (provider === 'azure') return 'Azure OpenAI';
+  if (provider === 'ai-gateway') return "Vercel's AI Gateway";
   return provider ? `${provider} API` : 'the recorded provider';
 }
 

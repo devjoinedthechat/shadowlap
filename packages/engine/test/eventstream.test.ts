@@ -126,6 +126,11 @@ describe('Bedrock Converse messages', () => {
 describe('model ids across platforms', () => {
   it('prices and shortens Bedrock and Vertex ids like the provider API ids', () => {
     expect(canonicalModel('us.anthropic.claude-sonnet-4-5-20250929-v1:0')).toBe('claude-sonnet-4-5-20250929');
+    // Vercel's AI Gateway names a model by its provider, and Claude's version with a dot: `claude-sonnet-4.5`.
+    expect(canonicalModel('anthropic/claude-sonnet-4.5')).toBe('claude-sonnet-4-5');
+    expect(canonicalModel('openai/gpt-4.1')).toBe('gpt-4.1');
+    expect(priceFor('anthropic/claude-sonnet-4.5')).toEqual(priceFor('claude-sonnet-4-5'));
+    expect(priceFor('google/gemini-2.5-flash')).toEqual(priceFor('gemini-2.5-flash'));
     expect(canonicalModel('anthropic.claude-opus-5-v1')).toBe('claude-opus-5');
     expect(canonicalModel('claude-sonnet-4-5@20250929')).toBe('claude-sonnet-4-5-20250929');
     expect(canonicalModel('gpt-4o')).toBe('gpt-4o');

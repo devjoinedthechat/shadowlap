@@ -15,6 +15,7 @@ import {
   toolFailureError,
   type InjectionPlace,
   type RequestShape,
+  isGatewayRequest,
 } from '../src/interventions.js';
 import { parseJsonExact } from '../src/json-exact.js';
 import { Session } from '../src/session.js';
@@ -46,6 +47,22 @@ describe('requestShape', () => {
     expect(requestShape('openai', '/v1/embeddings', { input: 'hi', model: 'text-embedding-3-small' })).toBe('other');
     expect(requestShape('gemini', '/v1beta/models/text-embedding-004:embedContent', { content: { parts: [] } })).toBe('other');
     expect(requestShape('bedrock', '/model/amazon.titan-text/invoke', { inputText: 'hi' })).toBe('other');
+  });
+});
+
+describe("a request to Vercel's AI Gateway", () => {
+  const gateway = { prompt: [{ role: 'system', content: 'You resolve refunds.' }, { role: 'user', content: [{ type: 'text', text: 'Refund A-1.' }] }], tools: [] };
+
+  it('is told from a completions request, whose prompt is text', () => {
+    expect(isGatewayRequest(gateway)).toBe(true);
+    expect(isGatewayRequest({ model: 'gpt-3.5-turbo-instruct', prompt: ['Say hi', 'Say bye'] })).toBe(false);
+    expect(isGatewayRequest({ model: 'gpt-3.5-turbo-instruct', prompt: 'Say hi' })).toBe(false);
+    expect(isGatewayRequest({ messages: [{ role: 'user', content: 'hi' }] })).toBe(false);
+  });
+
+  it('takes no instruction, saying why', () => {
+    expect(requestShape('ai-gateway', '/v4/ai/language-model', gateway)).toBe('other');
+    expect(placeInjection('other', gateway, 'user')).toEqual({ refused: "it is the AI SDK's own request to Vercel's AI Gateway, which Shadowlap records and replays as it is but doesn't change, so no instruction can be added to it" });
   });
 });
 

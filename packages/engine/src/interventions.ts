@@ -40,6 +40,17 @@ export function requestShape(provider: string | null | undefined, path: string, 
   return 'other';
 }
 
+/**
+ * A request to Vercel's AI Gateway: the AI SDK's own call options, the conversation in `prompt` as
+ * turns with a `role` (a completions request's `prompt` is text). Recorded and replayed as it is.
+ */
+export function isGatewayRequest(body: unknown): boolean {
+  return isObject(body) && body.messages === undefined && Array.isArray(body.prompt) && body.prompt.length > 0 && body.prompt.every((t) => isObject(t) && typeof t.role === 'string');
+}
+
+/** Why a change can't be made to a request to Vercel's AI Gateway. */
+export const GATEWAY_UNCHANGED = "it is the AI SDK's own request to Vercel's AI Gateway, which Shadowlap records and replays as it is but doesn't change";
+
 /** Human names for the shapes, for refusals. */
 export const SHAPE_NAMES: Record<RequestShape, string> = {
   anthropic: 'the Anthropic Messages API',
@@ -341,7 +352,7 @@ export function noLateSystemMessage(model: string | null | undefined): string | 
  */
 export function placeInjection(shape: RequestShape, body: unknown, as: InjectAs, model?: string | null): InjectionPlace | Refusal {
   if (!isObject(body)) return { refused: 'the request body is not a JSON object' };
-  if (shape === 'other') return { refused: 'the request is not a conversation (an embeddings call, or a model\'s native body), so there is no turn to add an instruction to' };
+  if (shape === 'other') return { refused: isGatewayRequest(body) ? `${GATEWAY_UNCHANGED}, so no instruction can be added to it` : 'the request is not a conversation (an embeddings call, or a model\'s native body), so there is no turn to add an instruction to' };
   const turns = turnsOf(shape, body);
   if (!turns) return { refused: `the request has no ${shape === 'gemini' ? 'contents' : shape === 'openai-responses' ? 'input' : 'messages'} to add an instruction to` };
   if (as === 'system') {

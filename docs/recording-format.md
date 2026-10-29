@@ -104,7 +104,7 @@ An end, in `end` and in `attempts`:
 
 | Call `meta` key | Where | |
 |---|---|---|
-| `provider` | start, `api` | The API the request was for: `anthropic`, `openai`, `gemini`, `bedrock`, `vertex` or `azure`. A reader needs it to compute the call's fingerprint again |
+| `provider` | start, `api` | The API the request was for: `anthropic`, `openai`, `gemini`, `bedrock`, `vertex`, `azure` or `ai-gateway` (Vercel's AI Gateway, in the AI SDK's own format). A reader needs it to compute the call's fingerprint again |
 | `via` | start, `api` | The host of another provider's wire format the call went through, when it went through one, its `provider` being that format's: `foundry` (Claude on Microsoft Foundry), `bedrock-mantle` (OpenAI's SDK on Amazon Bedrock), or a host the project's config declares under `providers`, as declared ([Providers](./providers.md#hosts-of-another-providers-format)) |
 | `fingerprintHeaders` | start, `api` | The request's [fingerprint headers](#identity) as it sent them, names in lower case |
 | `query` | start, `api` | The query string it was sent with, without `?` and without credentials (`alt=sse`, `api-version=2024-10-21`), `""` when it had none: part of its [identity](#identity). A call that has no `query` was made before calls kept one, or comes from a source that never knew it |
@@ -206,6 +206,7 @@ The fingerprint is the SHA-256, in lowercase hex, of the [RFC 8785](https://www.
 | `bedrock` | `x-amzn-bedrock-guardrailidentifier`, `x-amzn-bedrock-guardrailversion`, `x-amzn-bedrock-trace`, `x-amzn-bedrock-performanceconfig-latency`, `x-amzn-bedrock-service-tier` |
 | `bedrock-mantle` | `openai-beta`, `x-amzn-bedrock-guardrailidentifier`, `x-amzn-bedrock-guardrailversion`, `x-amzn-bedrock-trace`, `x-amzn-bedrock-performanceconfig-latency`, `x-amzn-bedrock-service-tier` |
 | `gemini` | none |
+| `ai-gateway` | `ai-language-model-id`, `ai-language-model-specification-version`, `ai-language-model-streaming`, `ai-embedding-model-id`, `ai-embedding-model-specification-version` |
 
 A call that went through a host of another's format (`via`) is fingerprinted with the host's headers above (its format's, and Bedrock's parameters too through `bedrock-mantle`), and with the part of its path under the host's root read as the format's own API names it: `/anthropic/v1/messages` through `foundry` as `/v1/messages`, `/openai/v1/responses` through `bedrock-mantle` as `/v1/responses`, and a call under a declared host's `root` so too.
 
