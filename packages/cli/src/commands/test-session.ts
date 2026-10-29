@@ -599,6 +599,19 @@ function notUpdatedWhy(outcome: GoldenOutcome, injection: InjectionGateData | nu
   return 'this one failed for another reason';
 }
 
+/**
+ * What the summary says of the session's `count` inconclusive goldens: those that only warn (--inconclusive
+ * warn, or too few sessions yet for a gate against history), and those that fail the run. Empty with none.
+ */
+function inconclusiveWords(count: number, results: readonly PackResult[], given: InconclusiveMode | null): string {
+  if (!count) return '';
+  const warned = results.filter((r) => r.verdict === 'inconclusive' && r.ok).length;
+  const failing = count - warned;
+  const through = warned ? (given === 'warn' ? 'let through: --inconclusive warn' : `${warned === count ? '' : `${warned} `}let through: too few sessions yet`) : '';
+  const fails = failing ? `${warned ? `${failing} ` : ''}failing the run: --inconclusive warn lets them through` : '';
+  return `, ${count} inconclusive (${[through, fails].filter(Boolean).join(', ')})`;
+}
+
 /** The reports a session was asked for, its job's links and summary, and the status it ends with. */
 async function reportSession(request: TestRequest, pusher: Pusher | null, s: Session): Promise<void> {
   const { flags, packs, noPack } = request;
@@ -620,13 +633,7 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: links.run(r.runId!), secondary: true });
   emitJobEvent({ type: 'link', label: 'Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
   // Inconclusive ones are counted apart, and what CI does with them is said.
-  // Those inconclusive that only warn (--inconclusive warn, or too few sessions yet), and those that fail the run.
-  const given = request.inconclusiveGiven;
-  const warned = results.filter((r) => r.verdict === 'inconclusive' && r.ok).length;
-  const failing = report.inconclusive - warned;
-  const inconclusive = report.inconclusive
-    ? `, ${report.inconclusive} inconclusive (${[warned ? `${given === 'warn' ? 'let through: --inconclusive warn' : `${warned === report.inconclusive ? '' : `${warned} `}let through: too few sessions yet`}` : '', failing ? `${warned ? `${failing} ` : ''}failing the run: --inconclusive warn lets them through` : ''].filter(Boolean).join(', ')})`
-    : '';
+  const inconclusive = inconclusiveWords(report.inconclusive, results, request.inconclusiveGiven);
   const passedCount = results.filter((r) => r.verdict === 'passed').length;
   const failedCount = results.filter((r) => r.verdict === 'failed').length;
   process.stdout.write(`\n${passedCount} passed, ${failedCount} failed${inconclusive}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${s.upstreamRequests} upstream request${s.upstreamRequests === 1 ? '' : 's'}\n`);
