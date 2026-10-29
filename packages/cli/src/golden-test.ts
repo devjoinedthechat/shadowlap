@@ -723,18 +723,23 @@ export const letThrough = (o: Pick<GoldenOutcome, 'result' | 'failure'> & { kind
  * What a golden's inconclusive does this session: `--inconclusive` when it was given; else a gate
  * against history that ran out of attempts while its record holds fewer sessions than it reads
  * (`short`) only warns, as with so little history it can't tell a drop from chance, and says so
- * (`needs more history: 3 of 30 sessions`); anything else fails the run. A clear failure fails
+ * (`warned`: `needs more history: 3 of 30 sessions`), unless the session's plan read its last sessions
+ * below the sessions before them (`counts`, a decline or a drop), which more history would not explain
+ * away: that one counts, and says why (`counted`). Anything else fails the run. A clear failure fails
  * either way, and an inconclusive the provider or a check that couldn't be decided caused counts.
  */
-export function inconclusiveFor(o: Pick<GoldenOutcome, 'result' | 'failure'> & { kind?: GoldenOutcome['kind'] }, given: InconclusiveMode | null, short: { sessions: number; of: number } | null | undefined): { mode: InconclusiveMode; why: string | null } {
-  if (given) return { mode: given, why: null };
+export function inconclusiveFor(o: Pick<GoldenOutcome, 'result' | 'failure'> & { kind?: GoldenOutcome['kind'] }, given: InconclusiveMode | null, short: { sessions: number; of: number } | null | undefined, counts?: string | null): { mode: InconclusiveMode; warned: string | null; counted: string | null } {
+  if (given) return { mode: given, warned: null, counted: null };
   const gate = o.result?.gate;
-  if (short && verdictOf(o) === 'inconclusive' && gate?.kind === 'baseline' && gate.decision === 'inconclusive') return { mode: 'warn', why: `needs more history: ${short.sessions} of ${short.of} sessions` };
-  return { mode: 'fail', why: null };
+  if (short && verdictOf(o) === 'inconclusive' && gate?.kind === 'baseline' && gate.decision === 'inconclusive') {
+    if (counts) return { mode: 'fail', warned: null, counted: `counts though it has only ${short.sessions} of ${short.of} sessions: ${counts}` };
+    return { mode: 'warn', warned: `needs more history: ${short.sessions} of ${short.of} sessions`, counted: null };
+  }
+  return { mode: 'fail', warned: null, counted: null };
 }
 
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
-export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode; warned?: string | null; injection?: PackResult['injection'] }): PackResult {
+export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode; warned?: string | null; counted?: string | null; injection?: PackResult['injection'] }): PackResult {
   const r = o.result;
   const s = r?.shown.ended.summary ?? null;
   return {
@@ -745,6 +750,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     ok: letThrough(o, extra.inconclusive ?? 'fail'),
     verdict: verdictOf(o),
     ...(extra.warned ? { warned: extra.warned } : {}),
+    ...(extra.counted ? { counted: extra.counted } : {}),
     failure: o.kind,
     message: o.failure?.message ?? null,
     details: o.failure?.details ?? null,

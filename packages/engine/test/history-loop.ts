@@ -119,7 +119,7 @@ function redFor(rate: number, h: Tally | null, gate: BaselineGate): { red: numbe
 export interface Stage {
   name: string;
   sessions: number;
-  /** Their chance of going red, exactly against each session's baseline and gate, averaged: for a golden with fewer than 30 sessions whose inconclusive only warns, its chance of failing. */
+  /** Their chance of going red, exactly against each session's baseline and gate, averaged: for a golden with fewer than 30 sessions whose inconclusive only warns, its chance of failing (where its plan reads its last sessions below the sessions before them, its inconclusive counts). */
   red: number;
   /** The same with every inconclusive counted, as `--inconclusive fail` counts it, against the same gates. */
   redCounted: number;
@@ -156,11 +156,31 @@ export interface Loop {
   to: number | null;
   share: number;
   stages: Stage[];
-  /** With a regression: each session after it, the chance it is caught (goes red), averaged, and a gate's held at the share with max 40 against the same baselines; how often the plan read a drop. */
-  after: Array<{ red: number; fixed: number; drop: number }>;
+  /**
+   * With a regression: each session after it, the chance it is caught (goes red), averaged, and a
+   * gate's held at the share with max 40 against the same baselines; how often the plan read a drop.
+   * And how it ends: red with every inconclusive counted (`counted`, as under --inconclusive fail),
+   * red by failing alone (`failing`, as when every inconclusive of a golden with fewer than 30
+   * sessions only warned), inconclusive and only warning (`warned`), and passed.
+   */
+  after: Array<{ red: number; fixed: number; drop: number; counted: number; failing: number; warned: number; passed: number }>;
 }
 
 const pool = (xs: Tally[]): Tally | null => (xs.length ? { passes: xs.reduce((a, x) => a + x.passes, 0), attempts: xs.reduce((a, x) => a + x.attempts, 0) } : null);
+
+type After = { red: number; fixed: number; drop: number; counted: number; failing: number; warned: number; passed: number; n: number };
+
+/** A session after a regression, added to its tally: how it ends by default, with every inconclusive counted, failing alone, warned and passed. */
+function countAfter(a: After, s: { red: number; odds: { red: number; fail: number }; young: boolean; warns: boolean; drop: boolean; fixed: number }): void {
+  a.n++;
+  a.red += s.red;
+  a.fixed += s.fixed;
+  if (s.drop) a.drop++;
+  a.counted += s.odds.red;
+  a.failing += s.young ? s.odds.fail : s.odds.red;
+  if (s.warns) a.warned += s.odds.red - s.odds.fail;
+  a.passed += 1 - s.odds.red;
+}
 
 /** The loop: every history starts with no session at all, the golden's recording its only baseline. With `drop`, the agent passes `drop.to` of the time from session `drop.at` on. */
 export function loop(goldens: number, rate: number, seed: number, o: { replicas: number; sessions: number; drop?: { at: number; to: number }; inconclusive?: 'fail' }): Loop {
@@ -171,7 +191,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
   const sums = STAGES.map(zero);
   // Each session's stated red, exact red, whether it said over, and its exact red with every inconclusive counted, replica by replica.
   const said: Array<Array<[number, number, boolean, number]>> = Array.from({ length: o.sessions }, () => []);
-  const after = Array.from({ length: o.drop ? o.sessions - o.drop.at : 0 }, () => ({ red: 0, fixed: 0, drop: 0, n: 0 }));
+  const after = Array.from({ length: o.drop ? o.sessions - o.drop.at : 0 }, (): After => ({ red: 0, fixed: 0, drop: 0, counted: 0, failing: 0, warned: 0, passed: 0, n: 0 }));
   for (let r = 0; r < o.replicas; r++) {
     // Each session as the store keeps it, newest last: the baseline's part of it if it passed, and every attempt of it.
     const passed: Tally[] = [];
@@ -182,9 +202,11 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
       const kept = pool(every.slice(-RECORD));
       const record = kept ? { ...kept, sessions: Math.min(every.length, RECORD) } : null;
       const recent = pool(every.slice(-GATE.window));
-      // With fewer sessions than its record reads, its inconclusive only warns, as `shadowlap test` has it with no --inconclusive.
-      const warns = o.inconclusive !== 'fail' && Math.min(every.length, RECORD) < RECORD;
-      const plan = planFor(goldens, h, recent, record, warns);
+      // With fewer sessions than its record reads, its inconclusive only warns, as `shadowlap test` has it
+      // with no --inconclusive, unless its plan reads its last sessions below the sessions before them.
+      const young = o.inconclusive !== 'fail' && Math.min(every.length, RECORD) < RECORD;
+      const plan = planFor(goldens, h, recent, record, young);
+      const warns = young && plan.inconclusive === 'warn';
       const gate = plan.gate as BaselineGate;
       const outcomes: boolean[] = [];
       let passes = 0;
@@ -220,13 +242,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
           if (red > share) s.aboveShare++;
         }
       }
-      if (o.drop && k >= o.drop.at) {
-        const a = after[k - o.drop.at];
-        a.n++;
-        a.red += red;
-        a.fixed += redFor(p, h, fixed).red;
-        if (plan.drop) a.drop++;
-      }
+      if (o.drop && k >= o.drop.at) countAfter(after[k - o.drop.at], { red, odds, young, warns, drop: !!plan.drop, fixed: redFor(p, h, fixed).red });
       // Kept as `shadowlap test` keeps a result, and read back as the store reads it.
       const verdict = d === 'pass' ? 'passed' : d === 'fail' ? 'failed' : 'inconclusive';
       const result = { ...gate, decision: d, passes, attempts: outcomes.length, outcomes } as unknown as GateResult;
@@ -284,7 +300,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
       suiteRedCounted: of(suiteRedCounted),
     };
   });
-  return { goldens, rate, counted: o.inconclusive === 'fail', to: o.drop?.to ?? null, share, stages, after: after.map((a) => ({ red: a.red / a.n, fixed: a.fixed / a.n, drop: a.drop / a.n })) };
+  return { goldens, rate, counted: o.inconclusive === 'fail', to: o.drop?.to ?? null, share, stages, after: after.map((a) => ({ red: a.red / a.n, fixed: a.fixed / a.n, drop: a.drop / a.n, counted: a.counted / a.n, failing: a.failing / a.n, warned: a.warned / a.n, passed: a.passed / a.n })) };
 }
 
 export const pct = (x: number, places = 3) => `${(100 * x).toFixed(places)}%`;
@@ -305,6 +321,6 @@ export function table(cases: readonly Loop[]): string {
       ),
     ...cases
       .filter((c) => c.to !== null)
-      .map((c) => `${c.rate} to ${c.to}: caught ${c.after.map((a) => pct(a.red, 2)).join(' ')}; held at 40 ${c.after.map((a) => pct(a.fixed, 2)).join(' ')}; margins ${c.after.map((a) => (100 * (a.red - a.fixed)).toFixed(4)).join(' ')} points; drop said ${c.after.map((a) => pct(a.drop, 0)).join(' ')}`),
+      .map((c) => `${c.rate} to ${c.to}: caught ${c.after.map((a) => pct(a.red, 2)).join(' ')}; held at 40 ${c.after.map((a) => pct(a.fixed, 2)).join(' ')}; margins ${c.after.map((a) => (100 * (a.red - a.fixed)).toFixed(4)).join(' ')} points; drop said ${c.after.map((a) => pct(a.drop, 0)).join(' ')}; every inconclusive counted ${c.after.map((a) => pct(a.counted, 1)).join(' ')}; failing alone ${c.after.map((a) => pct(a.failing, 1)).join(' ')}; warned ${c.after.map((a) => pct(a.warned, 1)).join(' ')}; passed ${c.after.map((a) => pct(a.passed, 1)).join(' ')}`),
   ].join('\n');
 }

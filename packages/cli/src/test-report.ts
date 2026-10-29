@@ -20,6 +20,8 @@ export interface PackResult {
   ok: boolean;
   /** Why an inconclusive verdict only warns when no `--inconclusive` was given: `needs more history: 3 of 30 sessions`. */
   warned?: string;
+  /** Why it counts all the same, with too few sessions for one to by default: its last sessions sit below the sessions before them, a decline or a drop. */
+  counted?: string;
   /**
    * How it came out, whatever CI does with it: `passed`, `failed` or `inconclusive` (its gate ran out
    * of attempts between its bounds, all it fell short on is checks that could not be decided, or its
@@ -297,8 +299,8 @@ export function githubAnnotations(report: TestReport): string {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (checkStatus(c) === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive · ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
-      // Why an inconclusive only warns, when its history is too short for one to count.
-      const body = [r.message ?? 'failed', ...(r.warned ? [safeText(r.warned)] : []), ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
+      // Why an inconclusive only warns, when its history is too short for one to count, or counts all the same.
+      const body = [r.message ?? 'failed', ...(r.warned ? [safeText(r.warned)] : []), ...(r.counted ? [safeText(r.counted)] : []), ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
       // The gate's pass^k, which its verdict line (the message) leaves out, unless the details carry it.
       const passK = r.gate ? formatPassK(r.gate) : null;
       const evidence = passK && !details?.includes(passK) ? ['', passK] : [];
