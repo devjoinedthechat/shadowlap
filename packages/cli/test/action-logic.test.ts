@@ -507,13 +507,21 @@ describe('what a fix is verified on', () => {
     for (const n of notes) expect(n).not.toMatch(/checks? pass/);
   });
 
-  it("opens no fix from a fork's pull request, whatever it checked out: its token may not push, and its branch is the fork's", () => {
-    const repo = temp('sl-fix-fork-');
-    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  /** The workflow's repository, as the runner names it, and a checkout of it on a branch. */
+  const REPO = { GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
+  const checkout = (prefix: string, branch: string) => {
+    const repo = temp(prefix);
+    execFileSync('git', ['init', '-q', '-b', branch], { cwd: repo });
     execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'agent'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.test/northwind/agent.git'], { cwd: repo });
+    return repo;
+  };
+
+  it("opens no fix from a fork's pull request, whatever it checked out: its token may not push, and its branch is the fork's", () => {
+    const repo = checkout('sl-fix-fork-', 'main');
     const event = join(repo, 'event.json');
     const pr = (head: string) => JSON.stringify({ pull_request: { number: 12, head: { ref: 'main', repo: { full_name: head } }, base: { ref: 'main', repo: { full_name: 'northwind/agent' } } } });
-    const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: event };
+    const env = { ...process.env, ...REPO, GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: event };
     writeFileSync(event, pr('someone/agent'));
     expect(cannotFix(repo, env)).toBe("a pull request from a fork gets a token from GitHub that may not push a branch, and its branch is the fork's, so no fix is opened from its job");
     writeFileSync(event, pr('northwind/agent'));
@@ -524,12 +532,18 @@ describe('what a fix is verified on', () => {
   });
 
   it('opens no fix from the branch of a fix it opened', () => {
-    const repo = temp('sl-fix-branch-');
-    execFileSync('git', ['init', '-q', '-b', 'shadowlap/fix-refund-flow-t9rb1d'], { cwd: repo });
-    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'the fix'], { cwd: repo });
-    expect(cannotFix(repo, process.env)).toBe('shadowlap/fix-refund-flow-t9rb1d is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it');
+    const repo = checkout('sl-fix-branch-', 'shadowlap/fix-refund-flow-t9rb1d');
+    const env = { ...process.env, ...REPO };
+    expect(cannotFix(repo, env)).toBe('shadowlap/fix-refund-flow-t9rb1d is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it');
     execFileSync('git', ['checkout', '-q', '-b', 'main'], { cwd: repo });
-    expect(cannotFix(repo, process.env)).toBeNull();
+    expect(cannotFix(repo, env)).toBeNull();
+  });
+
+  it("opens no fix, before anything is spent, where it couldn't push one: a checkout of another repository, or a job that names none", () => {
+    const repo = checkout('sl-fix-origin-', 'main');
+    expect(cannotFix(repo, { ...process.env, ...REPO })).toBeNull();
+    expect(cannotFix(repo, { ...process.env, ...REPO, GITHUB_REPOSITORY: 'northwind/other' })).toBe("the checkout's origin is not northwind/other, the repository this workflow runs in, so no fix is pushed from it");
+    expect(cannotFix(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toMatch(/^the job doesn't name the repository it runs in \(GITHUB_SERVER_URL and GITHUB_REPOSITORY\), so no fix is pushed from it/);
   });
 });
 

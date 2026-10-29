@@ -546,7 +546,8 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
   }
 
   /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name. */
-  function project(): string {
+  /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name; its origin is `origin`. */
+  function project(origin = 'https://github.test/northwind/agent.git'): string {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-'));
     dirs.push(dir);
     const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { cwd: dir, encoding: 'utf8' });
@@ -554,8 +555,11 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'refund-flow'), { recursive: true });
     git('add', '-A');
     git('commit', '-qm', 'agent');
+    git('remote', 'add', 'origin', origin);
     return dir;
   }
+  /** The repository the workflow runs in, as the runner names it: the one `project`'s origin names. */
+  const REPO = { GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
 
   it("runs repair under the step's guard and fix-build, and hands neither it nor the test any of GitHub's tokens", () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
@@ -567,7 +571,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${job}`).toString('base64')}`;
     const r = action(
       { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', FIX_BUILD: 'npm run build', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
-      { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
+      { ...REPO, SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
     );
     expect(r.code, r.out).toBe(0);
     const seen = fake.seen();
@@ -582,6 +586,23 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(seen[0].args.slice(seen[0].args.indexOf('--guard'), seen[0].args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
     expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 4)).toEqual(['--guard', 'warn', '--build', 'npm run build']);
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
+  });
+
+  it("starts no repair where it couldn't push the fix it pays for: a checkout of another repository, or a job that names none", () => {
+    for (const [origin, env, why] of [
+      ['https://github.test/northwind/fork.git', REPO, "the checkout's origin is not northwind/agent, the repository this workflow runs in, so no fix is pushed from it"],
+      ['https://github.test/northwind/agent.git', { GITHUB_SERVER_URL: '', GITHUB_REPOSITORY: '' }, "the job doesn't name the repository it runs in (GITHUB_SERVER_URL and GITHUB_REPOSITORY), so no fix is pushed from it"],
+    ] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-origin-'));
+      dirs.push(dir);
+      const fake = fakeCli(dir);
+      const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(origin), FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' }, { ...env, SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push' });
+      expect(r.code, r.out).toBe(0);
+      // The test ran; repair, which spends the budget, never started.
+      expect(fake.seen().map((s) => s.args.find((a) => a === 'test' || a === 'repair'))).toEqual(['test']);
+      expect(r.out).toContain(`refund-flow: no fix pull request: ${why}`);
+      expect(r.outputs.fixes).toBe('0');
+    }
   });
 
   // Each gives the job the base repository's secrets and a token that may write, and is how a pull
