@@ -127,6 +127,12 @@ describe('the workflows', () => {
     }
   });
 
+  // No step pushes, or fetches from the repository, with them (gh is given its token itself), and an
+  // action's checkout leaves them in .git/config, for anything a later step runs (a package from npm) to read.
+  it.each(workflows)('%s keeps no credentials in its checkouts', (file) => {
+    for (const step of workflow(file).matchAll(/^( *)- uses: actions\/checkout@\S+.*\n((?:\1 {2}.*\n)*)/gm)) expect(step[2], `${file}: ${step[0].split('\n')[0].trim()}`).toMatch(/^\s+persist-credentials: false$/m);
+  });
+
   it.each(workflows.filter((f) => /^\s+pull_request:/m.test(workflow(f))))('%s cancels a pull request run when the request is pushed again, and no other run', (file) => {
     const concurrency = topBlock(workflow(file), 'concurrency') ?? [];
     const group = concurrency.find((l) => l.startsWith('group:')) ?? '';
