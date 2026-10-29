@@ -599,6 +599,30 @@ export interface MultipartPartText {
 }
 
 /**
+ * The first line that reads as a multipart body's first delimiter: `--` at the start of the text or
+ * of a line, the boundary (1 to 200 characters and no line break; spaces inside it, as in RFC 2046's
+ * `simple boundary`, but not the spaces and tabs the line ends with), then CRLF or LF. Where its `--`
+ * is, the boundary and the line break; null when no line reads so. Each line is read once: a pattern
+ * for it tried each length of the boundary against the rest of a long line.
+ */
+function firstDelimiter(text: string): { at: number; boundary: string; nl: string } | null {
+  const nextLine = (from: number) => {
+    const i = text.indexOf('\n--', from);
+    return i < 0 ? -1 : i + 1;
+  };
+  for (let at = text.startsWith('--') ? 0 : nextLine(0); at >= 0; at = nextLine(at)) {
+    const start = at + 2;
+    let end = start;
+    while (end < text.length && text[end] !== '\r' && text[end] !== '\n') end++;
+    const nl = text.startsWith('\r\n', end) ? '\r\n' : text[end] === '\n' ? '\n' : '';
+    let last = end;
+    while (last > start + 1 && (text[last - 1] === ' ' || text[last - 1] === '\t')) last--;
+    if (nl && last > start && last - start <= 200) return { at, boundary: text.slice(start, last), nl };
+  }
+  return null;
+}
+
+/**
  * A multipart body (`multipart/form-data`, `multipart/related`, …) with each part passed through
  * `maskPart`, which returns the part's headers and content to write, or null to keep it. The
  * boundary is read from the body itself, as a copy that has no content type must: the first line
@@ -607,12 +631,11 @@ export interface MultipartPartText {
  * multipart, or nothing changed.
  */
 export function maskMultipart(text: string, maskPart: (part: MultipartPartText) => MultipartPartText | null): string | null {
-  const first = /(?:^|\n)--([^\r\n]{1,200}?)[ \t]*(\r?\n)/.exec(text);
+  const first = firstDelimiter(text);
   if (!first) return null;
-  const boundary = first[1]!;
-  const nl = first[2]!;
+  const { boundary, nl } = first;
   const delimiter = `${nl}--${boundary}`;
-  const firstAt = first.index + (text[first.index] === '\n' ? 1 : 0);
+  const firstAt = first.at;
   const closing = `--${boundary}--`;
   if (!text.includes(closing, firstAt)) return null;
   const chunks: string[] = [text.slice(0, firstAt + 2 + boundary.length)];
