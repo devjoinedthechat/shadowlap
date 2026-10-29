@@ -15,6 +15,8 @@ import { markdownCode, markdownText } from './markdown.mjs';
 const verdictOf = (/** @type {ReportResult | null | undefined} */ r) => r?.verdict ?? (r?.ok ? 'passed' : 'failed');
 /** @type {Record<string, string>} */
 const MARK = { passed: '✅', failed: '❌', inconclusive: '🟡' };
+/** A verdict's mark; none for one no report makes, as a stored history could hold, an object's own names among them. */
+const markOf = (/** @type {string} */ verdict) => (Object.hasOwn(MARK, verdict) ? String(MARK[verdict]) : '');
 
 /**
  * Text safe in a Markdown table cell, and anywhere else in the comment: one line, and nothing GitHub
@@ -175,10 +177,11 @@ export function commentBody({ report, marker, base = null, baseRef = null, fixes
   const top = [marker, `### Shadowlap: ${head}`, '', where ? `| | Golden | Verdict | ${where} |` : '| | Golden | Verdict |', where ? '|---|---|---|---|' : '|---|---|---|'];
   const rows = results.map((r) => {
     const name = r.golden ?? r.name;
-    const row = `| ${String(MARK[verdictOf(r)])} | ${code(name, true)} | ${cell(verdictLine(r))} |`;
+    const row = `| ${markOf(verdictOf(r))} | ${code(name, true)} | ${cell(verdictLine(r))} |`;
     if (!base) return row;
+    // What the stored history says is text, as every other line is: it comes from a cache a job restored.
     const was = base.results.get(name);
-    return `${row} ${was ? `${MARK[storedVerdict(was)] ?? ''} ${storedVerdict(was)}` : 'not tested'} |`;
+    return `${row} ${was ? `${markOf(storedVerdict(was))} ${cell(storedVerdict(was))}` : 'not tested'} |`;
   });
   /** @type {string[]} */
   const tail = [];

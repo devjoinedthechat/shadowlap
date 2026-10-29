@@ -395,6 +395,19 @@ describe('the pull request comment', () => {
     expect(cut).toMatch(/\| \| … \| \d+ more in the job summary \|/);
   });
 
+  it('writes the verdict the stored history holds as the text it is, as it writes every other: a job restores that history from a cache', () => {
+    const planted = '@octocat approves: ![x](https://evil.example/t.png) <img src=x> [click](https://evil.example) #12 | ok';
+    const history = [session('S-MAIN', 'e5f6a7b', [{ ...stored('goldens/refund|flow', 'passed', { branch: 'main' }), data: { verdict: planted, branch: 'main' } }, { ...stored('goldens/triage', 'passed'), data: { verdict: 'constructor' } }])];
+    const body = commentBody({ report, marker, base: baseSession(history, { baseRef: 'main', baseSha: null, current: 'S-NOW' }), baseRef: 'main' });
+    const rows = body.split('\n').filter((l) => l.startsWith('| ❌') || l.startsWith('| ✅'));
+    // With no mark: none is a verdict any report makes, nor is an object's own name one.
+    expect(rows[0].endsWith(`|  ${markdownText(planted)} |`)).toBe(true);
+    expect(rows[1].endsWith('|  constructor |')).toBe(true);
+    // Its pipe ends no cell: each row has its four.
+    for (const row of rows) expect(row.split(/(?<!\\)\|/).length, row).toBe(6);
+    for (const shown of ['@octocat', '![x]', '<img', '[click]', '#12']) expect(body).not.toContain(shown);
+  });
+
   it('is what docs/ci.md shows', () => {
     const page = readFileSync(join(ROOT, 'docs', 'ci.md'), 'utf8');
     const shown = /As Markdown, before GitHub renders it:\n\n```markdown\n([\s\S]*?)```/.exec(page)?.[1];
