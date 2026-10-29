@@ -1,14 +1,15 @@
-import { checkStatus, DEFAULT_REPAIRER, fixOfRun, fixRecords, hasRecordedCommand, isObject, needsConsent, noFixToTry, recordingsOfRun, repairArgv, repairerProblem, repairJobArgv, selectedRuns, shownBlame, testsEntryFor, verifyArgv, type RunRecord, type StoreOf, type StoredFix } from '@shadowlap/engine';
+import { blameCheckFor, DEFAULT_REPAIRER, fixRecords, hasRecordedCommand, isObject, needsConsent, noFixToTry, repairArgv, repairerProblem, repairJobArgv, selectedRuns, shownBlame, verifyArgv, type BlameCheck, type RunRecord, type StoreOf, type StoredFix } from '@shadowlap/engine';
+import { fixFor } from './verdict.js';
 
 /**
  * The Fixes flow from the run in front of you, each the CLI command you'd type, shown before it
  * runs, since each replays runs and asks models live, which costs.
  *
  * Blame finds the model call a failed run was lost at, as `shadowlap blame` finds it, judged by the
- * check the dashboard would blame under (packages/dashboard/src/fixes.ts `blameCheckFor`): the run's
- * own `--expect`, the config's for the recording it replays, the fix it fails in, or the agent's
- * exit; a run that failed a check none of those name asks for one, since blaming on the exit alone
- * would look for another failure than the one it had.
+ * check the dashboard blames under, the engine's `blameCheckFor`: the run's own `--expect`, the
+ * config's for the recording it replays, the fix it fails in, a fix its labels point to, or the
+ * agent's exit; a run that failed a check none of those name asks for one, since blaming on the exit
+ * alone would look for another failure than the one it had.
  *
  * Repair and verify work on the fix the run fails in, with the engine's builders (fix-jobs.ts), which
  * the dashboard's are: the same command line, the same repairer when the config names none, and the
@@ -44,45 +45,23 @@ export interface FixContext {
   repairer?: () => string | null;
 }
 
-export interface BlameCheck {
-  expect: Record<string, unknown> | null;
-  from: 'replay' | 'config' | 'fix' | 'exit';
-}
-
-/** The `expect` the config's `tests` give the recording a run replays, through its ancestors. */
-function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
-  if (!isObject(tests)) return undefined;
-  const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
-  for (const dir of recordingsOfRun(store, run)) {
-    const entry = testsEntryFor(entries, dir, configDir);
-    if (entry) return isObject(entry.spec) && isObject(entry.spec.expect) ? entry.spec.expect : undefined;
+/**
+ * The check blame starts from, as the dashboard picks it; null, so that one is asked for, also where
+ * the store can't say which fix the run fails in, as for the fix itself (`fixFor`).
+ */
+function checkOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, ctx: FixContext): BlameCheck | null {
+  try {
+    return blameCheckFor(store, run, ctx);
+  } catch {
+    return null;
   }
-  return undefined;
-}
-
-/** The check a blame of the run can use when nobody names one, in the dashboard's order; null when the run needs one named. */
-export function blameCheck(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, ctx: Pick<FixContext, 'tests' | 'configDir'> = {}): BlameCheck | null {
-  const judged = run.meta?.expect;
-  if (isObject(judged)) return { expect: judged, from: 'replay' };
-  const configured = ctx.configDir ? configExpect(store, run, ctx.tests, ctx.configDir) : undefined;
-  if (configured) return { expect: configured, from: 'config' };
-  const fix = (() => {
-    try {
-      return fixOfRun(store, run.runId);
-    } catch {
-      return null;
-    }
-  })();
-  if (fix) return { expect: isObject(fix.check.expect) ? fix.check.expect : null, from: 'fix' };
-  if ((run.meta?.checks ?? []).some((c) => checkStatus(c) === 'failed')) return null;
-  if (run.status === 'failed') return { expect: null, from: 'exit' };
-  return null;
 }
 
 const FROM: Record<BlameCheck['from'], string> = {
   replay: 'the check its replay ran under (--expect)',
   config: 'its golden’s check in shadowlap.config.json',
   fix: 'the check of the fix it fails in',
+  labels: 'the check of a fix its labels point to',
   exit: 'the agent’s exit: it exited with an error',
 };
 
@@ -95,8 +74,8 @@ function why(run: RunRecord, ctx: FixContext): string | undefined {
 
 export function fixActions(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, ctx: FixContext): FixAction[] {
   const disabled = why(run, ctx);
-  const check = disabled ? null : blameCheck(store, run, ctx);
-  const expect = check?.expect ? JSON.stringify(check.expect) : '';
+  const check = disabled ? null : checkOf(store, run, ctx);
+  const expect = check?.expect === null || check?.expect === undefined ? '' : JSON.stringify(check.expect);
   return [
     {
       kind: 'blame',
@@ -154,15 +133,6 @@ export interface FixJob {
 
 const shortFix = (fix: StoredFix) => fix.fixId.slice(0, 13);
 
-/** The fix a run fails in, or null for none (or a store that can't say). */
-function fixOf(store: StoreOf<'fixes'>, run: RunRecord): StoredFix | null {
-  try {
-    return fixOfRun(store, run.runId);
-  } catch {
-    return null;
-  }
-}
-
 const JOB = {
   R: {
     kind: 'repair',
@@ -193,7 +163,7 @@ function jobOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, key: 'R' |
   const base: FixJob = { kind, key, label, flag, hint, fix: null, args: [], who: null, aside: null, blocked: null, ask: null };
   const none = (disabled: string, fix: FixJob['fix'] = null) => ({ job: { ...base, fix, disabled }, selects: [] });
   if (ctx.recording) return none('once the recording finishes');
-  const fix = fixOf(store, run);
+  const fix = fixFor(store, run.runId);
   if (!fix) return none('for a run in a fix: B blames it, which opens one');
   const named = { id: shortFix(fix), title: fix.title };
   if (key === 'R' && fix.status !== 'open') return none(`its fix is ${fix.status} already: a change was verified for it`, named);

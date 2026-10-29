@@ -1,6 +1,6 @@
-import { type BlameReport, commitTitle, fixCost, fixRecords, NO_REPAIRER, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { type BlameReport, checkSuggestion, commitTitle, fixCost, fixRecords, NO_REPAIRER, labelledFixes, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { loadRunIndex } from './run-index.js';
-import { acceptedCandidate, brokenOf, checkSuggestion, counting, fieldsOf, fixHref, gradualRange, isUnblamedFailure, labelledFixes, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, runHref, short, shownRepair, unrepairedVerdict } from './fix-shared.js';
+import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, gradualRange, isUnblamedFailure, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, runHref, short, shownRepair, unrepairedVerdict } from './fix-shared.js';
 
 /** The Overview's fixes: how many there are by status and week, and those that need a look. */
 

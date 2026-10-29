@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
-import { fixLabelInfo, GOOD_LABEL, type FixRecords } from './fixes.js';
+import { checkStatus } from './check-status.js';
+import { fixLabelInfo, fixLabels, fixOfRun, GOOD_LABEL, type FixRecords } from './fixes.js';
+import { isObject } from './is-object.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
+import { recordingsOfRun, testsEntryFor } from './run-checks.js';
 import { lookupRun } from './run-lookup.js';
-import type { StoreOf, StoredBlame } from './store.js';
+import type { StoreOf, StoredBlame, StoredFix } from './store.js';
 import { quoteArgv } from './text.js';
 import type { RunRecord } from './types.js';
 
@@ -331,4 +334,84 @@ export function selectedRuns(store: StoreOf<'recording'>, argv: readonly string[
     }
   }
   return [...out.values()];
+}
+
+/**
+ * The check a blame of a run starts from when nobody named one, as the dashboard and the terminal
+ * UI both pick it, and where it came from: the run was judged by it with `--expect` (`replay`);
+ * shadowlap.config.json's `tests` give it for the recording the run replays, found through its
+ * ancestors as the CLI finds it (`config`); the fix the run fails in has it (`fix`); a fix the run's
+ * labels point to has it (`labels`); or the agent exited with an error, which every blame checks
+ * (`exit`).
+ */
+export interface BlameCheck {
+  /** The check as `--expect` takes it; null to blame on the exit code alone. */
+  expect: unknown;
+  from: 'replay' | 'config' | 'fix' | 'labels' | 'exit';
+}
+
+/**
+ * The labels of the checks a run failed, as it recorded them (`meta.checks`, untrusted: a run can
+ * come from a pack). Not a check that could not be decided, which is stored with `ok: false` too:
+ * an inconclusive check is no failure for a blame to look for.
+ */
+export function failedCheckLabels(run: RunRecord): string[] {
+  const checks: unknown = run.meta?.checks;
+  if (!Array.isArray(checks)) return [];
+  return checks.flatMap((c) => (isObject(c) && checkStatus(c) === 'failed' && typeof c.label === 'string' ? [c.label] : []));
+}
+
+/**
+ * The `expect` shadowlap.config.json's `tests` give the recording a run replays (the golden a test
+ * replayed, or the pack it was unpacked from, through its ancestors), or undefined when no entry
+ * names one. `tests` is the config's `tests` as written; `configDir` the folder it is in.
+ */
+export function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
+  if (!isObject(tests)) return undefined;
+  const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
+  for (const dir of recordingsOfRun(store, run)) {
+    const entry = testsEntryFor(entries, dir, configDir);
+    if (entry) return isObject(entry.spec) && isObject(entry.spec.expect) ? entry.spec.expect : undefined;
+  }
+  return undefined;
+}
+
+/** Every fix, with the labels it holds its runs by. */
+export const labelledFixes = (store: StoreOf<'recording' | 'fixes'>): Array<{ fix: StoredFix; labels: string[] }> => store.listFixes().map((fix) => ({ fix, labels: fixLabelInfo(store, fix).labels }));
+
+/**
+ * The check a blame of a run never blamed can use: the check of a fix its labels point to, one that
+ * holds every label of the run first, then one not yet applied, then the latest opened.
+ */
+export function checkSuggestion(run: RunRecord, fixes: Array<{ fix: StoredFix; labels: string[] }>): { expect: unknown } | null {
+  const labels = fixLabels(run);
+  if (!labels.length) return null;
+  const scored = fixes
+    .map((x) => ({ ...x, shared: labels.filter((l) => x.labels.includes(l)).length }))
+    .filter((x) => x.shared > 0)
+    .sort((a, b) => b.shared - a.shared || Number(a.fix.status === 'applied') - Number(b.fix.status === 'applied') || b.fix.openedAt - a.fix.openedAt);
+  return scored[0] ? { expect: scored[0].fix.check.expect } : null;
+}
+
+/**
+ * The check a blame of a run can use when nobody named one, or null when nothing says what a passing
+ * run must do: then the dashboard and the terminal UI ask for it. In order: the run's own `--expect`;
+ * the config's, for the recording it replays (`tests`, the config's `tests`, and `configDir`, its
+ * folder); the fix it fails in; a fix its labels point to; the agent's exit, for a run that exited
+ * with an error. A run that failed a check none of these name gets null rather than the exit code:
+ * blaming on the exit alone would look for another failure than the one it had. A check that could
+ * not be decided is no such failure, so a run whose agent exited with an error is blamed on that.
+ */
+export function blameCheckFor(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, options: { tests?: unknown; configDir?: string | null } = {}): BlameCheck | null {
+  const judged = run.meta?.expect;
+  if (isObject(judged)) return { expect: judged, from: 'replay' };
+  const configured = options.configDir ? configExpect(store, run, options.tests, options.configDir) : undefined;
+  if (configured) return { expect: configured, from: 'config' };
+  const failing = fixOfRun(store, run.runId);
+  if (failing) return { expect: failing.check.expect ?? null, from: 'fix' };
+  const suggested = fixLabels(run).length ? checkSuggestion(run, labelledFixes(store)) : null;
+  if (suggested) return { expect: suggested.expect ?? null, from: 'labels' };
+  if (failedCheckLabels(run).length) return null;
+  if (run.status === 'failed') return { expect: null, from: 'exit' };
+  return null;
 }
