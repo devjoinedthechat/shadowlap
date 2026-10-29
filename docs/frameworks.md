@@ -1,6 +1,6 @@
 # Frameworks
 
-If your tools are defined through a framework, declare the effect once with an adapter. Execution is routed through `tool()` from `@shadowlap/sdk`; only the framework's *input* is recorded, never its context objects (run contexts, abort signals, tracing handles). API calls need no adapter at all, whatever the framework: the sidecar records them through the provider base URL.
+If your tools are defined through a framework, declare the effect once with an adapter. Execution is routed through `tool()` from `@shadowlap/sdk`; only the framework's *input* is recorded, never its context objects (run contexts, abort signals, tracing handles). Model calls need no adapter: under `shadowlap run` the sidecar records them through the provider base URL a framework's client reads, or, for a client that reads none, by capturing the provider's host in the agent's process. A model the framework sends to a host Shadowlap doesn't know (Hugging Face's router, Groq) is recorded once the project's config [declares that host](./providers.md#hosts-of-another-providers-format) in the format it speaks.
 
 The TypeScript adapters live in `@shadowlap/adapters` and the Python ones in `shadowlap.adapters`, part of the `shadowlap` package ([install](./sdk.md#install)). Both type the shapes they touch structurally and carry no framework dependencies.
 
@@ -234,7 +234,7 @@ agent = LlmAgent(name="support", model="gemini-2.5-flash", tools=[search_web, se
 
 ### LlamaIndex
 
-Make `FunctionTool`s from functions wrapped with `shadowlap.tool`. A workflow `Context` parameter is left out of the recording, and an agent such as `FunctionAgent` hands a blocked write to the model as the tool's error. The model calls are recorded through the provider's base URL, as LlamaIndex's Anthropic LLM reads `ANTHROPIC_BASE_URL`.
+Make `FunctionTool`s from functions wrapped with `shadowlap.tool`. A workflow `Context` parameter is left out of the recording, and an agent such as `FunctionAgent` hands a blocked write to the model as the tool's error. The model calls are recorded through the provider's base URL, as LlamaIndex's Anthropic LLM reads `ANTHROPIC_BASE_URL`, or captured in the process: its default LLM, OpenAI's from `llama-index-llms-openai`, reads no `OPENAI_BASE_URL`.
 
 ```python
 from llama_index.core.tools import FunctionTool
@@ -248,7 +248,7 @@ agent = FunctionAgent(tools=[FunctionTool.from_defaults(async_fn=search_web), Fu
 
 ### Microsoft Agent Framework, Strands, smolagents and Agno
 
-Give each framework functions wrapped with `shadowlap.tool`, the way it takes tools: Agent Framework and Agno take plain functions; Strands and smolagents take functions under their own `@tool`, with Shadowlap's underneath. Each reports a tool's error to its model, a blocked write included (Agent Framework says only that the function failed, unless its detailed errors are on). Their model calls are recorded through the provider's base URL.
+Give each framework functions wrapped with `shadowlap.tool`, the way it takes tools: Agent Framework and Agno take plain functions; Strands and smolagents take functions under their own `@tool`, with Shadowlap's underneath. Each reports a tool's error to its model, a blocked write included (Agent Framework says only that the function failed, unless its detailed errors are on); a smolagents `CodeAgent`, which calls the tools from the Python it writes, hands the model the error its code raised. Their model calls are recorded on each one's default model too: Agno's and Agent Framework's OpenAI clients through `OPENAI_BASE_URL`, Strands' `BedrockModel` captured in the process. smolagents' default, `InferenceClientModel`, calls Hugging Face's router: declare it in the config, `"providers": [{ "host": "router.huggingface.co", "format": "openai", "root": "/v1" }]`, and give a replay `HF_TOKEN` set to any `hf_` value, as the client won't start without one. Agno sends usage telemetry to its own host, which the network guard reports: `AGNO_TELEMETRY=false` turns it off.
 
 ```python
 from strands import Agent, tool as strands_tool
@@ -288,7 +288,12 @@ Results are recorded as JSON. A tool that returns a Pydantic model, a dataclass 
 
 ## Tested against
 
-Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in: record, a replay that executes nothing, and a fork that blocks the write, through the framework's own tool path (`generateText` with the AI SDK's mock model, the Agents SDK's `FunctionTool.invoke`, LangGraph's `ToolNode`, the Anthropic tool runner end to end through the sidecar, a Pydantic AI `Agent` with `FunctionModel`, the Python Agents SDK's `Runner` with a scripted model, a compiled LangGraph graph in Python, CrewAI's `BaseTool.run`, and, with their model calls recorded through the sidecar in front of a scripted model API, a Mastra `Agent` on its model router under `shadowlap run` (OpenAI's Responses API, Anthropic streamed, and Google, with the tools under their keys) and a Mastra workflow made of the tools, Google ADK's `Runner`, a LlamaIndex `FunctionAgent`, a Microsoft Agent Framework `Agent` on Chat Completions, a Strands `Agent`, a smolagents `ToolCallingAgent` and an Agno `Agent`; and the Claude Agent SDK's `query()` in TypeScript and Python, running the Claude Code CLI it brings against a scripted Anthropic API: a recording that changes the project, a replay that sends no model request and leaves it as it was, and a fork that refuses every write). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
+Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real framework, not a stand-in. Each framework's own agent loop runs as a user writes it, on a real model client with nothing in the agent naming Shadowlap, in front of a scripted model API: through the CLI (`shadowlap run`, then `replay --strict`, then a fork on another request), or, for Google ADK and the case named last for a Python framework below, through a sidecar the test starts, with the base URLs `shadowlap run` sets. In each, the recording holds the model's calls and every tool's under the name the model called it by, the strict replay sends no request upstream and runs no tool, and the fork runs the read again, blocks the write, hands the model the refusal and the run completes.
+
+- **TypeScript:** a Vercel AI SDK agent on `@ai-sdk/anthropic` (`generateText` and `streamText`); an OpenAI Agents SDK `Agent` run by `run()` on its default provider, the Responses API, streamed and not; LangChain's `createAgent` and LangGraph's `createReactAgent` on `ChatOpenAI` and `ChatAnthropic`; a Mastra `Agent` on its model router (OpenAI's Responses API, Anthropic streamed, and Google), a Mastra workflow made of the tools, and the agent in a Vitest test under `recorded()`; the Anthropic tool runner, streamed and not; and the Claude Agent SDK's `query()`, running the Claude Code CLI it brings, with built-in tools and an in-process MCP server's (`withEffects`).
+- **Python:** Pydantic AI on `Agent("openai:gpt-5")`; the OpenAI Agents SDK's `Runner` on its default client; LangChain's `create_agent` on `ChatOpenAI`; a CrewAI crew by `Crew.kickoff` on its `LLM`; Google ADK's `Runner` on Gemini; LlamaIndex's `FunctionAgent` on its default OpenAI LLM and on Anthropic; Microsoft Agent Framework on `OpenAIChatClient` (the Responses API) and on Chat Completions; Strands on its default `BedrockModel` and on Anthropic; smolagents' `CodeAgent` on OpenAI and on its default `InferenceClientModel` through a declared host, and a `ToolCallingAgent` on OpenAI; Agno on its default `OpenAIResponses` and on Claude; and the Claude Agent SDK's `query()`.
+
+Beside those, each adapter's own path runs with the framework's own pieces (the AI SDK's mock model with streaming tools, `FunctionTool.invoke`, LangGraph's `ToolNode` with a tool that returns a `Command`, Mastra's `createTool`, CrewAI's `BaseTool.run`, a compiled LangGraph graph). An agent on the AI SDK's Anthropic provider runs under `shadowlap run` as written, with no base URL in its code: `@ai-sdk/anthropic` reads `ANTHROPIC_BASE_URL` as a root that ends in `/v1` and sends `/messages` under it, and the sidecar takes that as the API's `/v1/messages`. Versions are pinned in `testing/frameworks/package.json` and the Frameworks workflow, and re-tested weekly against the latest releases, on Linux, macOS and Windows.
 
 | Framework | Pinned version |
 |---|---|
@@ -296,14 +301,14 @@ Every adapter but `withEffectV0`, for Mastra 0.x, runs in CI against the real fr
 | Its Anthropic provider (`@ai-sdk/anthropic`) | 4.0.85 |
 | OpenAI Agents SDK (`@openai/agents`) | 0.18.0 |
 | Mastra (`@mastra/core`) | 1.67.0 (`withEffectV0` for 0.x: a unit test of 0.x's tool shape) |
-| LangChain / LangGraph (`@langchain/core`, `@langchain/langgraph`) | 1.2.11 / 1.4.15 |
+| LangChain / LangGraph (`@langchain/core`, `@langchain/langgraph`, `langchain`, `@langchain/openai`, `@langchain/anthropic`) | 1.2.11 / 1.4.15 / 1.5.11 / 1.5.13 / 1.5.10 |
 | Anthropic tool runner (`@anthropic-ai/sdk`) | 0.126.0 |
 | Pydantic AI (`pydantic-ai-slim`) | 2.43.0 |
 | OpenAI Agents SDK for Python (`openai-agents`) | 0.20.0 |
-| LangGraph for Python (`langgraph`, `langchain-core`) | 1.2.11 / 1.6.3 |
+| LangGraph for Python (`langgraph`, `langchain-core`, `langchain`, `langchain-openai`) | 1.2.11 / 1.6.3 / 1.4.3 / 1.6.2 |
 | CrewAI (`crewai`) | 1.15.22 |
 | Google ADK (`google-adk`) | 2.12.0 |
-| LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`) | 0.14.25 / 0.12.3 |
+| LlamaIndex (`llama-index-core`, `llama-index-llms-anthropic`, `llama-index-llms-openai`) | 0.14.25 / 0.12.3 / 0.8.3 |
 | Microsoft Agent Framework (`agent-framework-core`, `agent-framework-openai`) | 1.23.0 / 1.17.0 |
 | Strands Agents (`strands-agents`) | 1.62.0 |
 | smolagents (`smolagents`) | 1.26.0 |
