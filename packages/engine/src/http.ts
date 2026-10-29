@@ -510,7 +510,9 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
   const shaped =
     maskConnectionString(text) ??
     maskMultipart(text, (part) => maskedPart(part, depth)) ??
-    maskEventStream(text, (payload) => maskTextCredentials(payload, depth)) ??
+    // An event's data is a string inside this one, a level deeper: a data line inside a data line,
+    // over and over, is read no deeper than any other string inside a string, so a level at a time.
+    maskEventStream(text, (payload) => (depth < MAX_NESTING ? maskTextCredentials(payload, depth + 1) : null)) ??
     maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??

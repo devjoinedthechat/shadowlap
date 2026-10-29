@@ -59,6 +59,14 @@ describe('an event stream and lines of JSON', () => {
     expect(maskTextCredentials('data: {"text":"hi"}\n\n')).toBeNull();
   });
 
+  it('reads a data line inside a data line as a stream of its own, as deep as a string inside a string, in time that grows with the text', () => {
+    expect(maskTextCredentials(`data: data: ${tok('SSEINSSE')}\n\n`)).toBe(`data: data: ${MASKED}\n\n`);
+    // A stream made to nest them over and over: each level read once, never each line again for every level around it.
+    const nested = (n: number) => `${'data:'.repeat(n)}x\n\n`;
+    const t = timesOf({ short: () => maskTextCredentials(nested(400)), long: () => maskTextCredentials(nested(6_400)) }, { rounds: 2 });
+    expect(t.long, `16 times the nesting took ${times(t.long, t.short)} as long`).toBeLessThan(48 * t.short);
+  });
+
   it('masks each line of JSON with a line that is none among them, left as it is', () => {
     expect(maskTextCredentials(`${tok('NDLOGA')}\nINFO done\n${tok('NDLOGB')}\n`)).toBe(`${MASKED}\nINFO done\n${MASKED}\n`);
     expect(maskTextCredentials(`{"ok":true}\nnot json\n{"name":"refund"}\n`)).toBeNull();
