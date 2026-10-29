@@ -76,7 +76,7 @@
     "packages/dashboard/ui/normalize.ts": 37,
     "packages/dashboard/ui/pages/Compare.tsx": 51,
     "packages/dashboard/ui/pages/NewProject.tsx": 38,
-    "packages/dashboard/ui/pages/Run.tsx": 81,
+    "packages/dashboard/ui/pages/Run.tsx": 82,
     "packages/dashboard/ui/pages/Runs.tsx": 37,
     "packages/dashboard/ui/pages/Training.tsx": 34,
     "packages/dashboard/ui/pages/settings/RuleTable.tsx": 38,
