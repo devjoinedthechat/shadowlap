@@ -1,4 +1,4 @@
-import { aboutOf, classifyRun, kindFacts, runAsk, runKind, type AttemptKind, type RunAbout, type RunRecord, type Store } from '@shadowlap/engine';
+import { aboutOf, classifyRun, kindFacts, runAsk, runKind, type AttemptKind, type RunAbout, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { cells, truncate } from './render.js';
 
 /**
@@ -20,7 +20,7 @@ const ASK_CALLS = 200;
  * A bundled attempt's place among its run's attempts of the same kind (from 1), as the dashboard
  * numbers it: a probe counts the fork blame rescued its run with among its probes.
  */
-function attemptIndex(store: Store, run: RunRecord, kind: AttemptKind, parent: RunRecord | null): number {
+function attemptIndex(store: StoreOf<'recording'>, run: RunRecord, kind: AttemptKind, parent: RunRecord | null): number {
   if (!run.parentRunId) return 1;
   const group = run.meta?.repeat?.group ?? null;
   const rescuedId = kind === 'probe' ? parent?.meta?.blame?.rescuedRunId : null;
@@ -37,7 +37,7 @@ function attemptIndex(store: Store, run: RunRecord, kind: AttemptKind, parent: R
 }
 
 /** Whether the fork's change overrides a call a person answered (a recorded user input): its about line says `answer #n`. */
-function answered(store: Store, parent: RunRecord | null, about: RunAbout): boolean {
+function answered(store: StoreOf<'recording'>, parent: RunRecord | null, about: RunAbout): boolean {
   const n = about.change?.flag === '--override' ? about.change.callNo : null;
   if (!parent || n === null) return false;
   return store.getCalls(parent.runId, { only: [n] })[0]?.meta.input === true;

@@ -13,7 +13,7 @@ import {
   type CallRecord,
   type RunOutcome,
   type RunRecord,
-  type Store,
+  type StoreOf,
   type StoredCheck,
   type StoredFix,
   type UnrecordedTool,
@@ -36,7 +36,7 @@ export type Declared = Readonly<Record<string, 'read' | 'write'>>;
 const short = (id: string) => id.slice(0, 10);
 
 /** How the run came out, as the engine decides it for the dashboard's Runs table. */
-export function outcomeFor(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunOutcome {
+export function outcomeFor(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): RunOutcome {
   const injected = calls.some((c) => c.end?.meta.injected === true);
   return runOutcome(run, { ...kindFacts(store, run, calls.length), injected });
 }
@@ -89,7 +89,7 @@ export function blameFact(run: RunRecord): Fact | null {
   return { text: b.outcome === 'unrescuable' ? unrescuedWords(b.unsettled === true) : 'blame stopped before it finished', tone: 'warn' };
 }
 
-export function fixFor(store: Store, runId: string): StoredFix | null {
+export function fixFor(store: StoreOf<'fixes'>, runId: string): StoredFix | null {
   try {
     return fixOfRun(store, runId);
   } catch {
@@ -104,7 +104,7 @@ export function fixFact(run: RunRecord, fix: StoredFix | null, outcome: RunOutco
   return run.meta?.blame ? { text: 'no fix yet', tone: 'warn' } : { text: 'not blamed yet', tone: 'info' };
 }
 
-export function unrecordedOf(store: Store, runId: string, declared: Declared = {}): UnrecordedTool[] {
+export function unrecordedOf(store: StoreOf<'recording'>, runId: string, declared: Declared = {}): UnrecordedTool[] {
   try {
     return unrecordedTools(store, runId, { declared });
   } catch {
@@ -139,7 +139,7 @@ export interface Verdict {
   unrecorded: UnrecordedTool[];
 }
 
-export function verdictOf(store: Store, run: RunRecord, calls: readonly CallRecord[], declared: Declared = {}): Verdict {
+export function verdictOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, calls: readonly CallRecord[], declared: Declared = {}): Verdict {
   const outcome = outcomeFor(store, run, calls);
   const fix = fixFor(store, run.runId);
   const unrecorded = run.status === 'running' ? [] : unrecordedOf(store, run.runId, declared);
@@ -163,7 +163,7 @@ export function checkLine(c: StoredCheck): Fact {
 }
 
 /** Blame's whole report, as `shadowlap blame` printed it, from the last blame of the run. */
-export function blameReport(store: Store, runId: string): string[] {
+export function blameReport(store: StoreOf<'fixes'>, runId: string): string[] {
   try {
     const last = store.blamesOfRun(runId).at(-1);
     return last ? formatBlame(last.report, plain).split('\n') : [];

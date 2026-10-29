@@ -17,7 +17,7 @@ import {
   type Normalizer,
   type RunOutcome,
   type RunRecord,
-  type Store,
+  type StoreOf,
 } from '@shadowlap/engine';
 import { outcomeFor, type Tone } from './verdict.js';
 
@@ -70,7 +70,7 @@ const oneLine = (v: unknown, max = VALUE_SHOWN): string => {
 };
 
 /** A tool call's arguments as stored, masked by the project's normalizers for that tool. */
-function argsOf(store: Store, c: CallRecord, normalizers: readonly Normalizer[]): unknown {
+function argsOf(store: StoreOf<'recording'>, c: CallRecord, normalizers: readonly Normalizer[]): unknown {
   let request: unknown;
   try {
     request = c.requestRef ? store.getJson(c.requestRef) : null;
@@ -113,7 +113,7 @@ function endedChange(parent: ForkEnd, fork: ForkEnd): ForkChange | null {
 }
 
 /** One side as a decision: its tool calls in order, its last words, whom it handed over to. */
-function decisionOf(store: Store, tools: readonly CallRecord[], all: CallRecord[], normalizers: readonly Normalizer[]): ModelDecision {
+function decisionOf(store: StoreOf<'recording'>, tools: readonly CallRecord[], all: CallRecord[], normalizers: readonly Normalizer[]): ModelDecision {
   const calls = tools.map((c) => ({ name: c.name, args: argsOf(store, c, normalizers) }));
   const handover = [...calls].reverse().find((t) => isHandover(t.name))?.name ?? null;
   const words = finalAnswer(store, all) ?? '';
@@ -136,7 +136,7 @@ function changesOf(was: ModelDecision, now: ModelDecision, effectOf: (tool: stri
 }
 
 /** What the fork did differently; null for a run that isn't a fork of a run in the store. */
-export function forkEffects(store: Store, run: RunRecord, calls: CallRecord[], normalizers: readonly Normalizer[] = []): ForkEffects | null {
+export function forkEffects(store: StoreOf<'recording'>, run: RunRecord, calls: CallRecord[], normalizers: readonly Normalizer[] = []): ForkEffects | null {
   if (run.mode !== 'replay' || !run.parentRunId || !run.divergence) return null;
   const parent = store.getRun(run.parentRunId);
   if (!parent) return null;

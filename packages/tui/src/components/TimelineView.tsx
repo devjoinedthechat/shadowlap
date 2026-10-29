@@ -3,10 +3,10 @@ import type { ChildProcess } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CallRecord, RunRecord, Store } from '@shadowlap/engine';
+import type { CallRecord, RunRecord, Store, StoreOf } from '@shadowlap/engine';
 import { safeLine, formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, shortModel, summarizeRun, wholeInput, type ModelResolver, type SummaryOptions, shortCallName } from '@shadowlap/engine';
 import { copyToClipboard } from '../clipboard.js';
-import { attemptBundles, commandIsImported, lostAt, withAttempts, type Normalizer, type RunAbout } from '@shadowlap/engine';
+import { attemptBundles, commandIsImported, lostAt, messageOf, withAttempts, type Normalizer, type RunAbout } from '@shadowlap/engine';
 import { aboutRun, fitAbout } from '../about.js';
 import { expectError, fixActions, fixJob, settleJob, type BlameAction, type FixContext, type FixJob } from '../fix-actions.js';
 import { attemptTallies } from '../attempts.js';
@@ -73,7 +73,7 @@ interface Props {
 }
 
 /** The runs an attempt of `run` can be among: its descendants and its siblings (a test's are filed under a sibling). */
-function runsAround(store: Store, run: RunRecord): RunRecord[] {
+function runsAround(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
   const out = [run, ...(run.parentRunId ? store.childRuns(run.parentRunId) : [])];
   for (let i = 0; i < out.length && out.length < 5000; i++) if (i === 0 || out[i]!.parentRunId !== run.parentRunId) out.push(...store.childRuns(out[i]!.runId));
   return [...new Map(out.map((r) => [r.runId, r])).values()];
@@ -112,7 +112,7 @@ function notable(c: CallRecord): boolean {
   return c.origin !== 'replayed' || c.end?.outcome === 'error';
 }
 
-function rowDetail(store: Store, c: CallRecord, modelOf?: ModelResolver): string {
+function rowDetail(store: StoreOf<'recording'>, c: CallRecord, modelOf?: ModelResolver): string {
   if (c.kind === 'api') {
     const u = c.end?.meta.usage;
     const model = shortModel(c.end?.meta.model ?? c.meta.model ?? modelOf?.(c));
@@ -409,7 +409,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
       writeFileSync(file, JSON.stringify({ call: current, request: loadRequest(store, current), response: payloadOf(current, 'response') }, null, 2));
       say(`wrote ${file}`, 4000, 'ok');
     } catch (err) {
-      say(`could not write: ${err instanceof Error ? err.message : String(err)}`, 6000, 'err');
+      say(`could not write: ${messageOf(err)}`, 6000, 'err');
     }
   };
   const toDashboard = () => {
@@ -422,7 +422,7 @@ export function TimelineView({ store, run, calls, width, height, onBack, onHelp,
         // No browser (SSH, a container): the link stays up long enough to copy, and goes to the clipboard when there is one.
         void copyToClipboard(url).then((copied) => say(`dashboard${copied ? ' (link copied)' : ''}: ${url}`, 30_000));
       },
-      (err: unknown) => say(`could not start the dashboard: ${err instanceof Error ? err.message : String(err)}`, 8000, 'err'),
+      (err: unknown) => say(`could not start the dashboard: ${messageOf(err)}`, 8000, 'err'),
     );
   };
   const jump = (dir: 1 | -1) => {

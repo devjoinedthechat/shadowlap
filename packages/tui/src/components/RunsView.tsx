@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from 'ink';
-import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
+import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, messageOf, safeLine } from '@shadowlap/engine';
 import { allPassed, attemptsText } from '../attempts.js';
 import { markKey, type RunMark } from '../marks.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -174,7 +174,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500, tone: 'ok' });
         void copyToClipboard(url).then((copied) => setToast({ text: `dashboard${copied ? ' (link copied)' : ''}: ${url}`, ms: 30_000, tone: 'info' }));
       },
-      (err: unknown) => setToast({ text: `could not start the dashboard: ${err instanceof Error ? err.message : String(err)}`, ms: 8000, tone: 'err' }),
+      (err: unknown) => setToast({ text: `could not start the dashboard: ${messageOf(err)}`, ms: 8000, tone: 'err' }),
     );
   };
 

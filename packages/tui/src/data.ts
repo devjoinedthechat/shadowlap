@@ -1,4 +1,4 @@
-import { attemptBundles, withAttempts, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type SummaryOptions, type Turn } from '@shadowlap/engine';
+import { attemptBundles, withAttempts, kindFacts, loadApiRequest, modelResolver, normalizeConversation, normalizeResponse, runLabel, summarizeRun, type CallRecord, type ModelResolver, type NormalizedResponse, type Price, type RunRecord, type Store, type StoreOf, type SummaryOptions, type Turn } from '@shadowlap/engine';
 
 import { attemptTallies, type AttemptTally } from './attempts.js';
 
@@ -29,7 +29,7 @@ export interface CostOptions {
   modelOf: ModelResolver;
 }
 
-export function summaryOptions(store: Store, prices?: Record<string, Price>): SummaryOptions {
+export function summaryOptions(store: StoreOf<'recording'>, prices?: Record<string, Price>): SummaryOptions {
   return { ...(prices ? { prices } : {}), modelOf: modelResolver(store) };
 }
 
@@ -37,7 +37,7 @@ type RunCost = { spent: number; saved: number; captured: number };
 const costCache = new Map<string, RunCost>();
 
 /** Cost of a run; finished runs are summed once, a recording run is re-summed on every refresh. */
-export function runCost(store: Store, run: RunRecord, options: CostOptions): RunCost {
+export function runCost(store: StoreOf<'recording'>, run: RunRecord, options: CostOptions): RunCost {
   const cached = run.status !== 'running' ? costCache.get(run.runId) : undefined;
   if (cached) return cached;
   const s = summarizeRun(run, store.getCalls(run.runId), [], [], options);
@@ -50,7 +50,7 @@ export function runCost(store: Store, run: RunRecord, options: CostOptions): Run
  * Runs as a tree: roots oldest first, children under their parent, oldest first. The attempts bundled
  * under a run are folded into it, as the dashboard's Runs folds them, unless `attempts` lists them.
  */
-export function loadRunTree(store: Store, options: CostOptions & { attempts?: boolean }, limit = 500): RunNode[] {
+export function loadRunTree(store: StoreOf<'recording'>, options: CostOptions & { attempts?: boolean }, limit = 500): RunNode[] {
   const runs = store.listRuns(limit);
   const ids = new Set(runs.map((r) => r.runId));
   const bundles = attemptBundles(runs);
@@ -73,12 +73,12 @@ export function loadRunTree(store: Store, options: CostOptions & { attempts?: bo
   return out;
 }
 
-export function loadRequest(store: Store, call: CallRecord): unknown {
+export function loadRequest(store: StoreOf<'recording'>, call: CallRecord): unknown {
   if (!call.requestRef) return null;
   return call.kind === 'api' ? loadApiRequest(store, call.requestRef) : store.getJson(call.requestRef);
 }
 
-export function loadResponseBytes(store: Store, call: CallRecord): Buffer | null {
+export function loadResponseBytes(store: StoreOf<'recording'>, call: CallRecord): Buffer | null {
   const ref = call.end?.responseRef;
   return ref ? store.getBlob(ref) : null;
 }
@@ -167,7 +167,7 @@ export interface ModelAction {
 
 const STOPPED_SHORT = /^(max_tokens|length|MAX_TOKENS|max_output_tokens|incomplete)$/;
 
-export function modelAction(store: Store, call: CallRecord): ModelAction {
+export function modelAction(store: StoreOf<'recording'>, call: CallRecord): ModelAction {
   const end = call.end;
   if (!end) return { text: '…' };
   if (end.outcome === 'error') return { text: end.meta.status ? `HTTP ${end.meta.status}` : (end.meta.error?.name ?? 'failed'), tone: 'err' };

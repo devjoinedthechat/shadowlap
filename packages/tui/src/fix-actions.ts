@@ -1,4 +1,4 @@
-import { checkStatus, DEFAULT_REPAIRER, fixOfRun, fixRecords, hasRecordedCommand, needsConsent, noFixToTry, recordingsOfRun, repairArgv, repairerProblem, repairJobArgv, selectedRuns, shownBlame, testsEntryFor, verifyArgv, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { checkStatus, DEFAULT_REPAIRER, fixOfRun, fixRecords, hasRecordedCommand, isObject, needsConsent, noFixToTry, recordingsOfRun, repairArgv, repairerProblem, repairJobArgv, selectedRuns, shownBlame, testsEntryFor, verifyArgv, type RunRecord, type StoreOf, type StoredFix } from '@shadowlap/engine';
 
 /**
  * The Fixes flow from the run in front of you, each the CLI command you'd type, shown before it
@@ -49,23 +49,21 @@ export interface BlameCheck {
   from: 'replay' | 'config' | 'fix' | 'exit';
 }
 
-const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** The `expect` the config's `tests` give the recording a run replays, through its ancestors. */
-function configExpect(store: Store, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
-  if (!plainObject(tests)) return undefined;
+function configExpect(store: StoreOf<'recording'>, run: RunRecord, tests: unknown, configDir: string): Record<string, unknown> | undefined {
+  if (!isObject(tests)) return undefined;
   const entries = Object.entries(tests).map(([recording, spec]) => ({ recording, spec }));
   for (const dir of recordingsOfRun(store, run)) {
     const entry = testsEntryFor(entries, dir, configDir);
-    if (entry) return plainObject(entry.spec) && plainObject(entry.spec.expect) ? entry.spec.expect : undefined;
+    if (entry) return isObject(entry.spec) && isObject(entry.spec.expect) ? entry.spec.expect : undefined;
   }
   return undefined;
 }
 
 /** The check a blame of the run can use when nobody names one, in the dashboard's order; null when the run needs one named. */
-export function blameCheck(store: Store, run: RunRecord, ctx: Pick<FixContext, 'tests' | 'configDir'> = {}): BlameCheck | null {
+export function blameCheck(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, ctx: Pick<FixContext, 'tests' | 'configDir'> = {}): BlameCheck | null {
   const judged = run.meta?.expect;
-  if (plainObject(judged)) return { expect: judged, from: 'replay' };
+  if (isObject(judged)) return { expect: judged, from: 'replay' };
   const configured = ctx.configDir ? configExpect(store, run, ctx.tests, ctx.configDir) : undefined;
   if (configured) return { expect: configured, from: 'config' };
   const fix = (() => {
@@ -75,7 +73,7 @@ export function blameCheck(store: Store, run: RunRecord, ctx: Pick<FixContext, '
       return null;
     }
   })();
-  if (fix) return { expect: plainObject(fix.check.expect) ? fix.check.expect : null, from: 'fix' };
+  if (fix) return { expect: isObject(fix.check.expect) ? fix.check.expect : null, from: 'fix' };
   if ((run.meta?.checks ?? []).some((c) => checkStatus(c) === 'failed')) return null;
   if (run.status === 'failed') return { expect: null, from: 'exit' };
   return null;
@@ -95,7 +93,7 @@ function why(run: RunRecord, ctx: FixContext): string | undefined {
   return undefined;
 }
 
-export function fixActions(store: Store, run: RunRecord, ctx: FixContext): FixAction[] {
+export function fixActions(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, ctx: FixContext): FixAction[] {
   const disabled = why(run, ctx);
   const check = disabled ? null : blameCheck(store, run, ctx);
   const expect = check?.expect ? JSON.stringify(check.expect) : '';
@@ -122,7 +120,7 @@ export function expectError(value: string, needed = false): string | null {
   if (!value.trim()) return needed ? 'say what a passing run does, such as {"tools":{"send_email":0}}: the run failed a check nothing here names' : null;
   try {
     const v: unknown = JSON.parse(value);
-    return plainObject(v) ? null : '--expect takes a JSON object, such as {"tools":{"send_email":0}}';
+    return isObject(v) ? null : '--expect takes a JSON object, such as {"tools":{"send_email":0}}';
   } catch {
     return '--expect takes JSON, such as {"tools":{"send_email":0}}';
   }
@@ -157,7 +155,7 @@ export interface FixJob {
 const shortFix = (fix: StoredFix) => fix.fixId.slice(0, 13);
 
 /** The fix a run fails in, or null for none (or a store that can't say). */
-function fixOf(store: Store, run: RunRecord): StoredFix | null {
+function fixOf(store: StoreOf<'fixes'>, run: RunRecord): StoredFix | null {
   try {
     return fixOfRun(store, run.runId);
   } catch {
@@ -185,12 +183,12 @@ const JOB = {
  * line the dashboard would run for the run's fix, and what stands in the way. Built again when the
  * user says yes (`settleJob`), so a yes runs only the lines it was shown.
  */
-export function fixJob(store: Store, run: RunRecord, key: 'R' | 'V', ctx: FixContext): FixJob {
+export function fixJob(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, key: 'R' | 'V', ctx: FixContext): FixJob {
   return jobOf(store, run, key, ctx).job;
 }
 
 /** The job, and every run its line selects (`--fixes`, `--keeps`), which its question is about. */
-function jobOf(store: Store, run: RunRecord, key: 'R' | 'V', ctx: FixContext): { job: FixJob; selects: RunRecord[] } {
+function jobOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, key: 'R' | 'V', ctx: FixContext): { job: FixJob; selects: RunRecord[] } {
   const { kind, label, flag, hint } = JOB[key];
   const base: FixJob = { kind, key, label, flag, hint, fix: null, args: [], who: null, aside: null, blocked: null, ask: null };
   const none = (disabled: string, fix: FixJob['fix'] = null) => ({ job: { ...base, fix, disabled }, selects: [] });
@@ -224,7 +222,7 @@ function jobOf(store: Store, run: RunRecord, key: 'R' | 'V', ctx: FixContext): {
  * asked again when the line it would run, the repairer it names, or the lines the question showed,
  * changed since (a pull, a label, the config), or why it can't run now.
  */
-export function settleJob(store: Store, run: RunRecord, shown: FixJob, ctx: FixContext, typed: boolean): { run: string[] } | { again: FixJob } | { refused: string } {
+export function settleJob(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, shown: FixJob, ctx: FixContext, typed: boolean): { run: string[] } | { again: FixJob } | { refused: string } {
   const now = store.getRun(run.runId);
   if (!now) return { refused: `${run.runId.slice(0, 10)} is gone from the store` };
   const { job, selects } = jobOf(store, now, shown.key, ctx);

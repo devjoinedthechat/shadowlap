@@ -4,7 +4,7 @@ import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
 import { fixLabelInfo, GOOD_LABEL, type FixRecords } from './fixes.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
-import type { Store, StoredBlame } from './store.js';
+import type { StoreOf, StoredBlame } from './store.js';
 import { quoteArgv } from './text.js';
 import type { RunRecord } from './types.js';
 
@@ -63,7 +63,7 @@ function noAnswerLost(b: StoredBlame | null): boolean {
  * fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the failure
  * it was recorded for), and every one of the fix's. Anything else would be repaired as failing.
  */
-export function labelSelectsFix(store: Store, label: string, left: readonly string[]): boolean {
+export function labelSelectsFix(store: StoreOf<'recording'>, label: string, left: readonly string[]): boolean {
   const failing = new Set(left);
   const labelled = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
   return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
@@ -88,7 +88,7 @@ export function agentOfArgv(argv: readonly string[]): string | null {
 }
 
 /** The agent a run ran: its recording's, for a replay, a fork or an attempt; null for a run with no command (an import). */
-export function agentOfRun(store: Store, run: RunRecord): string | null {
+export function agentOfRun(store: StoreOf<'recording'>, run: RunRecord): string | null {
   let root = run;
   const seen = new Set([root.runId]);
   while (root.parentRunId) {
@@ -106,7 +106,7 @@ export function agentOfRun(store: Store, run: RunRecord): string | null {
  * (`label:good` when that is all of them, else by id), since a good run of another agent checks
  * nothing a change to this one touches; else none.
  */
-export function keepArgs(store: Store, rec: FixRecords, left: readonly string[]): string[] {
+export function keepArgs(store: StoreOf<'recording'>, rec: FixRecords, left: readonly string[]): string[] {
   const own = rec.good.filter((id) => store.getRun(id) !== null);
   if (own.length) return own;
   const agents = new Set(left.map((id) => agentOfRun(store, store.getRun(id)!)).filter((a): a is string => a !== null));
@@ -119,7 +119,7 @@ export function keepArgs(store: Store, rec: FixRecords, left: readonly string[])
 }
 
 /** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
-export function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
+export function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
   // Without a failing run left, a label would select nothing, and repair would refuse it.
   const left = rec.failing.filter((id) => store.getRun(id) !== null);
   if (!left.length) return null;
@@ -140,7 +140,7 @@ export function fixRunArgs(store: Store, rec: FixRecords): { fixes: string[]; ke
  * calls and reuses that blame rather than make it again, and its check. Empty when none of its
  * failing runs is left in the store.
  */
-export function repairArgv(store: Store, rec: FixRecords): string[] {
+export function repairArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
   // A blame's scope (a pulled one's too) goes as `--scope` only when it is a name, never a flag.
   const scope = scopeArg(shownBlame(rec)?.scope);
@@ -156,7 +156,7 @@ export function repairArgv(store: Store, rec: FixRecords): string[] {
  * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
  * were lost, or nothing rescued them.
  */
-export function noFixToTry(store: Store, rec: FixRecords, scope: string | null): string | null {
+export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): string | null {
   const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
   if (!runs.length) return null;
   const oracle = JSON.stringify(rec.fix.check.oracle);
@@ -175,7 +175,7 @@ export function noFixToTry(store: Store, rec: FixRecords, scope: string | null):
 }
 
 /** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
-export function verifyArgv(store: Store, rec: FixRecords): string[] {
+export function verifyArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
   const runs = fixRunArgs(store, rec);
   if (!runs) return [];
   return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
@@ -309,7 +309,7 @@ export function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonl
 }
 
 /** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
-function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
+function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord | null {
   if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return null;
   try {
     return store.findRun(idOrPrefix);
@@ -322,7 +322,7 @@ function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
  * The runs a repair command line gives its `--fixes`, `--holdout` and `--keeps`, as the CLI selects
  * them when it runs: run ids, and `label:<name>` for every run with that label, imported ones too.
  */
-export function selectedRuns(store: Store, argv: readonly string[]): RunRecord[] {
+export function selectedRuns(store: StoreOf<'recording'>, argv: readonly string[]): RunRecord[] {
   const out = new Map<string, RunRecord>();
   let listing = false;
   for (const a of argv) {

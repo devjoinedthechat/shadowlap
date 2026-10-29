@@ -75,8 +75,6 @@ const BANS = {
     },
   ],
 };
-/** Files other passes are changing now, held out of the bans they don't meet yet until those merge. */
-const HELD = ['packages/tui/**'];
 /** no-restricted-syntax with the bans named. */
 const bans = (...names) => ['error', ...names.flatMap((name) => BANS[name])];
 
@@ -211,16 +209,13 @@ export default defineConfig(
   },
 
   // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
-  // value with messageOf; the CLI's names its exit statuses. The terminal UI is held out until the pass
-  // changing it merges.
+  // value with messageOf; the CLI's names its exit statuses.
   {
     files: ['packages/{cli,collector,dashboard,engine,remote,sidecar,tui}/src/**/*.{ts,tsx}', 'packages/dashboard/ui/**/*.{ts,tsx}'],
-    ignores: HELD,
     rules: { 'no-restricted-syntax': bans('isObject', 'messageOf') },
   },
   {
     files: ['packages/cli/src/**/*.ts'],
-    ignores: HELD,
     rules: { 'no-restricted-syntax': bans('isObject', 'messageOf', 'exit') },
   },
   // The helpers themselves, and their copies where the engine can't be loaded: the adapters, and

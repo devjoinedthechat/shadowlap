@@ -1229,7 +1229,7 @@ async function readFromCode(input: DecisionsInput, store: Store, config: Shadowl
  * Effects from the other runs asked with them, then every run in the store (a tool's effect is
  * declared in code, the same in every run); the config's and the run's own come first (planRun).
  */
-function effectsForBatch(store: Store, targets: readonly DecisionTarget[]): Map<string, Effect> {
+function effectsForBatch(store: StoreOf<'recording' | 'readModels'>, targets: readonly DecisionTarget[]): Map<string, Effect> {
   const batchEffects = new Map<string, Effect>();
   for (const t of targets) effectsOf(store.getCalls(t.run.runId), batchEffects);
   const storeEffects = effectsOf(store.toolUsage().map((u) => ({ kind: 'tool' as const, name: u.name, effect: u.effect })));
