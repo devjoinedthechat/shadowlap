@@ -53,17 +53,17 @@ All three runs are labelled `refund-bug`. A fourth run refunds $60, within the l
 [`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it. It names the last call whose new answer can still save the run. Here a passing run never calls `issue_refund`&nbsp;for&nbsp;$240:
 
 ```console
-$ shadowlap blame 01M5NW6DN7 --expect @refund-check.json
+$ shadowlap blame 01M64J32D4 --expect @refund-check.json
 …
 ⑂ The run was lost at model call #5 (3 of 5)
 …
 
-  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 33 attempts;
+  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts;
           resample the probed call)
-    #1  1 of 5  5 of 10 passed · rate >= 0.10 (99.2%)  rescued
-    #5  3 of 5  5 of 10 passed · rate >= 0.10 (99.2%)  rescued  ◂ blamed
-    #7  4 of 5  0 of 6 passed · rate <= 0.60 (99.2%)   lost
-    #9  5 of 5  0 of 6 passed · rate <= 0.60 (99.2%)   lost
+    #1  1 of 5  5 of 10 passed · rate >= 0.10 (99.1%)  rescued
+    #5  3 of 5  5 of 10 passed · rate >= 0.10 (99.1%)  rescued  ◂ blamed
+    #7  4 of 5  0 of 6 passed · rate <= 0.60 (99.1%)   lost
+    #9  5 of 5  0 of 6 passed · rate <= 0.60 (99.1%)   lost
 …
 ```
 
@@ -107,14 +107,14 @@ npm install -g @anthropic-ai/sdk
 
 ### Keep it fixed in CI
 
-Blame opened fix `fx-01M5NW6JAH` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
+Blame opened fix `fx-01M64J3BR1` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
 
 ```console
-$ shadowlap fix apply fx-01M5NW6JAH
-⑂ Applying fx-01M5NW6JAH · issue_refund called with amount 240
+$ shadowlap fix apply fx-01M64J3BR1
+⑂ Applying fx-01M64J3BR1 · issue_refund called with amount 240
 …
     3 passed, 0 failed · 0 upstream requests
-✓ fx-01M5NW6JAH applied: the patch is in the working tree,
+✓ fx-01M64J3BR1 applied: the patch is in the working tree,
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
@@ -136,12 +136,12 @@ A second agent, `refund_agent.mjs`, handles the same order from support ticket&n
 No tool runs. Each step is asked three times under the change and three times as recorded, so a change counts only when it shows beyond the model's own variation. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
 
 ```console
-$ shadowlap decisions 01M5NW7430 --model claude-haiku-4-5
+$ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
 …
 ✗ 1 of 1 run decides a write or when to stop differently, under the model claude-haiku-4-5
   14 steps asked, 3 samples each and as many as recorded: 1 rank 1, 13 the same · no tool ran
 
-01M5NW7430  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
+01M64J4EMP  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
   #17   step 8  rank 1  issue_refund is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded issue_refund({"order_id":"A-1042","amount":240})
          now      queue_status({"team":"refunds-tier2"})  −8 tokens · −<$0.001
@@ -227,7 +227,7 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
 `shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: where a fork left its parent, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
 
 ```text
- 01M5NW76RA fork @17 of 01M5NW7430 · 32 calls · 15 replayed · …
+ 01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
 ╭──────────────────────────────────────────────────────────────╮
 │ Fork menu                                                    │
 │ At #16 · lookup_policy · pure tool                           │
@@ -239,6 +239,10 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
 │   e  Repeat the replay and comp…                  --repeat 5 │
 │   s  Stub the writes                           --writes stub │
 │   b  Find the commit that chang…             bisect --good … │
+│ Fixes                                                        │
+│   B  Find the call it was lost …                       blame │
+│   R  Repair the fix it fails in…                      repair │
+│   V  Verify a change for the fi…                      verify │
 │ ────────────────────────                                     │
 │   r  Replay this run (clean if …                      replay │
 │   p  Pack this run to a directo…                        pack │
