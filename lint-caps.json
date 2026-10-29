@@ -9,7 +9,7 @@
       "upsertComment": 42
     },
     "action/run.mjs": {
-      "main": 59
+      "main": 58
     },
     "packages/adapters/src/claude-reach.ts": {
       "claudeReach": 118
