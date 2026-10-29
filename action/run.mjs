@@ -197,8 +197,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     (code) => {
       process.exitCode = code;
     },
-    (err) => {
-      process.stdout.write(`${annotation('error', err instanceof Error ? err.message : err)}\n`);
+    (/** @type {unknown} */ err) => {
+      process.stdout.write(`${annotation('error', err instanceof Error ? err.message : String(err))}\n`);
       process.exitCode = 1;
     },
   );

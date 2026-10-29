@@ -109,7 +109,7 @@ export class RunContext {
      * start, and for a replay its recording's too, since what the replay serves back from the
      * recording carries the recording's dates.
      */
-    readonly clockRef: readonly number[] | undefined = undefined,
+    readonly clockRef: readonly number[] | undefined,
     /** `--prompt-from`: model calls are matched without their system prompt and tool definitions. */
     readonly withoutPrompt = false,
     /**

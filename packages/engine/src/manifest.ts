@@ -118,7 +118,7 @@ function runsOf(store: StoreOf<'recording'>, hashes: string[]): string[] {
 
 /** A run's item hashes, as a version 2 manifest names them; refused unless it is a list of hashes. */
 function runItems(store: StoreOf<'recording'>, run: string): string[] {
-  const items = store.getJson<unknown>(run);
+  const items = store.getJson(run);
   if (!Array.isArray(items) || items.some((h) => typeof h !== 'string')) throw new Error(`request run ${run}: ${items === null ? 'missing' : 'not a list of blob hashes'}`);
   return items as string[];
 }

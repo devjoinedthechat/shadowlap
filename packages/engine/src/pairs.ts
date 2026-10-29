@@ -378,7 +378,7 @@ class Reader {
     if (v !== undefined) return v;
     v = null;
     try {
-      const m = this.store.getJson<unknown>(hash);
+      const m = this.store.getJson(hash);
       if (m !== null) {
         const asAnthropic = normalizeConversation({ system: '', messages: [m] })?.turns[1];
         const asOpenAI = normalizeConversation({ messages: [{ role: 'developer', content: '' }, m] })?.turns[1];

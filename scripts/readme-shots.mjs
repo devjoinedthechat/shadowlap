@@ -253,8 +253,8 @@ try {
   const page = await browser.newPage({ viewport: null });
   const cdp = await page.context().newCDPSession(page);
   const send = (method, params = {}) =>
-    cdp.send(method, params).catch((err) => {
-      throw new Error(`${method}: ${err.message}`);
+    cdp.send(method, params).catch((/** @type {unknown} */ err) => {
+      throw new Error(`${method}: ${err instanceof Error ? err.message : String(err)}`);
     });
   const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result?.value;
   async function until(expression, what, ms = 30_000) {

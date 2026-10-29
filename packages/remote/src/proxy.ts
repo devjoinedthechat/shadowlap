@@ -133,7 +133,7 @@ class TunnelAgent extends HttpsAgent {
         const secure = tlsConnect({ ...(options as ConnectionOptions), ...this.tls, socket, ...(isIP(host) ? {} : { servername: host }) });
         callback?.(null, secure);
       },
-      (err: Error) => callback?.(err, undefined as unknown as Duplex),
+      (err: unknown) => callback?.(err instanceof Error ? err : new Error(String(err)), undefined as unknown as Duplex),
     );
     return undefined;
   }

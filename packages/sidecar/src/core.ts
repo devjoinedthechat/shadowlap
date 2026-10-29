@@ -391,6 +391,7 @@ export class SidecarCore {
   }
 
   /** A stored JSON blob with each number as it was written (parseJsonExact): for what is served back and fingerprinted. */
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the stored document is, as with JSON.parse: a return-only generic on purpose
   getJsonExact<T>(ref: string): T | null {
     const bytes = this.store.getBlob(ref);
     return bytes ? (parseJsonExact(bytes.toString('utf8')) as T) : null;

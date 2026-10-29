@@ -1,6 +1,13 @@
+import type { CSSProperties } from 'react';
 import { trapTab } from './focus.js';
 
 /** Small browser helpers. Nothing runs at import time. */
+
+/**
+ * CSS custom properties as a style (`style={cssVars({ '--k': 3 })}`): React's CSSProperties names none
+ * of them, so an object literal of them is refused where one is expected, and a record of them is not.
+ */
+export const cssVars = (vars: Readonly<Record<`--${string}`, string | number>>): CSSProperties => vars;
 
 export function copyText(text: string): Promise<boolean> {
   const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;

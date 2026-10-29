@@ -785,7 +785,7 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
     results.push(verdict(detail === null, `${t.name}${withArgs} called ${formatCount(t.count)}`, detail));
   }
   const counted = (range: CountRange | undefined, n: number, noun: string) => {
-    if (range) results.push(verdict(inRange(n, range), `${formatCount(range, noun)}`, inRange(n, range) ? null : `${formatCount({ min: n, max: n }, noun)}`));
+    if (range) results.push(verdict(inRange(n, range), formatCount(range, noun), inRange(n, range) ? null : formatCount({ min: n, max: n }, noun)));
   };
   counted(spec.modelCalls, calls.filter((c) => c.kind === 'api').length, 'model call');
   counted(spec.toolCalls, tools.length, 'tool call');
@@ -1189,6 +1189,7 @@ export function storedCheckInput(store: StoreOf<'recording'>, calls: CallRecord[
 export function storedCalls(store: StoreOf<'recording'>): Pick<CheckInput, 'argsOf' | 'resultOf'> {
   const args = new Map<string, unknown>();
   const results = new Map<string, unknown>();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the stored document is, as getJson's do
   const read = <T>(ref: string | null | undefined, pick: (doc: T) => unknown): unknown => {
     if (!ref) return undefined;
     try {
@@ -1226,7 +1227,7 @@ export function readsOutput(spec: ExpectSpec): boolean {
 /** The spec without its checks on the agent's output, wherever they are, for judging a recording. */
 export function withoutOutput<S extends ExpectSpec>(spec: S): S {
   const { output: _unrecorded, ...rest } = spec;
-  const out = { ...rest } as S;
+  const out = rest as S;
   if (spec.when) out.when = spec.when.map((w) => ({ ...w, then: withoutOutput(w.then) })).filter((w) => hasChecks(w.then));
   return out;
 }

@@ -115,7 +115,7 @@ export default defineConfig(
 
   {
     files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
-    extends: [js.configs.recommended, tseslint.configs.recommendedTypeChecked],
+    extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
     linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
       // `x == null` is how the code asks "null or undefined"; every other comparison is strict.
@@ -128,6 +128,13 @@ export default defineConfig(
       // Spreading a string into its code points is how the code walks characters, so strings are allowed.
       '@typescript-eslint/no-misused-spread': ['error', { allow: ['string'] }],
       '@typescript-eslint/no-deprecated': 'error',
+      // `x as T` only, and an object literal asserted only where it is passed: one assigned is declared with
+      // its type instead (`const x: T = { … }`), so a missing or misspelled field is caught. An array literal
+      // asserted names its elements' type, which TypeScript would widen (`[a, b] as [number, number]`, `[] as
+      // string[]`): it can't hide a field.
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'as', objectLiteralTypeAssertions: 'allow-as-parameter', arrayLiteralTypeAssertions: 'allow' }],
+      // `this: void` says a function can't be called as a method; void stays out of other unions.
+      '@typescript-eslint/no-invalid-void-type': ['error', { allowAsThisParameter: true, allowInGenericTypeArguments: true }],
       // Numbers and booleans read as they print; null, undefined, objects and arrays must be said in words.
       '@typescript-eslint/restrict-template-expressions': [
         'error',
@@ -196,6 +203,19 @@ export default defineConfig(
       // `this` is aliased to name the object a patched or spied method was called on (`const rl = this`,
       // `program = this`) and to walk a fake DOM up from an element: each of its 7 findings here was that.
       '@typescript-eslint/no-this-alias': 'off',
+      // A value's type says what it should be; converting one typed already is how the code reads one that
+      // arrives untyped (a stored JSON field, an SQLite count that may come back a bigint, the environment),
+      // as with no-unnecessary-condition above: each of its 84 findings here was at such a boundary.
+      '@typescript-eslint/no-unnecessary-type-conversion': 'off',
+      // The objects keys are deleted from are records the code reads and hands on as JSON (an environment, a
+      // request's headers or body, a test's process.env), not maps of its own: each of its 36 findings was one.
+      '@typescript-eslint/no-dynamic-delete': 'off',
+      // `x === true` and `x === false` check what arrived (a stored check's `ok`, a config's flag, a stream's
+      // isTTY, undefined off a terminal), whatever its type says: as with no-unnecessary-condition above.
+      '@typescript-eslint/no-unnecessary-boolean-literal-compare': 'off',
+      // `void` says a callback returns nothing (`() => void ran++`, `return void (await exited)`), as with
+      // no-confusing-void-expression above, and marks a name taken out of an object as unused on purpose.
+      '@typescript-eslint/no-meaningless-void-operator': 'off',
     },
   },
 
@@ -223,12 +243,17 @@ export default defineConfig(
       '@typescript-eslint/require-await': 'off',
       // Tests hand methods to expect() to check what they are, not to call them.
       '@typescript-eslint/unbound-method': 'off',
+      // A test's helper returns what the test says it read (`json<Report>(out)`): the assertions check it.
+      '@typescript-eslint/no-unnecessary-type-parameters': 'off',
+      // A fake is the few fields a test needs, asserted to the type the code takes (`{ … } as RunRecord`).
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'as', objectLiteralTypeAssertions: 'allow', arrayLiteralTypeAssertions: 'allow' }],
       // A test prints what it got, null and undefined included: in a label or an error that is what it
       // says, and in a string it compares a stray null fails the comparison. Arrays and objects still may not.
       '@typescript-eslint/restrict-template-expressions': [
         'error',
         { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: true, allowRegExp: true, allowNever: false, allowArray: false },
       ],
+      '@typescript-eslint/restrict-plus-operands': ['error', { allowAny: true, allowNullish: true, allowNumberAndString: true, allowBoolean: false, allowRegExp: false }],
     },
   },
 
@@ -240,6 +265,12 @@ export default defineConfig(
   },
   { files: TEST_FILES, rules: { 'max-lines-per-function': 'off' } },
   ...Object.entries(OVER).flatMap(([rule, files]) => Object.entries(files).map(([file, max]) => ({ files: [file], rules: { [rule]: capped(rule, max) } }))),
+
+  // Files another pass is changing now, held out of the strict rules they don't meet yet until it merges.
+  {
+    files: ['packages/dashboard/src/read-pool.ts'],
+    rules: { '@typescript-eslint/no-unnecessary-type-parameters': 'off' },
+  },
 
   // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
   // value with messageOf; the CLI's names its exit statuses.
@@ -282,8 +313,11 @@ export default defineConfig(
         'error',
         { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: false, allowRegExp: false, allowNever: true, allowArray: false },
       ],
+      '@typescript-eslint/restrict-plus-operands': ['error', { allowAny: true, allowNullish: false, allowNumberAndString: false, allowBoolean: false, allowRegExp: false }],
       // Test agents and fake servers implement async interfaces without awaiting anything.
       '@typescript-eslint/require-await': 'off',
+      // An SDK's enum is passed as the string it stands for: JavaScript has no enum to import it as.
+      '@typescript-eslint/no-unsafe-enum-assignment': 'off',
       // Here the rule sees only Node's own methods, which this code keeps on purpose: the preloads to put them
       // back or call them on the patched object with .call(this, …), the Action to restore a warning
       // filter, a test agent to promisify readline's question with its own promisify.custom.
@@ -298,6 +332,7 @@ export default defineConfig(
         'error',
         { allowNumber: true, allowBoolean: true, allowAny: true, allowNullish: true, allowRegExp: true, allowNever: true, allowArray: false },
       ],
+      '@typescript-eslint/restrict-plus-operands': ['error', { allowAny: true, allowNullish: true, allowNumberAndString: true, allowBoolean: false, allowRegExp: false }],
     },
   },
   {

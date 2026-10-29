@@ -80,7 +80,7 @@ export function loadConfig(cwd: string): ShadowlapConfig {
   if (!stored.exists) return { normalize: [], redact: [] };
   const file = CONFIG_FILE;
   const parsed = stored.data as Partial<ShadowlapConfig>;
-  const config = {} as ShadowlapConfig;
+  const config: Partial<ShadowlapConfig> = {};
   Object.defineProperty(config, 'normalize', checkedOnFirstUse('normalize', parsed.normalize));
   Object.defineProperty(config, 'redact', checkedOnFirstUse('redact', parsed.redact));
   if (parsed.clock !== undefined) {
@@ -153,7 +153,8 @@ export function loadConfig(cwd: string): ShadowlapConfig {
     }
     config.mcp = { effects };
   }
-  return config;
+  // Whole once its two lists are defined on it, each checked on first use.
+  return config as ShadowlapConfig;
 }
 
 /** The runtimes `--guard block` can accept unwatched: the Claude Code CLI alone, which no preload loads into. */

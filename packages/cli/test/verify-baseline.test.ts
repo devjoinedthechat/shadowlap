@@ -130,7 +130,7 @@ describe('shadowlap verify against a baseline', () => {
       expect(base).toHaveLength(6);
       expect(base.every((x) => x.meta!.verify!.revision === head() && x.parentRunId === good)).toBe(true);
       // The baseline ran in a checkout of HEAD, which is gone once verify is done.
-      expect(base.every((x) => x.command.cwd !== work && x.command.cwd.includes(`${join('.shadowlap', 'verify')}`))).toBe(true);
+      expect(base.every((x) => x.command.cwd !== work && x.command.cwd.includes(join('.shadowlap', 'verify')))).toBe(true);
       const requests = mock.requests.filter((q) => q.body.messages?.[0] && JSON.stringify(q.body.messages[0].content).includes('B-7'));
       expect(requests.some((q) => JSON.stringify(q.body.system ?? '') === JSON.stringify(ORIGINAL))).toBe(true);
     } finally {

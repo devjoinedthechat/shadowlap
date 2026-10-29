@@ -47,9 +47,10 @@ export function clauses(head: string, parts: readonly string[], width = 80): str
   const lines = [`${head}${parts[0] ?? ''}`];
   for (const part of parts.slice(1)) {
     const last = lines.length - 1;
-    if (visible(`${lines[last]!}, ${part}`) <= width) lines[last] += `, ${part}`;
+    const line = lines[last]!;
+    if (visible(`${line}, ${part}`) <= width) lines[last] = `${line}, ${part}`;
     else {
-      lines[last] += ',';
+      lines[last] = `${line},`;
       lines.push(`  ${part}`);
     }
   }

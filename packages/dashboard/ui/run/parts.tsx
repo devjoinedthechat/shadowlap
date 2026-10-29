@@ -505,7 +505,7 @@ export function DiffPanel({ run, test = null }: { run: RunDetail; test?: TestBan
                   <span className="add">{e.op === 'removed' ? '  (absent)' : <>{'  '}{breakable(clip(jsonText(e.after, false), 800))}</>}</span>
                 </span>
               ))
-            : `${callName(d.kind, d.name)}`}
+            : callName(d.kind, d.name)}
         </pre>
       </div>
       <div className="hint">

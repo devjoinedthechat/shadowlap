@@ -144,8 +144,11 @@ export function aroundWord(text: string, word: string): { before: string; word: 
 export function storePath(meta: Pick<Meta, 'dbPath' | 'project'>): string {
   const dbPath = meta.dbPath ?? '';
   const p = meta.project;
-  const rest = p?.display && dbPath.startsWith(p.path) ? dbPath.slice(p.path.length) : null;
-  return rest !== null && /^[\\/]/.test(rest) ? p!.display + rest : tildePath(dbPath);
+  if (p?.display && dbPath.startsWith(p.path)) {
+    const rest = dbPath.slice(p.path.length);
+    if (/^[\\/]/.test(rest)) return p.display + rest;
+  }
+  return tildePath(dbPath);
 }
 
 /** The line under an exported copy's project block: `1 run · nothing runs from here`. */

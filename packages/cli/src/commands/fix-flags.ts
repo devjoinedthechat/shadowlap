@@ -98,7 +98,7 @@ export function attemptRule(flags: { attempts?: number | undefined; passes?: num
   const counted = flags.attempts !== undefined || flags.passes !== undefined;
   if (counted && flags.gate !== undefined) throw new InvalidArgumentError('give a gate (--gate) or a fixed count (--attempts, --passes), not both');
   if (!counted) {
-    const gate = flags.gate !== undefined ? readGate(flags.gate, o.defaults) : ({ kind: 'sprt', ...o.defaults } as SprtGate);
+    const gate: SprtGate = flags.gate !== undefined ? readGate(flags.gate, o.defaults) : { kind: 'sprt', ...o.defaults };
     return { gate, attempts: gate.max, needed: 0 };
   }
   const attempts = flags.attempts ?? 5;

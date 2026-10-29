@@ -261,7 +261,7 @@ describe('reading Phoenix and Logfire', () => {
 
   it('says why Logfire refused, or had no such trace since the start given, without the token', async () => {
     const refused = await listen(() => ({ status: 401, body: { detail: 'Invalid read token' } }));
-    const err = await fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host: refused, token: 'pylf_v1_us_secret', since: new Date() }).catch((e: Error) => e);
+    const err = await fetchLogfireRecords(LOGFIRE_ANTHROPIC, { host: refused, token: 'pylf_v1_us_secret', since: new Date() }).catch((e: unknown) => e);
     expect((err as Error).message).toMatch(/refused the read token \(401\): check LOGFIRE_READ_TOKEN/);
     expect((err as Error).message).not.toContain('pylf_v1_us_secret');
     const busy = await listen(() => ({ status: 429, body: {} }));

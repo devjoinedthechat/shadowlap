@@ -262,7 +262,7 @@ if (sidecarUrl && origin) {
         if (got.served) controller.abort();
         return { ...got, asked: live !== null };
       },
-      (err) => {
+      (/** @type {unknown} */ err) => {
         controller.abort();
         throw err;
       },
@@ -341,7 +341,7 @@ if (sidecarUrl && origin) {
         if (got.served) show(rl, prompt, got.text, got.asked);
         answered(got.text);
       })
-      .catch((err) => process.nextTick(() => rl.emit('error', err)));
+      .catch((/** @type {unknown} */ err) => process.nextTick(() => rl.emit('error', err)));
   };
   // util.promisify(rl.question) resolves with the answer, as Node's own question does.
   Object.assign(recordedQuestion, {

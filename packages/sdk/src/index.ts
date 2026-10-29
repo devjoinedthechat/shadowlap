@@ -534,6 +534,7 @@ async function* liveStream(cfg: Config, callNo: number, iterator: AsyncGenerator
  */
 export function tool<A, R = never>(name: string, options: ToolOptions<A, R>, impl: (args: A) => never): (args: A) => Promise<R>;
 export function tool<A, Y>(name: string, options: ToolOptions<A, Y>, impl: (args: A) => AsyncGenerator<Y, unknown, undefined>): (args: A) => AsyncGenerator<Y, void, undefined>;
+// eslint-disable-next-line @typescript-eslint/unified-signatures -- the one for an implementation that only throws comes first on purpose (above): one signature would type it as a generator's
 export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => R | Promise<R>): (args: A) => Promise<R>;
 export function tool<A, R>(name: string, options: ToolOptions<A, R>, impl: (args: A) => unknown): (args: A) => unknown {
   if (!name) throw new TypeError('tool name is required');

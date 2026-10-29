@@ -89,8 +89,7 @@ export function fitColumns<K extends string>(columns: ReadonlyArray<Column<K>>, 
     if (need() <= width) break;
     kept.delete(c.key);
   }
-  const out = {} as Record<K, number>;
-  for (const c of columns) out[c.key] = kept.has(c.key) ? c.min : 0;
+  const out = Object.fromEntries(columns.map((c) => [c.key, kept.has(c.key) ? c.min : 0])) as Record<K, number>;
   let left = width - need();
   for (const c of columns) {
     if (left <= 0) break;

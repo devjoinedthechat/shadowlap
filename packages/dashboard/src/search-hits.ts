@@ -159,7 +159,7 @@ const GAP_MS = 20;
 /** After a slice found the store busy, or failed: the first wait before the next, doubled each time after, up to the last. */
 export const RETRY_MS = 1000;
 export const RETRY_MAX_MS = 8000;
-const catching = new WeakSet<object>();
+const catching = new WeakSet();
 
 /** A store closed under the slices: the dashboard stopped, or serves another project's store now. */
 export const closedStore = (err: unknown) => (err as { code?: unknown } | null)?.code === 'ERR_INVALID_STATE';

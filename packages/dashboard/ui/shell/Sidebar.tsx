@@ -1,9 +1,9 @@
-import { memo, useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import type { RunListItem } from '../api.js';
 import { AboutLine, useFitAbouts } from '../components/About.js';
 import { RunIcon } from '../components/RunIcon.js';
 import { Icon, type IconName } from '../components/Icon.js';
-import { paletteKeyLabel } from '../dom.js';
+import { cssVars, paletteKeyLabel } from '../dom.js';
 import { num, shortId, whenShort } from '../format.js';
 import { href, navSection, type Route } from '../route.js';
 import { copyCompares, isAttempt, runTree, sideLine, sideStatus, treeLines } from '../runs.js';
@@ -82,7 +82,7 @@ export function Sidebar({ route }: { route: Route }) {
  */
 function TreeLines({ depth, on, kids }: { depth: number; on: readonly boolean[]; kids: boolean }) {
   if (!depth && !kids) return null;
-  const at = (k: number) => ({ '--k': k }) as CSSProperties;
+  const at = (k: number) => cssVars({ '--k': k });
   return (
     <span className="tree" aria-hidden="true">
       {on.map((more, k) => (more ? <i key={k} className="tl" style={at(k + 1)} /> : null))}
@@ -118,7 +118,7 @@ export const RecentRuns = memo(function RecentRuns({ runs, current, loading }: {
         const st = r.about ? sideStatus(r) : null;
         const line = r.about ? null : sideLine(r);
         return (
-          <a key={r.runId} className="run" style={{ '--d': depth } as CSSProperties} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
+          <a key={r.runId} className="run" style={cssVars({ '--d': depth })} href={href.run(r.runId)} aria-current={here ? 'true' : 'false'} title={r.source ? `from ${r.source}` : r.command}>
             <TreeLines depth={depth} on={on} kids={kids} />
             <RunIcon run={r} />
             <span className="r1">

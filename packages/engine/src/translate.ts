@@ -292,7 +292,7 @@ export function openAIChatToAnthropicMessage(completion: unknown, options: { mod
  * deltas the SDKs assemble, thinking with its signature, and any other block (a server tool's call or
  * result) whole at its start. Bedrock's `invoke-with-response-stream` carries the same events.
  */
-export function anthropicEventList<M extends { content: unknown[]; usage?: unknown; stop_reason?: unknown }>(m: M): Array<[string, Json]> {
+export function anthropicEventList(m: { content: unknown[]; usage?: unknown; stop_reason?: unknown }): Array<[string, Json]> {
   const usage = isObject(m.usage) ? m.usage : { input_tokens: 0, output_tokens: 0 };
   const output = num(usage.output_tokens);
   const events: Array<[string, Json]> = [];
@@ -320,7 +320,7 @@ export function anthropicEventList<M extends { content: unknown[]; usage?: unkno
 }
 
 /** An Anthropic message as the server-sent events the SDK reads when it asked to stream. */
-export function anthropicMessageEvents<M extends { content: unknown[]; usage?: unknown; stop_reason?: unknown }>(m: M): string {
+export function anthropicMessageEvents(m: { content: unknown[]; usage?: unknown; stop_reason?: unknown }): string {
   return anthropicEventList(m)
     .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     .join('');

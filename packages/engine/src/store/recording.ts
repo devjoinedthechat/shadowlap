@@ -243,6 +243,7 @@ export abstract class Recording extends StorePart {
     return this.putBlob(Buffer.from(JSON.stringify(value), 'utf8'));
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the stored document is, as with JSON.parse: a return-only generic on purpose
   getJson<T = unknown>(hash: string): T | null {
     const bytes = this.getBlob(hash);
     return bytes === null ? null : (JSON.parse(bytes.toString('utf8')) as T);

@@ -70,7 +70,7 @@ describe('subpath exports under moduleResolution node', () => {
     writeFileSync(join(project, 'index.ts'), imports.join('\n') + '\n');
     writeFileSync(join(project, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'commonjs', moduleResolution: 'node', target: 'es2022', strict: true, noEmit: true, skipLibCheck: false, types: ['node'] }, files: ['index.ts'] }));
     const tsc = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: Error & { stdout?: string }) => ({ stdout: err.stdout ?? String(err) }));
+    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: unknown) => ({ stdout: (err as { stdout?: string }).stdout ?? String(err) }));
     expect(out.stdout).toBe('');
   });
 
@@ -111,7 +111,7 @@ describe('the CommonJS copies', () => {
     writeFileSync(join(project, 'index.cts'), required.map((spec, i) => `import m${i} = require('${spec}');\nexport const k${i}: string[] = Object.keys(m${i});`).join('\n') + '\n');
     writeFileSync(join(project, 'tsconfig.json'), JSON.stringify({ compilerOptions: { module: 'node16', moduleResolution: 'node16', target: 'es2022', strict: true, noEmit: true, skipLibCheck: false, types: ['node'] }, files: ['index.cts'] }));
     const tsc = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: Error & { stdout?: string }) => ({ stdout: err.stdout ?? String(err) }));
+    const out = await run(process.execPath, [tsc, '-p', project], { cwd: project, encoding: 'utf8' }).catch((err: unknown) => ({ stdout: (err as { stdout?: string }).stdout ?? String(err) }));
     expect(out.stdout).toBe('');
   });
 

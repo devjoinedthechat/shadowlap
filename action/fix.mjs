@@ -485,7 +485,7 @@ function replayOnBranch({ cli, workdir, root, swaps, dirs, patch, guard, build =
     } catch {
       // no report: its output says why
     }
-    if (!report || !Array.isArray(report.results)) return Object.assign(out, { why: `shadowlap test did not finish on the branch: ${`${t.stderr ?? ''}`.trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}` });
+    if (!report || !Array.isArray(report.results)) return Object.assign(out, { why: `shadowlap test did not finish on the branch: ${(t.stderr ?? '').trim().split('\n').at(-1) || `exit ${String(t.status ?? t.signal)}`}` });
     return Object.assign(out, { results: new Map(report.results.map((r) => [dirOf(r), r])) });
   } finally {
     // The goldens go back whatever happens to the patch, and a patch that won't come out is said.
@@ -815,7 +815,7 @@ export function forkPullRequest(env, read = (path) => readFileSync(path, 'utf8')
  * @returns {string}
  */
 function pushError(stderr) {
-  const lines = `${stderr ?? ''}`
+  const lines = (stderr ?? '')
     .replace(/\x1b\[[0-9;]*m/g, '')
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -981,7 +981,7 @@ export async function runFixes({ cli, db, workdir, report, budget, repairer, gua
           // no report: stderr says why
         }
         const spent = repair?.cost ? (repair.cost.blame ?? 0) + (repair.cost.repairer ?? 0) + (repair.cost.verify ?? 0) : 0;
-        const why = repair?.why ?? repair?.error?.message ?? (`${res.stderr ?? ''}`.trim().split('\n').at(-1) || `repair exited ${String(res.status ?? res.signal)}`);
+        const why = repair?.why ?? repair?.error?.message ?? ((res.stderr ?? '').trim().split('\n').at(-1) || `repair exited ${String(res.status ?? res.signal)}`);
         return { repair, spent, why, fixed: repair?.outcome === 'fixed' && !!repair.output?.branch, plan };
       };
       const together = attempt(group, allowed, `shadowlap repair for ${listed(goldens)}${goldens.length > 1 ? ', which fail the same check' : ''}: blame, repair and verify, within $${allowed.toFixed(2)}`);

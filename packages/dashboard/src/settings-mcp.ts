@@ -220,13 +220,13 @@ export function splitCommandLine(text: string): string[] {
       let j = i + 1;
       for (; j < text.length && text[j] !== '"'; j++) {
         if (text[j] === '\\' && j + 1 < text.length && '"\\$`'.includes(text[j + 1]!)) j++;
-        current += text[j];
+        current += text.charAt(j);
       }
       if (j >= text.length) throw new Error('a quote is not closed');
       started = true;
       i = j;
     } else if (c === '\\' && i + 1 < text.length) {
-      current += text[++i];
+      current += text.charAt(++i);
       started = true;
     } else {
       current += c;

@@ -26,9 +26,10 @@ async function server(limits: BodyLimits): Promise<{ url: string; seen: Array<{ 
         seen.push({ body: body.toString('utf8') });
         res.end(`read ${body.length}`);
       },
-      (err: Error) => {
-        seen.push({ error: err.message, ...(err instanceof BodyTooLarge ? { status: err.status } : {}) });
-        if (!res.destroyed) res.writeHead(err instanceof BodyTooLarge ? 413 : 400).end(err.message);
+      (err: unknown) => {
+        const e = err instanceof Error ? err : new Error(String(err));
+        seen.push({ error: e.message, ...(e instanceof BodyTooLarge ? { status: e.status } : {}) });
+        if (!res.destroyed) res.writeHead(e instanceof BodyTooLarge ? 413 : 400).end(e.message);
       },
     );
   });

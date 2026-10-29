@@ -88,9 +88,12 @@ export function shownRange(drag: Drag | null, picked: readonly [number, number] 
   return picked ? [picked[0], picked[1]] : null;
 }
 
+/** The days each arrow key moves: a column is a week. */
+const ARROW_STEPS: Readonly<Record<string, number>> = { ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 };
+
 /** The day an arrow key moves to: a column is a week, so left and right move seven days. Null for another key or past the ends. */
 export function moveDay(day: number, key: string, count: number): number | null {
-  const step = ({ ArrowLeft: -7, ArrowRight: 7, ArrowUp: -1, ArrowDown: 1 } as Record<string, number>)[key];
+  const step = ARROW_STEPS[key];
   if (step === undefined) return null;
   const next = day + step;
   return next >= 0 && next < count ? next : null;

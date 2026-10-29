@@ -297,7 +297,7 @@ interface KeptIndex {
 const kept = new WeakMap<object, KeptIndex>();
 
 /** Stores known to keep the log of runs written: one opened by a build from before it keeps none until a newer one opens it to write. */
-const logged = new WeakSet<object>();
+const logged = new WeakSet();
 function keepsLog(store: StoreOf<'readModels'>): boolean {
   if (logged.has(store)) return true;
   if (!store.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'run_changes'`).length) return false;

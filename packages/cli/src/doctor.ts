@@ -153,7 +153,7 @@ export function runDoctor(options: DoctorOptions): Check[] {
       const size = statSync(dbPath).size + (statSync(`${dbPath}-wal`, { throwIfNoEntry: false })?.size ?? 0);
       push('store', 'ok', `${dbPath}: ${runs.length} run${runs.length === 1 ? '' : 's'}, ${bytes(size)}, schema v${schema}${schema === SCHEMA_VERSION ? '' : ` (this build writes v${SCHEMA_VERSION})`}`);
       if (abandoned.length) push('runs still marked running', 'warn', abandoned.map((r) => r.runId.slice(0, 10)).join(', '), 'Their recording process stopped without ending them (killed, or out of memory). shadowlap gc marks them interrupted; shadowlap rm <run> removes one.');
-      if (size > 512 * 1024 * 1024) push('store size', 'warn', `${bytes(size)}`, 'shadowlap gc --older-than 30 deletes old runs and compacts the file.');
+      if (size > 512 * 1024 * 1024) push('store size', 'warn', bytes(size), 'shadowlap gc --older-than 30 deletes old runs and compacts the file.');
       const preload = preloadCheck(runs);
       if (preload) checks.push(preload);
     } catch (err) {

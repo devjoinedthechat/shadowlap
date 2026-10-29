@@ -107,7 +107,7 @@ export function settledThrough(calls: readonly { callNo: number; outcome: string
  * (`part`, for `?after=`), and the calls the page had up to `part.after` followed by those it sent.
  * An answer for the whole run (no `after`) replaces what the page had.
  */
-export function mergeRun<C extends { callNo: number }, R extends { calls: C[]; after?: number }>(had: R, part: R): R {
+export function mergeRun<R extends { calls: Array<{ callNo: number }>; after?: number }>(had: R, part: R): R {
   const after = part.after;
   if (after === undefined) return part;
   const { after: _after, ...rest } = part;

@@ -32,7 +32,7 @@ interface Props {
   /** Runs `shadowlap search` for `s`; without it, `s` says to run it from the shell. */
   spawnCli?: SpawnCli;
   /** Deletes a run, with the attempts bundled under it; what it says back (why it didn't) is shown. */
-  onDelete: (runId: string) => string | null | void;
+  onDelete: (runId: string) => string | null | undefined;
   /** How many attempts are bundled under a run, which a delete takes with it: the confirm names them. */
   attemptsOf?: (runId: string) => number;
   onQuit: () => void;
