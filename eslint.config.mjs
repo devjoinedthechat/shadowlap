@@ -106,6 +106,16 @@ const BANS = {
       selector: "CallExpression[callee.object.name='process'][callee.property.name='exit'][arguments.0.type='Literal']",
       message: 'Name the exit status with EXIT from exit-codes.ts: process.exit(EXIT.usage).',
     },
+    // A status in either branch of a conditional, at any depth: `process.exitCode = differ ? 1 : 0`.
+    {
+      selector: [
+        "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'] ConditionalExpression > Literal.consequent[raw=/^[0-9]+$/]",
+        "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'] ConditionalExpression > Literal.alternate[raw=/^[0-9]+$/]",
+        "CallExpression[callee.object.name='process'][callee.property.name='exit'] ConditionalExpression > Literal.consequent[raw=/^[0-9]+$/]",
+        "CallExpression[callee.object.name='process'][callee.property.name='exit'] ConditionalExpression > Literal.alternate[raw=/^[0-9]+$/]",
+      ].join(', '),
+      message: 'Name the exit status with EXIT from exit-codes.ts in each branch: process.exitCode = differ ? EXIT.failed : EXIT.ok.',
+    },
   ],
 };
 /** no-restricted-syntax with the bans named. */
