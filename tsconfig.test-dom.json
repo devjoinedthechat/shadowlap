@@ -53,6 +53,7 @@
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
+    "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts"
   ],

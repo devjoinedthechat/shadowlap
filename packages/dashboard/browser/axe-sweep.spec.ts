@@ -134,7 +134,8 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     await page.locator('#palList', { hasText: 'In recorded data' }).waitFor();
     await settled(page);
   }], ['the palette closed', escape(page, '.palette')]);
-  states.push(['the shortcuts', press(page, '?')], ['the shortcuts closed', press(page, 'Escape')]);
+  // From the run ticked above, its checkbox focused again once the palette closed.
+  states.push(['the shortcuts', press(page, '?', { shows: '.help' })], ['the shortcuts closed', escape(page, '.help')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
   for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
     states.push([`${where}`, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn', undefined, { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);

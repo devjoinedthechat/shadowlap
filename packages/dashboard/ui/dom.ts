@@ -21,12 +21,21 @@ export function paletteKeyLabel(): string {
   return isMac() ? '⌘K' : 'Ctrl K';
 }
 
-/** Whether the keyboard event is typing into a field, where single-key shortcuts must not fire. */
+/** Inputs that take no key a shortcut uses: ticked or pressed with Space or Enter. */
+const KEYLESS_INPUTS = new Set(['checkbox', 'button', 'submit', 'reset', 'image']);
+
+/**
+ * Whether the keyboard event goes to a field, where single-key shortcuts must not fire: one that
+ * takes typing (a text input, a textarea, a select, an editable element), or an input with keys of its
+ * own (a radio's arrows, a date's digits). A checkbox or a button input takes none of them, so with a
+ * run ticked on Runs, ? still opens the shortcuts.
+ */
 export function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
   if (!t) return false;
   const tag = t.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
+  if (tag === 'INPUT') return !KEYLESS_INPUTS.has((t.getAttribute('type') ?? 'text').toLowerCase());
+  return tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
