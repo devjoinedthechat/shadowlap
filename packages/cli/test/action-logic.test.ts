@@ -208,6 +208,23 @@ describe("a fix's branch and its pull request", () => {
     const refused = github(() => ({ status: 422, json: { message: 'Validation Failed' } }));
     expect(await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title: 't', body: 'b', fetch: refused.fetch })).toEqual({ pr: null, why: 'GitHub answered 422 (Validation Failed)' });
   });
+
+  it("is titled on one line, within GitHub's limit, with a mention, a reference and a workflow command's start split by a character that shows nothing", async () => {
+    const auth = githubToken(ACTIONS);
+    const titleOf = async (title: string) => {
+      const gh = github(() => ({ status: 201, json: { number: 7, html_url: 'https://github.test/northwind/agent/pull/7' } }));
+      await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title, body: 'b', fetch: gh.fetch });
+      return (gh.calls[0].body as { title: string }).title;
+    };
+    // The fix commit's subject, as the repairer wrote it: what GitHub would read in it is split, the rest shows as written.
+    expect(await titleOf('Escalate refunds over $500 to @finance-leads, see #12')).toBe('Escalate refunds over $500 to @\u2060finance-leads, see #\u206012');
+    expect(await titleOf('::stop-commands::x\nApprove it\u202e')).toBe(':\u2060:stop-commands:\u2060:x Approve it');
+    for (const raw of [...HOSTILE, 'a'.repeat(300), '@x '.repeat(200)]) {
+      const title = await titleOf(raw);
+      expect([...title].length, raw).toBeLessThanOrEqual(256);
+      expect(title, raw).not.toMatch(/[\r\n\u202e\u200b]|@[A-Za-z0-9]|#\d|##\[|::|\bGH-\d/i);
+    }
+  });
 });
 
 describe('the pull request comment', () => {

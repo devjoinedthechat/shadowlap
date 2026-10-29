@@ -1,6 +1,7 @@
 // Text in the Markdown GitHub renders, for the action's pull request bodies, comments and job
 // summaries: the engine's packages/engine/src/markdown.ts, as plain JavaScript, since the action
-// imports nothing but Node's own modules and its own files. The two are held to the same cases.
+// imports nothing but Node's own modules and its own files. The two are held to the same cases. A pull
+// request's title, which GitHub shows as written, is the action's own (titleText).
 
 /** Shows nothing, and splits the text GitHub looks for math, mentions, references, emoji and links in. */
 const SPLIT = '<span></span>';
@@ -58,6 +59,36 @@ export function markdownText(text) {
     .replace(/\bwww(?=\.)/gi, (m) => `${m}${SPLIT}`)
     // Last, so a `#` it writes as a reference is already split from the digits after it.
     .replace(/^(\s*)([#>+=-]|\d+(?=[.)]))/, (_m, space, mark) => `${space}${[...mark].map((ch) => `&#${ch.charCodeAt(0)};`).join('')}`);
+}
+
+/** Shows nothing, and splits what GitHub or the runner would read in text GitHub shows as it is written, as SPLIT does in Markdown: the word joiner. */
+const JOINER = '\u2060';
+/** The most characters GitHub takes in a pull request's title. */
+const TITLE_MAX = 256;
+
+/**
+ * Text as a pull request's title, which GitHub shows as it is written, not as Markdown, held to the
+ * rules markdownText holds a body to: one line (line breaks and control characters a space, white
+ * space run together), the characters that reorder or hide what is shown left out, and a mention, an
+ * issue or pull request reference (`#12`, `GH-12`) and the start of a workflow command (`::`, `##[`),
+ * which the job's log would read in it, split by a word joiner, which shows nothing; at most 256
+ * characters, as GitHub takes.
+ * @param {string} text
+ * @returns {string}
+ */
+export function titleText(text) {
+  const split = String(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+    .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/@(?=[A-Za-z0-9])/g, `@${JOINER}`)
+    .replace(/#(?=\d)/g, `#${JOINER}`)
+    .replace(/\bGH-(?=\d)/gi, (m) => `${m}${JOINER}`)
+    .replace(/:(?=:)/g, `:${JOINER}`)
+    .replace(/#(?=#\[)/g, `#${JOINER}`);
+  const chars = [...split];
+  return chars.length > TITLE_MAX ? `${chars.slice(0, TITLE_MAX - 1).join('')}…` : split;
 }
 
 /**
