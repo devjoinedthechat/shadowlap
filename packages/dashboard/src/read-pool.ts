@@ -143,6 +143,8 @@ interface Slot {
   later: Pending[];
   /** Ends the thread when the job it is on runs past its time (`READ_LIMITS.jobMs`). */
   limit: ReturnType<typeof setTimeout> | null;
+  /** When it last started a request (Date.now()): a slice of the warm-up goes to the thread that did so least lately. */
+  used: number;
   /**
    * A third thread, started while every thread is busy: at once while what can wait (a long run's
    * whole analysis, a slice of the warm-up) holds one, else once a request has waited behind them
@@ -204,7 +206,7 @@ export class ReadPool implements ReadModels {
     },
   ) {
     const size = Math.max(1, o.size ?? READ_LIMITS.size);
-    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null }));
+    this.slots = Array.from({ length: size }, (_, index) => ({ index, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0 }));
     // The threads start with the dashboard, so the page's first request finds one ready; and the
     // warm-up with them, so the first look at the Overview finds totals kept.
     for (const slot of this.slots) this.spawn(slot);
@@ -261,13 +263,15 @@ export class ReadPool implements ReadModels {
     if (idle.length < Math.min(2, this.slots.filter((s) => !s.spare).length)) return;
     const analysing = idle.find((s) => s.later.length);
     if (analysing) return this.start(analysing, analysing.later.shift()!);
+    // On the thread that answered a request least lately: a slice can't stop, and one that works out a
+    // long run's prompt cache takes seconds, while the run just read waits for the thread that holds it.
     const warm = this.warmSlice();
-    if (warm) this.start(idle[0]!, warm);
+    if (warm) this.start(idle.reduce((a, b) => (b.used < a.used ? b : a)), warm);
   }
 
   /** A spare thread (`Slot.spare`), started for the request about to be given it. */
   private addSpare(): Slot {
-    const slot: Slot = { index: this.slots.length, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, spare: true };
+    const slot: Slot = { index: this.slots.length, worker: null, ready: false, busy: null, pinned: [], later: [], limit: null, used: 0, spare: true };
     this.slots.push(slot);
     this.spawn(slot);
     return slot;
@@ -385,6 +389,7 @@ export class ReadPool implements ReadModels {
 
   private start(slot: Slot, p: Pending): void {
     slot.busy = p;
+    if (!p.background) slot.used = Date.now();
     if (p.affinity !== null && p.handed) this.handOver(p.affinity, slot);
     else if (p.affinity !== null && !p.borrowed && !p.taken && !slot.spare) this.own(p.affinity, slot.index);
     if (!slot.worker) this.spawn(slot);

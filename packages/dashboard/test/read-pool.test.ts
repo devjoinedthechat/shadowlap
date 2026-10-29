@@ -342,6 +342,53 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('works through the warm-up on the thread that answered a request least lately, leaving a run just read its thread', async () => {
+    // Threads whose first slice of the warm-up ends it, and whose slices after that take a while: a
+    // long run's prompt cache, worked out in one.
+    const script = join(dir, 'slow-warm.mjs');
+    writeFileSync(
+      script,
+      [
+        "import { parentPort, threadId } from 'node:worker_threads';",
+        'let warms = 0;',
+        "parentPort.postMessage({ type: 'ready' });",
+        'parentPort.on(\'message\', (m) => {',
+        "  if (m.type === 'close') return parentPort.postMessage({ type: 'closed' });",
+        '  const answer = (extra = {}) => parentPort.postMessage({ type: \'answer\', id: m.id, answer: { status: 200, body: JSON.stringify({ kind: m.job.kind, thread: threadId }), etag: null, ...extra } });',
+        "  if (m.job.kind === 'warm') return ++warms === 1 ? answer({ warm: { done: true, walked: 0, total: 0 } }) : setTimeout(() => answer({ warm: { done: false, walked: 0, total: 1 } }), 1500);",
+        '  answer();',
+        '});',
+      ].join('\n'),
+    );
+    const two = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 2, script: pathToFileURL(script) });
+    const said = (a: { body: string }) => JSON.parse(a.body) as { kind: string; thread: number };
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // A page of a run of 100,000 calls, and the sidebar beside the next on the other thread: the
+      // first thread holds the long run.
+      const holder = said(await two.run({ kind: 'calls', runId: 'BIG', read: {}, from: 1, limit: 500 }, { affinity: 'BIG', calls: 100_000 })).thread;
+      const [, other] = await Promise.all([
+        two.run({ kind: 'calls', runId: 'BIG', read: {}, from: 501, limit: 500 }, { affinity: 'BIG', calls: 100_000 }),
+        two.run({ kind: 'recent', read: {} }).then(said),
+      ]);
+      expect(other.thread).not.toBe(holder);
+      // The long run's next page: its holder is the thread that answered a request last.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(said(await two.run({ kind: 'calls', runId: 'BIG', read: {}, from: 1001, limit: 500 }, { affinity: 'BIG', calls: 100_000 })).thread).toBe(holder);
+      // The warm-up goes through the runs again: its slice goes to the other thread, the one that
+      // answered a request least lately.
+      await new Promise((r) => setTimeout(r, 20));
+      two.warm();
+      await new Promise((r) => setTimeout(r, 100));
+      const t0 = Date.now();
+      const tools = said(await two.run({ kind: 'unrecorded', runId: 'BIG', declared: {} }, { affinity: 'BIG', calls: 100_000 }));
+      expect(tools.thread).toBe(holder);
+      expect(Date.now() - t0).toBeLessThan(400);
+    } finally {
+      await two.close();
+    }
+  }, 30_000);
+
   it('leaves a run with the thread that holds it: a long one’s whole request waits for it, a short one’s is taken but stays its', async () => {
     const { pool: two, said } = timedPool({ 'injection-run': 1500, unrecorded: 300 }, 'holder-jobs');
     try {
