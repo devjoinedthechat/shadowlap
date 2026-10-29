@@ -84,7 +84,7 @@ describe('network guard', () => {
     const off = guardEnv('off', {}, { openai: 'http://127.0.0.1:11434', anthropic: 'offline' });
     expect(off.SHADOWLAP_GUARD).toBe('off');
     const capture = JSON.parse(off.SHADOWLAP_CAPTURE) as { routes: Array<[string, string]>; hosts: Record<string, string> };
-    expect(capture.routes.map((r) => r[1])).toEqual(['anthropic', 'openai', 'gemini', 'azure', 'vertex', 'bedrock']);
+    expect(capture.routes.map((r) => r[1])).toEqual(['anthropic', 'openai', 'gemini', 'azure', 'vertex', 'bedrock', 'ai-gateway']);
     expect(capture.hosts).toEqual({ '127.0.0.1:11434': 'openai' });
     expect(guardEnv('warn', { SHADOWLAP_CAPTURE: 'off' }).SHADOWLAP_CAPTURE).toBe('off');
   });
