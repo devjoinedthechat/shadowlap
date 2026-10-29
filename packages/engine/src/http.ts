@@ -449,14 +449,15 @@ export function maskJsonCredentials(value: unknown): unknown {
 
 /**
  * A string in a body as a recording keeps it: CREDENTIAL_PLACEHOLDER when it is a credential (under
- * a credential member; its member read as one with it; a JWT, whatever its member is named); else
- * with the credentials inside it masked by its shape (maskTextCredentials: JSON in the string, a URL,
- * a query string, a connection string, a GraphQL query). Null to keep it as it is.
+ * a credential member; its member read as one with it, or by its name alone with `byName`; a JWT,
+ * whatever its member is named); else with the credentials inside it masked by its shape
+ * (maskTextCredentials, `byName` passed on: JSON in the string, a URL, a query string, a connection
+ * string, a GraphQL query). Null to keep it as it is.
  */
-function maskedString(key: string | null, value: string, under: boolean, depth: number): string | null {
+function maskedString(key: string | null, value: string, under: boolean, depth: number, byName: boolean): string | null {
   if (value === CREDENTIAL_PLACEHOLDER) return null;
-  if (under || (key !== null && credentialParam(key, value)) || JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
-  return depth < MAX_NESTING ? maskTextCredentials(value, depth + 1) : null;
+  if (under || (key !== null && credentialParam(key, byName ? undefined : value)) || JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
+  return depth < MAX_NESTING ? maskTextCredentials(value, depth + 1, byName) : null;
 }
 
 /**
@@ -466,11 +467,11 @@ function maskedString(key: string | null, value: string, under: boolean, depth: 
  */
 const credentialMember = (key: string): boolean => credentialParam(key, '');
 
-/** The string rule for strings `depth` deep, as walkJson takes it. */
+/** The string rule for strings `depth` deep, as walkJson takes it; with `byName`, as a redirect's JSON is read (maskedString). */
 const stringsAt =
-  (depth: number): StringMask =>
+  (depth: number, byName = false): StringMask =>
   (key, value, under) =>
-    maskedString(key, value, under, depth);
+    maskedString(key, value, under, depth, byName);
 
 /**
  * JSON text with its credentials masked as maskJsonCredentials masks a parsed value, each string
@@ -491,11 +492,11 @@ export function maskJsonTextCredentials(text: string): string | null {
  * attributes; a GraphQL query's arguments; `key: value` and `key = value` lines (YAML, an INI or a
  * .env file); and the JSON objects among other text (maskEmbeddedJson).
  * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
- * name alone, as a redirect's are. Every character it doesn't replace stays as it was; null when it
- * replaced nothing.
+ * name alone, as a redirect's are, and so the members of its JSON and what its strings hold (htmx's
+ * `hx-location`). Every character it doesn't replace stays as it was; null when it replaced nothing.
  */
 export function maskTextCredentials(text: string, depth = 0, byName = false): string | null {
-  const strings = stringsAt(depth);
+  const strings = stringsAt(depth, byName);
   const wrapped = unwrapJson(text);
   const json = walkJson(wrapped.json, strings, credentialMember);
   if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;

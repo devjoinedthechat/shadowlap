@@ -132,6 +132,14 @@ describe('the cheaper shapes', () => {
     expect(JSON.stringify(headers)).not.toMatch(/SLSEC_BP_|eyJ/);
     expect(headers).toEqual({ 'x-upstream-auth': C, 'x-user-jwt': C, 'x-auth': C, 'x-forwarded-uri': `/cb?access_token=${C}&page=2`, 'hx-redirect': `/x?code=${C}`, 'hx-location': `{"path":"/x?code=${C}","target":"#main"}`, 'content-type': 'application/json', 'x-request-id': 'req_123' });
   });
+
+  it('reads the URL in hx-location’s JSON by name, as hx-redirect’s and every other redirect’s are', () => {
+    // A code too short to read as a credential by its value: a redirect's is one by its name alone.
+    const headers = credentialFreeHeaders({ 'hx-redirect': '/cb?code=EXAMPLE1&state=s1', 'hx-location': '{"path":"/cb?code=EXAMPLE1&state=s1","target":"#main","values":{"token":"t1"}}' });
+    expect(headers).toEqual({ 'hx-redirect': `/cb?code=${C}&state=s1`, 'hx-location': `{"path":"/cb?code=${C}&state=s1","target":"#main","values":{"token":"${C}"}}` });
+    // Read the same way, a body's JSON keeps a code that doesn't read as one.
+    expect(maskTextCredentials('{"path":"/cb?code=EXAMPLE1","values":{"token":"t1"}}')).toBeNull();
+  });
 });
 
 describe('a URL’s user info and a JWT anywhere in text, and a header named with a token word anywhere', () => {
