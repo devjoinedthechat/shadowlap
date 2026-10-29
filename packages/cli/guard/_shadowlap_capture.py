@@ -24,6 +24,8 @@ ReadTimeout or ReadError, urllib3's ReadTimeoutError or ProtocolError (which req
 into their own), aiohttp's ServerTimeoutError or ClientOSError, so the agent's error path runs.
 """
 
+from __future__ import annotations
+
 import contextvars
 import errno
 import importlib.abc
@@ -34,26 +36,35 @@ import re
 import sys
 from urllib.parse import quote, unquote, urlsplit
 
+# Typing's names for mypy alone (mypy.ini beside this file): at run time the module imports nothing it needn't.
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    import types
+    from collections.abc import Sequence
+    from re import Pattern
+    from typing import Any, Callable, Optional
+
 _sidecar = os.environ.get("SHADOWLAP_URL")
 _run = os.environ.get("SHADOWLAP_RUN_ID")
 _config = os.environ.get("SHADOWLAP_CAPTURE")
 
-_routes = []
-_hosts = {}
-_http = []
+_routes: list[tuple[Pattern[str], str]] = []
+_hosts: dict[str, str] = {}
+_http: list[tuple[Pattern[str], Optional[str]]] = []
 
 # shadowlap.testing turns capture off between recorded tests, so a test without a recording reaches
 # its hosts directly; under shadowlap run it is always on.
 active = True
 
 # The SDK's scope() variable, shared through sys so either side can create it first.
-_SCOPE = getattr(sys, "_shadowlap_scope_var", None)
-if _SCOPE is None:
-    _SCOPE = contextvars.ContextVar("shadowlap_scope", default=None)
-    sys._shadowlap_scope_var = _SCOPE
+_found: Optional[contextvars.ContextVar[Optional[str]]] = getattr(sys, "_shadowlap_scope_var", None)
+if _found is None:
+    _found = contextvars.ContextVar("shadowlap_scope", default=None)
+    setattr(sys, "_shadowlap_scope_var", _found)
+_SCOPE: contextvars.ContextVar[Optional[str]] = _found
 
 
-def _current_scope():
+def _current_scope() -> Optional[str]:
     """The scope a call is made in: scope() in the SDK, else the one the process starts in, from
     SHADOWLAP_SCOPE (a sub-agent run as its own process), with the limits the sidecar accepts."""
     scoped = _SCOPE.get()
@@ -65,7 +76,7 @@ def _current_scope():
     return raw
 
 
-def _scope_header():
+def _scope_header() -> Optional[str]:
     """The current scope (_current_scope) as x-shadowlap-scope carries it, or None: % and anything
     outside printable ASCII percent-encoded (UTF-8), as the SDK sends it, so a name of any language
     fits a header."""
@@ -75,13 +86,13 @@ def _scope_header():
     return "".join(c if " " <= c <= "~" and c != "%" else quote(c.encode("utf-8", "replace"), safe="") for c in scope)
 
 
-def _to_sidecar(url):
+def _to_sidecar(url: str) -> bool:
     parts = urlsplit(url)
     port = parts.port or (443 if parts.scheme == "https" else 80)
     return "%s:%s" % (parts.hostname or "", port) == _sidecar_key
 
 
-def _provider_for(url):
+def _provider_for(url: str) -> Optional[str]:
     parts = urlsplit(url)
     host = parts.hostname or ""
     port = parts.port or (443 if parts.scheme == "https" else 80)
@@ -102,7 +113,7 @@ def _provider_for(url):
     return None
 
 
-def _rewrite(url):
+def _rewrite(url: str) -> Optional[tuple[str, str, str]]:
     """(sidecar URL, upstream origin, provider), or None when the URL is not a host Shadowlap captures."""
     if not active:
         return None
@@ -113,7 +124,7 @@ def _rewrite(url):
     origin = "%s://%s" % (parts.scheme, parts.netloc)
     # Without a run id (a test worker), SHADOWLAP_URL names a slot and the sidecar resolves the run.
     run = "/r/%s" % quote(_run, safe="") if _run else ""
-    target = "%s%s/%s%s" % (_sidecar.rstrip("/"), run, provider, parts.path or "/")
+    target = "%s%s/%s%s" % (str(_sidecar).rstrip("/"), run, provider, parts.path or "/")
     if parts.query:
         target += "?" + parts.query
     return target, origin, provider
@@ -128,7 +139,7 @@ _FAILURES = "x-shadowlap-failures"
 _OWN_HEADERS = ("x-shadowlap-upstream", "x-shadowlap-scope", _FAILURES)
 
 
-def _drop_own(headers):
+def _drop_own(headers: Any) -> None:
     """Removes, in place, the headers only the sidecar reads from a request's own header map (httpx's,
     requests', botocore's or a dict): whatever their case, every copy of each."""
     if headers is None:
@@ -142,7 +153,7 @@ def _drop_own(headers):
         pass
 
 
-def _injected(request_headers, response_headers):
+def _injected(request_headers: Any, response_headers: Any) -> Optional[tuple[str, Optional[str]]]:
     """(kind, message) when the sidecar answered a request that asked for it with a failure --fail-at
     named (a timeout, or an error with the message given, if any), else None."""
     try:
@@ -157,22 +168,24 @@ def _injected(request_headers, response_headers):
     return kind, (unquote(message) if message else None)
 
 
-def _reset(message):
+def _reset(message: Optional[str]) -> ConnectionResetError:
     return ConnectionResetError(errno.ECONNRESET, message or os.strerror(errno.ECONNRESET))
 
 
-def _patch_httpx(module):
+def _patch_httpx(module: types.ModuleType) -> None:
     if getattr(module, "_shadowlap_capture", False):
         return
-    module._shadowlap_capture = True
+    setattr(module, "_shadowlap_capture", True)
+    # The module's own classes, as it is imported: httpx, or its fork httpx2.
+    httpx: Any = module
 
-    def redirect(request):
+    def redirect(request: Any) -> None:
         scoped = _scope_header()
         rewritten = _rewrite(str(request.url))
         if rewritten is not None:
             target, origin, provider = rewritten
             request.headers["x-shadowlap-upstream"] = origin
-            request.url = module.URL(target)
+            request.url = httpx.URL(target)
             if scoped:
                 request.headers["x-shadowlap-scope"] = scoped
             if provider == "http":
@@ -185,33 +198,32 @@ def _patch_httpx(module):
             # Anywhere else, such as a redirect httpx follows to another host: nothing of the sidecar's goes.
             _drop_own(request.headers)
 
-    def failure(request, injected):
+    def failure(request: Any, injected: tuple[str, Optional[str]]) -> Exception:
         kind, message = injected
-        if kind == "timeout":
-            return module.ReadTimeout(message or "timed out", request=request)
-        return module.ReadError(message or "Connection reset by peer", request=request)
+        error: Exception = httpx.ReadTimeout(message or "timed out", request=request) if kind == "timeout" else httpx.ReadError(message or "Connection reset by peer", request=request)
+        return error
 
     # A client behind a proxy picks its proxy's transport by the URL it asked for, before the request
     # is sent to the sidecar here. The sidecar is on this machine's loopback: a proxy would see the
     # call, its key and the session token in clear text, and can't reach it anyway. So a request for
     # the sidecar on a proxy's transport goes on a direct one instead.
-    direct = {}
+    direct: dict[object, Any] = {}
 
-    def proxied(transport):
+    def proxied(transport: Any) -> bool:
         return type(getattr(transport, "_pool", None)).__name__ in ("HTTPProxy", "AsyncHTTPProxy", "SOCKSProxy", "AsyncSOCKSProxy")
 
-    def direct_transport(cls, key):
+    def direct_transport(cls: Callable[[], Any], key: object) -> Any:
         transport = direct.get(key)
         if transport is None:
             transport = direct[key] = cls()
         return transport
 
-    sync_handle = module.HTTPTransport.handle_request
+    sync_handle = httpx.HTTPTransport.handle_request
 
-    def handle_request(self, request):
+    def handle_request(self: Any, request: Any) -> Any:
         redirect(request)
         if proxied(self) and _to_sidecar(str(request.url)):
-            self = direct_transport(module.HTTPTransport, "sync")
+            self = direct_transport(httpx.HTTPTransport, "sync")
         response = sync_handle(self, request)
         injected = _injected(request.headers, response.headers)
         if injected is None:
@@ -219,17 +231,17 @@ def _patch_httpx(module):
         response.close()
         raise failure(request, injected)
 
-    module.HTTPTransport.handle_request = handle_request
+    httpx.HTTPTransport.handle_request = handle_request
 
-    async_handle = module.AsyncHTTPTransport.handle_async_request
+    async_handle = httpx.AsyncHTTPTransport.handle_async_request
 
-    async def handle_async_request(self, request):
+    async def handle_async_request(self: Any, request: Any) -> Any:
         redirect(request)
         if proxied(self) and _to_sidecar(str(request.url)):
             # One per event loop: an async connection pool belongs to the loop it was made on.
             import asyncio
 
-            self = direct_transport(module.AsyncHTTPTransport, id(asyncio.get_running_loop()))
+            self = direct_transport(httpx.AsyncHTTPTransport, id(asyncio.get_running_loop()))
         response = await async_handle(self, request)
         injected = _injected(request.headers, response.headers)
         if injected is None:
@@ -237,17 +249,17 @@ def _patch_httpx(module):
         await response.aclose()
         raise failure(request, injected)
 
-    module.AsyncHTTPTransport.handle_async_request = handle_async_request
+    httpx.AsyncHTTPTransport.handle_async_request = handle_async_request
 
 
-def _patch_botocore(module):
-    session = getattr(module, "URLLib3Session", None)
+def _patch_botocore(module: types.ModuleType) -> None:
+    session: Any = getattr(module, "URLLib3Session", None)
     if session is None or getattr(session, "_shadowlap_capture", False):
         return
     session._shadowlap_capture = True
     send = session.send
 
-    def captured_send(self, request):
+    def captured_send(self: Any, request: Any) -> Any:
         rewritten = _rewrite(request.url)
         if rewritten is not None:
             target, origin, provider = rewritten
@@ -266,10 +278,10 @@ def _patch_botocore(module):
     session.send = captured_send
 
 
-_sidecar_pool = None
+_sidecar_pool: Any = None
 
 
-def _pool_to_sidecar(module):
+def _pool_to_sidecar(module: Any) -> Any:
     """One connection pool to the sidecar, shared by every captured urllib3 call in this process."""
     global _sidecar_pool
     if _sidecar_pool is None:
@@ -277,18 +289,19 @@ def _pool_to_sidecar(module):
     return _sidecar_pool
 
 
-def _patch_urllib3(module):
+def _patch_urllib3(module: types.ModuleType) -> None:
     """Clients that drive urllib3 themselves. A pool is bound to one host, so a captured request is
     sent on the pool to the sidecar instead, with the path the sidecar expects. A failure --fail-at
     named is raised here as urllib3 raises the real one, for urllib3's own users and for requests and
     botocore, which turn it into theirs."""
-    pool = getattr(module, "HTTPConnectionPool", None)
+    pool: Any = getattr(module, "HTTPConnectionPool", None)
     if pool is None or getattr(pool, "_shadowlap_capture", False):
         return
     pool._shadowlap_capture = True
     urlopen = pool.urlopen
+    urllib3: Any = module
 
-    def fail(conn, url, headers, response):
+    def fail(conn: Any, url: str, headers: Any, response: Any) -> Any:
         injected = _injected(headers, response.headers)
         if injected is None:
             return response
@@ -301,10 +314,10 @@ def _patch_urllib3(module):
             pass
         kind, message = injected
         if kind == "timeout":
-            raise module.ReadTimeoutError(conn, url, "Read timed out.")
-        raise module.ProtocolError("Connection aborted.", _reset(message))
+            raise urllib3.ReadTimeoutError(conn, url, "Read timed out.")
+        raise urllib3.ProtocolError("Connection aborted.", _reset(message))
 
-    def captured_urlopen(self, method, url, body=None, headers=None, *args, **kwargs):
+    def captured_urlopen(self: Any, method: str, url: str, body: Any = None, headers: Any = None, *args: Any, **kwargs: Any) -> Any:
         if url.startswith("http://") or url.startswith("https://"):
             full = url
         else:
@@ -346,14 +359,15 @@ def _patch_urllib3(module):
     pool.urlopen = captured_urlopen
 
 
-def _patch_requests(module):
-    adapter = getattr(module, "HTTPAdapter", None)
+def _patch_requests(module: types.ModuleType) -> None:
+    adapter: Any = getattr(module, "HTTPAdapter", None)
     if adapter is None or getattr(adapter, "_shadowlap_capture", False):
         return
     adapter._shadowlap_capture = True
     send = adapter.send
+    requests: Any = module
 
-    def captured_send(self, request, *args, **kwargs):
+    def captured_send(self: Any, request: Any, *args: Any, **kwargs: Any) -> Any:
         rewritten = _rewrite(request.url)
         scoped = _scope_header()
         if rewritten is not None:
@@ -375,13 +389,13 @@ def _patch_requests(module):
         response.close()
         kind, message = injected
         if kind == "timeout":
-            raise module.ReadTimeout("Read timed out.", request=request)
-        raise module.ConnectionError(_reset(message), request=request)
+            raise requests.ReadTimeout("Read timed out.", request=request)
+        raise requests.ConnectionError(_reset(message), request=request)
 
     adapter.send = captured_send
 
 
-def _with_headers(headers, extra):
+def _with_headers(headers: Any, extra: dict[str, str]) -> Any:
     """`headers` (a dict, a multidict, a list of pairs, or None) with `extra` set in a copy of them."""
     if headers is None:
         return dict(extra)
@@ -396,7 +410,7 @@ def _with_headers(headers, extra):
     return out
 
 
-def _sidecar_ws(url):
+def _sidecar_ws(url: object) -> Optional[str]:
     """A ``wss://`` URL for the sidecar as ``ws://``, or None for any other."""
     text = str(url)
     if text[:6].lower() == "wss://" and _to_sidecar("https://" + text[6:]):
@@ -404,22 +418,22 @@ def _sidecar_ws(url):
     return None
 
 
-def _patch_aiohttp(module):
+def _patch_aiohttp(module: types.ModuleType) -> None:
     """aiohttp: a request is redirected where aiohttp makes it (ClientRequest), so a session's base
     URL, its redirects and ws_connect all come through here, and a proxy it was given (trust_env and
     HTTP_PROXY) is left out for the sidecar, which is on this machine's loopback."""
-    request = getattr(module, "ClientRequest", None)
+    request: Any = getattr(module, "ClientRequest", None)
     if request is None or getattr(request, "_shadowlap_capture", False):
         return
     request._shadowlap_capture = True
     url_type = getattr(module, "URL", None)
     init = request.__init__
 
-    def captured_init(self, method, url, *args, **kwargs):
+    def captured_init(self: Any, method: str, url: Any, *args: Any, **kwargs: Any) -> None:
         try:
             full = str(url)
-            target = None
-            extra = {}
+            target: Optional[str] = None
+            extra: dict[str, str] = {}
             rewritten = _rewrite(full)
             if rewritten is not None:
                 target, origin, provider = rewritten
@@ -445,13 +459,13 @@ def _patch_aiohttp(module):
 
     request.__init__ = captured_init
 
-    response = getattr(module, "ClientResponse", None)
+    response: Any = getattr(module, "ClientResponse", None)
     if response is None or getattr(response, "_shadowlap_capture", False):
         return
     response._shadowlap_capture = True
     start = response.start
 
-    async def captured_start(self, connection):
+    async def captured_start(self: Any, connection: Any) -> Any:
         started = await start(self, connection)
         injected = _injected(self.request_info.headers, self.headers)
         if injected is None:
@@ -467,14 +481,14 @@ def _patch_aiohttp(module):
     response.start = captured_start
 
 
-def _patch_websockets(module):
+def _patch_websockets(module: types.ModuleType) -> None:
     """websockets' clients, the OpenAI SDK's among them: a ``wss://`` URI for the sidecar connects as
     ``ws://``, without the TLS settings a ``ws://`` URI refuses."""
-    connect = getattr(module, "connect", None)
+    connect: Any = getattr(module, "connect", None)
     if connect is None or getattr(connect, "_shadowlap_capture", False):
         return
 
-    def plain(uri, kwargs):
+    def plain(uri: Any, kwargs: dict[str, Any]) -> Any:
         target = _sidecar_ws(uri)
         if target is None:
             return uri
@@ -484,23 +498,23 @@ def _patch_websockets(module):
 
     if isinstance(connect, type):
         # The asyncio client's connect and the legacy Connect are classes.
-        init = connect.__init__
+        init = getattr(connect, "__init__")
 
-        def captured_init(self, uri, *args, **kwargs):
+        def captured_init(self: Any, uri: Any, *args: Any, **kwargs: Any) -> None:
             init(self, plain(uri, kwargs), *args, **kwargs)
 
-        connect.__init__ = captured_init
-        connect._shadowlap_capture = True
+        setattr(connect, "__init__", captured_init)
+        setattr(connect, "_shadowlap_capture", True)
     else:
 
-        def captured_connect(uri, *args, **kwargs):
+        def captured_connect(uri: Any, *args: Any, **kwargs: Any) -> Any:
             return connect(plain(uri, kwargs), *args, **kwargs)
 
-        captured_connect._shadowlap_capture = True
-        module.connect = captured_connect
+        setattr(captured_connect, "_shadowlap_capture", True)
+        setattr(module, "connect", captured_connect)
 
 
-_PATCHES = {
+_PATCHES: dict[str, Callable[[types.ModuleType], None]] = {
     "httpx": _patch_httpx,
     "httpx2": _patch_httpx,
     "botocore.httpsession": _patch_botocore,
@@ -516,7 +530,7 @@ _PATCHES = {
 class _Finder(importlib.abc.MetaPathFinder):
     """Patches a module right after it is imported, whoever imports it."""
 
-    def find_spec(self, name, path, target=None):
+    def find_spec(self, name: str, path: Optional[Sequence[str]], target: Optional[types.ModuleType] = None) -> Optional[importlib.machinery.ModuleSpec]:
         if name not in _PATCHES:
             return None
         spec = importlib.machinery.PathFinder.find_spec(name, path)
@@ -525,19 +539,20 @@ class _Finder(importlib.abc.MetaPathFinder):
         loader = spec.loader
         exec_module = loader.exec_module
 
-        def exec_and_patch(module):
+        def exec_and_patch(module: types.ModuleType) -> None:
             exec_module(module)
             try:
                 _PATCHES[name](module)
             except Exception as err:  # never break the agent
                 sys.stderr.write("[shadowlap] could not set up capture for %s: %s\n" % (name, err))
 
-        loader.exec_module = exec_and_patch
+        setattr(loader, "exec_module", exec_and_patch)
         return spec
 
 
+_sidecar_key: Optional[str]
 if _sidecar and _config and _config != "off" and not getattr(sys, "_shadowlap_capture", False):
-    sys._shadowlap_capture = True
+    setattr(sys, "_shadowlap_capture", True)
     _u = urlsplit(_sidecar)
     _sidecar_key = "%s:%s" % (_u.hostname, _u.port or (443 if _u.scheme == "https" else 80))
     try:

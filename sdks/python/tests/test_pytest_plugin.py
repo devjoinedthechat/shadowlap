@@ -13,6 +13,7 @@ import textwrap
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import ClassVar, Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SDK = os.path.dirname(HERE)
@@ -31,7 +32,7 @@ class _Model(BaseHTTPRequestHandler):
     """An OpenAI-shaped chat endpoint that echoes the prompt, and counts its requests and the keys they carry."""
 
     hits = 0
-    keys = []
+    keys: ClassVar[list[Optional[str]]] = []
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("content-length") or 0)) or b"{}")

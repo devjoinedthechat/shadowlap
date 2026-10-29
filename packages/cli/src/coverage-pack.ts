@@ -8,7 +8,9 @@ import {
   fillCommand,
   fingerprintTool,
   firstMessage,
+  isObject,
   loadApiRequest,
+  messageOf,
   normalizeConversation,
   packRun,
   unpackRun,
@@ -16,6 +18,7 @@ import {
   responseInfo,
   safeLine,
   Store,
+  type StoreOf,
   type CallMeta,
   type CallRecord,
   type CoverageGroup,
@@ -100,7 +103,7 @@ interface Asked {
  * Each tool call the model asked for in a capture, with the answer the agent sent back in a later
  * request: by the call's id where the provider gives one, else by name, in order.
  */
-export function askedTools(store: Store, calls: readonly CallRecord[]): Asked[] {
+export function askedTools(store: StoreOf<'recording'>, calls: readonly CallRecord[]): Asked[] {
   const api = calls.filter((c) => c.kind === 'api').sort((a, b) => a.callNo - b.callNo);
   const asked: Asked[] = [];
   for (const c of api) {
@@ -143,14 +146,14 @@ export function askedTools(store: Store, calls: readonly CallRecord[]): Asked[] 
 }
 
 /** What `mcpMetaOf` found, per store and tool: a pack rebuilds the same tools for several captures. */
-const mcpSeen = new WeakMap<Store, Map<string, NonNullable<CallMeta['mcp']> | null>>();
+const mcpSeen = new WeakMap<object, Map<string, NonNullable<CallMeta['mcp']> | null>>();
 
 /**
  * How this store last recorded a tool served through `shadowlap mcp`: its `meta.mcp`. An MCP tool's
  * answer reaches the agent as MCP content, so a rebuilt answer must take that shape too, or the
  * agent's MCP client would get a value it never sees from a server.
  */
-function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
+function mcpMetaOf(store: StoreOf<'readModels'>, tool: string): NonNullable<CallMeta['mcp']> | null {
   let seen = mcpSeen.get(store);
   if (!seen) {
     seen = new Map();
@@ -162,7 +165,7 @@ function mcpMetaOf(store: Store, tool: string): NonNullable<CallMeta['mcp']> | n
   return found;
 }
 
-function readMcpMeta(store: Store, tool: string): NonNullable<CallMeta['mcp']> | null {
+function readMcpMeta(store: StoreOf<'readModels'>, tool: string): NonNullable<CallMeta['mcp']> | null {
   const row = store.query(`SELECT json_extract(meta, '$.mcp') AS mcp FROM call_events WHERE phase = 'start' AND kind = 'tool' AND name = ? AND json_extract(meta, '$.mcp') IS NOT NULL ORDER BY at DESC LIMIT 1`, tool)[0];
   if (!row || typeof row.mcp !== 'string') return null;
   try {
@@ -180,7 +183,7 @@ function readMcpMeta(store: Store, tool: string): NonNullable<CallMeta['mcp']> |
  * no answer back (the capture ends before it, or the agent never sent it) is left out whole: its
  * calls run live in the replay, writes stubbed.
  */
-export function rebuildCapture(source: Store, target: Store, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
+export function rebuildCapture(source: StoreOf<'recording' | 'cleanup' | 'readModels'>, target: StoreOf<'recording'>, capture: RunRecord, command: { argv: string[]; cwd: string }, effectOf: EffectOf): { run: RunRecord; tools: number; live: string[] } {
   const calls = source.getCalls(capture.runId);
   for (const hash of source.runBlobRefs(capture.runId)) {
     const bytes = source.getBlob(hash);
@@ -381,7 +384,7 @@ function packGolden(mem: Store, runId: string, group: CoverageGroup, capture: Ru
   if (mode === 'fork' && o.fork) {
     const expect = o.fork.expect;
     editConfigFile(o.projectDir, {}, (data) => {
-      const tests = typeof data.tests === 'object' && data.tests !== null && !Array.isArray(data.tests) ? (data.tests as Record<string, unknown>) : {};
+      const tests: Record<string, unknown> = isObject(data.tests) ? data.tests : {};
       tests[where] = { fork: true, expect };
       data.tests = tests;
     });
@@ -401,7 +404,7 @@ export async function packGroup(group: CoverageGroup, members: ReadonlyMap<strin
     const kept: StoredCoveragePack = { key: made.key, at: (o.now ?? Date.now)(), golden: made.golden, runId: made.runId, from: made.from, mode: made.mode, reason: made.reason, why: made.why, command: made.command };
     o.store.saveCoveragePack(kept);
   } catch (err) {
-    o.log?.(`[shadowlap] what --pack made of ${group.key} was not kept: ${(err as Error).message}`);
+    o.log?.(`[shadowlap] what --pack made of ${group.key} was not kept: ${messageOf(err)}`);
   }
   return made;
 }

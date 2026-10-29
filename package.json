@@ -26,7 +26,8 @@
   "scripts": {
     "build": "node scripts/prune-dist.mjs && tsc -b && node scripts/build-cjs.mjs && node packages/dashboard/build-ui.mjs",
     "clean": "tsc -b --clean && rm -rf packages/*/dist testing/*/dist",
-    "typecheck": "tsc -b && node scripts/build-cjs.mjs && tsc -p packages/dashboard/ui/tsconfig.json && tsc -p packages/dashboard/browser/tsconfig.json && npm run typecheck:tests",
+    "typecheck": "tsc -b && node scripts/build-cjs.mjs && tsc -p packages/dashboard/ui/tsconfig.json && tsc -p packages/dashboard/browser/tsconfig.json && npm run typecheck:js && npm run typecheck:tests",
+    "typecheck:js": "tsc -p action/tsconfig.json && tsc -p packages/cli/guard/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "golden": "node testing/reference-agent/dist/make-golden.js testing/golden/reference-agent",
@@ -37,13 +38,14 @@
     "bench:dashboard": "node scripts/dashboard-scale.mjs",
     "video": "node scripts/dashboard-video.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit && tsc -p tsconfig.test-dom.json --noEmit",
-    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0 && uvx ruff@0.17.0 check",
+    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js . --max-warnings 0 && node scripts/lint-caps.mjs && uvx ruff@0.17.0 check && uvx --from mypy==2.4.0 mypy --config-file packages/cli/guard/mypy.ini",
     "test:browser": "npm run test:browser --workspace packages/dashboard --"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "^22.15.0",
     "@vitest/coverage-v8": "5.0.3",
+    "@vitest/eslint-plugin": "1.6.27",
     "eslint": "10.12.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "globals": "17.13.0",

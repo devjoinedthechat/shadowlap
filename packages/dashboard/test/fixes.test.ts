@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, setFixTitle, Store, unsettledFirst, type BlameReport, type Block, type SprtGate } from '@shadowlap/engine';
+import { agentOfArgv, BLAME_DEFAULTS, type BlameReport, type Block, decideVerify, findPairs, fixRecords, gateResult, markFixApplied, recordBlame, recordEvent, recordRepair, recordVerdict, repairArgv, setFixTitle, type SprtGate, Store, unsettledFirst } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { DONE, ESCALATE, LOOKUP, POLICY, REFUND, recordRun } from '../../engine/test/training-fixtures.js';
 import { runDetail } from '../src/api.js';
-import { agentOfArgv, fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes, repairArgv } from '../src/fixes.js';
+import { fixBundles, fixDetail, fixesSummary, fixForRun, fixList, needsLookFixes } from '../src/fixes.js';
 
 let store: Store;
 beforeEach(() => {

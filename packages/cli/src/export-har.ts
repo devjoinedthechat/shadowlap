@@ -1,4 +1,4 @@
-import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactApiPath, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, credentialFreeHeaders, loadApiRequest, redactApiPath, redactBytes, rewriteText, type CallRecord, type Normalizer, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { providers } from '@shadowlap/sidecar';
 import { VERSION } from './shared.js';
 
@@ -37,7 +37,7 @@ export interface HarExportResult {
   skipped: Array<{ callNo: number; reason: string }>;
 }
 
-export function runToHar(store: Store, run: RunRecord, calls: CallRecord[], options: { redact?: Normalizer[] } = {}): HarExportResult {
+export function runToHar(store: StoreOf<'recording'>, run: RunRecord, calls: CallRecord[], options: { redact?: Normalizer[] } = {}): HarExportResult {
   const entries: unknown[] = [];
   const skipped: HarExportResult['skipped'] = [];
   const rules = options.redact ?? [];

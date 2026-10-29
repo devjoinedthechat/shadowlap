@@ -1,6 +1,8 @@
+import { messageOf } from './message-of.js';
 import { namedPatterns, parsePath } from './normalize.js';
 import { PATTERN_MAX, patternProblem } from './safe-regex.js';
 import type { CallEndRow, CallRecord, RunRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Validation for packs, which are untrusted input: someone else's recording, a file attached to an
@@ -50,8 +52,6 @@ const DIVERGENCES = new Set(['request_changed', 'new_call', 'forced', 'beyond_re
 const BLAME_OUTCOMES = new Set(['blamed', 'unrescuable', 'stopped']);
 const CONFIDENCES = new Set(['high', 'medium', 'low']);
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** How far ahead of this machine's clock a recorded time may be: another machine's clock may run fast. */
 const FUTURE_ALLOWANCE_MS = 24 * 60 * 60 * 1000;
 
@@ -81,7 +81,7 @@ function rule(v: unknown, at: string): void {
     try {
       parsePath(v.path as string);
     } catch (err) {
-      fail(`${at}.path`, err instanceof Error ? err.message : String(err));
+      fail(`${at}.path`, messageOf(err));
     }
   }
   if (v.pattern !== undefined) {

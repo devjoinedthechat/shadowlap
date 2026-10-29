@@ -1,8 +1,7 @@
-import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, verdictLine, withLabels, withNote } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
-import { askConsent, saidYes } from './consent.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';
@@ -236,7 +235,7 @@ function oneLine(v: unknown): string {
 }
 
 /** A call's row; `recording` while its run records, when a failure the agent may retry is marked so. */
-function row(store: Store, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
+function row(store: StoreOf<'recording'>, c: CallRecord, options: ReadOptions, facts: CallFacts = NO_FACTS, recording = false): CallRow {
   const end = c.end;
   const u = end?.meta.usage;
   const model = end?.meta.model ?? c.meta.model ?? (c.kind === 'api' ? modelResolver(store)(c) : null) ?? null;
@@ -282,7 +281,7 @@ export function listRuns(store: Store, options: ReadOptions & { includeAttempts?
 }
 
 /** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
-export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
+export function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord | null {
   if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return null;
   try {
     return store.findRun(idOrPrefix);
@@ -295,7 +294,7 @@ export function lookupRun(store: Store, idOrPrefix: string): RunRecord | null {
  * Whether a run id prefix matches several runs and no run whole: `lookupRun` finds none for it, as
  * the CLI refuses it, and the dashboard says so rather than that there is no such run.
  */
-export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
+export function ambiguousRunId(store: StoreOf<'readModels'>, idOrPrefix: string): boolean {
   if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return false;
   const want = idOrPrefix.toUpperCase();
   let n = 0;
@@ -307,13 +306,13 @@ export function ambiguousRunId(store: Store, idOrPrefix: string): boolean {
 }
 
 /** The error for a run id that names no single run: several runs (409), or none (404). */
-export function noSuchRun(store: Store, idOrPrefix: string): { status: number; message: string } {
+export function noSuchRun(store: StoreOf<'readModels'>, idOrPrefix: string): { status: number; message: string } {
   const id = idOrPrefix.slice(0, 40);
   return ambiguousRunId(store, idOrPrefix) ? { status: 409, message: `run id prefix ${id} matches several runs: use more of the id` } : { status: 404, message: `no run ${id}` };
 }
 
 /** A run's children for its page, each attempt marked as the run lists bundle it. */
-function childRows(store: Store, runId: string): RunDetail['children'] {
+function childRows(store: StoreOf<'recording' | 'readModels'>, runId: string): RunDetail['children'] {
   const index = loadRunIndex(store);
   return store.childRuns(runId).map((r) => {
     const listed = index.byId.get(r.runId);
@@ -531,7 +530,7 @@ export function runCallsPage(store: Store, idOrPrefix: string, at: { from: numbe
  * lists show it as a fork of its own, so every run of the parent is read, not the run index's
  * bundles alone. Null for a run that names no group.
  */
-export function attemptPlace(store: Store, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
+export function attemptPlace(store: StoreOf<'readModels'>, run: Pick<RunRecord, 'runId' | 'parentRunId' | 'meta'>): { k: number; n: number } | null {
   const group: unknown = run.meta?.repeat?.group;
   if (typeof group !== 'string' || !group || !run.parentRunId) return null;
   const same = loadRunIndex(store).runs.filter((r) => r.parentRunId === run.parentRunId && r.meta.repeat?.group === group);
@@ -547,7 +546,7 @@ export function provenance(store: Store, idOrPrefix: string, options: ReadOption
 }
 
 /** `shadowlap show <run> --json` as the CLI prints it, for Copy show --json. */
-export function showRunJson(store: Store, idOrPrefix: string, options: ReadOptions & { tools?: ToolTrust } = {}): ReturnType<typeof runShowJson> | null {
+export function showRunJson(store: StoreOf<'recording'>, idOrPrefix: string, options: ReadOptions & { tools?: ToolTrust } = {}): ReturnType<typeof runShowJson> | null {
   const run = lookupRun(store, idOrPrefix);
   return run ? runShowJson(store, run, options) : null;
 }
@@ -596,7 +595,7 @@ export function callDetailFrom(store: Store, run: RunRecord, calls: readonly Cal
     try {
       request = c.kind === 'api' ? loadApiRequest(store, c.requestRef) : store.getJson(c.requestRef);
     } catch (err) {
-      request = { error: `could not load the stored request: ${err instanceof Error ? err.message : String(err)}` };
+      request = { error: `could not load the stored request: ${messageOf(err)}` };
     }
   }
   // The conversation at this call: its own request for a model call, else its conversation's
@@ -682,7 +681,7 @@ export function importedConsent(run: RunRecord, args: readonly string[], yes: un
 }
 
 /** The CLI arguments for an action, rebuilt on the server from the run and call: the browser never sends a command line. */
-export function actionArgs(store: Store, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
+export function actionArgs(store: StoreOf<'recording'>, idOrPrefix: string, callNo: number | null, key: string, value: string | undefined, o: { yes?: unknown } = {}): { args: string[]; opensRun: boolean } | { error: string; status?: number; confirm?: string } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `unknown run ${idOrPrefix}` };
   const call = callNo === null ? undefined : store.getCalls(run.runId, { only: [callNo] })[0];
@@ -704,7 +703,7 @@ export function actionArgs(store: Store, idOrPrefix: string, callNo: number | nu
 }
 
 /** Adds and removes labels on a run: the labels it has now, or why they could not be changed. */
-export function changeLabels(store: Store, idOrPrefix: string, add: unknown, remove: unknown): { labels: string[] } | { error: string; status: number } {
+export function changeLabels(store: StoreOf<'recording'>, idOrPrefix: string, add: unknown, remove: unknown): { labels: string[] } | { error: string; status: number } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `no run ${idOrPrefix}`, status: 404 };
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -719,12 +718,12 @@ export function changeLabels(store: Store, idOrPrefix: string, add: unknown, rem
     store.updateRunMeta(run.runId, { labels });
     return { labels };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), status: 400 };
+    return { error: messageOf(err), status: 400 };
   }
 }
 
 /** Adds a note to a run or one of its calls: the call's (or run's) notes now. */
-export function addNote(store: Store, idOrPrefix: string, callNo: unknown, text: unknown): { notes: RunNote[] } | { error: string; status: number } {
+export function addNote(store: StoreOf<'recording'>, idOrPrefix: string, callNo: unknown, text: unknown): { notes: RunNote[] } | { error: string; status: number } {
   const run = lookupRun(store, idOrPrefix);
   if (!run) return { error: `no run ${idOrPrefix}`, status: 404 };
   const n = typeof callNo === 'number' && Number.isInteger(callNo) ? callNo : null;
@@ -735,7 +734,7 @@ export function addNote(store: Store, idOrPrefix: string, callNo: unknown, text:
     store.updateRunMeta(run.runId, { notes });
     return { notes: notes.filter((x) => x.callNo === n) };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), status: 400 };
+    return { error: messageOf(err), status: 400 };
   }
 }
 
@@ -860,7 +859,7 @@ function withGate(t: LineageNode['test'], gateFor: (t: NonNullable<LineageNode['
  * replay's one attempt settles it, with no rule to state. Null when the golden has no gate, the gate
  * decided nothing (stopped by a check it couldn't judge, or by a signal), or what was kept can't be read.
  */
-function sessionGate(store: Store, session: string, golden: string): { verdict: string; rule: string | null } | null {
+function sessionGate(store: StoreOf<'tests'>, session: string, golden: string): { verdict: string; rule: string | null } | null {
   try {
     const g = store.listTestResults({ sessionId: session, golden, limit: 1 })[0]?.data?.gate;
     if (!g || g.decision === 'continue') return null;
@@ -879,7 +878,7 @@ function testOf(r: RunRecord): LineageNode['test'] {
   return { golden, session, attempt: Number.isInteger(attempt) ? (attempt as number) : null };
 }
 
-export function compare(store: Store, a: string, b: string): RunComparison | null {
+export function compare(store: StoreOf<'recording'>, a: string, b: string): RunComparison | null {
   const ra = lookupRun(store, a);
   const rb = lookupRun(store, b);
   if (!ra || !rb) return null;

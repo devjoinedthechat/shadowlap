@@ -5,9 +5,10 @@ import { sameCommandLine } from './http.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { PACK_LIMITS, PackError, callRefs, validateCall, validateRun } from './pack-schema.js';
 import { carriesCredentials, redactRun } from './redact.js';
-import { Store } from './store.js';
+import { Store, type StoreOf } from './store.js';
 import { safeLine } from './text.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 
@@ -54,7 +55,7 @@ function forPack(run: RunRecord, keepAuthor: boolean): RunRecord {
  * so it is `crashed`, ended at its last call, as gc ends it; a copy that kept it running would show
  * it recording for good wherever it is opened. Every other run as it is. The store is not changed.
  */
-export function asTheyStand<R extends RunRecord>(store: Store, runs: readonly R[]): R[] {
+export function asTheyStand<R extends RunRecord>(store: StoreOf<'recording'>, runs: readonly R[]): R[] {
   if (!runs.some((r) => r.status === 'running')) return [...runs];
   const left = new Map(store.recordingRuns().abandoned.map((a) => [a.run.runId, a.lastAt]));
   return runs.map((r) => {
@@ -127,7 +128,7 @@ function blobRefs(call: CallRecord): string[] {
 }
 
 /** Follows request manifests to the blobs they reference, of every version (manifest.ts). */
-function manifestChildren(store: Store, hash: string): string[] {
+function manifestChildren(store: StoreOf<'recording'>, hash: string): string[] {
   return manifestRefs(store, hash);
 }
 
@@ -256,7 +257,7 @@ function writePack(dir: string, write: (into: string) => void): void {
           keep = true;
         }
       }
-      if (keep) throw new Error(`${(err as Error).message}; the old pack's files are in ${aside}`, { cause: err });
+      if (keep) throw new Error(`${messageOf(err)}; the old pack's files are in ${aside}`, { cause: err });
       throw err;
     }
   } finally {
@@ -287,7 +288,7 @@ export interface RecordingMismatch {
 }
 
 /** Writes a run's calls into a store, each call's attempts and end after its start. */
-function appendCalls(store: Store, calls: readonly CallRecord[]): void {
+function appendCalls(store: StoreOf<'recording'>, calls: readonly CallRecord[]): void {
   for (const call of calls) {
     const { end, attempts, ...start } = call;
     store.appendCallStart(start);
@@ -309,7 +310,7 @@ function appendCalls(store: Store, calls: readonly CallRecord[]): void {
  * later, which a pack packed again (or a golden updated) gains under the same id (see
  * mergeJudgeCalls).
  */
-function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
+function sameCalls(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): boolean {
   const ours = agentCallsOf(store.getCalls(held.runId));
   const theirs = agentCallsOf([...packedCalls].sort((a, b) => a.callNo - b.callNo));
   if (ours.length !== theirs.length) return false;
@@ -368,7 +369,7 @@ function sameCalls(store: Store, held: RunRecord, packed: RunRecord, packedCalls
  * is. A call whose number the copy already uses gets the next free one: judge calls are matched by
  * their request, never by number. One whose blobs the pack lacks is left out. Returns how many.
  */
-function mergeJudgeCalls(store: Store, runId: string, theirs: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): number {
+function mergeJudgeCalls(store: StoreOf<'recording'>, runId: string, theirs: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): number {
   if (!theirs.length) return 0;
   const ours = store.getCalls(runId);
   const sig = (c: CallRecord) => JSON.stringify([c.fingerprint, c.requestRef, c.end?.responseRef ?? null]);
@@ -395,7 +396,7 @@ function mergeJudgeCalls(store: Store, runId: string, theirs: readonly CallRecor
 }
 
 /** How the store's run under a pack run's id differs from it, or null when it is that recording. */
-function mismatch(store: Store, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): RecordingMismatch | null {
+function mismatch(store: StoreOf<'recording' | 'readModels'>, held: RunRecord, packed: RunRecord, packedCalls: readonly CallRecord[], blobs: ReadonlyMap<string, Buffer>): RecordingMismatch | null {
   // A pack masks the credentials a command line carries (credentialFreeArgv): the store's, with them, is the same command.
   const sameCommand = sameCommandLine(held.command.argv, packed.command.argv) && held.command.cwd === packed.command.cwd;
   const calls = !sameCalls(store, held, packed, packedCalls, blobs);
@@ -452,7 +453,7 @@ export function readPackFile(path: string, limit: number, what: string): Buffer 
  * someone else recorded; `madeHere` holds them unmarked instead, for a pack this process has just
  * made from runs of its own (`coverage --pack`'s golden), whatever the pack itself claims.
  */
-export function unpackRun(store: Store, dir: string, o: { madeHere?: boolean } = {}): UnpackResult {
+export function unpackRun(store: StoreOf<'recording' | 'readModels'>, dir: string, o: { madeHere?: boolean } = {}): UnpackResult {
   const root = resolve(dir);
   const manifestPath = join(root, 'run.json');
   if (!existsSync(manifestPath)) throw new PackError(`${dir} is not a Shadowlap pack (no run.json)`);
@@ -546,7 +547,7 @@ export function unpackRun(store: Store, dir: string, o: { madeHere?: boolean } =
         try {
           loadApiRequest(store, c.requestRef);
         } catch (err) {
-          throw new PackError(`calls.jsonl: the request of call #${c.callNo} cannot be read: ${err instanceof Error ? err.message : String(err)}`);
+          throw new PackError(`calls.jsonl: the request of call #${c.callNo} cannot be read: ${messageOf(err)}`);
         }
       }
     }

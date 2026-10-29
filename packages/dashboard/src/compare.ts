@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { compareRuns, type RunComparison, type RunRecord, type Store } from '@shadowlap/engine';
+import { compareRuns, type RunComparison, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { compare, lookupRun } from './api.js';
 
 /**
@@ -100,7 +100,7 @@ export function codeChangeCache(read: typeof readCodeChange = readCodeChange): (
 }
 
 /** Two runs compared, with what the code card says; null when one of them is not in the store. */
-export async function compareView(store: Store, a: string, b: string, o: { cwd: string | null; code?: (cwd: string | null, a: string | null, b: string | null) => Promise<CodeChange | null> }): Promise<CompareView | null> {
+export async function compareView(store: StoreOf<'recording'>, a: string, b: string, o: { cwd: string | null; code?: (cwd: string | null, a: string | null, b: string | null) => Promise<CodeChange | null> }): Promise<CompareView | null> {
   const c = compare(store, a, b);
   if (!c) return null;
   const code = await (o.code ?? readCodeChange)(o.cwd, c.changes.code.a, c.changes.code.b);
@@ -147,7 +147,7 @@ export const HEAD_READS = 16;
  * Compare's head for runs `a` and `b`; null when a run is not in the store, or when telling it would
  * mean reading more than HEAD_READS pairs of requests whole.
  */
-export function compareHead(store: Store, a: string, b: string): CompareHead | null {
+export function compareHead(store: StoreOf<'recording' | 'readModels'>, a: string, b: string): CompareHead | null {
   const ra = lookupRun(store, a);
   const rb = lookupRun(store, b);
   if (!ra || !rb) return null;

@@ -304,7 +304,7 @@ describe('the Blame step', () => {
   });
 });
 
-describe('the Repair step', () => {
+describe('the Repair step’s candidates', () => {
   const BEFORE = 'You are a support agent. Follow the refund policy.';
   const AFTER = 'You are a support agent. Follow the refund policy: escalate every refund above the limit it sets.';
 

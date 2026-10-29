@@ -38,7 +38,7 @@ import warnings
 from types import TracebackType
 from typing import Any, Literal, Optional, cast
 
-__all__ = ["ShadowlapReplayDiverged", "Recording", "recording", "record_mode", "under_shadowlap_run"]
+__all__ = ["Recording", "ShadowlapReplayDiverged", "record_mode", "recording", "under_shadowlap_run"]
 
 MODES = ("missing", "all", "none")
 
@@ -68,7 +68,7 @@ class _Host:
     def __init__(self, root: str):
         self.root = os.path.abspath(root)
         self.slot = re.sub(r"[^\w.-]", "-", os.environ.get("PYTEST_XDIST_WORKER") or "main")[:64]
-        command = _cli_command() + ["serve", "--recordings"]
+        command = [*_cli_command(), "serve", "--recordings"]
         try:
             self.process = subprocess.Popen(command, cwd=self.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, env=os.environ.copy())
         except OSError as err:
@@ -128,7 +128,7 @@ class _Host:
         self._saved = {}
 
     def post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")
+        req = urllib.request.Request(self.url + path, data=json.dumps(body).encode("utf-8"), headers={"content-type": "application/json"}, method="POST")  # noqa: S310 -- the serve process this Recording started, on loopback
         try:
             # Never through a proxy: the host is on this machine's loopback.
             with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=120) as res:

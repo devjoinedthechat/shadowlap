@@ -16,8 +16,9 @@ import { requestPathLabel } from './request-paths.js';
 import { plain } from './report.js';
 import { oneLine, runInterventions, type InterventionFlag } from './run-facts.js';
 import { safeLine, safeText } from './text.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DiffEntry, Hint, RunRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Two runs side by side, call by call: where their requests first differ, and where identical
@@ -126,8 +127,6 @@ interface RunShape {
   models: Set<string>;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** Tool definitions by name, in each provider's shape: Anthropic, OpenAI Chat and Responses, Gemini, Bedrock Converse. */
 export function toolDefinitions(body: Record<string, unknown>): Map<string, unknown> {
   const out = new Map<string, unknown>();
@@ -146,7 +145,7 @@ export function toolDefinitions(body: Record<string, unknown>): Map<string, unkn
 }
 
 /** The prompts, tool definitions and models a run's model calls used. */
-function shapeOf(store: Store, calls: CallRecord[]): RunShape {
+function shapeOf(store: StoreOf<'recording'>, calls: CallRecord[]): RunShape {
   const shape: RunShape = { systems: new Set(), tools: new Map(), models: new Set() };
   for (const c of calls) {
     if (c.kind !== 'api' || !c.requestRef) continue;
@@ -170,7 +169,7 @@ function shapeOf(store: Store, calls: CallRecord[]): RunShape {
   return shape;
 }
 
-export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: RunRecord, bCalls: CallRecord[]): RunChanges {
+export function runChanges(store: StoreOf<'recording'>, a: RunRecord, aCalls: CallRecord[], b: RunRecord, bCalls: CallRecord[]): RunChanges {
   // What the agent sends: a judge check's model and prompt are none of it.
   const x = shapeOf(store, agentCallsOf(aCalls));
   const y = shapeOf(store, agentCallsOf(bCalls));
@@ -188,7 +187,6 @@ export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: 
   };
 }
 
-
 /**
  * A call's request as Compare reads it, as a divergence report shows it (reportable): each number as
  * it was sent, an integer past 2^53 by its digits, so two ids a double rounds alike show as the change
@@ -196,7 +194,7 @@ export function runChanges(store: Store, a: RunRecord, aCalls: CallRecord[], b: 
  * RunMeta.exactNumbers) has every number read as the double it was stored as, on both sides, as
  * matching reads it.
  */
-function request(store: Store, c: CallRecord, rounded: boolean): unknown {
+function request(store: StoreOf<'recording'>, c: CallRecord, rounded: boolean): unknown {
   if (!c.requestRef) return null;
   if (c.kind === 'api') return reportable(loadApiRequest(store, c.requestRef, { exact: !rounded }));
   const bytes = store.getBlob(c.requestRef);
@@ -204,7 +202,7 @@ function request(store: Store, c: CallRecord, rounded: boolean): unknown {
 }
 
 /** A model call's answer as the provider's response says it, or null when it can't be read (an error, nothing stored). */
-function answerOf(store: Store, c: CallRecord): { blocks: Block[]; stop: string | null } | null {
+function answerOf(store: StoreOf<'recording'>, c: CallRecord): { blocks: Block[]; stop: string | null } | null {
   const ref = c.end?.responseRef;
   if (!ref || c.end?.outcome !== 'ok') return null;
   try {
@@ -225,7 +223,7 @@ function saidIn(blocks: readonly Block[], thinking: boolean): string {
 const ANSWER_SHOWN = 90;
 
 /** A response difference: what it says, and for a model call whether the model answered the same. */
-function responseDifference(store: Store, x: CallRecord, y: CallRecord): { detail: string; sameAnswer?: true } {
+function responseDifference(store: StoreOf<'recording'>, x: CallRecord, y: CallRecord): { detail: string; sameAnswer?: true } {
   if (x.kind === 'api') {
     const parts: string[] = [];
     // What the model answered each time, as the pairs in Training show answers. A response is new
@@ -278,7 +276,7 @@ function labelled(diff: DiffEntry[], call: CallRecord, a: unknown, b: unknown): 
   });
 }
 
-function courseOf(store: Store, calls: CallRecord[], from: number): RunCourse {
+function courseOf(store: StoreOf<'recording'>, calls: CallRecord[], from: number): RunCourse {
   const rest = calls.slice(from);
   return { calls: rest.length, modelCalls: rest.filter((c) => c.kind === 'api').length, path: pathOf(rest, null), answer: finalAnswer(store, rest) || null };
 }
@@ -290,7 +288,7 @@ const ANSWERING_FLAGS = new Set(['--fail-at', '--override', '--inject-result', '
 const VALUE_SHOWN = 80;
 
 /** A tool call's result as it came back, as JSON in a line (a string in quotes); null when nothing was stored. */
-function resultLine(store: Store, c: CallRecord): string | null {
+function resultLine(store: StoreOf<'recording'>, c: CallRecord): string | null {
   if (!c.end?.responseRef) return null;
   try {
     const payload = store.getJson<{ result?: unknown }>(c.end.responseRef);
@@ -301,7 +299,7 @@ function resultLine(store: Store, c: CallRecord): string | null {
 }
 
 /** What a person typed, as a `user_input` call's result keeps it (`{ text }`); null when it can't be read. */
-function inputText(store: Store, c: CallRecord): string | null {
+function inputText(store: StoreOf<'recording'>, c: CallRecord): string | null {
   if (!c.end?.responseRef) return null;
   try {
     const r = store.getJson<{ result?: unknown }>(c.end.responseRef)?.result;
@@ -331,7 +329,7 @@ function whatItGot(iv: ComparedIntervention): string {
  * there. Null when no such flag made it, and when the replay left its recording before that call
  * (a request changed first), so the call no longer pairs with the recording's.
  */
-function interventionOf(store: Store, side: 'a' | 'b', parent: CallRecord[], child: RunRecord, childCalls: CallRecord[], answers: readonly CallDifference[]): ComparedIntervention | null {
+function interventionOf(store: StoreOf<'recording'>, side: 'a' | 'b', parent: CallRecord[], child: RunRecord, childCalls: CallRecord[], answers: readonly CallDifference[]): ComparedIntervention | null {
   if (child.mode !== 'replay') return null;
   const iv: InterventionFlag | undefined = runInterventions(store, child, childCalls).find((f) => ANSWERING_FLAGS.has(f.flag) && f.callNo !== null);
   if (!iv || iv.callNo === null) return null;
@@ -379,7 +377,7 @@ function interventionOf(store: Store, side: 'a' | 'b', parent: CallRecord[], chi
   }
 }
 
-export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: RunRecord, allB: CallRecord[]): RunComparison {
+export function compareRuns(store: StoreOf<'recording'>, a: RunRecord, allA: CallRecord[], b: RunRecord, allB: CallRecord[]): RunComparison {
   // The agents' calls: a run whose judge was asked differs in no call of the agent's.
   const aCalls = agentCallsOf(allA);
   const bCalls = agentCallsOf(allB);
@@ -446,7 +444,7 @@ export function compareRuns(store: Store, a: RunRecord, allA: CallRecord[], b: R
  * each sent, its kind and name, its fingerprint headers, query and body, and are the same request
  * when nothing of that differs.
  */
-function requestDifference(store: Store, a: RunRecord, x: CallRecord, b: RunRecord, y: CallRecord): Array<DiffEntry & { what?: string }> | null {
+function requestDifference(store: StoreOf<'recording'>, a: RunRecord, x: CallRecord, b: RunRecord, y: CallRecord): Array<DiffEntry & { what?: string }> | null {
   if (x.kind !== y.kind || x.name !== y.name) return [{ path: '$', op: 'changed', before: `${x.kind} ${x.name}`, after: `${y.kind} ${y.name}`, what: 'call' }];
   if (x.fingerprint === y.fingerprint || servedFrom(b, y, a, x) || servedFrom(a, x, b, y)) return null;
   const rounded = a.meta?.exactNumbers !== true || b.meta?.exactNumbers !== true;

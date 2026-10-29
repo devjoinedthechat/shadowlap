@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, controlOpen, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store } from '@shadowlap/engine';
+import { argsDelta, byRule, controlOpen, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -439,7 +439,7 @@ export async function runMigrate(input: { opts: GlobalOpts; targets: DecisionTar
   const report: MigrateReport = { ...base, pullRequest: pullRequestBody(base), files: null };
   const id = newSessionId('migrate', report.at);
   report.files = writeMigrateFiles(report, id);
-  const kept: Store = openStore(input.opts);
+  const kept: StoreOf<'activity' | 'decisions'> = openStore(input.opts);
   try {
     const { decisions: d, ...rest } = report;
     report.migrateId = keepDecisions(kept, { ...rest, decisions: { ...d, runs: [] }, runs: d.runs, flagged: d.flagged, change: d.change, at: d.at }, 'migrate', id);

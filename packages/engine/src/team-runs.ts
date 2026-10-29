@@ -1,6 +1,6 @@
 import { classifyRun, type ClassifiableMeta } from './classify.js';
 import type { RunStatus } from './types.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 
 /**
  * How a project's runs stand with its team store, counted by run, as the Runs page, the Overview and
@@ -64,7 +64,7 @@ interface Row {
 }
 
 /** Every run here, with the run each attempt is filed under: the run it replayed, when that run is here too. */
-function runRows(store: Store, ended: ReadonlySet<string>): Row[] {
+function runRows(store: StoreOf<'readModels'>, ended: ReadonlySet<string>): Row[] {
   const raw = store.query(RUNS_SQL);
   // The fork blame rescued a run with is a probe, but it shows as a fork of its own.
   const rescued = new Set(raw.map((r) => r.rescued).filter((x): x is string => typeof x === 'string'));
@@ -81,7 +81,7 @@ function runRows(store: Store, ended: ReadonlySet<string>): Row[] {
 }
 
 /** Runs still marked recording whose recorder is gone: a push ends them and sends them. */
-export function abandonedRuns(store: Store, now = Date.now()): Set<string> {
+export function abandonedRuns(store: StoreOf<'recording'>, now = Date.now()): Set<string> {
   return new Set(store.recordingRuns(now).abandoned.map((a) => a.run.runId));
 }
 
@@ -90,7 +90,7 @@ export function abandonedRuns(store: Store, now = Date.now()): Set<string> {
  * the ids of runs only here that come back (newest first); the counts are always whole. `ended`:
  * the recordings whose recorder is gone (`abandonedRuns`), when the caller has them already.
  */
-export function teamRunCounts(store: Store, remote: string, limit = 500, ended: ReadonlySet<string> = abandonedRuns(store)): TeamRunCounts {
+export function teamRunCounts(store: StoreOf<'recording' | 'readModels'>, remote: string, limit = 500, ended: ReadonlySet<string> = abandonedRuns(store)): TeamRunCounts {
   const runs = runRows(store, ended);
   const team = new Map(store.query(TEAM_SQL, remote).map((t) => [String(t.id), { state: String(t.state), queued: t.state === 'queued', listed: Number(t.listed) === 1, under: typeof t.attempt_of === 'string' ? t.attempt_of : null }]));
   const listed = (id: string) => team.get(id)?.listed === true;

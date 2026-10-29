@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { judgeTarget, type Store } from '@shadowlap/engine';
+import { judgeTarget, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList } from './fixes.js';
@@ -230,7 +230,7 @@ function examplePreview(budget: string, base: string): PullRequestPreview {
  * first failing run was lost, the file it changes and what it cost. Null when no fix here has an
  * accepted repair.
  */
-export function fixPreview(store: Store, budget: string): PullRequestPreview | null {
+export function fixPreview(store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, budget: string): PullRequestPreview | null {
   const verified = fixList(store, { status: 'verified' }).fixes.sort((a, b) => (b.verifiedAt ?? 0) - (a.verifiedAt ?? 0));
   for (const row of verified) {
     const fix = fixDetail(store, row.fixId);

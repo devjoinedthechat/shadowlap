@@ -28,6 +28,8 @@ const SPLIT = '<span></span>';
  * is shown (bidirectional controls, zero-width characters) are left out. A table cell's `|` is
  * escaped, and so is a mark that would start a block where the text starts a line (a heading, a
  * quote, a list, a rule). packages/engine/src/markdown.ts is the same.
+ * @param {string} text
+ * @returns {string}
  */
 export function markdownText(text) {
   return String(text)
@@ -62,6 +64,9 @@ export function markdownText(text) {
  * Text as a code span, `like this`, in which GitHub renders nothing: its own backticks can't end it
  * (the fence is longer than any run of them inside). In a table `cell`, its `|` is escaped, which
  * a table needs even in a code span; elsewhere a code span shows the backslash, so it isn't.
+ * @param {string} text
+ * @param {{ cell?: boolean }} [options]
+ * @returns {string}
  */
 export function markdownCode(text, { cell = false } = {}) {
   const one = String(text).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ');
@@ -71,7 +76,12 @@ export function markdownCode(text, { cell = false } = {}) {
   return `${fence}${pad}${cell ? one.replace(/\|/g, '\\|') : one}${pad}${fence}`;
 }
 
-/** Lines in a fenced code block, in which GitHub renders nothing: the fence is longer than any run of backticks inside. */
+/**
+ * Lines in a fenced code block, in which GitHub renders nothing: the fence is longer than any run of backticks inside.
+ * @param {string} text
+ * @param {string} [lang]
+ * @returns {string}
+ */
 export function markdownFence(text, lang = '') {
   const longest = Math.max(2, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
   const fence = '`'.repeat(longest + 1);

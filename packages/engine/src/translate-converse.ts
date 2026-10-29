@@ -1,5 +1,6 @@
 import { encodeEventStreamFrame } from './eventstream.js';
 import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAIOptions } from './translate.js';
+import { isObject } from './is-object.js';
 
 /**
  * Amazon Bedrock's Converse API at a takeover (E8): a recorded `converse` or `converse-stream` call
@@ -14,7 +15,6 @@ import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAI
  */
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v));
 
 /** A tool id as the other side accepts it: letters, digits, `_` and `-`. */

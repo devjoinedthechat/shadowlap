@@ -576,7 +576,7 @@ describe('shadowlap tasks', () => {
       // Only the health check answers without the token; nothing answers a web page, token or not.
       expect(await call('/v1/health', { token: null })).toEqual({ status: 200, body: { ok: true } });
       expect(await call('/v1/tasks', { origin: 'https://evil.example' })).toEqual({ status: 403, body: { error: 'requests from web pages are refused' } });
-      expect((await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model' }, origin: `${url}` })).status).toBe(403);
+      expect((await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model' }, origin: url })).status).toBe(403);
       // A takeover asked at a call that isn't a model call is refused before anything runs.
       expect(await call('/v1/tasks/refund-over-limit/attempts', { method: 'POST', body: { model: 'weak-model', from: 2 } })).toMatchObject({ status: 409, body: { error: "#2 is not a model call of goldens/refund-over-limit's run (lookup_order)" } });
       expect((await call('/v1/tasks/nope/attempts', { method: 'POST', body: { model: 'm' } })).status).toBe(404);

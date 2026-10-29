@@ -131,14 +131,6 @@ export function rerunFlags(kind: RerunKind, rerun: StepRerun | null | undefined,
   return { flags, command, left, dropped };
 }
 
-/** `--expect` with a check's JSON, nothing for the exit code alone; null for a check that is no object, or that holds a character that would disguise the command line, which is not run again. */
-export function expectArgs(expect: unknown): string[] | null {
-  if (expect === null || expect === undefined) return [];
-  if (typeof expect !== 'object' || Array.isArray(expect)) return null;
-  const json = JSON.stringify(expect);
-  return HIDDEN.test(json) ? null : ['--expect', json];
-}
-
 /** A string `--set` would read back as something else (`1`, `true`, `[1]`), so it goes as JSON. */
 function readsAsJson(v: string): boolean {
   try {
@@ -173,14 +165,5 @@ export function fieldArgs(fields: Record<string, unknown> | null | undefined): s
 /** Whether every id is a run id as the store makes them. */
 export const runIds = (ids: readonly string[]): boolean => ids.every((id) => RUN_ID.test(id));
 
-/** A scope as `--scope` takes it, or null when it isn't of a name's shape. */
-export const scopeArg = (scope: string | null | undefined): string[] | null => (!scope ? [] : NAME.test(scope) ? ['--scope', scope] : null);
-
 /** A count as `--attempts` and `--passes` take one: a whole number in range. */
 export const isCount = (n: unknown, max = 1000): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= max;
-
-/** What a pulled record left out, in words: `--build, --base and command after --`. */
-export function leftWords(left: readonly string[]): string {
-  const words = left.map((f) => (f === '--' ? 'command after --' : f));
-  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)!}` : (words[0] ?? '');
-}

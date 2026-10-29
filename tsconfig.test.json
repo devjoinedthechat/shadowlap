@@ -2,6 +2,10 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
+    // The GitHub Action is JavaScript typed by its JSDoc (action/tsconfig.json checks it): its tests
+    // read those types from the modules themselves.
+    "allowJs": true,
+    "checkJs": false,
     "jsx": "react-jsx",
     "composite": false,
     "declaration": false,
@@ -100,6 +104,7 @@
     "packages/dashboard/test/ui-run-open.test.ts",
     "packages/dashboard/test/ui-runs-url.test.ts",
     "packages/dashboard/test/ui-run-key.test.ts",
+    "packages/dashboard/test/ui-shortcut-keys.test.ts",
     "packages/dashboard/test/ui-run-notes.test.ts",
     "packages/dashboard/test/ui-calls-grouping.test.ts"
   ]

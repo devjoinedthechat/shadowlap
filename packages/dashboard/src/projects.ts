@@ -403,12 +403,63 @@ function toolRow(t: SetupTool): ToolRow {
   return { name: t.name, effect: t.effect, wrapped: t.wrapped, text: t.wrapped ? 'wrapped · effect declared' : `not wrapped · suggested ${t.effect}, ${t.why}`, at: t.wrapped ? null : `${t.file}:${t.line}` };
 }
 
+/** Where a project's setup stands, as each of its four steps reads it. */
+interface SetupFacts {
+  input: SetupInput;
+  findings: ProjectEntry['setup']['findings'];
+  inspected: boolean;
+  run: EffectiveSetup['run'];
+  live: boolean;
+  finished: boolean;
+  recorded: boolean;
+  clean: boolean;
+  tested: boolean;
+  /** A step is done when there is something to show for it; one a later step went past without is skipped. */
+  state: (done: boolean, ready: boolean, passed?: boolean) => StepState;
+  golden: string;
+  argv: string[] | null;
+  server: NonNullable<ProjectEntry['setup']['findings']>['modelServer'] | null;
+  commands: ReturnType<typeof setupCommands>;
+  totals: RunTotals | null;
+  unwrapped: ReturnType<typeof unwrappedTools>;
+  /** A Node pinned below what the guard takes: the agent wouldn't start, so recording waits for it. */
+  oldNode: NonNullable<ProjectEntry['setup']['findings']>['nodePin'] | null;
+  /**
+   * 4's golden, packed (here or in a terminal) and its test not passed yet: the setup has moved on to
+   * it, so step 3 shows as passed by, one step current at a time; it can still be run.
+   */
+  packedOnly: string | null;
+}
+
 /** The four steps of a project's setup, each with its state and the CLI command it runs. */
 export function setupView(input: SetupInput): SetupView {
   const { project, setup } = input;
+  const path = tildePath(project.path, input.home);
+  const f = setupFacts(input);
+  const inspect = inspectStep(f);
+  const record = recordStep(f);
+  const calibrate = calibrateStep(f);
+  const test = testStep(f);
+  return {
+    project: { id: project.id, name: project.name, path },
+    eyebrow: `${project.name} · ${path}`,
+    title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
+    intro: SETUP_INTRO,
+    skip: f.recorded && !f.tested && !f.finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
+    inspect,
+    record,
+    calibrate,
+    test,
+    steps: [inspect, record, calibrate, test],
+    done: f.tested ? { title: `${project.name} is set up.`, text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to the overview', action: 'finishsetup' } } : null,
+    shows: setup.shows,
+  };
+}
+
+function setupFacts(input: SetupInput): SetupFacts {
+  const { project, setup } = input;
   const s = project.setup;
   const stage = setup.stage;
-  const path = tildePath(project.path, input.home);
   const findings = s.findings;
   const inspected = stageAtLeast(stage, 'inspected');
   const run = setup.run;
@@ -417,23 +468,28 @@ export function setupView(input: SetupInput): SetupView {
   const recorded = !!run && !live && setup.steps.recorded;
   const clean = recorded && setup.steps.clean;
   const tested = recorded && setup.steps.tested;
-  // A step is done when there is something to show for it; one a later step went past without is skipped.
   const state = (done: boolean, ready: boolean, passed = false): StepState => (done ? 'done' : finished || passed ? 'skipped' : ready ? 'current' : 'todo');
   const golden = setup.golden ?? input.golden ?? defaultGolden(project.id);
   const argv = s.command ?? findings?.command ?? null;
   const server = findings?.modelServer ?? null;
   const commands = setupCommands({ argv, runId: run?.runId ?? null, golden, modelServer: server });
   const totals = run && input.run?.runId === run.runId ? input.run : null;
-
-  // 1 · Inspect the folder: done once `init` ran and its findings are kept; skipped when a later
-  // step was reached without it (a recording made in a terminal first), which can still be done.
   const unwrapped = unwrappedTools(findings);
+  const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
+  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
+  return { input, findings, inspected, run, live, finished, recorded, clean, tested, state, golden, argv, server, commands, totals, unwrapped, oldNode, packedOnly };
+}
+
+/**
+ * 1 · Inspect the folder: done once `init` ran and its findings are kept; skipped when a later step
+ * was reached without it (a recording made in a terminal first), which can still be done.
+ */
+function inspectStep({ input, findings, live, recorded, state, argv, commands, unwrapped, oldNode }: SetupFacts): InspectStep {
+  const stage = input.setup.stage;
   const writes = unwrapped.filter((t) => t.effect === 'write');
   const one = unwrapped.length === 1;
   const passedInspect = !findings && (stageAtLeast(stage, 'recorded') || live);
-  // A Node pinned below what the guard takes: the agent wouldn't start, so recording waits for it.
-  const oldNode = findings?.nodePin && nodePinTooOld(findings.nodePin.version) ? findings.nodePin : null;
-  const inspect: InspectStep = {
+  return {
     key: 'inspect',
     n: 1,
     title: 'Inspect the folder',
@@ -464,8 +520,11 @@ export function setupView(input: SetupInput): SetupView {
         }
       : null,
   };
+}
 
-  // 2 · Record a first run
+/** 2 · Record a first run. */
+function recordStep({ input, findings, inspected, run, live, finished, recorded, clean, tested, state, argv, server, commands, totals, unwrapped, oldNode }: SetupFacts): RecordStep {
+  const { setup } = input;
   const missed = recorded ? setup.unwrappedAtRecord : [];
   // A model server the dashboard can't forward to (credentials in its address, or not a plain URL) is recorded in a terminal.
   const canRecord = inspected && !(server && !server.upstream) && !oldNode;
@@ -479,7 +538,7 @@ export function setupView(input: SetupInput): SetupView {
   const command = { value: argv ? quoteArgv(argv) : '', enabled: canRecord };
   // Tools wrapped since: `init` checked again after the recording, and finds none of them unwrapped.
   const wrappedSince = missed.length > 0 && !!findings && !!run && findings.at > run.startedAt && missed.every((name) => !unwrapped.some((t) => t.name === name));
-  const record: RecordStep = {
+  return {
     key: 'record',
     n: 2,
     title: 'Record a first run',
@@ -513,17 +572,16 @@ export function setupView(input: SetupInput): SetupView {
         }
       : null,
   };
+}
 
-  // 4's golden, packed (here or in a terminal) and its test not passed yet: the setup has moved on to
-  // it, so step 3 shows as passed by, one step current at a time; it can still be run.
-  const packedOnly = recorded && !tested && !!setup.golden ? setup.golden : null;
-
-  // 3 · Make the replay clean
-  const added = setup.own ? (s.calibration?.added ?? null) : null;
+/** 3 · Make the replay clean. */
+function calibrateStep({ input, run, recorded, clean, tested, state, commands, packedOnly }: SetupFacts): CalibrateStep {
+  const { project, setup } = input;
+  const added = setup.own ? (project.setup.calibration?.added ?? null) : null;
   const last = !clean && recorded ? (input.calibration ?? null) : null;
   const proposed = last && !last.done ? last.proposed : [];
   const offer = proposed.length > 0 && !last?.stopped;
-  const calibrate: CalibrateStep = {
+  return {
     key: 'calibrate',
     n: 3,
     title: 'Make the replay clean',
@@ -531,7 +589,7 @@ export function setupView(input: SetupInput): SetupView {
     cli: clean ? [] : commands.calibrate,
     text: clean
       ? added === null
-        ? `A replay of ${short(run.runId)} ran clean.`
+        ? `A replay of ${short(run!.runId)} ran clean.`
         : added.length
           ? `Added ${added.length === 1 ? 'a normalizer' : 'normalizers'} for ${listed(added.map((a) => a.path))}${added.length === 1 && added[0]!.why ? `: ${added[0]!.why}` : ''}. The replay is clean now.`
           : 'The replay was clean as recorded: nothing to add.'
@@ -544,12 +602,17 @@ export function setupView(input: SetupInput): SetupView {
     proposed,
     stopped: last?.stopped ?? null,
   };
+}
 
-  // 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
-  // in a terminal) whose test hasn't passed keeps the step open, with the test to run.
+/**
+ * 4 · Keep it as a test: packed, then its test; done once the test passed. A golden packed (here or
+ * in a terminal) whose test hasn't passed keeps the step open, with the test to run.
+ */
+function testStep({ input, clean, tested, state, golden, commands, totals, packedOnly }: SetupFacts): TestStep {
+  const { setup } = input;
   const calls = totals?.calls ?? 0;
   const failed = packedOnly !== null && setup.goldenTest?.ok === false;
-  const test: TestStep = {
+  return {
     key: 'test',
     n: 4,
     title: 'Keep it as a test',
@@ -572,21 +635,6 @@ export function setupView(input: SetupInput): SetupView {
         ? { golden: packedOnly, failed: true, text: `${packedOnly} failed its test${setup.goldenTest?.reason ? `: ${setup.goldenTest.reason.replace(/[.\s]+$/, '')}` : ''}. Fix what changed, or record again, then run it again.`, link: { label: 'Open Tests', href: links.tests() } }
         : { golden: packedOnly, failed: false, text: `Packed as ${packedOnly}. Its test replays it offline: run it to finish.`, link: null }
       : null,
-  };
-
-  return {
-    project: { id: project.id, name: project.name, path },
-    eyebrow: `${project.name} · ${path}`,
-    title: setup.shows === 'everywhere' ? 'No runs yet' : `Set up ${project.name}`,
-    intro: SETUP_INTRO,
-    skip: recorded && !tested && !finished ? { label: 'Skip the rest', action: 'finishsetup' } : null,
-    inspect,
-    record,
-    calibrate,
-    test,
-    steps: [inspect, record, calibrate, test],
-    done: tested ? { title: `${project.name} is set up.`, text: 'Replays of this run cost nothing, and CI catches a change to what the agent sends.', button: { label: 'Go to the overview', action: 'finishsetup' } } : null,
-    shows: setup.shows,
   };
 }
 

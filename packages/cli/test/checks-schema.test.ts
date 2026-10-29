@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isObject } from '@shadowlap/engine';
 import { describe, expect, it } from 'vitest';
 import { aliasOf, EXPECT_KEYS, JUDGE_MODEL, OPERATORS, parseExpect, parseTests } from '../src/checks.js';
 
@@ -27,7 +28,6 @@ function at(pointer: string): Schema {
   return node as Schema;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const typeOf = (v: unknown) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v === 'number' ? (Number.isInteger(v) ? 'integer' : 'number') : typeof v);
 
 /** Whether `value` is valid under `s`: the subset of JSON Schema 2020-12 the file uses. */

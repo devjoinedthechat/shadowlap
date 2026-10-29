@@ -1,7 +1,7 @@
 import { eventStreamMessages } from './eventstream.js';
 import { isJudgeCall } from './judge-scope.js';
 import { parseSse } from './sse.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
 
 /**
@@ -12,6 +12,7 @@ import type { CallRecord } from './types.js';
  */
 
 import { applyDeltas, type Block, type Delta } from './deltas.js';
+import { isObject } from './is-object.js';
 
 export { applyDeltas, type Block, type Delta } from './deltas.js';
 
@@ -27,7 +28,6 @@ export interface NormalizedResponse {
 }
 
 const RAW_CAP = 512 * 1024;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function parseJsonText(s: string): unknown {
   try {
@@ -409,7 +409,7 @@ export function normalizeResponse(bytes: Buffer | null, contentType: string | un
  * The text of the agent's last model response among `calls`: '' when it had no text, null without a
  * readable one. A judge's verdict is never the agent's answer: its calls are passed over.
  */
-export function finalAnswer(store: Store, calls: CallRecord[]): string | null {
+export function finalAnswer(store: StoreOf<'recording'>, calls: CallRecord[]): string | null {
   const last = [...calls].reverse().find((c) => c.kind === 'api' && c.end?.responseRef && !isJudgeCall(c));
   if (!last?.end?.responseRef) return null;
   try {

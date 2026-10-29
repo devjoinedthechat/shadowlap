@@ -5,7 +5,7 @@ import { withLockFile } from '@shadowlap/engine';
 
 /**
  * `.shadowlap/active.json`: the run `shadowlap run` is recording or replaying in this folder, for a
- * `shadowlap mcp` its MCP client started with a minimal environment (mcp.ts). The run that started
+ * `shadowlap mcp` its MCP client started with a minimal environment (mcp-sidecar.ts). The run that started
  * last writes it; a run that ends removes it only while it still names that run.
  *
  * Both happen under `.shadowlap/active.json.lock` (the engine's lock file). Without it, a run

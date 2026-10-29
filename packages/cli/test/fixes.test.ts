@@ -63,6 +63,13 @@ function script(ctx: ScriptContext) {
   }
 }
 
+/**
+ * How long one test may run before it counts as hung, not how long it should take: each runs the CLI
+ * several times and the agent dozens of times, a minute at most on a quiet machine and past two on
+ * one running other suites beside it.
+ */
+const HUNG_AFTER = 600_000;
+
 beforeAll(async () => {
   mock = await startMockAnthropic({ script, eventDelayMs: () => 0 });
 });
@@ -167,7 +174,7 @@ function modelCalls(runId: string): number[] {
 }
 
 // Verify and repair decide each run by their gate, a dozen attempts each where they used to take four: more time on a busy machine.
-describe('shadowlap fix', { timeout: 120_000 }, () => {
+describe('shadowlap fix', { timeout: HUNG_AFTER }, () => {
   it('opens a fix from a blame, joins the next failing run with its label, and keeps every verdict on it', async () => {
     const { failed, good } = await runs('refund-over-limit');
     const decision = modelCalls(failed[0])[2];

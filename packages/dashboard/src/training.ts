@@ -1,4 +1,4 @@
-import { CAPS_ONLY_NOTE, countPairs, findPairs, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type Task, type TaskScoreRow } from '@shadowlap/engine';
+import { CAPS_ONLY_NOTE, countPairs, findPairs, isObject, oneSided as findOneSided, fixLabelInfo, fixOfRun, isInconclusiveNote, mainRefusal, modelReach, normalizeAddArgs, PAIR_FORMATS, refusedLine, ruleInForce, volatileValues, type ModelChoice, type ModelListing, type ModelReach, type Normalizer, type OneSided, type Pair, type PairFormat, type PairSource, type PairsExport, type Store, type StoreOf, type Task, type TaskScoreRow } from '@shadowlap/engine';
 import { fixForRun } from './fixes.js';
 import { links } from './links.js';
 
@@ -68,7 +68,7 @@ export interface TaskUpdate {
 }
 
 /** What Update the golden runs for a task blocked by an early fork, or null for any other task. */
-export function taskUpdate(store: Store, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
+export function taskUpdate(store: StoreOf<'recording'>, task: Task, normalizers: readonly Normalizer[]): TaskUpdate | null {
   if (task.status !== 'blocked' || !task.fork || !task.takeover) return null;
   const run = task.fork.runId ? store.getRun(task.fork.runId) : null;
   const found = run?.divergence ? volatileValues(run.divergence, normalizers) : null;
@@ -88,7 +88,7 @@ export function taskUpdate(store: Store, task: Task, normalizers: readonly Norma
 export type FixOf = (source: PairSource, runId: string) => SourceFix | null;
 
 /** What the store holds for Training; `tasks` and `models` come from the caller, and `normalizers` from the config as it is now. */
-export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
+export function readTraining(store: StoreOf<'recording' | 'readModels' | 'fixes' | 'training'>, extra: { tasks: Task[]; tasksError?: string | null; models?: ModelListing | null; fixOf?: FixOf; normalizers?: readonly Normalizer[] }): TrainingInput {
   const { pairs, sources } = findPairs(store);
   // The goldens' runs, and the test runs that forked before a takeover, that the store still holds.
   const storedRuns = new Set(extra.tasks.flatMap((t) => [t.runId, t.fork?.runId ?? null].filter((id): id is string => !!id && !!store.getRun(id))));
@@ -118,7 +118,7 @@ export function readTraining(store: Store, extra: { tasks: Task[]; tasksError?: 
  * (one verify can check the runs of several fixes), else under the first fix it counted for. A
  * `--repeat` belongs to none.
  */
-export function sourceFixes(store: Store): FixOf {
+export function sourceFixes(store: StoreOf<'recording' | 'readModels' | 'fixes'>): FixOf {
   const label = (f: { label: string | null; title: string }) => f.label ?? f.title;
   // What a verify source is: its verdict (or repair), the first fix that counted it, and every fix it was linked to.
   const verifies = new Map<string, { fix: SourceFix; linked: Set<string> } | null>();
@@ -742,7 +742,6 @@ export function trainingView(input: TrainingInput, options: { filter?: PairFilte
 /** Where a dashboard export of pairs is written, in the project folder (decision 5). */
 export const PAIRS_EXPORT_FILE = '.shadowlap/exports/pairs.jsonl';
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** Attempts per task Score a model offers; the job takes no other count (the CLI takes any). */
 export const SCORE_ATTEMPTS: readonly number[] = [5, 10];
 const MODEL_NAME = /^[\w.:/@+][\w.:/@+-]{0,199}$/;
@@ -806,7 +805,7 @@ export function scoreModelJob(body: unknown, tasks: readonly Task[]): { args: st
  * config, never from the request: a `normalize add` for each value that changes every run, then
  * `test <golden> --update`, which re-records it (or `test <golden>` when those rules are the fix).
  */
-export function taskUpdateJob(body: unknown, store: Store, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
+export function taskUpdateJob(body: unknown, store: StoreOf<'recording'>, tasks: readonly Task[], normalizers: readonly Normalizer[]): { steps: string[][]; title: string } | { error: string } {
   const golden = isObject(body) ? body.golden : undefined;
   if (typeof golden !== 'string' || !golden) return { error: 'name the golden to update' };
   const task = tasks.find((t) => t.golden === golden);

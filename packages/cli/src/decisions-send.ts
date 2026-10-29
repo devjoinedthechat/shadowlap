@@ -3,7 +3,7 @@ import { request as httpsRequest } from 'node:https';
 import { createHash } from 'node:crypto';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { PassThrough, type Readable } from 'node:stream';
-import type { Usage } from '@shadowlap/engine';
+import { messageOf, type Usage } from '@shadowlap/engine';
 import { configuredRegion, resolveAwsCredentials, resolveGoogleToken, signRequest } from '@shadowlap/remote';
 import { providers, sdkBasesFromEnvironment, type Provider } from '@shadowlap/sidecar';
 
@@ -284,7 +284,7 @@ export class ModelSender {
         const accept = /\/(invoke-with-response-stream|converse-stream)$/.test(req.path) ? 'application/vnd.amazon.eventstream' : stream || req.query?.includes('alt=sse') ? 'text/event-stream' : 'application/json';
         headers = { 'content-type': 'application/json', accept, 'accept-encoding': 'gzip, br, deflate', ...version, ...req.headers, ...(await credentialHeaders(provider, url, req.method, body, this.env, up.official)) };
       } catch (err) {
-        return { ...none(`${provider.id} credentials: ${(err as Error).message}`), latencyMs: Date.now() - started };
+        return { ...none(`${provider.id} credentials: ${messageOf(err)}`), latencyMs: Date.now() - started };
       }
       attempts++;
       try {
@@ -312,7 +312,7 @@ export class ModelSender {
           await new Promise((r) => setTimeout(r, this.wait(attempt, null)));
           continue;
         }
-        return { ...none(`${url.origin} could not be reached: ${(err as Error).message}`), latencyMs: Date.now() - started, attempts };
+        return { ...none(`${url.origin} could not be reached: ${messageOf(err)}`), latencyMs: Date.now() - started, attempts };
       }
     }
   }

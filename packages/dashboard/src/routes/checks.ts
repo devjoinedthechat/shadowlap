@@ -1,4 +1,4 @@
-import { cleanLabel, type Store } from '@shadowlap/engine';
+import { cleanLabel, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
@@ -41,7 +41,7 @@ function expectOf(raw: unknown): { expect: Record<string, unknown> | null } | { 
 }
 
 /** One recording a request names, as the CLI takes it: a run's full id, `label:<name>`, or a golden's path. */
-function recordingArg(store: Store, goldens: readonly GoldenSource[], raw: unknown): string | { error: string; status: number } {
+function recordingArg(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], raw: unknown): string | { error: string; status: number } {
   if (typeof raw !== 'string' || !raw) return { error: 'name each recording as text: a run id, label:<name> or a golden', status: 400 };
   if (raw.startsWith('label:')) {
     const label = cleanLabel(raw.slice('label:'.length));
@@ -54,7 +54,7 @@ function recordingArg(store: Store, goldens: readonly GoldenSource[], raw: unkno
 }
 
 /** `check`: the arguments `shadowlap check` runs with, built from checked fields, or why it can't run. */
-export function checkJob(store: Store, goldens: readonly GoldenSource[], req: JobRequest): JobBuildResult {
+export function checkJob(store: StoreOf<'recording'>, goldens: readonly GoldenSource[], req: JobRequest): JobBuildResult {
   const asked = expectOf(req.expect);
   if ('error' in asked) return { error: asked.error };
   const raw = req.recordings ?? [];

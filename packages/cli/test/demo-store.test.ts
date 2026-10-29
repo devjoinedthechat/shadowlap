@@ -40,7 +40,8 @@ describe.skipIf(process.platform === 'win32')('scripts/demo-store.mjs --fast', (
     expect(built.code, built.out).toBe(0);
     store = Store.open(join(folder, 'support-agent', '.shadowlap', 'shadowlap.db'));
     runs = store.allRuns();
-  }, 180_000);
+    // A machine running other suites beside this one has taken four minutes over it.
+  }, 600_000);
 
   afterAll(() => {
     store?.close();

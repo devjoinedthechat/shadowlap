@@ -1,3 +1,4 @@
+import { isObject } from './is-object.js';
 /**
  * Model requests, normalized for display: the conversation a model call sent, as turns of typed
  * blocks, whatever the provider's shape (Anthropic messages, OpenAI Chat Completions and Responses
@@ -23,7 +24,6 @@ export interface Conversation {
   tools: string[];
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v, null, 2));
 
 function parseArgs(v: unknown): unknown {

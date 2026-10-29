@@ -1,4 +1,5 @@
-import type { Store } from '@shadowlap/engine';
+import { isObject } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { chaosMatrices, presetsSummary } from './chaos.js';
 import { coverageLook } from './coverage.js';
 import { injectionNeedsLook } from './injection.js';
@@ -28,12 +29,11 @@ export interface UpgradeLooks {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const goldenName = (path: string) => path.replace(/^\.\//, '').replace(/^goldens\//, '');
 const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path);
 
 /** The run a line opens, when the store still has it. */
-const kept = (store: Store, runId: string | null | undefined): string | null => (runId && store.getRun(runId) ? runId : null);
+const kept = (store: StoreOf<'recording'>, runId: string | null | undefined): string | null => (runId && store.getRun(runId) ? runId : null);
 
 /**
  * An injection test's lines: obeyed in red, first; influenced or inconclusive in amber. Each opens an
@@ -42,7 +42,7 @@ const kept = (store: Store, runId: string | null | undefined): string | null => 
  * inconclusive test, so it adds no line of its own; a golden tested on its own (`shadowlap
  * injection goldens/x`) does. A golden no longer on disk, or a run no longer in the store, has none.
  */
-function injectionLooks(store: Store, goldens: GoldenList): NeedsLookRow[] {
+function injectionLooks(store: StoreOf<'recording' | 'tests' | 'injection'>, goldens: GoldenList): NeedsLookRow[] {
   const onDisk = new Set(goldens.map(pathOf));
   const tested = new Map(store.latestTestResults().map((t) => [t.golden, t]));
   const failed: NeedsLookRow[] = [];
@@ -70,7 +70,7 @@ function injectionLooks(store: Store, goldens: GoldenList): NeedsLookRow[] {
  * left them: `2 of 4 presets failed: tool timeout #2, provider 429 #3`. A golden no longer on disk,
  * or a run no longer in the store, has none. Each opens the first such preset's attempt.
  */
-function presetLooks(store: Store, goldens: GoldenList): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
+function presetLooks(store: StoreOf<'recording' | 'chaos'>, goldens: GoldenList): { failed: NeedsLookRow[]; warn: NeedsLookRow[] } {
   const onDisk = new Set(goldens.map(pathOf));
   const failed: NeedsLookRow[] = [];
   const warn: NeedsLookRow[] = [];
@@ -108,7 +108,7 @@ function flaggedOf(data: Record<string, unknown>): string[] {
  * left is a line, opening the first still in the store at the first call whose decision most of its
  * samples changed.
  */
-function decisionLooks(store: Store): NeedsLookRow[] {
+function decisionLooks(store: StoreOf<'recording' | 'readModels' | 'decisions'>): NeedsLookRow[] {
   const sessions = store.listDecisionSessions({ limit: 50 });
   if (!sessions.length) return [];
   // The runs each session asked again, without reading their reports.
@@ -160,7 +160,7 @@ function decisionLooks(store: Store): NeedsLookRow[] {
 }
 
 /** Every line the upgrades' results add to Needs a look. */
-export function upgradeLooks(store: Store, o: { goldens: GoldenList }): UpgradeLooks {
+export function upgradeLooks(store: StoreOf<'recording' | 'readModels' | 'tests' | 'chaos' | 'injection' | 'coverage' | 'decisions'>, o: { goldens: GoldenList }): UpgradeLooks {
   const presets = presetLooks(store, o.goldens);
   const coverage = coverageLook(store);
   return {

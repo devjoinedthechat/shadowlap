@@ -502,9 +502,9 @@ export function createClient(token: string): Client {
     runDecisions: (runId) => request<RunDecisionsView>(`runs/${id(runId)}/decisions`),
     retirements: () => request<RetirementsView>('retirements'),
     // A server without the routes answers 404: nothing to show, rather than an error.
-    coverage: () => request<CoverageView>('coverage').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    chaos: () => request<ChaosView>('chaos').catch((err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
-    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    coverage: () => request<CoverageView>('coverage').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    chaos: () => request<ChaosView>('chaos').catch((err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
+    runChaos: (runId) => request<{ matrix: ChaosMatrix | null }>(`chaos/runs/${id(runId)}`).then((r) => r.matrix, (err: unknown) => (err instanceof ApiError && err.status === 404 ? null : Promise.reject(err))),
     forkDifferences: (runId) => request<{ differences: ForkDifferences | null }>(`runs/${id(runId)}/differences`).then((r) => r.differences),
     unrecorded: (runId) => request<{ unrecorded: UnrecordedView | null }>(`runs/${id(runId)}/unrecorded`).then((r) => r.unrecorded),
     attemptGroups: (fixId) => request<FixAttemptGroups>(`fixes/${id(fixId)}/groups`),

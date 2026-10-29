@@ -1,4 +1,4 @@
-import { canonicalize, safeLine, type Store } from '@shadowlap/engine';
+import { canonicalize, isObject, safeLine, type StoreOf } from '@shadowlap/engine';
 import { append, ImportWriter, writeImport, type CapturedCall, type ImportOptions, type ImportResult, type Skip } from './import-capture.js';
 import { readPythonRepr } from './python-repr.js';
 
@@ -122,8 +122,6 @@ export interface Trace {
 }
 
 // ---------------------------------------------------------------------------------------------- reading what sources log
-
-export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A JSON string parsed, or the value as it is. */
 export function maybeJson(v: unknown): unknown {
@@ -308,7 +306,7 @@ function partsOfContent(content: unknown, role: Role): Part[] {
 }
 
 /** One message in any of the shapes sources log, or null when it is not one. */
-export function messageOf(raw: unknown): TraceMessage | null {
+export function traceMessageOf(raw: unknown): TraceMessage | null {
   if (typeof raw === 'string') return { role: 'user', parts: [{ type: 'text', text: raw }] };
   if (!isObject(raw)) return null;
   const m = unwrapLangchain(raw);
@@ -360,7 +358,7 @@ export function messagesOf(raw: unknown): TraceMessage[] | null {
     out.push({ role: 'system', parts: [{ type: 'text', text: textOf(raw.system) }] });
   }
   for (const m of list) {
-    const msg = messageOf(m);
+    const msg = traceMessageOf(m);
     if (msg) out.push(msg);
   }
   return out.length ? out : null;
@@ -381,7 +379,7 @@ export function outputOf(raw: unknown): TraceModelCall['output'] {
   // OpenAI Chat Completions.
   if (Array.isArray(raw.choices) && isObject(raw.choices[0])) {
     const choice = raw.choices[0];
-    const msg = messageOf({ role: 'assistant', ...(isObject(choice.message) ? choice.message : { content: choice.text ?? '' }) });
+    const msg = traceMessageOf({ role: 'assistant', ...(isObject(choice.message) ? choice.message : { content: choice.text ?? '' }) });
     return { parts: msg?.parts ?? [], finishReason: str(choice.finish_reason) };
   }
   // Anthropic Messages.
@@ -397,14 +395,14 @@ export function outputOf(raw: unknown): TraceModelCall['output'] {
     const first: unknown = Array.isArray(generations[0]) ? (generations[0] as unknown[])[0] : generations[0];
     if (!isObject(first)) return null;
     const info = isObject(first.generation_info) ? first.generation_info : {};
-    const msg = isObject(first.message) ? messageOf({ type: 'ai', ...unwrapLangchain(first.message) }) : null;
+    const msg = isObject(first.message) ? traceMessageOf({ type: 'ai', ...unwrapLangchain(first.message) }) : null;
     const meta = msg && isObject(first.message) && isObject(unwrapLangchain(first.message).response_metadata) ? (unwrapLangchain(first.message).response_metadata as Record<string, unknown>) : {};
     return { parts: msg?.parts.length ? msg.parts : typeof first.text === 'string' && first.text ? [{ type: 'text', text: first.text }] : [], finishReason: str(info.finish_reason ?? meta.finish_reason ?? meta.stop_reason) };
   }
   // A wrapped output: `{ output: … }`, as some tracers log it.
   if ('output' in raw && Object.keys(raw).length === 1) return outputOf(raw.output);
   // A message: OpenAI's, LangChain's, OpenTelemetry's.
-  const msg = messageOf({ role: 'assistant', ...unwrapLangchain(raw) });
+  const msg = traceMessageOf({ role: 'assistant', ...unwrapLangchain(raw) });
   if (msg && (msg.role === 'assistant' || msg.role === 'user')) return { parts: msg.parts, finishReason: str(raw.finish_reason ?? raw.stop_reason) };
   return null;
 }
@@ -942,7 +940,7 @@ export interface TraceImport {
 }
 
 /** Writes one trace as a partial recording: its model calls, and the tool calls whose every call it kept. */
-export function importTrace(store: Store, trace: Trace, opts: ImportOptions): TraceImport {
+export function importTrace(store: StoreOf<'recording'>, trace: Trace, opts: ImportOptions): TraceImport {
   const calls = callsInOrder(trace);
   const tools = calls.filter((c): c is TraceToolCall => c.kind === 'tool');
   // Grouped in place and looked up in a set: a trace is a file from anywhere, and copying per call

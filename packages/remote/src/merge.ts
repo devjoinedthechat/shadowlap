@@ -136,7 +136,7 @@ export function asTheStoreHolds(local: AnyMeta, base: SharedMeta | null, origin:
 }
 
 /** A run's metadata with its synced part replaced, every other key kept as it is. */
-export function withSynced<T extends AnyMeta>(meta: T, synced: SharedMeta): Record<string, unknown> {
+export function withSynced(meta: AnyMeta, synced: SharedMeta): Record<string, unknown> {
   const out: Record<string, unknown> = { ...(meta ?? {}) };
   for (const k of SYNCED_META) delete out[k];
   return { ...out, ...synced };

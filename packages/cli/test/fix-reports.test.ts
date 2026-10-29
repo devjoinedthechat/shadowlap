@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decideVerify, gateResult, plain, recordBlame, recordVerdict, SPRT_DEFAULTS, Store, type SprtGate } from '@shadowlap/engine';
 import { fixDetail } from '@shadowlap/dashboard';
 import { blameReport, EXPECT, makeRun, runId, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { verifyJson } from '../src/commands/fix.js';
+import { verifyJson } from '../src/commands/fix-report.js';
 import { formatFixDetail } from '../src/fix-format.js';
 
 /** `shadowlap fix show` in a terminal, from the read model its --json prints, and `verify --json`. */

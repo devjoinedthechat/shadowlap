@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { messageOf } from '@shadowlap/engine';
 import { send, type FetchLike } from './http.js';
 import { StoreError } from './object-store.js';
 
@@ -81,7 +82,7 @@ async function cliToken(e: AzureEnv): Promise<BearerToken> {
   } catch (err) {
     const stderr = String((err as { stderr?: string }).stderr ?? '');
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw new StoreError('credentials', 'No Azure credentials found: set AZURE_STORAGE_KEY or AZURE_STORAGE_CONNECTION_STRING, a service principal (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET), or install the Azure CLI and run az login.');
-    throw new StoreError('credentials', `The Azure CLI couldn't get a token: ${stderr.trim().split('\n')[0] || (err as Error).message}. Run az login.`);
+    throw new StoreError('credentials', `The Azure CLI couldn't get a token: ${stderr.trim().split('\n')[0] || messageOf(err)}. Run az login.`);
   }
   const j = JSON.parse(out) as { accessToken?: string; expires_on?: number | string; expiresOn?: string };
   if (!j.accessToken) throw new StoreError('credentials', 'The Azure CLI gave no token. Run az login.');

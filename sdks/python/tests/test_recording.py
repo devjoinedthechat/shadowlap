@@ -470,7 +470,7 @@ class RecordingRules(unittest.TestCase):
         import traceback
 
         try:
-            open("/nonexistent/orders/A-17")
+            open("/nonexistent/orders/A-17")  # noqa: SIM115 -- raises FileNotFoundError: nothing is opened
         except FileNotFoundError as err:
             not_found = err
         # An OSError keeps its files apart from its args: a rename names two, a call on a descriptor its number.

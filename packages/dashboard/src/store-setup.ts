@@ -1,4 +1,5 @@
-import type { Store } from '@shadowlap/engine';
+import { isObject, messageOf } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import {
   accessPolicy,
   CI_PROVIDERS,
@@ -117,11 +118,10 @@ const COMMIT = `git add ${CONFIG_FILE} && git commit -m "Use the team store"`;
 const CI_NAMES: Record<CiProvider, string> = { github: 'GitHub Actions', gitlab: 'GitLab CI', other: 'Other' };
 // Names to fill in, never one a reader could paste: a bucket's name is global, and a stranger may hold it.
 const EXAMPLES: Record<Provider, string> = { s3: 's3://<bucket>/<project>', gcs: 'gs://<bucket>/<project>', azure: 'az://<account>/<container>/<project>', r2: 'r2://<account-id>/<bucket>/<project>' };
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** The setup recorded for a store, as team_sync's data keeps it. */
-export function setupRecord(store: Store, key: string): SetupRecord {
+export function setupRecord(store: StoreOf<'team'>, key: string): SetupRecord {
   const raw = store.teamSync(key)?.data.setup;
   const s = isObject(raw) ? raw : {};
   return {
@@ -133,7 +133,7 @@ export function setupRecord(store: Store, key: string): SetupRecord {
 }
 
 /** Records a step of the setup of a store: merged into what was recorded before. */
-export function recordSetup(store: Store, key: string, patch: Partial<SetupRecord>): SetupRecord {
+export function recordSetup(store: StoreOf<'team'>, key: string, patch: Partial<SetupRecord>): SetupRecord {
   store.setTeamSync(key, { data: { setup: { ...setupRecord(store, key), ...patch } } });
   return setupRecord(store, key);
 }
@@ -148,7 +148,7 @@ function locationOf(raw: string | null): StoreLocation | null {
 }
 
 /** What the setup's steps go by: whether the store is connected and pushed to, what a push would send, CI, finished. */
-function setupFacts(store: Store, key: string | null, setup: SetupRecord): SetupFacts & { check: LastCheck | null; pushedHere: number } {
+function setupFacts(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string | null, setup: SetupRecord): SetupFacts & { check: LastCheck | null; pushedHere: number } {
   const counts = countsOf(store, key ?? '');
   const check = key ? lastCheck(store, key) : null;
   const sync = key ? store.teamSync(key) : null;
@@ -160,7 +160,7 @@ function setupFacts(store: Store, key: string | null, setup: SetupRecord): Setup
  * not finished): its next step, which Needs a look leads to. Null otherwise, and for a store set
  * with the CLI, which has nothing under way.
  */
-export function setupUnderWay(store: Store, input: TeamStoreInput): { step: number; title: string } | null {
+export function setupUnderWay(store: StoreOf<'recording' | 'readModels' | 'team'>, input: TeamStoreInput): { step: number; title: string } | null {
   const loc = locationOf(input.store);
   if (!loc) return null;
   const key = storeKey(loc);
@@ -173,7 +173,7 @@ export function setupUnderWay(store: Store, input: TeamStoreInput): { step: numb
  * What the setup page shows: the providers, where the setup stands, the CI steps (with the keys the
  * goldens that run live need, `keys`, as `liveKeys` gives them) and the commit.
  */
-export function storeSetupView(store: Store, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string; keys?: CiStepKeys } = {}): StoreSetupView {
+export function storeSetupView(store: StoreOf<'recording' | 'readModels' | 'team'>, input: TeamStoreInput, options: { env?: NodeJS.ProcessEnv; home?: string; keys?: CiStepKeys } = {}): StoreSetupView {
   const loc = locationOf(input.store);
   const key = loc ? storeKey(loc) : null;
   const setup: SetupRecord = key ? setupRecord(store, key) : { startedAt: null, ci: null, ciProvider: null, finishedAt: null };
@@ -232,7 +232,7 @@ export function checkSetupUrl(provider: Provider, raw: string, options: { env?: 
   try {
     loc = parseStoreUrl(raw, provider);
   } catch (err) {
-    return { ok: false, provider, error: err instanceof Error ? err.message : String(err), policy: policyFor(provider, null) };
+    return { ok: false, provider, error: messageOf(err), policy: policyFor(provider, null) };
   }
   const configured = formatStoreUrl(loc);
   const env = { ...(options.env ? { env: options.env } : {}), ...(options.home ? { home: options.home } : {}) };

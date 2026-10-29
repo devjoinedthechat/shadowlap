@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { applyNormalizers, canonicalize, estimateCost, isJudgeCall, JUDGE_REQUEST_VERSION, JUDGE_SCOPE, judgeAskId, judgeMaterial, judgeRequest, judgeRules, judgeTarget, loadApiRequest, matchedClockOf, materialDifference, materialOfRequest, messageOf, readVerdict, type CallRecord, type ClockMode, type ClockReference, type GivenAnswer, type JudgeMaterial, type JudgeProvider, type JudgeRequest, type JudgeSummary, type Normalizer, type Price, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { providers, Sidecar } from '@shadowlap/sidecar';
 import { JUDGE_KEYS, judgeChecksOf, notJudgedWhy, type EvaluateOptions, type JudgeCheck, type JudgeVerdict, type TestSpec } from './checks.js';
 import type { ShadowlapConfig } from './config.js';
@@ -76,7 +76,7 @@ export interface JudgeMaterialSource {
 }
 
 /** A run's calls and output as the material of its judge checks, with the dates matching masks in it under `clock`. */
-export function materialOf(store: Store, runId: string, output: string | null, clock: ClockMode | undefined, calls = store.getCalls(runId)): JudgeMaterialSource {
+export function materialOf(store: StoreOf<'recording'>, runId: string, output: string | null, clock: ClockMode | undefined, calls = store.getCalls(runId)): JudgeMaterialSource {
   const ref = matchedClockOf(store, runId, clock);
   return { calls, output, ...(ref !== undefined ? { clock: ref } : {}) };
 }
@@ -139,7 +139,7 @@ function errorMessage(bytes: Buffer): string {
  * judge's request; or one given on other material, and where that differs from what the judge
  * would read now (a value that changes every run, which no normalizer masks).
  */
-function whyNotAnswered(store: Store, runId: string, j: JudgeCheck, request: { body: unknown }, cannot: string): string {
+function whyNotAnswered(store: StoreOf<'recording'>, runId: string, j: JudgeCheck, request: { body: unknown }, cannot: string): string {
   const run = store.getRun(runId);
   const recording = run?.parentRunId ? store.getRun(run.parentRunId) : null;
   const ask = judgeAskId(j);
@@ -178,7 +178,7 @@ export function prepareJudge(store: Store, j: JudgeCheck, material: JudgeMateria
     m = materialFor(store, j, material, o);
   } catch (err) {
     // A redaction rule that can't be applied: nothing is sent unmasked.
-    return { why: `what it reads could not be made: ${(err as Error).message}` };
+    return { why: `what it reads could not be made: ${messageOf(err)}` };
   }
   if ('missing' in m) return { why: m.missing };
   return { target, request: judgeRequest(target, j, m), material: m };
@@ -232,7 +232,7 @@ export async function askPreparedJudge(j: JudgeCheck, prepared: PreparedJudge, c
         await pause(attempt);
         continue;
       }
-      return { why: `the judge's call failed: ${(err as Error).message}` };
+      return { why: `the judge's call failed: ${messageOf(err)}` };
     }
     if (res.status === 503 && bytes.toString('utf8').includes('shadowlap_offline')) return { why: whyNotAnswered(ctx.store, ctx.runId, j, request, 'why' in live ? live.why : 'the test runs offline') };
     if (attempt < RETRIES && (res.status === 408 || res.status === 409 || res.status === 429 || res.status >= 500)) {

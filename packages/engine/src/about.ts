@@ -24,6 +24,7 @@
  */
 import { isChaosPreset, PRESET_LABELS } from './chaos.js';
 import type { AttemptKind, RunKind } from './classify.js';
+import { isObject } from './is-object.js';
 
 /** Where an about line comes from. */
 export type AboutFrom = 'user' | 'agent' | 'input' | 'golden' | 'change' | 'nothing' | 'source' | 'command';
@@ -98,7 +99,6 @@ export interface AboutFacts {
   ask?: RunAsk | null;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null);
 

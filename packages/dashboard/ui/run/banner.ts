@@ -1,4 +1,6 @@
 import { num } from '../format.js';
+import { isObject } from '../../../engine/src/is-object.js';
+import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason } from '../../../engine/src/run-verdicts.js';
 import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
@@ -264,7 +266,7 @@ function argsOf(json: string | undefined): Record<string, unknown> | null {
   if (!json) return null;
   try {
     const v: unknown = JSON.parse(json);
-    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+    return isObject(v) ? v : null;
   } catch {
     return null;
   }
@@ -372,21 +374,17 @@ export function fixCheckText(check: string, calls: readonly CheckCall[]): string
 
 /**
  * Why a run failed, in a few words, for the banner and the line under the run's id; null when it
- * didn't. Its own failed check first, then the agent's exit, then the check the server's outcome
- * names (a fix's, for a run the fix lists as failing), then an interruption that failed something.
+ * didn't. In the engine's order, which the terminal UI says it in too (failureReason): its own failed
+ * check first, then the agent's exit, then the check the server's outcome names (a fix's, for a run
+ * the fix lists as failing), then an interruption, then blame's confirmation.
  */
 export function failureText(i: Pick<BannerInput, 'status' | 'checks' | 'blame' | 'outcome' | 'calls'>): string | null {
-  const failedCheck = i.checks.find(failedOne);
-  if (failedCheck) return failedCheckText(failedCheck, i.calls);
-  if (i.status === 'failed') return 'the agent exited with an error';
-  const o = i.outcome;
-  if (o?.kind === 'check-failed' && o.check) return fixCheckText(o.check, i.calls ?? []);
-  if (i.status === 'crashed') return 'the run was interrupted';
-  return i.blame ? 'blame confirmed it fails' : null;
+  const reason = failureReason(i);
+  if (!reason) return null;
+  if (reason.kind === 'check') return failedCheckText(reason.check, i.calls);
+  if (reason.kind === 'fix-check') return fixCheckText(reason.check, i.calls ?? []);
+  return FAILURE_WORDS[reason.kind];
 }
-
-/** A check that failed: not passed, and not one that could not be decided (inconclusive), which is no failure of the agent's. */
-const failedOne = (c: BannerInput['checks'][number]): boolean => !c.ok && c.status !== 'inconclusive';
 
 /**
  * A check in the checks banner: what it asks, then for one that did not apply or could not be
@@ -427,10 +425,8 @@ function madeBy(i: Pick<BannerInput, 'intervention' | 'interventions'>): FlagVie
  * decided, or passed.
  */
 export function attemptOutcome(i: Pick<BannerInput, 'status' | 'checks' | 'interrupted'>, a: Pick<AttemptInput, 'verdict'> = {}): AttemptOutcome {
-  if (i.interrupted || (i.status === 'crashed' && !i.checks.length)) return { tone: 'n', text: 'interrupted' };
-  const failedCheck = i.checks.find(failedOne);
-  const unsure = i.checks.find((c) => c.status === 'inconclusive');
-  const verdict = a.verdict ?? (failedCheck || (!i.checks.length && i.status === 'failed') ? 'failed' : unsure ? 'inconclusive' : 'passed');
+  const { verdict, unsure } = attemptVerdict(i, a.verdict ?? undefined);
+  if (verdict === 'interrupted') return { tone: 'n', text: 'interrupted' };
   if (verdict === 'inconclusive') return unsure ? { tone: 'inc', text: 'inconclusive', why: unsure.label } : { tone: 'inc', text: 'inconclusive' };
   return verdict === 'passed' ? { tone: 'ok', text: 'passed' } : { tone: 'no', text: 'failed' };
 }
@@ -525,7 +521,7 @@ export function bannerFor(i: BannerInput): Banner | null {
   const b = i.blame;
   if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
   if (i.notRecorded && (i.notRecorded.tools.length || i.notRecorded.hosts.length)) return { kind: 'not-recorded', why: notRecordedWhy(i.notRecorded) };
-  const failedCheck = i.checks.find(failedOne);
+  const failedCheck = i.checks.find(checkFailed);
   // No check failed: each says how it came out, one that did not apply or could not be decided too.
   if (i.checks.length && !failedCheck && i.status === 'completed')
     return {

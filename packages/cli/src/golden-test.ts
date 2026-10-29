@@ -1,5 +1,5 @@
 import { basename, resolve } from 'node:path';
-import { UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
+import { messageOf, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
 import { oracleLabels } from './attempts.js';
@@ -377,7 +377,7 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
  * not have, while one of its live model calls ended on an error the provider sends when it can't
  * answer (unavailable.ts).
  */
-export function unavailableIn(store: Store, a: TestAttempt): Unavailable | null {
+export function unavailableIn(store: StoreOf<'recording'>, a: TestAttempt): Unavailable | null {
   // A replay no preload loaded in (the guard's failure) failed by itself, whatever its provider answered.
   if (!a.failure || a.interrupted || a.kind === 'diverged' || a.kind === 'guard') return null;
   // Stopped at the test's time limit: the run ended as crashed with no signal behind it.
@@ -426,7 +426,7 @@ const failingRisk = (g: Gate): number => (g.kind === 'sprt' ? (g.failRisk ?? g.r
  * history gate continued to a higher limit decides exactly as one that had that limit from the
  * start). A settled verdict is never continued: asking again after it stopped would be peeking.
  */
-export function carryFor(store: Store, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null; branch?: string | null }): { carry: Carry; gate: Gate } | { why: string } {
+export function carryFor(store: StoreOf<'tests'>, golden: string, o: { goldenRunId: string; checks: readonly string[]; gate: Gate; limit: number; session?: string | null; branch?: string | null }): { carry: Carry; gate: Gate } | { why: string } {
   const last: TestResult | undefined = store.listTestResults({ golden, limit: 2 }).find((r) => r.sessionId !== o.session);
   if (!last) return { why: 'it has no result to continue yet' };
   // Another branch's agent is another agent: its attempts are no part of this one's tally.
@@ -462,7 +462,7 @@ function decidedAt(now: Gate, before: Gate): Gate {
  * Files a golden's attempts under the one its result shows. Never fails the test: the store may be
  * busy with another process, or a run gone, and the attempts then stay filed under the first.
  */
-function fileUnder(store: Store, attempts: readonly TestAttempt[], shown: TestAttempt, meta: (i: number, of: string | null) => Partial<RunMeta> | null): void {
+function fileUnder(store: StoreOf<'recording'>, attempts: readonly TestAttempt[], shown: TestAttempt, meta: (i: number, of: string | null) => Partial<RunMeta> | null): void {
   const head = shown.ended.summary.runId;
   attempts.forEach((a, i) => {
     const runId = a.ended.summary.runId;
@@ -519,7 +519,7 @@ export interface GoldenOutcome {
  * A pack masks the credentials a command line carries (credentialFreeArgv): one whose command is the
  * copy's but for those is the copy's, and runs as the copy recorded it, with them.
  */
-export function importGolden(store: Store, dir: string): RunRecord {
+export function importGolden(store: StoreOf<'recording' | 'readModels'>, dir: string): RunRecord {
   const { imported, skipped, mismatched } = unpackRun(store, dir);
   const head = readPackHead(dir);
   const parentId = 'error' in head ? (imported.at(-1) ?? skipped.at(-1)) : head.runId;
@@ -581,7 +581,7 @@ export async function testGolden(dir: string, golden: string, spec: TestSpec | n
     const result = await testRecording(parent, spec, tested);
     return { ...base, parent, result, failure: result.failure, kind: result.kind, seconds: (Date.now() - started) / 1000, normalizers, interrupted: result.interrupted, notes };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = messageOf(err);
     // The session's provider stopped it before it ran: inconclusive, the provider named, never failed.
     return { ...base, parent, result: null, failure: { message, details: message }, kind: err instanceof ProviderStopped ? 'inconclusive' : 'error', seconds: (Date.now() - started) / 1000, normalizers, interrupted: err instanceof ReplayInterrupted, notes };
   }
@@ -660,7 +660,7 @@ export function divergenceCause(d: DivergenceReport, rules: readonly Normalizer[
 }
 
 /** What the store keeps about a golden's result besides its verdict. */
-export function resultData(store: Store, o: GoldenOutcome): TestResultData {
+export function resultData(store: StoreOf<'recording'>, o: GoldenOutcome): TestResultData {
   const data: TestResultData = { mode: o.spec?.fork ? 'fork' : 'replay' };
   const r = o.result;
   if (!r) {
@@ -812,7 +812,7 @@ const STALE_SESSION_MS = 24 * 60 * 60 * 1000;
  * store right now, writing each blob a moment before the call that references it: collecting
  * unreferenced blobs here could take those. What a live replay alone held waits for `shadowlap gc`.
  */
-export function pruneReplays(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): number {
+export function pruneReplays(store: StoreOf<'recording' | 'tests'>, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): number {
   const byGolden = new Map<string, RunRecord[]>();
   for (const run of store.testReplays([...tested.keys()])) {
     const t = run.meta?.test;
@@ -850,11 +850,11 @@ export function pruneReplays(store: Store, session: { sessionId: string; started
  * `pruneReplays` for a test session, which it never fails: the store may be busy with another
  * process, and the replays can wait for the next session. Returns why nothing was pruned, or null.
  */
-export function pruneQuietly(store: Store, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): string | null {
+export function pruneQuietly(store: StoreOf<'recording' | 'tests'>, session: { sessionId: string; startedAt: number }, tested: ReadonlyMap<string, { ok: boolean; fork: boolean }>): string | null {
   try {
     pruneReplays(store, session, tested);
     return null;
   } catch (err) {
-    return `older replays were not pruned this time: ${err instanceof Error ? err.message : String(err)}`;
+    return `older replays were not pruned this time: ${messageOf(err)}`;
   }
 }

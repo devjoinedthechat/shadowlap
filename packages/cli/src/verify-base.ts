@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { messageOf } from '@shadowlap/engine';
 import { linkDependencies, mapArgv } from './bisect.js';
 import { scratchDir } from './goldens.js';
 import { physicalPath } from './real-path.js';
@@ -125,7 +126,7 @@ export class BaseCheckout {
       git(root, ['worktree', 'add', '--detach', '--force', worktree, spec.revision]);
     } catch (err) {
       remove();
-      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || (err as Error).message}`, { cause: err });
+      throw new Error(`the base ${spec.label} could not be checked out: ${(err as { stderr?: Buffer }).stderr?.toString().trim() || messageOf(err)}`, { cause: err });
     }
     const worktreeCwd = join(worktree, inRepo);
     if (spec.build) {

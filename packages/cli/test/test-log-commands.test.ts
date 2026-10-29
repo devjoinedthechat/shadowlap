@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { formatChecks } from '../src/golden-test.js';
+import { safe, safeLines } from '../src/ui.js';
 
 /**
  * What `shadowlap test` prints for a failed golden goes to a CI job's log as it is: the GitHub
@@ -33,11 +34,11 @@ const commandsIn = (out: string) => out.split(/\r\n|\r|\n/).filter((l) => /^[\s\
 let mock: MockServer;
 let work: string;
 
-function shadowlap(args: string[]): Promise<{ code: number | null; out: string }> {
+function shadowlap(args: string[], env: Record<string, string> = {}): Promise<{ code: number | null; out: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, '--db', join(work, 'store.db'), ...args], {
       cwd: work,
-      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home') },
+      env: { ...process.env, SHADOWLAP_UPSTREAM_ANTHROPIC: mock.url, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(work, 'home'), ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '';
@@ -70,6 +71,18 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     );
   });
 
+  it('writes a recorded string that would start a line with a command so it does not, IPv6 left alone', () => {
+    expect(safe('::stop-commands::tok')).toBe(':\\x3astop-commands::tok');
+    expect(safe('    ::add-mask::tok')).toBe('    :\\x3aadd-mask::tok');
+    expect(commandsIn(`    ${safe('::error file=a.ts::forged')}`)).toEqual([]);
+    expect(safe('::1 answered')).toBe('::1 answered');
+    // Lines of text: escaped where nothing else keeps a line from starting a command; behind the bar, as printed.
+    const text = 'Done.\n::stop-commands::tok\r  ::error::forged';
+    expect(safeLines(text, '    ')).toBe('    Done.\n    :\\x3astop-commands::tok\n      :\\x3aerror::forged\n');
+    expect(safeLines(text, '    │ ')).toBe('    │ Done.\n    │ ::stop-commands::tok\n    │   ::error::forged\n');
+    expect(commandsIn(safeLines(text, '    ') + safeLines(text, '    │ '))).toEqual([]);
+  });
+
   it("keeps what the agent printed from starting a workflow command, past a bare carriage return too", async () => {
     const recorded = await shadowlap(['run', '--summary-json', 'run.json', '--', process.execPath, AGENT]);
     expect(recorded.code, recorded.out).toBe(0);
@@ -86,5 +99,20 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     // Nothing in all it printed is a command; what the agent printed is each line after the bar.
     expect(commandsIn(r.out)).toEqual([]);
     expect(r.out).toContain('    │ Done.\n    │ ::stop-commands::tok\n    │ ::warning::from the agent, #\\x23[error]and mid-line\n');
+  }, 60_000);
+
+  it("keeps a failure's details from starting a workflow command: what an agent that never started printed is among them", async () => {
+    const recorded = await shadowlap(['run', '--summary-json', 'refused.json', '--', process.execPath, AGENT]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = (JSON.parse(readFileSync(join(work, 'refused.json'), 'utf8')) as { summary: { runId: string } }).summary.runId;
+    expect((await shadowlap(['pack', runId, 'goldens/refused'])).code).toBe(0);
+    // The replay's Node refuses Shadowlap's preload, as a Node before 18.18 does, and prints more after it.
+    const refuse = join(work, 'refuse.cjs');
+    writeFileSync(refuse, `if ((process.argv[1] ?? '').endsWith('support-agent.mjs')) { process.stderr.write('node: --import is not allowed in NODE_OPTIONS\\n::stop-commands::tok\\r  ::error::forged\\n'); process.exit(9); }\n`);
+    const r = await shadowlap(['test', 'goldens/refused'], { NODE_OPTIONS: `--require "${refuse.replace(/\\/g, '/')}"` });
+    expect(r.code, r.out).toBe(1);
+    // Each line of what it printed escaped where the details show it, a bare CR ending one too.
+    expect(r.out).toContain('    node: --import is not allowed in NODE_OPTIONS\n    :\\x3astop-commands::tok\n      :\\x3aerror::forged\n');
+    expect(commandsIn(r.out)).toEqual([]);
   }, 60_000);
 });

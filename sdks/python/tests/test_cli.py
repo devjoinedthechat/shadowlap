@@ -34,7 +34,7 @@ def script(folder: str, name: str, body: str) -> str:
 
 def run(argv, path, extra_env=None):
     """The console script's entry point, as a process with only `path` on PATH."""
-    env = {"PATH": path, "HOME": os.environ.get("HOME", "/tmp"), **(extra_env or {})}
+    env = {"PATH": path, "HOME": os.environ.get("HOME", tempfile.gettempdir()), **(extra_env or {})}
     # -B: its environment is its own, so nothing tells it not to write bytecode beside the SDK.
     return subprocess.run([sys.executable, "-B", "-c", MAIN, *argv], env=env, capture_output=True, text=True, timeout=60)
 

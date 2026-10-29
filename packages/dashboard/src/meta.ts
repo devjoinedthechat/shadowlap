@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { countRuns } from './runs-list.js';
 import type { LiveRun, MetaView, ProjectView } from './views.js';
 
@@ -21,14 +21,14 @@ export interface MetaInput {
  * on a machine that went down) is not one, though its status still says running until gc marks it
  * interrupted. Asked fresh each time: a process can end without anything in the store changing.
  */
-export function liveRuns(store: Store): LiveRun[] {
+export function liveRuns(store: StoreOf<'recording' | 'readModels'>): LiveRun[] {
   return store.recordingRuns().live.map(({ run }) => {
     const row = store.query(`SELECT COUNT(*) AS events, COALESCE(SUM(phase = 'start'), 0) AS calls FROM call_events WHERE run_id = ?`, run.runId)[0];
     return { runId: run.runId, calls: Number(row?.calls ?? 0), events: Number(row?.events ?? 0) };
   });
 }
 
-export function metaView(store: Store, input: MetaInput): MetaView {
+export function metaView(store: StoreOf<'recording' | 'cleanup' | 'readModels'>, input: MetaInput): MetaView {
   return {
     version: input.version,
     dbPath: input.dbPath,

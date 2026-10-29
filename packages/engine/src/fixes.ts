@@ -2,7 +2,7 @@ import type { BlameReport } from './blame.js';
 import { canonicalize } from './canonical.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
-import type { FixData, FixStatus, StepRerun, Store, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
+import type { FixData, FixStatus, StepRerun, StoreOf, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 import type { RunRecord } from './types.js';
 import type { VerifyReport } from './verify.js';
 
@@ -74,7 +74,7 @@ export class FixIdError extends Error {
  * nothing matches, or when no id characters are given (`fx-` alone); a prefix that matches several
  * fixes throws a FixIdError.
  */
-export function resolveFix(store: Store, idOrPrefix: string): StoredFix | null {
+export function resolveFix(store: StoreOf<'fixes'>, idOrPrefix: string): StoredFix | null {
   const q = idOrPrefix.trim().replace(/^fx-/i, '');
   if (!/^[0-9a-z]+$/i.test(q)) return null;
   const id = `fx-${q.toUpperCase()}`;
@@ -93,7 +93,7 @@ export function resolveFix(store: Store, idOrPrefix: string): StoredFix | null {
  * store, the ones they carried when they joined. `label` is the one it goes by: the label most of
  * its runs carry, the first given on a tie.
  */
-export function fixLabelInfo(store: Store, fix: StoredFix): { labels: string[]; label: string | null } {
+export function fixLabelInfo(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix): { labels: string[]; label: string | null } {
   const count = new Map<string, number>();
   let found = false;
   for (const link of store.fixLinks(fix.fixId, 'failing')) {
@@ -109,7 +109,7 @@ export function fixLabelInfo(store: Store, fix: StoredFix): { labels: string[]; 
 }
 
 /** The fix a run fails in: one not yet applied (the latest opened), else the latest applied one. */
-export function fixOfRun(store: Store, runId: string): StoredFix | null {
+export function fixOfRun(store: StoreOf<'fixes'>, runId: string): StoredFix | null {
   const fixes = store
     .linksTo(runId, 'failing')
     .map((l) => store.getFix(l.fixId))
@@ -133,7 +133,7 @@ export function fixOfRun(store: Store, runId: string): StoredFix | null {
  * to the fix sharing more labels, then to the first opened. An applied fix is finished: the same
  * failure seen again in a new run is a new one.
  */
-export function joinableFix(store: Store, run: Pick<RunRecord, 'meta'> | null, expect: unknown, o: { byCheck?: boolean } = {}): StoredFix | null {
+export function joinableFix(store: StoreOf<'recording' | 'fixes'>, run: Pick<RunRecord, 'meta'> | null, expect: unknown, o: { byCheck?: boolean } = {}): StoredFix | null {
   const byCheck = o.byCheck ?? true;
   const labels = fixLabels(run);
   const key = checkKey(expect);
@@ -169,7 +169,7 @@ export function coversCheck(fix: Pick<StoredFix, 'check'>, oracle: readonly stri
 }
 
 /** Links failing runs to a fix and keeps their labels with it. A run that fails in another fix not yet applied stays there. */
-function joinRuns(store: Store, fix: StoredFix, runIds: readonly string[], at: number): void {
+function joinRuns(store: StoreOf<'recording' | 'fixes'>, fix: StoredFix, runIds: readonly string[], at: number): void {
   const before = store.getFix(fix.fixId)?.labels ?? fix.labels;
   const labels = [...before];
   for (const id of runIds) {
@@ -182,7 +182,7 @@ function joinRuns(store: Store, fix: StoredFix, runIds: readonly string[], at: n
 }
 
 /** The fixes failing runs belong to: the ones they fail in, else the ones their labels join. */
-function fixesOfRuns(store: Store, runIds: readonly string[], expect: unknown): StoredFix[] {
+function fixesOfRuns(store: StoreOf<'recording' | 'fixes'>, runIds: readonly string[], expect: unknown): StoredFix[] {
   const found = new Map<string, StoredFix>();
   for (const id of runIds) {
     const fix = fixOfRun(store, id);
@@ -234,7 +234,7 @@ export interface RecordedBlame {
  * new run that fails again opens a new fix. Every outcome counts: blame replayed the run and saw
  * it fail before it probed anything, so even a search that stopped early reproduced the failure.
  */
-export function recordBlame(store: Store, input: BlameToRecord): RecordedBlame {
+export function recordBlame(store: StoreOf<'recording' | 'fixes'>, input: BlameToRecord): RecordedBlame {
   const at = input.at ?? Date.now();
   const expect = input.expect ?? null;
   const blame: StoredBlame = { blameId: newBlameId(at), runId: input.runId, at, outcome: input.report.outcome, report: input.report, expect, scope: input.scope, command: input.command, ...(input.rerun ? { rerun: input.rerun } : {}) };
@@ -295,11 +295,11 @@ export interface RecordedVerdict {
  * recorded, and good runs that did. An accepted verdict that counts turns an open fix verified; a
  * fix stays verified whatever a later verdict says.
  */
-export function recordVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
+export function recordVerdict(store: StoreOf<'recording' | 'fixes'>, input: VerdictToRecord): RecordedVerdict {
   return store.transaction(() => keepVerdict(store, input));
 }
 
-function keepVerdict(store: Store, input: VerdictToRecord): RecordedVerdict {
+function keepVerdict(store: StoreOf<'recording' | 'fixes'>, input: VerdictToRecord): RecordedVerdict {
   const at = input.at ?? Date.now();
   const r = input.report;
   const expect = input.expect ?? null;
@@ -361,7 +361,7 @@ export interface RecordedRepair {
  * join the fix, but for one that passed the check as recorded, as its blame or a candidate's
  * verification replayed it.
  */
-export function recordRepair(store: Store, input: RepairToRecord): RecordedRepair {
+export function recordRepair(store: StoreOf<'recording' | 'fixes'>, input: RepairToRecord): RecordedRepair {
   const at = input.at ?? Date.now();
   const r = input.report;
   const expect = input.expect ?? null;
@@ -397,7 +397,7 @@ export function recordRepair(store: Store, input: RepairToRecord): RecordedRepai
 }
 
 /** Marks a fix applied, inside a transaction the caller holds. A fix applied before keeps when it was applied; what was done is replaced. */
-function applyMark(store: Store, fixId: string, applied: NonNullable<FixData['applied']>, at: number): void {
+function applyMark(store: StoreOf<'fixes'>, fixId: string, applied: NonNullable<FixData['applied']>, at: number): void {
   const fix = store.getFix(fixId);
   if (!fix) throw new Error(`unknown fix ${fixId}`);
   if (fix.status !== 'applied') store.updateFix(fixId, { status: 'applied', appliedAt: at });
@@ -406,7 +406,7 @@ function applyMark(store: Store, fixId: string, applied: NonNullable<FixData['ap
 }
 
 /** Marks a fix applied, with what `shadowlap fix apply` did. Applied before, it keeps when, and takes what was done now. */
-export function markFixApplied(store: Store, fixId: string, applied: NonNullable<FixData['applied']>, at: number = Date.now()): StoredFix {
+export function markFixApplied(store: StoreOf<'fixes'>, fixId: string, applied: NonNullable<FixData['applied']>, at: number = Date.now()): StoredFix {
   return store.transaction(() => {
     applyMark(store, fixId, applied, at);
     return store.getFix(fixId)!;
@@ -420,7 +420,7 @@ export function markFixApplied(store: Store, fixId: string, applied: NonNullable
  * which left these goldens behind, and `shadowlap test --update` re-recorded them. Returns the fixes
  * it marked.
  */
-export function settleAppliedFixes(store: Store, passed: ReadonlySet<string>, at: number = Date.now()): StoredFix[] {
+export function settleAppliedFixes(store: StoreOf<'fixes'>, passed: ReadonlySet<string>, at: number = Date.now()): StoredFix[] {
   const path = (p: string) => p.split(/[\\/]+/).join('/').replace(/^\.\//, '').replace(/\/+$/, '');
   const ok = new Set([...passed].map(path));
   return store.transaction(() => {
@@ -440,7 +440,7 @@ export function settleAppliedFixes(store: Store, passed: ReadonlySet<string>, at
  * Gives a fix a title of its own; blames that join it later keep it. When it was given goes with
  * it, so a teammate's copy renamed earlier never puts its title back (mergeFixDocs).
  */
-export function setFixTitle(store: Store, fixId: string, title: string, at: number = Date.now()): StoredFix {
+export function setFixTitle(store: StoreOf<'fixes'>, fixId: string, title: string, at: number = Date.now()): StoredFix {
   const clean = cleanTitle(title);
   if (!clean) throw new Error('a title needs some text');
   return store.transaction(() => {
@@ -468,7 +468,7 @@ export interface FixRecords {
 
 const COUNTS: VerdictStanding = { counts: true, why: null };
 
-export function fixRecords(store: Store, fix: StoredFix): FixRecords {
+export function fixRecords(store: StoreOf<'fixes'>, fix: StoredFix): FixRecords {
   const links = store.fixLinks(fix.fixId);
   const refs = (kind: string) => links.filter((l) => l.kind === kind).map((l) => l.ref);
   const byAt = <T extends { at: number }>(xs: Array<T | null>) => xs.filter((x): x is T => x !== null).sort((a, b) => a.at - b.at);

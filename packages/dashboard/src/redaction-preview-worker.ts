@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store, previewRedaction, setPatternBudget } from '@shadowlap/engine';
+import { Store, messageOf, previewRedaction, setPatternBudget } from '@shadowlap/engine';
 import { BUSY, type PreviewAnswer, type PreviewWork } from './redaction-preview.js';
 
 /**
@@ -23,7 +23,7 @@ try {
   const deadline = Date.now() + work.limits.softMs;
   answer = { type: 'answer', ok: true, preview: previewRedaction(store, work.runId, work.rules, { maxCalls: work.limits.maxCalls, maxBytes: work.limits.maxBytes, deadline }) };
 } catch (err) {
-  const error = err instanceof Error ? err.message : String(err);
+  const error = messageOf(err);
   answer = { type: 'answer', ok: false, error, busy: BUSY.test(error) };
 } finally {
   // Closed before the answer goes: the server ends the thread once it has it, which can stop it

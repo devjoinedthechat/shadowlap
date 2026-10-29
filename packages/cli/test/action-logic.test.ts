@@ -9,12 +9,13 @@ import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
 import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
 import { HOSTILE } from '../../engine/test/markdown-cases.js';
-import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine, type StoredSession } from '../../../action/comment.mjs';
-import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan, type ReportResult } from '../../../action/fix.mjs';
+import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine } from '../../../action/comment.mjs';
+import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan } from '../../../action/fix.mjs';
 import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
 import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
-import { dispatchWorkflow, githubToken, openPullRequest, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile, type Fetch } from '../../../action/github.mjs';
+import { dispatchWorkflow, githubToken, openPullRequest, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
+import type { Fetch, ReportResult, StoredSession } from '../../../action/types.mjs';
 
 /**
  * The GitHub Action's logic, function by function, with GitHub's REST API played by a stand-in for
@@ -181,7 +182,7 @@ describe('starting the workflow on a fix\'s branch', () => {
 });
 
 describe("a fix's branch and its pull request", () => {
-  it("goes to the repository the workflow runs in, as the runner names it, once the checkout's origin names it too", () => {
+  it("goes to the repository the workflow runs in, as the runner names it, once the checkout's origin names it too, and nowhere else", () => {
     const repo = temp('sl-push-target-');
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
     execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:northwind/agent.git'], { cwd: repo });
@@ -191,8 +192,11 @@ describe("a fix's branch and its pull request", () => {
     expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'Northwind/Agent' })).toEqual({ url: 'https://github.test/Northwind/Agent.git', why: null });
     // A job that checked out another repository opens nothing in this one.
     expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'northwind/other' })).toEqual({ url: null, why: "the checkout's origin is not northwind/other, the repository this workflow runs in, so no fix is pushed from it" });
-    // Outside GitHub Actions, the checkout's origin.
-    expect(pushTarget(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toEqual({ url: 'git@github.com:northwind/agent.git', why: null });
+    // A job that names no repository pushes nothing: the checkout's origin, which the agent could have changed, never stands in.
+    const unnamed = "the job doesn't name the repository it runs in (GITHUB_SERVER_URL and GITHUB_REPOSITORY), so no fix is pushed from it: the checkout's origin, which the agent could have changed, is never pushed to in its place";
+    expect(pushTarget(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toEqual({ url: null, why: unnamed });
+    expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: '' })).toEqual({ url: null, why: unnamed });
+    expect(pushTarget(repo, { ...env, GITHUB_SERVER_URL: '' })).toEqual({ url: null, why: unnamed });
   });
 
   it("is opened through GitHub's API with the token, never by gh in the checkout, and says why when GitHub refuses", async () => {
@@ -295,8 +299,12 @@ describe('the pull request comment', () => {
     expect(await upsertComment({ env: ACTIONS, auth, number: 12, marker, body: 'b', fetch: github(() => ({ status: 502 })).fetch })).toEqual({ state: 'failed', url: null, why: 'GitHub answered 502' });
   });
 
-  /** A test report's result, a golden that replayed clean unless told otherwise. */
-  const result = (over: Partial<ReportResult> & Record<string, unknown>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: true, verdict: 'passed', failure: null, message: null, runId: 'R1', runs: [{ runId: 'R1', ok: true, verdict: 'passed' }], ...over });
+  /**
+   * A test report's result, a golden that replayed clean unless told otherwise. What it is told may
+   * be part of what a report holds (a gate's figures and sentence, a divergence's call), as the
+   * action reads no more of it.
+   */
+  const result = (over: Record<string, unknown>): ReportResult => ({ name: 'refund-flow', golden: 'goldens/refund-flow', dir: 'goldens/refund-flow', ok: true, verdict: 'passed', failure: null, message: null, runId: 'R1', runs: [{ runId: 'R1', ok: true, verdict: 'passed' }], ...over });
   const gated = (verdict: 'passed' | 'failed' | 'inconclusive') => ({ kind: 'sprt', good: 0.9, bad: 0.7, risk: 0.05, max: 80, sentence: `${verdict} · 12 of 12 · rate >= 0.73 (95%) · gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts` });
 
   it('says each golden\'s verdict in one line, as every report says it: the verdict word first, a gate\'s tally, bound and rule', () => {
@@ -373,6 +381,9 @@ describe('the pull request comment', () => {
       "[The job's summary](https://github.test/northwind/agent/actions/runs/7) has each failure in full.",
       '',
     ]);
+    // A fix of goldens repaired together names each as code, none of them escaped as a table's cell is.
+    const together = commentBody({ report, marker, fixes: [{ name: 'a, b|c', golden: 'goldens/a, goldens/b|c', outcome: 'opened', pr: 'https://github.test/northwind/agent/pull/14', title: 'Ask before refunding', why: null, spent: 1 }] });
+    expect(together).toContain('for `goldens/a`, `goldens/b|c`: Ask before refunding.');
     // Without that history, no column for it.
     const alone = commentBody({ report, marker });
     expect(alone).toContain('| | Golden | Verdict |\n|---|---|---|\n');
@@ -437,7 +448,7 @@ describe('the pull request comment', () => {
 });
 
 describe('what a fix is verified on', () => {
-  const failing = (name: string, expect: Record<string, unknown>, over: Partial<ReportResult> & Record<string, unknown> = {}): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: false, verdict: 'failed', failure: 'check', runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: false, verdict: 'failed' }, { runId: `${name}-2`, ok: false, verdict: 'failed' }], expect, ...over });
+  const failing = (name: string, expect: Record<string, unknown>, over: Record<string, unknown> = {}): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: false, verdict: 'failed', failure: 'check', runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: false, verdict: 'failed' }, { runId: `${name}-2`, ok: false, verdict: 'failed' }], expect, ...over });
   const passing = (name: string, expect: Record<string, unknown> | null): ReportResult => ({ name, golden: `goldens/${name}`, dir: `goldens/${name}`, ok: true, verdict: 'passed', failure: null, runId: `${name}-1`, runs: [{ runId: `${name}-1`, ok: true, verdict: 'passed' }], expect });
   const NO_REFUND = { tools: { issue_refund: 0 } };
   const NO_EMAIL = { tools: { send_email: 0 } };
@@ -463,7 +474,7 @@ describe('what a fix is verified on', () => {
     const sprt = { kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.01, max: 200, sentence: 'failed · …' };
     expect(goldenGate(failing('a', NO_REFUND, { gate: sprt }))).toEqual({ kind: 'sprt', good: 0.95, bad: 0.8, risk: 0.01, max: 200 });
     expect(goldenGate(failing('a', NO_REFUND, { attempts: { total: 5, passed: 3, required: 4 } }))).toEqual({ kind: 'count', attempts: 5, passes: 4 });
-    expect(goldenGate(failing('a', NO_REFUND, { gate: { kind: 'baseline', drop: 0.1 } } as never))).toEqual({ kind: 'history' });
+    expect(goldenGate(failing('a', NO_REFUND, { gate: { kind: 'baseline', drop: 0.1 } }))).toEqual({ kind: 'history' });
     expect(goldenGate(failing('a', NO_REFUND))).toBeNull();
     const results = [failing('a', NO_REFUND, { gate: sprt })];
     const plan = repairPlan(groupFixes(planFixes({ results }))[0].members, results);

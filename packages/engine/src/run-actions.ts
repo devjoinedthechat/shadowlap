@@ -1,7 +1,8 @@
 import { checkStatus } from './check-status.js';
 import { literalValue, noLateSystemMessage } from './interventions.js';
+import { isObject } from './is-object.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
 import type { CallRecord, RunIntervention, RunRecord } from './types.js';
 import { normalizeAddArgs } from './volatile.js';
@@ -71,7 +72,7 @@ export interface ActionContext {
 }
 
 /** Whether a process is recording the run now: marked `running`, and its recorder still there. */
-export function recordingNow(store: Store, run: RunRecord): boolean {
+export function recordingNow(store: StoreOf<'recording'>, run: RunRecord): boolean {
   return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
@@ -81,7 +82,7 @@ export function isUserInput(call: CallRecord | undefined): boolean {
 }
 
 /** The selected call's recorded result, for the actions that start from it. */
-export function actionContext(store: Store, call: CallRecord | undefined): ActionContext {
+export function actionContext(store: StoreOf<'recording'>, call: CallRecord | undefined): ActionContext {
   if (!call || call.kind !== 'tool' || !call.end?.responseRef || call.end.outcome !== 'ok') return {};
   try {
     const payload = store.getJson<{ result?: unknown }>(call.end.responseRef);
@@ -299,7 +300,7 @@ export function forkArgs(run: RunRecord, omit: ReadonlySet<string> = new Set()):
     }
   }
   const expect = run.meta?.expect;
-  if (expect && typeof expect === 'object' && !Array.isArray(expect) && !omit.has('--expect')) out.push('--expect', JSON.stringify(expect));
+  if (isObject(expect) && !omit.has('--expect')) out.push('--expect', JSON.stringify(expect));
   return out;
 }
 
@@ -439,8 +440,8 @@ function callActions(id: string, call: CallRecord, context: ActionContext): Acti
     // What a person typed: answer it differently, starting from the recorded reply. Overriding it as
     // a tool result or running it live would mean asking a person again.
     const recorded = context.result;
-    const shaped = recorded && typeof recorded === 'object' && !Array.isArray(recorded) && typeof (recorded as { text?: unknown }).text === 'string';
-    const reply = (v: string) => JSON.stringify(shaped ? { ...(recorded as Record<string, unknown>), text: v } : v);
+    const shaped = isObject(recorded) && typeof recorded.text === 'string';
+    const reply = (v: string) => JSON.stringify(shaped ? { ...recorded, text: v } : v);
     const initial = typeof recorded === 'string' ? recorded : shaped ? (recorded as { text: string }).text : undefined;
     return [
       {

@@ -5,6 +5,7 @@ import { sha256 } from './ids.js';
 import { asParsed, cloneExact, isRawNumber } from './json-exact.js';
 import { stripKeysDeep } from './normalize.js';
 import type { SerializedError } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Interventions in the provider's own wire format. `--inject`, `--set` and `--model` change one
@@ -21,8 +22,6 @@ import type { SerializedError } from './types.js';
  */
 
 export type RequestShape = 'anthropic' | 'openai-chat' | 'openai-responses' | 'gemini' | 'converse' | 'other';
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** What kind of request a model call sends, from its provider, its path (without the query) and its body. */
 export function requestShape(provider: string | null | undefined, path: string, body: unknown): RequestShape {

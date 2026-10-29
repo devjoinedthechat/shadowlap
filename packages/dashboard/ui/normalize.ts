@@ -1,4 +1,5 @@
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
+import { isObject } from '../../engine/src/is-object.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own
@@ -9,7 +10,6 @@ import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixVi
  * shape. No DOM here: the tests import it.
  */
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);

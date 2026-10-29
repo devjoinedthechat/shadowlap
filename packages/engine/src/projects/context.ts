@@ -1,5 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { messageOf } from '../message-of.js';
 import { Store } from '../store.js';
 import { countGoldens, listPacks } from './folders.js';
 import { displayPath, projectDbPath } from './paths.js';
@@ -130,7 +131,7 @@ class Context<C> implements ProjectContext<C> {
     try {
       return readStoreFacts(this.dbPath, Date.now(), options);
     } catch (err) {
-      throw new ProjectError('store', `Shadowlap can’t read ${this.name}’s store: ${(err as Error).message}`);
+      throw new ProjectError('store', `Shadowlap can’t read ${this.name}’s store: ${messageOf(err)}`);
     }
   }
 
@@ -367,7 +368,7 @@ export class ProjectHost<C = unknown> {
         facts = read ?? this.context(p.id).facts();
       } catch (err) {
         // a store from a newer version, or one that isn't a database
-        unreadable = (err as Error).message;
+        unreadable = messageOf(err);
       }
     }
     // As `deriveSetup` has it: done only once finished with runs; a finished project with none left starts again.

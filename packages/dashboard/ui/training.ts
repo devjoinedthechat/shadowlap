@@ -1,6 +1,7 @@
 import { commandText } from './goldens.js';
 import { href } from './route.js';
 import type { ModelOptionView, ModelsView, PairGroupView, PipView, ScoreDialogView, TrainingView } from './types.js';
+import { isObject } from '../../engine/src/is-object.js';
 
 /**
  * Training's logic (`pages/Training.tsx`), without the DOM so the tests import it: which pair groups a
@@ -146,7 +147,6 @@ export function leftOutLine(leftOut: ScoreDialogView['leftOut'] | undefined): st
   return `Not offered: ${leftOut.map((l) => `${l.models.length === 1 ? l.models[0]! : `${l.group}: ${names(l.models)}`} (${l.why})`).join(' · ')}`;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 /**
@@ -157,10 +157,10 @@ const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
  */
 export function trainingJobStatus(job: { kind?: string; code: number | null; result?: unknown }): { text: string; tone: 'ok' | 'warn' | 'err' } | null {
   const r = job.result;
-  if (job.code === null || !isRecord(r)) return null;
+  if (job.code === null || !isObject(r)) return null;
   const exit = `exit ${job.code}`;
   if (job.kind === 'score') {
-    const tasks = Array.isArray(r.tasks) ? r.tasks.filter(isRecord) : [];
+    const tasks = Array.isArray(r.tasks) ? r.tasks.filter(isObject) : [];
     const total = tasks.length + (Array.isArray(r.skipped) ? r.skipped.length : 0);
     const scored = tasks.filter((t) => Array.isArray(t.attempts) && t.attempts.length > 0).length;
     if (typeof r.mean !== 'number' || !scored) return { text: `nothing scored · ${exit}`, tone: 'err' };

@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import type { CallKind } from '@shadowlap/engine';
+import { messageOf, type CallKind } from '@shadowlap/engine';
 
 /**
  * Search across what runs said, as `shadowlap search` searches it: prompts, model responses, tool
@@ -58,7 +58,7 @@ export function runSearch(spawn: (args: string[]) => ChildProcess, query: string
     try {
       child = spawn(searchArgs(query));
     } catch (e) {
-      resolve({ error: e instanceof Error ? e.message : String(e) });
+      resolve({ error: messageOf(e) });
       return;
     }
     child.stdout?.on('data', (c: Buffer) => (out += c.toString('utf8')));

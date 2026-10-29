@@ -4,25 +4,32 @@
 // watched, which the run's summary says, and which `--guard block` fails.
 import http from 'node:http';
 
+/**
+ * globalThis as the preloads share it: whether each set itself up, and what they hand each other
+ * under registered symbols, such as the request functions capture found.
+ * @type {typeof globalThis & { __shadowlapCapture?: boolean; __shadowlapGuard?: boolean } & Record<symbol, unknown>}
+ */
+const shared = globalThis;
+
 const url = process.env.SHADOWLAP_URL;
 const HELLO = Symbol.for('shadowlap.hello');
 
-if (url && !globalThis[HELLO]) {
-  globalThis[HELLO] = true;
+if (url && !shared[HELLO]) {
+  shared[HELLO] = true;
   const mode = process.env.SHADOWLAP_GUARD ?? 'warn';
   const body = JSON.stringify({
     runtime: 'node',
     runtimeVersion: process.versions.node,
     pid: process.pid,
     ppid: process.ppid,
-    guard: globalThis.__shadowlapGuard ? mode : 'off',
-    capture: globalThis.__shadowlapCapture === true,
+    guard: shared.__shadowlapGuard ? mode : 'off',
+    capture: shared.__shadowlapCapture === true,
   });
   try {
     const headers = { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(body)), ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) };
     // To the sidecar directly, with an agent of its own (and the request function capture found):
     // never through a proxy an agent set up, nor on a connection the agent's own calls share.
-    const request = globalThis[Symbol.for('shadowlap.request')]?.['http:'] ?? http.request;
+    const request = /** @type {{ 'http:'?: typeof http.request } | undefined} */ (shared[Symbol.for('shadowlap.request')])?.['http:'] ?? http.request;
     const req = request(`${url.replace(/\/$/, '')}/v1/hello`, { method: 'POST', agent: new http.Agent(), headers }, (res) => res.resume());
     req.on('error', () => {});
     // Held until the sidecar has it, so a process that ends at once still says it loaded, but never

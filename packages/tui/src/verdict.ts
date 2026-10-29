@@ -1,5 +1,7 @@
 import {
   checkStatus,
+  FAILURE_WORDS,
+  failureReason,
   fixOfRun,
   formatBlame,
   isFailedOutcome,
@@ -13,7 +15,7 @@ import {
   type CallRecord,
   type RunOutcome,
   type RunRecord,
-  type Store,
+  type StoreOf,
   type StoredCheck,
   type StoredFix,
   type UnrecordedTool,
@@ -36,7 +38,7 @@ export type Declared = Readonly<Record<string, 'read' | 'write'>>;
 const short = (id: string) => id.slice(0, 10);
 
 /** How the run came out, as the engine decides it for the dashboard's Runs table. */
-export function outcomeFor(store: Store, run: RunRecord, calls: readonly CallRecord[]): RunOutcome {
+export function outcomeFor(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): RunOutcome {
   const injected = calls.some((c) => c.end?.meta.injected === true);
   return runOutcome(run, { ...kindFacts(store, run, calls.length), injected });
 }
@@ -46,21 +48,16 @@ export function failedCheckText(c: StoredCheck): string {
   return `check failed: ${c.label}${c.detail ? `, but ${c.detail}` : ''}`;
 }
 
-/** A check that failed: not passed, and not one that could not be decided, which is no failure of the agent's. */
-const failedOne = (c: StoredCheck) => !c.ok && c.status !== 'inconclusive';
-
 /**
- * Why the run failed, in the order the dashboard's banner says it (`failureText`): a failed check,
- * the agent's exit, the check a fix names, an interruption, blame's confirmation. Else how it came
- * out, when it says something. Null while it records.
+ * Why the run failed, the engine's first reason (failureReason, which the dashboard's banner says
+ * too): a failed check, the agent's exit, the check a fix names, an interruption, blame's
+ * confirmation. Else how it came out, when it says something. Null while it records.
  */
 export function standing(run: RunRecord, outcome: RunOutcome): Fact | null {
-  const failed = (run.meta?.checks ?? []).find(failedOne);
-  if (failed) return { text: failedCheckText(failed), tone: 'err' };
-  if (run.status === 'failed') return { text: 'the agent exited with an error', tone: 'err' };
-  if (outcome.kind === 'check-failed' && outcome.check) return { text: `check failed: “${outcome.check}”`, tone: 'err' };
-  if (run.status === 'crashed') return { text: 'the run was interrupted', tone: 'warn' };
-  if (run.meta?.blame) return { text: 'blame confirmed it fails', tone: 'err' };
+  const reason = failureReason({ status: run.status, checks: run.meta?.checks ?? [], outcome, blame: run.meta?.blame });
+  if (reason?.kind === 'check') return { text: failedCheckText(reason.check), tone: 'err' };
+  if (reason?.kind === 'fix-check') return { text: `check failed: “${reason.check}”`, tone: 'err' };
+  if (reason) return { text: FAILURE_WORDS[reason.kind], tone: reason.kind === 'interrupted' ? 'warn' : 'err' };
   switch (outcome.kind) {
     case 'inconclusive':
       return { text: `check inconclusive${outcome.check ? `: ${outcome.check}` : ''}`, tone: 'warn' };
@@ -89,7 +86,7 @@ export function blameFact(run: RunRecord): Fact | null {
   return { text: b.outcome === 'unrescuable' ? unrescuedWords(b.unsettled === true) : 'blame stopped before it finished', tone: 'warn' };
 }
 
-export function fixFor(store: Store, runId: string): StoredFix | null {
+export function fixFor(store: StoreOf<'fixes'>, runId: string): StoredFix | null {
   try {
     return fixOfRun(store, runId);
   } catch {
@@ -104,7 +101,7 @@ export function fixFact(run: RunRecord, fix: StoredFix | null, outcome: RunOutco
   return run.meta?.blame ? { text: 'no fix yet', tone: 'warn' } : { text: 'not blamed yet', tone: 'info' };
 }
 
-export function unrecordedOf(store: Store, runId: string, declared: Declared = {}): UnrecordedTool[] {
+export function unrecordedOf(store: StoreOf<'recording'>, runId: string, declared: Declared = {}): UnrecordedTool[] {
   try {
     return unrecordedTools(store, runId, { declared });
   } catch {
@@ -139,7 +136,7 @@ export interface Verdict {
   unrecorded: UnrecordedTool[];
 }
 
-export function verdictOf(store: Store, run: RunRecord, calls: readonly CallRecord[], declared: Declared = {}): Verdict {
+export function verdictOf(store: StoreOf<'recording' | 'fixes'>, run: RunRecord, calls: readonly CallRecord[], declared: Declared = {}): Verdict {
   const outcome = outcomeFor(store, run, calls);
   const fix = fixFor(store, run.runId);
   const unrecorded = run.status === 'running' ? [] : unrecordedOf(store, run.runId, declared);
@@ -163,7 +160,7 @@ export function checkLine(c: StoredCheck): Fact {
 }
 
 /** Blame's whole report, as `shadowlap blame` printed it, from the last blame of the run. */
-export function blameReport(store: Store, runId: string): string[] {
+export function blameReport(store: StoreOf<'fixes'>, runId: string): string[] {
   try {
     const last = store.blamesOfRun(runId).at(-1);
     return last ? formatBlame(last.report, plain).split('\n') : [];

@@ -3,14 +3,16 @@ import { encodeEventStreamFrame, eventStreamFrames, type EventStreamFrame } from
 import { capturedHttp, credentialFreeArgv, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, decodedParam, wellFormed, withoutStoredCredentials } from './http.js';
 import { reachesResultsOf, rewriteJsonDocument, untouched, type CallScope } from './json-doc.js';
 import { loadApiRequest, manifestRefs, storeApiRequest, type RequestManifest } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { applyNormalizers, compilePattern, countMatches, normalizerApplies, parsePath, reportUnmasked, rewriteStringsDeep, rewriteText, type RewriteObserver, type Segment, type UnmaskedAt } from './normalize.js';
 import { inEvent, maskJsonChunks, maskSseStream, maskStreamed } from './redact-stream.js';
 import { isJudgeCall, reachesJudgeRequest } from './judge-scope.js';
 import { cutSigned, isSignedMark, SIGNED_MARK, signedTexts, type Place } from './signed.js';
 import { redactRunFacts } from './run-facts.js';
-import { storeView, type Store } from './store.js';
+import { storeView, type Store, type StoreOf } from './store.js';
 import { quoteArgv } from './text.js';
 import type { CallEndRow, CallKind, CallMeta, CallRecord, DiffEntry, DivergenceReport, Normalizer, RunMeta, RunNote, RunRecord, SerializedError } from './types.js';
+import { isObject } from './is-object.js';
 
 type RunCheck = NonNullable<RunMeta['checks']>[number];
 
@@ -55,14 +57,12 @@ type RunCheck = NonNullable<RunMeta['checks']>[number];
  * read masks it like any other text.
  */
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * A call's request as it is stored: a model request is rebuilt from its manifest, a tool's is JSON;
  * a captured HTTP call's with the credentials in its query and form body masked, as a recording
  * stores them now (an earlier version stored them as sent).
  */
-function storedRequest(src: Store, call: CallRecord, exact = false): unknown {
+function storedRequest(src: StoreOf<'recording'>, call: CallRecord, exact = false): unknown {
   // `exact`: each number as it was stored (parseJsonExact), for a copy that stores the request again.
   if (call.kind === 'api') return loadApiRequest(src, call.requestRef!, { exact });
   const request = src.getJson(call.requestRef!);
@@ -89,7 +89,7 @@ function readingOnce(store: Store): Store {
  * reasoning kept as recorded with `keepSigned` (a copy that can be replayed). `export dataset`, which
  * is only read, reads requests through this too.
  */
-export function redactedRequest(src: Store, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false, exact = false): unknown {
+export function redactedRequest(src: StoreOf<'recording'>, call: CallRecord, rules: Normalizer[], observer?: RewriteObserver, keepSigned = false, exact = false): unknown {
   const r = requestRules(call, rules, observer);
   const request = storedRequest(src, call, exact);
   return keepSigned && call.kind === 'api' ? keepingSigned(request, r.rules, call, r.observer) : applyNormalizers(request, r.rules, call.kind, call.name, r.observer);
@@ -221,7 +221,7 @@ function redactedError(error: SerializedError, rules: Normalizer[], observer?: R
  * request with the parts its manifest names), but for a captured call's credentials; any other has
  * the rules applied (redactedRequest).
  */
-function redactRequest(src: Store, call: CallRecord, rules: Normalizer[], dst: Store, keepSigned: boolean, observer?: RewriteObserver): string | null {
+function redactRequest(src: StoreOf<'recording'>, call: CallRecord, rules: Normalizer[], dst: StoreOf<'recording'>, keepSigned: boolean, observer?: RewriteObserver): string | null {
   if (!call.requestRef) return null;
   if (!requestRules(call, rules).rules.some((r) => normalizerApplies(r, call.kind, call.name))) {
     const bytes = src.getBlob(call.requestRef);
@@ -373,7 +373,7 @@ export function matchedAs(call: Pick<CallRecord, 'kind' | 'name' | 'meta'>, norm
  * `call`). A captured HTTP call's result keeps its headers as a recording keeps them now
  * (credentialFreeResult).
  */
-function redactResponse(src: Store, ref: string | null, rules: Normalizer[], dst: Store, call: CallRecord, read: boolean, observer?: RewriteObserver): string | null {
+function redactResponse(src: StoreOf<'recording'>, ref: string | null, rules: Normalizer[], dst: StoreOf<'recording'>, call: CallRecord, read: boolean, observer?: RewriteObserver): string | null {
   if (!ref) return null;
   const stored = src.getBlob(ref);
   if (!stored) return null;
@@ -708,7 +708,7 @@ export function credentialFreeCall(call: CallRecord): CallRecord {
  * (content-addressed, beside the one it stands for), where a push sends it from like any other; a
  * call with nothing to mask is the same object.
  */
-export function credentialFreeCalls(store: Store, calls: readonly CallRecord[]): CallRecord[] {
+export function credentialFreeCalls(store: StoreOf<'recording'>, calls: readonly CallRecord[]): CallRecord[] {
   return calls.map((recorded) => {
     const call = credentialFreeCall(recorded);
     if (!capturedHttp(call)) return call;
@@ -738,7 +738,7 @@ export function credentialFreeCalls(store: Store, calls: readonly CallRecord[]):
  * through redactRun, rules or none, which masks them; a run without any is copied as it is when no
  * rule applies.
  */
-export function carriesCredentials(store: Store, runId: string): boolean {
+export function carriesCredentials(store: StoreOf<'recording' | 'readModels'>, runId: string): boolean {
   const run = store.getRun(runId);
   if (run && credentialFreeArgv(run.command.argv) !== run.command.argv) return true;
   // Read from the rows that can hold one, without loading the run's calls: an export reads those once.
@@ -775,7 +775,7 @@ export interface RedactRunOptions {
 }
 
 /** Copies `runId` from `src` into `dst` with `rules` applied. The copy keeps the run id. */
-export function redactRun(src: Store, runId: string, rules: Normalizer[], dst: Store, options: RedactRunOptions = {}): RunRecord {
+export function redactRun(src: StoreOf<'recording'>, runId: string, rules: Normalizer[], dst: StoreOf<'recording'>, options: RedactRunOptions = {}): RunRecord {
   const run = src.getRun(runId);
   if (!run) throw new Error(`unknown run ${runId}`);
   const calls = src.getCalls(runId);
@@ -873,8 +873,6 @@ export function redactArgv(argv: readonly string[], rules: readonly Normalizer[]
   return args;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * A run's own record with the rules without a path applied to what a person or a command line
  * wrote in it, outside its calls: the command line (as one text, redactArgv) and its folder,
@@ -885,7 +883,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord {
   if (!rules.some((r) => r.path === undefined && r.pattern !== undefined)) return run;
   const text = (value: string) => rewriteText(value, rules);
-  const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isRecord(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
+  const deep = (value: unknown): unknown => (typeof value === 'string' ? text(value) : Array.isArray(value) ? value.map(deep) : isObject(value) ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deep(v)])) : value);
   const out: RunRecord = { ...run, command: { ...run.command, argv: redactArgv(run.command.argv, rules), cwd: text(run.command.cwd) } };
   const meta = run.meta;
   if (meta) {
@@ -893,12 +891,12 @@ export function redactRunDetails(run: RunRecord, rules: Normalizer[]): RunRecord
     // each part is masked where it has the shape it should, its strings wherever they are otherwise.
     const m: RunMeta = { ...meta };
     if (meta.labels !== undefined) m.labels = deep(meta.labels) as string[];
-    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isRecord(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
-    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isRecord(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isRecord(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
-    if (isRecord(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
-    if (isRecord(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
+    if (Array.isArray(meta.notes)) m.notes = meta.notes.map((n) => (isObject(n) ? { ...n, text: deep(n.text) as string } : (deep(n) as RunNote)));
+    if (Array.isArray(meta.checks)) m.checks = meta.checks.map((c) => (isObject(c) ? { ...c, label: deep(c.label) as string, detail: deep(c.detail) as string | null, ...('reason' in c ? { reason: deep(c.reason) as string } : {}), ...(isObject(c.judge) ? { judge: { ...c.judge, name: deep(c.judge.name) as string } } : {}) } : (deep(c) as RunCheck)));
+    if (isObject(meta.imported) && typeof meta.imported.from === 'string') m.imported = { ...meta.imported, from: text(meta.imported.from) };
+    if (isObject(meta.test) && typeof meta.test.golden === 'string') m.test = { ...meta.test, golden: text(meta.test.golden) };
     if (typeof meta.author === 'string') m.author = text(meta.author);
-    if (isRecord(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
+    if (isObject(meta.blame)) m.blame = { ...meta.blame, fields: deep(meta.blame.fields) as Record<string, unknown>, oracle: deep(meta.blame.oracle) as string[] };
     out.meta = m;
   }
   const d = run.divergence;
@@ -928,7 +926,7 @@ function withRunDetailsRedacted(src: Store, rules: Normalizer[]): Store {
  * path rules on what calls got back too, and the run's own record masked as well
  * (redactRunDetails), since this copy is read, never replayed.
  */
-export function redactRunWithDetails(src: Store, runId: string, rules: Normalizer[], dst: Store): RunRecord {
+export function redactRunWithDetails(src: Store, runId: string, rules: Normalizer[], dst: StoreOf<'recording'>): RunRecord {
   return redactRun(withRunDetailsRedacted(src, rules), runId, rules, dst, { read: true });
 }
 
@@ -1179,7 +1177,7 @@ function seesWholeParts(rule: Normalizer): boolean {
  * A model request with the parts already read for an earlier request of the same call name left
  * out (as null): the system prompt, the tools, and each message at its place in the conversation.
  */
-function unseenParts(store: Store, call: CallRecord, seen: Set<string>): unknown {
+function unseenParts(store: StoreOf<'recording'>, call: CallRecord, seen: Set<string>): unknown {
   const manifest = store.getJson<RequestManifest>(call.requestRef!);
   if (!manifest || manifest.kind !== 'chunked') return storedRequest(store, call);
   const part = (where: string, hash: string): unknown => {
@@ -1230,7 +1228,7 @@ export function previewRedaction(store: Store, runId: string, rules: Normalizer[
       if (rule.pattern !== undefined) compilePattern(rule.pattern);
       if (rule.path !== undefined) parsePath(rule.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      throw new Error(`redaction rule #${i + 1}: ${messageOf(err)}`, { cause: err });
     }
   });
   const per = rules.map(() => ({

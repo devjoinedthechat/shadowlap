@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { deleteRuns, type DeleteResult } from './runs-list.js';
 
@@ -35,7 +35,7 @@ let last: Promise<unknown> = Promise.resolve();
  * this one for a store in memory (`store`). Rejects with a 503 when another command holds the store
  * past its busy timeout, or with what the thread said (500).
  */
-export function deleteRunsApart(store: Store, dbPath: string | null | undefined, ids: unknown): Promise<DeleteResult | { error: string }> {
+export function deleteRunsApart(store: StoreOf<'recording' | 'cleanup' | 'readModels'>, dbPath: string | null | undefined, ids: unknown): Promise<DeleteResult | { error: string }> {
   if (!dbPath || dbPath === ':memory:') return Promise.resolve(deleteRuns(store, ids));
   const run = (): Promise<DeleteResult | { error: string }> =>
     new Promise((resolve, reject) => {

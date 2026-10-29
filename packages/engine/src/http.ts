@@ -1,6 +1,7 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
 import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
+import { isObject } from './is-object.js';
 
 /**
  * Credentials in recorded HTTP traffic: which query and form parameters carry one (credentialParam,
@@ -962,8 +963,6 @@ export function resultBlob(rest: Readonly<Record<string, unknown>>, rawBody: Buf
   const body = typeof rawBody === 'string' ? Buffer.from(rawBody, 'utf8') : rawBody;
   return Buffer.concat([Buffer.from(`${head.slice(0, -2)}${Object.keys(rest).length ? ',' : ''}"body":`, 'utf8'), body, Buffer.from('}}', 'utf8')]);
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Whether a call is a captured HTTP call (a host under "http" in the config), recorded as a tool call. */
 export function capturedHttp(call: { kind: string; meta: Readonly<Record<string, unknown>> }): boolean {

@@ -11,7 +11,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from typing import Any, Callable, Optional
+from typing import Any, Callable, ClassVar, Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -331,7 +331,7 @@ class BesideOtherHooks(unittest.TestCase):
     """Claude Code takes the rewrite of whichever hook answers last: a hook beside the fence could put
     the recorded command back. The query's own run inside the fence; a settings file's is refused."""
 
-    BASH = [("Bash", {"command": "echo hi > out.txt"})]
+    BASH: ClassVar[list[tuple[str, dict[str, str]]]] = [("Bash", {"command": "echo hi > out.txt"})]
 
     def setUp(self) -> None:
         self._post = shadowlap._post

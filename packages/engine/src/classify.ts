@@ -6,6 +6,7 @@
  */
 import { checkStatus } from './check-status.js';
 import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * - `recording`: recorded by `shadowlap run`.
@@ -81,8 +82,6 @@ export interface ClassifyContext extends KindFacts {
    */
   rescued?: boolean;
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * A team store's URL, as a pull marks the runs it brings (`meta.imported.from`): `s3://`, `gs://`,

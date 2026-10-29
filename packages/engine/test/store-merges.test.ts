@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Store } from '../src/store.js';
+import { Store, storeView } from '../src/store.js';
 
 /**
  * Two commands change one row's JSON at once: the dashboard labels a run as the sidecar ending it
@@ -31,19 +31,17 @@ function twoCommands(): { store: Store; other: Store } {
 function between<K extends 'getRun' | 'teamSync'>(store: Store, name: K, meanwhile: () => void): { view: Store; refused: unknown[] } {
   const refused: unknown[] = [];
   const read = store[name].bind(store) as (...args: unknown[]) => unknown;
-  const view = Object.create(store, {
-    [name]: {
-      value: (...args: unknown[]) => {
-        const got = read(...args);
-        try {
-          meanwhile();
-        } catch (err) {
-          refused.push(err);
-        }
-        return got;
-      },
+  const view = storeView(store, {
+    [name]: (...args: unknown[]) => {
+      const got = read(...args);
+      try {
+        meanwhile();
+      } catch (err) {
+        refused.push(err);
+      }
+      return got;
     },
-  }) as Store;
+  });
   return { view, refused };
 }
 

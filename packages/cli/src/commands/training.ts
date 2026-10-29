@@ -13,6 +13,7 @@ import {
   listModelChoices,
   mainRefusal,
   matchTask,
+  messageOf,
   modelReach,
   PAIR_FORMATS,
   PAIR_SHAPES,
@@ -263,7 +264,7 @@ export function register(program: Command): void {
       try {
         target = resolveTarget({ model: flags.model, baseUrl: flags.baseUrl, keyEnv: flags.keyEnv });
       } catch (err) {
-        throw new InvalidArgumentError((err as Error).message);
+        throw new InvalidArgumentError(messageOf(err));
       }
       const root = process.cwd();
       const { tasks: all } = withStore(opts, (store) => loadTasks(root, store), true);
@@ -326,8 +327,8 @@ export function register(program: Command): void {
             emitJobEvent({ type: 'run', runId: a.runId, role: 'attempt' });
           });
         } catch (err) {
-          log(`  ${p.red('✗')} ${(err as Error).message}`);
-          skipped.push({ task: t.golden, reason: (err as Error).message });
+          log(`  ${p.red('✗')} ${messageOf(err)}`);
+          skipped.push({ task: t.golden, reason: messageOf(err) });
           continue;
         }
         // The budget counts what the judge checks cost too, though it is reported apart.
@@ -404,7 +405,7 @@ export function register(program: Command): void {
         try {
           baseUrl = resolveTarget({ model: 'm', baseUrl: flags.baseUrl }).baseUrl!;
         } catch (err) {
-          throw new InvalidArgumentError((err as Error).message);
+          throw new InvalidArgumentError(messageOf(err));
         }
       }
       // Anyone on this machine can try a token against a loopback port: one that short is guessed.

@@ -1,5 +1,5 @@
 import { Lru } from './conversations.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, RunRecord } from './types.js';
 
 /**
@@ -26,7 +26,7 @@ function timingOf(c: CallRecord): Timing {
 class Ancestry {
   private readonly runs = new Map<string, RunRecord | null>();
   private readonly timings = new Map<string, Map<number, Timing>>();
-  constructor(private readonly store: Store) {}
+  constructor(private readonly store: StoreOf<'recording'>) {}
   run(runId: string): RunRecord | null {
     if (!this.runs.has(runId)) this.runs.set(runId, this.store.getRun(runId));
     return this.runs.get(runId)!;
@@ -73,7 +73,7 @@ function durations(a: Ancestry, run: RunRecord, calls: readonly CallRecord[], fo
  * How long the recording waited for each of a run's replayed calls, by call number. A replayed call
  * whose recording is gone (deleted, or a pack's run whose parent was not packed) has no entry.
  */
-export function recordedDurations(store: Store, run: RunRecord, calls?: readonly CallRecord[]): Map<number, number> {
+export function recordedDurations(store: StoreOf<'recording'>, run: RunRecord, calls?: readonly CallRecord[]): Map<number, number> {
   return durations(new Ancestry(store), run, calls ?? store.getCalls(run.runId));
 }
 
@@ -95,14 +95,14 @@ export type RunSelection = readonly string[] | number | { since: number; until?:
  * it was followed through are kept with it: once one of them is deleted (`gc`), the part is
  * worked out again, as the run's page would.
  */
-const finishedWaits = new WeakMap<Store, Lru<string, { ms: number; calls: number; followed: Array<[string, boolean]> }>>();
+const finishedWaits = new WeakMap<object, Lru<string, { ms: number; calls: number; followed: Array<[string, boolean]> }>>();
 
 /**
  * The time replays did not wait, over the runs named or those started since a time (ms since the
  * epoch, or a window with an exclusive `until`). Ancestors shared by many runs are read once, and a
  * finished replay's calls once per store; a replay still running is read again each time.
  */
-export function notWaited(store: Store, which: RunSelection): NotWaited {
+export function notWaited(store: StoreOf<'recording'>, which: RunSelection): NotWaited {
   const a = new Ancestry(store);
   let runs: RunRecord[];
   if (Array.isArray(which)) runs = (which as readonly string[]).map((id) => a.run(id)).filter((r): r is RunRecord => r !== null);

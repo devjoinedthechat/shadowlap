@@ -6,6 +6,7 @@ import {
   addRules,
   editConfigFile,
   editWhenFree,
+  messageOf,
   recordEvent,
   removeRule,
   resolveAuthor,
@@ -188,7 +189,7 @@ export function register(router: Router, ctx: RouteContext): void {
       // `copy` is the entry as typed, for Copy the entry; the rest hides credentials, as the table does.
       r.json({ ...mcpServerFor({ command, url }), copy: mcpEntryAsTyped({ command, url }) });
     } catch (err) {
-      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+      throw new HttpError(400, messageOf(err));
     }
   });
 
@@ -343,7 +344,7 @@ export function register(router: Router, ctx: RouteContext): void {
         try {
           return { args: cleanupArgv({ cutoff, keep, expect: typeof report.expect === 'string' ? report.expect : '' }) };
         } catch (err) {
-          return { error: err instanceof Error ? err.message : String(err), status: 409 };
+          return { error: messageOf(err), status: 409 };
         }
       }
       const days = req.olderThanDays ?? CLEANUP_DAYS;

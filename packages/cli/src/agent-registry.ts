@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess, type SpawnOptions, type SpawnSyncR
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { processAlive, withLockFile } from '@shadowlap/engine';
+import { messageOf, processAlive, withLockFile } from '@shadowlap/engine';
 import { startCommand } from './start-command.js';
 
 /**
@@ -260,7 +260,7 @@ function processTable(note?: (why: string) => void): Map<number, ProcessInfo> | 
     }
     return table;
   } catch (err) {
-    note?.(err instanceof Error ? err.message : String(err));
+    note?.(messageOf(err));
     return null;
   }
 }
@@ -415,7 +415,7 @@ export function peerProcess(port: number, serverPort: number, note?: (why: strin
     if (process.platform === 'win32') return netstatPeer(port, serverPort);
     return lsofPeer(port, serverPort, note);
   } catch (err) {
-    note?.(`which process connected could not be read (${err instanceof Error ? err.message : String(err)})`);
+    note?.(`which process connected could not be read (${messageOf(err)})`);
     return null;
   }
 }

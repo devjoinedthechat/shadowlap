@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { estimateCost, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
+import { estimateCost, messageOf, safeLine, type Anchor, type Block, type Conversation, type Price, type ProposedEdit, type Usage } from '@shadowlap/engine';
 import { installedGlobally } from './installed.js';
 import { killTree } from './kill-tree.js';
 import { startCommand } from './start-command.js';
@@ -383,7 +383,7 @@ const REFUSED = () => new RepairerError('the Anthropic API refused the credentia
 
 /** Why the SDK sent nothing: it refuses before it sends when it finds no key, token or profile to sign in with. */
 function unsent(err: unknown): RepairerError {
-  const said = err instanceof Error ? err.message : String(err);
+  const said = messageOf(err);
   if (/could not resolve authentication method/i.test(said)) return new RepairerError('no Anthropic credentials', 'set ANTHROPIC_API_KEY, or run ant auth login');
   return new RepairerError('the Anthropic SDK could not send the request', said);
 }
@@ -567,7 +567,7 @@ async function askOpenAI(r: Repairer, prompt: { system: string; user: string }, 
       max_completion_tokens: REPAIRER_ANSWER_TOKENS,
     }),
   }).catch((err: unknown) => {
-    throw new RepairerError(`could not reach ${base}`, (err as Error).message);
+    throw new RepairerError(`could not reach ${base}`, messageOf(err));
   });
   const body = (await res.json().catch(() => null)) as {
     model?: string;

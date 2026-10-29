@@ -164,7 +164,7 @@ def main(argv: Optional[Sequence[str]] = None) -> NoReturn:
     if os.name != "nt":
         # Replaced, not wrapped: signals reach the CLI directly, and its exit status is this one.
         try:
-            os.execvp(cmd[0], cmd)
+            os.execvp(cmd[0], cmd)  # noqa: S606 -- the CLI takes this process's place, with its own argv and no shell
         except OSError as err:
             print(f"shadowlap: could not run {cmd[0]}: {err}", file=sys.stderr)
             sys.exit(EXIT_SETUP)

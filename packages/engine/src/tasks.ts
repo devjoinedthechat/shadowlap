@@ -6,6 +6,7 @@ import { PACK_LIMITS, PackError, validateCall, validateRun } from './pack-schema
 import type { TestResult } from './store.js';
 import { safeLine } from './text.js';
 import type { CallRecord, RunRecord, Usage } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Goldens as tasks. A golden with outcome checks already says what a good run does; as a task, a
@@ -44,7 +45,6 @@ export interface TaskFields {
   scope?: string;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 const TASK_KEYS = ['takeover', 'why', 'rewards', 'scope'];

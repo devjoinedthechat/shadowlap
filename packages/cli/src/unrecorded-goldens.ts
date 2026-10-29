@@ -1,4 +1,4 @@
-import type { RunRecord, Store, UnrecordedTool } from '@shadowlap/engine';
+import type { RunRecord, StoreOf, UnrecordedTool } from '@shadowlap/engine';
 import { packRecording } from './check-recordings.js';
 import { palette as p, safe } from './ui.js';
 import { howToRecord, refusedActs, refusedEffect, unrecordedLines, unrecordedOf } from './unrecorded.js';
@@ -15,7 +15,7 @@ export function unrecordedInGoldens(goldens: ReadonlyArray<{ dir: string; name: 
   const names = new Map<string, UnrecordedTool>();
   let goldensRefused = 0;
   for (const g of goldens) {
-    let read: { run: RunRecord; store: Store };
+    let read: { run: RunRecord; store: StoreOf<'recording'> };
     try {
       read = packRecording(g.dir);
     } catch {

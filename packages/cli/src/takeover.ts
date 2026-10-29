@@ -14,6 +14,7 @@ import {
   errorMessage,
   isLoopback,
   isTakeoverCall,
+  messageOf,
   modelUnswitchable,
   OFFICIAL,
   openAIBase,
@@ -384,7 +385,7 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
       answered++;
       return send(res, answerAs(provider, recorded, completion, { model: target.model, stream, search: url.search, request: body }), by);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = messageOf(err);
       const code = (err as { code?: string }).code;
       return fail(res, 502, code === 'ECONNREFUSED' ? `${target.model} at ${base} isn't reachable: nothing is listening there` : `${target.model} at ${base}: ${message}`, by);
     }
@@ -392,7 +393,7 @@ export async function startTakeover(spec: TakeoverSpec, target: ModelTarget, opt
 
   const server = await listenBoth((req, res) => {
     handle(req, res).catch((err: unknown) => {
-      if (!res.headersSent) fail(res, err instanceof BodyTooLarge ? 413 : 500, err instanceof Error ? err.message : String(err));
+      if (!res.headersSent) fail(res, err instanceof BodyTooLarge ? 413 : 500, messageOf(err));
       else res.destroy();
     });
   });

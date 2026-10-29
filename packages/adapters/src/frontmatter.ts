@@ -105,7 +105,7 @@ function quoted(text: string, at: number): { value: string; end: number } {
     }
     const e = text[++i];
     const simple: Record<string, string> = { n: '\n', t: '\t', r: '\r', '0': '\0', '"': '"', '\\': '\\', '/': '/', ' ': ' ', e: '\x1b', b: '\b', f: '\f' };
-    if (e !== undefined && e in simple) out += simple[e];
+    if (e !== undefined && e in simple) out += simple[e]!;
     else if (e === 'x' || e === 'u' || e === 'U') {
       const n = e === 'x' ? 2 : e === 'u' ? 4 : 8;
       const hex = text.slice(i + 1, i + 1 + n);

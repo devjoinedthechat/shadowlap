@@ -9,10 +9,11 @@ import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest, type RequestManifest } from './manifest.js';
 import { applyNormalizers, compilePattern } from './normalize.js';
 import { normalizeResponse } from './responses.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import { isModelRequest } from './tasks.js';
 import { openAITools } from './translate.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Preference pairs, read from what blame, verify and `--repeat` already left in the store. A pair is
@@ -117,7 +118,6 @@ type ChunkedManifest = Extract<RequestManifest, { kind: 'chunked' }>;
 const squash = (s: string) => s.trim().replace(/\s+/g, ' ');
 const short = (id: string) => id.slice(0, 10);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A run as a source names it: its first label, or its short id. */
 function runName(run: RunRecord): string {
@@ -228,9 +228,9 @@ interface KeyCache {
 }
 const KEY_LIMIT = 50_000;
 const TURN_LISTS = 512;
-const keyCaches = new WeakMap<Store, KeyCache>();
+const keyCaches = new WeakMap<object, KeyCache>();
 
-function keyCache(store: Store): KeyCache {
+function keyCache(store: StoreOf<never>): KeyCache {
   let cache = keyCaches.get(store);
   if (!cache) keyCaches.set(store, (cache = { conversations: new Map(), messages: new Map(), parts: new Map(), answers: new Map(), contexts: new Map(), paths: new Map(), turns: new Map() }));
   for (const map of [cache.conversations, cache.messages, cache.parts, cache.answers, cache.contexts, cache.paths]) if (map.size > KEY_LIMIT) map.clear();
@@ -270,7 +270,7 @@ class Reader {
   private readonly models = new Map<string, ModelCall[]>();
   private readonly keys: KeyCache;
   private readonly answers = new Map<string, Block[]>();
-  constructor(readonly store: Store) {
+  constructor(readonly store: StoreOf<'recording'>) {
     this.keys = keyCache(store);
   }
 
@@ -378,7 +378,7 @@ class Reader {
     if (v !== undefined) return v;
     v = null;
     try {
-      const m = this.store.getJson<unknown>(hash);
+      const m = this.store.getJson(hash);
       if (m !== null) {
         const asAnthropic = normalizeConversation({ system: '', messages: [m] })?.turns[1];
         const asOpenAI = normalizeConversation({ messages: [{ role: 'developer', content: '' }, m] })?.turns[1];
@@ -706,7 +706,7 @@ const scopeList = (scopes: Array<string | null>) => scopes.map((s) => (s === nul
  * (or of a run it came from) was limited to. When none was, every model call is the agent's if they
  * were all made in one scope; when they were made in several, nothing says which is the agent's.
  */
-function agentScope(r: Reader, store: Store, byId: Map<string, RunRecord>, recordings: string[], attempts: RunRecord[]): { scope: string | null } | { several: Array<string | null> } {
+function agentScope(r: Reader, store: StoreOf<'recording'>, byId: Map<string, RunRecord>, recordings: string[], attempts: RunRecord[]): { scope: string | null } | { several: Array<string | null> } {
   for (const id of recordings) {
     let run = byId.get(id) ?? store.getRun(id);
     for (let depth = 0; run && depth < 100; depth++) {
@@ -724,14 +724,14 @@ function agentScope(r: Reader, store: Store, byId: Map<string, RunRecord>, recor
  * run does (a new attempt, a blame, a run that ends), so a screen that reads them on every load reads
  * them once.
  */
-const memo = new WeakMap<Store, { signature: string; result: PairsResult }>();
+const memo = new WeakMap<object, { signature: string; result: PairsResult }>();
 
 /**
  * What pairs are read from: each run's place, outcome and meta (blame, probes, verify, repeat
  * groups). A run still recording is never read for pairs (blame, verify and --repeat read only
  * attempts that ended), so the calls it records change nothing until it ends, and its status says so.
  */
-function signature(store: Store, runs: readonly RunRecord[]): string {
+function signature(store: StoreOf<'readModels'>, runs: readonly RunRecord[]): string {
   const h = createHash('sha256');
   for (const r of runs) h.update(`${r.runId}|${r.parentRunId ?? ''}|${r.status}|${r.startedAt}|${r.endedAt ?? ''}|${r.codeVersion ?? ''}|${JSON.stringify(r.meta ?? null)}\n`);
   // A repair keeps its report once its candidates are verified: the verifies are named after them then.
@@ -745,7 +745,7 @@ const REPORTS_SQL = 'SELECT (SELECT COUNT(*) FROM verdicts) AS verdicts, (SELECT
  * The repair candidate each verify attempt checked, by the attempt's run: what the verdicts and the
  * repair reports in the store say, as Fixes names the same verifies ("repair candidate 3").
  */
-function candidateAttempts(store: Store): Map<string, number> {
+function candidateAttempts(store: StoreOf<'fixes'>): Map<string, number> {
   const out = new Map<string, number>();
   const note = (runs: ReadonlyArray<{ attempts: ReadonlyArray<{ runId: string }> }>, candidate: number) => {
     for (const x of runs) for (const a of x.attempts) if (!out.has(a.runId)) out.set(a.runId, candidate);
@@ -756,7 +756,7 @@ function candidateAttempts(store: Store): Map<string, number> {
 }
 
 /** Every pair the attempts in the store make, and every source read, including those that made none. */
-export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): PairsResult {
+export function findPairs(store: StoreOf<'recording' | 'readModels' | 'fixes'>, options: { runs?: RunRecord[] } = {}): PairsResult {
   const runs = options.runs ?? store.allRuns();
   const sig = options.runs ? null : signature(store, runs);
   const known = sig === null ? undefined : memo.get(store);
@@ -766,7 +766,7 @@ export function findPairs(store: Store, options: { runs?: RunRecord[] } = {}): P
   return { pairs: [...result.pairs], sources: [...result.sources] };
 }
 
-function readPairs(store: Store, runs: RunRecord[]): PairsResult {
+function readPairs(store: StoreOf<'recording' | 'fixes'>, runs: RunRecord[]): PairsResult {
   const byId = new Map(runs.map((x) => [x.runId, x]));
   const r = new Reader(store);
   const pairs: Pair[] = [];
@@ -1072,7 +1072,7 @@ function answerMessage(answer: PairAnswer, rules: ReturnType<typeof pathRules>):
  * neutral messages `export dataset` writes, and the two answers. Rows whose request can't be read
  * are left out.
  */
-export function pairRows(store: Store, pairs: readonly Pair[], options: PairRowsOptions): unknown[] {
+export function pairRows(store: StoreOf<'recording'>, pairs: readonly Pair[], options: PairRowsOptions): unknown[] {
   const rules = options.redact ?? [];
   const paths = pathRules(rules);
   const pathless = rules.filter((x) => x.path === undefined && x.pattern !== undefined).map((x) => ({ re: compilePattern(x.pattern!), replace: x.replace }));

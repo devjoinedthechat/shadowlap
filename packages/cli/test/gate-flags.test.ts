@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { BLAME_DEFAULTS, SPRT_DEFAULTS } from '@shadowlap/engine';
-import { attemptRule, readGate } from '../src/commands/fix.js';
+import { attemptRule, readGate } from '../src/commands/fix-flags.js';
 
 /**
  * How `blame`, `verify` and `repair` decide on their attempts: a gate by default (`--gate` changes

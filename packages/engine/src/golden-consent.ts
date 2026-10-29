@@ -3,7 +3,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { sameCommandLine } from './http.js';
 import { commandIsImported, hasRecordedCommand, PACK_FORMAT, readPackFile } from './pack.js';
 import { PACK_LIMITS } from './pack-schema.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { RunRecord } from './types.js';
 
 /**
@@ -83,7 +83,7 @@ export function packHeadRun(dir: string): { runId: string; argv: string[] } | nu
  * with the same command, but for the credentials a pack masks in it: sameCommandLine) or the
  * repository tracks its pack; one whose pack can't be read is left for the command, which refuses it.
  */
-export function goldensNeedingConsent(store: Store, dirs: readonly string[], projectDir: string): Array<{ dir: string; runId: string; argv: string[] }> {
+export function goldensNeedingConsent(store: StoreOf<'recording'>, dirs: readonly string[], projectDir: string): Array<{ dir: string; runId: string; argv: string[] }> {
   const asked: Array<{ dir: string; runId: string; argv: string[] }> = [];
   for (const dir of dirs) {
     const head = packHeadRun(resolve(projectDir, dir));

@@ -1,4 +1,4 @@
-import { CHAOS_PRESETS, OVERSIZE_CHARS, parseGate, parsePresets, readConfigFile, type ChaosPreset, type Gate } from '@shadowlap/engine';
+import { CHAOS_PRESETS, OVERSIZE_CHARS, isObject, parseGate, parsePresets, readConfigFile, type ChaosPreset, type Gate } from '@shadowlap/engine';
 import type { TestSpec } from './checks.js';
 
 /**
@@ -37,8 +37,6 @@ export const DEFAULT_CHAOS: ChaosSpec = { presets: [...CHAOS_PRESETS], expect: n
 
 /** checks.ts `parseExpect`, passed in: the checks module reads this one to check a tests entry. */
 export type ExpectParser = (raw: unknown, where: string) => TestSpec;
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** `"chaos"` in a tests entry, checked: false, or the presets' settings. Undefined is the defaults. */
 export function parseChaosFields(raw: unknown, where: string, parseExpect: ExpectParser): ChaosSpec | false {

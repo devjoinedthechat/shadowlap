@@ -1,14 +1,11 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type Store, type StoredFix } from '@shadowlap/engine';
+import { DEFAULT_REPAIRER, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
-import { jobConsent, type JobConsent } from '../consent.js';
+import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
-import { leftWords } from '../rerun.js';
 import { storePrStates } from '../pr-state.js';
-import { repairerProblem } from '../repairer-check.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
@@ -40,7 +37,7 @@ const MAX_EXPECT = 16 * 1024;
 const short = (id: string) => id.slice(0, 13);
 
 /** A fix by its id or a unique prefix of it; a FixIdError (unknown, or ambiguous) as the 404 it is. */
-function findFix(store: Store, id: unknown): StoredFix {
+function findFix(store: StoreOf<'fixes'>, id: unknown): StoredFix {
   if (typeof id !== 'string' || !id.trim()) throw new HttpError(400, 'fixId is required');
   try {
     const fix = resolveFix(store, id);
@@ -67,7 +64,7 @@ function configuredRepairer(ctx: RouteContext): string | null {
  * every one of them. Whether each patch it could apply is in the project's working tree already, as
  * git says it there, is asked here first and handed over as data; none without a project folder.
  */
-async function fixAnswer(ctx: RouteContext, store: Store, fix: StoredFix): Promise<ReadAnswer> {
+async function fixAnswer(ctx: RouteContext, store: StoreOf<'fixes'>, fix: StoredFix): Promise<ReadAnswer> {
   const project = ctx.project?.path;
   const patches = project ? patchesToCheck(store, [fix]) : [];
   const check = project && patches.length ? await patchesInTree(project, patches) : null;
@@ -101,57 +98,9 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   return { expect: value };
 }
 
-/**
- * What runs only once the user said yes to it, with the exact command line the job runs (`args`,
- * after `shadowlap`): a run whose command came from someone else's pack or from the team store, and
- * a blame or a verdict a pull brought (`pulled`), whose command is made here from its checked
- * fields, without what it ran with on a teammate's machine (`left`). The yes is to the lines the
- * question showed (consent.ts): one a pull has since changed is asked again.
- */
-function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonly string[]; pulled?: { what: string; left: readonly string[] } | null }): JobConsent {
-  const imported = o.runs.find((r) => commandIsImported(r));
-  // `--yes` reaches the CLI only once the request said yes to this question: with none asked, a yes sent anyway is passed on to nothing.
-  if (!imported && !o.pulled) return jobConsent([], o.yes, () => '');
-  const lines = [['shadowlap', ...o.args], ...(imported ? [imported.command.argv] : [])];
-  const line = quoteArgv(['shadowlap', ...o.args]);
-  return jobConsent(lines, o.yes, () => {
-    if (o.pulled) {
-      const p = o.pulled;
-      const without = p.left.length ? `, without the ${leftWords(p.left)} it ran with there` : '';
-      const and = imported ? `, and the command ${imported.runId.slice(0, 10)} was recorded with (${quoteArgv(imported.command.argv)}), which came from ${importedCommandSource(imported)}` : '';
-      return `${p.what} came from the team store: this runs the command ${line}, made here from its own fields${without}${and}. Confirm it to run it`;
-    }
-    return `${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`;
-  });
-}
-
 /** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
 function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobConsent {
   return needsConsent({ runs, yes, args });
-}
-
-/**
- * The runs a repair command line gives its `--fixes`, `--holdout` and `--keeps`, as the CLI selects
- * them when it runs: run ids, and `label:<name>` for every run with that label, imported ones too.
- */
-function selectedRuns(store: Store, argv: readonly string[]): RunRecord[] {
-  const out = new Map<string, RunRecord>();
-  let listing = false;
-  for (const a of argv) {
-    if (a.startsWith('--')) {
-      listing = a === '--fixes' || a === '--holdout' || a === '--keeps';
-      continue;
-    }
-    if (!listing) continue;
-    if (a.startsWith('label:')) {
-      const label = a.slice('label:'.length);
-      for (const r of store.allRuns()) if (r.meta?.labels?.includes(label)) out.set(r.runId, r);
-    } else {
-      const r = lookupRun(store, a);
-      if (r) out.set(r.runId, r);
-    }
-  }
-  return [...out.values()];
 }
 
 /** A model as `--model` takes it: a name, never a flag. */
@@ -162,7 +111,7 @@ const MODEL = /^[A-Za-z0-9][\w.:/@-]{0,119}$/;
  * call: the command the fix's page offers (`actions.blameAgain`, `actions.blameStronger` with the
  * model asked for), built by the server from that blame, never from the browser's arguments.
  */
-function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
+function fixBlameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   const id = short(fix.fixId);
@@ -188,7 +137,7 @@ function fixBlameJob(req: JobRequest, store: Store): JobBuildResult {
  * Run more attempts, or Verify again, for an incomplete verdict of a fix (`VerifyStep.more`): the
  * command the fix's page offers, built by the server from that verdict.
  */
-function verifyJob(req: JobRequest, store: Store): JobBuildResult {
+function verifyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   if (typeof req.verifyId !== 'string' || !req.verifyId) return { error: 'verifyId is required' };
@@ -202,7 +151,7 @@ function verifyJob(req: JobRequest, store: Store): JobBuildResult {
   return { args: [...v.more.argv, ...consent.yes], title: v.more.kind === 'more' ? 'Running more attempts' : 'Verifying again' };
 }
 
-function blameJob(req: JobRequest, store: Store, configDir: string | null): JobBuildResult {
+function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, configDir: string | null): JobBuildResult {
   if (req.fixId !== undefined && (req.again === true || req.model !== undefined)) return fixBlameJob(req, store);
   if (typeof req.runId !== 'string' || !req.runId) return { error: 'runId is required' };
   const run = lookupRun(store, req.runId);
@@ -246,7 +195,7 @@ function repairerChanged(req: JobRequest, configured: string | null): JobBuildRe
   return { error: `the repairer in shadowlap.config.json changed since this page loaded: now ${who}. Nothing ran: open Repair from here again`, status: 409 };
 }
 
-function repairJob(req: JobRequest, store: Store, repairer: string | null): JobBuildResult {
+function repairJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>, repairer: string | null): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const configured = repairer?.trim() || null;
   const changed = repairerChanged(req, configured);
@@ -263,7 +212,7 @@ function repairJob(req: JobRequest, store: Store, repairer: string | null): JobB
   return { args: [...args, ...consent.yes] };
 }
 
-function applyJob(req: JobRequest, store: Store): JobBuildResult {
+function applyJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | 'activity' | 'fixes' | 'team'>): JobBuildResult {
   const fix = findFix(store, req.fixId);
   const d = fixDetail(store, fix.fixId)!;
   const apply = d.actions.apply;

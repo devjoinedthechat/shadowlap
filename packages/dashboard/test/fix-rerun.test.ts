@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { decideVerify, recordBlame, recordVerdict, Store, type StepRerun } from '@shadowlap/engine';
+import { decideVerify, expectArgs, leftWords, recordBlame, recordVerdict, type StepRerun, Store } from '@shadowlap/engine';
 import { applyFixDoc, fixDocOf, parseFixDoc } from '@shadowlap/remote';
 import { blameReport, EXPECT, makeRun, verifyReport } from '../../engine/test/fix-fixtures.js';
 import { fixDetail } from '../src/fixes.js';
-import { expectArgs, fieldArgs, leftWords, rerunFlags } from '../src/rerun.js';
+import { fieldArgs, rerunFlags } from '../src/rerun.js';
 
 /**
  * Run more attempts, Verify again and Blame again run `shadowlap` with arguments made from a kept

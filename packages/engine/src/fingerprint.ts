@@ -4,6 +4,7 @@ import { asParsed, matchable } from './json-exact.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { sha256 } from './ids.js';
+import { isObject } from './is-object.js';
 import { applyNormalizers, compilePattern, normalizerApplies, stripKeysDeep } from './normalize.js';
 import type { CallKind, Normalizer } from './types.js';
 
@@ -43,16 +44,15 @@ export function maskGeminiCallIds(body: unknown): unknown {
     if (!numbered.has(id)) numbered.set(id, `<call-${numbered.size + 1}>`);
     return numbered.get(id);
   };
-  const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
   const withId = (part: Record<string, unknown>, key: 'functionCall' | 'functionResponse') => {
     const inner = part[key];
-    return isRecord(inner) && typeof inner.id === 'string' ? { ...part, [key]: { ...inner, id: masked(inner.id) } } : part;
+    return isObject(inner) && typeof inner.id === 'string' ? { ...part, [key]: { ...inner, id: masked(inner.id) } } : part;
   };
   let changed = false;
   const out = contents.map((turn) => {
-    if (!isRecord(turn) || !Array.isArray(turn.parts)) return turn;
+    if (!isObject(turn) || !Array.isArray(turn.parts)) return turn;
     const before = turn.parts as unknown[];
-    const parts = before.map((p) => (isRecord(p) ? withId(withId(p, 'functionCall'), 'functionResponse') : p));
+    const parts = before.map((p) => (isObject(p) ? withId(withId(p, 'functionCall'), 'functionResponse') : p));
     if (parts.some((p, i) => p !== before[i])) {
       changed = true;
       return { ...turn, parts };

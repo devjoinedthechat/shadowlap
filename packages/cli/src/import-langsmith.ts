@@ -1,6 +1,6 @@
+import { isObject } from '@shadowlap/engine';
 import {
   clean,
-  isObject,
   maybeJson,
   messagesOf,
   num,

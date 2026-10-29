@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { BLAME_DEFAULTS, ciProvider, commitTitle, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, ciProvider, commitTitle, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
 import { EXIT_LABEL } from './attempts.js';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -327,7 +327,7 @@ const actor = () => resolveAuthor({ cwd: process.cwd() });
  * blame as it was typed; without one (a blame a repair ran) it is made from the settings.
  */
 export function recordBlameFix(
-  store: Store,
+  store: StoreOf<'recording' | 'activity' | 'fixes'>,
   input: {
     runId: string;
     report: BlameReport;
@@ -363,7 +363,7 @@ export function recordBlameFix(
     });
     return recorded;
   } catch (err) {
-    input.report.warnings.push(`the blame could not be kept with its fix: ${(err as Error).message}`);
+    input.report.warnings.push(`the blame could not be kept with its fix: ${messageOf(err)}`);
     return null;
   }
 }
@@ -385,7 +385,7 @@ export function recordVerifyFix(opts: GlobalOpts, report: VerifyReport, input: {
     }
     return recorded;
   } catch (err) {
-    report.warnings.push(`the verdict could not be kept: ${(err as Error).message}`);
+    report.warnings.push(`the verdict could not be kept: ${messageOf(err)}`);
     return null;
   } finally {
     store?.close();
@@ -431,7 +431,7 @@ export function recordRepairFix(opts: GlobalOpts, report: RepairReport, input: {
     }
     return recorded;
   } catch (err) {
-    report.warnings.push(`the repair could not be kept with its fix: ${(err as Error).message}`);
+    report.warnings.push(`the repair could not be kept with its fix: ${messageOf(err)}`);
     return null;
   } finally {
     store?.close();

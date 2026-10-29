@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { Store, type RunRecord, type RunSummary } from '@shadowlap/engine';
+import { Store, storeView, type RunRecord, type RunSummary } from '@shadowlap/engine';
 import { callDetail, runCallsPage, runDetail, type RunDetail } from '../src/api.js';
 import { exportHtml, startDashboard } from '../src/index.js';
 import { runCalls } from '../src/run-calls.js';
@@ -116,7 +116,7 @@ describe('a run a page at a time', () => {
     const rec = longRun(store, 2600);
     const fork = longRun(store, 2600, { parent: rec, liveFrom: 2401 });
     const reads: string[] = [];
-    const spy = Object.create(store, { getCalls: { value: (runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }) => (reads.push(`${runId === rec.runId ? 'parent' : 'fork'}:${range?.only ? `only ${range.only.length}` : range ? `after ${range.after}` : 'all'}`), store.getCalls(runId, range)) } }) as Store;
+    const spy = storeView(store, { getCalls: (runId: string, range?: { after?: number; limit?: number; only?: readonly number[] }) => (reads.push(`${runId === rec.runId ? 'parent' : 'fork'}:${range?.only ? `only ${range.only.length}` : range ? `after ${range.after}` : 'all'}`), store.getCalls(runId, range)) });
     const deep = runCallsPage(spy, fork.runId, { from: 2101 })!;
     expect(deep.around).toEqual({ from: 1901, to: 2600 });
     // The replayed calls the page and the calls around it hold, read of the recording one by one: not every call of it.

@@ -1,5 +1,6 @@
 import { accessSync, constants, existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { messageOf } from '../message-of.js';
 import { projectDbPath } from './paths.js';
 import { processAlive } from '../liveness.js';
 import { readStore } from './store-reader.js';
@@ -62,7 +63,7 @@ export function recordingInProgress(folder: string, now: number = Date.now()): b
     // Read-only: a store about to be deleted isn't migrated first.
     return readStore(db, (store) => store.liveRecordings(now).length > 0);
   } catch (err) {
-    throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${(err as Error).message}`);
+    throw new RecordingsError('store', `Shadowlap can’t open the store to check that nothing is recording into it: ${messageOf(err)}`);
   }
 }
 
@@ -97,7 +98,7 @@ export function storeFilesToDelete(folder: string, now: number = Date.now()): st
   try {
     accessSync(dir, constants.W_OK);
   } catch (err) {
-    throw new RecordingsError('store', `Shadowlap can’t delete files in ${dir}: ${(err as Error).message}. Delete the recordings yourself.`);
+    throw new RecordingsError('store', `Shadowlap can’t delete files in ${dir}: ${messageOf(err)}. Delete the recordings yourself.`);
   }
   if (recordingInProgress(folder, now)) throw new RecordingsError('recording', 'A run is being recorded in this folder. Let it finish or stop it, then delete the recordings.');
   return present();

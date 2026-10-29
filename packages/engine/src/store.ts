@@ -14,7 +14,7 @@
  *
  * store/schema.ts holds every table, each feature's in a block of its own, and opens a file at that
  * schema; store/core.ts holds what the parts share. A feature's methods go in its part, and a part in
- * PARTS below, the one list both the Store interface and mixIn are made from.
+ * PARTS below, the one list the Store interface, StoreOf and mixIn are made from.
  */
 import { Activity } from './store/activity.js';
 import { Chaos } from './store/chaos.js';
@@ -48,18 +48,35 @@ export type { InjectionGateData, NewTestResult, NewTestSession, TestFailure, Tes
 export type { NewPairsExport, PairsExport, TaskScoreRow } from './store/training.js';
 
 /**
- * The store's parts, in the order mixIn (below) puts their methods on Store: the one list the Store
- * interface is made from too, so a part named here is on both.
+ * The store's parts by name, in the order mixIn (below) puts their methods on Store: the one list the
+ * Store interface, StoreOf and mixIn are made from, so a part named here is on all three.
  */
-const PARTS = [Recording, Search, Cleanup, ReadModels, Activity, Fixes, Tests, Chaos, Injection, Coverage, Decisions, Training, Team] as const;
+const PARTS = { recording: Recording, search: Search, cleanup: Cleanup, readModels: ReadModels, activity: Activity, fixes: Fixes, tests: Tests, chaos: Chaos, injection: Injection, coverage: Coverage, decisions: Decisions, training: Training, team: Team } as const;
 
-/** What a caller sees of the parts in `Parts`: each one's public methods, together. */
-type MethodsOf<Parts extends readonly unknown[]> = Parts extends readonly [abstract new (...args: never[]) => infer Part, ...infer Rest] ? Pick<Part, keyof Part> & MethodsOf<Rest> : unknown;
+/** The name of one of the store's parts (PARTS): what StoreOf narrows the store by. */
+export type StorePartName = keyof typeof PARTS;
+
+/** A part's methods as a caller sees them: its public ones. */
+type MethodsOfPart<N extends StorePartName> = Pick<InstanceType<(typeof PARTS)[N]>, keyof InstanceType<(typeof PARTS)[N]>>;
+
+/** The parts' methods in a union, as one type that has them all. */
+type AllOf<U> = (U extends unknown ? (u: U) => void : never) extends (all: infer A) => void ? A : never;
+
+/** The methods of the parts named. */
+type PartsMethods<N extends StorePartName> = AllOf<{ [K in N]: MethodsOfPart<K> }[N]>;
+
+/**
+ * The store as code that uses some of its parts sees it: their methods, and the store's own
+ * (transaction, close, schemaVersion). A function that takes a `StoreOf<'recording' | 'fixes'>` says
+ * what of the store it reads and writes, and a test can hand it no more than that; any Store is one.
+ * `StoreOf<never>` is any store, to code that reads none of its parts: a cache kept by the store.
+ */
+export type StoreOf<N extends StorePartName> = Pick<Store, 'transaction' | 'close' | 'schemaVersion'> & PartsMethods<N>;
 
 // Store's methods that are a part's, from PARTS: their signatures and comments are the part's own,
 // where the methods are written.
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging, @typescript-eslint/no-empty-object-type -- an interface merged with class Store, as mixIn puts every part in PARTS on Store's prototype when this file loads (and refuses a name defined twice)
-export interface Store extends MethodsOf<typeof PARTS> {}
+export interface Store extends PartsMethods<StorePartName> {}
 
 /**
  * The append-only local store: runs, call events and content-addressed blobs in one SQLite file.
@@ -127,7 +144,7 @@ export class Store {
 /** Each part's onRunDeleted (store/core.ts), which mixIn keeps here for forgetRun. */
 const runDeletedHooks: Array<(this: Store, runId: string) => void> = [];
 
-mixIn(PARTS);
+mixIn(Object.values(PARTS));
 
 /**
  * Puts each part's methods on Store's prototype, as they are: `this` in them is the store, and a call

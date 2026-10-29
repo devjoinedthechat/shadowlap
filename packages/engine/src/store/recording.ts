@@ -115,9 +115,18 @@ export abstract class Recording extends StorePart {
     this.db.prepare(`UPDATE runs SET started_at = ? WHERE run_id = ?`).run(startedAt, runId);
   }
 
+  /**
+   * Ends a run: its status and end, and the process that recorded it let go (run_owners), written
+   * together or not at all, in a transaction of their own unless the caller has one open, as a run's
+   * start is: no run is left ended with a process still holding it.
+   */
   endRun(runId: string, status: Exclude<RunStatus, 'running'>, endedAt: number = Date.now()): void {
-    this.stmts.endRun.run(status, endedAt, runId);
-    this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
+    const write = () => {
+      this.stmts.endRun.run(status, endedAt, runId);
+      this.db.prepare(`DELETE FROM run_owners WHERE run_id = ?`).run(runId);
+    };
+    if (this.db.isTransaction) write();
+    else this.transaction(write);
   }
 
   setDivergence(runId: string, report: DivergenceReport): void {
@@ -234,6 +243,7 @@ export abstract class Recording extends StorePart {
     return this.putBlob(Buffer.from(JSON.stringify(value), 'utf8'));
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the stored document is, as with JSON.parse: a return-only generic on purpose
   getJson<T = unknown>(hash: string): T | null {
     const bytes = this.getBlob(hash);
     return bytes === null ? null : (JSON.parse(bytes.toString('utf8')) as T);

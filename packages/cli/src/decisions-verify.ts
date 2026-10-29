@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { commandIsImported, goldenNeedsConsent, importedCommandSource, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store } from '@shadowlap/engine';
+import { commandIsImported, goldenNeedsConsent, importedCommandSource, messageOf, quoteArgv, type DecisionRemedy, type DecisionRun, type DecisionsChange, type DecisionsVerify, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { specFor } from './checks.js';
 import { loadConfig, loadTests } from './config.js';
@@ -31,7 +31,7 @@ export interface SessionVerify {
 }
 
 /** A session by its id, or a prefix of one that names a single session. */
-function findSession(store: Store, id: string): ReturnType<Store['getDecisionSession']> {
+function findSession(store: StoreOf<'decisions'>, id: string): ReturnType<Store['getDecisionSession']> {
   const exact = store.getDecisionSession(id);
   if (exact) return exact;
   if (!/^(dc|mg)-[0-9A-Za-z]{4,}$/.test(id)) return null;
@@ -95,7 +95,7 @@ export async function verifySession(input: { opts: GlobalOpts; sessionId: string
         try {
           return { run: importGolden(store, abs), golden, spec: specFor(tests, abs, cwd), expect: rawExpectFor(tests, abs, cwd) };
         } catch (err) {
-          throw new DecisionsError(`${golden}: ${(err as Error).message}`);
+          throw new DecisionsError(`${golden}: ${messageOf(err)}`);
         }
       }
       const run = store.getRun(runId);

@@ -36,7 +36,8 @@ describe('the architecture diagram', () => {
   it('only names environment variables that shadowlap run actually sets', () => {
     const agent =
       readFileSync(join(root, 'packages', 'cli', 'src', 'run-agent.ts'), 'utf8') +
-      readFileSync(join(root, 'packages', 'sidecar', 'src', 'server.ts'), 'utf8');
+      // The environment the sidecar hands a run's processes (envFor, envForSlot).
+      readFileSync(join(root, 'packages', 'sidecar', 'src', 'lifecycle.ts'), 'utf8');
     const named = [...new Set([...diagram.matchAll(/\b(SHADOWLAP_[A-Z_]+)\b/g)].map((m) => m[1]))];
     expect(named.length).toBeGreaterThan(0);
     expect(named.filter((v) => !agent.includes(v)), 'named in the README but never set').toEqual([]);

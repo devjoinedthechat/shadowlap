@@ -107,6 +107,6 @@ describe('the server’s links', () => {
     const own = sources(cli).flatMap(({ file, code }) => [...code.matchAll(/['"`]#\/[^'"`]*/g)].map((m) => `${file.slice(cli.length)}: ${m[0]}`));
     expect(own).toEqual([]);
     // The sites that wrote them by hand build them now.
-    for (const file of ['chaos-session.ts', 'run-agent.ts', 'team.ts', 'commands/coverage.ts', 'commands/testing.ts', 'commands/changes.ts', 'commands/injection.ts', 'commands/record.ts', 'commands/training.ts']) expect(readFileSync(join(cli, file), 'utf8'), file).toMatch(/import \{ [^}]*\blinks\b[^}]*\} from '@shadowlap\/dashboard'/);
+    for (const file of ['chaos-session.ts', 'run-agent.ts', 'team.ts', 'commands/coverage.ts', 'commands/testing.ts', 'commands/test-session.ts', 'commands/changes.ts', 'commands/injection.ts', 'commands/replay.ts', 'commands/training.ts']) expect(readFileSync(join(cli, file), 'utf8'), file).toMatch(/import \{ [^}]*\blinks\b[^}]*\} from '@shadowlap\/dashboard'/);
   });
 });

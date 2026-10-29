@@ -1,8 +1,7 @@
-import { commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv } from '@shadowlap/engine';
+import { askConsent, commandIsImported, hasRecordedCommand, importedCommandSource, quoteArgv, saidYes } from '@shadowlap/engine';
 import { describeEvent } from '../activity.js';
 import { lookupRun } from '../api.js';
 import { chaosFlags, chaosOfRun, chaosView } from '../chaos.js';
-import { askConsent, saidYes } from '../consent.js';
 import type { RouteContext } from '../context.js';
 import { HttpError } from '../http.js';
 import { optionLike } from '../tests.js';

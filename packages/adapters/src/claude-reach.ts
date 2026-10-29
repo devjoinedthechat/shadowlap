@@ -1,5 +1,6 @@
 import { componentFiles, hookItems, managedFileOf, projectDirs, settingsDocuments, type SettingsDocument, type SettingsPlaces } from './claude-hooks.js';
 import { frontmatter } from './frontmatter.js';
+import { isObject } from './is-object.js';
 
 /**
  * What the Claude Code CLI the Claude Agent SDK runs can connect to that Shadowlap's network guard
@@ -44,7 +45,6 @@ type Env = Readonly<Record<string, string | undefined>>;
 type Fs = typeof import('node:fs');
 type Path = typeof import('node:path');
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** On, as Claude Code reads an on/off variable: 1, true, yes or on, in any case. */
 const on = (v: string | undefined) => v !== undefined && /^(1|true|yes|on)$/i.test(v.trim());
 /** Off, as it reads one: 0, false, no or off. */
@@ -96,9 +96,9 @@ function shadowlapMcp(command: string, args: readonly unknown[]): boolean {
  * program: `stdio, npx`.
  */
 export function unwatchedServers(servers: unknown): Server[] {
-  if (!isRecord(servers)) return [];
+  if (!isObject(servers)) return [];
   return Object.entries(servers).flatMap(([name, c]) => {
-    if (!isRecord(c)) return [];
+    if (!isObject(c)) return [];
     const type = typeof c.type === 'string' ? c.type : typeof c.command === 'string' ? 'stdio' : typeof c.url === 'string' ? 'http' : null;
     if (type === null || type === 'sdk') return [];
     if (type !== 'stdio') return [{ name, type: type.slice(0, 20) }];
@@ -145,7 +145,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
   const server = (s: Server, where = '') => out.push(`the MCP server ${quote(s.name)} (${s.type}${where ? `, ${where}` : ''})`);
   const unreadable = (what: string) => out.push(`${what}, which Shadowlap could not read`);
   const docs: SettingsDocument[] = await settingsDocuments(places, cwd);
-  const extra = isRecord(query.extraArgs) ? query.extraArgs : {};
+  const extra = isObject(query.extraArgs) ? query.extraArgs : {};
   const strict = query.strictMcpConfig === true || Object.hasOwn(extra, 'strict-mcp-config');
 
   // The model API: Shadowlap's, unless the CLI's environment sends it elsewhere.
@@ -180,8 +180,8 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
         }
       }
     }
-    if (!isRecord(value)) return null;
-    return isRecord(value.mcpServers) ? value.mcpServers : value;
+    if (!isObject(value)) return null;
+    return isObject(value.mcpServers) ? value.mcpServers : value;
   };
 
   const managed = managedFileOf(places, path);
@@ -190,7 +190,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
   const takenOver = managedMcp !== undefined;
   if (takenOver) {
     // The organization's managed-mcp.json: only its servers load, and the provided ones below.
-    if (!isRecord(managedMcp)) unreadable(`the MCP servers in ${short(managedMcpFile!)}`);
+    if (!isObject(managedMcp)) unreadable(`the MCP servers in ${short(managedMcpFile!)}`);
     else for (const s of unwatchedServers(managedMcp.mcpServers)) server(s, 'managed-mcp.json');
   } else {
     for (const s of unwatchedServers(query.mcpServers)) server(s);
@@ -200,16 +200,16 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
       else for (const s of unwatchedServers(given)) server(s, '--mcp-config');
     }
     // A subagent of the query's own may bring a server with it.
-    if (isRecord(query.agents)) {
+    if (isObject(query.agents)) {
       for (const [agent, def] of Object.entries(query.agents)) {
-        const specs = isRecord(def) && Array.isArray(def.mcpServers) ? def.mcpServers : [];
+        const specs = isObject(def) && Array.isArray(def.mcpServers) ? def.mcpServers : [];
         for (const spec of specs) for (const s of unwatchedServers(spec)) server(s, `subagent ${quote(agent)}`);
       }
     }
   }
   // Servers the organization provides in its managed settings files; --strict-mcp-config leaves them out, unless managed-mcp.json is there.
   if (!strict || takenOver) {
-    for (const d of docs) if (d.managed && !d.host && isRecord(d.data)) for (const s of unwatchedServers(d.data.managedMcpServers)) server(s, 'managed settings');
+    for (const d of docs) if (d.managed && !d.host && isObject(d.data)) for (const s of unwatchedServers(d.data.managedMcpServers)) server(s, 'managed settings');
   }
   if (!strict && !takenOver) {
     const repo = projectDirs(fs, path, cwd);
@@ -228,18 +228,18 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
     const userFile = path.join(cliEnv.CLAUDE_CONFIG_DIR || home, '.claude.json');
     const user = readJson(userFile);
     if (user === null) unreadable(`the MCP servers in ${short(userFile)}`);
-    else if (isRecord(user)) {
+    else if (isObject(user)) {
       for (const s of unwatchedServers(user.mcpServers)) server(s, short(userFile));
       // The local scope's, kept under the folder they were added in: this one or one above it.
-      const projects = isRecord(user.projects) ? user.projects : {};
+      const projects = isObject(user.projects) ? user.projects : {};
       for (const dir of ancestors(path, cwd)) {
         const p = projects[dir];
-        if (isRecord(p)) for (const s of unwatchedServers(p.mcpServers)) server(s, `local scope in ${short(userFile)}`);
+        if (isObject(p)) for (const s of unwatchedServers(p.mcpServers)) server(s, `local scope in ${short(userFile)}`);
       }
     }
     // The local plugins the query loads.
     for (const plugin of Array.isArray(query.plugins) ? query.plugins : []) {
-      if (!isRecord(plugin) || typeof plugin.path !== 'string' || plugin.skipMcpDiscovery === true) continue;
+      if (!isObject(plugin) || typeof plugin.path !== 'string' || plugin.skipMcpDiscovery === true) continue;
       const root = path.resolve(cwd, plugin.path);
       const name = `plugin ${quote(path.basename(root))}`;
       const own = readJson(path.join(root, '.mcp.json'));
@@ -248,9 +248,9 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
       else for (const s of unwatchedServers(servers)) server(s, name);
       const manifest = readJson(path.join(root, '.claude-plugin', 'plugin.json'));
       if (manifest === null) unreadable(`the manifest of the ${name}`);
-      else if (isRecord(manifest) && manifest.mcpServers !== undefined) {
+      else if (isObject(manifest) && manifest.mcpServers !== undefined) {
         for (const entry of [manifest.mcpServers].flat()) {
-          const servers = typeof entry === 'string' ? mcpConfig(readJson(path.resolve(root, entry)) ?? null) : isRecord(entry) ? entry : null;
+          const servers = typeof entry === 'string' ? mcpConfig(readJson(path.resolve(root, entry)) ?? null) : isObject(entry) ? entry : null;
           if (servers === null) unreadable(`the MCP servers of the ${name}`);
           else for (const s of unwatchedServers(servers)) server(s, name);
         }
@@ -258,7 +258,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
     }
     // The plugins a settings file enables: their servers come from where Claude Code installed them.
     for (const d of docs) {
-      if (isRecord(d.data) && isRecord(d.data.enabledPlugins) && Object.values(d.data.enabledPlugins).some((v) => v === true)) {
+      if (isObject(d.data) && isObject(d.data.enabledPlugins) && Object.values(d.data.enabledPlugins).some((v) => v === true)) {
         out.push(`the MCP servers of the plugins ${d.source.startsWith('the query') ? d.source : short(d.source)} enables`);
       }
     }
@@ -296,7 +296,7 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
   }
   // The commands a settings file names for a key, a token or a header, which the CLI runs itself.
   for (const d of docs) {
-    if (!isRecord(d.data)) continue;
+    if (!isObject(d.data)) continue;
     for (const key of HELPERS) {
       const command = d.data[key];
       const program = typeof command === 'string' ? programOf(command) : null;
@@ -307,20 +307,20 @@ export async function claudeReach(query: ReachOptions, places: SettingsPlaces, c
   const connectorsOff =
     strict ||
     off(cliEnv.ENABLE_CLAUDEAI_MCP_SERVERS) ||
-    docs.some((d) => isRecord(d.data) && d.data.disableClaudeAiConnectors === true) ||
+    docs.some((d) => isObject(d.data) && d.data.disableClaudeAiConnectors === true) ||
     filled(cliEnv.ANTHROPIC_API_KEY) ||
     filled(cliEnv.ANTHROPIC_AUTH_TOKEN) ||
     filled(cliEnv.ANTHROPIC_PROFILE) ||
-    docs.some((d) => isRecord(d.data) && typeof d.data.apiKeyHelper === 'string' && d.data.apiKeyHelper.trim() !== '') ||
+    docs.some((d) => isObject(d.data) && typeof d.data.apiKeyHelper === 'string' && d.data.apiKeyHelper.trim() !== '') ||
     provider !== undefined ||
     // managed-mcp.json suppresses them, unless the organization's own settings allow them beside it.
-    (takenOver && !docs.some((d) => d.managed && !d.host && isRecord(d.data) && d.data.allowAllClaudeAiMcps === true));
+    (takenOver && !docs.some((d) => d.managed && !d.host && isObject(d.data) && d.data.allowAllClaudeAiMcps === true));
   if (!connectorsOff) out.push('claude.ai connectors, which a claude.ai login brings');
   // Its OpenTelemetry export, which no nonessential-traffic switch turns off: on with
   // CLAUDE_CODE_ENABLE_TELEMETRY, in the environment or the env of a settings file that may set it (a
   // repository's may not), to a collector an otlp exporter sends to.
   const otelDocs = docs.filter((d) => d.scope === 'user' || d.scope === 'managed' || d.scope === 'query');
-  const values = (name: string) => [cliEnv[name], ...otelDocs.map((d) => (isRecord(d.data) && isRecord(d.data.env) ? d.data.env[name] : undefined))].filter((v): v is string => typeof v === 'string');
+  const values = (name: string) => [cliEnv[name], ...otelDocs.map((d) => (isObject(d.data) && isObject(d.data.env) ? d.data.env[name] : undefined))].filter((v): v is string => typeof v === 'string');
   const otlp = (name: string) => values(name).some((v) => v.split(',').some((e) => e.trim().toLowerCase() === 'otlp'));
   const traces = [...values('CLAUDE_CODE_ENHANCED_TELEMETRY_BETA'), ...values('ENABLE_ENHANCED_TELEMETRY_BETA')].some(on);
   if (values('CLAUDE_CODE_ENABLE_TELEMETRY').some(on) && (otlp('OTEL_METRICS_EXPORTER') || otlp('OTEL_LOGS_EXPORTER') || (traces && otlp('OTEL_TRACES_EXPORTER')))) {

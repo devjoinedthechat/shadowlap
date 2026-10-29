@@ -1,10 +1,11 @@
-import { memo, useEffect, useRef, type CSSProperties } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import type { CallRow } from '../api.js';
 import { Org } from '../components/bits.js';
 import { Icon } from '../components/Icon.js';
 import { callName, kindShort } from '../format.js';
 import type { CallIndex } from '../recorded.js';
 import type { Origin7 } from '../origins.js';
+import { cssVars } from '../dom.js';
 import { callDetail, originOf, resultLine, timeOf, tokensText } from './model.js';
 import { foldLabel, itemWords, type CallTree } from './groups.js';
 import { isPending, type ListedCall, type PendingCall } from './paging.js';
@@ -320,7 +321,7 @@ const Row = memo(function Row({
         {mark ? <span className={`fk${mark === 'lost' ? ' bl' : ''}`}>{mark === 'fork' ? 'FORK' : 'LOST'}</span> : null}
         {c.callNo}
       </td>
-      <td className="name" title={c.name} style={group ? ({ '--lead': `${group.depth * 14 + 18}px` } as CSSProperties) : undefined}>
+      <td className="name" title={c.name} style={group ? cssVars({ '--lead': `${group.depth * 14 + 18}px` }) : undefined}>
         {group ? <Lead callNo={c.callNo} group={group} onFold={onFold} /> : null}
         <small>{kindShort(c.kind)}</small>
         {callName(c.kind, c.name)}

@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type Store, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
@@ -197,14 +197,14 @@ function gradualOf(range: unknown): { from: number; to: number } | null {
  * run was lost between takes them from the blame kept on its run, when that is the same blame (the
  * same call).
  */
-function eventData(store: Store, e: StoredEvent): Record<string, unknown> {
+function eventData(store: StoreOf<'recording'>, e: StoredEvent): Record<string, unknown> {
   const d = e.data ?? {};
   if (e.kind !== 'blame.done' || 'range' in d || !e.runId || typeof d.callNo !== 'number') return d;
   const b = store.getRun(e.runId)?.meta?.blame;
   return b && b.callNo === d.callNo && b.range ? { ...d, range: b.range } : d;
 }
 
-function storedItem(store: Store, e: StoredEvent): ActivityItem {
+function storedItem(store: StoreOf<'recording'>, e: StoredEvent): ActivityItem {
   const describe = EVENT_TEXT.get(e.kind);
   let t: EventText;
   try {
@@ -233,10 +233,10 @@ interface Facts {
   path: string[];
 }
 
-const factsCache = new WeakMap<Store, Map<string, Facts>>();
+const factsCache = new WeakMap<object, Map<string, Facts>>();
 
 /** What a run's calls add up to; read once for a finished run. */
-function facts(store: Store, run: RunRecord): Facts {
+function facts(store: StoreOf<'recording'>, run: RunRecord): Facts {
   let cache = factsCache.get(store);
   if (!cache) {
     cache = new Map();
@@ -335,7 +335,7 @@ function base(run: RunRecord, id: string, at: number): Omit<ActivityItem, 'kind'
   return { id, at, runId: run.runId, href: links.run(run.runId), ref: short(run.runId), ...(run.meta?.author ? { actor: run.meta.author } : {}) };
 }
 
-function recordingEnd(store: Store, run: RunRecord): ActivityItem {
+function recordingEnd(store: StoreOf<'recording'>, run: RunRecord): ActivityItem {
   const f = facts(store, run);
   const calls = plural(f.summary.total, 'call');
   const checks = checksOutcome(run);
@@ -352,7 +352,7 @@ function recordingEnd(store: Store, run: RunRecord): ActivityItem {
  * attempts, and its result, not each attempt, says how it did. The entry opens the replay the
  * result names (the one that failed, or the newest), and is told as of the newest attempt's end.
  */
-function testEntry(store: Store, attempts: RunRecord[]): ActivityItem {
+function testEntry(store: StoreOf<'recording' | 'tests'>, attempts: RunRecord[]): ActivityItem {
   const newest = attempts.reduce((a, b) => ((b.endedAt ?? b.startedAt) > (a.endedAt ?? a.startedAt) ? b : a));
   const test = newest.meta!.test!;
   const result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0];
@@ -380,7 +380,7 @@ function gateRuleOf(g: GateResult | null | undefined): { rule: string } | Record
   return rule ? { rule } : {};
 }
 
-function testEnd(store: Store, run: RunRecord, test: { golden: string; session: string }, result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0]): ActivityItem {
+function testEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord, test: { golden: string; session: string }, result = store.listTestResults({ sessionId: test.session, golden: test.golden, limit: 1 })[0]): ActivityItem {
   const f = facts(store, run);
   const golden = basename(test.golden.replace(/[\\/]+$/, '')) || test.golden;
   const checks = checksOutcome(run);
@@ -416,7 +416,7 @@ function testEnd(store: Store, run: RunRecord, test: { golden: string; session: 
   return { ...item, kind: 'test', text: `Test passed · ${golden} · ${detail}` };
 }
 
-function replayEnd(store: Store, run: RunRecord): ActivityItem {
+function replayEnd(store: StoreOf<'recording' | 'tests'>, run: RunRecord): ActivityItem {
   if (run.meta?.test) return testEntry(store, [run]);
   const f = facts(store, run);
   const s = f.summary;
@@ -456,7 +456,7 @@ function replayEnd(store: Store, run: RunRecord): ActivityItem {
   return { ...item, kind: run.status === 'crashed' ? 'rec' : 'fail', text: `${what} · ${s.byOrigin.replayed}/${s.total} replayed${outcome ? ` · ${outcome}` : ''}` };
 }
 
-function imported(store: Store, runs: RunRecord[], at: number): ActivityItem {
+function imported(store: StoreOf<'recording'>, runs: RunRecord[], at: number): ActivityItem {
   const first = runs[0]!;
   const from = typeof first.meta?.imported?.from === 'string' ? first.meta.imported.from : '';
   // A capture a teammate pushed: a pull marks it with the store, not the file it came from.
@@ -501,7 +501,7 @@ function inBursts<T>(items: T[], key: (item: T) => string, at: (item: T) => numb
  * "Imported litellm.jsonl · 3 runs · 40 model calls". An event that lists its runs (`runIds`) is an
  * import of its own.
  */
-function importStubs(store: Store, events: StoredEvent[]): Stub[] {
+function importStubs(store: StoreOf<'recording'>, events: StoredEvent[]): Stub[] {
   const key = (e: StoredEvent) => (Array.isArray(e.data?.runIds) ? `event:${e.eventId}` : `${e.actor ?? ''}\n${str(e.data?.from) ?? e.ref ?? ''}\n${str(e.data?.format) ?? ''}`);
   return inBursts(events, key, (e) => e.at, (e) => e.eventId).map((group) => {
     // The entry takes the newest event's place in the feed: when the import ended.
@@ -543,7 +543,7 @@ function blamed(run: RunRecord): ActivityItem {
   return { ...item, kind: 'blame', text: 'Blamed · no single call rescued the run' };
 }
 
-function repeated(store: Store, attempts: RunRecord[], parent: RunRecord | undefined): ActivityItem {
+function repeated(store: StoreOf<'recording'>, attempts: RunRecord[], parent: RunRecord | undefined): ActivityItem {
   const first = attempts[0]!;
   const of = first.meta?.repeat?.of ?? attempts.length;
   const at = Math.max(...attempts.map((a) => a.endedAt ?? a.startedAt));
@@ -630,7 +630,7 @@ function unpackGroups(runs: RunRecord[]): Array<{ at: number; runs: RunRecord[] 
 }
 
 /** Every item the runs tell, as stubs: cheap to sort, rendered only for the page asked for. */
-function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] {
+function derived(store: StoreOf<'recording' | 'activity' | 'tests'>, runs: RunRecord[], covered: Set<string>): Stub[] {
   const stubs: Stub[] = [];
   const byId = cachedRuns(store).byId;
   const groups = new Map<string, RunRecord[]>();
@@ -709,14 +709,14 @@ function derived(store: Store, runs: RunRecord[], covered: Set<string>): Stub[] 
   return stubs;
 }
 
-const stubCache = new WeakMap<Store, { key: string; stubs: Stub[] }>();
+const stubCache = new WeakMap<object, { key: string; stubs: Stub[] }>();
 
 /**
  * The derived entries, newest first, worked out again only when the runs or the events changed:
  * a page that polls the feed during a recording reads them once. (A recording's calls do not change
  * them: its entries name no counts until it ends, and an entry renders its counts when asked.)
  */
-function derivedStubs(store: Store): Stub[] {
+function derivedStubs(store: StoreOf<'recording' | 'activity' | 'tests'>): Stub[] {
   const counts = store.changeCounts();
   // A run its recorder left (killed, out of memory) reads interrupted, as every list shows it, and
   // ended at its last call: no longer recording. A recorder can stop with nothing in the store
@@ -823,7 +823,7 @@ function storedAfter(cursor: Cursor | null): { before?: number; beforeId?: strin
  * null on the last page. Entries that share a millisecond keep one order, so paging never skips or
  * repeats one, and every page but the last has exactly `limit` entries.
  */
-export function activity(store: Store, options: { limit?: number; before?: string | number | null } = {}): ActivityPage {
+export function activity(store: StoreOf<'recording' | 'activity' | 'tests'>, options: { limit?: number; before?: string | number | null } = {}): ActivityPage {
   const limit = Math.min(ACTIVITY_MAX, Math.max(1, Math.floor(options.limit ?? ACTIVITY_LIMIT)));
   const given = options.before;
   const cursor: Cursor | null =

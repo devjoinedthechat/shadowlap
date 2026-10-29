@@ -1,4 +1,4 @@
-import { checksOf, classifyRun, failedChecks, type AttemptKind, type RunRecord } from '@shadowlap/engine';
+import { attemptVerdict, classifyRun, keptAttemptVerdict, type AttemptKind, type RunRecord } from '@shadowlap/engine';
 
 /**
  * The runs bundled under a run: a `replay --repeat`'s attempts, blame's probes, verify's attempts,
@@ -17,18 +17,16 @@ export interface AttemptTally {
 export type AttemptResult = 'passed' | 'failed' | 'inconclusive' | 'interrupted' | 'running';
 
 /**
- * How an attempt came out. Blame's and verify's keep their own verdict, an inconclusive or an
- * unavailable provider being no failure; the rest pass when no check failed or went undecided, and
- * with no checks when they completed.
+ * How an attempt came out, by the engine's rule (attemptVerdict), as the dashboard counts it: one
+ * stopped before it ended is interrupted; else the verdict blame or verify kept on it, an
+ * inconclusive or an unavailable provider being no failure; else what its checks say, and with none
+ * its exit.
  */
 export function attemptResult(r: RunRecord): AttemptResult {
   if (r.status === 'running') return 'running';
   const own = r.meta?.probe ?? r.meta?.verify;
-  if (own && typeof own.passed === 'boolean') return own.verdict === 'inconclusive' || own.verdict === 'unavailable' ? 'inconclusive' : own.passed ? 'passed' : 'failed';
-  const n = checksOf(r);
-  if (n) return failedChecks(n) > 0 ? 'failed' : n.inconclusive ? 'inconclusive' : 'passed';
-  if (r.status === 'crashed') return 'interrupted';
-  return r.status === 'completed' ? 'passed' : 'failed';
+  const kept = own && typeof own.passed === 'boolean' ? keptAttemptVerdict(own) : undefined;
+  return attemptVerdict({ status: r.status, checks: r.meta?.checks ?? [] }, kept).verdict;
 }
 
 /** The attempts tallied kind by kind, the commonest first. */

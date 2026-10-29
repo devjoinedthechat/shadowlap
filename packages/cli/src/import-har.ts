@@ -1,4 +1,5 @@
-import type { Store } from '@shadowlap/engine';
+import { isObject } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -25,7 +26,6 @@ const epoch = (iso: unknown): number | undefined => {
   return Number.isNaN(t) ? undefined : t;
 };
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const textOrNone = (v: unknown) => v === undefined || typeof v === 'string';
 
 function headersProblem(list: unknown, where: string): string | null {
@@ -102,6 +102,6 @@ export function readHar(har: unknown): Captured {
 }
 
 /** Reads a HAR and imports it as one run. */
-export function importHar(store: Store, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
+export function importHar(store: StoreOf<'recording'>, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
   return importCaptured(store, readHar(source), opts);
 }

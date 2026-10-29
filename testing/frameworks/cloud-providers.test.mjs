@@ -117,7 +117,10 @@ for (const c of CASES) {
         // isn't in a repository, so running the command it recorded takes --yes.
         const r = await promisify(execFile)(process.execPath, [CLI, '--db', join(dir, `test-${CASES.indexOf(c)}.db`), 'test', pack, '--yes'], { cwd: dir, env, encoding: 'utf8', timeout: 120_000 }).then(
           ({ stdout, stderr }) => ({ code: 0, out: stdout + stderr }),
-          (err) => ({ code: err.code ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}` }),
+          (/** @type {unknown} */ err) => {
+            const e = /** @type {{ code?: number; stdout?: string; stderr?: string }} */ (err);
+            return { code: e.code ?? 1, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
+          },
         );
         assert.equal(r.code, 0, r.out);
         assert.match(r.out, /1 passed, 0 failed/);

@@ -3,9 +3,11 @@ import { accessSync, closeSync, constants, fchmodSync, fsyncSync, lstatSync, ope
 import { basename, dirname, join } from 'node:path';
 import type { ClockMode } from './clock.js';
 import { releaseLock, takeLock, type HeldLock } from './lock-file.js';
+import { messageOf } from './message-of.js';
 import { compilePattern, namedPatterns, parsePath } from './normalize.js';
 import { PATTERN_MAX } from './safe-regex.js';
 import type { CallKind, Normalizer } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * shadowlap.config.json as a file several writers edit: the CLI (`normalize add`, `redact rm`,
@@ -76,7 +78,7 @@ function parseConfig(path: string, bytes: Buffer): ConfigFile {
     try {
       data = JSON.parse(text);
     } catch (err) {
-      throw new ConfigFileError(`${CONFIG_FILE}: not valid JSON (${err instanceof Error ? err.message : String(err)})`);
+      throw new ConfigFileError(`${CONFIG_FILE}: not valid JSON (${messageOf(err)})`);
     }
   }
   if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new ConfigFileError(`${CONFIG_FILE}: must hold a JSON object, such as { "normalize": [] }`);
@@ -115,7 +117,6 @@ export function ruleNoun(list: RuleList, plural = false): string {
   return NOUN[list][plural ? 1 : 0];
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const FIELDS = ['kind', 'name', 'path', 'pattern', 'replace'] as const;
 
 /**
@@ -141,7 +142,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
     try {
       parsePath(path);
     } catch (err) {
-      throw new RuleError(err instanceof Error ? err.message : String(err));
+      throw new RuleError(messageOf(err));
     }
   }
   if (pattern !== undefined) {
@@ -150,7 +151,7 @@ function checkShape(v: Record<string, unknown>, kinds: readonly CallKind[], inpu
     try {
       compilePattern(pattern);
     } catch (err) {
-      throw new RuleError(err instanceof Error ? err.message : String(err));
+      throw new RuleError(messageOf(err));
     }
   }
   if (typeof replace !== 'string') throw new RuleError('replace must be text, such as <UUID>');
@@ -240,7 +241,7 @@ export function parseRules(raw: unknown, list: RuleList): Normalizer[] {
     try {
       return checkStored(entry);
     } catch (err) {
-      throw new RuleError(`${CONFIG_FILE}: ${ruleNoun(list)} #${i + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new RuleError(`${CONFIG_FILE}: ${ruleNoun(list)} #${i + 1}: ${messageOf(err)}`);
     }
   });
 }
@@ -253,7 +254,7 @@ export function readRules(file: ConfigFile, list: RuleList): Array<{ rule: Norma
     try {
       return { rule: checkStored(entry), error: null };
     } catch (err) {
-      return { rule: entry, error: err instanceof Error ? err.message : String(err) };
+      return { rule: entry, error: messageOf(err) };
     }
   });
 }

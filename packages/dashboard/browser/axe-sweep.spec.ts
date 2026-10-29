@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import { dash, openPage, seriousViolations } from './dashboard.js';
 
 /**
@@ -27,19 +27,60 @@ async function sweep(page: Page, states: Array<[string, () => Promise<void>]>): 
   return found;
 }
 
+/** The page's requests to the dashboard's API still out: what a view shows comes with them. */
+const inFlight = new WeakMap<Page, Set<Request>>();
+function apiRequests(page: Page): Set<Request> {
+  let open = inFlight.get(page);
+  if (!open) {
+    const out = new Set<Request>();
+    page.on('request', (r) => {
+      if (new URL(r.url()).pathname.startsWith('/api/')) out.add(r);
+    });
+    page.on('requestfinished', (r) => out.delete(r));
+    page.on('requestfailed', (r) => out.delete(r));
+    inFlight.set(page, out);
+    open = out;
+  }
+  return open;
+}
+
+/**
+ * A state swept once it has settled, never after a time that a loaded machine can outrun: what it
+ * shows is up (`shows`), or what it closed is gone (`hides`); none of the page's requests to the API
+ * is still out, as what a view shows comes with them; and two frames have been drawn since, so axe
+ * reads what the step changed.
+ */
+async function settled(page: Page, o: { shows?: string; hides?: string } = {}): Promise<void> {
+  const open = apiRequests(page);
+  if (o.shows) await page.waitForSelector(o.shows, { state: 'visible' });
+  if (o.hides) await page.waitForSelector(o.hides, { state: 'detached' });
+  // Polled from here, where the requests are seen: a request still out after a minute fails the sweep, naming it.
+  await expect.poll(() => [...open].map((r) => new URL(r.url()).pathname), { message: "the page's requests to the API to come back", timeout: 60_000, intervals: [25] }).toEqual([]);
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
+/** A dialog on top, the palette's and the shortcuts' included, and a menu open. */
+const DIALOG = '[role="dialog"][aria-modal="true"]';
+const MENU = '.pop[role="menu"]';
+
 const at = (page: Page, path: string, drawn = 'main#view') => async () => {
+  apiRequests(page);
   await openPage(page, path, drawn);
-  await page.waitForTimeout(250);
+  await settled(page);
 };
 const run = (page: Page, id: string, view = '') => at(page, `/run/${id}${view ? `/${view}` : ''}`, 'run');
-const click = (page: Page, selector: string, text?: string) => async () => {
+const click = (page: Page, selector: string, text?: string, o: { shows?: string } = {}) => async () => {
+  apiRequests(page);
   await page.locator(selector, text ? { hasText: text } : {}).first().click();
-  await page.waitForTimeout(250);
+  await settled(page, o);
 };
-const press = (page: Page, key: string) => async () => {
+const press = (page: Page, key: string, o: { shows?: string; hides?: string } = {}) => async () => {
+  apiRequests(page);
   await page.keyboard.press(key);
-  await page.waitForTimeout(250);
+  await settled(page, o);
 };
+/** Escape, and the dialog or menu it closes gone. */
+const escape = (page: Page, closes: string = DIALOG) => press(page, 'Escape', { hides: closes });
 
 test.describe.configure({ timeout: 300_000 });
 
@@ -64,13 +105,13 @@ test('a run’s inspector tabs, menus and dialogs have no serious or critical ax
   for (const name of ['ticket', 'override', 'failTool', 'chat']) {
     const id = dash().runs[name] as string;
     states.push([`run ${name}`, run(page, id)]);
-    for (const tab of ['Response', 'Request', 'Details', 'Conversation']) states.push([`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab)]);
-    states.push([`run ${name} · Share`, click(page, '.rhead .actions button', 'Share')], [`run ${name} · Share closed`, press(page, 'Escape')]);
-    states.push([`run ${name} · the fork menu`, click(page, '#forkBtn')], [`run ${name} · the fork menu closed`, press(page, 'Escape')]);
-    states.push([`run ${name} · Delete`, click(page, '.rhead .actions button', 'Delete')], [`run ${name} · Delete closed`, press(page, 'Escape')]);
+    for (const tab of ['Response', 'Request', 'Details', 'Conversation']) states.push([`run ${name} · inspector ${tab}`, click(page, '.insp [role="tablist"] button', tab, { shows: `.insp [role="tab"][aria-selected="true"]:has-text("${tab}")` })]);
+    states.push([`run ${name} · Share`, click(page, '.rhead .actions button', 'Share', { shows: MENU })], [`run ${name} · Share closed`, escape(page, MENU)]);
+    states.push([`run ${name} · the fork menu`, click(page, '#forkBtn', undefined, { shows: MENU })], [`run ${name} · the fork menu closed`, escape(page, MENU)]);
+    states.push([`run ${name} · Delete`, click(page, '.rhead .actions button', 'Delete', { shows: DIALOG })], [`run ${name} · Delete closed`, escape(page)]);
   }
   // Edit and fork's dialog, from the inspector of the tool call the run failed at, which it opens on.
-  states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork')], ['run failTool · Edit and fork closed', press(page, 'Escape')]);
+  states.push(['run failTool', run(page, dash().runs.failTool as string)], ['run failTool · Edit and fork', click(page, '.insp button', 'Edit and fork', { shows: DIALOG })], ['run failTool · Edit and fork closed', escape(page)]);
   expect(await sweep(page, states)).toEqual([]);
 });
 
@@ -83,21 +124,24 @@ test('Fixes and each fix’s steps, Tests’ dialogs, the palette, the shortcuts
     const update = page.locator('main#view button', { hasText: 'Update goldens' });
     if (!(await update.count())) return;
     await update.first().click();
-    await page.waitForTimeout(250);
+    await settled(page, { shows: DIALOG });
   }], ['Tests · Update goldens… closed', press(page, 'Escape')]);
-  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture', click(page, 'main#view button', 'Import a capture')], ['Runs · import closed', press(page, 'Escape')]);
+  states.push(['Runs', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture', click(page, 'main#view button', 'Import a capture', { shows: DIALOG })], ['Runs · import closed', escape(page)]);
   states.push(['Runs · a run ticked', click(page, 'main#view table.runst tbody tr input[type="checkbox"]')]);
-  states.push(['the palette', press(page, 'Meta+k')], ['the palette with results', async () => {
+  // The palette's hits in what was recorded come from the server: swept once they have come.
+  states.push(['the palette', press(page, 'Meta+k', { shows: '.palette' })], ['the palette with results', async () => {
     await page.keyboard.type('refund');
-    await page.waitForTimeout(800);
-  }], ['the palette closed', press(page, 'Escape')]);
-  states.push(['the shortcuts', press(page, '?')], ['the shortcuts closed', press(page, 'Escape')]);
+    await page.locator('#palList', { hasText: 'In recorded data' }).waitFor();
+    await settled(page);
+  }], ['the palette closed', escape(page, '.palette')]);
+  // From the run ticked above, its checkbox focused again once the palette closed.
+  states.push(['the shortcuts', press(page, '?', { shows: '.help' })], ['the shortcuts closed', escape(page, '.help')]);
   // The shortcuts on pages of each kind: the keys that don't apply there are listed apart.
   for (const [where, path, drawn] of [['the Overview', '/', 'overview'], ['Runs', '/runs', 'runs'], ['Fixes', '/fixes', 'main#view'], ['Settings', '/settings/alerts', 'main#view']] as const) {
-    states.push([`${where}`, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn')], [`the shortcuts on ${where} closed`, press(page, 'Escape')]);
+    states.push([where, at(page, path, drawn)], [`the shortcuts on ${where}`, click(page, '#helpBtn', undefined, { shows: '.help' })], [`the shortcuts on ${where} closed`, escape(page, '.help')]);
   }
   // A toast with Undo: the good/bad key pressed, then put back with u.
-  states.push(['a run', run(page, dash().runs.ticket as string)], ['a toast with Undo', click(page, '.rhead .runkey button', 'good')]);
+  states.push(['a run', run(page, dash().runs.ticket as string)], ['a toast with Undo', click(page, '.rhead .runkey button', 'good', { shows: '.toast button:has-text("Undo")' })]);
   const found = await sweep(page, states);
   await page.keyboard.press('u');
   expect(found).toEqual([]);
@@ -122,6 +166,6 @@ test('on a phone, every page, Settings tab, fix step and dialog has no serious o
     const id = dash().runs[name] as string;
     for (const v of ['', 'turns', 'timeline']) states.push([`run ${name}${v ? ` · ${v}` : ''} on a phone`, run(page, id, v)]);
   }
-  states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture on a phone', click(page, 'main#view button', 'Import a capture')], ['Runs · import closed on a phone', press(page, 'Escape')]);
+  states.push(['Runs on a phone', at(page, '/runs', 'main#view table.runst tbody tr')], ['Runs · Import a capture on a phone', click(page, 'main#view button', 'Import a capture', { shows: DIALOG })], ['Runs · import closed on a phone', escape(page)]);
   expect(await sweep(page, states)).toEqual([]);
 });

@@ -1,8 +1,8 @@
 import { Box, useApp, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import { attemptBundles, deletionPlan, lostAt, withAttempts, withNote, type CallRecord, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptBundles, deletionPlan, lostAt, markToast, messageOf, withAttempts, withNote, type CallRecord, type Normalizer, type Price, type RunMark, type RunRecord, type Store } from '@shadowlap/engine';
 import { aboutRun } from './about.js';
-import { marked, markToast, type RunMark } from './marks.js';
+import { marked } from './marks.js';
 import type { Declared } from './verdict.js';
 import { recordingNow } from './actions.js';
 import { Help } from './components/Help.js';
@@ -101,7 +101,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
       refresh(id);
       return `noted on ${id.slice(0, 10)}${callNo !== null ? ` #${callNo}` : ''}`;
     } catch (err) {
-      return `not noted: ${err instanceof Error ? err.message : String(err)}`;
+      return `not noted: ${messageOf(err)}`;
     }
   };
 
@@ -117,7 +117,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
       setView((v) => (v.kind === 'timeline' && v.run.runId === id ? { ...v, run: store.getRun(id) ?? v.run } : v));
       return markToast(id, m, next.on);
     } catch (err) {
-      return `not labelled: ${err instanceof Error ? err.message : String(err)}`;
+      return `not labelled: ${messageOf(err)}`;
     }
   };
 

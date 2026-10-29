@@ -9,10 +9,11 @@ import { normalizeConversation, type Turn, type TurnBlock } from './conversation
 import { credentialFreeArgv } from './http.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
+import { messageOf } from './message-of.js';
 import { compilePattern, parsePath } from './normalize.js';
 import { redactedRequest, redactedResponse } from './redact.js';
 import { normalizeResponse } from './responses.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, Normalizer, RunRecord } from './types.js';
 
 export type DatasetFormat = 'jsonl' | 'openai-chat' | 'braintrust' | 'langfuse';
@@ -81,7 +82,7 @@ export function messagesOf(turns: Turn[]): DatasetMessage[] {
   return out;
 }
 
-function example(store: Store, run: RunRecord, call: CallRecord, rules: Normalizer[]): DatasetExample | null {
+function example(store: StoreOf<'recording'>, run: RunRecord, call: CallRecord, rules: Normalizer[]): DatasetExample | null {
   if (!call.requestRef || !call.end?.responseRef) return null;
   const conv = normalizeConversation(rules.length ? redactedRequest(store, call, rules) : loadApiRequest(store, call.requestRef));
   if (!conv) return null;
@@ -142,7 +143,7 @@ function shape(e: DatasetExample, format: DatasetFormat): unknown {
   }
 }
 
-export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOptions): unknown[] {
+export function datasetRows(store: StoreOf<'recording'>, runs: RunRecord[], opts: DatasetOptions): unknown[] {
   const redact = opts.redact ?? [];
   // A rule that can't be read fails the export: an unreadable call's row is left out, but a row must never go out unredacted.
   redact.forEach((r, i) => {
@@ -150,7 +151,7 @@ export function datasetRows(store: Store, runs: RunRecord[], opts: DatasetOption
       if (r.pattern !== undefined) compilePattern(r.pattern);
       if (r.path !== undefined) parsePath(r.path);
     } catch (err) {
-      throw new Error(`redaction rule #${i + 1}: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      throw new Error(`redaction rule #${i + 1}: ${messageOf(err)}`, { cause: err });
     }
   });
   const rules = redact.filter((r) => r.path === undefined && r.pattern !== undefined).map((r) => ({ re: compilePattern(r.pattern!), replace: r.replace }));

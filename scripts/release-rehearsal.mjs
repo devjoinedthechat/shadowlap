@@ -264,7 +264,9 @@ test('a recorded test', () =>
   }));
 `,
 );
-const recordedTest = (env) => run(process.execPath, ['--import', '@shadowlap/test/register', '--test', 'recorded.fixture.mjs'], { cwd: app, env: { ...env, CI: '', SHADOWLAP_RECORD: '' } });
+// The model asks for send_report, which the test only counts and never runs. A replay can't tell that it
+// won't, so it is told the tool may run, as Shadowlap's refusal of an unrecorded write says to.
+const recordedTest = (env) => run(process.execPath, ['--import', '@shadowlap/test/register', '--test', 'recorded.fixture.mjs'], { cwd: app, env: { ...env, CI: '', SHADOWLAP_RECORD: '', SHADOWLAP_ALLOW_UNRECORDED: 'send_report' } });
 const recordedFirst = recordedTest({ SHADOWLAP_UPSTREAM_OPENAI: upstream });
 const recordedAgain = recordedTest({ SHADOWLAP_UPSTREAM_OPENAI: 'http://127.0.0.1:9' });
 check('records a test with @shadowlap/test, then replays it offline', recordedFirst.code === 0 && existsSync(join(app, '__recordings__', 'rehearsal', 'run.json')) && recordedAgain.code === 0, `${recordedFirst.out}\n${recordedAgain.out}`);

@@ -1,4 +1,4 @@
-import { judgedAnswers, Store, type CallRecord, type DecisionJudge, type DecisionJudgeSide, type GivenAnswer, type RunRecord } from '@shadowlap/engine';
+import { judgedAnswers, messageOf, Store, type CallRecord, type DecisionJudge, type DecisionJudgeSide, type GivenAnswer, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { judgeRecording } from './attempts.js';
 import { judgeChecksOf, judgeLabel, type JudgeCheck, type TestSpec } from './checks.js';
@@ -143,7 +143,7 @@ export class TextJudge {
     try {
       ctx = await this.open();
     } catch (err) {
-      return inconclusive(`not judged: the judge's sidecar could not start: ${(err as Error).message}`, request);
+      return inconclusive(`not judged: the judge's sidecar could not start: ${messageOf(err)}`, request);
     }
     const v = await askPreparedJudge(j, prepared, ctx);
     if ('why' in v) return inconclusive(`not judged: ${v.why}`, request);

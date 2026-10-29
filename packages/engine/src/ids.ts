@@ -7,13 +7,13 @@ export function ulid(now: number = Date.now()): string {
   let time = now;
   let t = '';
   for (let i = 0; i < 10; i++) {
-    t = CROCKFORD[time % 32] + t;
+    t = CROCKFORD.charAt(time % 32) + t;
     time = Math.floor(time / 32);
   }
   // 256 is a multiple of 32, so `byte & 31` is uniform.
   const rnd = randomBytes(16);
   let r = '';
-  for (let i = 0; i < 16; i++) r += CROCKFORD[rnd[i]! & 31];
+  for (let i = 0; i < 16; i++) r += CROCKFORD.charAt(rnd[i]! & 31);
   return t + r;
 }
 

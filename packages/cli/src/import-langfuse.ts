@@ -1,8 +1,8 @@
+import { isObject } from '@shadowlap/engine';
 import {
   calledToolNames,
   clean,
   epochMs,
-  isObject,
   maybeJson,
   messagesOf,
   num,

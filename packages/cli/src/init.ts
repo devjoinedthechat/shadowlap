@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Effect } from '@shadowlap/engine';
-import { AGENT_NODE_MIN, ProjectRegistry, describeFolder, modelServerFinding, nodePinTooOld, toolNameEffect, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
+import { AGENT_NODE_MIN, ProjectRegistry, describeFolder, messageOf, modelServerFinding, nodePinTooOld, toolNameEffect, type FolderKind, type ModelServer, type RegistryOptions, type SetupFindings, type WrapSnippet } from '@shadowlap/engine';
 import { CONFIG_FILE, CONFIG_SCHEMA_URL, configPath as configFile } from './config.js';
 import { providers as sidecarProviders } from '@shadowlap/sidecar';
 import { quoteArgv } from './ui.js';
@@ -1846,13 +1846,13 @@ export function noteInspected(cwd: string, json: InitJson, env: NodeJS.ProcessEn
     registry = new ProjectRegistry({ env, ...options });
     id = registry.find(cwd)?.id ?? null;
   } catch (err) {
-    return { id: null, noted: false, why: (err as Error).message };
+    return { id: null, noted: false, why: messageOf(err) };
   }
   if (!id) return { id: null, noted: false, why: null };
   try {
     registry.noteInspected(id, initFindings(json));
     return { id, noted: true, why: null };
   } catch (err) {
-    return { id, noted: false, why: (err as Error).message };
+    return { id, noted: false, why: messageOf(err) };
   }
 }

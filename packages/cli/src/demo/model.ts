@@ -1,3 +1,4 @@
+import { isObject } from '@shadowlap/engine';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -27,7 +28,6 @@ interface Message {
   content: unknown;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const textOf = (content: unknown): string => (typeof content === 'string' ? content : Array.isArray(content) ? content.filter((b) => isObject(b) && b.type === 'text').map((b) => String((b as { text?: unknown }).text ?? '')).join('\n') : '');
 const systemOf = (system: unknown): string => (typeof system === 'string' ? system : Array.isArray(system) ? system.map((b) => (isObject(b) ? String(b.text ?? '') : '')).join('\n') : '');
 

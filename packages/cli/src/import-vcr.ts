@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import { isObject, type StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, parseBody, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -20,7 +20,7 @@ export interface VcrInteraction {
 
 /** VCR headers are name → list of values; a lone string is accepted too. */
 const vcrHeaders = (h: unknown): Record<string, string> =>
-  headerMap(Object.entries(typeof h === 'object' && h !== null && !Array.isArray(h) ? h : {}).map(([k, v]) => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v ?? '')] as [string, string]));
+  headerMap(Object.entries(isObject(h) ? h : {}).map(([k, v]) => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v ?? '')] as [string, string]));
 
 /** A body is a string, `{ string }`, or `{ base64_string }`. */
 function bodyText(body: unknown): { text: string | undefined; base64: boolean } {
@@ -79,6 +79,6 @@ export function readVcr(cassette: unknown): Captured {
 }
 
 /** Reads a JSON VCR cassette and imports it as one run. */
-export function importVcr(store: Store, cassette: unknown, opts: { source: string; cwd?: string }): ImportResult {
+export function importVcr(store: StoreOf<'recording'>, cassette: unknown, opts: { source: string; cwd?: string }): ImportResult {
   return importCaptured(store, readVcr(cassette), opts);
 }

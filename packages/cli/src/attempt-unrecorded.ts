@@ -1,4 +1,4 @@
-import type { Store, UnrecordedTool } from '@shadowlap/engine';
+import type { StoreOf, UnrecordedTool } from '@shadowlap/engine';
 import { palette as p, safe } from './ui.js';
 import { declaredUnrecorded, howToRecord, refusedEffect, unrecordedOf } from './unrecorded.js';
 
@@ -12,7 +12,7 @@ import { declaredUnrecorded, howToRecord, refusedEffect, unrecordedOf } from './
  */
 
 /** The tools the model called in the attempt's run that the run recorded no call of, by the project's declarations. */
-export function ranUnrecorded(store: Store, runId: string): UnrecordedTool[] {
+export function ranUnrecorded(store: StoreOf<'recording'>, runId: string): UnrecordedTool[] {
   return unrecordedOf(store, runId, declaredUnrecorded(process.cwd()));
 }
 

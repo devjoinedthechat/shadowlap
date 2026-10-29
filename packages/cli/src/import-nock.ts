@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { StoreOf } from '@shadowlap/engine';
 import { headerMap, importCaptured, type Captured, type CapturedCall, type ImportResult, type Skip } from './import-capture.js';
 
 /**
@@ -92,6 +92,6 @@ export function readNock(recording: unknown): Captured {
 }
 
 /** Reads a nock recording and imports it as one run. */
-export function importNock(store: Store, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
+export function importNock(store: StoreOf<'recording'>, source: unknown, opts: { source: string; cwd?: string }): ImportResult {
   return importCaptured(store, readNock(source), opts);
 }

@@ -197,12 +197,18 @@ describe('a run that starts or ends while another process holds the store', () =
       await clockRead(sidecar, run.runId);
       const ended = sidecar.endRun(run.runId, 'completed');
       expect(ended.summary.warnings.filter((w) => /store/.test(w))).toEqual([]);
-      setTimeout(() => void lock.release(), 1_000);
+      // Let go after a second. Whether it has been is known here at once; that the other process
+      // has committed, only once its word arrives, which the writer may beat.
+      let letGo = false;
+      setTimeout(() => {
+        letGo = true;
+        void lock.release();
+      }, 1_000);
       // Said once the run is written, for the summary a command prints.
       const late = await sidecar.endWritten(run.runId);
       expect(late.join('\n')).toMatch(/Call 2 could not be written to the store .*: it is missing from the recording/);
       // Ended in the store all the same, once it was free, with the call it could write: never left running.
-      expect(lock.held()).toBe(false);
+      expect(letGo).toBe(true);
       expect(beside.run(run.runId)).toMatchObject({ status: 'completed', ended_at: ended.run.endedAt });
       expect(beside.calls(run.runId)).toBe(2);
       // Asked again, it has nothing more to say.

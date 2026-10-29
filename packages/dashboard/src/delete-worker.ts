@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store } from '@shadowlap/engine';
+import { Store, messageOf } from '@shadowlap/engine';
 import type { DeleteAnswer, DeleteWork } from './delete-apart.js';
 import { BUSY } from './redaction-preview.js';
 import { deleteRuns } from './runs-list.js';
@@ -18,7 +18,7 @@ try {
   store = Store.open(work.dbPath);
   answer = { ok: true, result: deleteRuns(store, work.ids) };
 } catch (err) {
-  const error = err instanceof Error ? err.message : String(err);
+  const error = messageOf(err);
   answer = { ok: false, error, busy: BUSY.test(error) };
 } finally {
   // Closed before the answer goes: the server ends the thread once it has it, and Windows can't

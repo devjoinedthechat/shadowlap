@@ -1,4 +1,4 @@
-import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { messageOf, resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { CI_PROVIDERS, formatStoreUrl, parseStoreUrl, storeKey, type CiProvider } from '@shadowlap/remote';
 import { lookupRun } from '../api.js';
 import { liveKeys } from '../ci-workflows.js';
@@ -30,7 +30,7 @@ export function teamStoreFor(ctx: RouteContext): TeamStoreStatus | null {
  * `onlyLocal` (Needs a look, Settings → Store and the CLI's `store show` all say that one), counted
  * the way these tags are: by run, a run whose attempts are only here counted once with them.
  */
-export function localRunIds(store: Store, remote: string, runIds: readonly string[]): Set<string> {
+export function localRunIds(store: StoreOf<'readModels'>, remote: string, runIds: readonly string[]): Set<string> {
   if (!runIds.length) return new Set();
   const rows = store.query(
     `SELECT r.run_id AS id FROM runs r WHERE r.run_id IN (SELECT value FROM json_each(?))
@@ -47,7 +47,7 @@ export function localRunIds(store: Store, remote: string, runIds: readonly strin
  * on this machine, at most `room` of them: pushing a run sends them too, as the Runs page shows them
  * under it, so a run pushed leaves nothing of its own behind.
  */
-export function localAttempts(store: Store, remote: string, runIds: readonly string[], room: number): string[] {
+export function localAttempts(store: StoreOf<'readModels'>, remote: string, runIds: readonly string[], room: number): string[] {
   if (room <= 0) return [];
   const index = loadRunIndex(store);
   const attempts = [...new Set(runIds.flatMap((id) => (index.attempts.get(id) ?? []).map((a) => a.runId)))];
@@ -129,7 +129,7 @@ export function register(router: Router, ctx: RouteContext): void {
       try {
         configured = formatStoreUrl(parseStoreUrl(req.url, req.provider));
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return { error: messageOf(err) };
       }
       return { args: ['store', 'set', configured, '--provider', req.provider, '--check'] };
     },

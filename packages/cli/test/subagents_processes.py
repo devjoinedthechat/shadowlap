@@ -25,7 +25,7 @@ def create(messages):
     try:
         import requests
 
-        response = requests.post(url, json=body, headers=headers)
+        response = requests.post(url, json=body, headers=headers, timeout=60)
         response.raise_for_status()
         return response.json()["content"][0]["text"]
     except ImportError:

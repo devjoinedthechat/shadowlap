@@ -1,6 +1,6 @@
 import { untrustedReads, type ToolTrust, type TrustSource } from './injection.js';
 import { storedModelResolver, summarizeRun, type SummaryOptions } from './report.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord, RunRecord, RunSummary } from './types.js';
 import { unrecordedTools, type UnrecordedTool } from './unrecorded-tools.js';
 
@@ -32,7 +32,7 @@ export interface ShowJson {
  * calls were recorded with; `unrecorded`: its `tools.unrecorded`, the effects it declares for tools
  * Shadowlap doesn't record.
  */
-export function showJson(store: Store, run: RunRecord, options: SummaryOptions & { calls?: CallRecord[]; tools?: ToolTrust; unrecorded?: Readonly<Record<string, 'read' | 'write'>> } = {}): ShowJson {
+export function showJson(store: StoreOf<'recording'>, run: RunRecord, options: SummaryOptions & { calls?: CallRecord[]; tools?: ToolTrust; unrecorded?: Readonly<Record<string, 'read' | 'write'>> } = {}): ShowJson {
   const calls = options.calls ?? store.getCalls(run.runId);
   const summary = summarizeRun(run, calls, [], [], { ...(options.prices ? { prices: options.prices } : {}), modelOf: options.modelOf ?? storedModelResolver(store) });
   const untrusted = untrustedReads(calls, options.tools).reads.map((r) => ({ callNo: r.callNo, name: r.name, from: r.from }));

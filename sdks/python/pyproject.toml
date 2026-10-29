@@ -52,10 +52,11 @@ target-version = "py39"
 line-length = 160
 
 [tool.ruff.lint]
-# pycodestyle, Pyflakes, isort, flake8-bugbear, pyupgrade and flake8-async; RUF100 reports a noqa that
-# no longer suppresses anything. `npm run lint` runs it over every Python file in the repository
-# (ruff.toml at its root extends this).
-select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF100"]
+# pycodestyle, Pyflakes, isort, flake8-bugbear, pyupgrade, flake8-async, McCabe's complexity (C90),
+# flake8-simplify, Ruff's own rules (RUF100 among them reports a noqa that no longer suppresses
+# anything), flake8-pytest-style and flake8-bandit's security checks (S). `npm run lint` runs it over
+# every Python file in the repository (ruff.toml at its root extends this).
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "C90", "SIM", "RUF", "PT", "S"]
 ignore = [
   # Line length is a formatter's call, and no formatter wraps this code: its long lines are messages,
   # docstrings and test data.
@@ -67,7 +68,30 @@ ignore = [
   # sys or on a module, a framework object's field), which mypy --strict refuses as plain attributes.
   "B009",
   "B010",
+  # An assert states what the type checker narrows on (a tool's resolve always answers), and is how a
+  # pytest test checks: none guards input, so none is missed under -O.
+  "S101",
+  # Each subprocess call whose argv isn't a literal: the code passes argv lists, never a shell.
+  "S603",
+  # Commands found on PATH on purpose (node, git, the CLI): the user's own.
+  "S607",
 ]
+
+[tool.ruff.lint.mccabe]
+# A function with more paths than this is split. Today's longer ones are listed below, and in
+# ruff.toml at the root for the guard's, each file until it is.
+max-complexity = 15
+
+[tool.ruff.lint.per-file-ignores]
+# The tests are unittest.TestCase classes, which pytest runs: they assert with TestCase's methods, and
+# pickle the SDK's own objects to check what crosses a process.
+"tests/**" = ["PT009", "PT027", "S301"]
+# Today's functions over the complexity cap.
+"shadowlap/adapters/_claude_hooks.py" = ["C901"]
+"shadowlap/adapters/_claude_reach.py" = ["C901"]
+"shadowlap/adapters/claude_agent_sdk.py" = ["C901"]
+"tests/fake_claude_code.py" = ["C901"]
+"shadowlap/__init__.py" = ["C901"]
 
 [tool.ruff.lint.isort]
 # The SDK, as the agents and tests elsewhere in the repository import it: its own group, after the others.

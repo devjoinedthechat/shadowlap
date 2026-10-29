@@ -2,6 +2,7 @@ import {
   CHECK_STATUSES,
   cacheMisses,
   canonicalModel,
+  isObject,
   Lru,
   hasRecordedCommand,
   isJudgeCall,
@@ -32,6 +33,7 @@ import {
   type RunRecord,
   type ShowJson,
   type Store,
+  type StoreOf,
   type ToolTrust,
 } from '@shadowlap/engine';
 import { modelResolver, runLabel } from '@shadowlap/engine';
@@ -92,7 +94,7 @@ export interface RunAnalysis {
 }
 
 /** Analyses of the runs read lately, per store: the run page asks for a run and then its calls, one by one. */
-const analyses = new WeakMap<Store, Map<string, RunAnalysis>>();
+const analyses = new WeakMap<object, Map<string, RunAnalysis>>();
 
 /**
  * The runs still recording whose pages are followed, per store: their conversations as their calls
@@ -100,13 +102,13 @@ const analyses = new WeakMap<Store, Map<string, RunAnalysis>>();
  * were read from. A recording's page asks for its newest calls every two seconds; working out where
  * every call of a long run belongs each time held up the dashboard for seconds at 50,000 calls.
  */
-const following = new WeakMap<Store, Map<string, { live: LiveConversations; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
+const following = new WeakMap<object, Map<string, { live: LiveConversations; asks: Map<number, { rec: CallRecord; names: string[] }> }>>();
 
 /** The runs followed at once per store. */
 const FOLLOW = 4;
 
 /** The tools a model call's answer asked for, by name; cached by response blob. */
-const asked = (store: Store, c: CallRecord) => responseInfo(store, c).tools.map((t) => t.name);
+const asked = (store: StoreOf<'recording'>, c: CallRecord) => responseInfo(store, c).tools.map((t) => t.name);
 
 /**
  * A run's conversations and what each model call asked for. A run still recording is placed as its
@@ -148,7 +150,7 @@ function conversationsOf(store: Store, run: RunRecord, calls: readonly CallRecor
 const analysisKey = (run: RunRecord, calls: readonly CallRecord[]) => `${run.runId}\n${run.status}\n${runStamp(calls)}`;
 
 /** Whether the whole run's analysis (`analyseRun`) is worked out already for its calls as they are. */
-export function analysisKnown(store: Store, run: RunRecord, calls: readonly CallRecord[]): boolean {
+export function analysisKnown(store: StoreOf<never>, run: RunRecord, calls: readonly CallRecord[]): boolean {
   return analyses.get(store)?.has(analysisKey(run, calls)) ?? false;
 }
 
@@ -174,7 +176,7 @@ export const QUICK_FROM = 1000;
 /** Calls past a page read with it: a call no model asked for belongs to the conversation the calls after it decide. */
 const LOOKAHEAD = 100;
 /** Analyses of the first calls of long runs, per store, apart from the whole runs' so that neither pushes the other out. */
-const prefixes = new WeakMap<Store, Map<string, RunAnalysis>>();
+const prefixes = new WeakMap<object, Map<string, RunAnalysis>>();
 
 /**
  * The analysis a page of a run's calls (or one call's details) is drawn from, for the calls up to
@@ -210,7 +212,7 @@ export const READ_PAST = LOOKAHEAD;
  */
 export const READ_BEFORE = 200;
 /** Analyses of the calls around pages deep in long runs, per store, apart from the others so that none pushes another out. */
-const windows = new WeakMap<Store, Map<string, RunAnalysis>>();
+const windows = new WeakMap<object, Map<string, RunAnalysis>>();
 
 /**
  * The analysis of the calls around a page deep in a long run that ended, `calls` (those from a few
@@ -242,7 +244,7 @@ export function windowAnalysis(store: Store, run: RunRecord, calls: readonly Cal
  * was replayed from, as the engine's `recordedDurations` finds it, reading of each run only the calls
  * it is asked about: for the calls around a page, where the engine reads every call of each.
  */
-function recordedOf(store: Store, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
+function recordedOf(store: StoreOf<'recording'>, run: RunRecord, calls: readonly CallRecord[]): Map<number, number> {
   const out = new Map<number, number>();
   const replayedFrom = (c: CallRecord) => (c.origin === 'replayed' && typeof c.end?.meta.replayedFrom === 'number' ? c.end.meta.replayedFrom : null);
   let pending = new Map<number, number>();
@@ -352,9 +354,9 @@ function buildAnalysis(store: Store, run: RunRecord, calls: readonly CallRecord[
  * addressed, so an entry never goes stale), how the call came out, and whether it was an HTTP host.
  * The run page asks for a run every two seconds; its tool results are read once.
  */
-const resultLines = new WeakMap<Store, Lru<string, string | null>>();
+const resultLines = new WeakMap<object, Lru<string, string | null>>();
 
-function resultShortOf(store: Store, c: CallRecord): string | null {
+function resultShortOf(store: StoreOf<'recording'>, c: CallRecord): string | null {
   if (c.kind === 'clock' || c.kind === 'random') return valueLineOf(store, c);
   if (c.kind === 'api') return saidLineOf(store, c);
   if (c.kind !== 'tool') return null;
@@ -384,7 +386,7 @@ const SAID_MAX = 200;
  * beside a call that asked for no tool (the agent's final answer). Null for an answer that said
  * nothing (it only called tools), and for one that failed or can't be read. Cached by response blob.
  */
-function saidLineOf(store: Store, c: CallRecord): string | null {
+function saidLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null {
   const ref = c.end?.responseRef;
   if (!ref || c.end?.outcome !== 'ok') return null;
   let lines = resultLines.get(store);
@@ -410,7 +412,7 @@ function saidLineOf(store: Store, c: CallRecord): string | null {
 }
 
 /** A clock read's or a random value's value in a line, as JSON: what the agent got, and a replay serves again. */
-function valueLineOf(store: Store, c: CallRecord): string | null {
+function valueLineOf(store: StoreOf<'recording'>, c: CallRecord): string | null {
   if (!c.end?.responseRef || c.end.outcome !== 'ok') return null;
   let lines = resultLines.get(store);
   if (!lines) resultLines.set(store, (lines = new Lru(20_000)));
@@ -435,7 +437,7 @@ function valueLineOf(store: Store, c: CallRecord): string | null {
  * line, and whether it is a person's answer the agent read (`userInput()`, or stdin through the
  * preload), which Calls tags "input" and the fork menu answers differently.
  */
-export function ownFacts(store: Store, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
+export function ownFacts(store: StoreOf<'recording'>, c: CallRecord): { fingerprint: string; requestRef: string | null; responseRef: string | null; resultShort: string | null; input?: true } {
   return { fingerprint: c.fingerprint, requestRef: c.requestRef, responseRef: c.end?.responseRef ?? null, resultShort: resultShortOf(store, c), ...(c.kind === 'tool' && c.meta.input === true ? { input: true as const } : {}) };
 }
 
@@ -514,7 +516,6 @@ export interface RunPageFacts {
 const inScope = (callScope: unknown, scope: string | null | undefined) => !scope || (typeof callScope === 'string' && (callScope === scope || callScope.startsWith(`${scope}/`)));
 
 // A run can come from someone else's pack: what its metadata says is checked before it is shown.
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const int = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null);
 const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback);
@@ -599,7 +600,7 @@ function storedNotRecorded(run: RunRecord): NotRecorded {
 }
 
 /** Attempts run together: one `--repeat` group, or one golden in one test session, under the same parent. */
-function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
+function attemptsOf(store: StoreOf<'recording'>, run: RunRecord): RunRecord[] {
   const repeat = str(run.meta?.repeat?.group);
   const session = str(run.meta?.test?.session);
   const golden = str(run.meta?.test?.golden);
@@ -608,7 +609,7 @@ function attemptsOf(store: Store, run: RunRecord): RunRecord[] {
   return together.length ? together : [run];
 }
 
-function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
+function checksOf(store: StoreOf<'recording'>, run: RunRecord): RunCheck[] | null {
   const own = storedChecks(run);
   if (!own.length) return null;
   const attempts = attemptsOf(store, run).map(storedChecks);
@@ -620,7 +621,7 @@ function checksOf(store: Store, run: RunRecord): RunCheck[] | null {
 }
 
 /** The run's own hosts; the tools come from the recording when the run is a replay of it. */
-function notRecordedOf(store: Store, run: RunRecord): NotRecorded | null {
+function notRecordedOf(store: StoreOf<'recording'>, run: RunRecord): NotRecorded | null {
   const own = storedNotRecorded(run);
   let tools = own.tools;
   const seen = new Set([run.runId]);
@@ -652,7 +653,7 @@ export function modelName(model: string): string {
 }
 
 /** The run's models by the short name a call row carries, each as the page names it. */
-function modelsOf(store: Store, calls: readonly CallRecord[]): Record<string, string> {
+function modelsOf(store: StoreOf<'recording'>, calls: readonly CallRecord[]): Record<string, string> {
   const out: Record<string, string> = {};
   const modelOf = modelResolver(store);
   for (const c of calls) {
@@ -833,6 +834,6 @@ export function runProvenance(store: Store, run: RunRecord, options: ProvenanceO
 }
 
 /** `shadowlap show <run> --json`, exactly as the CLI prints it, without starting the CLI: `tools` is the project's config's, as the CLI reads it. */
-export function runShowJson(store: Store, run: RunRecord, options: { prices?: Record<string, Price>; tools?: ToolTrust } = {}): ShowJson {
+export function runShowJson(store: StoreOf<'recording'>, run: RunRecord, options: { prices?: Record<string, Price>; tools?: ToolTrust } = {}): ShowJson {
   return showJson(store, run, { ...(options.prices ? { prices: options.prices } : {}), ...(options.tools ? { tools: options.tools } : {}), modelOf: modelResolver(store) });
 }

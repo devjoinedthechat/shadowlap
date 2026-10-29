@@ -1,5 +1,5 @@
 import { Worker } from 'node:worker_threads';
-import type { Store } from '@shadowlap/engine';
+import { messageOf, type Store } from '@shadowlap/engine';
 import { HttpError } from './http.js';
 import { serverIdle } from './idle.js';
 import { runJob, type ReadAnswer, type ReadJob } from './read-jobs.js';
@@ -463,7 +463,7 @@ export class ReadPool implements ReadModels {
           if (m.stats) this.o.keep.stats(m.stats);
           if (m.asks) this.o.keep.asks(m.asks);
         } catch (err) {
-          this.o.log?.(`could not keep what a read-model thread worked out: ${err instanceof Error ? err.message : String(err)}`);
+          this.o.log?.(`could not keep what a read-model thread worked out: ${messageOf(err)}`);
         }
         return;
       case 'answer':
@@ -626,6 +626,7 @@ function answerError(a: ReadAnswer): HttpError {
 }
 
 /** A read model's answer as data, for a route that answers with more than it: an answer that is no 200 is thrown, as sendAnswer throws it. */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the read model's JSON is, as with JSON.parse: a return-only generic on purpose
 export function answerData<T>(a: ReadAnswer): T {
   if (a.status !== 200) throw answerError(a);
   return JSON.parse(a.body) as T;

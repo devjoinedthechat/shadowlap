@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { links } from '@shadowlap/dashboard';
-import { recordEvent, type Store } from '@shadowlap/engine';
+import { recordEvent, type StoreOf } from '@shadowlap/engine';
 import { append, IMPORTED_LABEL, type ImportedCall, type ImportResult, type Skip } from './import-capture.js';
 import { emitJobEvent } from './job-events.js';
 
@@ -110,7 +110,7 @@ export function importedRunsLink(runs: ReadonlyArray<Pick<ImportJsonRun, 'source
  * Settles one run an import wrote: deletes it when it holds no call, else records `capture.imported`
  * for it and returns it as `--json` lists it.
  */
-export function settleRun(store: Store, o: { format: ImportFormat; key: string | null; result: ImportResult; author?: string | null }): ImportJsonRun | null {
+export function settleRun(store: StoreOf<'recording' | 'activity'>, o: { format: ImportFormat; key: string | null; result: ImportResult; author?: string | null }): ImportJsonRun | null {
   const { result, key } = o;
   if (!result.imported.length) {
     store.deleteRun(result.run.runId);
@@ -148,7 +148,7 @@ export function reportImportJob(json: ImportJson, env: NodeJS.ProcessEnv = proce
  * first from `skipped` (what the file itself couldn't offer), then from each run in order.
  */
 export function settleImport(
-  store: Store,
+  store: StoreOf<'recording' | 'activity'>,
   o: { format: ImportFormat; entries: number; runs: ImportedRun[]; skipped?: Skip[]; kept?: TraceKept; author?: string | null; env?: NodeJS.ProcessEnv },
 ): ImportJson {
   const skipped: Skip[] = [...(o.skipped ?? [])];

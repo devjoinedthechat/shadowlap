@@ -3,7 +3,7 @@ import { cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyLeft, fixRecords, markFixApplied, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, safeLine, type Store, type StoredFix, type StoredRepair } from '@shadowlap/engine';
+import { applyLeft, fixRecords, markFixApplied, messageOf, patchFiles, quoteArgv, recordEvent, repairPatchProblem, repairToApply, resolveAuthor, safeLine, type Store, type StoreOf, type StoredFix, type StoredRepair } from '@shadowlap/engine';
 import { fieldChange } from '@shadowlap/dashboard';
 import { EXIT } from './exit-codes.js';
 import { outdatedGoldens, type OutdatedGolden } from './fix-outdated.js';
@@ -127,12 +127,12 @@ function applyToBytes(root: string, file: string, patch: string): { already: boo
 }
 
 /** The repair whose change a fix is applied with: the one it was applied with, else the latest accepted one that counts for it. */
-export function acceptedRepair(store: Store, fix: StoredFix): StoredRepair | null {
+export function acceptedRepair(store: StoreOf<'fixes'>, fix: StoredFix): StoredRepair | null {
   return repairToApply(fixRecords(store, fix));
 }
 
 /** A repair a teammate ran, which came with a fix from the team store: its recordings stayed on their machine. */
-const cameWithPull = (store: Store, repair: StoredRepair | null) => !!repair && store.repairPulled(repair.repairId) !== null;
+const cameWithPull = (store: StoreOf<'team'>, repair: StoredRepair | null) => !!repair && store.repairPulled(repair.repairId) !== null;
 
 const lstatOrNull = (path: string) => {
   try {
@@ -232,7 +232,7 @@ export async function applyFix(store: Store, fix: StoredFix, o: ApplyOptions): P
         try {
           writeFileSync(join(root, file), asIs.bytes);
         } catch (err) {
-          throw new ApplyError(`writing ${file} failed: ${(err as Error).message}`);
+          throw new ApplyError(`writing ${file} failed: ${messageOf(err)}`);
         }
       } else {
         const check = git(root, [...APPLY, '--check', patch]);

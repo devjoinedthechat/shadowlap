@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { basename, delimiter, isAbsolute, join, resolve } from 'node:path';
 import { resolveAuthor } from '../author.js';
 import { recordEvent, type RecordEventInput } from '../events.js';
+import { messageOf } from '../message-of.js';
 import { Store } from '../store.js';
 import { writeFileAtomic, withFileLock } from './files.js';
 import { checkFolder, countGoldens, projectRoots, type ProjectRoots } from './folders.js';
@@ -11,6 +12,7 @@ import { RecordingsError, deleteRecordings, storeFilesToDelete } from './recordi
 import { isConfirmedCommand, modelServerFinding, type ModelServer } from './record.js';
 import { earlierStage, emptyStoreFacts, initialSetup, isSetupStage, laterStage, stageAtLeast, unwrappedTools, type Inspection, type SetupFindings, type SetupStage, type StoreFacts } from './setup.js';
 import { readStoreFacts } from './store-reader.js';
+import { isObject } from '../is-object.js';
 
 /**
  * The projects opened in the dashboard on this machine: `projects.json` in Shadowlap's home folder
@@ -135,7 +137,6 @@ interface State {
   projects: ProjectEntry[];
 }
 
-const isObject = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 
@@ -366,7 +367,7 @@ export class ProjectRegistry {
       const { raw } = this.read();
       return typeof raw.version === 'number' && raw.version > REGISTRY_VERSION ? newerList(this.file) : null;
     } catch (err) {
-      return (err as Error).message;
+      return messageOf(err);
     }
   }
 
@@ -694,7 +695,7 @@ export class ProjectRegistry {
       text = readFileSync(this.file, 'utf8');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { raw: { version: REGISTRY_VERSION, projects: [] }, projects: [] };
-      throw new ProjectError('registry', `Can’t read ${this.file}: ${(err as Error).message}`);
+      throw new ProjectError('registry', `Can’t read ${this.file}: ${messageOf(err)}`);
     }
     let raw: unknown;
     try {
@@ -740,7 +741,7 @@ export class ProjectRegistry {
       });
     } catch (err) {
       if (err instanceof ProjectError) throw err;
-      throw new ProjectError('registry', (err as Error).message);
+      throw new ProjectError('registry', messageOf(err));
     }
   }
 

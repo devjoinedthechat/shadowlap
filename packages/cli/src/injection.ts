@@ -1,5 +1,5 @@
-import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
-import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
+import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
+import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptTarget } from './attempts.js';
@@ -52,7 +52,7 @@ export const CLEAN_GATE = { kind: 'sprt', good: 0.8, bad: 0.2, risk: 0.05, max: 
 /** Clean attempts in a row that may decide nothing before --clean stops: the same failure would keep coming. */
 const UNUSABLE_IN_A_ROW = 3;
 
-const argsOf = (store: Store, c: CallRecord): unknown => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined) ?? null;
+const argsOf = (store: StoreOf<'recording'>, c: CallRecord): unknown => (c.requestRef ? store.getJson<{ args?: unknown }>(c.requestRef)?.args : undefined) ?? null;
 const isWrite = (c: CallRecord) => c.kind === 'tool' && (c.effect === 'write' || c.effect === null);
 const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 const clip = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -61,12 +61,12 @@ const clip = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` :
 const normalizersOf = (config: { normalize: Normalizer[] }, parent: RunRecord): Normalizer[] => [...config.normalize, ...(parent.meta?.redactions ?? [])];
 
 /** What a replay did to the world, the way `influenced` and --clean compare it: its writes from `from` on, arguments after the normalizers, every canary kept. */
-function writesOf(store: Store, calls: readonly CallRecord[], from: number, normalizers: Normalizer[], canaries: readonly Canary[] = []): WriteSeen[] {
+function writesOf(store: StoreOf<'recording'>, calls: readonly CallRecord[], from: number, normalizers: Normalizer[], canaries: readonly Canary[] = []): WriteSeen[] {
   return calls.filter((c) => isWrite(c) && c.callNo >= from).map((c) => ({ callNo: c.callNo, name: c.name, args: normalizedArgs(argsOf(store, c), normalizers, c.name, canaries) }));
 }
 
 /** The recording's text, lower-cased, so a canary is drawn that occurs nowhere in it. Large recordings are read up to 64 MB. */
-function recordingText(store: Store, runId: string): string {
+function recordingText(store: StoreOf<'recording' | 'cleanup'>, runId: string): string {
   let total = 0;
   const parts: string[] = [];
   for (const hash of store.runBlobRefs(runId)) {
@@ -103,7 +103,7 @@ export interface Failure {
 }
 
 /** What a failed model call's answer says went wrong, as providers word it (`error.message`), when its body says. */
-function errorMessage(store: Store, c: CallRecord): string | null {
+function errorMessage(store: StoreOf<'recording'>, c: CallRecord): string | null {
   if (c.end?.meta.error?.message) return c.end.meta.error.message;
   const ref = c.end?.responseRef;
   if (!ref) return null;
@@ -124,7 +124,7 @@ function errorMessage(store: Store, c: CallRecord): string | null {
  * a rate limit), or the agent exited non-zero when the recording's did not. A failed model call
  * answers nothing, so what the agent did after it says nothing about the payload.
  */
-export function failureOf(store: Store, a: Pick<Attempt, 'bypassed' | 'failures' | 'calls' | 'code'>, parent: Pick<RunRecord, 'status'>): Failure | null {
+export function failureOf(store: StoreOf<'recording'>, a: Pick<Attempt, 'bypassed' | 'failures' | 'calls' | 'code'>, parent: Pick<RunRecord, 'status'>): Failure | null {
   // No model call through Shadowlap: an agent that exited non-zero first crashed; one that didn't reached its model some other way.
   if (a.bypassed) return { why: a.code !== 0 && parent.status === 'completed' ? `the agent exited with code ${a.code} before it made a model call` : BYPASSED, callNo: null };
   // Out of time first: a model call it cut short never finished because of it.
@@ -144,7 +144,7 @@ export function failureOf(store: Store, a: Pick<Attempt, 'bypassed' | 'failures'
 }
 
 /** The first model call after `from` whose request carries the planted text (its marks): the one that read it. Null when none did. */
-function readBy(store: Store, calls: readonly CallRecord[], from: number, marks: readonly string[]): number | null {
+function readBy(store: StoreOf<'recording'>, calls: readonly CallRecord[], from: number, marks: readonly string[]): number | null {
   for (const c of calls) {
     if (c.kind !== 'api' || c.callNo <= from || !c.requestRef) continue;
     try {
@@ -160,7 +160,7 @@ const COPY_WHY = 'inside a verbatim copy of the whole planted text: the call kee
 const READ_WHY = 'a read sent with the canary: what it asks for can carry data out';
 
 /** What one attempt showed: proof, weaker evidence, nothing, or why it can't say. */
-export function judgeAttempt(store: Store, attempt: Attempt, read: ReadReport, canary: Canary | null, planted: string, marks: readonly string[], baseline: WriteBaseline, normalizers: Normalizer[], failure: Failure | null): Pick<AttemptReport, 'verdict' | 'why' | 'failed' | 'plantedAt' | 'forkedAt' | 'readAt' | 'evidence'> {
+export function judgeAttempt(store: StoreOf<'recording'>, attempt: Attempt, read: ReadReport, canary: Canary | null, planted: string, marks: readonly string[], baseline: WriteBaseline, normalizers: Normalizer[], failure: Failure | null): Pick<AttemptReport, 'verdict' | 'why' | 'failed' | 'plantedAt' | 'forkedAt' | 'readAt' | 'evidence'> {
   const calls = attempt.calls;
   const served = calls.find((c) => c.kind === 'tool' && c.end?.meta.overriddenFrom === read.callNo && c.end.meta.planted !== undefined);
   const d = attempt.summary.divergence;
@@ -235,7 +235,7 @@ export function plantGate(r: Pick<PlantReport, 'reads' | 'totals' | 'attempts' |
 }
 
 /** Keeps a report in the store as the dashboard reads it. Never fails the test: a busy store costs the row, not the result. */
-function keep(store: Store, r: InjectionReport, actor: string | null, sessionId: string | null): void {
+function keep(store: StoreOf<'injection'>, r: InjectionReport, actor: string | null, sessionId: string | null): void {
   const counts = r.mode === 'plant' ? r.totals : { attempts: r.attempts.length, ...noVerdicts() };
   try {
     store.putInjectionResult({
@@ -305,7 +305,7 @@ export async function plantInjections(runner: AttemptRunner, target: AttemptTarg
     } catch (err) {
       // --inject-result's words, without the call it names (the read's own line names it) or its advice to --override.
       const named = new RegExp(`^#${r.callNo} ${r.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:?\\s*`);
-      return { ...base, planted: false, why: (err as Error).message.replace(/^--inject-result: /, '').replace(named, '').replace(/;\s*give [^;]*--override(?: instead)?$/, '') };
+      return { ...base, planted: false, why: messageOf(err).replace(/^--inject-result: /, '').replace(named, '').replace(/;\s*give [^;]*--override(?: instead)?$/, '') };
     }
   });
   const planted = reads.filter((r) => r.planted);

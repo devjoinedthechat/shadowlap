@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { abandonedRuns, teamRunCounts, type Store, type TeamRunCounts } from '@shadowlap/engine';
+import { abandonedRuns, teamRunCounts, type StoreOf, type TeamRunCounts } from '@shadowlap/engine';
 import { CREDENTIAL_HINTS, credentialsHere, formatStoreUrl, lastCheck, parseStoreUrl, shortStoreName, storeKey, storeKindName, type LastCheck, type Provider, type StoreLocation } from '@shadowlap/remote';
 
 /**
@@ -87,13 +87,13 @@ interface TeamFacts {
   /** Those runs as a set, made when the Runs page's Local chip first asks. */
   local?: ReadonlySet<string>;
 }
-const kept = new WeakMap<Store, { key: string; version: string; facts: TeamFacts }>();
+const kept = new WeakMap<object, { key: string; version: string; facts: TeamFacts }>();
 
 /**
  * What changes the counts: a run added, ended, changed or deleted, a row of what this machine knows
  * of the store, and the recordings whose recorder is gone (which a push ends and sends).
  */
-function versionOf(store: Store, ended: ReadonlySet<string>): string {
+function versionOf(store: StoreOf<'readModels'>, ended: ReadonlySet<string>): string {
   const counters = new Map(store.query(COUNTERS_SQL).map((r) => [String(r.name), Number(r.n)]));
   const v = counters.has('runs') && counters.has('team') ? `${counters.get('runs')!}|${counters.get('team')!}` : (() => {
     const row = store.query(VERSION_SQL)[0];
@@ -107,7 +107,7 @@ function versionOf(store: Store, ended: ReadonlySet<string>): string {
  * machine knows of the store changed, or a recording's recorder went away: the status bar, the
  * Overview and the Runs page ask on every reload, and a recording appends calls all the while.
  */
-function teamFacts(store: Store, key: string): TeamFacts {
+function teamFacts(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string): TeamFacts {
   const ended = abandonedRuns(store);
   const version = versionOf(store, ended);
   const hit = kept.get(store);
@@ -118,7 +118,7 @@ function teamFacts(store: Store, key: string): TeamFacts {
 }
 
 /** The by-run counts against one store (its identity, `storeKey`), kept until runs or the store's rows change. */
-export function countsOf(store: Store, key: string): TeamRunCounts {
+export function countsOf(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string): TeamRunCounts {
   return teamFacts(store, key).counts;
 }
 
@@ -126,7 +126,7 @@ export function countsOf(store: Store, key: string): TeamRunCounts {
  * Every run only on this machine against one store, as `onlyLocal` counts them: what the Runs page's
  * Local chip lists, where Needs a look's Push leads. Kept with the counts.
  */
-export function localRunSet(store: Store, key: string): ReadonlySet<string> {
+export function localRunSet(store: StoreOf<'recording' | 'readModels' | 'team'>, key: string): ReadonlySet<string> {
   const facts = teamFacts(store, key);
   facts.local ??= new Set(facts.counts.localRuns);
   return facts.local;
@@ -140,7 +140,7 @@ function settingUp(setup: unknown): boolean {
 }
 
 /** The team store for `/api/meta`, or null when the config names none (or names one that isn't a store URL). Pure. */
-export function teamStoreStatus(store: Store, input: TeamStoreInput): TeamStoreStatus | null {
+export function teamStoreStatus(store: StoreOf<'recording' | 'readModels' | 'team'>, input: TeamStoreInput): TeamStoreStatus | null {
   if (!input.store) return null;
   let loc: StoreLocation;
   try {

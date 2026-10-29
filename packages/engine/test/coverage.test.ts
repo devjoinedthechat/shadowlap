@@ -226,7 +226,7 @@ describe('a command for each capture', () => {
     for (const pattern of ['(a+)+$', '(\\w|\\d)*x', '(.*)*!']) {
       expect(checkCommandTemplate(['node', 'agent.mjs', `{message:/${pattern}/}`]), pattern).toMatch(/: matching it could take too long: /);
       // Filling the command refuses it too, before it runs on any message.
-      expect(fillCommand(['node', 'agent.mjs', `{message:/${pattern}/}`], `${'a'.repeat(40)}`), pattern).toEqual({ why: expect.stringMatching(/^\/.*\/: matching it could take too long/) });
+      expect(fillCommand(['node', 'agent.mjs', `{message:/${pattern}/}`], 'a'.repeat(40)), pattern).toEqual({ why: expect.stringMatching(/^\/.*\/: matching it could take too long/) });
     }
     expect(checkCommandTemplate(['node', 'agent.mjs', '{message:/[A-Z]-\\d+/}'])).toBeNull();
     // One the check lets through runs within the time a redaction rule gets: on a long message, a

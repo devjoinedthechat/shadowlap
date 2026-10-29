@@ -32,7 +32,7 @@ import('../dist/index.js').then(
     process.on('uncaughtException', (err) => process.exit(cli.reportError(err)));
     cli.runToEnd(() => cli.main(process.argv));
   },
-  (err) => {
+  (/** @type {unknown} */ err) => {
     // The CLI's own files did not load: an installation that is broken, never what it was asked.
     console.error(process.env.SHADOWLAP_DEBUG && err instanceof Error && err.stack ? err.stack : `shadowlap: internal error: ${err instanceof Error ? err.message : String(err)}`);
     console.error('This is a bug in Shadowlap or its installation: reinstall it, and if that does not help, report it at https://github.com/devjoinedthechat/shadowlap/issues');

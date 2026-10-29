@@ -46,8 +46,10 @@ describe('attempts', () => {
     try {
       const marks = { repeat: { group: 'g-3', attempt: 1, of: 4 }, probe: { of: parent.runId, callNo: 3, passed: false } };
       const pending = runner.attempt({ parent: recorded, argv: [process.execPath, '-e', WAIT, go], commandFromImport: false }, { meta: marks });
-      // The agent is running: the run already says it is one of blame's attempts at the run it replays.
-      const running = look.allRuns().find((r) => r.parentRunId === parent.runId)!;
+      // The agent is running, and waits for `go`: the run already says it is one of blame's attempts at the run it replays.
+      const attemptRun = () => look.allRuns().find((r) => r.parentRunId === parent.runId);
+      while (!attemptRun()) await new Promise((resolve) => setTimeout(resolve, 10));
+      const running = attemptRun()!;
       expect(running.status).toBe('running');
       expect(running.meta).toMatchObject({ ...marks, author: AUTHOR });
       expect(classifyRun(running)).toMatchObject({ attemptOf: parent.runId, attemptKind: 'probe' });

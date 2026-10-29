@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { resolveAuthor, type Store } from '@shadowlap/engine';
+import { messageOf, resolveAuthor, type StoreOf } from '@shadowlap/engine';
 import { append, importCaptured, type Captured, type ImportResult, type Skip } from '../import-capture.js';
 import { EXIT } from '../exit-codes.js';
 import { readHar } from '../import-har.js';
@@ -26,7 +26,7 @@ const HOSTS = 'Shadowlap reads Anthropic, OpenAI, Gemini, Azure, Vertex and Bedr
 
 function printJson(json: ImportJson): void {
   console.log(JSON.stringify(json, null, 2));
-  if (!json.runs.length) process.exitCode = 1;
+  if (!json.runs.length) process.exitCode = EXIT.failed;
 }
 
 function report(result: ImportResult, note: string): void {
@@ -36,7 +36,7 @@ function report(result: ImportResult, note: string): void {
     for (const s of result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
     console.error(`\n${HOSTS} The capture must include response bodies.`);
-    process.exitCode = 1;
+    process.exitCode = EXIT.failed;
     return;
   }
 
@@ -53,7 +53,7 @@ function readJson(file: string): unknown {
   try {
     return JSON.parse(readFileSync(resolve(file), 'utf8'));
   } catch (err) {
-    throw new InvalidArgumentError(`${file} is not readable JSON: ${(err as Error).message}`);
+    throw new InvalidArgumentError(`${file} is not readable JSON: ${messageOf(err)}`);
   }
 }
 
@@ -65,7 +65,7 @@ function author(): string | null {
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Writes each trace as a run and settles the import. */
-function importTraces(store: Store, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
+function importTraces(store: StoreOf<'recording' | 'activity'>, format: 'otel' | 'langfuse' | 'langsmith' | 'phoenix' | 'logfire', traces: Trace[], o: { source: string; spans: number; author: string | null }): { json: ImportJson; results: Array<{ trace: Trace; imported: TraceImport }> } {
   // A trace store's trace keeps its id with the run, so a later import of the same trace skips it.
   const results = traces.map((trace) => ({ trace, imported: importTrace(store, trace, { source: o.source, labels: [format], author: o.author, ...(format !== 'otel' && trace.id ? { key: trace.id } : {}) }) }));
   const kept: TraceKept = { traces: traces.length, spans: o.spans, modelCalls: 0, modelCallsImported: 0, withSettings: 0, withToolDefinitions: 0, toolCalls: 0, toolCallsKept: 0 };
@@ -86,7 +86,7 @@ function reportTraces(json: ImportJson, results: Array<{ trace: Trace; imported:
     for (const s of json.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
     for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n}: ${reason}`);
     if (!kept.modelCalls) console.error("\nA model call is a span with the OpenTelemetry GenAI conventions (gen_ai.*) or OpenInference's (an LLM span), a Langfuse generation or a LangSmith llm run, and it needs its messages logged.");
-    process.exitCode = 1;
+    process.exitCode = EXIT.failed;
     return;
   }
   const done = results.filter((r) => r.imported.result.imported.length);
@@ -177,7 +177,7 @@ function hostFor(address: Address, what: string, allowHttp: boolean, secret?: st
   try {
     return traceStoreHost(address.raw, what, { from: address.from, allowHttp, ...(secret ? { secret } : {}) });
   } catch (err) {
-    throw new InvalidArgumentError((err as Error).message);
+    throw new InvalidArgumentError(messageOf(err));
   }
 }
 
@@ -289,7 +289,7 @@ async function importMany(program: Command, m: Many, w: BulkWindow, asJson: bool
       try {
         trace = { ...(await m.read(t)), id: t.id };
       } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err);
+        const reason = messageOf(err);
         if (err instanceof TraceStoreError && err.ofTrace) {
           Object.assign(entry, { outcome: 'skipped', reason });
           line(p.yellow(`skipped: ${reason}`));
@@ -402,13 +402,13 @@ export function register(program: Command): void {
           try {
             contents = readFileSync(path, 'utf8');
           } catch (err) {
-            throw new InvalidArgumentError(`${file} is not readable: ${(err as Error).message}`);
+            throw new InvalidArgumentError(`${file} is not readable: ${messageOf(err)}`);
           }
           let groups: LitellmGroup[];
           try {
             groups = readLitellmGroups(contents);
           } catch (err) {
-            throw new InvalidArgumentError(`${file}: ${(err as Error).message}`);
+            throw new InvalidArgumentError(`${file}: ${messageOf(err)}`);
           }
           for (const group of groups) {
             entries += group.calls.length + group.skipped.length;
@@ -437,7 +437,7 @@ export function register(program: Command): void {
           for (const r of runs) for (const s of r.result.skipped) reasons.set(s.reason, (reasons.get(s.reason) ?? 0) + 1);
           for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1])) console.error(`  ${n} ${n === 1 ? 'entry' : 'entries'}: ${reason}`);
           console.error(`\n${HOSTS} A capture is written only while SHADOWLAP_CAPTURE_DIR is set on the proxy.`);
-          process.exitCode = 1;
+          process.exitCode = EXIT.failed;
           return;
         }
 
@@ -474,7 +474,7 @@ export function register(program: Command): void {
           try {
             captured = f.read(parsed);
           } catch (err) {
-            throw new InvalidArgumentError((err as Error).message);
+            throw new InvalidArgumentError(messageOf(err));
           }
           const who = author();
           const result = importCaptured(store, captured, { source: name ?? fileSource([resolve(file)]), author: who });
@@ -502,12 +502,12 @@ export function register(program: Command): void {
           try {
             return parseOtlpFile(readFileSync(path, 'utf8'));
           } catch (err) {
-            throw new Error(`${files[i]!}: ${(err as Error).message}`, { cause: err });
+            throw new Error(`${files[i]!}: ${messageOf(err)}`, { cause: err });
           }
         });
         read = readOtel(payloads);
       } catch (err) {
-        const message = (err as Error).message;
+        const message = messageOf(err);
         throw new InvalidArgumentError(files.some((f) => message.startsWith(`${f}: `)) ? message : `${files.join(', ')}: ${message}`);
       }
       const source = name ?? fileSource(paths);

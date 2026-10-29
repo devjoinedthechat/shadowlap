@@ -2,8 +2,9 @@ import { isClaudeCodeSession } from './fingerprint.js';
 import { isReservedScope } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { normalizeResponse } from './responses.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
 import type { CallRecord } from './types.js';
+import { isObject } from './is-object.js';
 
 /**
  * Tools the model called that Shadowlap never recorded. A recording holds every model answer, and
@@ -43,8 +44,6 @@ export interface UnrecordedOptions {
 
 /** The key under `tools` in shadowlap.config.json that declares the effect of tools Shadowlap doesn't record; no tool's trust. */
 export const UNRECORDED_KEY = 'unrecorded';
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * `"tools": { "unrecorded": { "Bash": "write", "lookup_kb": "read" } }`, checked: the effect of each
@@ -190,7 +189,7 @@ export function unrecordedFix(name: string, options: { claudeCode?: boolean } = 
  * Code's built-in tools are told apart by name in such a run only: in another agent's, a tool named
  * `Skill` or `TaskCreate` is the agent's own, read by its name like any other.
  */
-export function fromClaudeCode(store: Store, runId: string, calls: readonly CallRecord[] = store.getCalls(runId)): boolean {
+export function fromClaudeCode(store: StoreOf<'recording'>, runId: string, calls: readonly CallRecord[] = store.getCalls(runId)): boolean {
   const meta = store.getRun(runId)?.meta;
   if (meta?.claudeCode === true) return true;
   const hellos = meta?.preloads?.hellos;
@@ -241,7 +240,7 @@ export function unrecordedEffect(name: string, declared: Readonly<Record<string,
 // ---- the run ----
 
 /** The tools a model call's answer asked for that the agent runs, in order; none for a call that failed. */
-function askedFor(store: Store, call: CallRecord): string[] {
+function askedFor(store: StoreOf<'recording'>, call: CallRecord): string[] {
   const end = call.end;
   if (call.kind !== 'api' || !end?.responseRef || end.outcome !== 'ok') return [];
   try {
@@ -262,7 +261,7 @@ function askedFor(store: Store, call: CallRecord): string[] {
  * included when the run recorded it under its own name (`search`, through `shadowlap mcp`). Calls
  * Shadowlap makes itself (its judge's) are none of the agent's.
  */
-export function unrecordedTools(store: Store, runId: string, options: UnrecordedOptions = {}): UnrecordedTool[] {
+export function unrecordedTools(store: StoreOf<'recording'>, runId: string, options: UnrecordedOptions = {}): UnrecordedTool[] {
   const calls = store.getCalls(runId);
   const recorded = new Set(calls.filter((c) => c.kind === 'tool').map((c) => c.name));
   const isRecorded = (name: string) => recorded.has(name) || recorded.has(mcpToolName(name) ?? name);

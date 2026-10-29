@@ -265,6 +265,18 @@ describe('shadowlap mcp --url', () => {
     expect(server.calls).toEqual([]);
   });
 
+  it('says when the server breaks its answer off, and never reads part of one as the whole', async () => {
+    const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
+    const c = client(target(rec.runId));
+    await c.handshake();
+    await c.request('tools/list');
+    const cut = await c.call('cut', {});
+    expect((cut.error as { message: string }).message).toMatch(/^the MCP server's answer was cut short: /);
+    await c.close();
+    sidecar.endRun(rec.runId, 'completed');
+    expect(store.getCalls(rec.runId).map((x) => [x.name, x.end?.outcome])).toEqual([['cut', 'error']]);
+  });
+
   it('refuses a batch that carries tools/call, which it could neither record nor fence', async () => {
     const rec = sidecar.startRun({ mode: 'record', command: { argv: ['agent'], cwd: '/' } });
     const c = client(target(rec.runId));

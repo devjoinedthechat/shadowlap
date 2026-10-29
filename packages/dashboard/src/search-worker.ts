@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'node:worker_threads';
-import { Store } from '@shadowlap/engine';
+import { Store, messageOf } from '@shadowlap/engine';
 import { closedStore, indexRecordings, indexSearchSlice, RETRY_MAX_MS, RETRY_MS, SLICE_MS } from './search-hits.js';
 
 /**
@@ -27,7 +27,7 @@ try {
   store = Store.open((workerData as SearchWorkerData).dbPath);
   post({ type: 'ready' });
 } catch (err) {
-  post({ type: 'failed', error: err instanceof Error ? err.message : String(err) });
+  post({ type: 'failed', error: messageOf(err) });
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;

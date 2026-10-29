@@ -1,5 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
-import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
+import { UNAVAILABLE_RETRY, attemptsInARow, checkStatus, estimateCost, formatDuration, formatUsd, isJudgeCall, judgeTarget, providerUnavailable, retryDelay, unavailableReason, type CallRecord, type ReadPolicy, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type Store, type StoreOf, type Unavailable, type UnrecordedTool } from '@shadowlap/engine';
 import { Sidecar, type Interventions } from '@shadowlap/sidecar';
 import { newRunMeta } from './activity.js';
 import { AGENT_NODE_TOO_OLD, refusedPreload } from './agent-node.js';
@@ -7,7 +7,7 @@ import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
-import { codeVersion, guardAccept, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
@@ -318,11 +318,13 @@ export class AttemptRunner {
       // shadowlap injection: reads the recording doesn't hold fenced after the fork.
       ...(extra.unrecordedReads ? { unrecordedReads: extra.unrecordedReads } : {}),
     };
+    // Read for each attempt, as the code may change between them, and without holding up the sidecar beside it.
+    const version = await readCodeVersion(cwd);
     const run = this.sidecar.startRun({
       mode: 'replay',
       parentRunId: parent.runId,
       command: { argv, cwd },
-      codeVersion: codeVersion(cwd),
+      codeVersion: version,
       replay,
       ...(extra.interventions ? { interventions: extra.interventions } : {}),
       ...(target.commandFromImport ? { commandFromImport: true } : {}),
@@ -480,7 +482,7 @@ async function pauseUnless(ms: number, stop: () => boolean): Promise<void> {
  * Marks an unavailable attempt's run where its caller's marks say how it came out (`verify`,
  * `probe`): `verdict: 'unavailable'`, so it is never read as an attempt that failed.
  */
-function markUnavailable(store: Store, runId: string, meta: Partial<RunMeta> | undefined): void {
+function markUnavailable(store: StoreOf<'recording'>, runId: string, meta: Partial<RunMeta> | undefined): void {
   const patch: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(meta ?? {})) {
     if (value && typeof value === 'object' && !Array.isArray(value) && 'passed' in value) patch[key] = { ...value, passed: false, verdict: 'unavailable' };

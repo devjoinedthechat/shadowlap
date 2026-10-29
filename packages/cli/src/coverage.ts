@@ -6,11 +6,13 @@ import {
   effectsFor,
   groupCoverage,
   hasRecordedCommand,
+  messageOf,
   NO_COMMAND,
   OUTCOME_WORDS,
   runBehaviour,
   runKind,
   Store,
+  type StoreOf,
   storeEffects,
   strongest,
   ulid,
@@ -75,7 +77,7 @@ export interface CoverageScanResult {
  * unpacked by `test`) is a run of the agent, not traffic. Picked out in SQL, so a store of many runs
  * reads only these.
  */
-export function importedRuns(store: Store): RunRecord[] {
+export function importedRuns(store: StoreOf<'recording' | 'readModels'>): RunRecord[] {
   const rows = store.query(
     `SELECT run_id FROM runs WHERE mode = 'record' AND status <> 'running' AND json_valid(meta) AND json_type(meta, '$.covers') = 'array' AND json_array_length(meta, '$.covers') > 0
        AND json_valid(command) AND json_extract(command, '$.argv[0]') = ? ORDER BY started_at ASC, run_id ASC`,
@@ -100,7 +102,7 @@ function readGoldenRecording(dir: string, runId: string | null): { store: Store;
 }
 
 /** A golden's own recorded effects, by tool. */
-function recordedEffects(store: Store, runId: string): Map<string, Effect> {
+function recordedEffects(store: StoreOf<'recording'>, runId: string): Map<string, Effect> {
   const out = new Map<string, Effect>();
   for (const c of store.getCalls(runId)) if (c.kind === 'tool' && c.effect) out.set(c.name, strongest(out.get(c.name), c.effect));
   return out;
@@ -112,7 +114,7 @@ function recordedEffects(store: Store, runId: string): Map<string, Effect> {
  * behaviour it tried, so the groups a new golden covers say so, and the scan keeps what wasn't packed.
  */
 export function scanCoverage(
-  store: Store,
+  store: StoreOf<'recording' | 'readModels' | 'coverage'>,
   o: { projectDir: string; tests: readonly TestEntry[]; config: Pick<ShadowlapConfig, 'mcp'>; actor: string | null; folder?: string; pack?: readonly PackJson[]; finder?: (capture: RunRecord) => InferredCommand | null; now?: number },
 ): CoverageScanResult {
   const finder = o.finder ?? commandFinder(store);
@@ -127,7 +129,7 @@ export function scanCoverage(
     try {
       return { info, dir, read: readGoldenRecording(dir, info.runId), error: null };
     } catch (err) {
-      return { info, dir, read: null, error: (err as Error).message };
+      return { info, dir, read: null, error: messageOf(err) };
     }
   });
   try {

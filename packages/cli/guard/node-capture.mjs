@@ -30,15 +30,28 @@ const sidecarUrl = process.env.SHADOWLAP_URL;
 const runId = process.env.SHADOWLAP_RUN_ID;
 const config = process.env.SHADOWLAP_CAPTURE;
 
+/**
+ * globalThis as the preloads share it: whether each set itself up, and what they hand each other
+ * under registered symbols (the request functions taken here, the SDK's scope, capture's state).
+ * @type {typeof globalThis & { __shadowlapCapture?: boolean } & Record<symbol, unknown>}
+ */
+const shared = globalThis;
+
+/** @typedef {{ getStore?: () => unknown } | undefined} Store What the SDK keeps for the call in progress (an AsyncLocalStorage), under a registered symbol. */
+/** @typedef {http.RequestOptions & { protocol?: string | null; agent?: (http.Agent & { protocol?: string }) | boolean; headers?: unknown }} RequestOptions A request's options, as http(s).request takes them. */
+
 // Without a run id (a test worker whose runs change from test to test), SHADOWLAP_URL names a slot
 // and the sidecar resolves the run.
-if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) {
-  globalThis.__shadowlapCapture = true;
+if (sidecarUrl && config && config !== 'off' && !shared.__shadowlapCapture) {
+  shared.__shadowlapCapture = true;
+  /** @type {Array<[RegExp, string]>} */
   let routes = [];
+  /** @type {Record<string, string>} */
   let exactHosts = {};
+  /** @type {Array<[RegExp, string | null]>} */
   let httpHosts = [];
   try {
-    const parsed = JSON.parse(config);
+    const parsed = /** @type {{ routes?: Array<[string, string]>; hosts?: Record<string, string>; http?: Array<[string, string | null]> }} */ (JSON.parse(config));
     routes = (parsed.routes ?? []).map(([source, provider]) => [new RegExp(source), provider]);
     exactHosts = parsed.hosts ?? {};
     httpHosts = (parsed.http ?? []).map(([source, port]) => [new RegExp(source), port]);
@@ -54,23 +67,28 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const httpRequest = http.request;
   const httpsRequest = https.request;
   const originalFetch = globalThis.fetch;
-  globalThis[Symbol.for('shadowlap.request')] = { 'http:': httpRequest, 'https:': httpsRequest };
+  shared[Symbol.for('shadowlap.request')] = { 'http:': httpRequest, 'https:': httpsRequest };
 
-  const parseUrl = (value) => {
+  /** A URL, or null for what doesn't read as one. */
+  const parseUrl = (/** @type {unknown} */ value) => {
     try {
-      return new URL(value);
+      return new URL(/** @type {string} */ (value));
     } catch {
       return null;
     }
   };
-  const defaultPort = (url) => (url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80');
-  const toSidecar = (url) => url !== null && `${url.hostname}:${url.port || defaultPort(url)}` === sidecarKey;
+  const defaultPort = (/** @type {URL} */ url) => (url.protocol === 'https:' || url.protocol === 'wss:' ? '443' : '80');
+  const toSidecar = (/** @type {URL | null} */ url) => url !== null && `${url.hostname}:${url.port || defaultPort(url)}` === sidecarKey;
 
   // On unless a test runner turns it off between recorded tests (@shadowlap/test sets `active`), so
   // a test without a recording calls its model where it was going, as the Python module's `active`.
-  const state = (globalThis[Symbol.for('shadowlap.capture')] ??= { active: true });
+  const state = /** @type {{ active: boolean }} */ ((shared[Symbol.for('shadowlap.capture')] ??= { active: true }));
 
-  /** The provider a URL belongs to, or null to leave the request alone. */
+  /**
+   * The provider a URL belongs to, or null to leave the request alone.
+   * @param {URL} url
+   * @returns {string | null}
+   */
   function providerFor(url) {
     if (!state.active) return null;
     const port = url.port || defaultPort(url);
@@ -93,7 +111,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return !raw || raw.length > 200 || /[\u0000-\u001f\u007f]/.test(raw) ? undefined : raw;
   };
   const currentScope = () => {
-    const scope = globalThis[Symbol.for('shadowlap.scope')]?.getStore?.() ?? baseScope();
+    const scope = /** @type {string | undefined} */ (/** @type {Store} */ (shared[Symbol.for('shadowlap.scope')])?.getStore?.() ?? baseScope());
     if (!scope) return undefined;
     return scope.replace(/[^\x20-\x24\x26-\x7e]/gu, (c) => {
       try {
@@ -104,6 +122,12 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     });
   };
 
+  /**
+   * Where a call for `provider` goes on the sidecar: its route, under the run's.
+   * @param {string} provider
+   * @param {URL} url
+   * @returns {string}
+   */
   function sidecarPath(provider, url) {
     return `${sidecar.pathname.replace(/\/$/, '')}${runSegment}/${provider}${url.pathname}${url.search}`;
   }
@@ -121,6 +145,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const openaiBase = process.env.OPENAI_BASE_URL;
   if (process.env.SHADOWLAP_OPENAI_BASE_URL_WAS === '' && openaiBase && toSidecar(parseUrl(openaiBase)) && providerFor(new URL('https://api.openai.com/v1')) === 'openai' && canLoad('openai')) {
     const env = process.env;
+    /** @type {(target: NodeJS.ProcessEnv, key: string | symbol) => unknown} */
     const get = (target, key) => (key === 'OPENAI_BASE_URL' && target.OPENAI_BASE_URL === openaiBase && readByOpenAI(get) ? undefined : Reflect.get(target, key));
     process.env = new Proxy(env, {
       get,
@@ -132,7 +157,11 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     });
   }
 
-  /** Whether a package resolves from where the agent runs: its working folder, or its main script's. */
+  /**
+   * Whether a package resolves from where the agent runs: its working folder, or its main script's.
+   * @param {string} name
+   * @returns {boolean}
+   */
   function canLoad(name) {
     for (const from of [process.cwd(), process.argv[1] ? dirname(resolve(process.argv[1])) : null]) {
       if (!from) continue;
@@ -150,6 +179,8 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
    * Whether the code reading a variable now (the frame below `trap`) is the openai package's own:
    * code in its folder, or, in an agent bundled with its dependencies, the constructor of an OpenAI
    * or AzureOpenAI client that kept its name.
+   * @param {Function} trap
+   * @returns {boolean}
    */
   function readByOpenAI(trap) {
     const prepare = Error.prepareStackTrace;
@@ -157,9 +188,10 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     try {
       Error.stackTraceLimit = 4;
       Error.prepareStackTrace = (_, sites) => sites;
+      /** @type {{ stack?: unknown }} */
       const holder = {};
       Error.captureStackTrace(holder, trap);
-      const sites = Array.isArray(holder.stack) ? holder.stack : [];
+      const sites = /** @type {NodeJS.CallSite[]} */ (Array.isArray(holder.stack) ? holder.stack : []);
       if (/[\\/]node_modules[\\/]openai[\\/]/.test(sites[0]?.getFileName?.() ?? '')) return true;
       return sites.some((site) => site.isConstructor?.() && /^(Azure)?OpenAI$/.test(site.getFunctionName?.() ?? ''));
     } catch {
@@ -173,7 +205,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   // A replay can fail a captured HTTP call with a timeout or an error (--fail-at <call>=timeout). The
   // sidecar answers a request that says it can take one (x-shadowlap-failures: raise) by naming the
   // failure, and the agent gets the error its HTTP client raises for the real thing: its error path runs.
-  const decodeMessage = (value) => {
+  const decodeMessage = (/** @type {unknown} */ value) => {
     if (typeof value !== 'string' || !value) return undefined;
     try {
       return decodeURIComponent(value);
@@ -182,9 +214,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     }
   };
   /** The error a connection reset reaches a Node client with: `read ECONNRESET`, or the message --fail-at gave. */
-  const resetError = (message) => Object.assign(new Error(message ?? 'read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' });
+  const resetError = (/** @type {string | undefined} */ message) => Object.assign(new Error(message ?? 'read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' });
 
-  /** fetch: a timeout rejects as AbortSignal.timeout() makes it; an error as undici's "fetch failed". */
+  /**
+   * fetch: a timeout rejects as AbortSignal.timeout() makes it; an error as undici's "fetch failed".
+   * @param {Response} response
+   * @returns {Promise<Response>}
+   */
   async function failedFetch(response) {
     const kind = response.headers.get('x-shadowlap-injected');
     if (!kind) return response;
@@ -202,13 +238,21 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
    * http.request: the response never reaches the agent. A timeout is the request's own 'timeout' event,
    * where clients that set one raise their timeout error, then the socket's ETIMEDOUT if nothing ended
    * the request; an error is a connection reset.
+   * @param {http.ClientRequest} req
+   * @returns {http.ClientRequest}
    */
   function failOnInjected(req) {
     const emit = req.emit;
+    /**
+     * @this {http.ClientRequest}
+     * @param {string | symbol} event
+     * @param {unknown[]} args
+     * @returns {boolean}
+     */
     req.emit = function (event, ...args) {
-      const res = event === 'response' ? args[0] : undefined;
+      const res = event === 'response' ? /** @type {http.IncomingMessage | undefined} */ (args[0]) : undefined;
       const kind = res?.headers?.['x-shadowlap-injected'];
-      if (!kind) return emit.call(this, event, ...args);
+      if (!res || !kind) return emit.call(this, event, ...args);
       res.resume();
       const message = decodeMessage(res.headers['x-shadowlap-injected-message']);
       if (kind === 'timeout') {
@@ -230,7 +274,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   // NO_PROXY) would send the proxy the call, its key and the session token. The request and its
   // answer are fetch's all the same: its default headers, its body types, redirects, an AbortSignal,
   // a decoded body, and its errors.
-  /** A fetch, captured or left to fetch itself; `redirects` is how many it followed to get here. */
+  /**
+   * A fetch, captured or left to fetch itself; `redirects` is how many it followed to get here.
+   * @param {string | URL | Request} input
+   * @param {RequestInit | undefined} init
+   * @param {number} redirects
+   * @returns {Promise<Response>}
+   */
   function routedFetch(input, init, redirects) {
     const url = parseUrl(typeof input === 'string' || input instanceof URL ? input : input?.url);
     if (!url) return originalFetch(input, init);
@@ -239,12 +289,22 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return fetchViaSidecar(input, init, url, provider, redirects).then((response) => (provider === 'http' ? failedFetch(response) : response));
   }
   if (typeof originalFetch === 'function') {
-    globalThis.fetch = function capturedFetch(input, init) {
-      return routedFetch(input, init, 0);
-    };
+    globalThis.fetch = /** @type {typeof fetch} */ (
+      /**
+       * @param {string | URL | Request} input
+       * @param {RequestInit} [init]
+       */
+      function capturedFetch(input, init) {
+        return routedFetch(input, init, 0);
+      }
+    );
   }
 
-  /** fetch's own default request headers, which it adds to a request that has none of them. */
+  /**
+   * fetch's own default request headers, which it adds to a request that has none of them.
+   * @param {Headers} headers
+   * @param {URL} url
+   */
   function fetchDefaults(headers, url) {
     if (!headers.has('accept')) headers.set('accept', '*/*');
     if (!headers.has('accept-language')) headers.set('accept-language', '*');
@@ -254,8 +314,17 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   }
 
   /** A body fetch can send again for a redirect, which it holds whole: anything but a stream. */
-  const replayable = (body) => body === undefined || body === null || typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof URLSearchParams || body instanceof Blob || body instanceof FormData;
+  const replayable = (/** @type {unknown} */ body) => body === undefined || body === null || typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || body instanceof URLSearchParams || body instanceof Blob || body instanceof FormData;
 
+  /**
+   * A fetch sent to the sidecar with http.request, and its answer as fetch gives one.
+   * @param {string | URL | Request} input
+   * @param {RequestInit | undefined} init
+   * @param {URL} url
+   * @param {string | null} provider
+   * @param {number} redirects
+   * @returns {Promise<Response>}
+   */
   async function fetchViaSidecar(input, init, url, provider, redirects) {
     // Built as fetch builds it: the arguments merged, a body of any kind read, content-type set.
     const request = new Request(input, init);
@@ -276,6 +345,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     const source = init !== undefined && init !== null && 'body' in init ? init.body : input instanceof Request ? input.body : undefined;
     const whole = request.body !== null && replayable(source) ? Buffer.from(await request.arrayBuffer()) : null;
     const path = provider ? sidecarPath(provider, url) : `${url.pathname}${url.search}`;
+    /** @type {http.IncomingMessage} */
     const res = await new Promise((resolve, reject) => {
       const req = httpRequest({ protocol: 'http:', hostname: sidecar.hostname, port: sidecar.port, path, method: request.method, headers: Object.fromEntries(headers), agent: sidecarAgent }, resolve);
       const abort = () => req.destroy(signal.reason);
@@ -286,7 +356,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
         reject(signal.aborted ? signal.reason : new TypeError('fetch failed', { cause: err }));
       });
       if (whole) req.end(whole);
-      else if (request.body) Readable.fromWeb(request.body).on('error', (err) => req.destroy(err)).pipe(req);
+      else if (request.body) Readable.fromWeb(/** @type {import('node:stream/web').ReadableStream} */ (request.body)).on('error', (err) => req.destroy(err)).pipe(req);
       else req.end();
     });
     const status = res.statusCode ?? 502;
@@ -304,27 +374,37 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       // drop them: an answer that moves the request elsewhere never takes its key or session along.
       if (next.origin !== url.origin) for (const name of ['authorization', 'proxy-authorization', 'cookie']) headers.delete(name);
       // Counted across every hop, as fetch counts them: a loop of redirects ends at the twentieth.
-      const followed = await routedFetch(next, { method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal }, redirects + 1);
+      const followed = await routedFetch(next, /** @type {RequestInit} */ ({ method: asGet ? 'GET' : request.method, headers, body: asGet ? undefined : whole ?? undefined, redirect: request.redirect, signal }), redirects + 1);
       Object.defineProperty(followed, 'redirected', { value: true });
       return followed;
     }
     return toResponse(res, request, url, signal);
   }
 
-  /** What fetch makes of an answer: its headers as sent, its body decoded, and an error in it "terminated". */
+  /**
+   * What fetch makes of an answer: its headers as sent, its body decoded, and an error in it "terminated".
+   * @param {http.IncomingMessage} res
+   * @param {Request} request
+   * @param {URL} url
+   * @param {AbortSignal} signal
+   * @returns {Response}
+   */
   function toResponse(res, request, url, signal) {
     const headers = new Headers();
-    for (let i = 0; i < res.rawHeaders.length; i += 2) headers.append(res.rawHeaders[i], res.rawHeaders[i + 1]);
+    for (let i = 0; i < res.rawHeaders.length; i += 2) headers.append(/** @type {string} */ (res.rawHeaders[i]), /** @type {string} */ (res.rawHeaders[i + 1]));
     const status = res.statusCode ?? 502;
+    /** @type {ReadableStream | null} */
     let body = null;
     if (request.method === 'HEAD' || status === 204 || status === 205 || status === 304) res.resume();
     else {
       const out = new PassThrough();
+      /** @type {NodeJS.ReadableStream[]} */
       const chain = [res, ...decoders(headers.get('content-encoding'))];
-      const terminated = (cause) => out.destroy(new TypeError('terminated', { cause }));
+      const terminated = (/** @type {unknown} */ cause) => out.destroy(new TypeError('terminated', { cause }));
       for (let i = 0; i < chain.length; i++) {
-        chain[i].on('error', terminated);
-        chain[i].pipe(i + 1 < chain.length ? chain[i + 1] : out);
+        const from = /** @type {NodeJS.ReadableStream} */ (chain[i]);
+        from.on('error', terminated);
+        from.pipe(/** @type {NodeJS.WritableStream} */ (i + 1 < chain.length ? chain[i + 1] : out));
       }
       res.on('close', () => {
         if (!res.complete) terminated(Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' }));
@@ -339,7 +419,7 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
         // A body read no further leaves the connection with nothing to wait for.
         if (!res.complete) res.destroy();
       });
-      body = Readable.toWeb(out);
+      body = /** @type {ReadableStream} */ (Readable.toWeb(out));
     }
     const response = new Response(body, { status, statusText: res.statusMessage ?? '', headers });
     // The URL the agent asked for, as fetch gives it, never the sidecar's with its token.
@@ -347,9 +427,14 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return response;
   }
 
-  /** The decoders fetch puts a body through for its content-encoding; none for one it doesn't decode. */
+  /**
+   * The decoders fetch puts a body through for its content-encoding; none for one it doesn't decode.
+   * @param {string | null} encoding
+   * @returns {import('node:stream').Transform[]}
+   */
   function decoders(encoding) {
     const codings = (encoding ?? '').toLowerCase().split(',').map((c) => c.trim()).filter(Boolean).reverse();
+    /** @type {import('node:stream').Transform[]} */
     const out = [];
     for (const coding of codings) {
       if (coding === 'gzip' || coding === 'x-gzip') out.push(zlib.createGunzip({ flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH }));
@@ -361,16 +446,24 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   }
 
   // ---- http(s).request: the AWS SDK's Node handler, the ws package, and older clients ----
+  /**
+   * http(s).request's arguments as one URL, its options and its callback.
+   * @param {unknown[]} args
+   * @returns {{ url: URL; options: RequestOptions; callback: ((res: http.IncomingMessage) => void) | undefined }}
+   */
   function normalize(args) {
+    /** @type {URL | null} */
     let url = null;
+    /** @type {RequestOptions} */
     let options = {};
+    /** @type {((res: http.IncomingMessage) => void) | undefined} */
     let callback;
     let i = 0;
-    if (typeof args[i] === 'string' || args[i] instanceof URL) url = new URL(args[i++]);
-    if (args[i] && typeof args[i] === 'object') options = args[i++];
-    if (typeof args[i] === 'function') callback = args[i];
+    if (typeof args[i] === 'string' || args[i] instanceof URL) url = new URL(/** @type {string | URL} */ (args[i++]));
+    if (args[i] && typeof args[i] === 'object') options = /** @type {RequestOptions} */ (args[i++]);
+    if (typeof args[i] === 'function') callback = /** @type {(res: http.IncomingMessage) => void} */ (args[i]);
     if (!url) {
-      const protocol = options.protocol ?? (options.agent?.protocol) ?? null;
+      const protocol = options.protocol ?? (typeof options.agent === 'object' ? options.agent.protocol : undefined) ?? null;
       const host = options.hostname ?? options.host ?? 'localhost';
       const port = options.port ? `:${options.port}` : '';
       url = new URL(`${protocol ?? 'http:'}//${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}${port}${options.path ?? '/'}`);
@@ -380,13 +473,18 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
     return { url, options, callback };
   }
 
-  /** A request's headers as an object, from an object or a flat list of names and values. */
+  /**
+   * A request's headers as an object, from an object or a flat list of names and values.
+   * @param {unknown} given
+   * @returns {Record<string, unknown>}
+   */
   function headerObject(given) {
-    if (!Array.isArray(given)) return { ...(given ?? {}) };
+    if (!Array.isArray(given)) return { .../** @type {Record<string, unknown>} */ (given ?? {}) };
+    /** @type {Record<string, unknown>} */
     const out = {};
     for (let i = 0; i + 1 < given.length; i += 2) {
       const name = String(given[i]);
-      out[name] = name in out ? [].concat(out[name], given[i + 1]) : given[i + 1];
+      out[name] = name in out ? /** @type {unknown[]} */ ([]).concat(out[name], given[i + 1]) : given[i + 1];
     }
     return out;
   }
@@ -396,24 +494,36 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
    * anything TLS (the ws package's own TLS connect among them), which were for the host it named.
    */
   const FOR_THE_HOST = new Set(['agent', 'protocol', 'host', 'hostname', 'port', 'path', 'headers', 'createConnection', 'defaultPort', '_defaultAgent', 'servername', 'ca', 'cert', 'key', 'pfx', 'passphrase', 'rejectUnauthorized', 'checkServerIdentity', 'ALPNProtocols', 'secureContext', 'secureOptions', 'secureProtocol', 'ciphers', 'ecdhCurve', 'minVersion', 'maxVersion', 'session', 'socketPath', 'lookup', 'family', 'hints', 'localAddress', 'localPort']);
-  const keptOptions = (options) => Object.fromEntries(Object.entries(options).filter(([k]) => !FOR_THE_HOST.has(k)));
+  const keptOptions = (/** @type {object} */ options) => Object.fromEntries(Object.entries(options).filter(([k]) => !FOR_THE_HOST.has(k)));
 
+  /**
+   * http(s).request, captured: a request for a provider's host, or the sidecar's, goes to the sidecar; any other as it was going.
+   * @param {typeof http.request} original
+   * @param {string} defaultProtocol
+   * @returns {typeof http.request}
+   */
   function wrap(original, defaultProtocol) {
-    return function capturedRequest(...args) {
+    return /** @type {typeof http.request} */ (
+      /**
+       * @this {unknown}
+       * @param {unknown[]} args
+       * @returns {http.ClientRequest}
+       */
+      function capturedRequest(...args) {
       let parsed;
       try {
         parsed = normalize(args);
         if (!args.some((a) => typeof a === 'string' || a instanceof URL) && !parsed.options.protocol) parsed.url.protocol = defaultProtocol;
       } catch {
-        return original.apply(this, args);
+        return Reflect.apply(original, this, args);
       }
       const provider = providerFor(parsed.url);
-      if (!provider && !toSidecar(parsed.url)) return original.apply(this, args);
+      if (!provider && !toSidecar(parsed.url)) return Reflect.apply(original, this, args);
       const { url, options, callback } = parsed;
       const headers = headerObject(options.headers);
       // The sidecar tunnels a model provider's WebSocket and no other: a declared HTTP service's
       // handshake (the ws package's) goes where it was going, as the guard then says.
-      if (provider === 'http' && Object.keys(headers).some((k) => k.toLowerCase() === 'upgrade')) return original.apply(this, args);
+      if (provider === 'http' && Object.keys(headers).some((k) => k.toLowerCase() === 'upgrade')) return Reflect.apply(original, this, args);
       const scoped = currentScope();
       if (scoped) headers['x-shadowlap-scope'] = scoped;
       if (provider) {
@@ -423,23 +533,30 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
       // A client already pointed at the sidecar by its base URL (node-fetch, axios, the ws package)
       // goes there all the same, on the sidecar's agent and as plain HTTP.
       const path = provider ? sidecarPath(provider, url) : `${url.pathname}${url.search}`;
-      const req = httpRequest({ ...keptOptions(options), protocol: 'http:', hostname: sidecar.hostname, port: sidecar.port, path, headers, agent: sidecarAgent }, callback);
+      const req = httpRequest({ ...keptOptions(options), protocol: 'http:', hostname: sidecar.hostname, port: sidecar.port, path, headers: /** @type {http.OutgoingHttpHeaders} */ (headers), agent: sidecarAgent }, callback);
       return provider === 'http' ? failOnInjected(req) : req;
-    };
+      }
+    );
   }
 
   http.request = wrap(httpRequest, 'http:');
   https.request = wrap(httpsRequest, 'https:');
-  http.get = function capturedGet(...args) {
-    const req = http.request(...args);
-    req.end();
-    return req;
-  };
-  https.get = function capturedGet(...args) {
-    const req = https.request(...args);
-    req.end();
-    return req;
-  };
+  http.get = /** @type {typeof http.get} */ (
+    /** @param {unknown[]} args */
+    function capturedGet(...args) {
+      const req = /** @type {http.ClientRequest} */ (Reflect.apply(http.request, http, args));
+      req.end();
+      return req;
+    }
+  );
+  https.get = /** @type {typeof https.get} */ (
+    /** @param {unknown[]} args */
+    function capturedGet(...args) {
+      const req = /** @type {http.ClientRequest} */ (Reflect.apply(https.request, https, args));
+      req.end();
+      return req;
+    }
+  );
 
   // ---- WebSocket: Node's own, as the OpenAI SDK's Realtime client opens it ----
   // A client whose base URL is the sidecar makes a `wss://` URL of it, for a sidecar that speaks no
@@ -449,6 +566,10 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   const NativeWebSocket = globalThis.WebSocket;
   if (typeof NativeWebSocket === 'function') {
     globalThis.WebSocket = class WebSocket extends NativeWebSocket {
+      /**
+       * @param {string | URL} address
+       * @param {ConstructorParameters<typeof NativeWebSocket>[1]} [protocols]
+       */
       constructor(address, protocols) {
         const url = parseUrl(address instanceof URL ? address.href : String(address));
         const asHttp = url && (url.protocol === 'wss:' || url.protocol === 'ws:') ? new URL(`${url.protocol === 'wss:' ? 'https:' : 'http:'}${url.href.slice(url.protocol.length)}`) : null;
@@ -457,10 +578,13 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
         if (url && toSidecar(url) && url.protocol === 'wss:') {
           url.protocol = 'ws:';
           super(url.href, protocols);
-        } else if (provider) {
+        } else if (provider && asHttp) {
           const headers = { 'x-shadowlap-upstream': asHttp.origin, ...(currentScope() ? { 'x-shadowlap-scope': currentScope() } : {}) };
-          const init = protocols !== null && typeof protocols === 'object' && !Array.isArray(protocols) ? { ...protocols, headers: { ...(protocols.headers ?? {}), ...headers } } : { protocols: protocols ?? [], headers };
-          super(`ws://${sidecar.host}${sidecarPath(provider, asHttp)}`, init);
+          const options = protocols !== null && typeof protocols === 'object' && !Array.isArray(protocols) ? protocols : null;
+          // A client's own headers, as an object: Node's WebSocket takes them so beside the protocols.
+          const own = /** @type {Record<string, string>} */ (options?.headers ?? {});
+          const init = options ? { ...options, headers: { ...own, ...headers } } : { protocols: protocols ?? [], headers };
+          super(`ws://${sidecar.host}${sidecarPath(provider, asHttp)}`, /** @type {ConstructorParameters<typeof NativeWebSocket>[1]} */ (init));
         } else super(address, protocols);
       }
     };
@@ -472,43 +596,60 @@ if (sidecarUrl && config && config !== 'off' && !globalThis.__shadowlapCapture) 
   // Raw headers, as http2 also takes a request's: [name, value, name, value, ...].
   /** @type {(headers: unknown) => headers is readonly string[]} */
   const isRawHeaders = (headers) => Array.isArray(headers);
-  const rawHeader = (raw, name) => {
+  const rawHeader = (/** @type {readonly string[]} */ raw, /** @type {string} */ name) => {
     for (let i = 0; i + 1 < raw.length; i += 2) if (String(raw[i]).toLowerCase() === name) return raw[i + 1];
     return undefined;
   };
-  const rawHeadersWithout = (raw, names) => {
+  const rawHeadersWithout = (/** @type {readonly string[]} */ raw, /** @type {string[]} */ names) => {
+    /** @type {string[]} */
     const kept = [];
-    for (let i = 0; i + 1 < raw.length; i += 2) if (!names.includes(String(raw[i]).toLowerCase())) kept.push(raw[i], raw[i + 1]);
+    for (let i = 0; i + 1 < raw.length; i += 2) if (!names.includes(String(raw[i]).toLowerCase())) kept.push(String(raw[i]), String(raw[i + 1]));
     return kept;
   };
-  http2.connect = function capturedConnect(authority, options, listener) {
+  http2.connect = /** @type {typeof http2.connect} */ (
+    /**
+     * @this {unknown}
+     * @param {string | URL | { protocol?: string; hostname?: string; host?: string; port?: number | string }} authority
+     * @param {(http2.SecureClientSessionOptions & Record<string, unknown>) | ((session: http2.ClientHttp2Session) => void)} [options]
+     * @param {(session: http2.ClientHttp2Session) => void} [listener]
+     * @returns {http2.ClientHttp2Session}
+     */
+    function capturedConnect(authority, options, listener) {
     let url;
     try {
-      url = new URL(typeof authority === 'string' || authority instanceof URL ? authority : `${authority.protocol ?? 'https:'}//${authority.hostname ?? authority.host}${authority.port ? `:${authority.port}` : ''}`);
+      url = new URL(typeof authority === 'string' || authority instanceof URL ? authority : `${authority.protocol ?? 'https:'}//${String(authority.hostname ?? authority.host)}${authority.port ? `:${authority.port}` : ''}`);
     } catch {
-      return originalConnect.apply(this, arguments);
+      return /** @type {http2.ClientHttp2Session} */ (Reflect.apply(originalConnect, this, arguments));
     }
     const provider = http2Url ? providerFor(url) : null;
-    if (!provider) return originalConnect.apply(this, arguments);
+    if (!http2Url || !provider) return /** @type {http2.ClientHttp2Session} */ (Reflect.apply(originalConnect, this, arguments));
     if (typeof options === 'function') {
       listener = options;
       options = undefined;
     }
     // TLS settings for the real host mean nothing to the sidecar's cleartext listener.
     const { ALPNProtocols: _alpn, servername: _servername, createConnection: _createConnection, ca: _ca, rejectUnauthorized: _reject, ...rest } = options ?? {};
-    const session = originalConnect.call(this, http2Url.origin, rest, listener);
+    const session = /** @type {http2.ClientHttp2Session} */ (Reflect.apply(originalConnect, this, [http2Url.origin, rest, listener]));
     const request = session.request;
-    session.request = function capturedStream(headers = {}, streamOptions) {
+    session.request = /** @type {typeof request} */ (
+      /**
+       * @this {http2.ClientHttp2Session}
+       * @param {http2.OutgoingHttpHeaders | readonly string[]} [headers]
+       * @param {http2.ClientSessionRequestOptions} [streamOptions]
+       */
+      function capturedStream(headers = {}, streamOptions) {
       // A raw list keeps its order and repeats, with the sidecar's headers in place of its own of the
       // same names; spread into an object, it would become numbered keys and lose its method and path.
       const raw = isRawHeaders(headers);
-      const target = new URL((raw ? rawHeader(headers, ':path') : headers[':path']) ?? '/', url);
+      const target = new URL(String((raw ? rawHeader(headers, ':path') : headers[':path']) ?? '/'), url);
       const sidecarHeaders = { ...(currentScope() ? { 'x-shadowlap-scope': currentScope() } : {}), ':scheme': 'http', ':path': `${http2Url.pathname.replace(/\/$/, '')}${runSegment}/${provider}${target.pathname}${target.search}`, 'x-shadowlap-upstream': url.origin };
       const redirected = raw ? [...rawHeadersWithout(headers, Object.keys(sidecarHeaders)), ...Object.entries(sidecarHeaders).flat()] : { ...headers, ...sidecarHeaders };
-      return request.call(this, redirected, streamOptions);
-    };
+      return Reflect.apply(request, this, [redirected, streamOptions]);
+      }
+    );
     return session;
-  };
+    }
+  );
 
   // ES modules that `import { request } from 'node:https'` (the AWS SDK's ESM build) see the patch only after this.
   syncBuiltinESMExports();

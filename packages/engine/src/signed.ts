@@ -11,6 +11,7 @@
  */
 
 import { cloneExact } from './json-exact.js';
+import { isObject } from './is-object.js';
 
 /** Blocks signed whole, by their `type`. */
 const SIGNED_TYPES = new Set(['thinking', 'redacted_thinking', 'thinking_delta', 'signature_delta', 'reasoning.text', 'reasoning.encrypted']);
@@ -20,8 +21,6 @@ const SIGNED_KEYS = new Set(['reasoningContent', 'redactedContent', 'thoughtSign
 
 /** What a document holding signed reasoning names, as its JSON text writes it: read for before the document is. */
 const MENTIONS = /"(?:thinking|redacted_thinking|thinking_delta|signature_delta|reasoning\.text|reasoning\.encrypted|reasoningContent|redactedContent|thoughtSignature|thought_signature|encrypted_content)"/;
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A place in a JSON value: the keys and positions down to it. */
 export type Place = ReadonlyArray<string | number>;

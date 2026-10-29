@@ -3,6 +3,7 @@ import { ApiError } from '../../api.js';
 import { Seg } from '../../components/bits.js';
 import { Dialog } from '../../components/Dialog.js';
 import { Icon } from '../../components/Icon.js';
+import { messageOf } from '../../../../engine/src/message-of.js';
 import type { RuleRow } from '../../settings-api.js';
 import { useApp } from '../../state.js';
 import { CONFIG_FILE, CommandLine, editErrorText } from './common.js';
@@ -152,7 +153,7 @@ export function RuleDialog({
       if (err instanceof ApiError && err.status === 409) {
         onStale();
         setError(`${editErrorText(err)} Add it again to add it to the file as it is now.`);
-      } else setError(err instanceof Error ? err.message : String(err));
+      } else setError(messageOf(err));
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, judgeTarget, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type Store, type StoredCheck } from '@shadowlap/engine';
+import { JUDGE_KEYS, JUDGE_SCOPE, aboutUsd, checkStatus, estimateCost, finalAnswer, formatUsd, isObject, judgeTarget, messageOf, parseGate, parseInjectionEntry, parsePath, parseTaskFields, testsEntryFor, type CallRecord, type CheckStatus, type Gate, type InjectionEntry, type JudgeOutcome, type JudgeProvider, type Price, type StoreOf, type StoredCheck } from '@shadowlap/engine';
 import { parseChaosFields } from './chaos-config.js';
 
 /**
@@ -226,10 +226,6 @@ export interface CheckResult {
 }
 
 const CONFIG = 'shadowlap.config.json';
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function onlyKeys(obj: Record<string, unknown>, allowed: string[], where: string): void {
   for (const key of Object.keys(obj)) {
@@ -535,7 +531,7 @@ function referenceIn(value: unknown, where: string): Reference | null {
   try {
     path = parsePath(`$${m[3]!}`);
   } catch (err) {
-    throw new Error(`${where}: the reference ${value} has a path that can't be read (${(err as Error).message.replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
+    throw new Error(`${where}: the reference ${value} has a path that can't be read (${messageOf(err).replace(/: \$.*$/s, '')}); write it as @${m[1]!}.${m[2]!}.total or @${m[1]!}.${m[2]!}.items[0].sku, or as text, @${value}`, { cause: err });
   }
   return { tool: m[1]!, part: m[2] as Reference['part'], path, text: value.slice(1), at: where };
 }
@@ -789,7 +785,7 @@ export function evaluateChecks(spec: ExpectSpec | TestSpec, input: CheckInput, o
     results.push(verdict(detail === null, `${t.name}${withArgs} called ${formatCount(t.count)}`, detail));
   }
   const counted = (range: CountRange | undefined, n: number, noun: string) => {
-    if (range) results.push(verdict(inRange(n, range), `${formatCount(range, noun)}`, inRange(n, range) ? null : `${formatCount({ min: n, max: n }, noun)}`));
+    if (range) results.push(verdict(inRange(n, range), formatCount(range, noun), inRange(n, range) ? null : formatCount({ min: n, max: n }, noun)));
   };
   counted(spec.modelCalls, calls.filter((c) => c.kind === 'api').length, 'model call');
   counted(spec.toolCalls, tools.length, 'tool call');
@@ -1179,7 +1175,7 @@ export function judgeSource(j: JudgeOutcome): string | null {
  * The input checks read from a run in the store: its calls in order, each tool call's arguments
  * and result (read once each), the last model response, and each model call's cost under `prices`.
  */
-export function storedCheckInput(store: Store, calls: CallRecord[], output: string, prices?: Record<string, Price>): CheckInput {
+export function storedCheckInput(store: StoreOf<'recording'>, calls: CallRecord[], output: string, prices?: Record<string, Price>): CheckInput {
   return {
     calls,
     output,
@@ -1190,9 +1186,10 @@ export function storedCheckInput(store: Store, calls: CallRecord[], output: stri
 }
 
 /** How to read a run's tool calls in the store: each call's recorded arguments and result, read once each. */
-export function storedCalls(store: Store): Pick<CheckInput, 'argsOf' | 'resultOf'> {
+export function storedCalls(store: StoreOf<'recording'>): Pick<CheckInput, 'argsOf' | 'resultOf'> {
   const args = new Map<string, unknown>();
   const results = new Map<string, unknown>();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the stored document is, as getJson's do
   const read = <T>(ref: string | null | undefined, pick: (doc: T) => unknown): unknown => {
     if (!ref) return undefined;
     try {
@@ -1230,7 +1227,7 @@ export function readsOutput(spec: ExpectSpec): boolean {
 /** The spec without its checks on the agent's output, wherever they are, for judging a recording. */
 export function withoutOutput<S extends ExpectSpec>(spec: S): S {
   const { output: _unrecorded, ...rest } = spec;
-  const out = { ...rest } as S;
+  const out = rest as S;
   if (spec.when) out.when = spec.when.map((w) => ({ ...w, then: withoutOutput(w.then) })).filter((w) => hasChecks(w.then));
   return out;
 }

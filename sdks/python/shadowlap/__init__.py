@@ -28,22 +28,22 @@ from collections.abc import AsyncGenerator, Awaitable, Generator, Iterator
 from typing import Any, Callable, Optional, TypeVar, cast
 
 __all__ = [
-    "tool",
-    "now",
-    "random",
-    "uuid",
-    "is_active",
-    "ShadowlapWriteBlocked",
     "ReplayedError",
     "ShadowlapInjectedFailure",
-    "ShadowlapInjectedTimeout",
     "ShadowlapInjectedHTTPError",
-    "serialize_error",
+    "ShadowlapInjectedTimeout",
+    "ShadowlapWriteBlocked",
     "context_params",
-    "scope",
     "current_scope",
+    "is_active",
+    "now",
+    "random",
+    "scope",
+    "serialize_error",
+    "tool",
     "user_input",
     "user_input_async",
+    "uuid",
 ]
 
 __version__ = "0.1.0"
@@ -157,7 +157,7 @@ def _response_status(response: Any) -> Optional[dict[str, Any]]:
     for key, kind in _RESPONSE_STATUS:
         try:
             value = response.get(key) if isinstance(response, dict) else getattr(response, key, None)
-        except Exception:  # a property that fails keeps nothing
+        except Exception:  # noqa: S112 -- a property that fails keeps nothing
             continue
         if isinstance(value, kind) and not isinstance(value, bool):
             kept[key] = value
@@ -454,7 +454,7 @@ def _post(cfg: Config, path: str, body: dict[str, Any]) -> dict[str, Any]:
     scope_now = current_scope()
     if scope_now:
         headers["x-shadowlap-scope"] = _scope_header(scope_now)
-    req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")
+    req = urllib.request.Request(url + path, data=data, headers=headers, method="POST")  # noqa: S310 -- the sidecar's URL, which shadowlap run gave the agent
     try:
         with _DIRECT.open(req, timeout=30) as res:
             return cast(dict[str, Any], json.loads(res.read().decode("utf-8")))
@@ -842,7 +842,7 @@ def context_params(fn: Callable[..., Any]) -> tuple[str, ...]:
         try:
             if any(_CONTEXT_TYPE.match(name) for name in _type_names(p.annotation)) or any(_framework_context(t) for t in _types_in(p.annotation)):
                 out.append(p.name)
-        except Exception:  # an annotation no typing helper understands is no framework's context
+        except Exception:  # noqa: S112 -- an annotation no typing helper understands is no framework's context
             continue
     return tuple(out)
 
@@ -891,7 +891,7 @@ def _jsonable(value: Any, path: set[int]) -> Any:
     import decimal
     import enum
 
-    if value is None or isinstance(value, str) and not isinstance(value, enum.Enum):
+    if value is None or (isinstance(value, str) and not isinstance(value, enum.Enum)):
         return value
     if isinstance(value, enum.Enum):
         return _jsonable(value.value, path)
@@ -1383,10 +1383,9 @@ class _LiveStream:
             return
         self.done = True
         body = self.tool.failed(err, self.started)
-        try:
+        # Values that can't be recorded: the error alone.
+        with contextlib.suppress(TypeError):
             body["error"]["streamed"] = _recordable(self.tool.name, self.items)
-        except TypeError:
-            pass  # values that can't be recorded: the error alone
         self.tool.complete(self.cfg, self.call_no, body)
 
     async def failed_async(self, err: BaseException) -> None:

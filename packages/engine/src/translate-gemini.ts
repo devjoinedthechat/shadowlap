@@ -1,4 +1,5 @@
 import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAIOptions } from './translate.js';
+import { isObject } from './is-object.js';
 
 /**
  * Gemini's generateContent at a takeover (E8), from the Gemini API or Vertex AI: a recorded call
@@ -15,7 +16,6 @@ import { openAITools, type ChatCompletion, type TranslatedRequest, type ToOpenAI
  */
 
 type Json = Record<string, unknown>;
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v));
 
 function toolId(raw: unknown, fallback: () => string): string {

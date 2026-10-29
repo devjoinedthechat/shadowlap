@@ -1,5 +1,6 @@
 import { canonicalize } from './canonical.js';
 import { stripKeysDeep } from './normalize.js';
+import { isObject } from './is-object.js';
 
 /**
  * `--prompt-from <call>`: test a changed system prompt or tool set from a later model call, not from
@@ -15,7 +16,6 @@ import { stripKeysDeep } from './normalize.js';
  * one in its place, so a recorded request is asked again with only the prompt the code sends now.
  */
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInstruction = (m: unknown) => isObject(m) && (m.role === 'system' || m.role === 'developer');
 
 /**

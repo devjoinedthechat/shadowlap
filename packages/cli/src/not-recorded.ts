@@ -1,4 +1,4 @@
-import { recordNotRecorded, unrecordedProjectTools, type Store } from '@shadowlap/engine';
+import { recordNotRecorded, unrecordedProjectTools, type StoreOf } from '@shadowlap/engine';
 import { inspectProject } from './init.js';
 
 /**
@@ -6,7 +6,7 @@ import { inspectProject } from './init.js';
  * that the run never recorded, are kept on the run. Their calls ran in the agent unseen and run
  * again on every replay, which the run's page says. It never fails the run.
  */
-export function noteUnrecordedTools(store: Store, runId: string, cwd: string): void {
+export function noteUnrecordedTools(store: StoreOf<'recording'>, runId: string, cwd: string): void {
   try {
     const calls = store.getCalls(runId);
     // A run that reached no model is no agent run to speak of.

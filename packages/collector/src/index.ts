@@ -1,6 +1,7 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 // A request's body, whole or not at all, as Shadowlap's other servers read one: the engine's alone.
+import { messageOf } from '@shadowlap/engine';
 import { BodyTooLarge, readBody } from '@shadowlap/engine/body';
 import { MAX_BODY_BYTES, ValidationError, validateBatch } from './schema.js';
 import { renderDashboard } from './dashboard.js';
@@ -112,7 +113,7 @@ export async function startCollector(opts: CollectorOptions): Promise<Collector>
       }
       return send(res, 404, '{"error":"not found"}');
     })().catch((err: unknown) => {
-      log(`error: ${err instanceof Error ? err.message : String(err)}`);
+      log(`error: ${messageOf(err)}`);
       if (!res.headersSent) send(res, 500, '{"error":"internal"}');
       else res.destroy();
     });

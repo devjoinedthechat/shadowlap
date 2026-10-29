@@ -3,7 +3,7 @@ import { existsSync, fstatSync, readFileSync, statSync, type BigIntStats } from 
 import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { links } from '@shadowlap/dashboard';
-import { Store, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
+import { Store, type StoreOf, divergenceLine, formatDivergence, formatDuration, formatSummary, isJudgeCall, kindLabel, parseJsonExact, parseToolFailure, quoteArgv, unmaskedHints, valueHints, type CallRecord, type ReplayOptions, type RunMeta, type RunRecord, type RunStatus, type TestFailure, type ToolFailure, type WritePolicy } from '@shadowlap/engine';
 import { activeProviders, httpRuleMatcher, providers, Sidecar, type HttpRule, type Interventions } from '@shadowlap/sidecar';
 import { clearActiveRun, markActiveRun } from './active-run.js';
 import { newRunMeta } from './activity.js';
@@ -11,7 +11,7 @@ import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPre
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
-import { codeVersion, guardAccept, loadConfig, upstreamOverrides } from './config.js';
+import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
@@ -131,7 +131,7 @@ export function agentEnv(sidecar: Sidecar, runId: string, guard: GuardMode, upst
  * it treats an input it doesn't hold as a change, where one of a run recorded before input was
  * recorded runs the agent's reads live (`RunMeta.inputs`).
  */
-export function recordsInput(store: Store, runId: string): void {
+export function recordsInput(store: StoreOf<'recording'>, runId: string): void {
   store.updateRunMeta(runId, { inputs: true });
 }
 
@@ -187,11 +187,13 @@ export async function testAttempt(
   const sidecar = await Sidecar.start({ store, normalizers: o.normalizers, upstreams: o.upstreams, ...(o.prices ? { prices: o.prices } : {}), ...(o.clock ? { clock: o.clock } : {}), ...(o.http ? { http: o.http } : {}) });
   let run: RunRecord;
   try {
+    // Read for each attempt, as the code may change between them, and without holding up a sidecar in this process.
+    const version = await readCodeVersion(o.cwd);
     run = sidecar.startRun({
       mode: 'replay',
       parentRunId: parent.runId,
       command: { argv, cwd: o.cwd },
-      codeVersion: codeVersion(o.cwd),
+      codeVersion: version,
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
     });

@@ -1,4 +1,4 @@
-import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, RECORD_WINDOWS, type Gate, type Price, type RunRecord, type Store, type SuiteGolden, type SuitePlan, type Tally } from '@shadowlap/engine';
+import { agentCallsOf, estimateCost, formatUsd, gateHistory, planSuite, recentAttempts, riskPercent, RECORD_WINDOWS, type Gate, type Price, type RunRecord, type Store, type StoreOf, type SuiteGolden, type SuitePlan, type Tally } from '@shadowlap/engine';
 import { oracleLabels } from './attempts.js';
 import { suiteRed } from './test-report.js';
 import { specFor, type TestEntry, type TestSpec } from './checks.js';
@@ -26,7 +26,7 @@ export interface SessionPlan {
 }
 
 /** The cost of an attempt of a recording that forks: at most what the whole recording's model calls cost. Null with a model that has no price. */
-function recordingCost(store: Store, run: RunRecord, prices: Record<string, Price> | undefined): number | null {
+function recordingCost(store: StoreOf<'recording'>, run: RunRecord, prices: Record<string, Price> | undefined): number | null {
   let total = 0;
   for (const c of agentCallsOf(store.getCalls(run.runId))) {
     if (c.kind !== 'api' || !c.end) continue;

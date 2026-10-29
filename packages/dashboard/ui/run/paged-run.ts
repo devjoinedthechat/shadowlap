@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, type CallRow, type Client, type RunDetail } from '../api.js';
 import { useLatest } from '../hooks.js';
+import { messageOf } from '../../../engine/src/message-of.js';
 import { parseOrigins, type Origin7 } from '../origins.js';
 import { isRead, nextRead, rangeOf, withPage, withRange, type Read } from './paging.js';
 
@@ -203,7 +204,7 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
           if (runNow.current !== runId) return;
           setPages((p) => (p.runId === runId ? { ...p, flight: landed(p.flight, range) } : p));
           const gone = err instanceof ApiError && err.status === 404;
-          const message = err instanceof Error ? err.message : String(err);
+          const message = messageOf(err);
           setFailed((f) => ({ runId, message, tries: (f?.runId === runId ? f.tries : 0) + 1, waiting: true, gone }));
         },
       );

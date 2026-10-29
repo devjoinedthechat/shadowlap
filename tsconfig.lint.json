@@ -1,9 +1,11 @@
 {
   // The repository's JavaScript as ESLint reads it (eslint.config.mjs): the scripts, the guard's
-  // preloads, the Action, test agents and harnesses. Nothing here is type-checked (checkJs is off):
-  // the program only gives ESLint's type-aware rules the types TypeScript infers for it. The
-  // .d.mts files beside some of these modules are left out, so the modules themselves are read;
-  // the tests' own pass (tsconfig.test.json) reads those declarations.
+  // preloads, the Action, test agents and harnesses. This program checks none of it (checkJs is
+  // off): it only gives ESLint's type-aware rules the types TypeScript reads in it, its JSDoc's
+  // among them. The Action and the preloads are type-checked by programs of their own
+  // (action/tsconfig.json, packages/cli/guard/tsconfig.json, `npm run typecheck:js`). The .d.mts
+  // files beside some of these modules are left out, so the modules themselves are read; the tests'
+  // own pass (tsconfig.test.json) reads those declarations.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,

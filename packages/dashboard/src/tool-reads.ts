@@ -1,4 +1,4 @@
-import type { Store } from '@shadowlap/engine';
+import type { Store, StoreOf } from '@shadowlap/engine';
 
 /** What Settings → Tools reads from the store: every tool across runs, and the MCP servers calls came through. */
 export interface ToolReads {
@@ -7,7 +7,7 @@ export interface ToolReads {
   mcp: ReturnType<Store['mcpServerUsage']>;
 }
 
-const toolReadCache = new WeakMap<Store, ToolReads>();
+const toolReadCache = new WeakMap<object, ToolReads>();
 
 /**
  * Settings → Tools' store reads, kept per store until its runs or calls change (`changeCounts`).
@@ -15,7 +15,7 @@ const toolReadCache = new WeakMap<Store, ToolReads>();
  * beside the server (read-jobs.ts `tool-reads`), and a tab read again with nothing new (the window
  * back in focus, a second tab) costs nothing.
  */
-export function toolReads(store: Store): ToolReads {
+export function toolReads(store: StoreOf<'readModels' | 'activity'>): ToolReads {
   const counts = store.changeCounts();
   const key = `${counts.runs ?? 0}:${counts.calls ?? 0}`;
   const kept = toolReadCache.get(store);

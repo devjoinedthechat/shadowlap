@@ -1,4 +1,4 @@
-import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store } from '@shadowlap/engine';
+import { checksOf, cleanLabel, isFailedOutcome, lostAt, messageOf, runOutcome, withLabels, type AttemptKind, type RunKind, type RunOutcome, type Store, type StoreOf } from '@shadowlap/engine';
 import type { RunListItem } from './api.js';
 import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
@@ -190,7 +190,7 @@ export function matchingRuns(store: Store, filter: RunFilter): IndexedRun[] {
  * gc marks it interrupted; meanwhile it can be deleted, packed and pushed like a run that ended.
  * Asked on every read: a recorder can stop without anything in the store changing.
  */
-export function withLiveness(store: Store, index: RunIndex): IndexedRun[] {
+export function withLiveness(store: StoreOf<'recording'>, index: RunIndex): IndexedRun[] {
   if (!index.runs.some((r) => r.status === 'running')) return index.runs;
   const left = leftRunning(store);
   if (!left.size) return index.runs;
@@ -201,7 +201,7 @@ export function withLiveness(store: Store, index: RunIndex): IndexedRun[] {
 }
 
 /** The runs the store marks running that nothing records any more, with each one's last call (or its start). */
-function leftRunning(store: Store): Map<string, number> {
+function leftRunning(store: StoreOf<'recording'>): Map<string, number> {
   return new Map(store.recordingRuns().abandoned.map((x) => [x.run.runId, x.lastAt]));
 }
 
@@ -234,7 +234,7 @@ export interface RunState {
 }
 
 /** One run's state, from the same index and liveness check the run list reads. */
-export function runState(store: Store, runId: string): RunState | null {
+export function runState(store: StoreOf<'recording' | 'readModels'>, runId: string): RunState | null {
   return runStates(store)(runId);
 }
 
@@ -242,7 +242,7 @@ export function runState(store: Store, runId: string): RunState | null {
  * Each run's state as `runState` gives it, from one index and at most one liveness check: for a read
  * model that tells several runs (a run's family, each run in it as the lists show it).
  */
-export function runStates(store: Store): (runId: string) => RunState | null {
+export function runStates(store: StoreOf<'recording' | 'readModels'>): (runId: string) => RunState | null {
   const index = loadRunIndex(store);
   let left: Map<string, number> | null = null;
   return (runId) => {
@@ -551,7 +551,7 @@ export function runsByDay(store: Store, options: RunsByDayOptions = {}): RunsByD
 // ---- counts and bulk actions ----
 
 /** Runs and attempts in the store, as the status bar counts them ("N runs · M attempts"). */
-export function countRuns(store: Store): { runs: number; attempts: number } {
+export function countRuns(store: StoreOf<'readModels'>): { runs: number; attempts: number } {
   return loadRunIndex(store).counts;
 }
 
@@ -571,7 +571,7 @@ function idList(ids: unknown): string[] | { error: string } {
 }
 
 /** Which of these runs are still in the store: the Runs page lets go of a run picked once it is deleted elsewhere. */
-export function knownRuns(store: Store, ids: unknown): { known: string[] } | { error: string } {
+export function knownRuns(store: StoreOf<'readModels'>, ids: unknown): { known: string[] } | { error: string } {
   const list = idList(ids);
   if ('error' in list) return list;
   const index = loadRunIndex(store);
@@ -579,7 +579,7 @@ export function knownRuns(store: Store, ids: unknown): { known: string[] } | { e
 }
 
 /** Adds and removes labels on several runs at once. A bad label refuses the whole request. */
-export function labelRuns(store: Store, ids: unknown, add: unknown, remove: unknown): { done: Array<{ runId: string; labels: string[] }>; skipped: BulkSkip[] } | { error: string } {
+export function labelRuns(store: StoreOf<'recording'>, ids: unknown, add: unknown, remove: unknown): { done: Array<{ runId: string; labels: string[] }>; skipped: BulkSkip[] } | { error: string } {
   const list = idList(ids);
   if ('error' in list) return list;
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
@@ -605,7 +605,7 @@ export function labelRuns(store: Store, ids: unknown, add: unknown, remove: unkn
         store.updateRunMeta(run.runId, { labels });
         done.push({ runId: run.runId, labels });
       } catch (err) {
-        skipped.push({ runId: run.runId, reason: err instanceof Error ? err.message : String(err) });
+        skipped.push({ runId: run.runId, reason: messageOf(err) });
       }
     }
   });
@@ -648,7 +648,7 @@ export function bundleOf(index: RunIndex, runId: string): IndexedRun[] {
  * data and lose the link to it. In progress means a process is still recording it (the store's
  * recordingRuns): a run a killed process left marked running can be deleted, as gc would.
  */
-export function deleteRuns(store: Store, ids: unknown): DeleteResult | { error: string } {
+export function deleteRuns(store: StoreOf<'recording' | 'cleanup' | 'readModels'>, ids: unknown): DeleteResult | { error: string } {
   const list = idList(ids);
   if ('error' in list) return list;
   const index = loadRunIndex(store);

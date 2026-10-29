@@ -581,7 +581,7 @@ describe('reading a trace store', () => {
 
   it('says why Langfuse refused, without the keys', async () => {
     const host = await listen(() => ({ status: 401, body: { message: 'Invalid credentials' } }));
-    const err = await fetchLangfuseTrace('abc', { host, publicKey: 'pk-lf-1', secretKey: 'sk-lf-secret' }).catch((e: Error) => e);
+    const err = await fetchLangfuseTrace('abc', { host, publicKey: 'pk-lf-1', secretKey: 'sk-lf-secret' }).catch((e: unknown) => e);
     expect((err as Error).message).toMatch(/refused the keys \(401\).*LANGFUSE_PUBLIC_KEY/);
     expect((err as Error).message).not.toContain('sk-lf-secret');
     const missing = await listen(() => ({ status: 404, body: {} }));

@@ -1,6 +1,6 @@
 import { cpSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { agentCallsOf, describeChanges, formatUsd, judgeLine, maskedChange, messageOf, normalizeAddCommand, packRun, ruleInForce, runChanges, volatileValues, writePackAttributes, type CallRecord, type DivergenceReport, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type RunSummary, type Store, type StoreOf } from '@shadowlap/engine';
 import { type CheckResult, type TestSpec } from './checks.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { scratchDir } from './goldens.js';
@@ -103,7 +103,7 @@ const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : 
  * agent makes anew on every run doesn't show as a change there; nor does what the normalizers in
  * force mask. `system prompt changed`, `call 3 (api POST /v1/messages): ~ $.system`.
  */
-export function requestChanges(store: Store, before: RunRecord, after: RunRecord, divergence: DivergenceReport | null, normalizers: readonly Normalizer[] = []): string[] {
+export function requestChanges(store: StoreOf<'recording'>, before: RunRecord, after: RunRecord, divergence: DivergenceReport | null, normalizers: readonly Normalizer[] = []): string[] {
   const out: string[] = [];
   try {
     // An update is always made at newer code; what the agent sends is the news, and a judge's model and prompt are none of it.
@@ -278,7 +278,7 @@ export function repackGolden(store: Store, runId: string, dir: string, projectDi
     } catch {
       // nothing more to tidy
     }
-    return `${(err as Error).message}${kept}`;
+    return `${messageOf(err)}${kept}`;
   }
   rmSync(stage, { recursive: true, force: true });
   // A golden packed before packs carried their .gitattributes gets one, so a checkout that converts

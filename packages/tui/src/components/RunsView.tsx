@@ -1,7 +1,6 @@
 import { Box, Text, useInput } from 'ink';
-import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
+import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, markKey, messageOf, safeLine, type RunMark } from '@shadowlap/engine';
 import { allPassed, attemptsText } from '../attempts.js';
-import { markKey, type RunMark } from '../marks.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
@@ -33,7 +32,7 @@ interface Props {
   /** Runs `shadowlap search` for `s`; without it, `s` says to run it from the shell. */
   spawnCli?: SpawnCli;
   /** Deletes a run, with the attempts bundled under it; what it says back (why it didn't) is shown. */
-  onDelete: (runId: string) => string | null | void;
+  onDelete: (runId: string) => string | null | undefined;
   /** How many attempts are bundled under a run, which a delete takes with it: the confirm names them. */
   attemptsOf?: (runId: string) => number;
   onQuit: () => void;
@@ -174,7 +173,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         if (opened) return setToast({ text: `opened ${runId.slice(0, 10)} in the dashboard`, ms: 2500, tone: 'ok' });
         void copyToClipboard(url).then((copied) => setToast({ text: `dashboard${copied ? ' (link copied)' : ''}: ${url}`, ms: 30_000, tone: 'info' }));
       },
-      (err: unknown) => setToast({ text: `could not start the dashboard: ${err instanceof Error ? err.message : String(err)}`, ms: 8000, tone: 'err' }),
+      (err: unknown) => setToast({ text: `could not start the dashboard: ${messageOf(err)}`, ms: 8000, tone: 'err' }),
     );
   };
 

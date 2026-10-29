@@ -9,42 +9,54 @@ import { forkPullRequest } from './fix.mjs';
 import { pullRequestOf, upsertComment } from './github.mjs';
 import { markdownCode, markdownText } from './markdown.mjs';
 
+/** @import { BaseSession, Fetch, FixOutcome, GitHubAuth, Posted, ReportResult, StoredResult, StoredSession } from './types.mjs' */
+
 /** How a result came out, whatever CI made of it; one from before results had a verdict reads as `ok` says. */
-const verdictOf = (r) => r?.verdict ?? (r?.ok ? 'passed' : 'failed');
+const verdictOf = (/** @type {ReportResult | null | undefined} */ r) => r?.verdict ?? (r?.ok ? 'passed' : 'failed');
+/** @type {Record<string, string>} */
 const MARK = { passed: '✅', failed: '❌', inconclusive: '🟡' };
 
 /**
  * Text safe in a Markdown table cell, and anywhere else in the comment: one line, and nothing GitHub
  * renders, links or mentions in it (markdown.mjs). A verdict line carries what a check found in the
  * run, and the fix's title the repairer's words, either of which can be anyone's.
+ * @param {unknown} s
  */
 const cell = (s) => markdownText(String(s ?? '')).trim();
 /** A golden's name, a branch or a revision as code: backticks in it can't end the span, nor, in a table's `cell`, a pipe the cell. */
-const code = (s, cell = false) => markdownCode(String(s ?? ''), { cell });
+const code = (/** @type {unknown} */ s, cell = false) => markdownCode(String(s ?? ''), { cell });
 
 /**
  * The hidden line the action's comment is found by: one per workflow, job, working directory and set
  * of recordings, so two steps that test different goldens keep a comment each, and a step run again
  * edits its own.
+ * @param {{ workflow?: string; job?: string; workdir?: string; recordings?: string }} [o]
+ * @returns {string}
  */
 export function commentMarker({ workflow = '', job = '', workdir = '', recordings = '' } = {}) {
   const key = createHash('sha256').update(JSON.stringify([workflow, job, workdir, recordings])).digest('hex').slice(0, 12);
   return `<!-- shadowlap-test-comment ${key} -->`;
 }
 
-/** A result's checks by how they came out, as the job summary counts them: `3 checks passed`, `1 of 3 checks failed`. */
+/**
+ * A result's checks by how they came out, as the job summary counts them: `3 checks passed`, `1 of 3 checks failed`.
+ * @param {ReportResult['checks']} checks
+ * @returns {string | null}
+ */
 function checksTally(checks) {
   if (!Array.isArray(checks) || !checks.length) return null;
+  /** @type {Record<string, number>} */
   const n = { passed: 0, failed: 0, inconclusive: 0, 'not-applicable': 0 };
   for (const c of checks) {
     const s = c?.status ?? (c?.ok ? 'passed' : 'failed');
     n[s] = (n[s] ?? 0) + 1;
   }
-  const noun = (k) => `check${k === 1 ? '' : 's'}`;
+  const noun = (/** @type {number} */ k) => `check${k === 1 ? '' : 's'}`;
+  /** @type {string[]} */
   const parts = [];
   if (n.failed) parts.push(`${n.failed} of ${checks.length} ${noun(checks.length)} failed`);
   else if (n.passed) parts.push(`${n.passed} ${noun(n.passed)} passed`);
-  const add = (k, word) => k && parts.push(parts.length ? `${k} ${word}` : `${k} ${noun(k)} ${word}`);
+  const add = (/** @type {number | undefined} */ k, /** @type {string} */ word) => k && parts.push(parts.length ? `${k} ${word}` : `${k} ${noun(k)} ${word}`);
   add(n.inconclusive, 'inconclusive');
   add(n['not-applicable'], 'not applicable');
   return parts.join(', ');
@@ -54,6 +66,8 @@ function checksTally(checks) {
  * A golden's verdict in one line, as docs/gating.md has every report say one: the verdict word first;
  * for a golden with a gate, its tally, Wilson bound and rule (the gate's own sentence); for one
  * without, how its replay went or why it failed. Never a claimed rate.
+ * @param {ReportResult} r
+ * @returns {string}
  */
 export function verdictLine(r) {
   const v = verdictOf(r);
@@ -68,17 +82,20 @@ export function verdictLine(r) {
 }
 
 /** A stored result's verdict, as the test history keeps it (its data's verdict, else ok). */
-const storedVerdict = (r) => r?.data?.verdict ?? (r?.ok ? 'passed' : 'failed');
+const storedVerdict = (/** @type {StoredResult | undefined} */ r) => /** @type {string} */ (r?.data?.verdict ?? (r?.ok ? 'passed' : 'failed'));
 
 /**
  * The base branch's last session in the test history, or null when the history has none: the newest
  * finished session, other than `current`, whose results name the base branch (`data.branch`), else
  * whose revision is the base branch's commit the pull request names. A session of a dirty tree is no
  * commit's.
+ * @param {StoredSession[] | null} history
+ * @param {{ baseRef: string | null; baseSha: string | null; current: string | null }} o
+ * @returns {BaseSession | null}
  */
 export function baseSession(history, { baseRef, baseSha, current }) {
   const sessions = (Array.isArray(history) ? history : []).filter((s) => s && s.sessionId !== current && s.endedAt !== null && Array.isArray(s.results) && s.results.length);
-  const pick = (s) => (s ? { sessionId: s.sessionId, revision: s.revision ?? null, startedAt: s.startedAt, results: new Map(s.results.map((r) => [r.golden, r])) } : null);
+  const pick = (/** @type {StoredSession | null | undefined} */ s) => (s ? { sessionId: s.sessionId, revision: s.revision ?? null, startedAt: s.startedAt, results: new Map(s.results.map((r) => [r.golden, r])) } : null);
   const byBranch = baseRef ? sessions.find((s) => s.results.some((r) => r?.data?.branch === baseRef)) : null;
   if (byBranch) return pick(byBranch);
   const byCommit = baseSha ? sessions.find((s) => typeof s.revision === 'string' && !s.revision.includes('+') && s.revision.length >= 7 && baseSha.startsWith(s.revision)) : null;
@@ -88,19 +105,22 @@ export function baseSession(history, { baseRef, baseSha, current }) {
 /**
  * The store's test history, newest session first, each with its goldens' results, read as SQL from
  * the store's own tables and changing nothing; null when there is no store or it can't be read.
+ * @param {string | null} path
+ * @param {number} [limit]
+ * @returns {StoredSession[] | null}
  */
 export function readHistory(path, limit = 100) {
   if (!path || path === ':memory:' || !existsSync(path)) return null;
   // node:sqlite says it is experimental when it loads; that one warning is left out, as the CLI does.
   const emit = process.emitWarning;
-  process.emitWarning = (warning, ...rest) => {
+  process.emitWarning = (/** @type {string | Error} */ warning, /** @type {unknown[]} */ ...rest) => {
     const message = typeof warning === 'string' ? warning : warning?.message;
     if (typeof message === 'string' && message.includes('SQLite is an experimental feature')) return;
-    return emit.call(process, warning, ...rest);
+    Reflect.apply(emit, process, [warning, ...rest]);
   };
   let db = null;
   try {
-    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const { DatabaseSync } = /** @type {typeof import('node:sqlite')} */ (createRequire(import.meta.url)('node:sqlite'));
     db = new DatabaseSync(path);
     const results = db.prepare('SELECT golden, ok, failure, reason, data FROM test_results WHERE session_id = ?');
     return db
@@ -111,14 +131,15 @@ export function readHistory(path, limit = 100) {
         startedAt: Number(s.started_at),
         endedAt: s.ended_at === null ? null : Number(s.ended_at),
         revision: s.revision === null ? null : String(s.revision),
-        results: results.all(s.session_id).map((r) => {
+        results: results.all(/** @type {import('node:sqlite').SQLInputValue} */ (s.session_id)).map((r) => {
+          /** @type {Record<string, unknown> | null} */
           let data = null;
           try {
             data = r.data === null ? null : JSON.parse(String(r.data));
           } catch {
             // a result whose data can't be read keeps its verdict
           }
-          return { golden: String(r.golden), ok: !!r.ok, failure: r.failure ?? null, reason: r.reason ?? null, data };
+          return { golden: String(r.golden), ok: !!r.ok, failure: /** @type {string | null} */ (r.failure ?? null), reason: /** @type {string | null} */ (r.reason ?? null), data };
         }),
       }));
   } catch {
@@ -140,6 +161,8 @@ const LONGEST = 60_000;
  * The comment: the marker, a heading that counts the goldens as the job summary does, a table with
  * each golden's verdict line and, when the history has the base branch's last session, how the golden
  * did there; then the fix pull requests this job opened, and where the details are.
+ * @param {{ report: { session?: string | null; results: ReportResult[] }; marker: string; base?: BaseSession | null; baseRef?: string | null; fixes?: FixOutcome[]; runUrl?: string | null; longest?: number }} o
+ * @returns {string}
  */
 export function commentBody({ report, marker, base = null, baseRef = null, fixes = [], runUrl = null, longest = LONGEST }) {
   const results = Array.isArray(report?.results) ? report.results : [];
@@ -152,19 +175,20 @@ export function commentBody({ report, marker, base = null, baseRef = null, fixes
   const top = [marker, `### Shadowlap: ${head}`, '', where ? `| | Golden | Verdict | ${where} |` : '| | Golden | Verdict |', where ? '|---|---|---|---|' : '|---|---|---|'];
   const rows = results.map((r) => {
     const name = r.golden ?? r.name;
-    const row = `| ${MARK[verdictOf(r)]} | ${code(name, true)} | ${cell(verdictLine(r))} |`;
+    const row = `| ${String(MARK[verdictOf(r)])} | ${code(name, true)} | ${cell(verdictLine(r))} |`;
     if (!base) return row;
     const was = base.results.get(name);
     return `${row} ${was ? `${MARK[storedVerdict(was)] ?? ''} ${storedVerdict(was)}` : 'not tested'} |`;
   });
+  /** @type {string[]} */
   const tail = [];
   if (base) tail.push('', `Compared with ${code(baseRef ?? 'the base branch')} as the test history last tested it${base.revision ? `, at ${code(base.revision)}` : ''}.`);
   const opened = (Array.isArray(fixes) ? fixes : []).filter((f) => f?.outcome === 'opened' && f.pr);
-  if (opened.length) tail.push('', ...opened.map((f) => `Fix on failure opened ${f.pr} for ${String(f.golden ?? f.name).split(', ').map(code).join(', ')}: ${cell(f.title ?? 'a fix')}.`));
+  if (opened.length) tail.push('', ...opened.map((f) => `Fix on failure opened ${String(f.pr)} for ${String(f.golden ?? f.name).split(', ').map((g) => code(g)).join(', ')}: ${cell(f.title ?? 'a fix')}.`));
   if (runUrl) tail.push('', `[The job's summary](${runUrl}) has each failure in full.`);
   // Within GitHub's limit: the rows that fit, and how many more the job summary lists.
   let shown = rows.length;
-  const size = (n) => [...top, ...rows.slice(0, n), ...(n < rows.length ? [`| | … | ${rows.length - n} more in the job summary |${base ? ' |' : ''}`] : []), ...tail].join('\n').length;
+  const size = (/** @type {number} */ n) => [...top, ...rows.slice(0, n), ...(n < rows.length ? [`| | … | ${rows.length - n} more in the job summary |${base ? ' |' : ''}`] : []), ...tail].join('\n').length;
   while (shown > 0 && size(shown) > longest) shown--;
   return [...top, ...rows.slice(0, shown), ...(shown < rows.length ? [`| | … | ${rows.length - shown} more in the job summary |${base ? ' |' : ''}`] : []), ...tail].join('\n') + '\n';
 }
@@ -174,6 +198,8 @@ export function commentBody({ report, marker, base = null, baseRef = null, fixes
  * state `created` or `updated`, `skipped` (a pull request from a fork, whose token may not comment;
  * no token), `denied` (the token may not comment), `failed`, or `none` (no pull request). It never
  * fails the job: what didn't go is said in the job summary.
+ * @param {{ env: NodeJS.ProcessEnv; auth: GitHubAuth | null | undefined; report: { session?: string | null; results: ReportResult[] }; fixes?: FixOutcome[]; store: string | null; recordings: string; workdir: string; fetch?: Fetch; read?: (path: string) => string }} o
+ * @returns {Promise<Posted>}
  */
 export async function postComment({ env, auth, report, fixes = [], store, recordings, workdir, fetch: fetchFn = globalThis.fetch, read }) {
   const pr = pullRequestOf(env, read);
@@ -187,7 +213,11 @@ export async function postComment({ env, auth, report, fixes = [], store, record
   return upsertComment({ env, auth, number: pr.number, marker, body, fetch: fetchFn });
 }
 
-/** What the job summary says about the comment when it didn't go up; nothing when it did, or there was no pull request. */
+/**
+ * What the job summary says about the comment when it didn't go up; nothing when it did, or there was no pull request.
+ * @param {Posted | null} posted
+ * @returns {string}
+ */
 export function commentNote(posted) {
   if (!posted || posted.state === 'created' || posted.state === 'updated' || posted.state === 'none') return '';
   return `\nThe pull request comment was not posted: ${markdownText(String(posted.why ?? ''))}.\n`;

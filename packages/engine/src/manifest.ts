@@ -1,6 +1,7 @@
 import { setOwn } from './canonical.js';
 import { parseJsonExact } from './json-exact.js';
-import type { Store } from './store.js';
+import type { StoreOf } from './store.js';
+import { isObject } from './is-object.js';
 
 /**
  * Request manifests. Every model request resends the whole conversation, so whole-request blobs
@@ -58,8 +59,6 @@ const PARTS: Readonly<Record<ListMember, readonly string[]>> = {
   input: ['instructions', 'tools'],
 };
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 function isConversationShaped(body: unknown): body is { messages: unknown[]; system?: unknown; tools?: unknown } & Record<string, unknown> {
   return isObject(body) && Array.isArray(body.messages);
 }
@@ -73,7 +72,7 @@ function listOf(body: unknown): 'contents' | 'input' | null {
 }
 
 /** Stores an API request body (parsed JSON, or raw text/bytes) and returns the manifest's hash. */
-export function storeApiRequest(store: Store, body: unknown): string {
+export function storeApiRequest(store: StoreOf<'recording'>, body: unknown): string {
   let manifest: RequestManifest;
   const list = listOf(body);
   if (isConversationShaped(body)) {
@@ -106,7 +105,7 @@ export function storeApiRequest(store: Store, body: unknown): string {
 }
 
 /** Item hashes as runs whose lengths are the binary digits of their count, largest first (13 items: runs of 8, 4 and 1). */
-function runsOf(store: Store, hashes: string[]): string[] {
+function runsOf(store: StoreOf<'recording'>, hashes: string[]): string[] {
   const runs: string[] = [];
   let at = 0;
   for (let size = 2 ** Math.floor(Math.log2(Math.max(hashes.length, 1))); size >= 1; size /= 2) {
@@ -118,8 +117,8 @@ function runsOf(store: Store, hashes: string[]): string[] {
 }
 
 /** A run's item hashes, as a version 2 manifest names them; refused unless it is a list of hashes. */
-function runItems(store: Store, run: string): string[] {
-  const items = store.getJson<unknown>(run);
+function runItems(store: StoreOf<'recording'>, run: string): string[] {
+  const items = store.getJson(run);
   if (!Array.isArray(items) || items.some((h) => typeof h !== 'string')) throw new Error(`request run ${run}: ${items === null ? 'missing' : 'not a list of blob hashes'}`);
   return items as string[];
 }
@@ -147,7 +146,7 @@ function checkedList(m: Record<string, unknown>, ref: string): ListManifest {
  * stored (parseJsonExact), an id past 2^53 by its digits: for fingerprinting it, and for sending it
  * again; without it, every number is the double JSON.parse reads.
  */
-export function loadApiRequest(store: Store, manifestRef: string, opts: { exact?: boolean } = {}): unknown {
+export function loadApiRequest(store: StoreOf<'recording'>, manifestRef: string, opts: { exact?: boolean } = {}): unknown {
   const manifest = store.getJson<RequestManifest>(manifestRef);
   if (!manifest) throw new Error(`missing request manifest ${manifestRef}`);
   const json = (hash: string): unknown => {
@@ -181,7 +180,7 @@ export function loadApiRequest(store: Store, manifestRef: string, opts: { exact?
  * A request read exactly, its other fields (`model`, `max_tokens`, a seed) read from the manifest's
  * own text as written too: the manifest holds them inline, and getJson read them as doubles.
  */
-function exactFields(store: Store, manifestRef: string, body: Record<string, unknown>, list: string, parts: readonly string[]): Record<string, unknown> {
+function exactFields(store: StoreOf<'recording'>, manifestRef: string, body: Record<string, unknown>, list: string, parts: readonly string[]): Record<string, unknown> {
   const text = store.getBlob(manifestRef)?.toString('utf8');
   const manifest = text ? (parseJsonExact(text) as { fields?: unknown }) : null;
   if (!manifest || typeof manifest.fields !== 'object' || manifest.fields === null) return body;
@@ -191,14 +190,14 @@ function exactFields(store: Store, manifestRef: string, body: Record<string, unk
 }
 
 /** A part of a version 2 request: its blob must be there, as a pack's reader checks every blob a manifest names. */
-function required(store: Store, hash: string, json: (hash: string) => unknown = (h) => store.getJson(h)): unknown {
+function required(store: StoreOf<'recording'>, hash: string, json: (hash: string) => unknown = (h) => store.getJson(h)): unknown {
   const value = json(hash);
   if (value === null && !store.getBlob(hash)) throw new Error(`missing blob ${hash}`);
   return value;
 }
 
 /** The blob hashes a stored request references (none when the manifest is missing or malformed). */
-export function manifestRefs(store: Store, manifestRef: string): string[] {
+export function manifestRefs(store: StoreOf<'recording'>, manifestRef: string): string[] {
   let manifest: RequestManifest | null;
   try {
     manifest = store.getJson<RequestManifest>(manifestRef);
@@ -227,7 +226,7 @@ export function manifestRefs(store: Store, manifestRef: string): string[] {
  * whether it is there now): its manifest's parts and runs, then the items the runs name, which can
  * only be listed once a run is in. A pack's reader brings a request so. Whether every one is there.
  */
-export function bringRequest(store: Store, manifestRef: string, bring: (hash: string) => boolean): boolean {
+export function bringRequest(store: StoreOf<'recording'>, manifestRef: string, bring: (hash: string) => boolean): boolean {
   let all = true;
   const seen = new Set<string>();
   for (let more = true; more; ) {

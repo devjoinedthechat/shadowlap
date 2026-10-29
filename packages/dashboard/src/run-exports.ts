@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, readdirSync, realpathSync, type Stats } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { DATASET_FORMATS, REDACTION_EXPORTS, type Normalizer, type RedactionExport, type RunRecord, type Store } from '@shadowlap/engine';
+import { DATASET_FORMATS, REDACTION_EXPORTS, messageOf, type Normalizer, type RedactionExport, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
 import type { JobBuildResult, ProjectInfo } from './jobs.js';
 
@@ -38,11 +38,11 @@ export const stillRecording = (run: Pick<RunRecord, 'runId'>) => `${run.runId.sl
  * process left marked running was interrupted, as every list shows it: nothing will add to it, so it
  * is copied as it is.
  */
-export function recordingNow(store: Store, run: Pick<RunRecord, 'runId' | 'status'>): boolean {
+export function recordingNow(store: StoreOf<'recording'>, run: Pick<RunRecord, 'runId' | 'status'>): boolean {
   return run.status === 'running' && store.recordingRuns().live.some((r) => r.run.runId === run.runId);
 }
 
-function runOf(store: Store, raw: unknown): { runId: string } | { error: string; status?: number } {
+function runOf(store: StoreOf<'recording'>, raw: unknown): { runId: string } | { error: string; status?: number } {
   const run = typeof raw === 'string' && raw ? lookupRun(store, raw) : null;
   if (!run) return { error: typeof raw === 'string' && raw ? `no run ${raw.slice(0, 40)}` : 'runId is required', status: typeof raw === 'string' && raw ? 404 : 400 };
   if (recordingNow(store, run)) return { error: stillRecording(run), status: 409 };
@@ -156,7 +156,7 @@ function exportsDir(root: string): string | { error: string; status: number } {
   try {
     mkdirSync(dir, { recursive: true });
   } catch (err) {
-    return { error: `could not make ${EXPORTS_DIR}: ${err instanceof Error ? err.message : String(err)}`, status: 500 };
+    return { error: `could not make ${EXPORTS_DIR}: ${messageOf(err)}`, status: 500 };
   }
   return dir;
 }
@@ -171,7 +171,7 @@ function exportTarget(root: string, file: string): string | { error: string; sta
 }
 
 /** `export html <run> .shadowlap/exports/shadowlap-<id>.html --lineage`: the views in one file, with the runs it came from. */
-export function exportHtmlJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+export function exportHtmlJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
@@ -182,7 +182,7 @@ export function exportHtmlJob(store: Store, project: ProjectInfo | null, req: Re
 }
 
 /** `export har <run> .shadowlap/exports/<id>.har`: the model calls, with every redaction rule applied. */
-export function exportHarJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+export function exportHarJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
   const root = projectRoot(project);
@@ -227,7 +227,7 @@ function packTarget(root: string, raw: unknown): string | { error: string; statu
  * (the Runs page's bulk Pack), `dir` is the folder that holds a folder per run (`packFolders`), and
  * the job runs one `pack` after another, so its drawer lists every folder it wrote.
  */
-export function packJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+export function packJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   if (req.runIds !== undefined) return packRunsJob(store, project, req);
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
@@ -256,7 +256,7 @@ export function packFolders(runIds: readonly string[], dir: string): Array<{ run
 }
 
 /** Several runs packed by one job, each into its own folder inside `dir` (`.shadowlap/exports` unless asked). */
-function packRunsJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+function packRunsJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const raw = Array.isArray(req.runIds) ? req.runIds : [];
   if (!raw.length) return { error: 'name the runs to pack' };
   if (raw.length > MAX_PACK_RUNS) return { error: `at most ${MAX_PACK_RUNS} runs in one pack job` };
@@ -302,7 +302,7 @@ function exportFile(raw: unknown): string | null {
  * `export dataset <runs…> --calls final|model --format …`: one JSON line per example, into
  * `.shadowlap/exports/`, under the name the dialog shows in its command (`out`), else one of its own.
  */
-export function exportDatasetJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>, now = new Date()): Built {
+export function exportDatasetJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>, now = new Date()): Built {
   const raw = Array.isArray(req.runIds) ? req.runIds : req.runId !== undefined ? [req.runId] : [];
   if (!raw.length) return { error: 'name the runs to export' };
   if (raw.length > MAX_DATASET_RUNS) return { error: `at most ${MAX_DATASET_RUNS} runs at once` };
@@ -353,7 +353,7 @@ export function traceFile(raw: unknown, runId: string): string | null {
  * `export otel <run> --endpoint <url>` to a collector, or `--out .shadowlap/exports/<file>`, which
  * sends nothing: the CLI sends to `$OTEL_EXPORTER_OTLP_ENDPOINT` only when no file is asked for.
  */
-export function exportOtelJob(store: Store, project: ProjectInfo | null, req: Record<string, unknown>): Built {
+export function exportOtelJob(store: StoreOf<'recording'>, project: ProjectInfo | null, req: Record<string, unknown>): Built {
   const run = runOf(store, req.runId);
   if ('error' in run) return run;
   if (req.endpoint !== undefined && req.endpoint !== null && req.endpoint !== '') {

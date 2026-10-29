@@ -1,4 +1,4 @@
-import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type Store, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
+import { attemptsOf, attemptsToFail, attemptsToPass, BASELINE_DEFAULTS, BLAME_DEFAULTS, checkStatus, commandIsImported, describeGate, fixOfRun, formatTally, GATE_MAX_ATTEMPTS, gateSentence, gateOdds, gateOddsAt, gateOf, hasRecordedCommand, isObject, JUDGE_KEYS, judgeTarget, parseGate, passesPerFailure, runsRed, SPRT_DEFAULTS, importedCommandSource, maskedChange, testResultVerdict, normalizeAddArgs, normalizeAddCommand, pulledRun, recorderGone, volatileValues, withoutCommand, type CallKind, type CheckStatus, type DivergenceReport, type Gate, type GateResult, type InjectionGateData, type JudgeProvider, type Normalizer, type RunRecord, type StoreOf, type StoredCheck, type Tally, type TestFailure, type TestResult, type TestSession, type VolatileValues } from '@shadowlap/engine';
 import { chaosMatrices, liveChaosSession, presetsSummary, type PresetsSummary } from './chaos.js';
 import { gateLine, gateRuleOf } from './verdict.js';
 import { links } from './links.js';
@@ -518,7 +518,7 @@ function nameOf(path: string, folder: string): string {
  * A session as the screen shows it. Its totals are written when it ends; one that hasn't (it is
  * running, or its process was killed) counts the results it has, as every other count here does.
  */
-function sessionView(store: Store, s: TestSession): TestsSessionView {
+function sessionView(store: StoreOf<'tests'>, s: TestSession): TestsSessionView {
   let { passed, failed } = s;
   let inconclusive = 0;
   // By each result's verdict: an inconclusive golden counts apart, whatever its session's
@@ -533,7 +533,7 @@ function sessionView(store: Store, s: TestSession): TestsSessionView {
 }
 
 /** When a session last did something: its end, or its newest result while it has none. */
-function lastActive(store: Store, s: TestSession): number {
+function lastActive(store: StoreOf<'tests'>, s: TestSession): number {
   return s.endedAt ?? store.listTestResults({ sessionId: s.sessionId, limit: 1 })[0]?.at ?? s.startedAt;
 }
 
@@ -542,7 +542,7 @@ function lastActive(store: Store, s: TestSession): number {
  * there (on this machine; elsewhere, it was heard from lately), as for a run still recording. One
  * whose process was killed, or that names none, did not finish.
  */
-function sessionLive(store: Store, s: TestSession): boolean {
+function sessionLive(store: StoreOf<'tests'>, s: TestSession): boolean {
   if (s.endedAt !== null) return false;
   const owner = store.testSessionOwner(s.sessionId);
   return owner !== null && !recorderGone(owner, lastActive(store, s));
@@ -552,7 +552,7 @@ function sessionLive(store: Store, s: TestSession): boolean {
  * The newest test session running now, wherever it was started (a terminal, another dashboard, a
  * job), or null: while one runs, the jobs that replay or rewrite the goldens wait for it.
  */
-export function liveTestSession(store: Store): TestSession | null {
+export function liveTestSession(store: StoreOf<'tests'>): TestSession | null {
   for (const s of store.listTestSessions({ limit: 20 })) if (s.endedAt === null && sessionLive(store, s)) return s;
   return null;
 }
@@ -812,7 +812,7 @@ function moreAttempts(g: GateResult, golden: string, perAttempt: number | null):
   };
 }
 
-const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
+const runIfKept = (store: StoreOf<'recording'>, runId: string | null) => (runId && store.getRun(runId) ? runId : null);
 
 /**
  * For a result of more than one attempt: of the attempts that judged each check (it passed, failed or
@@ -821,7 +821,7 @@ const runIfKept = (store: Store, runId: string | null) => (runId && store.getRun
  * session (`test --continue`): its `attempts` are this session's alone, and pruning keeps only some of
  * the carried ones' runs. A tally missing an attempt would claim too much.
  */
-function checkTallies(store: Store, r: TestResult): Map<string, { passed: number; of: number }> | null {
+function checkTallies(store: StoreOf<'recording'>, r: TestResult): Map<string, { passed: number; of: number }> | null {
   const runs = r.data?.attempts?.runs ?? [];
   if (runs.length < 2 || r.data?.continued) return null;
   const out = new Map<string, { passed: number; of: number }>();
@@ -865,7 +865,7 @@ function judgeLive(r: TestResult, c: StoredCheck): GoldenCheck['live'] {
  * check the result didn't judge has no status, as none has before the golden's first result: one added
  * since (the result judged the golden's checks of then), or one whose golden couldn't run.
  */
-function goldenChecks(store: Store, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
+function goldenChecks(store: StoreOf<'recording'>, labels: readonly string[], r: TestResult | null): GoldenCheck[] {
   const kept = r?.data?.checks ?? [];
   // The golden ran, and its checks of then were judged (none, if it had none): a check it lacks is newer.
   const ran = !!r && (r.data?.checks !== undefined || r.data?.calls !== undefined);
@@ -924,7 +924,7 @@ const GUARD_BLOCKED = /blocked (?:an )?outbound connection to (\S+?)(?=:\s|\s\(S
  * reported; an agent that dies at once can exit before its report lands, so what it printed counts
  * too. An agent that catches the refusal can still pass, and the screen says so all the same.
  */
-function blockedTargets(store: Store, r: TestResult): string[] {
+function blockedTargets(store: StoreOf<'recording'>, r: TestResult): string[] {
   const out = new Set<string>();
   const hosts = r.runId ? store.getRun(r.runId)?.meta?.notRecorded?.hosts : undefined;
   if (Array.isArray(hosts)) for (const h of hosts) if (h?.action === 'blocked' && typeof h.target === 'string') out.add(h.target);
@@ -935,14 +935,14 @@ function blockedTargets(store: Store, r: TestResult): string[] {
 const blockedWords = (blocked: readonly string[]) => `blocked connection to ${blocked.join(', ')}`;
 
 /** A result's line, saying first when the guard blocked a connection the replay made past Shadowlap. */
-function lineOf(store: Store, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
+function lineOf(store: StoreOf<'recording'>, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string {
   const blocked = blockedTargets(store, r);
   const line = resultLine(r, checks, normalizers);
   return blocked.length ? `${blockedWords(blocked)} · ${line}` : line;
 }
 
 /** A history cell's hover note: why it failed, or a connection the guard blocked in a replay that passed. */
-function cellNote(store: Store, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string | null {
+function cellNote(store: StoreOf<'recording'>, r: TestResult, checks: readonly string[], normalizers: readonly Normalizer[] = []): string | null {
   if (!r.ok) return lineOf(store, r, checks, normalizers);
   const blocked = blockedTargets(store, r);
   return blocked.length ? blockedWords(blocked) : null;
@@ -1031,7 +1031,7 @@ interface AnswerEvent {
 const MISS_OUTCOMES = new Set(['fails-at-good', 'passes-at-bad', 'untestable']);
 
 /** Every answer Find the commit gave, by golden, newest first. */
-function bisectAnswers(store: Store): Map<string, AnswerEvent[]> {
+function bisectAnswers(store: StoreOf<'activity'>): Map<string, AnswerEvent[]> {
   const out = new Map<string, AnswerEvent[]>();
   for (const e of store.listEvents({ kinds: ['bisect.found', 'bisect.none'], limit: 500 })) {
     if (!e.ref) continue;
@@ -1127,7 +1127,7 @@ interface SessionsRead {
  * names the newest full session, with its own counts and command, also one stopped by a signal or
  * running now. Without any full session, every session counts as one.
  */
-function testSessions(store: Store, goldens: readonly GoldenSource[], max: number): SessionsRead {
+function testSessions(store: StoreOf<'tests'>, goldens: readonly GoldenSource[], max: number): SessionsRead {
   const all = store.listTestSessions({ limit: SESSION_WINDOW });
   // Which goldens each session ran, without reading their results: only the shown columns' are read.
   const ran = store.testSessionGoldens(all.map((s) => s.sessionId));
@@ -1174,7 +1174,7 @@ function byGolden(results: readonly TestResult[]): Map<string, TestResult[]> {
  * count here takes the results of every session, one still running (or whose process was killed)
  * included; only a session's own totals wait for its end.
  */
-export function testsView(store: Store, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
+export function testsView(store: StoreOf<'recording' | 'activity' | 'tests' | 'chaos'>, goldens: readonly GoldenSource[], options: TestsOptions = {}): TestsView {
   const folder = options.folder ?? 'goldens';
   const rules = options.normalizers ?? [];
   const sessionsView = testSessions(store, goldens, options.revisions ?? 6);
@@ -1352,7 +1352,7 @@ export type GoldenList = ReadonlyArray<string | GoldenSource>;
 const pathOf = (g: string | GoldenSource) => (typeof g === 'string' ? g : g.path);
 
 /** The latest result of each golden given, as of a time. */
-function latestResults(store: Store, goldens: GoldenList, until?: number): Map<string, TestResult> {
+function latestResults(store: StoreOf<'tests'>, goldens: GoldenList, until?: number): Map<string, TestResult> {
   const keep = new Set(goldens.map(pathOf));
   return new Map(store.latestTestResults(until !== undefined ? { until } : {}).filter((r) => keep.has(r.golden)).map((r) => [r.golden, r]));
 }
@@ -1380,7 +1380,7 @@ export interface TestsSummary {
  * The Overview's Tests passing tile, over `goldens`, the packs on disk (`projectGoldens`); `weekStart`
  * is when the comparison with last week is made (default: 7 days before `now`).
  */
-export function testsSummary(store: Store, options: { goldens: GoldenList; now?: number; weekStart?: number }): TestsSummary {
+export function testsSummary(store: StoreOf<'tests'>, options: { goldens: GoldenList; now?: number; weekStart?: number }): TestsSummary {
   const now = options.now ?? Date.now();
   const latest = latestResults(store, options.goldens);
   const total = new Set(options.goldens.map(pathOf)).size;
@@ -1408,7 +1408,7 @@ export function testsSummary(store: Store, options: { goldens: GoldenList; now?:
  * or not run yet), how many passed when this week started, and when the tests last ran. Null when
  * there are no goldens yet.
  */
-export function overviewTests(store: Store, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; untested: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
+export function overviewTests(store: StoreOf<'tests'>, asOf: { now: number; weekStart: number }, options: { goldens: GoldenList }): { goldens: number; passing: number; inconclusive: number; untested: number; lastWeek: number | null; regressions: number; lastRunAt: number | null } | null {
   const s = testsSummary(store, { goldens: options.goldens, now: asOf.now, weekStart: asOf.weekStart });
   if (s.empty) return null;
   return { goldens: s.total, passing: s.passing, inconclusive: s.inconclusive, untested: s.untested, lastWeek: s.lastWeek ? s.lastWeek.passing : null, regressions: s.failing, lastRunAt: s.lastRunAt };
@@ -1468,7 +1468,7 @@ function unjudgedOffline(r: TestResult): boolean {
 }
 
 /** Goldens on disk failing now, newest failure first: Needs a look's failing tests. */
-export function failingTests(store: Store, options: { goldens: GoldenList; folder?: string; normalizers?: readonly Normalizer[] }): FailingTest[] {
+export function failingTests(store: StoreOf<'recording' | 'fixes' | 'tests'>, options: { goldens: GoldenList; folder?: string; normalizers?: readonly Normalizer[] }): FailingTest[] {
   const folder = options.folder ?? 'goldens';
   const sources = new Map(options.goldens.filter((g): g is GoldenSource => typeof g !== 'string').map((g) => [g.path, g]));
   return [...latestResults(store, options.goldens).values()]
@@ -1526,7 +1526,7 @@ export interface TestRunBanner {
  * actions on it. Null for any other run, a replay of a golden that may fork (it diverges by design)
  * included. `normalizers` are the rules in the config now.
  */
-export function testRunBanner(store: Store, runId: string, options: { normalizers?: readonly Normalizer[] } = {}): TestRunBanner | null {
+export function testRunBanner(store: StoreOf<'recording' | 'tests'>, runId: string, options: { normalizers?: readonly Normalizer[] } = {}): TestRunBanner | null {
   const run = store.getRun(runId);
   const test = run?.meta?.test;
   if (!run || !test || !run.divergence) return null;
@@ -1619,7 +1619,7 @@ function runFailed(run: RunRecord): boolean {
  * (`projectGoldens`), with the checks the config gives each; `before` limits the good commits to runs
  * started before it (the calendar passes the first day picked).
  */
-export function bisectChoices(store: Store, runId: string, options: { goldens: readonly GoldenSource[]; before?: number }): BisectChoices | null {
+export function bisectChoices(store: StoreOf<'recording' | 'fixes' | 'tests'>, runId: string, options: { goldens: readonly GoldenSource[]; before?: number }): BisectChoices | null {
   const run = store.getRun(runId);
   if (!run) return null;
   const golden = run.meta?.test?.golden ?? null;
@@ -1672,7 +1672,7 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   const fork = !ofGolden && failed;
   // The check a forked replay is judged by: the run's own `--expect` when a check of it failed, else
   // the one blame found it failing. A golden's checks come from the config, as the CLI finds them.
-  const expect = fork ? (checkFailed(run) && plainObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
+  const expect = fork ? (checkFailed(run) && isObject(run.meta?.expect) ? run.meta.expect : blamed) : null;
   // A run that passed is the good end itself; bisect then looks up to HEAD. One that failed only
   // blame's check leaves the good one to be chosen: how other runs exited says nothing about it.
   const good = !failed ? (clean(run.codeVersion) ? run.codeVersion : null) : ofGolden ? (sameRecording ?? passedHere) : blamed !== null ? null : (revisions.find((r) => r.failed < r.runs)?.rev ?? null);
@@ -1704,15 +1704,13 @@ export function bisectChoices(store: Store, runId: string, options: { goldens: r
   };
 }
 
-const plainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /**
  * The check blame found a run failing: that of the fix it fails in (the `--expect` the first blame of
  * that failure was given). Null when the run fails in no fix, or its fix judges by the exit status alone.
  */
-function blamedCheck(store: Store, run: RunRecord): Record<string, unknown> | null {
+function blamedCheck(store: StoreOf<'fixes'>, run: RunRecord): Record<string, unknown> | null {
   const check = fixOfRun(store, run.runId)?.check.expect;
-  return plainObject(check) && Object.keys(check).length ? check : null;
+  return isObject(check) && Object.keys(check).length ? check : null;
 }
 
 /** `bisect` for a target between two commits: forked and judged by a check when the run failed on its own. */
@@ -1787,7 +1785,7 @@ export function updateGoldensJob(goldens: readonly GoldenSource[], req: Record<s
  * `normalize add` for each, then `test` on the golden, or `test --update` when the rules alone can't
  * make it match (see `normalizeSteps`). `path` picks one value when several diverged.
  */
-export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
+export function normalizeAndTestJob(store: StoreOf<'recording' | 'tests'>, goldens: readonly GoldenSource[], req: Record<string, unknown>): TestsJob {
   let golden: string | null;
   let volatile: VolatileValues | null;
   let runId: string | undefined;
@@ -1827,7 +1825,7 @@ export function normalizeAndTestJob(store: Store, goldens: readonly GoldenSource
  * disk bisects the golden; a run that failed on its own replays with `--fork`, judged by the check it
  * failed when one is known (`BisectChoices.expect`): its own `--expect`, or the one blame found it failing.
  */
-export function bisectJob(store: Store, goldens: readonly GoldenSource[], req: Record<string, unknown>, options: { here?: (revs: string[]) => ReadonlySet<string> | null } = {}): TestsJob {
+export function bisectJob(store: StoreOf<'recording' | 'fixes' | 'tests'>, goldens: readonly GoldenSource[], req: Record<string, unknown>, options: { here?: (revs: string[]) => ReadonlySet<string> | null } = {}): TestsJob {
   const good = checkedRevision(req.good);
   if (!good) return { error: 'name a commit where it still worked' };
   let bad: string | null = null;

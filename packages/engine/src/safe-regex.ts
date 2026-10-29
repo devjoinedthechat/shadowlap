@@ -1,3 +1,4 @@
+import { messageOf } from './message-of.js';
 /**
  * Patterns are code. A normalizer's or redaction rule's pattern comes from shadowlap.config.json and
  * the dashboard, and from a pack or the team store, which anyone may have written, and it runs on
@@ -728,7 +729,7 @@ export function regexProblem(source: string, flags: string): string | null {
     new RegExp(source, flags);
   } catch (err) {
     // The engine's words, without the pattern it repeats ("Invalid regular expression: /(/g: …").
-    const words = (err instanceof Error ? err.message : String(err)).replace(/^Invalid regular expression: \/.*\/[a-z]*: /s, '');
+    const words = messageOf(err).replace(/^Invalid regular expression: \/.*\/[a-z]*: /s, '');
     return `it isn't a regular expression: ${words.charAt(0).toLowerCase()}${words.slice(1)}`;
   }
   try {

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { GATEWAY_UNCHANGED, isGatewayRequest, loadApiRequest, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type Store } from '@shadowlap/engine';
+import { GATEWAY_UNCHANGED, isGatewayRequest, isObject, loadApiRequest, messageOf, modelInRequest, placeInjection, plantInToolResult, recordingsOfRun, refused, requestShape, setRequestFields, switchModel, type CallRecord, type RunRecord, type SerializedError, type StoreOf } from '@shadowlap/engine';
 import { type Interventions } from '@shadowlap/sidecar';
 import { evaluateChecks, specFor, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
 import { loadTests, type ShadowlapConfig } from './config.js';
@@ -21,14 +21,14 @@ export function textOrFile(raw: string, flag: string): string {
   try {
     return readFileSync(raw.slice(1), 'utf8').replace(/\r?\n$/, '');
   } catch (err) {
-    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${(err as Error).message}`, { cause: err });
+    throw new Error(`${flag}: cannot read ${raw.slice(1)}: ${messageOf(err)}`, { cause: err });
   }
 }
 
 /** A recorded tool call's outcome and result (or error), as the sidecar serves it. */
 export type ResultOf = (call: CallRecord) => { outcome: 'ok' | 'error' | null; result?: unknown; error?: SerializedError };
 
-export function storedResult(store: Store): ResultOf {
+export function storedResult(store: StoreOf<'recording'>): ResultOf {
   return (call) => {
     const end = call.end;
     if (!end) return { outcome: null };
@@ -84,7 +84,7 @@ export function refuseOverlaps(changes: Array<[string, Iterable<number>]>): void
  * can't take the change (a system message on Gemini, a field Converse has no place for, a request
  * that names no model, an embeddings call) is refused before the replay starts.
  */
-export function checkRequestInterventions(store: Store, parentCalls: CallRecord[], interventions: Interventions | undefined): void {
+export function checkRequestInterventions(store: StoreOf<'recording'>, parentCalls: CallRecord[], interventions: Interventions | undefined): void {
   if (!interventions) return;
   const requestOf = (callNo: number) => {
     const call = parentCalls.find((c) => c.callNo === callNo)!;
@@ -128,7 +128,7 @@ export function checkRequestInterventions(store: Store, parentCalls: CallRecord[
  * recording it comes from, found through the run and its ancestors (a golden `shadowlap test` ran, or
  * the pack it was unpacked from).
  */
-export function checksOfRun(store: Store, run: RunRecord, cwd: string): { spec: TestSpec; source: string } | null {
+export function checksOfRun(store: StoreOf<'recording'>, run: RunRecord, cwd: string): { spec: TestSpec; source: string } | null {
   let tests;
   try {
     tests = loadTests(cwd);
@@ -150,7 +150,7 @@ export function checksOfRun(store: Store, run: RunRecord, cwd: string): { spec: 
 export function expectJson(raw: string): Record<string, unknown> | undefined {
   try {
     const parsed: unknown = JSON.parse(raw.startsWith('@') ? readFileSync(raw.slice(1), 'utf8') : raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
+    return isObject(parsed) ? parsed : undefined;
   } catch {
     return undefined;
   }
@@ -165,7 +165,7 @@ export const UNJUDGED_PLANT =
  * the checks came from when they were given with `--expect`, kept on the run with them. `judged`:
  * the verdicts of its judge checks, asked before the run ended (judgeAttempt).
  */
-export function judgeRun(store: Store, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>, judged?: Judged): CheckResult[] {
+export function judgeRun(store: StoreOf<'recording'>, runId: string, spec: TestSpec, output: string, prices: ShadowlapConfig['prices'], expect?: Record<string, unknown>, judged?: Judged): CheckResult[] {
   const checks = evaluateChecks(spec, storedCheckInput(store, store.getCalls(runId), output, prices), judgedOptions(judged ?? null));
   store.updateRunMeta(runId, { checks, ...(expect ? { expect } : {}) });
   return checks;

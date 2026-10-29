@@ -12,11 +12,18 @@ import net from 'node:net';
 import http from 'node:http';
 import { dirname, join } from 'node:path';
 
+/**
+ * globalThis as the preloads share it: whether each set itself up, and what they hand each other
+ * under registered symbols, such as the request functions capture found.
+ * @type {typeof globalThis & { __shadowlapGuard?: boolean } & Record<symbol, unknown>}
+ */
+const shared = globalThis;
+
 const url = process.env.SHADOWLAP_URL;
 const mode = process.env.SHADOWLAP_GUARD ?? 'warn';
 
-if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
-  globalThis.__shadowlapGuard = true;
+if (url && mode !== 'off' && !shared.__shadowlapGuard) {
+  shared.__shadowlapGuard = true;
   const sidecar = new URL(url);
   const allowed = new Set([`${sidecar.hostname}:${sidecar.port || (sidecar.protocol === 'https:' ? 443 : 80)}`]);
   if (process.env.SHADOWLAP_HTTP2_URL) {
@@ -27,16 +34,23 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
   // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
   // its connections are not traffic that bypasses Shadowlap: that process alone may allow its
   // server's host:port. No other process gets the hook, so an agent's code can't lift the guard.
-  if (isShadowlapMcp()) globalThis[Symbol.for('shadowlap.guard.allow')] = (key) => allowed.add(String(key));
+  if (isShadowlapMcp()) shared[Symbol.for('shadowlap.guard.allow')] = (/** @type {unknown} */ key) => allowed.add(String(key));
+  /** @type {Map<string, number>} */
   const seen = new Map();
 
+  /**
+   * Where a connection goes, from socket.connect()'s arguments; null for a unix socket or pipe.
+   * @param {unknown[]} args
+   * @returns {{ host: string; port: number } | null}
+   */
   function target(args) {
     // net.connect() and tls.connect() pre-normalize their arguments into [options, callback] and pass
     // that array as the single argument to socket.connect().
-    const first = Array.isArray(args[0]) ? args[0][0] : args[0];
+    const first = Array.isArray(args[0]) ? /** @type {unknown[]} */ (args[0])[0] : args[0];
     if (first && typeof first === 'object' && !Array.isArray(first)) {
-      if (first.path) return null; // unix socket / pipe: local IPC, allowed
-      return { host: String(first.host ?? 'localhost'), port: Number(first.port) };
+      const options = /** @type {{ path?: unknown; host?: unknown; port?: unknown }} */ (first);
+      if (options.path) return null; // unix socket / pipe: local IPC, allowed
+      return { host: String(options.host ?? 'localhost'), port: Number(options.port) };
     }
     if (typeof first === 'number') return { host: typeof args[1] === 'string' ? args[1] : 'localhost', port: first };
     if (typeof first === 'string' && /^\d+$/.test(first)) return { host: typeof args[1] === 'string' ? args[1] : 'localhost', port: Number(first) };
@@ -47,7 +61,12 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
   // proxy package replaced would send them through its proxy. The request function is taken now,
   // before the agent's own code runs, and is the one capture found (capture loads first).
   const direct = new http.Agent();
-  const request = globalThis[Symbol.for('shadowlap.request')]?.['http:'] ?? http.request;
+  const request = /** @type {{ 'http:'?: typeof http.request } | undefined} */ (shared[Symbol.for('shadowlap.request')])?.['http:'] ?? http.request;
+  /**
+   * Tells the sidecar about a target the guard warned of or blocked.
+   * @param {string} key
+   * @param {'blocked' | 'warned'} action
+   */
   function report(key, action) {
     try {
       const req = request(`${String(url)}/v1/guard`, { method: 'POST', agent: direct, headers: { 'content-type': 'application/json', ...(process.env.SHADOWLAP_RUN_ID ? { 'x-shadowlap-run': process.env.SHADOWLAP_RUN_ID } : {}) } }, (res) => res.resume());
@@ -65,6 +84,10 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
    * Whether the agent may reach host:port: a connection, or with `datagram` a UDP datagram, that
    * bypasses Shadowlap is reported, and under block refused (false). A datagram is reported once per
    * target: a client that sends one per metric would otherwise report every one.
+   * @param {string} host
+   * @param {number} port
+   * @param {boolean} [datagram]
+   * @returns {boolean}
    */
   function letThrough(host, port, datagram = false) {
     const key = `${host}:${port}`;
@@ -84,67 +107,99 @@ if (url && mode !== 'off' && !globalThis.__shadowlapGuard) {
     return mode !== 'block';
   }
 
-  const refusal = (what, key) => Object.assign(new Error(`shadowlap: blocked ${what} to ${key} (SHADOWLAP_GUARD=block)`), { code: 'ESHADOWLAP' });
+  const refusal = (/** @type {string} */ what, /** @type {string} */ key) => Object.assign(new Error(`shadowlap: blocked ${what} to ${key} (SHADOWLAP_GUARD=block)`), { code: 'ESHADOWLAP' });
 
   // ---- TCP: net.Socket#connect, which net, tls, http(s), http2 and fetch open their connections with ----
   const original = net.Socket.prototype.connect;
-  net.Socket.prototype.connect = function guardedConnect(...args) {
-    const t = target(args);
-    if (t && Number.isFinite(t.port) && !letThrough(t.host, t.port)) {
-      const err = refusal('outbound connection', `${t.host}:${t.port}`);
-      process.nextTick(() => this.destroy(err));
-      return this;
+  net.Socket.prototype.connect = /** @type {typeof original} */ (
+    /**
+     * @this {net.Socket}
+     * @param {unknown[]} args
+     * @returns {net.Socket}
+     */
+    function guardedConnect(...args) {
+      const t = target(args);
+      if (t && Number.isFinite(t.port) && !letThrough(t.host, t.port)) {
+        const err = refusal('outbound connection', `${t.host}:${t.port}`);
+        process.nextTick(() => this.destroy(err));
+        return this;
+      }
+      return /** @type {net.Socket} */ (Reflect.apply(original, this, args));
     }
-    return original.apply(this, args);
-  };
+  );
 
   // ---- UDP: dgram sockets ----
-  /** Where a datagram goes, or null for a DNS query or a port dgram itself refuses; an address left out is this machine's. */
+  /**
+   * Where a datagram goes, or null for a DNS query or a port dgram itself refuses; an address left out is this machine's.
+   * @param {dgram.Socket} socket
+   * @param {unknown} port
+   * @param {unknown} address
+   * @returns {{ host: string; port: number } | null}
+   */
   function datagramTarget(socket, port, address) {
     const p = Number(port);
     if (!Number.isInteger(p) || p <= 0 || p > 65535 || p === 53) return null;
-    const host = typeof address === 'string' && address ? address : socket.type === 'udp6' ? '::1' : '127.0.0.1';
+    const host = typeof address === 'string' && address ? address : /** @type {dgram.Socket & { type?: string }} */ (socket).type === 'udp6' ? '::1' : '127.0.0.1';
     return { host, port: p };
   }
-  /** Fails a refused send or connect as dgram fails one: through its callback, else with 'error'. */
+  /**
+   * Fails a refused send or connect as dgram fails one: through its callback, else with 'error'.
+   * @param {dgram.Socket} socket
+   * @param {unknown} callback
+   * @param {Error} err
+   */
   function fail(socket, callback, err) {
     process.nextTick(() => (typeof callback === 'function' ? callback(err) : socket.emit('error', err)));
   }
 
   const send = dgram.Socket.prototype.send;
-  dgram.Socket.prototype.send = function guardedSend(...args) {
-    // send(msg[, offset, length][, port][, address][, callback]), read as dgram reads it. A connected
-    // socket sends to the peer its connect() was checked for.
-    let connected = false;
-    try {
-      connected = Boolean(this.remoteAddress());
-    } catch {
-      // not connected
-    }
-    if (!connected) {
-      let [, offset, length, port, address] = args;
-      if (!(address || (port && typeof port !== 'function'))) {
-        port = offset;
-        address = length;
+  dgram.Socket.prototype.send = /** @type {typeof send} */ (
+    /**
+     * @this {dgram.Socket}
+     * @param {unknown[]} args
+     */
+    function guardedSend(...args) {
+      // send(msg[, offset, length][, port][, address][, callback]), read as dgram reads it. A connected
+      // socket sends to the peer its connect() was checked for.
+      let connected = false;
+      try {
+        connected = Boolean(this.remoteAddress());
+      } catch {
+        // not connected
       }
-      const t = datagramTarget(this, port, typeof address === 'function' ? undefined : address);
-      if (t && !letThrough(t.host, t.port, true)) {
-        fail(this, [...args].reverse().find((a) => typeof a === 'function'), refusal('UDP datagram', `${t.host}:${t.port}`));
-        return;
+      if (!connected) {
+        let [, offset, length, port, address] = args;
+        if (!(address || (port && typeof port !== 'function'))) {
+          port = offset;
+          address = length;
+        }
+        const t = datagramTarget(this, port, typeof address === 'function' ? undefined : address);
+        if (t && !letThrough(t.host, t.port, true)) {
+          fail(this, [...args].reverse().find((a) => typeof a === 'function'), refusal('UDP datagram', `${t.host}:${t.port}`));
+          return;
+        }
       }
+      return Reflect.apply(send, this, args);
     }
-    return send.apply(this, args);
-  };
+  );
 
   const connectDatagram = dgram.Socket.prototype.connect;
-  dgram.Socket.prototype.connect = function guardedDatagramConnect(port, address, callback) {
-    const t = datagramTarget(this, port, typeof address === 'function' ? undefined : address);
-    if (t && !letThrough(t.host, t.port, true)) {
-      fail(this, typeof address === 'function' ? address : callback, refusal('UDP datagram', `${t.host}:${t.port}`));
-      return;
+  dgram.Socket.prototype.connect = /** @type {typeof connectDatagram} */ (
+    /**
+     * @this {dgram.Socket}
+     * @param {unknown} port
+     * @param {unknown} [address]
+     * @param {unknown} [callback]
+     */
+    function guardedDatagramConnect(port, address, callback) {
+      const t = datagramTarget(this, port, typeof address === 'function' ? undefined : address);
+      if (t && !letThrough(t.host, t.port, true)) {
+        fail(this, typeof address === 'function' ? address : callback, refusal('UDP datagram', `${t.host}:${t.port}`));
+        return;
+      }
+      return Reflect.apply(connectDatagram, this, arguments);
     }
-    return connectDatagram.apply(this, arguments);
-  };
+  );
 }
 
 /** Whether this process is the Shadowlap CLI running `shadowlap mcp`. */
@@ -158,8 +213,9 @@ function isShadowlapMcp() {
     // The command is the first argument that isn't a global option (--db takes a value).
     const args = process.argv.slice(2);
     for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--db') i++;
-      else if (!args[i].startsWith('-')) return args[i] === 'mcp';
+      const arg = /** @type {string} */ (args[i]);
+      if (arg === '--db') i++;
+      else if (!arg.startsWith('-')) return arg === 'mcp';
     }
   } catch {
     // not a script, or not one of ours

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Command, InvalidArgumentError } from 'commander';
-import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type Store } from '@shadowlap/engine';
+import { asTheyStand, attemptBundles, DATASET_FORMATS, datasetRows, deletionPlan, type DatasetFormat, type RunRecord, type StoreOf } from '@shadowlap/engine';
 import { defaultDbPath, loadConfig } from '../config.js';
 import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
@@ -207,7 +207,7 @@ export function register(program: Command): void {
       if (plan.runs.length) process.stdout.write(`${p.green('✓')} ${deletedLine(plan.runs, plan.attempts.length)}; ${gc!.removed} blob${gc!.removed === 1 ? '' : 's'}, ${formatBytes(gc!.bytes)} freed\n`);
       if (gc?.recording.length) process.stdout.write(p.dim(`  blobs are left while ${gc.recording.length === 1 ? 'a run is' : `${gc.recording.length} runs are`} still recording (${gc.recording.map((id) => shortId(id)).join(', ')}); shadowlap gc frees them once ${gc.recording.length === 1 ? 'it ends' : 'they end'}\n`));
       for (const { runId, why } of plan.held) process.stderr.write(`${p.yellow('!')} left ${shortId(runId)}: ${why}; delete it once that has ended\n`);
-      if (plan.held.length) process.exitCode = 1;
+      if (plan.held.length) process.exitCode = EXIT.failed;
     });
 
   program
@@ -379,7 +379,7 @@ function cutoffOf(flags: GcFlags, now: number): number | null {
  * follow); one its process abandoned is picked like any ended run, and a real gc marks it
  * interrupted.
  */
-export function cleanUp(store: Store, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
+export function cleanUp(store: StoreOf<'recording' | 'cleanup'>, dbPath: string, flags: GcFlags, now = Date.now()): GcReport {
   const all = store.allRuns(); // newest first
   const bundled = new Set([...attemptBundles(all).values()].flat());
   const runs = all.filter((r) => !bundled.has(r.runId));

@@ -5,7 +5,7 @@ import { byRule, commandIsImported, controlOpen, formatDecisions, hasRecordedCom
 import { DECISIONS_SAMPLES, DecisionsError, commandProblem, decisionsCommand, resolveTargets, runDecisions, type DecisionsSettings, type DecisionTarget } from '../decisions.js';
 import { verifySession } from '../decisions-verify.js';
 import { goldenConsented } from '../golden-consent.js';
-import { attemptRule, parseFields, readExpectJson } from './fix.js';
+import { attemptRule, parseFields, readExpectJson } from './fix-flags.js';
 import { gateFlags } from '../fixes.js';
 import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';

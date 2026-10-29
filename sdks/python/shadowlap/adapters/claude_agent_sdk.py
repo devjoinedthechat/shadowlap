@@ -62,7 +62,7 @@ from shadowlap import (
 from shadowlap.adapters._claude_hooks import DEFAULT_TIMEOUT_S, as_output, combine, hook_runs_for, matcher_picks, run_hooks, settings_pre_tool_use
 from shadowlap.adapters._claude_reach import claude_reach
 
-__all__ = ["BUILT_IN_EFFECTS", "fence_hooks", "with_fence", "with_effects"]
+__all__ = ["BUILT_IN_EFFECTS", "fence_hooks", "with_effects", "with_fence"]
 
 #: Claude Code's built-in tools that are recorded, with their effects.
 BUILT_IN_EFFECTS: Mapping[str, str] = {

@@ -16,7 +16,10 @@ calls with no hello from any process is one the guard never watched. If the proj
 sitecustomize further down sys.path, it is loaded afterwards.
 """
 
+from __future__ import annotations
+
 import atexit
+import contextlib
 import errno
 import importlib.abc
 import importlib.machinery
@@ -28,6 +31,13 @@ import sys
 import threading
 import time
 from urllib.parse import urlparse
+
+# Typing's names for mypy alone (mypy.ini beside this file): at run time the guard imports nothing it needn't.
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    import types
+    from collections.abc import Sequence
+    from typing import Any, Callable, Optional
 
 _url = os.environ.get("SHADOWLAP_URL")
 _mode = os.environ.get("SHADOWLAP_GUARD", "warn")
@@ -53,19 +63,19 @@ finally:
 # Set on the thread that talks to the sidecar: the guard never reports the preload's own connections.
 _reporting = threading.local()
 # Posts on their way to the sidecar, which the agent waits for when it exits (_flush).
-_sending = set()
+_sending: set[threading.Thread] = set()
 
 
-def _post(path, payload):
+def _post(path: str, payload: dict[str, Any]) -> None:
     """Posts `payload` as JSON to the sidecar, on a thread of its own: straight to this machine's
     loopback, never through a proxy (HTTP_PROXY), and over a plain socket, so no HTTP library is
     imported for it, nor a TLS context made for nothing (as urllib's opener makes one, reading the
     system's certificates, slowly on Windows)."""
 
-    def send():
+    def send() -> None:
         _reporting.active = True
         try:
-            target = urlparse(_url)
+            target = urlparse(str(_url))
             body = json.dumps(payload).encode("utf-8")
             head = ["POST %s%s HTTP/1.1" % (target.path.rstrip("/"), path), "Host: %s" % target.netloc, "Content-Type: application/json", "Content-Length: %d" % len(body), "Connection: close"]
             run_id = os.environ.get("SHADOWLAP_RUN_ID")
@@ -92,23 +102,22 @@ def _post(path, payload):
         _sending.discard(thread)
 
 
-def _flush():
+def _flush() -> None:
     # The run lists what bypassed Shadowlap from these reports, and counts the preloads that loaded:
     # one still on its way when the agent exits would be left out, so the agent waits for them,
     # 2 seconds at most in all.
     deadline = time.monotonic() + 2
     for thread in list(_sending):
-        try:
+        # One not started yet has nothing to wait for.
+        with contextlib.suppress(RuntimeError):
             thread.join(max(0.0, deadline - time.monotonic()))
-        except RuntimeError:  # not started yet
-            pass
 
 
 if _url:
     atexit.register(_flush)
 
 if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
-    socket._shadowlap_guard = True
+    setattr(socket, "_shadowlap_guard", True)
 
     _u = urlparse(_url)
     _allowed = {"%s:%s" % (_u.hostname, _u.port or (443 if _u.scheme == "https" else 80))}
@@ -118,9 +127,9 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     for _item in os.environ.get("SHADOWLAP_GUARD_ALLOW", "").split(","):
         if _item.strip():
             _allowed.add(_item.strip())
-    _seen = {}
+    _seen: dict[str, int] = {}
 
-    def _report(key, action):
+    def _report(key: str, action: str) -> None:
         _post("/v1/guard", {"target": key, "action": action, "runtime": "python"})
 
     # Python connects to the address a name resolved to, so the guard remembers every name that
@@ -128,26 +137,26 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     # an IP). Two hosts behind one address (a CDN, a shared load balancer) can't be told apart when
     # the socket connects, so an allowed name lets a connection through only while every name seen
     # for its address is allowed, and an address with several names is reported with all of them.
-    _names = {}
+    _names: dict[str, list[str]] = {}
     _orig_getaddrinfo = socket.getaddrinfo
 
-    def _getaddrinfo(host, *args, **kwargs):
+    def _getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> Any:
         infos = _orig_getaddrinfo(host, *args, **kwargs)
         try:
             name = host.decode("idna") if isinstance(host, bytes) else host
             if isinstance(name, str) and name:
                 for info in infos:
                     if info[4][0] != name:
-                        seen = _names.setdefault(info[4][0], [])
+                        seen = _names.setdefault(str(info[4][0]), [])
                         if name not in seen:
                             seen.append(name)
         except Exception:
             pass
         return infos
 
-    socket.getaddrinfo = _getaddrinfo
+    setattr(socket, "getaddrinfo", _getaddrinfo)
 
-    def _bypass(host, port, datagram=False):
+    def _bypass(host: Any, port: Any, datagram: bool = False) -> None:
         """Reports a connection to host:port, or a datagram sent there, that bypasses Shadowlap, and
         refuses it under block. `host` is an address or, where a loop resolves the name itself
         (uvloop), the name the agent gave."""
@@ -185,13 +194,13 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         if _mode == "block":
             raise OSError(errno.EPERM, "shadowlap: blocked %s to %s (SHADOWLAP_GUARD=block)" % (what, key))
 
-    def _datagram(sock):
+    def _datagram(sock: socket.socket) -> bool:
         try:
             return sock.type == socket.SOCK_DGRAM
         except Exception:
             return False
 
-    def _check(sock, address):
+    def _check(sock: socket.socket, address: Any) -> None:
         try:
             family = sock.family
         except Exception:
@@ -208,73 +217,74 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     _orig_sendto = socket.socket.sendto
     _orig_sendmsg = getattr(socket.socket, "sendmsg", None)
 
-    def _connect(self, address):
+    def _connect(self: socket.socket, address: Any) -> None:
         _check(self, address)
         return _orig_connect(self, address)
 
-    def _connect_ex(self, address):
+    def _connect_ex(self: socket.socket, address: Any) -> int:
         _check(self, address)
         return _orig_connect_ex(self, address)
 
-    def _sendto(self, data, *args):
+    def _sendto(self: socket.socket, data: Any, *args: Any) -> int:
         # sendto(data, address) or sendto(data, flags, address)
         if args:
             _check(self, args[-1])
         return _orig_sendto(self, data, *args)
 
-    socket.socket.connect = _connect
-    socket.socket.connect_ex = _connect_ex
-    socket.socket.sendto = _sendto
+    setattr(socket.socket, "connect", _connect)
+    setattr(socket.socket, "connect_ex", _connect_ex)
+    setattr(socket.socket, "sendto", _sendto)
     if _orig_sendmsg is not None:
+        _sendmsg_through: Callable[..., int] = _orig_sendmsg
 
-        def _sendmsg(self, buffers, *args):
+        def _sendmsg(self: socket.socket, buffers: Any, *args: Any) -> int:
             # sendmsg(buffers[, ancdata[, flags[, address]]])
             if len(args) >= 3 and args[2] is not None:
                 _check(self, args[2])
-            return _orig_sendmsg(self, buffers, *args)
+            return _sendmsg_through(self, buffers, *args)
 
-        socket.socket.sendmsg = _sendmsg
+        setattr(socket.socket, "sendmsg", _sendmsg)
 
     # ---- event loops that open connections without the socket module's methods ----
 
-    def _patch_proactor(module):
+    def _patch_proactor(module: types.ModuleType) -> None:
         """asyncio's proactor loop, Windows' default: it connects and sends through overlapped I/O."""
         loop = getattr(module, "BaseProactorEventLoop", None)
         if loop is None or getattr(loop, "_shadowlap_guard", False):
             return
-        loop._shadowlap_guard = True
+        setattr(loop, "_shadowlap_guard", True)
         sock_connect = loop.sock_connect
 
-        async def guarded_sock_connect(self, sock, address):
+        async def guarded_sock_connect(self: Any, sock: socket.socket, address: Any) -> Any:
             _check(sock, address)
             return await sock_connect(self, sock, address)
 
-        loop.sock_connect = guarded_sock_connect
+        setattr(loop, "sock_connect", guarded_sock_connect)
         sock_sendto = getattr(loop, "sock_sendto", None)
         if sock_sendto is not None:
 
-            async def guarded_sock_sendto(self, sock, data, address):
+            async def guarded_sock_sendto(self: Any, sock: socket.socket, data: Any, address: Any) -> Any:
                 _check(sock, address)
                 return await sock_sendto(self, sock, data, address)
 
-            loop.sock_sendto = guarded_sock_sendto
+            setattr(loop, "sock_sendto", guarded_sock_sendto)
         transport = getattr(module, "_ProactorDatagramTransport", None)
         if transport is not None:
             sendto = transport.sendto
 
-            def guarded_sendto(self, data, addr=None):
+            def guarded_sendto(self: Any, data: Any, addr: Any = None) -> Any:
                 if addr is not None:
                     _check(self._sock, addr)
                 return sendto(self, data, addr)
 
-            transport.sendto = guarded_sendto
+            setattr(transport, "sendto", guarded_sendto)
 
-    def _patch_uvloop(module):
+    def _patch_uvloop(module: types.ModuleType) -> None:
         """uvloop connects, resolves and sends in libuv, out of the socket module's sight."""
         loop = getattr(module, "Loop", None)
         if loop is None or getattr(loop, "_shadowlap_guard", False):
             return
-        loop._shadowlap_guard = True
+        setattr(loop, "_shadowlap_guard", True)
         import asyncio
 
         sock_connect = loop.sock_connect
@@ -282,11 +292,11 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         create_datagram_endpoint = loop.create_datagram_endpoint
         sock_sendto = getattr(loop, "sock_sendto", None)
 
-        async def guarded_sock_connect(self, sock, address):
+        async def guarded_sock_connect(self: Any, sock: socket.socket, address: Any) -> Any:
             _check(sock, address)
             return await sock_connect(self, sock, address)
 
-        async def guarded_create_connection(self, protocol_factory, host=None, port=None, *args, **kwargs):
+        async def guarded_create_connection(self: Any, protocol_factory: Any, host: Any = None, port: Any = None, *args: Any, **kwargs: Any) -> Any:
             if host is not None and port is not None and kwargs.get("sock") is None:
                 _bypass(host, port)
             return await create_connection(self, protocol_factory, host, port, *args, **kwargs)
@@ -294,11 +304,11 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         class GuardedTransport(asyncio.DatagramTransport):
             """A datagram transport whose sends to an address are checked, as a socket's sendto is."""
 
-            def __init__(self, inner):
+            def __init__(self, inner: Any) -> None:
                 super().__init__()
                 self._inner = inner
 
-            def sendto(self, data, addr=None):
+            def sendto(self, data: Any, addr: Any = None) -> None:
                 if addr is not None and isinstance(addr, tuple) and len(addr) >= 2:
                     try:
                         _bypass(addr[0], addr[1], True)
@@ -306,86 +316,86 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
                         # As a loop's datagram transport reports a failed send: to its protocol.
                         self._inner.get_protocol().error_received(exc)
                         return
-                return self._inner.sendto(data, addr)
+                self._inner.sendto(data, addr)
 
-            def __getattr__(self, name):
+            def __getattr__(self, name: str) -> Any:
                 inner = self.__dict__.get("_inner")
                 if inner is None:
                     raise AttributeError(name)
                 return getattr(inner, name)
 
-            def get_extra_info(self, name, default=None):
+            def get_extra_info(self, name: str, default: Any = None) -> Any:
                 return self._inner.get_extra_info(name, default)
 
-            def close(self):
-                return self._inner.close()
+            def close(self) -> None:
+                self._inner.close()
 
-            def is_closing(self):
-                return self._inner.is_closing()
+            def is_closing(self) -> bool:
+                return bool(self._inner.is_closing())
 
-            def abort(self):
-                return self._inner.abort()
+            def abort(self) -> None:
+                self._inner.abort()
 
-            def get_protocol(self):
+            def get_protocol(self) -> Any:
                 return self._inner.get_protocol()
 
-            def set_protocol(self, protocol):
-                return self._inner.set_protocol(protocol)
+            def set_protocol(self, protocol: Any) -> None:
+                self._inner.set_protocol(protocol)
 
         class GuardedProtocol(asyncio.DatagramProtocol):
-            def __init__(self, inner):
+            def __init__(self, inner: Any) -> None:
                 self.inner = inner
-                self.transport = None
+                self.transport: Optional[GuardedTransport] = None
 
-            def connection_made(self, transport):
+            def connection_made(self, transport: Any) -> None:
                 self.transport = GuardedTransport(transport)
                 self.inner.connection_made(self.transport)
 
-            def datagram_received(self, data, addr):
+            def datagram_received(self, data: bytes, addr: Any) -> None:
                 self.inner.datagram_received(data, addr)
 
-            def error_received(self, exc):
+            def error_received(self, exc: Exception) -> None:
                 self.inner.error_received(exc)
 
-            def connection_lost(self, exc):
+            def connection_lost(self, exc: Optional[Exception]) -> None:
                 self.inner.connection_lost(exc)
 
-            def pause_writing(self):
+            def pause_writing(self) -> None:
                 self.inner.pause_writing()
 
-            def resume_writing(self):
+            def resume_writing(self) -> None:
                 self.inner.resume_writing()
 
-        async def guarded_create_datagram_endpoint(self, protocol_factory, local_addr=None, remote_addr=None, **kwargs):
+        async def guarded_create_datagram_endpoint(self: Any, protocol_factory: Callable[[], Any], local_addr: Any = None, remote_addr: Any = None, **kwargs: Any) -> Any:
             if isinstance(remote_addr, tuple) and len(remote_addr) >= 2:
                 _bypass(remote_addr[0], remote_addr[1], True)
-            guarded = []
+            guarded: list[GuardedProtocol] = []
 
-            def factory():
+            def factory() -> GuardedProtocol:
                 guarded.append(GuardedProtocol(protocol_factory()))
                 return guarded[-1]
 
             transport, _ = await create_datagram_endpoint(self, factory, local_addr, remote_addr, **kwargs)
             return guarded[0].transport or GuardedTransport(transport), guarded[0].inner
 
-        loop.sock_connect = guarded_sock_connect
-        loop.create_connection = guarded_create_connection
-        loop.create_datagram_endpoint = guarded_create_datagram_endpoint
+        setattr(loop, "sock_connect", guarded_sock_connect)
+        setattr(loop, "create_connection", guarded_create_connection)
+        setattr(loop, "create_datagram_endpoint", guarded_create_datagram_endpoint)
         if sock_sendto is not None:
 
-            async def guarded_sock_sendto(self, sock, data, address):
+            async def guarded_sock_sendto(self: Any, sock: socket.socket, data: Any, address: Any) -> Any:
                 _check(sock, address)
                 return await sock_sendto(self, sock, data, address)
 
-            loop.sock_sendto = guarded_sock_sendto
+            setattr(loop, "sock_sendto", guarded_sock_sendto)
 
-    _LOOPS = {"asyncio.proactor_events": _patch_proactor, "uvloop": _patch_uvloop}
+    _LOOPS: dict[str, Callable[[types.ModuleType], None]] = {"asyncio.proactor_events": _patch_proactor, "uvloop": _patch_uvloop}
 
     class _LoopFinder(importlib.abc.MetaPathFinder):
         """Patches an event loop's module right after it is imported, whoever imports it: an agent
         that never imports one pays nothing."""
 
-        def find_spec(self, name, path, target=None):
+        def find_spec(self, name: str, path: Optional[Sequence[str]], target: Optional[types.ModuleType] = None) -> Optional[importlib.machinery.ModuleSpec]:
             if name not in _LOOPS:
                 return None
             spec = importlib.machinery.PathFinder.find_spec(name, path)
@@ -393,14 +403,14 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
                 return spec
             exec_module = spec.loader.exec_module
 
-            def exec_and_patch(module):
+            def exec_and_patch(module: types.ModuleType) -> None:
                 exec_module(module)
                 try:
                     _LOOPS[name](module)
                 except Exception as err:  # never break the agent
                     sys.stderr.write("[shadowlap] could not guard %s: %s\n" % (name, err))
 
-            spec.loader.exec_module = exec_and_patch
+            setattr(spec.loader, "exec_module", exec_and_patch)
             return spec
 
     for _name, _patch in _LOOPS.items():
@@ -410,7 +420,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
 # Says it loaded, with what it set up: a run whose processes all stayed silent was never watched.
 if _url and not getattr(sys, "_shadowlap_hello", False):
-    sys._shadowlap_hello = True
+    setattr(sys, "_shadowlap_hello", True)
     _post(
         "/v1/hello",
         {
@@ -427,6 +437,6 @@ if _url and not getattr(sys, "_shadowlap_hello", False):
 _here = os.path.dirname(os.path.abspath(__file__))
 _rest = [p for p in sys.path if os.path.abspath(p or ".") != _here]
 _spec = importlib.machinery.PathFinder.find_spec("sitecustomize", _rest)
-if _spec is not None and _spec.origin and os.path.abspath(_spec.origin) != os.path.abspath(__file__):
+if _spec is not None and _spec.loader is not None and _spec.origin and os.path.abspath(_spec.origin) != os.path.abspath(__file__):
     _mod = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(_mod)
