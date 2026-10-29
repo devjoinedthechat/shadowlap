@@ -1,6 +1,6 @@
 import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, verdictLine, withLabels, withNote } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
-import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
+import { kindFacts, lookupRun, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
@@ -280,15 +280,8 @@ export function listRuns(store: Store, options: ReadOptions & { includeAttempts?
   return recentRuns(store, options);
 }
 
-/** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
-export function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord | null {
-  if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return null;
-  try {
-    return store.findRun(idOrPrefix);
-  } catch {
-    return null; // ambiguous
-  }
-}
+/** A run by its full id or a unique prefix: the engine's, which the routes and the read models here ask. */
+export { lookupRun };
 
 /**
  * Whether a run id prefix matches several runs and no run whole: `lookupRun` finds none for it, as

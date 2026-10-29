@@ -4,6 +4,7 @@ import { posix, win32 } from 'node:path';
 import { unsettledFirst } from './blame.js';
 import { fixLabelInfo, GOOD_LABEL, type FixRecords } from './fixes.js';
 import { commandIsImported, hasRecordedCommand, importedCommandSource } from './pack.js';
+import { lookupRun } from './run-lookup.js';
 import type { StoreOf, StoredBlame } from './store.js';
 import { quoteArgv } from './text.js';
 import type { RunRecord } from './types.js';
@@ -306,16 +307,6 @@ export function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonl
     }
     return `${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`;
   });
-}
-
-/** A run by its full id or, as the CLI prints and accepts them, a unique prefix. */
-function lookupRun(store: StoreOf<'recording'>, idOrPrefix: string): RunRecord | null {
-  if (!/^[0-9A-Za-z]{1,26}$/.test(idOrPrefix)) return null;
-  try {
-    return store.findRun(idOrPrefix);
-  } catch {
-    return null; // ambiguous
-  }
 }
 
 /**

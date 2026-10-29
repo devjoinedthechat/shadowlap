@@ -26,6 +26,8 @@ export { ulidNow } from './store/core.js';
 export type { FixData, FixLink, FixLinkKind, FixStatus, PulledFrom, StepRerun, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
 export { FIX_STATUSES, FixIdError, GOOD_LABEL, applyLeft, checkKey, cleanTitle, coversCheck, fixCost, fixLabelInfo, fixLabels, fixOfRun, fixRecords, joinableFix, markFixApplied, newFixId, prNumber, recordBlame, recordRepair, recordVerdict, repairToApply, resolveFix, setFixTitle, settleAppliedFixes, verdictCounts } from './fixes.js';
 export type { BlameToRecord, FixCost, FixRecords, RecordedBlame, RecordedRepair, RecordedVerdict, RepairToRecord, VerdictToRecord } from './fixes.js';
+// A run by its full id or the unique prefix the CLI prints, for the dashboard's routes and the fix jobs.
+export { lookupRun } from './run-lookup.js';
 // The commands a repair from a fix and a verify of it run, and the yes they need first, as the
 // dashboard builds them, so the terminal UI runs the same lines and asks about the same runs.
 export { DEFAULT_REPAIRER, agentOfArgv, agentOfRun, askConsent, consentKey, expectArgs, findProgram, fixRunArgs, jobConsent, keepArgs, labelSelectsFix, leftWords, needsConsent, noFixToTry, repairArgv, repairJobArgv, repairerProblem, saidYes, scopeArg, selectedRuns, shownBlame, verifyArgv, type JobConsent } from './fix-jobs.js';
