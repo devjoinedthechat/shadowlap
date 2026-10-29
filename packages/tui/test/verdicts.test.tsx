@@ -79,7 +79,8 @@ describe('how a run stands, in the terminal', () => {
     const frame = await frameWhere(lastFrame, (f) => f.includes('How this run stands'));
     const lines = frame.split('\n');
     // The verdict line under the header, and the list's line before the call blame named.
-    expect(lines[1]).toContain('✗ check failed: send_email called 1 time, but called 2 times (2 blocked) · lost at model call #9 (high confidence)');
+    // Under the header: what the run was about, then its verdict, the first fact whole.
+    expect(lines[1]).toMatch(/^ Research request .*✗ check failed: send_email called 1 time, but called 2 times \(2 blocked\)/);
     const at = lines.findIndex((l) => /> #9\s/.test(l));
     expect(lines[at - 1]).toContain('── lost here · blame, high confidence');
     // The run tab, whole: z widens it.
@@ -103,7 +104,7 @@ describe('how a run stands, in the terminal', () => {
     const { s } = story();
     const { lastFrame, stdin, unmount } = renderAt(<App store={s} columns={140} rows={30} />, 140, 30);
     let frame = await frameWhere(lastFrame, (f) => f.includes('2 runs'));
-    expect(frame).toMatch(/recording\s+✗ 1\/2\s+lost at #9\s+refund\s+5 attempts, 4 passed/);
+    expect(frame).toMatch(/recording\s+Research request.*✗ 1\/2\s+lost at #9\s+refund\s+5 attempts, 4 passed/);
     stdin.write('a');
     frame = await frameWhere(lastFrame, (f) => f.includes('7 runs'));
     expect(frame.split('\n').filter((l) => l.includes('clean replay'))).toHaveLength(5);

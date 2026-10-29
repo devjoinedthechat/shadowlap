@@ -1,12 +1,14 @@
 import { Box, useApp, useStdout } from 'ink';
 import { useEffect, useMemo, useState } from 'react';
-import { attemptBundles, deletionPlan, lostAt, withAttempts, type CallRecord, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { attemptBundles, deletionPlan, lostAt, withAttempts, withNote, type CallRecord, type Normalizer, type Price, type RunRecord, type Store } from '@shadowlap/engine';
+import { aboutRun } from './about.js';
 import { marked, markToast, type RunMark } from './marks.js';
 import type { Declared } from './verdict.js';
 import { recordingNow } from './actions.js';
 import { Help } from './components/Help.js';
 import { RunsView } from './components/RunsView.js';
 import { TimelineView, type OpenDashboard, type SpawnCli } from './components/TimelineView.js';
+import type { Tab } from './components/Inspector.js';
 import { loadRunTree, summaryOptions } from './data.js';
 import { THEMES, ThemeContext, type ThemeName } from './theme.js';
 
@@ -31,9 +33,14 @@ export interface AppProps {
   unrecorded?: Declared;
   /** The project's normalizers (`normalize` in shadowlap.config.json): what they mask is no difference between a fork and its parent. */
   normalizers?: readonly Normalizer[];
+  /** shadowlap.config.json's `tests` as written and the folder it is in: the check a golden's runs are blamed under. */
+  tests?: unknown;
+  configDir?: string | null;
+  /** The repairer shadowlap.config.json names now (`repair.repairer`), read each time a repair is shown or said yes to; none: the user's own Claude Code. */
+  repairer?: () => string | null;
 }
 
-type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean };
+type View = { kind: 'runs' } | { kind: 'timeline'; run: RunRecord; calls: CallRecord[]; initialCall?: number; askedCall: boolean; initialTab?: Tab };
 
 export function App({ theme = 'dark', ...rest }: AppProps) {
   return (
@@ -43,7 +50,7 @@ export function App({ theme = 'dark', ...rest }: AppProps) {
   );
 }
 
-function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers }: Omit<AppProps, 'theme'>) {
+function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows, prices, unrecorded, normalizers, tests, configDir = null, repairer }: Omit<AppProps, 'theme'>) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [size, setSize] = useState({ columns: columns ?? stdout.columns ?? 100, rows: rows ?? stdout.rows ?? 30 });
@@ -60,20 +67,43 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
 
   const [tick, setTick] = useState(0);
   const [attemptsShown, setAttemptsShown] = useState(false);
+  // Moves each time a run is read again (a job ended, a mark, a note): what a view works out once a run, it works out again.
+  const [version, setVersion] = useState(0);
   const options = useMemo(() => summaryOptions(store, prices), [store, prices]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `tick` moves when the store has new runs, which loadRunTree reads from it
   const nodes = useMemo(() => loadRunTree(store, { modelOf: options.modelOf!, attempts: attemptsShown, ...(options.prices ? { prices: options.prices } : {}) }), [store, options, tick, attemptsShown]);
   const [help, setHelp] = useState(false);
 
-  const open = (id: string, at?: number): View => {
+  const open = (id: string, at?: number, tab?: Tab): View => {
     const run = store.getRun(id);
     if (!run) return { kind: 'runs' };
     const calls = store.getCalls(id);
     // A fork opens where it forked, a blamed run where blame found it lost.
     const initialCall = at ?? run.divergence?.callNo ?? lostAt(run) ?? undefined;
-    return { kind: 'timeline', run, calls, askedCall: at !== undefined, ...(initialCall !== undefined ? { initialCall } : {}) };
+    return { kind: 'timeline', run, calls, askedCall: at !== undefined, ...(initialCall !== undefined ? { initialCall } : {}), ...(tab ? { initialTab: tab } : {}) };
   };
   const [view, setView] = useState<View>(() => (runId ? open(runId, callNo) : { kind: 'runs' }));
+
+  // Reads a run open in the timeline again, as it stands: where it was, on the call it was on.
+  const refresh = (id: string) => {
+    const fresh = open(id);
+    setTick((n) => n + 1);
+    setVersion((n) => n + 1);
+    setView((v) => (v.kind === 'timeline' && v.run.runId === id && fresh.kind === 'timeline' ? { ...fresh, askedCall: v.askedCall, ...(v.initialCall !== undefined ? { initialCall: v.initialCall } : {}) } : v));
+  };
+
+  // A note on a call, written as `shadowlap note` writes one.
+  const note = (id: string, callNo: number | null, text: string): string => {
+    const run = store.getRun(id);
+    if (!run) return `${id.slice(0, 10)} is gone`;
+    try {
+      store.updateRunMeta(id, { notes: withNote(run.meta?.notes, { callNo, text, at: Date.now() }) });
+      refresh(id);
+      return `noted on ${id.slice(0, 10)}${callNo !== null ? ` #${callNo}` : ''}`;
+    } catch (err) {
+      return `not noted: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  };
 
   // Good and bad, as the dashboard's key labels a run, written as `shadowlap label` writes labels.
   const mark = (id: string, m: RunMark): string => {
@@ -83,6 +113,7 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
       const next = marked(run.meta?.labels ?? [], m);
       store.updateRunMeta(id, { labels: next.labels });
       setTick((n) => n + 1);
+      setVersion((n) => n + 1);
       setView((v) => (v.kind === 'timeline' && v.run.runId === id ? { ...v, run: store.getRun(id) ?? v.run } : v));
       return markToast(id, m, next.on);
     } catch (err) {
@@ -133,8 +164,15 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         paused={help}
         onMark={mark}
         askedCall={view.askedCall}
+        {...(view.initialTab ? { initialTab: view.initialTab } : {})}
+        onRefresh={refresh}
+        onNote={note}
+        version={version}
+        configDir={configDir}
+        {...(tests !== undefined ? { tests } : {})}
         {...(unrecorded ? { declared: unrecorded } : {})}
         {...(normalizers ? { normalizers } : {})}
+        {...(repairer ? { repairer } : {})}
       />
     );
   } else {
@@ -143,7 +181,9 @@ function Screens({ store, runId, callNo, spawnCli, openDashboard, columns, rows,
         nodes={nodes}
         width={width}
         height={height}
-        onOpen={(id) => setView(open(id))}
+        onOpen={(id, at, tab) => setView(open(id, at, tab))}
+        aboutOf={(n) => aboutRun(store, n.run, n.calls)}
+        {...(spawnCli ? { spawnCli } : {})}
         attemptsOf={(id) => withAttempts(attemptBundles(store.allRuns()), id).length}
         onDelete={(id) => {
           // As `rm` and the dashboard delete it: with the attempts bundled under it, and left alone

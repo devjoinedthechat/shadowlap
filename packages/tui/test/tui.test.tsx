@@ -105,9 +105,9 @@ describe('TUI', () => {
       unmount();
       return [lines[0], lines.at(-1)];
     };
-    expect(await at(100)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  + - good/bad  q quit']);
+    expect(await at(100)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete  + - good/bad  q quit'.replace('/ filter', '/ filter  s search')]);
     // Whole keys only, help first: what doesn't fit is left out, never cut.
-    expect(await at(60)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  o dashboard  x delete']);
+    expect(await at(60)).toEqual([' shadowlap  1 run', ' ? help  enter open  / filter  s search  o dashboard']);
     store.close();
   });
 

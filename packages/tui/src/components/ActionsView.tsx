@@ -9,6 +9,8 @@ import type { Action } from '../actions.js';
 
 interface Props {
   actions: Action[];
+  /** Blame, repair and verify for the run, in a section of their own (keys B, R, V). */
+  fixes?: Action[];
   /** The header: `At #19 · search_web · read tool`. */
   title?: string;
   width: number;
@@ -19,18 +21,19 @@ interface Props {
   onClose: () => void;
 }
 
-/** The fork menu's order: the call's actions, then the whole run's, then the rest. */
-export function menuOrder(actions: Action[]): Array<{ section: string | null; actions: Action[] }> {
+/** The fork menu's order: the call's actions, then the whole run's, then the Fixes flow's, then the rest. */
+export function menuOrder(actions: Action[], fixes: Action[] = []): Array<{ section: string | null; actions: Action[] }> {
   return [
     { section: null, actions: actions.filter((a) => a.group === 'call') },
     { section: 'The whole run', actions: actions.filter((a) => a.group === 'run') },
+    { section: 'Fixes', actions: fixes },
     { section: '', actions: actions.filter((a) => !a.group) },
   ].filter((s) => s.actions.length > 0);
 }
 
-export function ActionsView({ actions, title, width, height, active, cliAvailable, onPick, onClose }: Props) {
+export function ActionsView({ actions, fixes = [], title, width, height, active, cliAvailable, onPick, onClose }: Props) {
   const theme = useTheme();
-  const sections = menuOrder(actions);
+  const sections = menuOrder(actions, fixes);
   const ordered = sections.flatMap((s) => s.actions);
   const [selected, setSelected] = useState(0);
   useInput(

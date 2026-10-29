@@ -22,6 +22,7 @@ export const HELP: Record<HelpContext, Group[]> = {
       keys: [
         ['enter', 'open the run: its calls and what each sent and got back'],
         ['/', 'filter by id, command, revision or label; esc clears'],
+        ['s', 'search what runs said: prompts, answers, tool calls and results'],
         ['o', 'open the run in the dashboard'],
         ['x', 'delete the selected run with its attempts, as rm does; asks first'],
         ['+ -', 'mark it good (a fix must keep it working) or bad (one to fix)'],
@@ -60,8 +61,8 @@ export const HELP: Record<HelpContext, Group[]> = {
     {
       title: 'Act',
       keys: [
-        [':', 'fork menu: fork here, repeat, stub writes, find the commit'],
-        ['p  o', 'the parent run; o opens this call in the dashboard'],
+        [':', 'fork menu: forks, repeat, bisect; B blame, R repair, V verify'],
+        ['p  o  N', 'the parent run; o the dashboard; N a note on the call'],
         ['+ -', 'mark the run good (a fix must keep it working) or bad'],
         ['esc  q', 'back one step (filter, zoom, focus); q back to the runs'],
       ],

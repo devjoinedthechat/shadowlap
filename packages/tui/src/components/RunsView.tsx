@@ -2,21 +2,36 @@ import { Box, Text, useInput } from 'ink';
 import { checksOf as engineChecksOf, failedChecks, formatDuration, formatUsd, lostAt, safeLine } from '@shadowlap/engine';
 import { allPassed, attemptsText } from '../attempts.js';
 import { markKey, type RunMark } from '../marks.js';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RunNode } from '../data.js';
 import { ago } from '../data.js';
 import { fitColumns, fitItems, sharedPrefix } from '../render.js';
 import { useTheme, type Theme } from '../theme.js';
 import type { OpenDashboard } from './TimelineView.js';
 import { copyToClipboard } from '../clipboard.js';
+import type { RunAbout } from '@shadowlap/engine';
+import { fitAbout } from '../about.js';
+import { runSearch, type RunningSearch, type SearchResult } from '../search.js';
 import { cell, KeyHints, Line, Row, type Hint, type Tone } from './Row.js';
+import { SearchResults } from './SearchResults.js';
 import { TextInput } from './TextInput.js';
+import type { SpawnCli } from './TimelineView.js';
+import type { Tab } from './Inspector.js';
+import type { SearchHit } from '../search.js';
+
+/** The inspector tab a search's match is on: what the call was asked, or what it answered. */
+const FIELD_TAB: Record<SearchHit['field'], Tab> = { prompt: 'conversation', response: 'response', arguments: 'request', result: 'response' };
 
 interface Props {
   nodes: RunNode[];
   width: number;
   height: number;
-  onOpen: (runId: string) => void;
+  /** Opens a run, at a call when given (a search's match). */
+  onOpen: (runId: string, callNo?: number, tab?: Tab) => void;
+  /** What a run was about, as the dashboard names it; without it, the command it ran. */
+  aboutOf?: (n: RunNode) => Pick<RunAbout, 'text' | 'from'>;
+  /** Runs `shadowlap search` for `s`; without it, `s` says to run it from the shell. */
+  spawnCli?: SpawnCli;
   /** Deletes a run, with the attempts bundled under it; what it says back (why it didn't) is shown. */
   onDelete: (runId: string) => string | null | void;
   /** How many attempts are bundled under a run, which a delete takes with it: the confirm names them. */
@@ -33,7 +48,13 @@ interface Props {
   onToggleAttempts?: () => void;
 }
 
-type Mode = { kind: 'list' } | { kind: 'search'; before: string } | { kind: 'confirm-delete'; runId: string; attempts: number };
+type Mode =
+  | { kind: 'list' }
+  | { kind: 'search'; before: string }
+  | { kind: 'confirm-delete'; runId: string; attempts: number }
+  /** Asking what to search for in what runs said; then the matches, null while the search runs. */
+  | { kind: 'find' }
+  | { kind: 'found'; query: string; result: SearchResult | null; token: number };
 
 /**
  * `shadowlap test` checks as `✓ 3/3`, `✗ 2/3` or `? 1/2`: passed of those that applied, lime when
@@ -103,7 +124,7 @@ function detailItems(n: RunNode): string[] {
 
 const ID = 10;
 
-export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false, onMark, attemptsShown = false, onToggleAttempts }: Props) {
+export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, onQuit, onHelp, openDashboard, paused = false, onMark, attemptsShown = false, onToggleAttempts, aboutOf, spawnCli }: Props) {
   const theme = useTheme();
   const [query, setQuery] = useState('');
   const visible = useMemo(() => {
@@ -113,10 +134,12 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       (n) =>
         n.run.runId.toLowerCase().startsWith(q) ||
         n.run.command.argv.join(' ').toLowerCase().includes(q) ||
+        // What the row shows the run by: worked out once a run, and kept.
+        (aboutOf?.(n).text.toLowerCase().includes(q) ?? false) ||
         (n.run.codeVersion ?? '').toLowerCase().includes(q) ||
         (n.run.meta?.labels ?? []).some((l) => l.toLowerCase().includes(q)),
     );
-  }, [nodes, query]);
+  }, [nodes, query, aboutOf]);
   const [toast, setToast] = useState<{ text: string; ms: number; tone: Tone } | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -175,6 +198,10 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       if (input === 'q') onQuit();
       else if (input === '?') onHelp();
       else if (input === '/') setMode({ kind: 'search', before: query });
+      else if (input === 's') {
+        if (spawnCli) setMode({ kind: 'find' });
+        else setToast({ text: 'search what runs said with shadowlap search <words>', ms: 4000, tone: 'info' });
+      }
       else if (key.downArrow || input === 'j') move(1);
       else if (key.upArrow || input === 'k') move(-1);
       else if (key.pageDown) move(rows);
@@ -189,7 +216,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         setToast({ text: attemptsShown ? 'attempts folded under their runs' : 'attempts listed one by one; a folds them again', ms: 2500, tone: 'info' });
       } else if (markKey(input) && current && onMark) setToast({ text: onMark(current.run.runId, markKey(input)!), ms: 4000, tone: 'ok' });
     },
-    { isActive: mode.kind !== 'search' && !paused },
+    { isActive: (mode.kind === 'list' || mode.kind === 'confirm-delete') && !paused },
   );
 
   // Columns sized to what the shown runs hold, then fitted to the width: the least telling go
@@ -207,6 +234,8 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       { key: 'mark', min: 2 },
       { key: 'id', min: Math.min(24, longest((n) => indentOf(n) + 'x'.repeat(ID))) + 2 },
       { key: 'label', min: Math.min(16, longest((n) => n.label)) + 2 },
+      // What the run was about, as the dashboard names it: after what it is, widened before the counts.
+      { key: 'about', min: 14, max: 46 },
       { key: 'checks', min: checkW ? checkW + 2 : 0 },
       { key: 'status', min: statusW ? statusW + 2 : 0, drop: 1 },
       { key: 'labels', min: labelsW ? Math.min(labelsW, 10) + 2 : 0, max: labelsW ? Math.min(labelsW, 28) + 2 : 0, drop: 3 },
@@ -214,7 +243,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
       { key: 'calls', min: longest((n) => `${n.calls} calls`) + 2, drop: 4 },
       { key: 'cost', min: longest(costText) ? longest(costText) + 2 : 0, drop: 5 },
       { key: 'age', min: longest((n) => ago(n.run.startedAt)) + 2, drop: 2 },
-      { key: 'command', min: 0, max: Number.POSITIVE_INFINITY },
+
     ],
     width,
   );
@@ -227,6 +256,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         ['?', 'help'],
         ['enter', 'open'],
         ['/', 'filter'],
+        ['s', 'search'],
         ['o', 'dashboard'],
         ['x', 'delete'],
         ['+ -', 'good/bad'],
@@ -240,8 +270,28 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
         ['q', 'quit'],
       ];
 
+  // Searching what runs said: the CLI runs it in a process of its own, the keys still answered meanwhile.
+  // One search at a time: a new one, leaving the results, or quitting stops the last if it still runs.
+  const searching = useRef<RunningSearch | null>(null);
+  const stopSearch = () => {
+    searching.current?.stop();
+    searching.current = null;
+  };
+  useEffect(() => stopSearch, []);
+  const find = (q: string) => {
+    stopSearch();
+    if (!q.trim() || !spawnCli) return setMode({ kind: 'list' });
+    const token = Date.now();
+    setMode({ kind: 'found', query: q.trim(), result: null, token });
+    const running = runSearch(spawnCli, q.trim());
+    searching.current = running;
+    void running.done.then((result) => setMode((m) => (m.kind === 'found' && m.token === token ? { ...m, result } : m)));
+  };
+
   const footer =
-    mode.kind === 'search' ? (
+    mode.kind === 'find' ? (
+      <TextInput label="search what runs said:" placeholder='words, or "a phrase"' enterDoes="search" width={width} active onSubmit={find} onCancel={() => setMode({ kind: 'list' })} />
+    ) : mode.kind === 'search' ? (
       <TextInput
         label="filter runs:"
         initial={query}
@@ -272,6 +322,28 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
     ) : (
       <KeyHints hints={hints} width={width} />
     );
+
+  if (mode.kind === 'found') {
+    return (
+      <SearchResults
+        key={mode.token}
+        query={mode.query}
+        result={mode.result}
+        width={width}
+        height={height}
+        active={!paused}
+        onOpen={(runId, callNo, field) => {
+          stopSearch();
+          onOpen(runId, callNo, FIELD_TAB[field]);
+        }}
+        onAgain={() => setMode({ kind: 'find' })}
+        onClose={() => {
+          stopSearch();
+          setMode({ kind: 'list' });
+        }}
+      />
+    );
+  }
 
   return (
     <Box flexDirection="column" width={width} height={height}>
@@ -328,6 +400,7 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                   ],
                 },
                 cell(n.label, w.label, labelColor ? { color: labelColor } : {}, 2),
+                aboutOf ? cell(fitAbout(aboutOf(n), Math.max(1, w.about - 2)), w.about, {}, 2) : cell(n.run.command.argv.join(' '), w.about, { color: theme.faint }, 2),
                 cell(checks?.text ?? '', w.checks, checks ? { color: checks.color } : {}, 2),
                 cell(status, w.status, { color: status === 'recording' ? theme.warn : theme.err }, 2),
                 cell(labelsText(n), w.labels, { color: theme.dim }, 2),
@@ -335,7 +408,6 @@ export function RunsView({ nodes, width, height, onOpen, onDelete, attemptsOf, o
                 cell(`${n.calls} calls`, w.calls, {}, 2),
                 cell(costText(n), w.cost, { color: theme.dim }, 2),
                 cell(ago(n.run.startedAt), w.age, { color: theme.dim }, 2),
-                cell(n.run.command.argv.join(' '), w.command, { color: theme.faint }, 0),
               ]}
             />
           );

@@ -14,13 +14,15 @@ interface Props {
   onExit: (code: number | null, createdRunId: string | null) => void;
   onClose: () => void;
   onOpenRun: (runId: string) => void;
+  /** Whether Enter opens a run the command created; off for blame, repair and verify, whose replays are probes and attempts, not their result. */
+  opensRun?: boolean;
 }
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 const RUN_LINE = /(?:recording|replaying) run ([0-9A-Z]{26})/;
 
 /** Streams a spawned CLI command's output; when it exits, offers to open the run it created. */
-export function OutputPane({ title, child, width, height, active, onExit, onClose, onOpenRun }: Props) {
+export function OutputPane({ title, child, width, height, active, onExit, onClose, onOpenRun, opensRun = true }: Props) {
   const theme = useTheme();
   const [lines, setLines] = useState<string[]>([]);
   const [exit, setExit] = useState<{ code: number | null; runId: string | null } | null>(null);
@@ -63,7 +65,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
     (input, key) => {
       if (!exit) return; // let it finish
       if (key.escape || input === 'q') onClose();
-      else if (key.return && exit.runId) onOpenRun(exit.runId);
+      else if (key.return && exit.runId && opensRun) onOpenRun(exit.runId);
     },
     { isActive: active },
   );
@@ -73,7 +75,7 @@ export function OutputPane({ title, child, width, height, active, onExit, onClos
   const visible = lines.slice(-body);
   const status = exit
     ? exit.code === 0
-      ? `done${exit.runId ? ` · Enter opens run ${exit.runId.slice(0, 10)}` : ''} · Esc closes`
+      ? `done${exit.runId && opensRun ? ` · Enter opens run ${exit.runId.slice(0, 10)}` : ''} · Esc closes${opensRun ? '' : ', and the run is read again'}`
       : `exited with code ${exit.code ?? '?'} · Esc closes`
     : 'running…';
   return (
