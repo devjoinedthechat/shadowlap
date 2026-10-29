@@ -158,7 +158,6 @@
     "packages/dashboard/src/fix-bundles.ts": 180,
     "packages/dashboard/src/routes/projects.ts": 239,
     "packages/dashboard/src/routes/settings.ts": 206,
-    "packages/dashboard/src/server.ts": 414,
     "packages/dashboard/src/training.ts": 182,
     "packages/dashboard/ui/api.ts": 189,
     "packages/dashboard/ui/components/Drawer.tsx": 176,
