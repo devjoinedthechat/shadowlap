@@ -26,7 +26,7 @@ import { takeoverReader } from '../tasks.js';
 import { prepareTestPush, teamEnv } from '../team.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../test-report.js';
 import { Turns } from '../turns.js';
-import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
+import { palette as p, quoteArgv, safe, safeLines, shortId } from '../ui.js';
 import { allowedUnrecorded } from '../unrecorded.js';
 import { unrecordedInGoldens } from '../unrecorded-goldens.js';
 
@@ -536,9 +536,9 @@ class Session {
     if (u.run) made.push(u.run.runId);
     if (u.checks?.length && !u.interrupted) process.stdout.write(formatChecks(u.checks).split('\n').map((l) => `      ${l}`).join('\n') + '\n');
     if (!u.replaced || !u.run) {
-      process.stdout.write(`    ${p.red('✗')} not replaced: ${u.reason!}\n`);
+      process.stdout.write(`    ${p.red('✗')} not replaced: ${safe(u.reason!)}\n`);
       const tail = u.interrupted ? null : outputTail(u.output, 10);
-      if (tail) process.stdout.write(p.dim(tail.split(/\r\n|\r|\n/).map((l) => `      │ ${safe(l)}`).join('\n') + '\n'));
+      if (tail) process.stdout.write(p.dim(safeLines(tail, '      │ ')));
       return { outcome, injection, updated: null };
     }
     this.updates++;
@@ -714,14 +714,16 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
   }
   // Inconclusive is neither, whatever CI does with it: marked ? in amber, as a check that could not be decided is.
   const inconclusive = verdictOf(o) === 'inconclusive';
-  process.stdout.write(`${inconclusive ? p.yellow('?') : p.red('✗')} ${o.name}: ${o.failure.message}\n`);
+  // Its message as one line: it can carry what the golden's command or its provider said.
+  process.stdout.write(`${inconclusive ? p.yellow('?') : p.red('✗')} ${o.name}: ${safe(o.failure.message)}\n`);
   notes();
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';
   if (o.result.shown.checks?.length) process.stdout.write(indent(formatChecks(o.result.shown.checks)));
-  process.stdout.write(indent(o.failure.details));
+  // Every line of it escaped, as what the agent printed is: it can hold that (a command that never started), an error's words, a proof.
+  process.stdout.write(safeLines(o.failure.details, '    '));
   // An injection gate fails on its attempts, not on the replay: what the replay printed says nothing.
   const tail = o.kind === 'injection' ? null : outputTail(o.result.shown.output);
   // Every line of it after the bar, a bare CR's too, its control characters escaped: a CI log reads a line that starts with :: as a command.
-  if (tail) process.stdout.write(p.dim(indent(tail.split(/\r\n|\r|\n/).map(safe).join('\n'), '    │ ')));
+  if (tail) process.stdout.write(p.dim(safeLines(tail, '    │ ')));
 }
