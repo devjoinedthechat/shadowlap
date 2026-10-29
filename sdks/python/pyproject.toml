@@ -91,9 +91,7 @@ max-complexity = 15
 "shadowlap/adapters/_claude_reach.py" = ["C901"]
 "shadowlap/adapters/claude_agent_sdk.py" = ["C901"]
 "tests/fake_claude_code.py" = ["C901"]
-# Held, as other passes are changing them: today's findings in them, fixed once those merge.
-"shadowlap/__init__.py" = ["C901", "RUF021", "RUF022", "S112", "S310", "SIM105"]
-"tests/test_recording.py" = ["SIM115"]
+"shadowlap/__init__.py" = ["C901"]
 
 [tool.ruff.lint.isort]
 # The SDK, as the agents and tests elsewhere in the repository import it: its own group, after the others.
