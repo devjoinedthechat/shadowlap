@@ -91,7 +91,9 @@ A preset's verdict is one of four:
 - **inconclusive**: the gate ran out of attempts between its bounds, the replay never reached the
   call (a golden that no longer replays as far as that: `shadowlap test` says why), or a
   [check](./checks.md#how-a-check-comes-out) could not be decided, such as a judge with no way to
-  be asked, which no further attempt would decide either;
+  be asked, which no further attempt would decide either, or the provider stayed unavailable too
+  many attempts in a row, counted across the session's presets, which leaves every preset after it
+  inconclusive too;
 - **not applicable**: the recording has no call the preset can hit, or no answer it can change (a
   binary response, a result with no text or list to grow, a tool that already answered with nothing).
 
@@ -109,14 +111,14 @@ Forks vary, so a preset can be decided over several attempts, as they come in:
   line shows its tally and the bound of its pass rate, exact under the gate's stopping, `timed out: 4
   of 4 attempts passed · rate >= 0.47 (90%)`, and the table states the rule once under it: `gate: tells 90%+ from 50%- at
   <= 10% risk, up to 6 attempts`.
-  Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it stops
-  as soon as the score reaches ±ln((1−risk)/risk): with these figures, after four passes or two
-  failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 80 when
+  Each passing attempt adds ln(good/bad) to its score, each failure ln((1−good)/(1−bad)), and it passes
+  once the score reaches ln(1/risk) and fails once it falls to ln(risk): with these figures, after
+  four passes or two failures. Inconclusive after `max` attempts. Every figure is optional (0.9, 0.7, 0.05 and 80 when
   left out, as for a golden's own [gate](./gating.md)), and a `max` too small for an agent that
   always passes to reach the pass bound is refused, since the gate could never pass.
 
 `--inconclusive fail` (the default) fails the command on an inconclusive preset; `--inconclusive warn`
-reports it, marks its JUnit case skipped, and exits 0.
+reports it, marks its JUnit case skipped, and lets it through, so the exit status counts it as passed.
 
 ## Configure a golden's presets
 
