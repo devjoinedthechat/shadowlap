@@ -18,7 +18,7 @@ npm run build                     # tsc -b (first removing its build of a source
 npx vitest run                    # unit tests, the fidelity suite, the golden replay, the Python agent
 npm run typecheck:tests           # the test files, under the same strict settings as the source
 npm run typecheck:js              # the GitHub Action and the Node preloads, JavaScript checked from its JSDoc
-npm run lint                      # ESLint with typescript-eslint's typed rules, ruff on the Python and mypy on the Python guard (through uvx)
+npm run lint                      # ESLint with typescript-eslint's typed rules and the size caps, ruff on the Python and mypy on the Python guard (through uvx)
 node --test testing/conformance/conformance.test.mjs   # the SDK wire protocol, for both SDKs
 cd sdks/python && uv run --no-project --with pytest --with-editable . python -m pytest -q
 ```
@@ -28,6 +28,8 @@ Without uv, the Python tests run with `pip install pytest -e sdks/python` and `p
 The dashboard's checks in a real browser run with `npm run test:browser`, in the Chromium Playwright installs (`npx playwright install chromium`, in `packages/dashboard`); what follows `--` goes to Playwright, so `npm run test:browser -- -g axe` runs the tests whose titles match.
 
 `npm run lint` reads the packages through their built declarations, so it runs after the build, and it fails on any finding. A finding is fixed; where the code is right as it is, the rule is turned off on that line with the reason (`// eslint-disable-next-line <rule> -- <why>`, `# noqa: <code> -- <why>`). `eslint.config.mjs` and `sdks/python/pyproject.toml` say why each rule that is off is off.
+
+Lint caps how complex a function may grow (30 paths), how long (150 lines) and how deep its blocks nest (5), and how long a file runs (800 lines), blank lines and comments not counted. The files over a cap when it came are listed in `lint-caps.json`, each held to what it was: one may shrink, never grow. `npm run lint` checks that the list is exact, and `node scripts/lint-caps.mjs --write` lowers it once a file has shrunk.
 
 `npx vitest run` runs the Python reference agent end to end, and the Python agents that build their clients the default way (`testing/default-clients`), only with a Python ≥ 3.9 that can import `anthropic`, `openai`, `google-genai` and `boto3`, which CI installs; the guard's and in-process capture's async cases need `aiohttp`, `websockets`, `aiobotocore` and `uvloop` too, which CI installs as well (`uvloop` not on Windows). Without one, those tests count as skipped and the run is still green (the async cases fetch theirs through uv when uv is installed), so point `SHADOWLAP_PYTHON` at one before you rely on it. Under CI a missing one fails the run instead, naming it. CI takes every Python package's version from `testing/python-constraints.txt`, which `testing/python-constraints.in` lists and says how to compile; the same file pins a venv of your own:
 

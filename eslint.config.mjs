@@ -4,6 +4,7 @@
 // with tsconfig.test.json (or tsconfig.test-dom.json, for those that import the browser code), and
 // the JavaScript with tsconfig.lint.json. Run it after `npm run build`: packages read each other
 // through their built declarations, as tsc -b does.
+import { readFileSync } from 'node:fs';
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import reactHooks from 'eslint-plugin-react-hooks';
@@ -36,6 +37,37 @@ const BROWSER_TESTS = ['packages/dashboard/browser/**/*.ts'];
 const JS = ['**/*.{js,mjs,cjs}'];
 /** The JavaScript that is tests: agents and fakes the tests run, and the harnesses under testing/. */
 const JS_TESTS = ['packages/*/test/**/*.{js,mjs,cjs}', 'testing/**/*.{js,mjs,cjs}'];
+/** Every test: its functions are its describe and it callbacks, which hold whole suites. */
+export const TEST_FILES = [...TESTS, ...domTests, ...BROWSER_TESTS, ...JS_TESTS];
+
+/** What is never linted: build output, installed packages, stores, a virtualenv, generated files. */
+export const IGNORED = [
+  '**/dist/**',
+  '**/node_modules/**',
+  '**/.shadowlap/**',
+  // A Python virtualenv, as .gitignore has it: its packages ship JavaScript of their own.
+  '**/.venv/**',
+  'scripts/out/**',
+  'sdks/python/build/**',
+];
+
+/**
+ * Growth stops. No function takes more than 30 paths through it, runs past 150 lines or nests its
+ * blocks more than 5 deep, and no file runs past 800 lines, blank lines and comments not counted. A
+ * test's functions are its describe and it callbacks, which hold whole suites, so their length is
+ * not capped. The files over a cap today are listed in lint-caps.json, each held to what it is today:
+ * scripts/lint-caps.mjs keeps that list exact, as `npm run lint` runs it, and lowers it as they shrink.
+ */
+export const CAPS = {
+  complexity: { max: 30 },
+  'max-lines-per-function': { max: 150, skipBlankLines: true, skipComments: true, IIFEs: true },
+  'max-depth': { max: 5 },
+  'max-lines': { max: 800, skipBlankLines: true, skipComments: true },
+};
+/** Today's files over a cap, by rule, each with what it is today (scripts/lint-caps.mjs). */
+const OVER = JSON.parse(readFileSync(`${root}/lint-caps.json`, 'utf8'));
+/** A cap as a rule's options, at `max`. */
+const capped = (rule, max = CAPS[rule].max) => ['error', { ...CAPS[rule], max }];
 
 /**
  * What the code says one way, each ban with the message that names that way, for no-restricted-syntax.
@@ -79,15 +111,7 @@ const BANS = {
 const bans = (...names) => ['error', ...names.flatMap((name) => BANS[name])];
 
 export default defineConfig(
-  globalIgnores([
-    '**/dist/**',
-    '**/node_modules/**',
-    '**/.shadowlap/**',
-    // A Python virtualenv, as .gitignore has it: its packages ship JavaScript of their own.
-    '**/.venv/**',
-    'scripts/out/**',
-    'sdks/python/build/**',
-  ]),
+  globalIgnores(IGNORED),
 
   {
     files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
@@ -207,6 +231,15 @@ export default defineConfig(
       ],
     },
   },
+
+  // Growth stops (CAPS), a test's function length aside, and today's files over a cap held to what they
+  // are (lint-caps.json).
+  {
+    files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
+    rules: Object.fromEntries(Object.keys(CAPS).map((rule) => [rule, capped(rule)])),
+  },
+  { files: TEST_FILES, rules: { 'max-lines-per-function': 'off' } },
+  ...Object.entries(OVER).flatMap(([rule, files]) => Object.entries(files).map(([file, max]) => ({ files: [file], rules: { [rule]: capped(rule, max) } }))),
 
   // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
   // value with messageOf; the CLI's names its exit statuses.
