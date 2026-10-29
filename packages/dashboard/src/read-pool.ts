@@ -36,7 +36,7 @@ export interface ReadModels {
    * it keeps it; `calls`, how long that run is (whether another thread may take the job meanwhile).
    */
   run(job: ReadJob, o?: { affinity?: string; calls?: number }): Promise<ReadAnswer>;
-  /** The warm-up has been through every run: a read model works out what is still unknown when it is asked for. */
+  /** The warm-up has been through every run, until an answer says it is warming again (`warm`). */
   readonly warmed: boolean;
   /** Has the warm-up go through the runs again, from the newest (an answer said it was warming); a no-op while it runs. */
   warm(): void;

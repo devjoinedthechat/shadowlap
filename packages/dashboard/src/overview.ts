@@ -2,11 +2,11 @@ import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, o
 import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { upgradeLooks } from './looks.js';
 import { links } from './links.js';
-import { aboutsOf } from './run-about.js';
+import { aboutsOf, aboutsWithin } from './run-about.js';
 import { stepWords } from './store-steps.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay, type LocalDay } from './local-days.js';
 import { classifiable, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
-import { cacheTotalsOf, cacheUseOf, callTotals, runStats, sumStats, totalsKnown, type RunStats, type StatsOptions } from './run-stats.js';
+import { cacheTotalsOf, cacheUseOf, callTotals, callTotalsWithin, priced, sumStats, totalsKnown, type CallTotals, type RunStats, type StatsOptions } from './run-stats.js';
 import { failingTests, overviewTests, verdictOfResult, type GoldenList } from './tests.js';
 
 /**
@@ -269,6 +269,13 @@ export interface OverviewOptions extends StatsOptions {
   teamStore?: StoreNote | null;
   /** Whether a verified fix's patch is in the working tree already (merged, or applied by hand): such a fix is no more ready to apply. */
   patchInTree?: PatchCheck;
+  /**
+   * Answering a request beside the server (read-jobs.ts), after `overviewKnown` found the finished
+   * runs' totals known: what isn't known yet is worked out only while the calls read for it stay
+   * within this many (a run older than the two weeks under a run of the week, a recording in
+   * progress's prompt cache, what a long recording's user asked), the rest left to the warm-up.
+   */
+  budget?: number;
 }
 
 export interface OverviewSummary {
@@ -328,13 +335,23 @@ function windowsOf(tz: string, now: number): { today: LocalDay; weekDays: LocalD
  * How far what the Overview adds up is known (run-stats.ts `totalsKnown`): the totals of every
  * finished run of these two weeks, and this week's prompt cache. A store no dashboard has opened has
  * none of it kept: its first look answers with this while the warm-up works out the rest beside the
- * server, rather than read every call of every run while the browser waits.
+ * server, rather than read every call of every run while the browser waits. With `budget`, what fits
+ * it is worked out first, newest first: a short run that just ended doesn't send the Overview back to
+ * warming, a long one waits for the warm-up.
  */
-export function overviewKnown(store: Store, options: Pick<OverviewOptions, 'tz' | 'now'> = {}): { done: number; total: number } {
+export function overviewKnown(store: Store, options: Pick<OverviewOptions, 'tz' | 'now' | 'budget'> = {}): { done: number; total: number } {
   const { week, lastWeek } = windowsOf(options.tz ?? 'UTC', options.now ?? Date.now());
   const index = loadRunIndex(store);
   const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
-  return totalsKnown(store, index, inWindow, { cache: (r) => r.startedAt >= week.from && !importedRecording(r) });
+  const cache = (r: IndexedRun) => r.startedAt >= week.from && !importedRecording(r);
+  if (options.budget === undefined) return totalsKnown(store, index, inWindow, { cache });
+  const finished = inWindow.filter((r) => r.status !== 'running' && r.calls > 0);
+  const { totals } = callTotalsWithin(store, index, finished, { budget: options.budget });
+  // Kept caches another thread worked out are read here once, with those that fit worked out.
+  const caches = cacheTotalsOf(store, index, finished.filter(cache), { budget: options.budget });
+  // A cache known comes with its run's totals.
+  const done = finished.filter((r) => (cache(r) ? caches.has(r.runId) : totals.has(r.runId))).length;
+  return { done, total: finished.length };
 }
 
 /** The Overview's numbers. Throws a RangeError for an unknown time zone. */
@@ -344,7 +361,10 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
   const { today, weekDays, week, lastWeek } = windowsOf(tz, now);
   const index = loadRunIndex(store);
   const inWindow = index.runs.filter((r) => r.startedAt >= lastWeek.from && r.startedAt < week.to);
-  const stats = runStats(store, index, inWindow, options);
+  // Worked out once for the sums and the grid both: a recording in progress is added up anew whenever
+  // it has made calls, and the grid asking again read a recording of 60,000 calls twice more.
+  const totals = callTotals(store, index, inWindow);
+  const stats = new Map([...totals].map(([runId, t]) => [runId, priced(t, options.prices)] as const));
 
   const sums = { week: emptyWeek(), lastWeek: emptyWeek() };
   const daily: DaySums[] = weekDays.map((d) => ({ day: d.key, start: d.start, spent: 0, notRespent: 0 }));
@@ -374,21 +394,21 @@ export function overviewSummary(store: Store, options: OverviewOptions = {}): Ov
     sums,
     daily,
     counts: index.counts,
-    today: todayPanel(store, index, inWindow, stats, today, recording),
-    grid: runGrid(store, index, thisWeek, stats, Math.max(1, Math.min(500, Math.floor(options.gridRows ?? 40) || 40)), recording),
+    today: todayPanel(store, index, inWindow, stats, today, recording, options.budget),
+    grid: runGrid(store, index, thisWeek, { stats, totals }, Math.max(1, Math.min(500, Math.floor(options.gridRows ?? 40) || 40)), recording, options.budget),
     outcomes: {
       reproduced: { value: fixes.reproduced.thisWeek, lastWeek: fixes.reproduced.lastWeek, open: fixes.open },
       fixesVerified: { value: fixes.verified.thisWeek, lastWeek: fixes.verified.lastWeek, rejected: fixes.rejected.thisWeek },
       testsPassing: tests,
       spent: { value: sums.week.spent, lastWeek: sums.lastWeek.spent, notRespent: sums.week.notRespent, notWaitedMs: sums.week.notWaitedMs },
     },
-    cache: weekCache(store, index, week.from),
+    cache: weekCache(store, index, week.from, options.budget),
     fixes: { ...fixes.funnel, open: fixes.open, readyToApply: fixes.readyToApply, broken: fixes.broken, attempts: fixes.attempts, spent: fixes.spent },
-    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree),
+    needsLook: needsLook(store, goldens, options.teamStore ?? null, options.patchInTree, options.budget),
   };
 }
 
-function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay, recordingNow: ReadonlySet<string>): TodayPanel {
+function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats: Map<string, RunStats>, today: LocalDay, recordingNow: ReadonlySet<string>, budget?: number): TodayPanel {
   const runs = inWindow.filter((r) => r.startedAt >= today.start && r.startedAt < today.end);
   const shown = runs.filter((r) => !r.bundled);
   const of = (kind: RunKind) => shown.filter((r) => r.kind === kind);
@@ -419,7 +439,7 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
     day: today.key,
     served: sum(shown, (s) => s.origins.r),
     notRespent: sum(runs, (s) => s.saved),
-    recording: recordingRows(store, index, recordingNow),
+    recording: recordingRows(store, index, recordingNow, budget),
     replays: of('clean').length,
     forks: { count: forks.length, live: sum(forks, (s) => s.origins.l), blocked: sum(forks, (s) => s.origins.b) },
     tests: { count: tests.length, failed: failedTests.length, inconclusive: inconclusiveTests.length, latestFailure: failedTests[0] ? { runId: failedTests[0].runId, outcome: failedTests[0].outcome } : null },
@@ -439,9 +459,9 @@ function todayPanel(store: Store, index: RunIndex, inWindow: IndexedRun[], stats
 }
 
 /** Recordings in progress, each with what it is about: a recording's first user message, read once it was sent. */
-function recordingRows(store: Store, index: RunIndex, recordingNow: ReadonlySet<string>): TodayPanel['recording'] {
+function recordingRows(store: Store, index: RunIndex, recordingNow: ReadonlySet<string>, budget?: number): TodayPanel['recording'] {
   const runs = index.runs.filter((r) => recordingNow.has(r.runId) && r.mode === 'record' && !r.bundled);
-  const abouts = runs.length ? aboutsOf(store, index, runs) : new Map<string, RunAbout>();
+  const abouts = runs.length ? aboutsUpTo(store, index, runs, budget) : new Map<string, RunAbout>();
   return runs.map((r) => ({ runId: r.runId, command: r.argv.join(' '), calls: r.calls, startedAt: r.startedAt, about: abouts.get(r.runId) ?? null }));
 }
 
@@ -451,7 +471,8 @@ function recordingRows(store: Store, index: RunIndex, recordingNow: ReadonlySet<
  * it and the week's runs. Families come newest first (by their newest run of the week) and are
  * added whole while they fit; one family too large for the grid shows its first rows.
  */
-function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<string, RunStats>, maxRows: number, recordingNow: ReadonlySet<string>): RunGrid {
+function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], known: { stats: Map<string, RunStats>; totals: Map<string, CallTotals> }, maxRows: number, recordingNow: ReadonlySet<string>, budget?: number): RunGrid {
+  const { stats } = known;
   const week = new Set(runs.map((r) => r.runId));
   // The run each row hangs under: its parent, or past an attempt (attempts are not rows), the run that attempt came from.
   const shownParent = (r: IndexedRun): IndexedRun | null => {
@@ -508,8 +529,12 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
     used += f.rows.length;
   }
   const shownRuns = picked.flat();
-  const totals = callTotals(store, index, shownRuns.map((x) => x.run));
-  const abouts = aboutsOf(store, index, shownRuns.map((x) => x.run));
+  // The week's runs as the sums have them; a row older than the two weeks (the recording a fork of the
+  // week came from) may not be added up yet: within a budget, its cells come once the warm-up has it.
+  const older = shownRuns.map((x) => x.run).filter((r) => !known.totals.has(r.runId));
+  const more = !older.length ? new Map<string, CallTotals>() : budget === undefined ? callTotals(store, index, older) : callTotalsWithin(store, index, older, { budget }).totals;
+  const totals = { get: (runId: string) => known.totals.get(runId) ?? more.get(runId) };
+  const abouts = aboutsUpTo(store, index, shownRuns.map((x) => x.run), budget);
   const total = sumStats(runs.map((r) => stats.get(r.runId)).filter((s): s is RunStats => !!s));
   const shown = shownRuns.filter((x) => week.has(x.run.runId)).length;
   return {
@@ -554,9 +579,9 @@ function runGrid(store: Store, index: RunIndex, runs: IndexedRun[], stats: Map<s
  * `sumCacheUse` from each run's part as `run_stats` keeps it (worked out once per run, the first
  * time a week asks), with each miss's run kind for its icon. Largest misses first.
  */
-function weekCache(store: Store, index: RunIndex, since: number): CacheUse {
+function weekCache(store: Store, index: RunIndex, since: number, budget?: number): CacheUse {
   const runs = index.runs.filter((r) => r.startedAt >= since && !importedRecording(r));
-  const caches = cacheTotalsOf(store, index, runs);
+  const caches = cacheTotalsOf(store, index, runs, budget === undefined ? {} : { budget });
   const use = sumCacheUse(
     runs.map((r) => ({ runId: r.runId, startedAt: r.startedAt, use: cacheUseOf(caches.get(r.runId) ?? null) })),
     4,
@@ -573,6 +598,10 @@ function weekCache(store: Store, index: RunIndex, since: number): CacheUse {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
+/** About lines, worked out whole, or within a request's budget (`aboutsWithin`). */
+const aboutsUpTo = (store: Store, index: RunIndex, runs: readonly IndexedRun[], budget: number | undefined): Map<string, RunAbout> =>
+  budget === undefined ? aboutsOf(store, index, runs) : aboutsWithin(store, index, runs, { budget });
+
 /**
  * Needs a look, most urgent first, in the design's one order: a team store's setup left unfinished,
  * applied fixes that don't hold, failing tests, injection tests a planted instruction got through
@@ -582,7 +611,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString
  * behaviours seen in production that no golden covers, then runs only on this machine. A recording in
  * progress shows under Today instead.
  */
-function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree?: PatchCheck): NeedsLook {
+function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | null, patchInTree?: PatchCheck, budget?: number): NeedsLook {
   const fixes = needsLookFixes(store, patchInTree ? { patchInTree } : {});
   const of = (kind: string) => fixes.filter((f) => f.kind === kind);
   const fixRow = (f: (typeof fixes)[number]): NeedsLookRow => ({ kind: f.kind, icon: f.icon, title: f.title, detail: f.detail, action: f.action, href: f.href, runId: f.runId, fixId: f.fixId, at: f.at });
@@ -593,7 +622,7 @@ function needsLook(store: Store, goldens: GoldenList, teamStore: StoreNote | nul
   const shownUnblamed = unblamed.slice(0, unblamed.length <= NEEDS_LOOK_EACH + 1 ? unblamed.length : NEEDS_LOOK_EACH);
   if (shownUnblamed.length) {
     const index = loadRunIndex(store);
-    const abouts = aboutsOf(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined));
+    const abouts = aboutsUpTo(store, index, shownUnblamed.map((x) => index.byId.get(x.runId!)).filter((r): r is IndexedRun => r !== undefined), budget);
     for (const x of shownUnblamed) {
       const about = abouts.get(x.runId!);
       if (!about?.text) continue;

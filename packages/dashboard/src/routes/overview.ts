@@ -32,7 +32,7 @@ export function register(router: Router, ctx: RouteContext): void {
     // The team store as the project's config names it: runs only here are the store status's count,
     // the one Settings → Store and the CLI give, and a setup left unfinished leads back to its page.
     const team = project ? readTeamStoreInput({ cwd: project }) : null;
-    const a = await ctx.reads.run({ kind: 'summary', work: { ...o, ...ctx.read, goldens: goldensOf(ctx), team: team?.store ? team : null, project, warmed: ctx.reads.warmed } });
+    const a = await ctx.reads.run({ kind: 'summary', work: { ...o, ...ctx.read, goldens: goldensOf(ctx), team: team?.store ? team : null, project } });
     if (a.warming) ctx.reads.warm();
     sendAnswer(r, a);
   });

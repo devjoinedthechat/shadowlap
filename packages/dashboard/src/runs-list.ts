@@ -2,7 +2,7 @@ import { checksOf, cleanLabel, isFailedOutcome, lostAt, runOutcome, withLabels, 
 import type { RunListItem } from './api.js';
 import { filterTerms } from './links.js';
 import { addDays, daysFrom, dayIndex, isTimeZone, localDay } from './local-days.js';
-import { aboutsOf, knownAbouts, rowAbouts } from './run-about.js';
+import { aboutsOf, aboutsWithin, knownAbouts } from './run-about.js';
 import { classifiable, depthOf, fixedOutcome, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 import { callTotals, callTotalsWithin, knownSpent, priced, spentOf, totalsKnown, type StatsOptions } from './run-stats.js';
 
@@ -343,12 +343,12 @@ export function listRunsPage(store: Store, options: RunsPageOptions = {}): RunsP
  * calls in all, the newest first: a row whose run is longer says its totals are on their way
  * (`warming`), which the warm-up works out beside the server and the table asks for again. Two runs
  * of 100,000 calls a store had never added up held the sidebar 9.4 s and Runs 10.6 s, and both
- * threads with them.
+ * threads with them. What a recording's user asked is read within the same budget (`aboutsWithin`).
  */
 export function rows(store: Store, index: RunIndex, runs: readonly IndexedRun[], options: StatsOptions & { known?: boolean } = {}): RunRow[] {
   const { totals, later } = options.known ? callTotalsWithin(store, index, [...runs].sort((a, b) => b.startedAt - a.startedAt), { budget: ROW_CALLS_BUDGET }) : { totals: callTotals(store, index, runs), later: [] };
   const waiting = new Set(later.map((r) => r.runId));
-  const abouts = options.known ? rowAbouts(store, index, runs, waiting) : aboutsOf(store, index, runs);
+  const abouts = options.known ? aboutsWithin(store, index, runs, { budget: ROW_CALLS_BUDGET, quick: waiting }) : aboutsOf(store, index, runs);
   return runs.map((r) => {
     const t = totals.get(r.runId);
     const s = t ? priced(t, options.prices) : null;

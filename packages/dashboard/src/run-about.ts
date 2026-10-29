@@ -130,7 +130,7 @@ const FIRST_CALLS = 50;
  * known already, as a long recording's page first quotes it (`aboutOfRun`), and the warm-up works out
  * the rest beside the server.
  */
-export function rowAbouts(store: Store, index: RunIndex, runs: readonly IndexedRun[], quick: ReadonlySet<string>): Map<string, RunAbout> {
+function rowAbouts(store: Store, index: RunIndex, runs: readonly IndexedRun[], quick: ReadonlySet<string>): Map<string, RunAbout> {
   const out = aboutsOf(store, index, runs.filter((r) => !quick.has(r.runId)));
   const later = runs.filter((r) => quick.has(r.runId) && !out.has(r.runId));
   if (!later.length) return out;
@@ -140,6 +140,26 @@ export function rowAbouts(store: Store, index: RunIndex, runs: readonly IndexedR
     out.set(r.runId, about(store, index, r, ask));
   }
   return out;
+}
+
+/**
+ * The about lines of `runs` as a request beside the server works them out: as `aboutsOf` has them,
+ * what a recording's user asked read from its requests only while the calls read for it stay within
+ * `budget`, newest first, and never for those `quick` names. A recording whose ask isn't known yet and
+ * won't fit is quoted from its first calls (`rowAbouts`), the warm-up working out the rest beside the
+ * server: Runs read every request of a run of 100,000 calls once its totals were known, 36 s.
+ */
+export function aboutsWithin(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { budget: number; quick?: ReadonlySet<string> }): Map<string, RunAbout> {
+  const quick = new Set(o.quick);
+  const wanted = runs.filter((r) => asksFor(r) && r.calls > 0 && !quick.has(r.runId));
+  const known = asksOf(store, index, wanted, { known: true });
+  let room = o.budget;
+  for (const r of [...wanted].sort((a, b) => b.startedAt - a.startedAt)) {
+    if (known.has(r.runId)) continue;
+    if (r.calls <= room) room -= r.calls;
+    else quick.add(r.runId);
+  }
+  return rowAbouts(store, index, runs, quick);
 }
 
 /** A recording this long or longer is quoted from its first words alone on its page's first answer (`aboutOfRun`). */

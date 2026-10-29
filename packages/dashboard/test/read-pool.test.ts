@@ -91,7 +91,7 @@ describe('read models on threads beside the server', () => {
     expect(kept).toEqual([id.rec, id.fork, long.runId].sort());
     expect(store.query('SELECT run_id AS id FROM run_asks ORDER BY run_id').map((r) => r.id)).toEqual([id.rec, long.runId].sort());
     // The Overview then answers whole.
-    const summary = JSON.parse((await pool.run({ kind: 'summary', work: { tz: 'UTC', now: NOW, goldens: [], team: null, project: null, warmed: false } })).body);
+    const summary = JSON.parse((await pool.run({ kind: 'summary', work: { tz: 'UTC', now: NOW, goldens: [], team: null, project: null } })).body);
     expect(summary.warming).toBeUndefined();
     expect(summary.sums.week.runs).toBe(3);
   });

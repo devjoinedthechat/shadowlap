@@ -237,12 +237,17 @@ function readTotals(json: unknown): CallTotals | null {
 /**
  * The totals of `runs` already known, from memory or kept in the store by an earlier read (here or
  * in another process), and the runs whose totals are not: a finished run whose calls were never read
- * for them, and a run still recording, whose totals change with every call.
+ * for them, and a run still recording, whose totals change with every call. With `cache`, a run it
+ * names whose totals this thread remembers without their prompt cache is looked for in the store too,
+ * where another thread (the warm-up's) may have kept them whole: remembered so, after the run's page
+ * worked out its totals, the Overview read a run of 100,000 calls whole for its cache, 31 to 63 s.
  */
-function knownTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
+function knownTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { cache?: (r: IndexedRun) => boolean } = {}): { out: Map<string, CallTotals>; unknown: IndexedRun[] } {
   const k = keptFor(store);
   const out = new Map<string, CallTotals>();
   const unknown: IndexedRun[] = [];
+  // Remembered without the cache it is asked for: what the store keeps is read, in case it has it.
+  const partial: IndexedRun[] = [];
   // The index counts added calls in place: a look at the store is the index as it stood then.
   if (k.running.index !== index || k.running.events !== index.events) k.running = { index, events: index.events, totals: new Map() };
   const seen = new Set<string>();
@@ -250,20 +255,24 @@ function knownTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>):
     if (seen.has(r.runId)) continue;
     seen.add(r.runId);
     const hit = r.status === 'running' ? { key: keyOf(r), totals: k.running.totals.get(r.runId) } : k.memory.get(r.runId);
-    if (hit?.totals && hit.key === keyOf(r)) out.set(r.runId, hit.totals);
-    else if (r.calls === 0) out.set(r.runId, EMPTY);
+    if (hit?.totals && hit.key === keyOf(r)) {
+      out.set(r.runId, hit.totals);
+      if (r.status !== 'running' && hit.totals.cache === undefined && o.cache?.(r)) partial.push(r);
+    } else if (r.calls === 0) out.set(r.runId, EMPTY);
     else unknown.push(r);
   }
-  if (!unknown.length) return { out, unknown };
+  if (!unknown.length && !partial.length) return { out, unknown };
 
   // Kept in the store by an earlier read, here or in another process.
-  const finished = unknown.filter((r) => r.status !== 'running');
+  const finished = [...unknown.filter((r) => r.status !== 'running'), ...partial];
   const found = new Set<string>();
   for (const batch of batches(finished.map((r) => r.runId))) {
     for (const row of store.query(KEPT_SQL, ids(batch))) {
       const run = index.byId.get(String(row.id));
       const totals = run && row.key === keyOf(run) ? readTotals(row.stats) : null;
       if (!run || !totals) continue;
+      // What this thread remembers stands unless the store's has the cache it lacks.
+      if (out.has(run.runId) && totals.cache === undefined) continue;
       out.set(run.runId, totals);
       remember(k, run, totals);
       found.add(run.runId);
@@ -281,7 +290,7 @@ function knownTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>):
  */
 export function totalsKnown(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { cache?: (r: IndexedRun) => boolean } = {}): { done: number; total: number } {
   const finished = runs.filter((r) => r.status !== 'running' && r.calls > 0);
-  const { out } = knownTotals(store, index, finished);
+  const { out } = knownTotals(store, index, finished, o.cache ? { cache: o.cache } : {});
   let done = 0;
   for (const r of finished) {
     const t = out.get(r.runId);
@@ -294,7 +303,7 @@ export function totalsKnown(store: Store, index: RunIndex, runs: readonly Indexe
  * The totals of `runs`: from memory, from the store, or worked out from their calls (and then kept,
  * for a finished run).
  */
-export function callTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number } = {}): Map<string, CallTotals> {
+export function callTotals(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } = {}): Map<string, CallTotals> {
   return callTotalsWithin(store, index, runs, o).totals;
 }
 
@@ -305,9 +314,9 @@ export function callTotals(store: Store, index: RunIndex, runs: Iterable<Indexed
  * and a recording's coming once it ends. Runs are worked out in the order given, each that would go
  * past what is left of the budget left out.
  */
-export function callTotalsWithin(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number } = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
+export function callTotalsWithin(store: Store, index: RunIndex, runs: Iterable<IndexedRun>, o: { budget?: number; cache?: (r: IndexedRun) => boolean } = {}): { totals: Map<string, CallTotals>; later: IndexedRun[] } {
   const k = keptFor(store);
-  const { out, unknown } = knownTotals(store, index, runs);
+  const { out, unknown } = knownTotals(store, index, runs, o.cache ? { cache: o.cache } : {});
   let room = o.budget ?? Infinity;
   const todo: IndexedRun[] = [];
   const later: IndexedRun[] = [];
@@ -338,12 +347,18 @@ export function callTotalsWithin(store: Store, index: RunIndex, runs: Iterable<I
 
 /**
  * The prompt cache part of these runs' totals (`CallTotals.cache`): kept with the rest once worked
- * out, and worked out now (and kept, for a finished run) where it is not known yet. The Overview
- * asks for the week's runs; nothing else needs it.
+ * out, and worked out now (and kept, for a finished run) where it is not known yet, in memory or in
+ * the store. The Overview asks for the week's runs; nothing else needs it. With `budget` (a request
+ * read beside the server), a run's totals and cache are worked out only while the calls read for them
+ * stay within it, newest first; a run whose cache isn't known and won't fit is left out, for the
+ * warm-up to work out. A cache is a pass over every request of its run: inside the Overview's request
+ * a run of 100,000 calls held it 31 to 63 s.
  */
-export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly IndexedRun[]): Map<string, CacheTotals | null> {
+export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { budget?: number } = {}): Map<string, CacheTotals | null> {
   const k = keptFor(store);
-  const totals = callTotals(store, index, runs);
+  const wanted = { cache: () => true };
+  const totals = o.budget === undefined ? callTotals(store, index, runs, wanted) : callTotalsWithin(store, index, runs, { ...wanted, budget: o.budget }).totals;
+  let room = o.budget ?? Infinity;
   const out = new Map<string, CacheTotals | null>();
   const keep: Array<{ runId: string; key: string; stats: string }> = [];
   let modelOf: ModelResolver | null = null;
@@ -351,6 +366,8 @@ export function cacheTotalsOf(store: Store, index: RunIndex, runs: readonly Inde
     const t = totals.get(r.runId);
     if (!t) continue;
     if (t.cache === undefined) {
+      if (r.calls > room) continue;
+      room -= r.calls;
       // The totals in memory are this object: the next ask finds the cache in them.
       t.cache = cacheTotals(store, r.runId, (modelOf ??= modelResolver(store)));
       k.cachesRead++;
