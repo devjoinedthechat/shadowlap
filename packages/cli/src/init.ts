@@ -24,7 +24,7 @@ export interface Provider {
 }
 
 export interface Framework {
-  id: 'ai-sdk' | 'openai-agents' | 'mastra' | 'langchain' | 'anthropic-tool-runner' | 'pydantic-ai' | 'openai-agents-python' | 'langchain-python' | 'crewai';
+  id: 'ai-sdk' | 'openai-agents' | 'mastra' | 'langchain' | 'anthropic-tool-runner' | 'claude-agent-sdk' | 'pydantic-ai' | 'openai-agents-python' | 'langchain-python' | 'crewai' | 'claude-agent-sdk-python' | 'google-adk' | 'llamaindex' | 'agent-framework' | 'strands' | 'smolagents' | 'agno';
   name: string;
   package: string;
   version: string | null;
@@ -42,8 +42,10 @@ export interface FoundTool {
   effect: Effect | null;
   suggested: Effect;
   why: string;
-  /** The framework's decorator as written, where it matters to wrapping: `@agent.tool_plain` (Pydantic AI). */
+  /** The framework's decorator as written, where it matters to wrapping: `@agent.tool_plain` (Pydantic AI), `@strands_tool` (Strands). */
   decorator?: string;
+  /** The class of a tool defined as one (a LangChain or CrewAI `BaseTool`), whose instance is what gets wrapped: `with_effect(SendEmail(), "write")`. */
+  className?: string;
 }
 
 export interface BaseUrlWarning {
@@ -54,13 +56,16 @@ export interface BaseUrlWarning {
   client: 'anthropic' | 'openai' | 'gemini' | null;
 }
 
-/** A model a framework's router names (`groq/llama-3.3-70b` in a Mastra agent) and sends to a host Shadowlap doesn't record. */
+/**
+ * A model a framework names and sends to a host Shadowlap doesn't record: `groq/llama-3.3-70b` through
+ * Mastra's router, `openrouter/…` through LiteLLM, smolagents' InferenceClientModel (Hugging Face).
+ */
 export interface UnrecordedModel {
   file: string;
   line: number;
   model: string;
-  /** The framework whose router builds its client. */
-  via: 'mastra';
+  /** The framework that builds its client: its router, model string or model class. */
+  via: Framework['id'];
 }
 
 export interface InitReport {
@@ -107,8 +112,36 @@ const JS_PROVIDERS: Record<string, Provider['id']> = {
   '@ai-sdk/amazon-bedrock': 'bedrock',
   '@langchain/aws': 'bedrock',
   '@ai-sdk/gateway': 'ai-gateway',
+  // Claude Code, which the SDK runs, calls Anthropic's API through ANTHROPIC_BASE_URL.
+  '@anthropic-ai/claude-agent-sdk': 'anthropic',
 };
-const PY_PROVIDERS: Record<string, Provider['id']> = { anthropic: 'anthropic', openai: 'openai', 'google-genai': 'gemini', 'langchain-anthropic': 'anthropic', 'langchain-openai': 'openai', 'google-cloud-aiplatform': 'vertex', 'langchain-google-vertexai': 'vertex', 'langchain-aws': 'bedrock' };
+const PY_PROVIDERS: Record<string, Provider['id']> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  'google-genai': 'gemini',
+  'langchain-anthropic': 'anthropic',
+  'langchain-openai': 'openai',
+  'langchain-google-genai': 'gemini',
+  'google-cloud-aiplatform': 'vertex',
+  'langchain-google-vertexai': 'vertex',
+  'langchain-aws': 'bedrock',
+  'claude-agent-sdk': 'anthropic',
+  'llama-index-llms-openai': 'openai',
+  'llama-index-llms-anthropic': 'anthropic',
+  'llama-index-llms-google-genai': 'gemini',
+  'llama-index-llms-gemini': 'gemini',
+  'llama-index-llms-azure-openai': 'azure',
+  'llama-index-llms-vertex': 'vertex',
+  'llama-index-llms-bedrock-converse': 'bedrock',
+  'llama-index-llms-bedrock': 'bedrock',
+  'agent-framework-openai': 'openai',
+  'agent-framework-anthropic': 'anthropic',
+  'agent-framework-claude': 'anthropic',
+  'agent-framework-gemini': 'gemini',
+  'agent-framework-bedrock': 'bedrock',
+  'agent-framework-foundry': 'azure',
+  'agent-framework-azure-ai': 'azure',
+};
 
 /**
  * A text file as Node and npm read it: a leading byte order mark, which Windows editors write, is
@@ -232,6 +265,171 @@ const lineOf = (text: string, index: number) => text.slice(0, index).split('\n')
 /** A project-relative path with forward slashes on every platform, as people type and click them. */
 const rel = (cwd: string, file: string) => relative(cwd, file).split(sep).join('/');
 
+/** Inside a line or block comment: `tool(` in prose is not a definition, nor `model: '…'` a model. */
+function inCommentAt(text: string, index: number, py: boolean): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  const before = text.slice(lineStart, index);
+  if (py) return before.includes('#');
+  if (/\/\/|^\s*\*|^\s*\/\*/.test(before)) return true;
+  const open = text.lastIndexOf('/*', index);
+  return open >= 0 && text.lastIndexOf('*/', index) < open;
+}
+
+/** What a Python file imports by name (`from strands import tool as strands_tool`): each local name, with the module and the name it has there. */
+type PyImports = Map<string, { module: string; name: string }>;
+function pyImports(text: string): PyImports {
+  const out: PyImports = new Map();
+  for (const m of text.matchAll(/^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+(?:\(([^)]*)\)|([^\n]*))/gm)) {
+    for (const part of (m[2] ?? m[3]!).replace(/#[^\n]*/g, '').replace(/\\\n/g, ' ').split(',')) {
+      const p = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(part);
+      if (p) out.set(p[2] ?? p[1]!, { module: m[1]!, name: p[1]! });
+    }
+  }
+  return out;
+}
+
+/** Where the string literal that starts at `i` ends (its closing quote), Python's triple quotes included. */
+function stringEnd(text: string, i: number, py: boolean): number {
+  const q = text[i]!;
+  if (py && text.startsWith(q.repeat(3), i)) {
+    const end = text.indexOf(q.repeat(3), i + 3);
+    return end < 0 ? text.length : end + 2;
+  }
+  for (let j = i + 1; j < text.length; j++) {
+    if (text[j] === '\\') j++;
+    else if (text[j] === q) return j;
+    else if (text[j] === '\n' && q !== '`') return j;
+  }
+  return text.length;
+}
+
+/**
+ * The arguments of a call (or the items of a list) whose bracket opens just before `open`, split at
+ * its own commas, each with where it starts: null when it doesn't close within reach. Strings and
+ * comments are passed over, so a comma or bracket in them splits nothing.
+ */
+function callArguments(text: string, open: number, py: boolean): Array<{ text: string; at: number }> | null {
+  return scanCall(text, open, py)?.args ?? null;
+}
+
+/** {@link callArguments}, with where the bracket that closes the call is. */
+function scanCall(text: string, open: number, py: boolean): { args: Array<{ text: string; at: number }>; end: number } | null {
+  const out: Array<{ text: string; at: number }> = [];
+  const push = (from: number, to: number) => {
+    const raw = text.slice(from, to);
+    if (raw.trim()) out.push({ text: raw.trim(), at: from + raw.length - raw.trimStart().length });
+  };
+  let depth = 1;
+  let start = open;
+  const limit = Math.min(text.length, open + 20_000);
+  for (let i = open; i < limit; i++) {
+    const c = text[i]!;
+    if (c === '"' || c === "'" || (c === '`' && !py)) i = stringEnd(text, i, py);
+    else if (py ? c === '#' : c === '/' && text[i + 1] === '/') i = text.indexOf('\n', i) < 0 ? limit : text.indexOf('\n', i);
+    else if (!py && c === '/' && text[i + 1] === '*') i = text.indexOf('*/', i + 2) < 0 ? limit : text.indexOf('*/', i + 2) + 1;
+    else if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      if (--depth === 0) {
+        push(start, i);
+        return { args: out, end: i };
+      }
+    } else if (c === ',' && depth === 1) {
+      push(start, i);
+      start = i + 1;
+    }
+  }
+  return null;
+}
+
+/** A Python keyword argument's value (`model="gpt-5"`), with where it starts; undefined when the call doesn't give it. */
+function kwarg(args: ReadonlyArray<{ text: string; at: number }>, key: string): { text: string; at: number } | undefined {
+  for (const a of args) {
+    const m = new RegExp(`^${key}\\s*=(?!=)\\s*`).exec(a.text);
+    if (m) return { text: a.text.slice(m[0].length), at: a.at + m[0].length };
+  }
+  return undefined;
+}
+
+/** The arguments given by position, before any keyword or unpacked one. */
+const positional = (args: ReadonlyArray<{ text: string; at: number }>) => args.filter((a) => !/^(\*|\w+\s*=(?!=))/.test(a.text));
+
+/** A plain string literal's text (`"gpt-5"`, `'anthropic:claude-sonnet-4-5'`); null for anything else, an f-string or a variable. */
+const literal = (raw: string | undefined): string | null => (raw === undefined ? null : (/^[rRuU]?(["'`])([^"'`\\\n${}]*)\1$/.exec(raw)?.[2] ?? null));
+
+/** The calls in a Python file of the names it imports from a module (`Agent(` for `from strands import Agent`), with where each call's parenthesis opens. */
+function pyCalls(text: string, imports: PyImports, module: RegExp, names: readonly string[]): Array<{ index: number; open: number; name: string; local: string; module: string }> {
+  const out: Array<{ index: number; open: number; name: string; local: string; module: string }> = [];
+  for (const [local, from] of imports) {
+    if (!module.test(from.module) || !names.includes(from.name)) continue;
+    for (const m of text.matchAll(new RegExp(`(?<![\\w.])${local}\\s*\\(`, 'g'))) {
+      if (!inCommentAt(text, m.index, true) && !/\b(?:def|class)\s+$/.test(text.slice(Math.max(0, m.index - 10), m.index))) out.push({ index: m.index, open: m.index + m[0].length, name: from.name, local, module: from.module });
+    }
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
+/** Where a Python name comes from: imported (`strands_tool` from strands' `tool`), or dotted (`langchain_core.tools.tool`); null for neither. */
+function pyOrigin(imports: PyImports, name: string): { module: string; name: string } | null {
+  const imported = imports.get(name);
+  if (imported) return imported;
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? { module: name.slice(0, dot), name: name.slice(dot + 1) } : null;
+}
+
+/**
+ * Python functions with their decorators, each decorator whole though it spans lines
+ * (`@tool(\n    "lookup_order", …)`), and where the first one starts.
+ */
+function pyDecoratedDefs(text: string): Array<{ index: number; name: string; decorators: string[] }> {
+  const out: Array<{ index: number; name: string; decorators: string[] }> = [];
+  let i = 0;
+  while (i < text.length) {
+    const next = text.indexOf('\n', i);
+    const lineEnd = next < 0 ? text.length : next;
+    if (!/^[ \t]*@[\w.]+/.test(text.slice(i, lineEnd))) {
+      i = lineEnd + 1;
+      continue;
+    }
+    const decorators: string[] = [];
+    let j = i;
+    for (;;) {
+      const d = /^[ \t]*@[\w.]+[ \t]*/.exec(text.slice(j, j + 400));
+      if (!d) break;
+      let end = j + d[0].length;
+      if (text[end] === '(') {
+        const call = scanCall(text, end + 1, true);
+        if (!call) break;
+        end = call.end + 1;
+      }
+      decorators.push(text.slice(j, end).trim());
+      const nl = text.indexOf('\n', end);
+      if (nl < 0) break;
+      j = nl + 1;
+    }
+    const def = /^[ \t]*(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(/.exec(text.slice(j, j + 300));
+    if (def && decorators.length) out.push({ index: i, name: def[1]!, decorators });
+    i = j > i ? j : lineEnd + 1;
+  }
+  return out;
+}
+
+/** The decorators each Python framework makes a tool with, by the module they come from. */
+const PY_TOOL_DECORATORS: ReadonlyArray<[RegExp, readonly string[], Framework['id']]> = [
+  [/^claude_agent_sdk(\.|$)/, ['tool'], 'claude-agent-sdk-python'],
+  [/^strands(\.|$)/, ['tool'], 'strands'],
+  [/^smolagents(\.|$)/, ['tool'], 'smolagents'],
+  [/^agno\.tools(\.|$)/, ['tool'], 'agno'],
+  [/^agent_framework(\.|$)/, ['tool', 'ai_function'], 'agent-framework'],
+  [/^langchain(_core)?\.(tools|agents)(\.|$)/, ['tool'], 'langchain-python'],
+  [/^crewai(\.tools)?$|^crewai_tools$/, ['tool'], 'crewai'],
+];
+
+/** The classes a Python tool is a subclass of, by the module they come from: LangChain's and CrewAI's `BaseTool`. */
+const PY_TOOL_CLASSES: ReadonlyArray<[RegExp, readonly string[], Framework['id']]> = [
+  [/^langchain(_core)?\.tools(\.|$)/, ['BaseTool', 'StructuredTool'], 'langchain-python'],
+  [/^crewai(\.tools)?(\.|$)|^crewai_tools$/, ['BaseTool'], 'crewai'],
+];
+
 /** A first guess at a tool's effect from its name (toolNameEffect). Unknown names get `write`: it never re-runs after a fork. */
 export function suggestEffect(name: string): { effect: Effect; why: string } {
   const said = toolNameEffect(name);
@@ -245,41 +443,65 @@ const NOT_TOOL_KEYS = new Set(['tools', 'tool', 'execute', 'description', 'input
 /** Tool definitions in one file, by the patterns each framework uses. */
 function scanTools(text: string, file: string): FoundTool[] {
   const found: FoundTool[] = [];
-  const push = (name: string, index: number, via: string, effect: Effect | null, decorator?: string) => {
+  const push = (name: string, index: number, via: string, effect: Effect | null, extra: { decorator?: string; className?: string } = {}) => {
     const s = suggestEffect(name);
-    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why, ...(decorator ? { decorator } : {}) };
+    const tool: FoundTool = { name, file, line: lineOf(text, index), via, effect, suggested: effect ?? s.effect, why: effect ? 'declared' : s.why, ...(extra.decorator ? { decorator: extra.decorator } : {}), ...(extra.className ? { className: extra.className } : {}) };
     const same = found.findIndex((t) => t.name === name && t.via === via);
     if (same < 0) found.push(tool);
     else if (!found[same]!.effect && effect) found[same] = tool; // a wrapped definition wins over a mention
   };
-  /** Inside a line or block comment: `tool(` in prose is not a definition. */
-  const inComment = (index: number) => {
-    const lineStart = text.lastIndexOf('\n', index - 1) + 1;
-    const before = text.slice(lineStart, index);
-    if (/\/\/|^\s*\*|^\s*\/\*/.test(before) || (file.endsWith('.py') && before.includes('#'))) return true;
-    const open = text.lastIndexOf('/*', index);
-    return open >= 0 && text.lastIndexOf('*/', index) < open;
-  };
   const py = file.endsWith('.py');
+  const inComment = (index: number) => inCommentAt(text, index, py);
   if (py) {
-    // Decorated functions: collect each function's decorators, then classify.
-    for (const m of text.matchAll(/((?:^[ \t]*@[^\n]+\n)+)[ \t]*(?:async\s+)?def\s+(\w+)\s*\(/gm)) {
-      const decorators = m[1]!;
-      const name = m[2]!;
-      const declared = /@tool\(\s*(?:["'][^"']*["']\s*,\s*)?effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
-      const adapted = /@function_tool\([^)]*effect\s*=\s*["'](pure|read|write)["']/.exec(decorators);
-      if (declared) push(name, m.index, 'shadowlap', declared[1] as Effect);
-      else if (adapted) push(name, m.index, 'openai-agents-python', adapted[1] as Effect);
+    const imports = pyImports(text);
+    const framework = (decorator: string, table: typeof PY_TOOL_DECORATORS) => {
+      const head = /^@?([\w.]+)/.exec(decorator)?.[1];
+      const o = head ? pyOrigin(imports, head) : null;
+      return o ? (table.find(([module, names]) => module.test(o.module) && names.includes(o.name))?.[2] ?? null) : null;
+    };
+    // Decorated functions: each decorator by where it comes from.
+    for (const d of pyDecoratedDefs(text)) {
+      const all = d.decorators.join('\n');
+      // Shadowlap's own: `@tool(effect="read")`, imported from shadowlap or (in a snippet) from nowhere.
+      const declared = d.decorators
+        .map((x) => {
+          const o = pyOrigin(imports, /^@([\w.]+)/.exec(x)![1]!);
+          return (o ? o.module === 'shadowlap' && o.name === 'tool' : /^@tool\(/.test(x)) ? /\beffect\s*=\s*["'](pure|read|write)["']/.exec(x)?.[1] : undefined;
+        })
+        .find(Boolean);
+      const adapted = /@function_tool\([^)]*effect\s*=\s*["'](pure|read|write)["']/.exec(all);
+      const own = d.decorators.map((x) => ({ x, via: framework(x, PY_TOOL_DECORATORS) })).find((h) => h.via);
+      if (declared) push(d.name, d.index, 'shadowlap', declared as Effect);
+      else if (adapted) push(d.name, d.index, 'openai-agents-python', adapted[1] as Effect);
+      else if (own?.via === 'claude-agent-sdk-python') {
+        // The model knows it by the decorator's first argument: @tool("lookup_order", "Look an order up", {...}).
+        const named = /^@[\w.]+\(\s*["']([\w.-]+)["']/.exec(own.x);
+        if (named) push(named[1]!, d.index, own.via, null);
+      }
+      // Strands and smolagents keep their own @tool over Shadowlap's: the wrap names the one found.
+      else if (own) push(d.name, d.index, own.via!, null, own.via === 'strands' || own.via === 'smolagents' ? { decorator: own.x.split('(')[0] ?? own.x } : {});
       // Pydantic AI: `@agent.tool` passes a RunContext first, `@agent.tool_plain` doesn't; the wrap keeps the one found.
-      else if (/@\w+\.tool(?:_plain)?\b/.test(decorators)) push(name, m.index, 'pydantic-ai', null, /^[ \t]*(@\w+\.tool(?:_plain)?\b[^\n]*)$/m.exec(decorators)?.[1]?.trim());
-      else if (/@function_tool\b/.test(decorators)) push(name, m.index, 'openai-agents-python', null);
-      else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(decorators) && /langchain|crewai/.test(text)) push(name, m.index, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
+      else if (text.includes('pydantic_ai') && /@\w+\.tool(?:_plain)?\b/.test(all)) {
+        const decorator = d.decorators.find((x) => /^@\w+\.tool(?:_plain)?\b/.test(x))?.split('\n')[0]?.trim();
+        push(d.name, d.index, 'pydantic-ai', null, decorator ? { decorator } : {});
+      }
+      else if (/@function_tool\b/.test(all)) push(d.name, d.index, 'openai-agents-python', null);
+      else if (/@(?:tool|langchain_core\.tools\.tool)\b/.test(all) && /langchain|crewai/.test(text)) push(d.name, d.index, /crewai/.test(text) ? 'crewai' : 'langchain-python', null);
     }
-    // LangChain and CrewAI tools get their effect where they're used: with_effect(search_web, "read").
-    for (const m of text.matchAll(/\bwith_effect\(\s*(\w+)\s*,\s*["'](pure|read|write)["']/g)) {
-      const t = found.find((x) => x.name === m[1] && !x.effect);
-      if (t) Object.assign(t, { effect: m[2] as Effect, suggested: m[2] as Effect, why: 'declared' });
+    // Tools defined as classes, LangChain's and CrewAI's BaseTool: named by their `name` attribute.
+    for (const m of text.matchAll(/^class[ \t]+(\w+)[ \t]*\(([^)]*)\)[ \t]*:/gm)) {
+      const via = m[2]!
+        .split(',')
+        .map((b) => framework(b.trim().replace(/\[[\s\S]*$/, ''), PY_TOOL_CLASSES))
+        .find(Boolean);
+      if (!via) continue;
+      const after = text.slice(m.index + m[0].length);
+      const body = /^[^\n]*\n((?:[ \t]+[^\n]*\n|[ \t]*\n)*)/.exec(after)?.[1] ?? '';
+      const indent = /^([ \t]+)\S/m.exec(body)?.[1] ?? '    ';
+      const named = new RegExp(`^${indent}name[ \\t]*(?::[^=\\n]+)?=[ \\t]*["']([^"'\\n]+)["']`, 'm').exec(body);
+      if (named) push(named[1]!, m.index, via, null, { className: m[1]! });
     }
+    // Their effects, given where they're used (with_effect(search_web, "read")), are read for the whole project: see declaredEffects.
     return found;
   }
   // @shadowlap/sdk: tool('name', { effect: 'read' }, impl)
@@ -328,7 +550,96 @@ function scanTools(text: string, file: string): FoundTool[] {
   if (text.includes('@mastra/core')) byName(/\bcreateTool\(/g, 'id', 'mastra');
   if (text.includes('@langchain/core/tools')) byName(/\btool\(/g, 'name', 'langchain');
   if (/betaZodTool|betaTool/.test(text)) byName(/\bbeta(?:Zod)?Tool\(/g, 'name', 'anthropic-tool-runner');
+  // The Claude Agent SDK's tools for an in-process MCP server: tool('lookup_order', 'Look an order up', schema, handler).
+  // Their effects are given where the server is made, withEffects('orders', [...], { lookup_order: 'read' }): see declaredEffects.
+  if (text.includes('@anthropic-ai/claude-agent-sdk')) for (const m of text.matchAll(/\btool\(\s*(['"`])([\w.-]+)\1\s*,\s*['"`]/g)) if (!inComment(m.index)) push(m[2]!, m.index, 'claude-agent-sdk', null);
   return found;
+}
+
+/**
+ * Effects given where tools are used rather than where they're defined, read across the project:
+ * `with_effect(search_web, "read")` and `with_effect(SendEmail(), "write")` (LangChain, CrewAI) in the
+ * tool's own file or one that imports it, and the Claude Agent SDK's `withEffects('orders', [...],
+ * { lookup_order: 'read' })` (`with_effects` in Python), whose map names each tool.
+ */
+function declaredEffects(tools: FoundTool[], texts: ReadonlyArray<readonly [string, string]>, cwd: string): void {
+  const declare = (t: FoundTool, effect: Effect) => Object.assign(t, { effect, suggested: effect, why: 'declared' });
+  for (const [path, text] of texts) {
+    const file = rel(cwd, path);
+    const py = file.endsWith('.py');
+    if (py && text.includes('with_effect(')) {
+      const imports = pyImports(text);
+      for (const m of text.matchAll(/\bwith_effect\(\s*(\w+)\s*(?:\(\s*\))?\s*,\s*["'](pure|read|write)["']/g)) {
+        if (inCommentAt(text, m.index, true)) continue;
+        const t = tools.find((x) => !x.effect && x.file.endsWith('.py') && (x.className ?? x.name) === m[1] && (x.file === file || imports.has(m[1])));
+        if (t) declare(t, m[2] as Effect);
+      }
+    }
+    const map = py ? /\bwith_effects\(\s*["'][\w.-]+["']\s*,[\s\S]{0,2000}?\{([^}]*)\}\s*\)/g : /\bwithEffects\(\s*['"`][\w.-]+['"`]\s*,[\s\S]{0,2000}?\{([^}]*)\}\s*\)/g;
+    if (!(py ? text.includes('shadowlap.adapters.claude_agent_sdk') : text.includes('@shadowlap/adapters/claude-agent-sdk'))) continue;
+    for (const m of text.matchAll(map)) {
+      for (const pair of m[1]!.matchAll(/['"`]?([\w.-]+)['"`]?\s*:\s*(?:['"`](pure|read|write)['"`]|\{\s*['"`]?effect['"`]?\s*:\s*['"`](pure|read|write)['"`])/g)) {
+        const t = tools.find((x) => !x.effect && x.name === pair[1] && x.via === (py ? 'claude-agent-sdk-python' : 'claude-agent-sdk'));
+        if (t) declare(t, (pair[2] ?? pair[3]) as Effect);
+      }
+    }
+  }
+}
+
+/** The Python agents that take plain functions as tools, by the module they come from, and the framework each is. */
+const PY_TOOL_LISTS: ReadonlyArray<[RegExp, readonly string[], Framework['id']]> = [
+  [/^pydantic_ai(\.|$)/, ['Agent'], 'pydantic-ai'],
+  [/^google\.adk(\.|$)/, ['Agent', 'LlmAgent'], 'google-adk'],
+  [/^agent_framework(\.|$)/, ['Agent', 'ChatAgent'], 'agent-framework'],
+  [/^agno\.(agent|team)(\.|$)/, ['Agent', 'Team'], 'agno'],
+  [/^llama_index\.core\.agent(\.|$)/, ['FunctionAgent', 'ReActAgent', 'CodeActAgent'], 'llamaindex'],
+];
+
+/**
+ * Plain functions given to an agent as its tools, `Agent(tools=[search_web, send_email])` (Pydantic
+ * AI, Google ADK, Microsoft Agent Framework, Agno, LlamaIndex's agents, and a MAF client's
+ * `as_agent(tools=[…])`), and LlamaIndex's `FunctionTool.from_defaults(fn=send_email)`: each is
+ * found where its function is defined, in the same file or the one it is imported from, and only
+ * then; a name that resolves to no `def` (another agent, a tool object) is passed over.
+ */
+function scanToolLists(texts: ReadonlyArray<readonly [string, string]>, cwd: string, found: readonly FoundTool[]): FoundTool[] {
+  const py = texts.filter(([f]) => f.endsWith('.py'));
+  const defs = new Map<string, Array<{ file: string; text: string; index: number }>>();
+  for (const [path, text] of py) for (const m of text.matchAll(/^(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(/gm)) defs.set(m[1]!, [...(defs.get(m[1]!) ?? []), { file: rel(cwd, path), text, index: m.index }]);
+  const out: FoundTool[] = [];
+  for (const [path, text] of py) {
+    const file = rel(cwd, path);
+    const imports = pyImports(text);
+    const given: Array<[string, Framework['id']]> = [];
+    const fromList = (value: { text: string; at: number } | undefined, via: Framework['id']) => {
+      if (!value?.text.startsWith('[')) return;
+      for (const item of callArguments(text, value.at + 1, true) ?? []) {
+        const fn = /^(\w+)$/.exec(item.text) ?? /^(?:Tool|FunctionTool)\(\s*(?:func(?:tion)?\s*=\s*)?(\w+)\s*[,)]/.exec(item.text) ?? /^FunctionTool\.from_defaults\(\s*(?:(?:async_)?fn\s*=\s*)?(\w+)\s*[,)]/.exec(item.text);
+        if (fn) given.push([fn[1]!, via]);
+      }
+    };
+    for (const [module, names, via] of PY_TOOL_LISTS) for (const call of pyCalls(text, imports, module, names)) fromList(kwarg(callArguments(text, call.open, true) ?? [], 'tools'), via);
+    if ([...imports.values()].some((i) => /^agent_framework(\.|$)/.test(i.module))) {
+      for (const m of text.matchAll(/\.(?:as_agent|create_agent)\s*\(/g)) if (!inCommentAt(text, m.index, true)) fromList(kwarg(callArguments(text, m.index + m[0].length, true) ?? [], 'tools'), 'agent-framework');
+    }
+    if ([...imports.values()].some((i) => /^llama_index(\.|$)/.test(i.module))) {
+      for (const m of text.matchAll(/\bFunctionTool\.from_defaults\s*\(/g)) {
+        if (inCommentAt(text, m.index, true)) continue;
+        const args = callArguments(text, m.index + m[0].length, true) ?? [];
+        const fn = kwarg(args, 'fn') ?? kwarg(args, 'async_fn') ?? positional(args)[0];
+        if (fn && /^\w+$/.test(fn.text)) given.push([fn.text, 'llamaindex']);
+      }
+    }
+    for (const [name, via] of given) {
+      // Defined here, or imported from the one other file that defines it.
+      const candidates = defs.get(name) ?? [];
+      const def = candidates.find((d) => d.file === file) ?? (imports.has(name) && candidates.length === 1 ? candidates[0] : undefined);
+      if (!def || [...found, ...out].some((t) => t.name === name && t.file === def.file)) continue;
+      const s = suggestEffect(name);
+      out.push({ name, file: def.file, line: lineOf(def.text, def.index), via, effect: null, suggested: s.effect, why: s.why });
+    }
+  }
+  return out;
 }
 
 /** Model clients constructed with a literal base URL: `shadowlap run` cannot redirect them. */
@@ -352,7 +663,7 @@ function scanBaseUrls(text: string, file: string): BaseUrlWarning[] {
  * it builds their clients with the base URL in ANTHROPIC_BASE_URL and OPENAI_BASE_URL, and Google's
  * host is captured in the process. Any other (`groq/…`, `openrouter/…`) goes to a host of its own.
  */
-const MASTRA_ROUTED: Readonly<Record<string, Provider['id']>> = { anthropic: 'anthropic', openai: 'openai', google: 'gemini' };
+const MASTRA_ROUTED: Readonly<Record<string, Provider['id']>> = { anthropic: 'anthropic', openai: 'openai', google: 'gemini', vercel: 'ai-gateway' };
 
 /**
  * Models a Mastra agent names by router id, `model: 'anthropic/claude-sonnet-4-5'` (or behind a
@@ -378,13 +689,230 @@ function scanGatewayModels(text: string, file: string): Array<{ file: string; li
 function scanRouterModels(text: string, file: string): Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> {
   if (file.endsWith('.py') || !text.includes('@mastra/core')) return [];
   const out: Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> = [];
-  for (const m of text.matchAll(/\bmodel\s*:\s*(?:[^'"`\n,}]*?(?:\?\?|\|\|)\s*)?['"`]([a-z][a-z0-9-]*)\/([^'"`\s]+)['"`]/g)) {
+  for (const m of text.matchAll(ROUTER_MODEL)) {
     const lineStart = text.lastIndexOf('\n', m.index - 1) + 1;
     if (/\/\/|^\s*\*|^\s*\/\*/.test(text.slice(lineStart, m.index))) continue;
     const model = `${m[1]!}/${m[2]!}`;
     if (!out.some((x) => x.model === model)) out.push({ file, line: lineOf(text, m.index), model, provider: MASTRA_ROUTED[m[1]!] ?? null });
   }
   return out;
+}
+
+/** A model named by a `provider/model` string, `model: 'anthropic/claude-sonnet-4-5'`, or behind a fallback, `process.env.MODEL ?? 'openai/gpt-5'`. */
+const ROUTER_MODEL = /\bmodel\s*:\s*(?:[^'"`\n,}]*?(?:\?\?|\|\|)\s*)?['"`]([a-z][a-z0-9-]*)\/([^'"`\s]+)['"`]/g;
+
+/** Each framework by name, as init's findings and warnings say it. */
+const FRAMEWORK_NAMES: Readonly<Record<Framework['id'], string>> = {
+  'ai-sdk': 'the AI SDK',
+  'openai-agents': 'the OpenAI Agents SDK',
+  mastra: 'Mastra',
+  langchain: 'LangChain',
+  'anthropic-tool-runner': 'the Anthropic tool runner',
+  'claude-agent-sdk': 'the Claude Agent SDK',
+  'pydantic-ai': 'Pydantic AI',
+  'openai-agents-python': 'the OpenAI Agents SDK',
+  'langchain-python': 'LangChain',
+  crewai: 'CrewAI',
+  'claude-agent-sdk-python': 'the Claude Agent SDK',
+  'google-adk': 'Google ADK',
+  llamaindex: 'LlamaIndex',
+  'agent-framework': 'Microsoft Agent Framework',
+  strands: 'Strands Agents',
+  smolagents: 'smolagents',
+  agno: 'Agno',
+};
+/** A framework's name at the start of a line: `Pydantic AI model: …`, `The AI SDK sends …`. */
+const frameworkName = (id: Framework['id']) => FRAMEWORK_NAMES[id].replace(/^the /, 'The ');
+
+/**
+ * A model the code names through a framework, and the provider whose API it calls: null for a host
+ * Shadowlap doesn't record. `source` says where it came from, as the provider's `via`.
+ */
+interface NamedModel {
+  file: string;
+  line: number;
+  model: string;
+  provider: Provider['id'] | null;
+  via: Framework['id'];
+  source: string;
+}
+
+/** LiteLLM's provider prefixes (`anthropic/claude-sonnet-4-5`) for the APIs Shadowlap records. Any other prefix goes to a host it doesn't. */
+const LITELLM_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'openai', anthropic: 'anthropic', gemini: 'gemini', vertex_ai: 'vertex', vertex_ai_beta: 'vertex', bedrock: 'bedrock', azure: 'azure' };
+/** CrewAI's, which add names of its own to LiteLLM's (`claude/…`, `google/…`, `aws/…`). */
+const CREWAI_RECORDED: Readonly<Record<string, Provider['id']>> = { ...LITELLM_RECORDED, claude: 'anthropic', google: 'gemini', aws: 'bedrock', azure_openai: 'azure' };
+/** LangChain's `init_chat_model` providers (`anthropic:claude-…`, `model_provider="anthropic"`), with `-` read as `_` as LangChain.js writes them. */
+const LANGCHAIN_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'openai', anthropic: 'anthropic', azure_openai: 'azure', azure_ai: 'azure', google_genai: 'gemini', google_vertexai: 'vertex', google_vertexai_web: 'vertex', google_anthropic_vertex: 'vertex', bedrock: 'bedrock', bedrock_converse: 'bedrock', anthropic_bedrock: 'bedrock' };
+const LANGCHAIN_OTHERS = new Set(['baseten', 'cerebras', 'cohere', 'deepseek', 'fireworks', 'groq', 'huggingface', 'ibm', 'meta', 'mistralai', 'nvidia', 'ollama', 'openrouter', 'perplexity', 'together', 'upstage', 'xai']);
+/** Agno's `provider:model` strings (`Agent(model="anthropic:claude-sonnet-4-5")`). */
+const AGNO_RECORDED: Readonly<Record<string, Provider['id']>> = { anthropic: 'anthropic', openai: 'openai', 'openai-chat': 'openai', 'openai-responses': 'openai', google: 'gemini', 'google-interactions': 'gemini', 'aws-bedrock': 'bedrock', 'aws-claude': 'bedrock', 'azure-openai': 'azure', 'azure-openai-responses': 'azure', 'azure-ai-foundry': 'azure', 'azure-foundry-claude': 'azure', 'vertexai-claude': 'vertex' };
+/** Pydantic AI's model prefixes (PYDANTIC_MODEL) for the APIs Shadowlap records. */
+const PYDANTIC_RECORDED: Readonly<Record<string, Provider['id']>> = { openai: 'openai', 'openai-chat': 'openai', 'openai-responses': 'openai', azure: 'azure', anthropic: 'anthropic', bedrock: 'bedrock', gemini: 'gemini', 'google-gla': 'gemini', 'google-vertex': 'vertex' };
+
+/**
+ * The provider a model string names, as a framework reads it: a provider id, null for a host
+ * Shadowlap doesn't record, undefined when the string doesn't say.
+ */
+function stringProvider(model: string, how: 'litellm' | 'crewai' | 'adk' | 'langchain'): Provider['id'] | null | undefined {
+  const lower = model.toLowerCase();
+  if (how === 'langchain') {
+    const colon = /^([\w-]+):(.+)$/.exec(lower);
+    const prefix = colon?.[1]!.replace(/-/g, '_');
+    if (prefix && prefix in LANGCHAIN_RECORDED) return LANGCHAIN_RECORDED[prefix];
+    if (prefix && LANGCHAIN_OTHERS.has(prefix)) return null;
+    // A name alone: init_chat_model infers its provider from how it starts.
+    if (/^(gpt-|o1|o3|chatgpt|text-davinci)/.test(lower)) return 'openai';
+    if (lower.startsWith('claude')) return 'anthropic';
+    if (lower.startsWith('gemini')) return 'vertex';
+    if (/^(amazon|anthropic|meta)\./.test(lower)) return 'bedrock';
+    if (/^(command|accounts\/fireworks|mistral|mixtral|deepseek|grok)/.test(lower)) return null;
+    return undefined;
+  }
+  if (how === 'adk') {
+    // ADK's model registry: Gemini's own, Claude on Vertex AI, OpenAI's, then LiteLLM's prefixes.
+    if (/^(gemini-|gemma-4|model-optimizer-|projects\/)/.test(lower)) return 'gemini';
+    if (lower.startsWith('claude-')) return 'vertex';
+    if (/^(gpt-|o\d+-)/.test(lower)) return 'openai';
+  }
+  const slash = /^([\w-]+)\/(.+)$/.exec(lower);
+  if (slash) return (how === 'crewai' ? CREWAI_RECORDED : LITELLM_RECORDED)[slash[1]!] ?? null;
+  if (how === 'crewai') return lower.includes('anthropic.') ? 'bedrock' : lower.startsWith('claude') ? 'anthropic' : lower.startsWith('gemini') ? 'gemini' : 'openai';
+  if (how === 'litellm') return /^(gpt-|o\d|chatgpt)/.test(lower) ? 'openai' : lower.startsWith('claude') ? 'anthropic' : undefined;
+  return undefined;
+}
+
+/**
+ * The model classes Python frameworks build their clients with, by the module they come from: the
+ * provider whose API each calls, `litellm` or `crewai` for one whose model string names the provider,
+ * or null for a module whose model classes all call a host Shadowlap doesn't record.
+ */
+type ModelKind = Provider['id'] | 'litellm' | 'crewai' | null;
+const PY_MODEL_CLASSES: ReadonlyArray<[RegExp, Framework['id'], Readonly<Record<string, ModelKind>> | null]> = [
+  [/^agno\.models\.anthropic$/, 'agno', { Claude: 'anthropic' }],
+  [/^agno\.models\.openai(\.\w+)?$/, 'agno', { OpenAIChat: 'openai', OpenAIResponses: 'openai' }],
+  [/^agno\.models\.google(\.\w+)?$/, 'agno', { Gemini: 'gemini' }],
+  [/^agno\.models\.aws(\.\w+)?$/, 'agno', { AwsBedrock: 'bedrock', Claude: 'bedrock' }],
+  [/^agno\.models\.azure(\.\w+)?$/, 'agno', { AzureOpenAI: 'azure', AzureOpenAIResponses: 'azure', AzureAIFoundry: 'azure', AzureFoundryClaude: 'azure' }],
+  [/^agno\.models\.vertexai(\.\w+)?$/, 'agno', { Claude: 'vertex' }],
+  [/^agno\.models\.litellm$/, 'agno', { LiteLLM: 'litellm' }],
+  [/^agno\.models\.(groq|mistral|ollama|openrouter|together|xai|deepseek|huggingface|cohere|fireworks|cerebras|perplexity|nvidia|lmstudio|vllm|llama_cpp|deepinfra|nebius|sambanova)(\.\w+)?$/, 'agno', null],
+  [/^strands\.models(\.bedrock)?$/, 'strands', { BedrockModel: 'bedrock' }],
+  [/^strands\.models\.anthropic$/, 'strands', { AnthropicModel: 'anthropic' }],
+  [/^strands\.models\.openai(_responses)?$/, 'strands', { OpenAIModel: 'openai', OpenAIResponsesModel: 'openai' }],
+  [/^strands\.models\.gemini$/, 'strands', { GeminiModel: 'gemini' }],
+  [/^strands\.models\.litellm$/, 'strands', { LiteLLMModel: 'litellm' }],
+  [/^strands\.models\.(ollama|mistral|llamaapi|llamacpp|writer|sagemaker)$/, 'strands', null],
+  [/^llama_index\.llms\.openai$/, 'llamaindex', { OpenAI: 'openai', OpenAIResponses: 'openai' }],
+  [/^llama_index\.llms\.anthropic$/, 'llamaindex', { Anthropic: 'anthropic' }],
+  [/^llama_index\.llms\.(google_genai|gemini)$/, 'llamaindex', { GoogleGenAI: 'gemini', Gemini: 'gemini' }],
+  [/^llama_index\.llms\.bedrock(_converse)?$/, 'llamaindex', { BedrockConverse: 'bedrock', Bedrock: 'bedrock' }],
+  [/^llama_index\.llms\.azure_openai$/, 'llamaindex', { AzureOpenAI: 'azure' }],
+  [/^llama_index\.llms\.vertex$/, 'llamaindex', { Vertex: 'vertex' }],
+  [/^llama_index\.llms\.litellm$/, 'llamaindex', { LiteLLM: 'litellm' }],
+  [/^llama_index\.llms\.(ollama|groq|mistralai|huggingface_api|openrouter|together|fireworks|deepseek|cohere|perplexity|xai)$/, 'llamaindex', null],
+  [/^agent_framework(\.openai|_openai)$/, 'agent-framework', { OpenAIChatClient: 'openai', OpenAIChatCompletionClient: 'openai', OpenAIResponsesClient: 'openai', OpenAIAssistantsClient: 'openai' }],
+  [/^agent_framework(\.azure|_azure_ai)$/, 'agent-framework', { AzureOpenAIChatClient: 'azure', AzureOpenAIResponsesClient: 'azure', AzureOpenAIAssistantsClient: 'azure', AzureAIAgentClient: 'azure', AzureAIClient: 'azure' }],
+  [/^agent_framework(\.(anthropic|amazon|google|foundry)|_anthropic|_bedrock|_foundry|_claude)$/, 'agent-framework', { AnthropicClient: 'anthropic', AnthropicBedrockClient: 'bedrock', AnthropicVertexClient: 'vertex', AnthropicFoundryClient: 'azure', ClaudeAgent: 'anthropic', BedrockChatClient: 'bedrock', FoundryChatClient: 'azure', FoundryAgent: 'azure' }],
+  [/^agent_framework(\.gemini|_gemini)$/, 'agent-framework', { GeminiChatClient: 'gemini' }],
+  [/^agent_framework(\.(ollama|mistral)|_ollama|_mistral)$/, 'agent-framework', null],
+  [/^smolagents(\.models)?$/, 'smolagents', { OpenAIServerModel: 'openai', OpenAIModel: 'openai', AzureOpenAIServerModel: 'azure', AzureOpenAIModel: 'azure', AmazonBedrockServerModel: 'bedrock', AmazonBedrockModel: 'bedrock', LiteLLMModel: 'litellm', InferenceClientModel: null, HfApiModel: null }],
+  [/^google\.adk\.models(\.lite_llm|\.anthropic_llm|\.google_llm)?$/, 'google-adk', { LiteLlm: 'litellm', Claude: 'vertex', AnthropicLlm: 'anthropic', Gemini: 'gemini' }],
+  [/^pydantic_ai\.models\.anthropic$/, 'pydantic-ai', { AnthropicModel: 'anthropic' }],
+  [/^pydantic_ai\.models\.openai$/, 'pydantic-ai', { OpenAIChatModel: 'openai', OpenAIResponsesModel: 'openai', OpenAIModel: 'openai' }],
+  [/^pydantic_ai\.models\.(google|gemini)$/, 'pydantic-ai', { GoogleModel: 'gemini', GeminiModel: 'gemini' }],
+  [/^pydantic_ai\.models\.bedrock$/, 'pydantic-ai', { BedrockConverseModel: 'bedrock' }],
+  [/^pydantic_ai\.models\.(groq|mistral|cohere|huggingface)$/, 'pydantic-ai', null],
+  [/^crewai(\.llm)?$/, 'crewai', { LLM: 'crewai' }],
+];
+/** Names a module of model classes exports beside them: options, settings, messages, embeddings. */
+const NOT_A_MODEL = /(Options|Settings|Config|Message|Embedding\w*|Error|Exception|Params|Response|Provider)$/;
+
+/**
+ * The models a file names through a framework, and the defaults it falls back on where it names
+ * none: Mastra's router ids; the AI SDK's string ids (sent to Vercel's AI Gateway); LangChain's
+ * `init_chat_model`; Pydantic AI's, CrewAI's, Google ADK's, Agno's and Strands' model strings; and
+ * the model classes of PY_MODEL_CLASSES. An agent built with no model is its framework's default:
+ * Strands' Bedrock, Agno's OpenAI, CrewAI's OpenAI. Only what the code says plainly counts: a model
+ * read from a variable or the environment names nothing.
+ */
+function scanModels(text: string, file: string): { named: NamedModel[]; defaults: Array<{ provider: Provider['id']; source: string }> } {
+  const named: NamedModel[] = [];
+  const defaults: Array<{ provider: Provider['id']; source: string }> = [];
+  const add = (index: number, model: string, provider: Provider['id'] | null | undefined, via: Framework['id'], source: string) => {
+    if (provider !== undefined && !named.some((n) => n.model === model && n.via === via)) named.push({ file, line: lineOf(text, index), model, provider, via, source });
+  };
+  const py = file.endsWith('.py');
+  if (!py) {
+    for (const m of scanRouterModels(text, file)) named.push({ ...m, via: 'mastra', source: `Mastra model router: ${m.model}` });
+    // The AI SDK sends a model named by a string to Vercel's AI Gateway, whose calls are captured in the process.
+    for (const m of scanGatewayModels(text, file)) named.push({ ...m, provider: 'ai-gateway', via: 'ai-sdk', source: `AI SDK model id: ${m.model}` });
+    for (const m of text.matchAll(/\binitChatModel\s*\(/g)) {
+      if (inCommentAt(text, m.index, false)) continue;
+      const args = callArguments(text, m.index + m[0].length, false) ?? [];
+      const model = literal(args[0]?.text);
+      const provider = /\bmodelProvider\s*:\s*['"`]([\w-]+)['"`]/.exec(args[1]?.text ?? '')?.[1];
+      if (model) add(m.index, provider ? `${provider}:${model}` : model, stringProvider(provider ? `${provider}:${model}` : model, 'langchain'), 'langchain', `LangChain model: ${provider ? `${provider}:${model}` : model}`);
+    }
+    return { named, defaults };
+  }
+  const imports = pyImports(text);
+  const uses = (module: RegExp) => [...imports.values()].some((i) => module.test(i.module));
+  const idOf = (args: ReadonlyArray<{ text: string; at: number }>) => literal((kwarg(args, 'model') ?? kwarg(args, 'model_id') ?? kwarg(args, 'id') ?? kwarg(args, 'model_name') ?? positional(args)[0])?.text);
+  // Model classes: Claude(id=…) from agno.models.anthropic, LiteLlm(model="openai/gpt-5") from google.adk.models.
+  for (const [local, from] of imports) {
+    const entry = PY_MODEL_CLASSES.find(([module]) => module.test(from.module));
+    if (!entry) continue;
+    const [, via, classes] = entry;
+    const kind = classes === null ? (/^[A-Z]\w*$/.test(from.name) && !NOT_A_MODEL.test(from.name) ? null : undefined) : classes[from.name];
+    if (kind === undefined) continue;
+    for (const call of pyCalls(text, new Map([[local, from]]), /./, [from.name])) {
+      const id = idOf(callArguments(text, call.open, true) ?? []);
+      if (kind === 'litellm' || kind === 'crewai') {
+        if (id) add(call.index, id, stringProvider(id, kind), via, `${frameworkName(via)} model: ${id}`);
+      } else add(call.index, id ?? from.name, kind, via, `${frameworkName(via)} model: ${from.name} (${from.module})`);
+    }
+  }
+  // Pydantic AI: Agent("anthropic:claude-sonnet-4-5").
+  if (uses(/^pydantic_ai(\.|$)/)) for (const m of text.matchAll(PYDANTIC_MODEL)) if (!inCommentAt(text, m.index, true)) add(m.index, m[0].slice(1, -1), PYDANTIC_RECORDED[m[2]!] ?? null, 'pydantic-ai', `Pydantic AI model: ${m[0].slice(1, -1)}`);
+  // LangChain: init_chat_model("anthropic:claude-sonnet-4-5"), or with model_provider="anthropic".
+  for (const call of pyCalls(text, imports, /^langchain(\.|$)/, ['init_chat_model'])) {
+    const args = callArguments(text, call.open, true) ?? [];
+    const model = literal((kwarg(args, 'model') ?? positional(args)[0])?.text);
+    const provider = literal(kwarg(args, 'model_provider')?.text);
+    const full = provider && model ? `${provider}:${model}` : model;
+    if (full) add(call.index, full, stringProvider(full, 'langchain'), 'langchain-python', `LangChain model: ${full}`);
+  }
+  // CrewAI: an agent's llm="anthropic/claude-sonnet-4-5", or none, its default (OpenAI's) unless a config file may name one.
+  if (uses(/^crewai(\.|$)/)) {
+    for (const m of text.matchAll(/\b(?:llm|manager_llm|function_calling_llm|planning_llm)\s*=\s*(["'])([^"'\n]+)\1/g)) if (!inCommentAt(text, m.index, true)) add(m.index, m[2]!, stringProvider(m[2]!, 'crewai'), 'crewai', `CrewAI model: ${m[2]!}`);
+    for (const call of pyCalls(text, imports, /^crewai(\.agent)?$/, ['Agent'])) {
+      const args = callArguments(text, call.open, true) ?? [];
+      if (!kwarg(args, 'llm') && !kwarg(args, 'config') && !args.some((a) => a.text.startsWith('**'))) defaults.push({ provider: 'openai', source: 'CrewAI default model: OpenAI' });
+    }
+  }
+  // Google ADK: LlmAgent(model="gemini-2.5-flash"), resolved by ADK's registry.
+  for (const call of pyCalls(text, imports, /^google\.adk(\.|$)/, ['Agent', 'LlmAgent'])) {
+    const model = literal(kwarg(callArguments(text, call.open, true) ?? [], 'model')?.text);
+    if (model) add(call.index, model, stringProvider(model, 'adk'), 'google-adk', `Google ADK model: ${model}`);
+  }
+  // Agno: Agent(model="anthropic:claude-sonnet-4-5"), or no model, its default, OpenAI's Responses API.
+  for (const call of pyCalls(text, imports, /^agno\.(agent|team)(\.|$)/, ['Agent', 'Team'])) {
+    const args = callArguments(text, call.open, true) ?? [];
+    const model = kwarg(args, 'model');
+    const given = literal(model?.text);
+    const key = given ? /^([\w-]+):/.exec(given)?.[1] : undefined;
+    if (given && key) add(call.index, given, AGNO_RECORDED[key] ?? null, 'agno', `Agno model: ${given}`);
+    else if (!model && !args.some((a) => a.text.startsWith('**'))) defaults.push({ provider: 'openai', source: 'Agno default model: OpenAIResponses' });
+  }
+  // Strands: a string is a Bedrock model id, and no model is Strands' default, on Bedrock.
+  for (const call of pyCalls(text, imports, /^strands(\.agent)?$/, ['Agent'])) {
+    const args = callArguments(text, call.open, true) ?? [];
+    const model = kwarg(args, 'model') ?? positional(args)[0];
+    const given = literal(model?.text);
+    if (given) add(call.index, given, 'bedrock', 'strands', `Strands Agents model: ${given}`);
+    else if (!model && !args.some((a) => a.text.startsWith('**'))) defaults.push({ provider: 'bedrock', source: 'Strands Agents default model: Bedrock' });
+  }
+  return { named, defaults };
 }
 
 /**
@@ -776,12 +1304,15 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   ];
   for (const [re, id, via] of IMPORTS) if (texts.some(([, t]) => re.test(t))) addProvider(id, `${via}, imported`);
   if (py.has('openai-agents')) addProvider('openai', 'openai-agents');
-  // Mastra's model router builds the client from a model's router id: no provider SDK is a dependency.
-  const routed = texts.flatMap(([f, t]) => scanRouterModels(t, rel(cwd, f)));
-  for (const m of routed) if (m.provider) addProvider(m.provider, `Mastra model router: ${m.model}`);
-  // The AI SDK's string model ids go to Vercel's AI Gateway, whose calls are captured in the process.
-  for (const m of texts.flatMap(([f, t]) => scanGatewayModels(t, rel(cwd, f)))) addProvider('ai-gateway', `AI SDK model id: ${m.model}`);
-  const unrecordedModels: UnrecordedModel[] = routed.filter((m) => !m.provider).map((m) => ({ file: m.file, line: m.line, model: m.model, via: 'mastra' }));
+  // The models a framework names (Mastra's router, the AI SDK's string ids, LangChain's, Pydantic AI's,
+  // CrewAI's, ADK's, Agno's and Strands' strings, model classes), and the default an agent built with
+  // none falls back on: the framework builds the client, so no provider SDK need be a dependency.
+  const models = texts.map(([f, t]) => scanModels(t, rel(cwd, f)));
+  for (const { named, defaults } of models) {
+    for (const m of named) if (m.provider) addProvider(m.provider, m.source);
+    for (const d of defaults) addProvider(d.provider, d.source);
+  }
+  const unrecordedModels: UnrecordedModel[] = models.flatMap(({ named }) => named.filter((m) => !m.provider).map((m) => ({ file: m.file, line: m.line, model: m.model, via: m.via })));
 
   const frameworks: Framework[] = [];
   const js = (id: Framework['id'], name: string, pkgName: string, adapter: string | null) => {
@@ -792,6 +1323,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   js('mastra', 'Mastra', '@mastra/core', 'mastra');
   if (deps['@langchain/langgraph']) js('langchain', 'LangGraph', '@langchain/langgraph', 'langchain');
   else js('langchain', 'LangChain', '@langchain/core', 'langchain');
+  js('claude-agent-sdk', 'Claude Agent SDK', '@anthropic-ai/claude-agent-sdk', 'claude-agent-sdk');
   if (deps['@anthropic-ai/sdk'] && texts.some(([, t]) => /toolRunner\(/.test(t))) frameworks.push({ id: 'anthropic-tool-runner', name: 'Anthropic tool runner', package: '@anthropic-ai/sdk', version: installedVersion(cwd, '@anthropic-ai/sdk') ?? deps['@anthropic-ai/sdk'], adapter: 'anthropic' });
   const pyFw = (id: Framework['id'], name: string, names: string[]) => {
     const hit = names.find((n) => py.has(n));
@@ -801,8 +1333,17 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   pyFw('openai-agents-python', 'OpenAI Agents SDK (Python)', ['openai-agents']);
   pyFw('langchain-python', 'LangChain / LangGraph (Python)', ['langgraph', 'langchain', 'langchain-core']);
   pyFw('crewai', 'CrewAI', ['crewai']);
+  pyFw('claude-agent-sdk-python', 'Claude Agent SDK (Python)', ['claude-agent-sdk']);
+  pyFw('google-adk', 'Google ADK', ['google-adk']);
+  pyFw('llamaindex', 'LlamaIndex', ['llama-index', 'llama-index-core']);
+  pyFw('agent-framework', 'Microsoft Agent Framework', ['agent-framework', 'agent-framework-core']);
+  pyFw('strands', 'Strands Agents', ['strands-agents']);
+  pyFw('smolagents', 'smolagents', ['smolagents']);
+  pyFw('agno', 'Agno', ['agno']);
 
-  const tools = texts.flatMap(([f, t]) => scanTools(t, rel(cwd, f)));
+  const scanned = texts.flatMap(([f, t]) => scanTools(t, rel(cwd, f)));
+  const tools = [...scanned, ...scanToolLists(texts, cwd, scanned)];
+  declaredEffects(tools, texts, cwd);
   const hardcodedBaseUrls = texts.flatMap(([f, t]) => scanBaseUrls(t, rel(cwd, f)));
   // A config from before the rename counts: writing a new one beside it would hide its redaction rules.
   const configPath = configFile(cwd);
@@ -866,8 +1407,12 @@ const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: Fou
   python: (n, e) => `@tool(effect="${e}") above def ${n}   # from shadowlap import tool`,
   'pydantic-ai': (n, e, t) => `${t?.decorator ?? '@agent.tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
   'openai-agents-python': (n, e) => `@function_tool(effect="${e}") on def ${n}   # from shadowlap.adapters.openai_agents import function_tool`,
-  'langchain-python': (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.langchain import with_effect`,
-  crewai: (n, e) => `with_effect(${n}, "${e}")   # from shadowlap.adapters.crewai import with_effect`,
+  'langchain-python': (n, e, t) => `with_effect(${t?.className ? `${t.className}()` : n}, "${e}")   # from shadowlap.adapters.langchain import with_effect`,
+  crewai: (n, e, t) => `with_effect(${t?.className ? `${t.className}()` : n}, "${e}")   # from shadowlap.adapters.crewai import with_effect`,
+  'claude-agent-sdk': (n, e) => `createSdkMcpServer({ …, tools: withEffects('<server>', [ … ], { ${jsKey(n)}: '${e}' }) })   // import { withEffects } from '@shadowlap/adapters/claude-agent-sdk'`,
+  'claude-agent-sdk-python': (n, e) => `create_sdk_mcp_server(…, tools=with_effects("<server>", [ … ], {"${n}": "${e}"}))   # from shadowlap.adapters.claude_agent_sdk import with_effects`,
+  strands: (n, e, t) => `${t?.decorator ?? '@tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
+  smolagents: (n, e, t) => `${t?.decorator ?? '@tool'} over @tool(effect="${e}") on def ${n}   # from shadowlap import tool`,
 };
 
 /**
@@ -910,8 +1455,8 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   }
   if (unknownHosts.length) out();
   for (const m of r.unrecordedModels) {
-    out(`${p.yellow('!')} ${m.file}:${m.line} names the model ${m.model} through Mastra's model router, which sends it to a host Shadowlap doesn't know, so its calls would not be recorded.`);
-    out(`  ${p.dim("Shadowlap records the router's anthropic/…, openai/… and google/… models.")}`);
+    out(`${p.yellow('!')} ${m.file}:${m.line} names the model ${m.model} through ${m.via === 'mastra' ? "Mastra's model router" : FRAMEWORK_NAMES[m.via]}, which sends it to a host Shadowlap doesn't know, so its calls would not be recorded.`);
+    out(`  ${p.dim(m.via === 'mastra' ? "Shadowlap records the router's anthropic/…, openai/…, google/… and vercel/… models." : "Declare its host in shadowlap.config.json (\"providers\") when it speaks OpenAI's, Anthropic's or Gemini's API, and its calls are recorded.")}`);
   }
   if (r.unrecordedModels.length) out();
   if (!r.providers.length) {
@@ -1002,7 +1547,7 @@ export function formatInitJob(json: InitJson, p: Palette): string {
   row('command', s.command ? `${s.command}   from ${s.commandFrom ?? 'the project'}` : 'none found');
   for (const t of json.tools) row('tool', t.wrapped ? `${t.name}  ${t.effect!}` : `${t.name}  not wrapped · suggest ${t.suggested} (${t.why})`, !t.wrapped);
   for (const w of json.hardcodedBaseUrls.filter((x) => !captured(x.url))) row('base URL', `${w.file}:${w.line} sets ${w.url}, a host Shadowlap doesn't know: calls through it aren't recorded`, true);
-  for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: Mastra sends it to a host Shadowlap doesn't know, so its calls aren't recorded`, true);
+  for (const m of json.unrecordedModels) row('model', `${m.file}:${m.line} names ${m.model}: ${m.via === 'mastra' ? 'Mastra' : FRAMEWORK_NAMES[m.via]} sends it to a host Shadowlap doesn't know, so its calls aren't recorded`, true);
   lines.push(json.config.created ? `${p.green('✓')} wrote ${basename(json.config.path)} (empty)` : `  ${s.config}`);
   return lines.join('\n');
 }
@@ -1195,8 +1740,11 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string
     if (language === 'python') {
       const def = (decorators: string[], t: FoundTool) => `${decorators.join('\n')}\ndef ${t.name}(…):\n    …`;
       if (via === 'openai-agents-python') blocks.push(['from shadowlap.adapters.openai_agents import function_tool', '', list.map((t) => def([`@function_tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
-      else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
+      else if (via === 'langchain-python' || via === 'crewai') blocks.push([`from shadowlap.adapters.${via === 'crewai' ? 'crewai' : 'langchain'} import with_effect`, '', `tools = [${list.map((t) => `with_effect(${t.className ? `${t.className}()` : t.name}, "${t.suggested}")`).join(', ')}]`].join('\n'));
       else if (via === 'pydantic-ai') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@agent.tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      // Strands and smolagents keep their own @tool over Shadowlap's.
+      else if (via === 'strands' || via === 'smolagents') blocks.push(['from shadowlap import tool', '', list.map((t) => def([t.decorator ?? '@tool', `@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
+      else if (via === 'claude-agent-sdk-python') blocks.push(['from shadowlap.adapters.claude_agent_sdk import with_effects', '', `tools = with_effects("<server>", [ … ], {${list.map((t) => `"${t.name}": "${t.suggested}"`).join(', ')}})`].join('\n'));
       else blocks.push(['from shadowlap import tool', '', list.map((t) => def([`@tool(effect="${t.suggested}")`], t)).join('\n\n')].join('\n'));
       continue;
     }
@@ -1206,6 +1754,7 @@ function wrapCode(language: WrapSnippet['language'], tools: FoundTool[]): string
     else if (via === 'mastra') adapter('mastra', (t) => `createTool(withEffect({ id: '${t.name}', … }, '${t.suggested}'));`);
     else if (via === 'langchain') adapter('langchain', (t) => `withEffect(tool(…, { name: '${t.name}', … }), '${t.suggested}');`);
     else if (via === 'anthropic-tool-runner') adapter('anthropic', (t) => `betaZodTool(withEffect({ name: '${t.name}', … }, '${t.suggested}'));`);
+    else if (via === 'claude-agent-sdk') blocks.push([`import { withEffects } from '@shadowlap/adapters/claude-agent-sdk';`, '', `const tools = withEffects('<server>', [ … ], { ${list.map((t) => `${jsKey(t.name)}: '${t.suggested}'`).join(', ')} });`].join('\n'));
     else blocks.push([`import { tool } from '@shadowlap/sdk';`, '', ...list.map((t) => `export const ${camel(t.name)} = tool('${t.name}', { effect: '${t.suggested}' }, async (args) => { … });`)].join('\n'));
   }
   return blocks.join('\n\n');

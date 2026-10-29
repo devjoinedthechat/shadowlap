@@ -171,6 +171,110 @@ const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', 
     expect(inspectProject(mastra, {}).providers).toEqual([{ id: 'openai', via: 'Mastra model router: openai/gpt-5' }]);
   });
 
+  describe('every framework the docs name', () => {
+    const found = (files: Record<string, string>) => {
+      const r = inspectProject(project(files), {});
+      return { r, tools: r.tools.map((t) => ({ name: t.name, via: t.via, effect: t.effect, suggested: t.suggested, ...(t.decorator ? { decorator: t.decorator } : {}), ...(t.className ? { className: t.className } : {}) })), text: formatInit(r, palette, false) };
+    };
+
+    it("Strands: its @tool over Shadowlap's, and Bedrock, its default model", () => {
+      const { r, tools, text } = found({
+        'requirements.txt': 'strands-agents==1.62.0\n',
+        'agent.py': 'from strands import Agent, tool as strands_tool\n\n@strands_tool\ndef send_email(to: str) -> str:\n    """Send."""\n    ...\n\nagent = Agent(tools=[send_email])\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['strands']);
+      expect(r.providers).toEqual([{ id: 'bedrock', via: 'Strands Agents default model: Bedrock' }]);
+      expect(tools).toEqual([{ name: 'send_email', via: 'strands', effect: null, suggested: 'write', decorator: '@strands_tool' }]);
+      expect(text).toContain('@strands_tool over @tool(effect="write") on def send_email');
+      expect(text).not.toContain('No model SDK found');
+    });
+
+    it('Agno: a model class, a model string Shadowlap does not record, and plain functions as tools', () => {
+      const { r, tools, text } = found({
+        'requirements.txt': 'agno\n',
+        'agent.py': 'from agno.agent import Agent\nfrom agno.models.anthropic import Claude\n\ndef search_web(query: str) -> str:\n    ...\n\nagent = Agent(model=Claude(id="claude-sonnet-4-5"), tools=[search_web])\nfast = Agent(model="groq:llama-3.3-70b-versatile", tools=[search_web])\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['agno']);
+      expect(r.providers).toEqual([{ id: 'anthropic', via: 'Agno model: Claude (agno.models.anthropic)' }]);
+      expect(r.unrecordedModels).toEqual([{ file: 'agent.py', line: 8, model: 'groq:llama-3.3-70b-versatile', via: 'agno' }]);
+      expect(tools).toEqual([{ name: 'search_web', via: 'agno', effect: null, suggested: 'read' }]);
+      expect(text).toContain('agent.py:8 names the model groq:llama-3.3-70b-versatile through Agno');
+    });
+
+    it("Google ADK: Gemini from the model it names, and the functions it is given", () => {
+      const { r, tools } = found({
+        'requirements.txt': 'google-adk==2.12.0\n',
+        'agent.py': 'from google.adk.agents import LlmAgent\n\ndef search_web(query: str) -> dict:\n    ...\n\nroot_agent = LlmAgent(name="support", model="gemini-2.5-flash", tools=[search_web])\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['google-adk']);
+      expect(r.providers).toEqual([{ id: 'gemini', via: 'Google ADK model: gemini-2.5-flash' }]);
+      expect(tools).toEqual([{ name: 'search_web', via: 'google-adk', effect: null, suggested: 'read' }]);
+    });
+
+    it('LlamaIndex: its LLM package, and FunctionTool.from_defaults', () => {
+      const { r, tools } = found({
+        'requirements.txt': 'llama-index-core\nllama-index-llms-anthropic\n',
+        'agent.py': 'from llama_index.core.agent.workflow import FunctionAgent\nfrom llama_index.core.tools import FunctionTool\nfrom llama_index.llms.anthropic import Anthropic\n\ndef send_email(to: str) -> str:\n    ...\n\nagent = FunctionAgent(tools=[FunctionTool.from_defaults(fn=send_email)], llm=Anthropic(model="claude-sonnet-4-5"))\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['llamaindex']);
+      expect(r.providers.map((p) => p.id)).toEqual(['anthropic']);
+      expect(tools).toEqual([{ name: 'send_email', via: 'llamaindex', effect: null, suggested: 'write' }]);
+    });
+
+    it("Microsoft Agent Framework: its OpenAI client, and a client's as_agent tools", () => {
+      const { r, tools } = found({
+        'requirements.txt': 'agent-framework-core\nagent-framework-openai\n',
+        'agent.py': 'from agent_framework.openai import OpenAIChatClient\n\ndef send_email(to: str) -> str:\n    ...\n\nagent = OpenAIChatClient().as_agent(instructions="Help.", tools=[send_email])\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['agent-framework']);
+      expect(r.providers.map((p) => p.id)).toEqual(['openai']);
+      expect(tools).toEqual([{ name: 'send_email', via: 'agent-framework', effect: null, suggested: 'write' }]);
+    });
+
+    it("smolagents: its default model, Hugging Face's, named as a host Shadowlap doesn't know", () => {
+      const { r, tools, text } = found({
+        'requirements.txt': 'smolagents\n',
+        'agent.py': 'from smolagents import CodeAgent, InferenceClientModel, tool as smol_tool\n\n@smol_tool\ndef send_email(to: str) -> str:\n    """Send.\n\n    Args:\n        to: The address.\n    """\n    ...\n\nagent = CodeAgent(tools=[send_email], model=InferenceClientModel())\n',
+      });
+      expect(r.frameworks.map((f) => f.id)).toEqual(['smolagents']);
+      expect(r.unrecordedModels.map((m) => [m.model, m.via])).toEqual([['InferenceClientModel', 'smolagents']]);
+      expect(tools).toEqual([{ name: 'send_email', via: 'smolagents', effect: null, suggested: 'write', decorator: '@smol_tool' }]);
+      expect(text).toContain('Declare its host in shadowlap.config.json');
+    });
+
+    it('the Claude Agent SDK, in Python and TypeScript: its in-process MCP tools, by the name the model knows them by, and their effects where the server is made', () => {
+      const py = found({
+        'requirements.txt': 'claude-agent-sdk\n',
+        'agent.py': 'from claude_agent_sdk import create_sdk_mcp_server, tool\n\n@tool("lookup_order", "Look an order up", {"order_id": str})\nasync def lookup(args):\n    ...\n\norders = create_sdk_mcp_server(name="orders", version="1.0.0", tools=[lookup])\n',
+      });
+      expect(py.r.frameworks.map((f) => f.id)).toEqual(['claude-agent-sdk-python']);
+      expect(py.r.providers.map((p) => p.id)).toEqual(['anthropic']);
+      expect(py.tools).toEqual([{ name: 'lookup_order', via: 'claude-agent-sdk-python', effect: null, suggested: 'read' }]);
+      expect(py.text).toContain('with_effects("<server>", [ … ], {"lookup_order": "read"})');
+      const ts = found({
+        'package.json': JSON.stringify({ dependencies: { '@anthropic-ai/claude-agent-sdk': '^0.3.0', '@shadowlap/adapters': '^0.1.0' } }),
+        'agent.ts': "import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';\nimport { withEffects } from '@shadowlap/adapters/claude-agent-sdk';\nconst refund = tool('refund_order', 'Refund an order', schema, handler);\nexport const orders = createSdkMcpServer({ name: 'orders', version: '1.0.0', tools: withEffects('orders', [refund], { refund_order: 'write' }) });\n",
+      });
+      expect(ts.r.frameworks.map((f) => f.id)).toEqual(['claude-agent-sdk']);
+      expect(ts.r.providers).toEqual([{ id: 'anthropic', via: '@anthropic-ai/claude-agent-sdk' }]);
+      expect(ts.tools).toEqual([{ name: 'refund_order', via: 'claude-agent-sdk', effect: 'write', suggested: 'write' }]);
+    });
+
+    it("Pydantic AI, LangChain and CrewAI: the providers their model strings name, CrewAI's default, and BaseTool classes", () => {
+      const pydantic = found({ 'requirements.txt': 'pydantic-ai-slim\n', 'agent.py': 'from pydantic_ai import Agent\n\nagent = Agent("anthropic:claude-sonnet-4-5")\n' });
+      expect(pydantic.r.providers).toEqual([{ id: 'anthropic', via: 'Pydantic AI model: anthropic:claude-sonnet-4-5' }]);
+      const langchain = found({ 'requirements.txt': 'langchain\nlanggraph\n', 'agent.py': 'from langchain.chat_models import init_chat_model\n\nmodel = init_chat_model("claude-sonnet-4-5", model_provider="anthropic")\n' });
+      expect(langchain.r.providers).toEqual([{ id: 'anthropic', via: 'LangChain model: anthropic:claude-sonnet-4-5' }]);
+      const crew = found({
+        'requirements.txt': 'crewai\n',
+        'crew.py': 'from crewai import Agent\nfrom crewai.tools import BaseTool\nfrom shadowlap.adapters.crewai import with_effect\n\nclass SendEmail(BaseTool):\n    name: str = "send_email"\n    description: str = "Email the team"\n\n    def _run(self, to: str) -> str:\n        ...\n\nwriter = Agent(role="Writer", goal="Write", backstory="…", tools=[with_effect(SendEmail(), "write")])\nresearcher = Agent(role="Researcher", goal="Find", backstory="…", llm="groq/llama-3.3-70b-versatile")\n',
+      });
+      expect(crew.r.providers).toEqual([{ id: 'openai', via: 'CrewAI default model: OpenAI' }]);
+      expect(crew.r.unrecordedModels.map((m) => [m.model, m.via])).toEqual([['groq/llama-3.3-70b-versatile', 'crewai']]);
+      expect(crew.tools).toEqual([{ name: 'send_email', via: 'crewai', effect: 'write', suggested: 'write', className: 'SendEmail' }]);
+    });
+  });
+
   it('writes an empty configuration once and never overwrites one', () => {
     const r = inspectProject(ts, {});
     expect(writeInitialConfig(r)).toBe(true);
