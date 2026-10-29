@@ -76,7 +76,7 @@ elif step == "error-shapes":
         pass
 
     def not_found():
-        open("/nonexistent/orders/A-17")
+        open("/nonexistent/orders/A-17")  # noqa: SIM115 -- raises FileNotFoundError: nothing is opened
 
     shapes = [
         lambda: (_ for _ in ()).throw(ValueError("order A-17 not found")),

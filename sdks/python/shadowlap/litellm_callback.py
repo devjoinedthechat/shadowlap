@@ -42,6 +42,7 @@ Three things to know, all of them deliberate:
   that fails is a capture you do not have, never a request that failed.
 """
 
+import contextlib
 import json
 import os
 import time
@@ -61,9 +62,8 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
             return
         os.makedirs(os.path.dirname(path), exist_ok=True)
         line = json.dumps(record, default=str) + "\n"
-        with _lock:
-            with open(path, "a", encoding="utf-8") as handle:
-                handle.write(line)
+        with _lock, open(path, "a", encoding="utf-8") as handle:
+            handle.write(line)
 
     def _record(self, kwargs: dict[str, Any], response: Any, start: Any, end: Any, failed: bool) -> None:
         params = kwargs.get("litellm_params") or {}
@@ -101,17 +101,13 @@ class ShadowlapCapture(CustomLogger):  # type: ignore[misc]  # LiteLLM ships no 
 
     async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
         # The only hook that fires for both streamed and non-streamed calls, and it carries the
-        # inbound request in litellm_params for both.
-        try:
+        # inbound request in litellm_params for both. What goes wrong recording a call never fails it.
+        with contextlib.suppress(Exception):
             self._record(kwargs, response_obj, start_time, end_time, failed=False)
-        except Exception:
-            pass
 
     async def async_log_failure_event(self, kwargs: dict[str, Any], response_obj: Any, start_time: Any, end_time: Any) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._record(kwargs, response_obj, start_time, end_time, failed=True)
-        except Exception:
-            pass
 
 
 proxy_handler_instance = ShadowlapCapture()

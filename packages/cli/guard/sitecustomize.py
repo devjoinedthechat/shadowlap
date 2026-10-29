@@ -19,6 +19,7 @@ sitecustomize further down sys.path, it is loaded afterwards.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import errno
 import importlib.abc
 import importlib.machinery
@@ -107,10 +108,9 @@ def _flush() -> None:
     # 2 seconds at most in all.
     deadline = time.monotonic() + 2
     for thread in list(_sending):
-        try:
+        # One not started yet has nothing to wait for.
+        with contextlib.suppress(RuntimeError):
             thread.join(max(0.0, deadline - time.monotonic()))
-        except RuntimeError:  # not started yet
-            pass
 
 
 if _url:

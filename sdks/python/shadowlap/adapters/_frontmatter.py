@@ -197,7 +197,7 @@ def _is_dash(text: str) -> bool:
 
 
 class _Line:
-    __slots__ = ("indent", "text", "raw")
+    __slots__ = ("indent", "raw", "text")
 
     def __init__(self, indent: int, text: str, raw: str) -> None:
         self.indent = indent
