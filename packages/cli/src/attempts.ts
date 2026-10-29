@@ -7,7 +7,7 @@ import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitStatus, GROUPS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, judgeChecksOf, judgeLabel, LABEL_INPUT, readsOutput, storedCheckInput, withoutOutput, type CheckResult, type EvaluateOptions, type JudgeCheck, type TestSpec } from './checks.js';
 import { killTree } from './kill-tree.js';
-import { codeVersion, guardAccept, loadConfig, upstreamOverrides, type ShadowlapConfig } from './config.js';
+import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { judgedOptions, judgesOf, liveJudge, recordedVerdicts, type Judged } from './judge.js';
 import { keyEnvPatch } from './placeholder-keys.js';
 import { agentEnv, judgeAttempt, outputDrained, type GuardMode } from './run-agent.js';
@@ -318,11 +318,13 @@ export class AttemptRunner {
       // shadowlap injection: reads the recording doesn't hold fenced after the fork.
       ...(extra.unrecordedReads ? { unrecordedReads: extra.unrecordedReads } : {}),
     };
+    // Read for each attempt, as the code may change between them, and without holding up the sidecar beside it.
+    const version = await readCodeVersion(cwd);
     const run = this.sidecar.startRun({
       mode: 'replay',
       parentRunId: parent.runId,
       command: { argv, cwd },
-      codeVersion: codeVersion(cwd),
+      codeVersion: version,
       replay,
       ...(extra.interventions ? { interventions: extra.interventions } : {}),
       ...(target.commandFromImport ? { commandFromImport: true } : {}),

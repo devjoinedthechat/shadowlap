@@ -11,7 +11,7 @@ import { AGENT_NODE_MAYBE_TOO_OLD, AGENT_NODE_TOO_OLD, namesNode, nodeRefusesPre
 import { spawnAgent } from './agent-registry.js';
 import { AgentStop, exitBySignal, exitStatus, GROUPS, sharedGroup, STOP_SIGNALS, trackAgent } from './agent-signals.js';
 import { evaluateChecks, storedCheckInput, type CheckResult, type TestSpec } from './checks.js';
-import { codeVersion, guardAccept, loadConfig, upstreamOverrides } from './config.js';
+import { guardAccept, loadConfig, readCodeVersion, upstreamOverrides } from './config.js';
 import { askJudges, judgedOptions, judgesOf, materialOf, unjudged, type Judged } from './judge.js';
 import { emitJobEvent } from './job-events.js';
 import { killTree } from './kill-tree.js';
@@ -187,11 +187,13 @@ export async function testAttempt(
   const sidecar = await Sidecar.start({ store, normalizers: o.normalizers, upstreams: o.upstreams, ...(o.prices ? { prices: o.prices } : {}), ...(o.clock ? { clock: o.clock } : {}), ...(o.http ? { http: o.http } : {}) });
   let run: RunRecord;
   try {
+    // Read for each attempt, as the code may change between them, and without holding up a sidecar in this process.
+    const version = await readCodeVersion(o.cwd);
     run = sidecar.startRun({
       mode: 'replay',
       parentRunId: parent.runId,
       command: { argv, cwd: o.cwd },
-      codeVersion: codeVersion(o.cwd),
+      codeVersion: version,
       // A partial recording (an import that only saw the network) declares what it covers; everything else runs live.
       replay: { writes: o.writes, reads: 'live', liveTools: new Set(), ...(parent.meta?.covers?.length ? { kinds: new Set(parent.meta.covers) } : {}), ...(o.divergeAt !== undefined ? { divergeAt: o.divergeAt } : {}), ...(o.replay ?? {}) },
     });

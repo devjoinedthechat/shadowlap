@@ -1,5 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { CONFIG_FILE, configFilePath, editConfigFile, parseRules, parseToolTrust, parseUnrecordedConfig, readConfigFile, type ClockMode, type Effect, type Normalizer, type Price, type ToolTrust } from '@shadowlap/engine';
 import { declareFormatHosts, formatHostProblem, validHttpHost, type FormatHost, type HttpRule } from '@shadowlap/sidecar';
 import { parseTests, parseTestSettings, type TestEntry, type TestSettings } from './checks.js';
@@ -268,6 +269,23 @@ export function codeVersion(cwd: string): string | null {
     const sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
     const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { cwd, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().length > 0;
     return dirty ? `${sha}+dirty` : sha;
+  } catch {
+    return null;
+  }
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * codeVersion, read without holding the process up: for what reads it once per attempt, beside a
+ * sidecar in the same process that answers other attempts' agents meanwhile. git's two questions are
+ * asked at once, as processes of their own.
+ */
+export async function readCodeVersion(cwd: string): Promise<string | null> {
+  const git = async (args: string[]) => (await execFileAsync('git', args, { cwd })).stdout;
+  try {
+    const [sha, status] = await Promise.all([git(['rev-parse', '--short', 'HEAD']), git(['status', '--porcelain', '--untracked-files=no'])]);
+    return status.trim().length > 0 ? `${sha.trim()}+dirty` : sha.trim();
   } catch {
     return null;
   }
