@@ -153,6 +153,24 @@ export const fast = new Agent({ id: 'fast', name: 'Fast', instructions: '…', m
     expect(inspectProject(scripted, {}).command?.argv).toEqual(['npm', 'run', 'agent']);
   });
 
+  it("names Vercel's AI Gateway for an AI SDK agent that names its model by a string, and not for Mastra's router", () => {
+    const dir = project({
+      'package.json': JSON.stringify({ name: 'support', type: 'module', dependencies: { ai: '^7.0.0', zod: '^4.0.0' } }),
+      'agent.mjs': `import { generateText, stepCountIs } from 'ai';
+// model: 'xai/grok-4' in a comment names nothing.
+const result = await generateText({ model: process.env.MODEL ?? 'openai/gpt-5', prompt: 'Refund A-1.', stopWhen: stepCountIs(4) });
+`,
+    });
+    const r = inspectProject(dir, {});
+    expect(r.providers).toEqual([{ id: 'ai-gateway', via: 'AI SDK model id: openai/gpt-5' }]);
+    const text = formatInit(r, palette, false);
+    expect(text).toContain("Model SDKs: Vercel's AI Gateway (AI SDK model id: openai/gpt-5)");
+    expect(text).not.toContain('No model SDK found');
+    // A Mastra agent's string is its model router's, which builds the provider's own client.
+    const mastra = project({ 'package.json': JSON.stringify({ dependencies: { '@mastra/core': '^1.67.0', ai: '^7.0.0' } }), 'agent.ts': "import { Agent } from '@mastra/core/agent';\nimport { tool } from 'ai';\nexport const a = new Agent({ id: 'a', name: 'A', instructions: '…', model: 'openai/gpt-5' });\n" });
+    expect(inspectProject(mastra, {}).providers).toEqual([{ id: 'openai', via: 'Mastra model router: openai/gpt-5' }]);
+  });
+
   it('writes an empty configuration once and never overwrites one', () => {
     const r = inspectProject(ts, {});
     expect(writeInitialConfig(r)).toBe(true);

@@ -18,7 +18,7 @@ import { quoteArgv } from './ui.js';
 export type Language = 'typescript' | 'javascript' | 'python';
 
 export interface Provider {
-  id: 'anthropic' | 'openai' | 'gemini' | 'azure' | 'vertex' | 'bedrock';
+  id: 'anthropic' | 'openai' | 'gemini' | 'azure' | 'vertex' | 'bedrock' | 'ai-gateway';
   /** The package it was found through. */
   via: string;
 }
@@ -106,6 +106,7 @@ const JS_PROVIDERS: Record<string, Provider['id']> = {
   '@aws-sdk/client-bedrock-runtime': 'bedrock',
   '@ai-sdk/amazon-bedrock': 'bedrock',
   '@langchain/aws': 'bedrock',
+  '@ai-sdk/gateway': 'ai-gateway',
 };
 const PY_PROVIDERS: Record<string, Provider['id']> = { anthropic: 'anthropic', openai: 'openai', 'google-genai': 'gemini', 'langchain-anthropic': 'anthropic', 'langchain-openai': 'openai', 'google-cloud-aiplatform': 'vertex', 'langchain-google-vertexai': 'vertex', 'langchain-aws': 'bedrock' };
 
@@ -358,6 +359,22 @@ const MASTRA_ROUTED: Readonly<Record<string, Provider['id']>> = { anthropic: 'an
  * fallback, `process.env.MODEL ?? 'openai/gpt-5'`), in a file that imports Mastra: the router builds
  * the model client, so no provider SDK is a dependency.
  */
+/**
+ * Models an AI SDK agent names by a string (`model: 'openai/gpt-5'`) in a file that imports the AI SDK
+ * and not Mastra, whose router reads such strings itself: the AI SDK sends them to Vercel's AI Gateway.
+ */
+function scanGatewayModels(text: string, file: string): Array<{ file: string; line: number; model: string }> {
+  if (file.endsWith('.py') || text.includes('@mastra/core') || !/(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)['"]ai['"]/.test(text)) return [];
+  const out: Array<{ file: string; line: number; model: string }> = [];
+  for (const m of text.matchAll(/\bmodel\s*:\s*(?:[^'"`\n,}]*?(?:\?\?|\|\|)\s*)?['"`]([a-z][a-z0-9-]*)\/([^'"`\s]+)['"`]/g)) {
+    const lineStart = text.lastIndexOf('\n', m.index - 1) + 1;
+    if (/\/\/|^\s*\*|^\s*\/\*/.test(text.slice(lineStart, m.index))) continue;
+    const model = `${m[1]!}/${m[2]!}`;
+    if (!out.some((x) => x.model === model)) out.push({ file, line: lineOf(text, m.index), model });
+  }
+  return out;
+}
+
 function scanRouterModels(text: string, file: string): Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> {
   if (file.endsWith('.py') || !text.includes('@mastra/core')) return [];
   const out: Array<{ file: string; line: number; model: string; provider: Provider['id'] | null }> = [];
@@ -762,6 +779,8 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
   // Mastra's model router builds the client from a model's router id: no provider SDK is a dependency.
   const routed = texts.flatMap(([f, t]) => scanRouterModels(t, rel(cwd, f)));
   for (const m of routed) if (m.provider) addProvider(m.provider, `Mastra model router: ${m.model}`);
+  // The AI SDK's string model ids go to Vercel's AI Gateway, whose calls are captured in the process.
+  for (const m of texts.flatMap(([f, t]) => scanGatewayModels(t, rel(cwd, f)))) addProvider('ai-gateway', `AI SDK model id: ${m.model}`);
   const unrecordedModels: UnrecordedModel[] = routed.filter((m) => !m.provider).map((m) => ({ file: m.file, line: m.line, model: m.model, via: 'mastra' }));
 
   const frameworks: Framework[] = [];
@@ -835,6 +854,7 @@ const PROVIDER_NAMES: Record<Provider['id'], [string, string]> = {
   azure: ['Azure OpenAI', 'captured in the process'],
   vertex: ['Vertex AI', 'captured in the process'],
   bedrock: ['Amazon Bedrock', 'captured in the process'],
+  'ai-gateway': ["Vercel's AI Gateway", 'captured in the process'],
 };
 
 const ADAPTER_SNIPPETS: Record<string, (name: string, effect: Effect, tool?: FoundTool) => string> = {
@@ -895,7 +915,7 @@ export function formatInit(r: InitReport, p: Palette, wroteConfig: boolean, { gl
   }
   if (r.unrecordedModels.length) out();
   if (!r.providers.length) {
-    out(`${p.yellow('!')} No model SDK found (Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI, Bedrock). An HTTP client of your own is recorded when it calls one of those APIs from Node or Python, or when it reads ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL.`);
+    out(`${p.yellow('!')} No model SDK found (Anthropic, OpenAI, Gemini, Azure OpenAI, Vertex AI, Bedrock, Vercel's AI Gateway). An HTTP client of your own is recorded when it calls one of those APIs from Node or Python, or when it reads ANTHROPIC_BASE_URL, OPENAI_BASE_URL or GOOGLE_GEMINI_BASE_URL.`);
     out();
   }
   const oldNode = tooOldNode(r);
