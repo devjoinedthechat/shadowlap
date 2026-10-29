@@ -250,7 +250,7 @@ class Session {
     if (this.signal) return;
     this.signal = sig;
     this.turns?.close();
-    process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${this.current ? `stopping ${this.current}, ` : ''}nothing more starts, and the session keeps what finished\n`));
+    process.stderr.write(p.yellow(`\n[shadowlap] interrupted: ${this.current ? `stopping ${safe(this.current)}, ` : ''}nothing more starts, and the session keeps what finished\n`));
   };
 
   private readonly stopped = () => this.signal !== null;
@@ -283,10 +283,10 @@ class Session {
       // The line a dashboard job reads a new run from, and a way to open each replay.
       onRun: (runId, attempt, of) => {
         this.current = golden;
-        process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${golden}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`));
+        process.stderr.write(p.dim(`[shadowlap] replaying run ${runId} for ${safe(golden)}${of > 1 ? `, attempt ${attempt} of ${spec?.gate ? `up to ${of}` : of}` : ''}\n`));
       },
       // An attempt the agent failed while its provider couldn't answer: not counted, and run again.
-      onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${golden}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
+      onUnavailable: (u, waitMs, counted) => process.stderr.write(p.yellow(`[shadowlap] ${safe(golden)}: ${unavailableWords(u, counted)}; running ${counted ? 'the next attempt' : 'it again'} in ${formatDuration(waitMs)}\n`)),
       stopped: this.stopped,
       streak: this.streak,
       ...(flags.maxAttempts ? { maxAttempts: flags.maxAttempts } : {}),
@@ -435,7 +435,7 @@ class Session {
     // Its replay did not pass: failed, or inconclusive, which is no failure, and says so here too.
     if (o.failure) return { outcome: o, injection: { resultId: null, attempts: 0, ...noVerdicts(), allowed, verdict: null, reason: null, skipped: `the golden ${verdictOf(o) === 'inconclusive' ? 'is inconclusive' : 'failed'}, so its injection gate did not run` } };
     if (this.signal) return null;
-    process.stderr.write(p.dim(`[shadowlap] injection gate for ${golden}: planting payloads in its untrusted reads\n`));
+    process.stderr.write(p.dim(`[shadowlap] injection gate for ${safe(golden)}: planting payloads in its untrusted reads\n`));
     let data: InjectionGateData;
     let proof: string | null = null;
     try {
@@ -479,7 +479,7 @@ class Session {
   private async keepVerdicts(packDir: string, { golden, spec, ctx }: Prepared, outcome: GoldenOutcome, toKeep: JudgeCheck[], made: string[]): Promise<{ outcome: GoldenOutcome; updated: Updated }> {
     const { config, projectDir } = this.request;
     const golden0 = outcome.parent!;
-    process.stdout.write(`    ${p.cyan('↻')} keeping ${toKeep.length === 1 ? `the verdict of ${toKeep[0]!.name}` : `${toKeep.length} judge verdicts`} in ${golden}: asking the judge live\n`);
+    process.stdout.write(`    ${p.cyan('↻')} keeping ${toKeep.length === 1 ? `the verdict of ${safe(toKeep[0]!.name)}` : `${toKeep.length} judge verdicts`} in ${safe(golden)}: asking the judge live\n`);
     const k = await keepJudgeVerdicts(packDir, golden0, outcome.result!.shown, toKeep, { store: this.store, config, projectDir });
     this.upstreamRequests += k.judge?.upstreamRequests ?? 0;
     for (const line of k.lines) process.stdout.write(`      ${safe(line)}\n`);
@@ -490,7 +490,7 @@ class Session {
     this.updates++;
     const changes = k.kept.map((name) => `kept the verdict of ${name}`);
     const calls = callCounts(this.store.getCalls(golden0.runId)).total;
-    process.stdout.write(`      kept in ${golden}${k.judge ? ` · ${judgeLine(k.judge)}` : ''}; review the change in your pull request\n`);
+    process.stdout.write(`      kept in ${safe(golden)}${k.judge ? ` · ${judgeLine(k.judge)}` : ''}; review the change in your pull request\n`);
     recordEvent(this.store, { kind: 'golden.updated', actor: this.actor, runId: golden0.runId, ref: golden, data: { session: this.session.sessionId, previous: golden0.runId, calls, checks: toKeep.length, changes, judged: k.kept } });
     const updated = { from: golden0.runId, to: golden0.runId, calls, changes };
     const again = this.replayed(await testGolden(packDir, golden, spec, ctx), made);
@@ -518,7 +518,7 @@ class Session {
     const normalizers = outcome.normalizers;
     for (const w of volatileWarning(divergence, normalizers)) process.stdout.write(p.yellow(`    ! ${w.text}\n        ${w.command}\n`));
     const why = early ? ` it forks at #${early.at}, before its task's takeover at #${early.takeover}, so no model can be scored on it;` : '';
-    process.stdout.write(`    ${p.cyan('↻')} updating ${golden}:${why} re-recording live, writes stubbed\n`);
+    process.stdout.write(`    ${p.cyan('↻')} updating ${safe(golden)}:${why} re-recording live, writes stubbed\n`);
     const u = await rerecordGolden(packDir, before, spec, {
       store: this.store,
       config,
@@ -527,7 +527,7 @@ class Session {
       // Live, as `run` records: the guard warns, unless --guard was given.
       guard: guardGiven ? flags.guard : 'warn',
       onRun: (runId) => {
-        process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${golden} again, live, writes stubbed\n`));
+        process.stderr.write(p.dim(`[shadowlap] recording run ${runId}: ${safe(golden)} again, live, writes stubbed\n`));
         emitJobEvent({ type: 'run', runId, role: 'new' });
       },
       stopped: this.stopped,
@@ -546,7 +546,7 @@ class Session {
     const changes = requestChanges(this.store, before, u.run, divergence, normalizers);
     process.stdout.write(`      re-recorded as run ${shortId(u.run.runId)}: ${describeChange(u.before, u.after!)} · ${updateReceipt(u.summary)}\n`);
     if (changes.length) process.stdout.write(`      what changed: ${safe(changes.join(' · '))}\n`);
-    process.stdout.write(`      replaced ${golden} in the working tree; review the change in your pull request\n`);
+    process.stdout.write(`      replaced ${safe(golden)} in the working tree; review the change in your pull request\n`);
     recordEvent(this.store, { kind: 'golden.updated', actor: this.actor, runId: u.run.runId, ref: golden, data: { session: this.session.sessionId, previous: before.runId, calls: u.after!.total, checks: u.checks?.length ?? 0, changes } });
     const updated = { from: before.runId, to: u.run.runId, calls: u.after!.total, changes };
     // The new golden, replayed as the next test will replay it. Cut short, the result is the
@@ -709,12 +709,12 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
   const gate = o.result?.gate;
   // What to know about how its gate decided, under its line.
   const notes = () => {
-    for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${note}\n`));
+    for (const note of o.notes ?? []) process.stdout.write(p.dim(`    ${safe(note)}\n`));
   };
   if (!o.failure) {
     // A gate's verdict line leads (the verdict word, the tally, the bound, the rule), with pass^k and the rest under it.
-    if (gate) process.stdout.write(`${p.green('✓')} ${o.name}: ${gate.sentence}${suffix}\n${p.dim(`    ${[formatPassK(gate), passedLine(o)].filter(Boolean).join(' · ')}`)}\n`);
-    else process.stdout.write(`${p.green('✓')} ${o.name}: ${passedLine(o)}${suffix}\n`);
+    if (gate) process.stdout.write(`${p.green('✓')} ${safe(o.name)}: ${gate.sentence}${suffix}\n${p.dim(`    ${[formatPassK(gate), passedLine(o)].filter(Boolean).join(' · ')}`)}\n`);
+    else process.stdout.write(`${p.green('✓')} ${safe(o.name)}: ${passedLine(o)}${suffix}\n`);
     // A judge's verdict and reason are worth reading on a golden that passed too.
     const judged = (o.result?.shown.checks ?? []).filter((c) => c.judge);
     if (judged.length) process.stdout.write(p.dim(judged.map((c) => `    ${safe(checkLine(c))}`).join('\n')) + '\n');
@@ -724,7 +724,7 @@ function printGolden(o: GoldenOutcome, suffix = ''): void {
   // Inconclusive is neither, whatever CI does with it: marked ? in amber, as a check that could not be decided is.
   const inconclusive = verdictOf(o) === 'inconclusive';
   // Its message as one line: it can carry what the golden's command or its provider said.
-  process.stdout.write(`${inconclusive ? p.yellow('?') : p.red('✗')} ${o.name}: ${safe(o.failure.message)}\n`);
+  process.stdout.write(`${inconclusive ? p.yellow('?') : p.red('✗')} ${safe(o.name)}: ${safe(o.failure.message)}\n`);
   notes();
   if (!o.result) return;
   const indent = (text: string, prefix = '    ') => text.split('\n').map((l) => prefix + l).join('\n') + '\n';

@@ -11,7 +11,7 @@ import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-
 import { emitJobEvent } from '../job-events.js';
 import { formatMigrate, runMigrate, type MigrateReport } from '../migrate.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
@@ -19,12 +19,6 @@ import { palette as p, quoteArgv, shortId } from '../ui.js';
  * call again with only the change swapped in, and ranks what it decides differently; `migrate` does
  * that for a model switch, verifies what it flags, and writes the report a pull request needs.
  */
-
-function parseUsd(value: string): number {
-  const n = Number(value.replace(/^\$/, ''));
-  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
-  return n;
-}
 
 const repeat = (v: string, acc: string[]) => [...acc, v];
 

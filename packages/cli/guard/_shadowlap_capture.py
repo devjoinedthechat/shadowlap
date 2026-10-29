@@ -172,7 +172,7 @@ def _reset(message: Optional[str]) -> ConnectionResetError:
     return ConnectionResetError(errno.ECONNRESET, message or os.strerror(errno.ECONNRESET))
 
 
-def _patch_httpx(module: types.ModuleType) -> None:
+def _patch_httpx(module: types.ModuleType) -> None:  # noqa: C901, PLR0915  (held to its ceiling in lint-caps.json)
     if getattr(module, "_shadowlap_capture", False):
         return
     setattr(module, "_shadowlap_capture", True)
@@ -289,7 +289,7 @@ def _pool_to_sidecar(module: Any) -> Any:
     return _sidecar_pool
 
 
-def _patch_urllib3(module: types.ModuleType) -> None:
+def _patch_urllib3(module: types.ModuleType) -> None:  # noqa: PLR0915  (held to its ceiling in lint-caps.json)
     """Clients that drive urllib3 themselves. A pool is bound to one host, so a captured request is
     sent on the pool to the sidecar instead, with the path the sidecar expects. A failure --fail-at
     named is raised here as urllib3 raises the real one, for urllib3's own users and for requests and
@@ -418,7 +418,7 @@ def _sidecar_ws(url: object) -> Optional[str]:
     return None
 
 
-def _patch_aiohttp(module: types.ModuleType) -> None:
+def _patch_aiohttp(module: types.ModuleType) -> None:  # noqa: C901  (held to its ceiling in lint-caps.json)
     """aiohttp: a request is redirected where aiohttp makes it (ClientRequest), so a session's base
     URL, its redirects and ws_connect all come through here, and a proxy it was given (trust_env and
     HTTP_PROXY) is left out for the sidecar, which is on this machine's loopback."""

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createServer as createHttp2Server, type Http2Server, type ServerHttp2Session } from 'node:http2';
 import type { Duplex } from 'node:stream';
 import type { AddressInfo } from 'node:net';
-import { messageOf, type JudgeSummary, type RunMeta, type RunRecord, type RunStatus } from '@shadowlap/engine';
+import { decodedSegment, messageOf, type JudgeSummary, type RunMeta, type RunRecord, type RunStatus } from '@shadowlap/engine';
 import { breakConnection, HttpError } from './answers.js';
 import { handleApi } from './api.js';
 import { proxyHttp } from './capture.js';
@@ -13,7 +13,7 @@ import { closeForJudge, endRun, endWritten, envFor, envForSlot, expectPreloads, 
 import { proxy } from './model-calls.js';
 import { carriesPlaceholder, placeholderRefusal } from './placeholders.js';
 import type { GuardMode } from './preloads.js';
-import { bareHost, decodedSegment, forwardedHeaders, headerValue, lowerHeaders } from './requests.js';
+import { bareHost, forwardedHeaders, headerValue, lowerHeaders } from './requests.js';
 import { refuseUpgrade, tunnelWebSocket } from './websocket.js';
 
 export type { Interventions } from './interventions.js';

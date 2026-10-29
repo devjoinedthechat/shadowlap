@@ -54,9 +54,10 @@ line-length = 160
 [tool.ruff.lint]
 # pycodestyle, Pyflakes, isort, flake8-bugbear, pyupgrade, flake8-async, McCabe's complexity (C90),
 # flake8-simplify, Ruff's own rules (RUF100 among them reports a noqa that no longer suppresses
-# anything), flake8-pytest-style and flake8-bandit's security checks (S). `npm run lint` runs it over
+# anything), flake8-pytest-style, flake8-bandit's security checks (S) and Pylint's statements per
+# function (PLR0915). `npm run lint` runs it over
 # every Python file in the repository (ruff.toml at its root extends this).
-select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "C90", "SIM", "RUF", "PT", "S"]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "C90", "SIM", "RUF", "PT", "S", "PLR0915"]
 ignore = [
   # Line length is a formatter's call, and no formatter wraps this code: its long lines are messages,
   # docstrings and test data.
@@ -78,20 +79,19 @@ ignore = [
 ]
 
 [tool.ruff.lint.mccabe]
-# A function with more paths than this is split. Today's longer ones are listed below, and in
-# ruff.toml at the root for the guard's, each file until it is.
+# A function with more paths than this is split. Today's over it each carry a noqa on their def line,
+# and are held to what they are today by lint-caps.json (scripts/lint-caps.mjs, which `npm run lint`
+# runs), as the TypeScript's are.
 max-complexity = 15
+
+[tool.ruff.lint.pylint]
+# A function with more statements than this is split; today's over it are held as the complex ones are.
+max-statements = 50
 
 [tool.ruff.lint.per-file-ignores]
 # The tests are unittest.TestCase classes, which pytest runs: they assert with TestCase's methods, and
 # pickle the SDK's own objects to check what crosses a process.
 "tests/**" = ["PT009", "PT027", "S301"]
-# Today's functions over the complexity cap.
-"shadowlap/adapters/_claude_hooks.py" = ["C901"]
-"shadowlap/adapters/_claude_reach.py" = ["C901"]
-"shadowlap/adapters/claude_agent_sdk.py" = ["C901"]
-"tests/fake_claude_code.py" = ["C901"]
-"shadowlap/__init__.py" = ["C901"]
 
 [tool.ruff.lint.isort]
 # The SDK, as the agents and tests elsewhere in the repository import it: its own group, after the others.

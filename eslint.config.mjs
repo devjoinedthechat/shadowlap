@@ -12,6 +12,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import ts from 'typescript';
+import caps, { PER_FUNCTION } from './scripts/lint-caps-rules.mjs';
 
 const root = import.meta.dirname;
 
@@ -56,7 +57,8 @@ export const IGNORED = [
  * Growth stops. No function takes more than 30 paths through it, runs past 150 lines or nests its
  * blocks more than 5 deep, and no file runs past 800 lines, blank lines and comments not counted. A
  * test's functions are its describe and it callbacks, which hold whole suites, so their length is
- * not capped. The files over a cap today are listed in lint-caps.json, each held to what it is today:
+ * not capped. What is over a cap today is listed in lint-caps.json, each held to what it is today: a
+ * function by its name in its file (scripts/lint-caps-rules.mjs), a file's length by the file.
  * scripts/lint-caps.mjs keeps that list exact, as `npm run lint` runs it, and lowers it as they shrink.
  */
 export const CAPS = {
@@ -65,10 +67,13 @@ export const CAPS = {
   'max-depth': { max: 5 },
   'max-lines': { max: 800, skipBlankLines: true, skipComments: true },
 };
-/** Today's files over a cap, by rule, each with what it is today (scripts/lint-caps.mjs). */
+/** What is over a cap today, by rule, with what it is today (scripts/lint-caps.mjs): by file and function, or by file for max-lines. */
 const OVER = JSON.parse(readFileSync(`${root}/lint-caps.json`, 'utf8'));
-/** A cap as a rule's options, at `max`. */
-const capped = (rule, max = CAPS[rule].max) => ['error', { ...CAPS[rule], max }];
+/** A cap as its rule's options: held per function (caps/…) with each function's ceiling in the file, or ESLint's own at `max`. */
+const capped = (rule, over) =>
+  PER_FUNCTION.includes(rule) ? ['error', { ...CAPS[rule], ...(over ? { ceilings: over } : {}) }] : ['error', { ...CAPS[rule], ...(over === undefined ? {} : { max: over }) }];
+/** A cap's rule by its name in a config: the per-function ones are this repository's own. */
+const capRule = (rule) => (PER_FUNCTION.includes(rule) ? `caps/${rule}` : rule);
 
 /**
  * What the code says one way, each ban with the message that names that way, for no-restricted-syntax.
@@ -105,6 +110,16 @@ const BANS = {
     {
       selector: "CallExpression[callee.object.name='process'][callee.property.name='exit'][arguments.0.type='Literal']",
       message: 'Name the exit status with EXIT from exit-codes.ts: process.exit(EXIT.usage).',
+    },
+    // A status in either branch of a conditional, at any depth: `process.exitCode = differ ? 1 : 0`.
+    {
+      selector: [
+        "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'] ConditionalExpression > Literal.consequent[raw=/^[0-9]+$/]",
+        "AssignmentExpression[left.object.name='process'][left.property.name='exitCode'] ConditionalExpression > Literal.alternate[raw=/^[0-9]+$/]",
+        "CallExpression[callee.object.name='process'][callee.property.name='exit'] ConditionalExpression > Literal.consequent[raw=/^[0-9]+$/]",
+        "CallExpression[callee.object.name='process'][callee.property.name='exit'] ConditionalExpression > Literal.alternate[raw=/^[0-9]+$/]",
+      ].join(', '),
+      message: 'Name the exit status with EXIT from exit-codes.ts in each branch: process.exitCode = differ ? EXIT.failed : EXIT.ok.',
     },
   ],
 };
@@ -282,10 +297,14 @@ export default defineConfig(
   // are (lint-caps.json).
   {
     files: ['**/*.{ts,tsx,mts,cts,js,mjs,cjs}'],
-    rules: Object.fromEntries(Object.keys(CAPS).map((rule) => [rule, capped(rule)])),
+    plugins: { caps },
+    rules: Object.fromEntries(Object.keys(CAPS).map((rule) => [capRule(rule), capped(rule)])),
   },
-  { files: TEST_FILES, rules: { 'max-lines-per-function': 'off' } },
-  ...Object.entries(OVER).flatMap(([rule, files]) => Object.entries(files).map(([file, max]) => ({ files: [file], rules: { [rule]: capped(rule, max) } }))),
+  { files: TEST_FILES, rules: { 'caps/max-lines-per-function': 'off' } },
+  // The Python's ceilings, in the same file, are ruff's (scripts/lint-caps.mjs holds them).
+  ...Object.entries(OVER)
+    .filter(([rule]) => rule in CAPS)
+    .flatMap(([rule, files]) => Object.entries(files).map(([file, over]) => ({ files: [file], rules: { [capRule(rule)]: capped(rule, over) } }))),
 
   // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
   // value with messageOf; the CLI's names its exit statuses.

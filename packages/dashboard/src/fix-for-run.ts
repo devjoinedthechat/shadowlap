@@ -1,5 +1,5 @@
-import { canonicalize, fixLabelInfo, fixLabels, fixOfRun, lostAround, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
-import { checkSuggestion, fixHref, isUnblamedFailure, labelledFixes, runHref, toolsCalled } from './fix-shared.js';
+import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixOfRun, labelledFixes, lostAround, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
 
 /** A run's fix, as its page shows it: the fix it fails in, and what blame found of it. */
 

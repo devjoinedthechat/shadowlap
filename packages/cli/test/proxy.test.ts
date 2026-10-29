@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createServer as createTcpServer, type AddressInfo, type Server as TcpServer } from 'node:net';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startMockOpenAI, turn, type MockServer } from '@shadowlap-testing/mock-openai';
 import { agentEnv, noProxyEnv } from '../src/run-agent.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * Behind a proxy (HTTP_PROXY set, as corporate networks set it), traffic to Shadowlap's loopback
@@ -19,18 +20,7 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const TS_SDK = new URL('../../sdk/dist/index.js', import.meta.url).href;
 const PY_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
 
-function pythonAvailable(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      const v = execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      if (/Python 3\.(9|[1-9]\d)/.test(v)) return cmd;
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-const PYTHON = pythonAvailable();
+const PYTHON = pythonCommand();
 
 let proxy: Server;
 const proxied: string[] = [];

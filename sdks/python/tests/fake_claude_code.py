@@ -68,7 +68,7 @@ class FakeClaudeCode:
         # The subagent the calls are made in, as Claude Code names it in each hook's input: (agent_id, agent_type); None for the main session.
         self.agent: Optional[tuple[str, str]] = None
 
-    async def call(self, tool: str, given: dict[str, Any], tool_use_id: str) -> dict[str, Any]:
+    async def call(self, tool: str, given: dict[str, Any], tool_use_id: str) -> dict[str, Any]:  # noqa: C901  (held to its ceiling in lint-caps.json)
         if self.stop_reason is not None:
             return {"content": "the session was stopped: " + self.stop_reason, "is_error": True}
         checked = self._parse(tool, given)

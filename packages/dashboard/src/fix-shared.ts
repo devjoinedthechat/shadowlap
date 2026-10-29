@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, fixLabelInfo, fixLabels, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredBlame, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -289,22 +289,6 @@ function failedFork(index: RunIndex, run: RunRecord): boolean {
   const m = r.meta;
   return !r.attemptOf && !m.probe && !m.verify && !m.repeat && !m.test && !m.chaos && !run.meta?.injection;
 }
-
-/**
- * The check a blame of a run never blamed can use: the check of a fix its labels point to, one that
- * holds every label of the run first, then one not yet applied, then the latest opened.
- */
-export function checkSuggestion(run: RunRecord, fixes: Array<{ fix: StoredFix; labels: string[] }>): { expect: unknown } | null {
-  const labels = fixLabels(run);
-  if (!labels.length) return null;
-  const scored = fixes
-    .map((x) => ({ ...x, shared: labels.filter((l) => x.labels.includes(l)).length }))
-    .filter((x) => x.shared > 0)
-    .sort((a, b) => b.shared - a.shared || Number(a.fix.status === 'applied') - Number(b.fix.status === 'applied') || b.fix.openedAt - a.fix.openedAt);
-  return scored[0] ? { expect: scored[0].fix.check.expect } : null;
-}
-
-export const labelledFixes = (store: StoreOf<'recording' | 'fixes'>) => store.listFixes().map((fix) => ({ fix, labels: fixLabelInfo(store, fix).labels }));
 
 /** The tools a model's answer called, each once, in order. */
 export const toolsCalled = (blocks: ReadonlyArray<{ type: string; name?: string }>): string[] => [...new Set(blocks.flatMap((x) => (x.type === 'tool_call' && x.name ? [x.name] : [])))];

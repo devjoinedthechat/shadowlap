@@ -4,7 +4,7 @@
  * agent's processes said along the way. One RunContext per run the sidecar has open; every module
  * that handles a call reads and changes the call's run through it.
  */
-import { judgeRules, type CallEndRow, type CallKind, type CallRecord, type CallStartRow, type Decision, type Effect, type Normalizer, type Origin, type RunRecord, type Session } from '@shadowlap/engine';
+import { judgeRules, type CallEndRow, type CallKind, type CallRecord, type CallStartRow, type Decision, type Effect, type Normalizer, type Origin, type ResolveInput, type RunRecord, type Session } from '@shadowlap/engine';
 import { rulesId } from './fingerprint-cache.js';
 import type { CallPlace, RequestInterventions } from './interventions.js';
 import type { GuardMode, Hello } from './preloads.js';
@@ -140,6 +140,20 @@ export class RunContext {
      */
     readonly headerParameters = true,
   ) {}
+
+  /**
+   * Opens the run's next call, as every kind of call starts: its number, the session's decision for
+   * it (Session.resolve), and the call tracked from then on (`calls`). `extra` is what a model call
+   * adds: the queue a retry of it is looked for in, and its place among the recording's model calls.
+   */
+  openCall(asked: Omit<ResolveInput, 'callNo'>, extra: Pick<TrackedCall, 'retryKey' | 'place'> = {}): { callNo: number; tracked: TrackedCall } {
+    const callNo = this.nextCallNo++;
+    const decision = this.session.resolve({ ...asked, callNo });
+    const identity: CallIdentity = { kind: asked.kind, name: asked.name, fingerprint: asked.fingerprint, occurrence: decision.occurrence };
+    const tracked: TrackedCall = { identity, effect: asked.effect ?? null, origin: storedOrigin(asked.kind, decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, ...extra };
+    this.calls.set(callNo, tracked);
+    return { callNo, tracked };
+  }
 
   /** Says `message` in the run's warnings, once for `tool`; whether it said it now. */
   warnOnce(tool: string, message: string): boolean {

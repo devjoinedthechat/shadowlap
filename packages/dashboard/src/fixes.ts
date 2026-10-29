@@ -9,9 +9,10 @@
  * `fixForRun` (a run page's banners and the Forks view's bundles).
  *
  * Each view has a module: fix-list.ts, the steps of a fix's page (fix-blame-step.ts,
- * fix-repair-step.ts, fix-verify-step.ts), fix-summary.ts, fix-for-run.ts, fix-bundles.ts and
- * fix-checks.ts, with what they share in fix-shared.ts. This one keeps a fix's page (fixDetail) and
- * the commands its buttons run, and exports the rest.
+ * fix-repair-step.ts, fix-verify-step.ts), fix-summary.ts, fix-for-run.ts and fix-bundles.ts, with
+ * what they share in fix-shared.ts; the check a blame starts from is the engine's (`blameCheckFor`),
+ * which the terminal UI asks too. This one keeps a fix's page (fixDetail) and the commands its
+ * buttons run, and exports the rest.
  */
 
 import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, lostAround, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
@@ -27,7 +28,6 @@ export { type VerifyStep, type VerifyMore } from './fix-verify-step.js';
 export { type FixesSummary, type WeekWindows, fixesSummary, type NeedsLookItem, needsLookFixes } from './fix-summary.js';
 export { type FixRef, type RunBlame, type FixForRun, fixForRun } from './fix-for-run.js';
 export { type FixBundleAttempt, type FixBundle, fixBundles } from './fix-bundles.js';
-export { type BlameCheck, failedChecks, configExpect, blameCheckFor } from './fix-checks.js';
 export { type StepKey, type VerifyRow, type FixActions, fixHref, shortFailure, type PatchCheck } from './fix-shared.js';
 
 export interface FixRunRef {

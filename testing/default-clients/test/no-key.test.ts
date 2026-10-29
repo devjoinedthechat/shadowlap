@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from '@shadowlap/sidecar';
-import { answered, ciEnv, CLI, committed, findPython, HERE, node, recorded, refusal, ROOT, run, startProviders, workdir, type ProviderId, type Providers } from './clients.js';
+import { answered, ciEnv, CLI, committed, HERE, node, recorded, refusal, ROOT, run, startProviders, workdir, type ProviderId, type Providers } from './clients.js';
+import { pythonCommand } from '../../python-with.mjs';
 
 /**
  * Agents that build their model client the default way, with each official SDK, take their key
@@ -35,11 +36,11 @@ const geminiKey = (h: Record<string, string | string[] | undefined>, path: strin
 const aws = (id: string) => ({ AWS_ACCESS_KEY_ID: id, AWS_SECRET_ACCESS_KEY: `${id.toLowerCase()}-secret` });
 
 const python = {
-  anthropic: findPython('anthropic'),
-  openai: findPython('openai'),
-  gemini: findPython('google.genai'),
-  bedrock: findPython('anthropic', 'boto3'),
-  boto3: findPython('boto3'),
+  anthropic: pythonCommand('anthropic'),
+  openai: pythonCommand('openai'),
+  gemini: pythonCommand('google.genai'),
+  bedrock: pythonCommand('anthropic', 'boto3'),
+  boto3: pythonCommand('boto3'),
 };
 const py = (cmd: string | null, agent: string) => (cmd ? [cmd, join(HERE, agent)] : null);
 

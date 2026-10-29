@@ -303,83 +303,114 @@ export class Session {
     return n;
   }
 
+  /**
+   * What answers a call: the recording, a flag, or the world. A replay matches calls to the
+   * recording until the first that differs (`replaying`), then serves from it only what can't have
+   * changed (`afterFork`); what neither answers runs live under the replay's policies (`unmatched`).
+   */
   resolve(input: ResolveInput): Decision {
     const occurrence = input.occurrence ?? this.nextOccurrence(input.kind, input.fingerprint, input.scope);
-    const scope = this.scopeOf(input.scope);
-    const effect = input.effect ?? null;
-
     if (input.scope === JUDGE_SCOPE) return this.judge(input, occurrence);
     if (this.mode === 'record') return { origin: 'live', occurrence };
-
-    // A partial recording never saw this kind of call, so its absence is not a divergence: run it
-    // live, but keep the write policy, because a live write is still a real side effect.
-    if (this.options.kinds && !this.covers(input)) {
-      if (input.kind === 'tool' && effect === 'write') {
-        if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
-        if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
-      }
-      if (input.kind === 'tool' && effect === 'read' && this.carriesPlant(input.request)) return { origin: 'blocked', occurrence };
-      return { origin: 'live', occurrence };
-    }
+    if (this.options.kinds && !this.covers(input)) return this.uncovered(input, occurrence);
     // A recording made before what a person types was recorded never saw the agent's reads.
     if (input.input && !this.holdsInput) return { origin: 'live', occurrence };
-
     const place = input.kind === 'api' && input.occurrence === undefined ? this.nextPlace(input.scope, this.apiCounts) : undefined;
     const forced = this.isForced(input, place);
-    if (this.state === 'replaying') {
-      const record = forced ? undefined : this.recorded(input, occurrence, scope);
-      if (record && !this.consumed.has(record.callNo) && !input.changedBy) return this.serve(input, record, occurrence);
-      // A plain read the recording has no counterpart for changes nothing the replay is checking:
-      // answered live, and the replay goes on. One a flag forces or changed still forks.
-      if (!forced && !input.changedBy && !input.input && isPlainRead(input.kind, effect)) {
-        this.extras.push({ callNo: input.callNo, kind: input.kind, name: input.name });
-        return { origin: 'live', occurrence, extra: true };
-      }
-      this.state = 'diverged';
-      // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
-      // the change for matching. The flag named this call, so it still forks here.
-      this.divergence = this.withExtras(
-        record && !this.consumed.has(record.callNo) && input.changedBy
-          ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
-          : this.explain(input, forced, occurrence),
-      );
-    } else if (input.kind === 'tool' && !forced && !this.options.liveTools.has(input.name) && (effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) {
-      // After divergence only declared-pure results (and reads, on request) may come from the
-      // recording, and the writes it made, when asked: what the world answered them, never a fence
-      // or a failure a flag made. Never for a call a flag forces live (`--diverge-at` on it), nor for
-      // a tool `--live-tool` names: its code changed since the recording, so what it returned then is
-      // no answer for it, however the run got here.
-      const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
-      const answered = effect !== 'write' || (record && (record.origin === 'live' || record.origin === 'replayed') && !record.end?.meta.injected);
-      if (record && answered && !this.consumed.has(record.callNo)) return this.serve(input, record, occurrence);
+    const scope = this.scopeOf(input.scope);
+    const answered = this.state === 'replaying' ? this.replaying(input, occurrence, scope, forced) : this.afterFork(input, occurrence, scope, forced);
+    return answered ?? this.unmatched(input, occurrence, scope);
+  }
+
+  /**
+   * A call a partial recording never saw the kind of, so its absence is not a divergence: run live,
+   * but under the write policy, because a live write is still a real side effect, and a read that
+   * carries planted text out fenced.
+   */
+  private uncovered(input: ResolveInput, occurrence: number): Decision {
+    const fenced = this.fencedWrite(input, occurrence);
+    if (fenced) return fenced;
+    if (input.kind === 'tool' && input.effect === 'read' && this.carriesPlant(input.request)) return { origin: 'blocked', occurrence };
+    return { origin: 'live', occurrence };
+  }
+
+  /**
+   * A call while the replay still matches the recording: the recorded call it is, served; a plain
+   * read the recording holds no counterpart for, answered live while the replay goes on; else the
+   * fork, its divergence kept, and null for `unmatched` to answer the call.
+   */
+  private replaying(input: ResolveInput, occurrence: number, scope: string, forced: boolean): Decision | null {
+    const found = forced ? undefined : this.recorded(input, occurrence, scope);
+    const record = found && !this.consumed.has(found.callNo) ? found : undefined;
+    if (record && !input.changedBy) return this.serve(input, record, occurrence);
+    // A plain read the recording has no counterpart for changes nothing the replay is checking:
+    // answered live, and the replay goes on. One a flag forces or changed still forks.
+    if (!forced && !input.changedBy && !input.input && isPlainRead(input.kind, input.effect ?? null)) {
+      this.extras.push({ callNo: input.callNo, kind: input.kind, name: input.name });
+      return { origin: 'live', occurrence, extra: true };
     }
+    this.state = 'diverged';
+    // A flag changed this request, yet it matches the recording: a normalizer or --prompt-from masks
+    // the change for matching. The flag named this call, so it still forks here.
+    this.divergence = this.withExtras(
+      record && input.changedBy
+        ? { callNo: input.callNo, kind: input.kind, name: input.name, replayedBefore: this.replayedCount, type: 'forced', reason: `forced live by ${input.changedBy}, a change the normalizers or --prompt-from hide from matching`, counterpart: { runId: this.parentRunId ?? record.runId, callNo: record.callNo } }
+        : this.explain(input, forced, occurrence),
+    );
+    return null;
+  }
+
+  /**
+   * A call after the fork that may still come from the recording, or null: only declared-pure
+   * results (and reads, on request), and the writes it made, when asked: what the world answered
+   * them, never a fence or a failure a flag made. Never for a call a flag forces live
+   * (`--diverge-at` on it), nor for a tool `--live-tool` names: its code changed since the
+   * recording, so what it returned then is no answer for it, however the run got here.
+   */
+  private afterFork(input: ResolveInput, occurrence: number, scope: string, forced: boolean): Decision | null {
+    const effect = input.effect ?? null;
+    if (input.kind !== 'tool' || forced || this.options.liveTools.has(input.name)) return null;
+    if (!(effect === 'pure' || (effect === 'read' && this.options.reads === 'replay') || (effect === 'write' && this.options.recordedWrites))) return null;
+    const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
+    const answered = effect !== 'write' || (record && (record.origin === 'live' || record.origin === 'replayed') && !record.end?.meta.injected);
+    return record && answered && !this.consumed.has(record.callNo) ? this.serve(input, record, occurrence) : null;
+  }
+
+  /**
+   * A call the recording doesn't answer as the run now stands: a tool `--fail-at` asked to fail,
+   * failed; a person's input, from the recording; else live, under the policies for writes and for
+   * reads the recording doesn't hold.
+   */
+  private unmatched(input: ResolveInput, occurrence: number, scope: string): Decision {
     // A tool asked to fail that the run reaches after its fork: the same tool with the same arguments
     // (and occurrence) is the recorded call, wherever it now falls.
-    if (input.kind === 'tool' && this.options.toolFailures?.size) {
-      const record = this.index.get(key(input.kind, input.fingerprint, occurrence, scope));
-      const failure = record && !this.consumed.has(record.callNo) ? this.options.toolFailures.get(record.callNo) : undefined;
-      if (record && failure) {
-        this.consumed.add(record.callNo);
-        this.applied.add(record.callNo);
-        return { origin: 'injected', occurrence, record, failure };
-      }
+    const failing = input.kind === 'tool' && this.options.toolFailures?.size ? this.index.get(key(input.kind, input.fingerprint, occurrence, scope)) : undefined;
+    const failure = failing && !this.consumed.has(failing.callNo) ? this.options.toolFailures?.get(failing.callNo) : undefined;
+    if (failing && failure) {
+      this.consumed.add(failing.callNo);
+      this.applied.add(failing.callNo);
+      return { origin: 'injected', occurrence, record: failing, failure };
     }
-
     // After the fork there is no one to type: a person's input comes from the recording, in the
     // order it was given, whatever the prompt now says.
     if (input.input && !this.options.liveInput) {
       const next = this.parentCalls.find((c) => c.meta.input === true && c.end && !this.consumed.has(c.callNo));
       if (next) return this.serve(input, next, occurrence);
     }
-
     // Live region.
-    if (input.kind === 'tool' && effect === 'write') {
-      if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
-      if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
-    }
+    const fenced = this.fencedWrite(input, occurrence);
+    if (fenced) return fenced;
     // A read the recording doesn't hold: fenced when asked, and always when it carries planted text out.
-    if (input.kind === 'tool' && effect === 'read' && !input.input && (this.options.unrecordedReads === 'fence' || this.carriesPlant(input.request))) return { origin: 'blocked', occurrence };
+    if (input.kind === 'tool' && input.effect === 'read' && !input.input && (this.options.unrecordedReads === 'fence' || this.carriesPlant(input.request))) return { origin: 'blocked', occurrence };
     return { origin: 'live', occurrence };
+  }
+
+  /** A write run live, as the replay's policy for them has it: blocked, stubbed, or null to run it. */
+  private fencedWrite(input: ResolveInput, occurrence: number): Decision | null {
+    if (input.kind !== 'tool' || input.effect !== 'write') return null;
+    if (this.options.writes === 'block') return { origin: 'blocked', occurrence };
+    if (this.options.writes === 'stub') return { origin: 'stubbed', occurrence };
+    return null;
   }
 
   /**

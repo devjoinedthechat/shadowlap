@@ -5,6 +5,7 @@ import { checkCommandTemplate, recordEvent, resolveAuthor, type CoverageGroup } 
 import { loadConfig, loadTests } from '../config.js';
 import { coverageJson, findGroup, formatCoverage, scanCoverage, shortPath } from '../coverage.js';
 import { packGroup, type PackJson } from '../coverage-pack.js';
+import { EXIT } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { parseChoice, readStore, type GlobalOpts } from '../shared.js';
@@ -93,7 +94,7 @@ export function register(program: Command): void {
         emitJobEvent({ type: 'link', label: 'Tests', href: links.tests() });
         const unpacked = pack?.filter((x) => !x.golden).length ?? 0;
         if (unpacked && flags.notPacked === 'warn' && !flags.json) process.stdout.write(p.dim(`${unpacked} not packed: reported, not failed (--not-packed warn)\n`));
-        process.exitCode = unpacked && flags.notPacked === 'fail' ? 1 : 0;
+        process.exitCode = unpacked && flags.notPacked === 'fail' ? EXIT.failed : EXIT.ok;
       } finally {
         store.close();
       }

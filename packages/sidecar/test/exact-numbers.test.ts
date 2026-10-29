@@ -1,9 +1,10 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { parseJsonExact, proposeNormalizers, Store } from '@shadowlap/engine';
 import { Sidecar } from '../src/index.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * What a tool returned reaches the agent on replay exactly as it was recorded: numbers JSON.parse
@@ -12,17 +13,7 @@ import { Sidecar } from '../src/index.js';
  */
 
 const AGENT = fileURLToPath(new URL('./exact_numbers_agent.py', import.meta.url));
-function python(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString())) return cmd;
-    } catch {
-      // next
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+const PYTHON = pythonCommand();
 
 describe('numbers in tool payloads', () => {
   it('are stored and served back as written, and arguments match by their exact digits', async () => {

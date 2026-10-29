@@ -12,7 +12,7 @@ import { missingPreload, Sidecar, SIDECAR_VERSION, sdkMismatch, shownCause } fro
 import { message, startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { runDoctor } from '../src/doctor.js';
 import { guardEnv } from '../src/index.js';
-import { pythonWith } from './python-with.js';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * Every Node and Python process of an agent says its preload loaded (`POST /v1/hello`), and a run

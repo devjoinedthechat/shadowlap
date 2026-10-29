@@ -3,9 +3,6 @@
 extend = "sdks/python/pyproject.toml"
 
 [lint.extend-per-file-ignores]
-# Today's functions over the complexity cap in the guard.
-"packages/cli/guard/_shadowlap_capture.py" = ["C901"]
-"packages/cli/guard/sitecustomize.py" = ["C901"]
 # A preload never fails the process it is loaded into, so what goes wrong in it is passed over (S110),
 # and it posts to the sidecar at the URL the CLI gave it (S310).
 "packages/cli/guard/*.py" = ["S110", "S310"]

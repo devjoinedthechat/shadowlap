@@ -36,7 +36,7 @@ import { EXIT, interruptedStatus, stoppedBy } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { type GuardMode } from '../run-agent.js';
 import { servedConsentKey, serveTasks } from '../serve-tasks.js';
-import { openStore, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
+import { openStore, parseChoice, parseIntArg, parseUsd, readStore, type GlobalOpts } from '../shared.js';
 import { resolveTarget, targetVia, type ModelTarget } from '../takeover.js';
 import { addJudge, cannotScore, keepScores, loadTasks, notStarted, scoreTask, type KeptScores, type LoadedTask, type ScoredAttempt, type TaskScore } from '../tasks.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
@@ -49,12 +49,6 @@ import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const STATUS: Record<TaskStatus, string> = { ready: 'ready', blocked: 'blocked', 'not-a-task': 'not a task', 'no-golden': 'no golden' };
-
-function parseUsd(value: string): number {
-  const n = Number(value.replace(/^\$/, ''));
-  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
-  return n;
-}
 
 function parsePort(value: string): number {
   const n = Number(value);

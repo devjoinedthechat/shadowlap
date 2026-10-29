@@ -21,19 +21,6 @@ export const HERE = fileURLToPath(new URL('../', import.meta.url));
 export const CLI = join(ROOT, 'packages', 'cli', 'bin', 'shadowlap.js');
 export const node = (agent: string) => [process.execPath, join(HERE, agent)];
 
-/** A Python that can import `modules`: SHADOWLAP_PYTHON, python3 or python. */
-export function findPython(...modules: string[]): string | null {
-  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c)) {
-    try {
-      execFileSync(cmd, ['-c', modules.map((m) => `import ${m}`).join('; ')], { stdio: 'ignore' });
-      return cmd;
-    } catch {
-      // the next one
-    }
-  }
-  return null;
-}
-
 export type ProviderId = 'anthropic' | 'openai' | 'gemini' | 'azure' | 'bedrock';
 export interface Seen {
   path: string;

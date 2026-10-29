@@ -51,3 +51,15 @@ export function quoteArgv(argv: readonly string[]): string {
     })
     .join(' ');
 }
+
+/**
+ * A URL path segment decoded, as a provider reads it, or as it was sent when it doesn't decode
+ * (`anthropic.claude%ZZ`): a malformed path names what it names as it stands.
+ */
+export function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}

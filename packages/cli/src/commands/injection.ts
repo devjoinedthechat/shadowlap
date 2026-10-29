@@ -14,7 +14,7 @@ import { EXIT, inconclusiveStatus, interruptedStatus } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
+import { confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, safe, shortId } from '../ui.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
 
@@ -24,12 +24,6 @@ import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectName
 function parseWhole(value: string): number {
   const n = Number(value);
   if (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(n)) throw new InvalidArgumentError('must be a whole number, 0 or more');
-  return n;
-}
-
-function parseUsd(value: string): number {
-  const n = Number(value.replace(/^\$/, ''));
-  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
   return n;
 }
 

@@ -5,10 +5,11 @@ name: Release
 # npm: provenance-attested, needs the NPM_TOKEN secret (an automation token for the @shadowlap scope and the shadowlap name).
 # PyPI: trusted publishing, needs the shadowlap project on PyPI to trust this repository and the "release" environment.
 #
-# Nothing publishes unless CI passes on the tagged commit, run here in full (lint, the tests on every
-# Node, the Python SDK on every Python and under mypy, the conformance suite), and the release's own
-# checks pass: the tag names the version of every package, CHANGELOG.md has its section, and the
-# packages install from a local registry and work. The packages are built once, by a job that holds
+# Nothing publishes unless CI passes on the tagged commit, run here in full on every system (lint,
+# the tests on every Node, the Python SDK on every Python and under mypy, the conformance suite), with
+# the suites that run apart from it (the dashboard in a browser, the frameworks, the Action, the
+# coding agents' commands), and the release's own checks pass: the tag names the version of every
+# package, CHANGELOG.md has its section, and the packages install from a local registry and work. The packages are built once, by a job that holds
 # no token; the jobs that publish them install and build nothing, and only they get the tokens. Every
 # action is pinned to a commit, and the Python build tools by hash.
 on:
@@ -31,6 +32,30 @@ jobs:
   ci:
     name: CI on the tagged commit
     uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  browser:
+    name: the dashboard in a browser, on the tagged commit
+    uses: ./.github/workflows/dashboard-browser.yml
+    permissions:
+      contents: read
+
+  frameworks:
+    name: the frameworks, on the tagged commit
+    uses: ./.github/workflows/frameworks.yml
+    permissions:
+      contents: read
+
+  action:
+    name: the Action, on the tagged commit
+    uses: ./.github/workflows/action.yml
+    permissions:
+      contents: read
+
+  coding-agents:
+    name: the coding agents' commands, on the tagged commit
+    uses: ./.github/workflows/coding-agents.yml
     permissions:
       contents: read
 
@@ -60,7 +85,7 @@ jobs:
 
   build:
     name: the packages, built once
-    needs: [ci, verify]
+    needs: [ci, browser, frameworks, action, coding-agents, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

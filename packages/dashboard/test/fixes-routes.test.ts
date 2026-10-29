@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, decideVerify, gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type SprtGate, type VerifyReport } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, blameCheckFor, decideVerify, gateResult, markFixApplied, NO_COMMAND, recordBlame, recordRepair, recordVerdict, setFixTitle, Store, type BlameReport, type RepairReport, type SprtGate, type VerifyReport } from '@shadowlap/engine';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
-import { blameCheckFor, fixBundles } from '../src/fixes.js';
+import { fixBundles } from '../src/fixes.js';
 import { startDashboard, type Dashboard, type DashboardOptions, type JobView, type ProjectConfig } from '../src/index.js';
 
 /**
@@ -419,6 +419,13 @@ describe('the blame job', () => {
     expect(res.status).toBe(422);
     expect((await json(res)).error).toBe(`say what a passing run must do: ${run.slice(0, 10)} failed “send_email called 0 times”, and neither the run nor shadowlap.config.json gives that check. Give it as expect JSON, such as {"tools":{"send_email":1}}`);
     expect(spawned).toEqual([]);
+  });
+
+  it('blames on the exit a run whose agent exited with an error and whose only check could not be decided, as the terminal UI does', async () => {
+    const run = makeRun(store, { status: 'failed', meta: { checks: [{ ok: false, status: 'inconclusive', label: 'judge: the reply is polite', detail: 'the judge gave no verdict' }] } });
+    await start();
+    await started({ kind: 'blame', runId: run });
+    expect(spawned).toEqual([['blame', run]]);
   });
 
   it('refuses a run still recording, and a check too long to be one', async () => {
