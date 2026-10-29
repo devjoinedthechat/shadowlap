@@ -48,9 +48,13 @@ export interface SummaryWork {
   team: TeamStoreInput | null;
   /** The project's folder: git says from there whether a verified fix's patch is in the working tree. */
   project: string | null;
-  /** The warm-up has been through every run: what is still unknown is worked out now rather than waited for. */
-  warmed: boolean;
 }
+
+/**
+ * The most calls the Overview's request reads to work out what isn't known yet (`overviewKnown`,
+ * `OverviewOptions.budget`): a short run that just ended is added up in it, a long one by the warm-up.
+ */
+export const SUMMARY_CALLS_BUDGET = 5000;
 
 export type ReadJob =
   | { kind: 'summary'; work: SummaryWork }
@@ -144,9 +148,13 @@ function teamKey(store: Store, team: TeamStoreInput | null): string | null {
 
 async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<ReadAnswer> {
   const when = { ...(w.tz ? { tz: w.tz } : {}), ...(w.now !== undefined ? { now: w.now } : {}) };
-  // Not worked out yet, and the warm-up is at it: say how far it is, at once.
-  if (!whole && !w.warmed) {
-    const known = overviewKnown(store, when);
+  // Not worked out yet: say how far it is, at once, and the warm-up works out the rest (the route has
+  // it go through the runs again). Never a pass over a long run's calls here, the warm-up's done or
+  // not: once it was, the Overview after a run of 100,000 calls was opened took 31 to 63 s, working
+  // out that run's prompt cache, which another thread had kept with its totals.
+  const budget = whole ? {} : { budget: SUMMARY_CALLS_BUDGET };
+  if (!whole) {
+    const known = overviewKnown(store, { ...when, ...budget });
     if (known.done < known.total) return answer({ warming: known });
   }
   const status = w.team ? teamStoreStatus(store, w.team) : null;
@@ -154,7 +162,7 @@ async function summary(store: Store, w: SummaryWork, whole: boolean): Promise<Re
   const setup = status && w.team && w.project ? setupUnderWay(store, w.team) : null;
   const patchInTree = w.project ? await patchesInTree(w.project, patchesToCheck(store)) : null;
   // It names the time it was worked out at, so it is never the same twice: no ETag.
-  return answer(overviewSummary(store, { ...when, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}) }));
+  return answer(overviewSummary(store, { ...when, ...budget, ...(w.prices ? { prices: w.prices } : {}), goldens: w.goldens, teamStore: status ? { name: status.name, onlyLocal: status.onlyLocal, setup } : null, ...(patchInTree ? { patchInTree } : {}) }));
 }
 
 function runsPage(store: Store, options: Omit<RunsPageOptions, 'localRuns'>, team: TeamStoreInput | null, whole: boolean): ReadAnswer {
@@ -261,11 +269,13 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
       case 'analyse': {
         const run = lookupRun(store, job.runId);
         if (run) {
-          analyseRun(store, run, runCalls(store, run.runId));
-          // And what its user asked first, read from every request it sent: kept for its about line.
+          const calls = runCalls(store, run.runId);
+          const analysis = analyseRun(store, run, calls);
+          // And what its user asked first, from the conversations the analysis placed its calls in:
+          // kept for its about line.
           const index = loadRunIndex(store);
           const r = index.byId.get(run.runId);
-          if (r && asksFor(r)) asksOf(store, index, [r]);
+          if (r && asksFor(r)) asksOf(store, index, [r], { analysed: { runId: run.runId, calls, conversations: analysis.conversations } });
         }
         return answer(null);
       }

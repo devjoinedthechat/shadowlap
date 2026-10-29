@@ -30,7 +30,12 @@ const wantsWhole = (r: { query: URLSearchParams }) => r.query.get('whole') === '
  */
 export function register(router: Router, ctx: RouteContext): void {
   // `ctx.store` is read in each handler: on a dashboard with several projects it is the current one's.
-  router.get('/runs', async (r) => sendAnswer(r, await ctx.reads.run({ kind: 'recent', read: ctx.read })));
+  // Rows whose totals are on their way have the warm-up go through the runs again, as Runs does.
+  router.get('/runs', async (r) => {
+    const a = await ctx.reads.run({ kind: 'recent', read: ctx.read });
+    if (a.warming) ctx.reads.warm();
+    sendAnswer(r, a);
+  });
 
   // A run's page: the run with the first page of its calls (500 at most), `callsTotal` and
   // `callsNext` (contract 8). `?after=<n>` answers with the calls after the n the page has, for a

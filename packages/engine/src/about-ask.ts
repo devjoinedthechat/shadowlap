@@ -1,6 +1,6 @@
 import { firstSentence, type RunAsk } from './about.js';
 import { normalizeConversation, type TurnBlock } from './conversation.js';
-import { conversationRequest, runConversations } from './conversations.js';
+import { conversationRequest, runConversations, type RunConversations } from './conversations.js';
 import { isReservedScope } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import type { Store } from './store.js';
@@ -48,9 +48,10 @@ function firstUserMessage(store: Store, call: CallRecord): string | null {
 export interface RunAskOptions {
   /**
    * Count the agent's conversations, to tell a batch, which reads every model request of the run
-   * once: for a run that has ended. A run still recording is read by its first request alone.
+   * once: for a run that has ended. A run still recording is read by its first request alone. The
+   * run's conversations already worked out (a run page's analysis has them) are taken as they are.
    */
-  conversations?: boolean;
+  conversations?: boolean | RunConversations;
 }
 
 /**
@@ -80,7 +81,7 @@ export function runAsk(store: Store, calls: readonly CallRecord[], options: RunA
   let batch = false;
   if (options.conversations && own.length > 1) {
     try {
-      const spans = runConversations(store, sorted).conversations.filter((s) => (s.scope ?? '') === scope);
+      const spans = (options.conversations === true ? runConversations(store, sorted) : options.conversations).conversations.filter((s) => (s.scope ?? '') === scope);
       batch = spans.length > 1;
     } catch {
       batch = false;

@@ -649,7 +649,7 @@ describe('rows whose totals were never added up', () => {
       expect(page.warming).toEqual({ done: 1, total: 3 });
       // The sidebar's list says the same.
       expect(rowsWarming(recentRuns(store, { known: true }))).toEqual({ done: 1, total: 3 });
-      reads.mockRestore();
+      reads.mockClear();
       // Once the warm-up has added them up, they are as any run's, and nothing is on its way.
       const index = loadRunIndex(store);
       callTotals(store, index, index.runs);
@@ -657,6 +657,10 @@ describe('rows whose totals were never added up', () => {
       expect(after.warming).toBeUndefined();
       expect(after.runs.find((r) => r.runId === longB)).toMatchObject({ origins: 'r'.repeat(ROW_CALLS_BUDGET + 1) });
       expect(after.runs.some((r) => r.warming)).toBe(false);
+      // What their users asked is still the warm-up's to work out: each is quoted from its first calls
+      // again, not from every request it sent, which held Runs 36 s at 100,000 calls.
+      expect([read(longA), read(longB)]).toEqual([[{ after: 0, limit: 50 }], [{ after: 0, limit: 50 }]]);
+      reads.mockRestore();
     } finally {
       store.close();
     }

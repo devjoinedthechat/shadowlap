@@ -56,6 +56,11 @@ export interface OpenInput {
   failed: boolean;
   calls: readonly OpenCall[];
   origins?: readonly Origin7[] | null;
+  /**
+   * While a long run's pages come, how many calls it has: a recording's newest is its count, not
+   * the last call read. Opened at the last read, a recording of 3,000 calls stayed on #500 as it grew.
+   */
+  total?: number | null;
 }
 
 /**
@@ -66,6 +71,6 @@ export interface OpenInput {
 export function openingCall(i: OpenInput): number | null {
   if (i.forkAt !== null) return i.forkAt;
   if (i.lostAt !== null) return i.lostAt;
-  if (i.live) return i.calls.at(-1)?.callNo ?? null;
+  if (i.live) return Math.max(i.total ?? 0, i.calls.at(-1)?.callNo ?? 0) || null;
   return (i.failed ? firstFailedCall(i.calls, i.origins ?? null) : null) ?? firstStep(i.calls);
 }

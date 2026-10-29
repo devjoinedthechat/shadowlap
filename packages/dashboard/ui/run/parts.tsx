@@ -35,7 +35,9 @@ export function RunLoading() {
 export function Metrics({ run, notWaitedMs, notWaitedUnknown }: { run: RunDetail; notWaitedMs: number | null; notWaitedUnknown: number }) {
   const s = run.summary;
   const items = metricItems({
-    total: s.total,
+    // A recording's count as the poll says it, as its list has it: its page is asked for again only
+    // every few seconds, and its newest call is the count (open-at.ts).
+    total: run.run.status === 'running' ? Math.max(s.total, run.callsTotal) : s.total,
     byKind: s.byKind,
     upstreamRequests: s.upstreamRequests,
     cost: s.cost,

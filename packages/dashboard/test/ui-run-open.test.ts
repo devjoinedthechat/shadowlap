@@ -35,6 +35,14 @@ describe('where a run opens', () => {
     expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: run })).toBe(6);
   });
 
+  it('opens a long recording at its count while its pages come, not at the last call read', () => {
+    const read = Array.from({ length: 500 }, (_, i) => oc(i + 1, i % 2 ? 'tool' : 'api'));
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: read, total: 3000 })).toBe(3000);
+    // Its pages all read, the count and the last call agree.
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: read, total: null })).toBe(500);
+    expect(openingCall({ forkAt: null, lostAt: null, live: true, failed: false, calls: [], total: 0 })).toBeNull();
+  });
+
   it('never opens on a clock or random read, unless the run made only those', () => {
     expect(firstStep(run)).toBe(3);
     expect(firstStep([oc(1, 'clock'), oc(2, 'random')])).toBe(1);

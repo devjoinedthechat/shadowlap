@@ -1,13 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { estimateCost, Store, storedModelResolver, summarizeRun } from '@shadowlap/engine';
-import { overviewSummary } from '../src/overview.js';
+import { overviewKnown, overviewSummary } from '../src/overview.js';
+import { runJob, SUMMARY_CALLS_BUDGET } from '../src/read-jobs.js';
 import { keepingIndex, loadRunIndex } from '../src/run-index.js';
-import { cacheTotalsOf, cachesRead, callTotals, originStrings, runsRead, runStats, spentOf, sumStats, warmRunStats } from '../src/run-stats.js';
+import { cacheTotalsOf, cachesRead, callTotals, originStrings, runsRead, runStats, spentOf, sumStats, totalsKnown, warmRunStats } from '../src/run-stats.js';
 import { assistant, cachedUsage, RunBuilder, toolResult, toolUse, usage, user } from '../../engine/test/run-fixtures.js';
-import { addRun, capture, DAY, MODEL, usageAt } from './read-model-store.js';
+import { addRun, capture, DAY, HOUR, MODEL, usageAt } from './read-model-store.js';
 
 const NOW = Date.UTC(2026, 9, 1, 10, 15);
 let store: Store;
@@ -256,6 +257,90 @@ describe('the prompt cache', () => {
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the prompt cache another thread kept', () => {
+  it('is read from the store when this thread remembers the run’s totals without it, never worked out again', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'shadowlap-cache-kept-'));
+    const path = join(dir, 'shadowlap.db');
+    const here = Store.open(path);
+    const warm = Store.open(path);
+    try {
+      const runId = addRun(here, { startedAt: NOW - HOUR, calls: 'llll' });
+      const run = (s: Store) => {
+        const ix = loadRunIndex(s);
+        return { ix, r: ix.byId.get(runId)! };
+      };
+      // This thread opened the run's page: it remembers the run's totals, without the cache.
+      let h = run(here);
+      expect(callTotals(here, h.ix, [h.r]).get(runId)).not.toHaveProperty('cache');
+      // The warm-up, on a thread of its own, worked out the cache and kept it with the totals.
+      const w = run(warm);
+      const cache = cacheTotalsOf(warm, w.ix, [w.r]);
+      expect(cachesRead(warm)).toBe(1);
+      // The Overview, asked here, finds it known in the store, and reads no request of the run.
+      h = run(here);
+      expect(totalsKnown(here, h.ix, [h.r], { cache: () => true })).toEqual({ done: 1, total: 1 });
+      expect(cacheTotalsOf(here, h.ix, [h.r])).toEqual(cache);
+      expect(cachesRead(here)).toBe(0);
+    } finally {
+      here.close();
+      warm.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the Overview, worked out in a request', () => {
+  it('adds up a short run that just ended, and leaves a long run’s prompt cache to the warm-up, saying it is warming', async () => {
+    // A long run of the week whose page was opened (its totals known, its cache not), and a short one.
+    const long = addRun(store, { startedAt: NOW - 2 * HOUR, calls: 'l'.repeat(SUMMARY_CALLS_BUDGET + 1) });
+    addRun(store, { startedAt: NOW - HOUR, calls: 'llll' });
+    const index = loadRunIndex(store);
+    callTotals(store, index, [index.byId.get(long)!]);
+    const asked = { kind: 'summary' as const, work: { tz: 'UTC', now: NOW, goldens: [], team: null, project: null } };
+    const reads = [runsRead(store), cachesRead(store)];
+    // The short run is added up in the request, its cache with it; the long one's cache is not.
+    expect(JSON.parse((await runJob(store, asked)).body)).toEqual({ warming: { done: 1, total: 2 } });
+    expect([runsRead(store), cachesRead(store)]).toEqual([reads[0] + 1, reads[1] + 1]);
+    // However it is asked within the budget: the week's cache leaves it out rather than read it.
+    expect(overviewKnown(store, { tz: 'UTC', now: NOW, budget: SUMMARY_CALLS_BUDGET })).toEqual({ done: 1, total: 2 });
+    const within = overviewSummary(store, { tz: 'UTC', now: NOW, budget: SUMMARY_CALLS_BUDGET });
+    expect(within.sums.week.runs).toBe(2);
+    expect(cachesRead(store)).toBe(reads[1] + 1);
+    // Once the warm-up has worked it out, the request answers whole, reading nothing.
+    while (!warmRunStats(store, { budgetMs: 0, now: NOW }));
+    const warmed = [runsRead(store), cachesRead(store)];
+    const summary = JSON.parse((await runJob(store, asked)).body) as { warming?: unknown; sums: { week: { runs: number } }; cache: { missCount: number } };
+    expect(summary.warming).toBeUndefined();
+    expect(summary.sums.week.runs).toBe(2);
+    expect([runsRead(store), cachesRead(store)]).toEqual(warmed);
+  });
+
+  it('adds up a recording in progress once, for the sums and its row of the grid, though it made a call meanwhile', () => {
+    const rec = addRun(store, { startedAt: NOW - HOUR, calls: 'l'.repeat(40), status: 'running' });
+    // A call the recording makes while the Overview is worked out, read into the run index as anything
+    // the Overview reads after it (its fixes, its tests) reads it.
+    const recording = store.recordingRuns.bind(store);
+    const spy = vi.spyOn(store, 'recordingRuns').mockImplementation((now?: number) => {
+      const identity = { kind: 'api' as const, name: 'POST /v1/messages', fingerprint: 'fp41', occurrence: 1 };
+      store.appendCallStart({ runId: rec, callNo: 41, ...identity, origin: 'live', effect: null, requestRef: null, meta: {}, at: NOW });
+      store.appendCallEnd(identity, { runId: rec, callNo: 41, attempt: 0, responseRef: null, outcome: 'ok', meta: { latencyMs: 10 }, at: NOW + 10 });
+      loadRunIndex(store);
+      return recording(now);
+    });
+    try {
+      const before = runsRead(store);
+      const summary = overviewSummary(store, { tz: 'UTC', now: NOW, budget: 10 });
+      const row = summary.grid.families.flatMap((f) => f.rows).find((r) => r.runId === rec)!;
+      // Its row drawn from the totals the sums had, rather than left empty past the budget, or read again.
+      expect(row.origins.l).toBe(40);
+      expect(summary.sums.week.calls).toBe(40);
+      expect(runsRead(store)).toBe(before + 1);
+    } finally {
+      spy.mockRestore();
     }
   });
 });
