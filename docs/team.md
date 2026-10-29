@@ -228,7 +228,7 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   and nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
   (`python -c '…'`), shown escaped. One the store marks as still running comes in as interrupted,
   since nothing here records it. Its replay asks before running the command it was recorded
-  with, as an unpacked run's does, saying it came from the team store and who recorded it.
+  with, as an unpacked run's does, saying it came from the team store, and in the CLI who recorded it.
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and
   leaves one that fails here, saying why. A run in the store that can't be read (changed there by
   hand, or written by a newer Shadowlap) is skipped with its forks, and the other runs come; the
@@ -276,8 +276,9 @@ identity federation or an Azure federated credential, so no key is stored in CI.
 step for pull requests, with credentials of their own; see [Pull requests](#pull-requests). On
 GitHub that step is only for pull requests from your own repository: a fork's gets no OIDC token,
 so its job skips the step and runs the tests without pushing. R2 has no OIDC, so its token's keys
-go in the CI's secrets, for protected branches only. A golden that runs live (one marked `fork`, or
-with an injection gate) calls your agent's providers, so the step that runs the tests needs their
+go in the CI's secrets: on GitHub, to every job that isn't a pull request's (an environment only
+protected branches can use keeps them to those), and on GitLab as protected variables. A golden
+that runs live (one marked `fork`, or with an injection gate) calls your agent's providers, so the step that runs the tests needs their
 keys: `store ci` names those its goldens' recordings call, in the step's `env` from the repository's
 secrets on GitHub, and in a note on GitLab and any other CI. A missing store or missing credentials is a
 warning: the tests still decide the job's result.
