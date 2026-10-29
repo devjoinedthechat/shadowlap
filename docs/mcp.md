@@ -29,7 +29,7 @@ Every message passes through unchanged except `tools/call`, which goes through t
 
 Everything else (`initialize`, `tools/list`, resources, prompts, notifications, and the server's own requests to the client) is forwarded as-is, in order. A JSON-RPC batch that carries a `tools/call` is refused under Shadowlap: each request in it gets an error (`-32600`) and the batch's notifications go on one by one, because a call inside a batch could be neither recorded nor fenced. MCP 2025-06-18 removed batching, and the official clients don't send batches.
 
-In front of a command, the proxy runs as long as its server: a stop signal it gets (Ctrl-C, SIGTERM, or the SIGHUP of a closed terminal) reaches the server too, and once the server has exited the proxy ends, with 128 + the signal's number, even while the client holds its end of the proxy's input open.
+In front of a command, the proxy runs as long as its server: a stop signal it gets (Ctrl-C, SIGTERM, or the SIGHUP of a closed terminal) reaches the server too, and once the server has exited the proxy ends, with 128 + the signal's number, even while the client holds its end of the proxy's input open. A server ended by a signal the proxy never got ends it the same way, with 128 + that signal's number (137 for SIGKILL).
 
 Each recorded call names its server in `meta.mcp`: the transport (`stdio` or `http`), and the server's host (`--url`) or command (`npx @modelcontextprotocol/server-filesystem`, never the arguments after the package, nor a URL's path, since either can hold a key). The first call to a server in a run, and any call after its tool list changed, also lists the server's tools with their effects, which is what the dashboard's MCP table counts.
 

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 import type { Effect } from '@shadowlap/engine';
 import { isObject } from '@shadowlap/engine';
+import { signalExit } from './exit-codes.js';
 import { idKey, isRequest, isToolCall, lines, refuseBatch, ToolCalls, type JsonRpcMessage, type LiveCall, type ProxySidecar } from './mcp-calls.js';
 import { startCommand } from './start-command.js';
 
@@ -96,7 +97,8 @@ export function startMcpProxy(o: McpProxyOptions): { child: ChildProcess; done: 
       // A call the server never answered still ends in the recording, as the agent saw it end.
       const unanswered = [...pending.values()].filter((p) => p.live);
       pending.clear();
-      void Promise.all(unanswered.map((p) => calls.complete(p.live!, { error: { code: -32000, message: 'the MCP server exited before answering' } }))).then(() => resolve(code ?? (signal ? 128 : 1)));
+      // A server a signal ended ends the proxy as a shell reports it: 128 + the signal's number.
+      void Promise.all(unanswered.map((p) => calls.complete(p.live!, { error: { code: -32000, message: 'the MCP server exited before answering' } }))).then(() => resolve(code ?? (signal ? signalExit(signal) : 1)));
     });
   });
   return { child, done };
