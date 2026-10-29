@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { maskMultipart } from '../src/credential-shapes.js';
 import { CREDENTIAL_PLACEHOLDER as C, TOKEN_IN_VALUE, maskTextCredentials } from '../src/http.js';
+import { regexProblem } from '../src/safe-regex.js';
 import { times, timesOf } from './timing.js';
 
 /**
@@ -48,5 +52,54 @@ describe('a multipart body', () => {
     const t = timesOf({ letters: () => maskMultipart(`--b${'a'.repeat(100_000)}`, keep), spaces: () => maskMultipart(`--${' '.repeat(100_000)}`, keep), tabs: () => maskMultipart(`--x${'\t'.repeat(100_000)}`, keep) }, { rounds: 2 });
     expect(t.spaces, `a line of spaces took ${times(t.spaces, t.letters)} as long as one of letters`).toBeLessThan(10 * t.letters);
     expect(t.tabs, `a line of tabs took ${times(t.tabs, t.letters)} as long as one of letters`).toBeLessThan(10 * t.letters);
+  });
+});
+
+/** The masking's sources: every pattern in them runs on every request and response a recording keeps, and every copy of one. */
+const MASKING_SOURCES = ['credential-shapes.ts', 'http.ts'];
+
+interface Pattern {
+  at: string;
+  source: string;
+  flags: string;
+}
+
+/** The patterns a source writes, literals and `RegExp` of string literals, read with TypeScript's parser; `built` places one made of anything else. */
+function patternsOf(file: string): { patterns: Pattern[]; built: string[] } {
+  const text = readFileSync(fileURLToPath(new URL(`../src/${file}`, import.meta.url)), 'utf8');
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const patterns: Pattern[] = [];
+  const built: string[] = [];
+  const visit = (node: ts.Node): void => {
+    const at = `${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
+    if (ts.isRegularExpressionLiteral(node)) {
+      const end = node.text.lastIndexOf('/');
+      patterns.push({ at, source: node.text.slice(1, end), flags: node.text.slice(end + 1) });
+    } else if ((ts.isNewExpression(node) || ts.isCallExpression(node)) && ts.isIdentifier(node.expression) && node.expression.text === 'RegExp') {
+      const [pattern, flags] = node.arguments ?? [];
+      if (pattern && ts.isStringLiteralLike(pattern) && (!flags || ts.isStringLiteralLike(flags))) patterns.push({ at, source: pattern.text, flags: flags ? flags.text : '' });
+      else built.push(at);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return { patterns, built };
+}
+
+describe('every pattern the masking writes', () => {
+  const read = MASKING_SOURCES.map(patternsOf);
+
+  it('passes regexProblem, as a redaction rule must: none can take time that grows with the square of a text', () => {
+    const patterns = read.flatMap((r) => r.patterns);
+    expect(patterns.length).toBeGreaterThan(40);
+    const refused = patterns.flatMap((p) => {
+      const why = regexProblem(p.source, p.flags);
+      return why ? [`${p.at} /${p.source}/${p.flags}: ${why}`] : [];
+    });
+    expect(refused).toEqual([]);
+  });
+
+  it('is written out where the check can read it, none built from a value', () => {
+    expect(read.flatMap((r) => r.built)).toEqual([]);
   });
 });

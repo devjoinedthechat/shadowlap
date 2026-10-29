@@ -616,16 +616,16 @@ export function maskBytesCredentials(bytes: Buffer): Buffer | null {
   return masked === null ? null : Buffer.from(masked, 'latin1');
 }
 
-/** A parameter of a Content-Disposition value (`name="api_key"`, `filename=a.txt`), quoted or not; undefined when absent. */
-function dispositionParam(header: string, key: string): string | undefined {
-  const m = new RegExp(`(?:^|;)\\s*${key}\\s*=\\s*(?:"((?:[^"\\\\]|\\\\.)*)"|([^;]*))`, 'i').exec(header);
+/** The `name` parameter of a Content-Disposition value (`name="api_key"`, `name=api_key`), quoted or not; undefined when absent. */
+function dispositionName(header: string): string | undefined {
+  const m = /(?:^|;)\s*name\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*))/i.exec(header);
   if (!m) return undefined;
   return m[1] !== undefined ? m[1].replace(/\\(.)/g, '$1') : m[2]!.trim();
 }
 
-/** An RFC 5987 extended parameter of a Content-Disposition value (`name*=UTF-8''api_key`), its value decoded; undefined when absent. */
-function extendedParam(header: string, key: string): string | undefined {
-  const m = new RegExp(`(?:^|;)\\s*${key}\\*\\s*=\\s*([^;]*)`, 'i').exec(header);
+/** Its RFC 5987 extended `name*` parameter (`name*=UTF-8''api_key`), its value decoded; undefined when absent. */
+function extendedName(header: string): string | undefined {
+  const m = /(?:^|;)\s*name\*\s*=\s*([^;]*)/i.exec(header);
   return m ? decodedParam(m[1]!.trim().replace(/^[^']*'[^']*'/, '')) : undefined;
 }
 
@@ -643,7 +643,7 @@ function maskedPart(part: MultipartPartText, depth: number): MultipartPartText |
     return credentialHeader(lower) || JWT.test(value.trim()) ? `${name}${colon}${CREDENTIAL_PLACEHOLDER}` : whole;
   });
   const disposition = /^content-disposition:([^\r\n]*)$/im.exec(part.headers)?.[1] ?? '';
-  const name = dispositionParam(disposition, 'name') ?? extendedParam(disposition, 'name');
+  const name = dispositionName(disposition) ?? extendedName(disposition);
   if (name !== undefined && part.content !== CREDENTIAL_PLACEHOLDER && credentialParam(name, part.content)) return { headers, content: CREDENTIAL_PLACEHOLDER };
   const content = depth < MAX_NESTING ? maskTextCredentials(part.content, depth + 1) : null;
   return content === null && headers === part.headers ? null : { headers, content: content ?? part.content };
