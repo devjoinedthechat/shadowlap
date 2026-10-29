@@ -19,7 +19,7 @@ import { hostedProviders, withoutHeaderParameters, type Provider } from './provi
 import { apiFingerprint, judgeFingerprint, matchedHeaders, modelRules, queryValues } from './replay-index.js';
 import { forwardedHeaders, lowerHeaders, originOf, readBody } from './requests.js';
 import { isResponsesCreate } from './responses-state.js';
-import { beginAttempt, settleAttempt, storedOrigin, type RunContext, type TrackedCall } from './run-context.js';
+import { beginAttempt, settleAttempt, type RunContext, type TrackedCall } from './run-context.js';
 import { resignSigV4, signingKeyId } from './sigv4.js';
 import { SseTimer } from './sse.js';
 import { isTelemetry, serveTelemetry } from './telemetry.js';
@@ -184,13 +184,10 @@ function resolveModelCall(core: SidecarCore, call: ModelCall): PlacedCall | null
   }
   if (claimed !== undefined) return { callNo: claimed, tracked: ctx.calls.get(claimed)!, ...(refusal !== undefined ? { refusal } : {}) };
 
-  const callNo = ctx.nextCallNo++;
   // A refused intervention still makes a call, answered with the reason: forced live, so it forks there.
   const by = refusal !== undefined ? { by: `an intervention it could not take (${refusal})` } : forced;
   // Shown as it was matched: against a parent read rounded (RunMeta.exactNumbers), every number as the double it reads as.
-  const decision = ctx.session.resolve({ callNo, kind: 'api', name, fingerprint, request: ctx.roundedNumbers ? asParsed(call.exact) : reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) });
-  const tracked: TrackedCall = { identity: { kind: 'api', name, fingerprint, occurrence: decision.occurrence }, effect: null, origin: storedOrigin('api', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false, retryKey, ...(place ? { place } : {}) };
-  ctx.calls.set(callNo, tracked);
+  const { callNo, tracked } = ctx.openCall({ kind: 'api', name, fingerprint, request: ctx.roundedNumbers ? asParsed(call.exact) : reportable(call.exact), headers: allowedHeaders(asked, provider.fingerprintHeaders), ...(query ? { query } : {}), ...(matchName ? { matchName } : {}), ...(scope ? { scope } : {}), ...(by ? { forced: by } : changedBy ? { changedBy } : {}) }, { retryKey, ...(place ? { place } : {}) });
   core.noteDivergence(ctx);
   recordModelStart(core, call, callNo, tracked, kept, asked, unqueried);
   return { callNo, tracked, ...(refusal !== undefined ? { refusal } : {}) };

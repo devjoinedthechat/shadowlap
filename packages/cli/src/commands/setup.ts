@@ -4,7 +4,8 @@ import { CONFIG_FILE, RULE_KINDS, addRule, describeRule, hasRecordedCommand, pre
 import { recordActivity } from '../activity.js';
 import { configPath, loadConfig } from '../config.js';
 import { formatDoctor, runDoctor } from '../doctor.js';
-import { formatInit, formatInitJob, initJson, inspectProject, noteInspected, writeInitialConfig } from '../init.js';
+import { inspectProject, writeInitialConfig } from '../init.js';
+import { formatInit, formatInitJob, initJson, noteInspected } from '../init-format.js';
 import { installedGlobally } from '../installed.js';
 import { EXIT } from '../exit-codes.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';

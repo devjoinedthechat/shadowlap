@@ -1,7 +1,7 @@
-import { DEFAULT_REPAIRER, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
+import { blameCheckFor, DEFAULT_REPAIRER, failedCheckLabels, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck } from '../fixes.js';
+import { fixBundles, fixDetail, fixList, patchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
@@ -168,7 +168,7 @@ function blameJob(req: JobRequest, store: StoreOf<'recording' | 'readModels' | '
   } else {
     const found = blameCheckFor(store, run, { tests: configTests(configDir), configDir });
     if (!found) {
-      const failed = failedChecks(run);
+      const failed = failedCheckLabels(run);
       const what = failed.length ? `${id} failed “${failed[0]!}”, and neither the run nor shadowlap.config.json gives that check` : `blame needs the check ${id} failed`;
       return { error: `say what a passing run must do: ${what}. Give it as expect JSON, such as {"tools":{"send_email":1}}`, status: 422 };
     }

@@ -883,7 +883,7 @@ def _is_json(value: Any) -> bool:
         return False
 
 
-def _jsonable(value: Any, path: set[int]) -> Any:
+def _jsonable(value: Any, path: set[int]) -> Any:  # noqa: C901  (held to its ceiling in lint-caps.json)
     """``value`` converted, recursively, by the rules in ``_json_form``; whatever has no rule is
     left as it is, for the caller's check to refuse."""
     import dataclasses
@@ -1162,12 +1162,12 @@ class _Tool:
 
     # --- an async generator function: what it yields reaches the caller as the caller reads it
 
-    def async_stream(self) -> Callable[..., Any]:
+    def async_stream(self) -> Callable[..., Any]:  # noqa: C901, PLR0915  (held to its ceiling in lint-caps.json)
         fn = self.fn
         tool_ = self
 
         @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, Any]:
+        async def wrapper(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, Any]:  # noqa: C901, PLR0915  (held to its ceiling in lint-caps.json)
             cfg = _config()
             live: Optional[_LiveStream] = None
             after = 0
@@ -1262,12 +1262,12 @@ class _Tool:
 
     # --- a generator function: the same, without async
 
-    def stream(self) -> Callable[..., Any]:
+    def stream(self) -> Callable[..., Any]:  # noqa: C901, PLR0915  (held to its ceiling in lint-caps.json)
         fn = self.fn
         tool_ = self
 
         @functools.wraps(fn)
-        def wrapper(*args: Any, **kwargs: Any) -> Generator[Any, Any, Any]:
+        def wrapper(*args: Any, **kwargs: Any) -> Generator[Any, Any, Any]:  # noqa: C901, PLR0915  (held to its ceiling in lint-caps.json)
             cfg = _config()
             live: Optional[_LiveStream] = None
             after = 0

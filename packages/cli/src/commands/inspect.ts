@@ -393,7 +393,7 @@ export function register(program: Command): void {
       const c = compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId));
       store.close();
       process.stdout.write((flags.json ? JSON.stringify(c, null, 2) : formatComparison(c, p)) + '\n');
-      process.exitCode = runsDiffer(c) ? 1 : 0;
+      process.exitCode = runsDiffer(c) ? EXIT.failed : EXIT.ok;
     });
 
   program

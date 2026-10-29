@@ -6,12 +6,12 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { emitJobEvent } from '../job-events.js';
 import { EXIT } from '../exit-codes.js';
 import { type GuardMode } from '../run-agent.js';
-import { missingStoreNote, parseChoice, parseIntArg, readStore, type GlobalOpts } from '../shared.js';
+import { missingStoreNote, parseChoice, parseIntArg, parseUsd, readStore, type GlobalOpts } from '../shared.js';
 import { ago, clauses, folder, palette as p, quoteArgv, safe } from '../ui.js';
 import { loadConfig } from '../config.js';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames } from '../unrecorded.js';
 import { blameRun, type BlameFlags } from './fix-blame.js';
-import { parseCount, parseMargin, parsePercent, parseUsd } from './fix-flags.js';
+import { parseCount, parseMargin, parsePercent } from './fix-flags.js';
 import { repairRuns, type RepairFlags } from './fix-repair.js';
 import { verifyRuns, type VerifyCommandFlags } from './fix-verify.js';
 

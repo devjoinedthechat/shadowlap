@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { tool } from '@shadowlap/sdk';
 import { Sidecar } from '../src/index.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * A tool marked untrusted (the reads `shadowlap injection` plants in) is recorded so on each call,
@@ -16,16 +17,7 @@ import { Sidecar } from '../src/index.js';
 
 const PY_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
 
-function python(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString())) return cmd;
-    } catch {
-      // the next one
-    }
-  }
-  return null;
-}
+const PYTHON = pythonCommand();
 
 let store: Store;
 let sidecar: Sidecar;
@@ -121,7 +113,7 @@ describe('trust on a tool', () => {
     expect(store.getCalls(replay.runId)[0].meta.trust).toBe('untrusted');
   });
 
-  it.skipIf(!python())('is recorded on each call of a tool the Python SDK marks untrusted', async () => {
+  it.skipIf(!PYTHON)('is recorded on each call of a tool the Python SDK marks untrusted', async () => {
     const run = sidecar.startRun({ mode: 'record', command: { argv: ['python', 'agent.py'], cwd: '.' } });
     const code = [
       'import sys',
@@ -136,7 +128,7 @@ describe('trust on a tool', () => {
       'fetch_page("https://example.com/a")',
       'search("x")',
     ].join('\n');
-    await promisify(execFile)(python()!, ['-c', code], { env: { ...process.env, ...sidecar.envFor(run.runId) }, encoding: 'utf8' });
+    await promisify(execFile)(PYTHON!, ['-c', code], { env: { ...process.env, ...sidecar.envFor(run.runId) }, encoding: 'utf8' });
     sidecar.endRun(run.runId, 'completed');
     expect(store.getCalls(run.runId).map((c) => [c.name, c.meta.trust ?? null])).toEqual([
       ['fetch_page', 'untrusted'],

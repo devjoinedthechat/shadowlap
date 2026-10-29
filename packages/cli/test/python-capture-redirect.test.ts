@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { guardEnv } from '../src/run-agent.js';
-import { pythonWith } from './python-with.js';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * A captured call goes to the sidecar naming its host in x-shadowlap-upstream, with x-shadowlap-scope

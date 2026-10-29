@@ -13,12 +13,6 @@ export function parseCount(value: string): number {
   return n;
 }
 
-export function parseUsd(value: string): number {
-  const n = Number(value.replace(/^\$/, ''));
-  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
-  return n;
-}
-
 /** `--set temperature=1`: a request field for the probed call on; the value is JSON or a string. */
 export function parseFields(specs: string[], model: string | undefined): Record<string, unknown> {
   const fields: Record<string, unknown> = {};

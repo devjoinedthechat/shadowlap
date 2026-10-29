@@ -181,124 +181,214 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   if (!ctx.argv && !hasRecordedCommand(parent)) {
     throw new Error(`this recording ${withoutCommand(parent)} and has no command to run. Replay it once with your agent (shadowlap replay <run> -- <command>) and pack that run: it records everything, and has a command of its own`);
   }
+  const plan = attemptPlan(spec, ctx);
+  const run = await runAttempts(parent, spec, ctx, plan);
+  if (!run.attempts.length) throw new ReplayInterrupted();
+  const judged = judgeAttempts(spec, plan, run, ctx.history ?? null);
+  if (run.attempts.length > 1 && !judged.interrupted) fileUnder(ctx.store, run.attempts, judged.shown, plan.testMeta);
+  // In a row across the session when its streak stopped it, else this golden's own.
+  const inARow = ctx.streak?.gaveUp ? ctx.streak.inARow : run.providers.inARow;
+  const failure = failureOf(plan, run, judged, inARow);
+  const { verdict, shown } = judged;
+  const kind: TestFailure | null = verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : (shown.kind ?? 'error');
+  const carried = run.carry ? { sessions: run.carry.sessions, attempts: run.carry.outcomes.length } : null;
+  return { spec, attempts: run.attempts, shown, passed: judged.passed, required: judged.required, failure, kind, verdict, gate: judged.result, inconclusive: run.unjudged, unavailable: run.providers.unavailable, cutShort: run.providers.cutShort, interrupted: judged.interrupted, carried };
+}
+
+/** How many attempts a golden runs and what they continue, and how each attempt's run is filed. */
+interface AttemptPlan {
+  /** Its gate, with this session's limit; null for a fixed count. */
+  gate: Gate | null;
+  /** The inconclusive gate's attempts this session continues (`test --continue`), counted first. */
+  carry: Carry | null;
+  /** How many attempts were carried over. */
+  before: number;
+  /** The attempts to run: what the gate's limit leaves, else `repeat`. */
+  repeat: number;
+  /** Of the attempts carried over, those the provider cut short. */
+  carriedCut: number;
+  /**
+   * A golden replayed more than once in a session is one test run with its attempts (`meta.test`
+   * `attempt` and `of`): while they run, each attempt after the first is filed under the first, and
+   * once they have all ended, under the attempt the result shows, so the Runs page, the sidebar and
+   * the Tests screen all open the run that says how the golden came out.
+   */
+  testMeta: (i: number, of: string | null) => Partial<RunMeta> | null;
+}
+
+function attemptPlan(spec: TestSpec | null, ctx: RecordingTestContext): AttemptPlan {
+  // A gate decides as attempts come in, up to its limit; without one, `repeat` attempts run.
+  const gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;
+  const carry = gate && ctx.carry && ctx.carry.outcomes.length < gate.max ? ctx.carry : null;
+  const before = carry?.outcomes.length ?? 0;
+  const repeat = gate ? gate.max - before : (spec?.repeat ?? 1);
+  const carriedCut = carry ? (carry.unavailableAt ?? []).filter((i) => i >= 0 && i < carry.outcomes.length && !carry.outcomes[i]).length : 0;
+  const testMeta = (i: number, of: string | null): Partial<RunMeta> | null => (ctx.test ? { test: { ...ctx.test, ...(repeat + before > 1 ? { attempt: before + i + 1 } : {}), ...(of ? { of } : {}) } } : null);
+  return { gate, carry, before, repeat, carriedCut, testMeta };
+}
+
+/** What every attempt of a golden replays with: offline unless it may fork, under the session's policies. */
+function attemptOptions(parent: RunRecord, spec: TestSpec | null, ctx: RecordingTestContext): Parameters<typeof testAttempt>[2] {
   // A recording marked `fork` may diverge on purpose; from the fork on it needs the real providers.
   const live = ctx.online || !!spec?.fork;
   const upstreams = live ? upstreamOverrides(process.env) : Object.fromEntries([...Object.keys(providerIds()), 'http'].map((id) => [id, 'offline']));
   // Offline, its agent gets a placeholder for each key the environment lacks: nothing it sends goes live.
   const extraEnv = live ? {} : placeholdersFor(ctx.store, parent, 'offline');
-  const attempts: GoldenAttempt[] = [];
-  // A gate decides as attempts come in, up to its limit; without one, `repeat` attempts run.
-  const gate = spec?.gate ? withLimit(spec.gate, ctx.maxAttempts) : null;
-  // Attempts carried over from the inconclusive sessions this one continues count first.
-  let carry = gate && ctx.carry && ctx.carry.outcomes.length < gate.max ? ctx.carry : null;
-  const before = carry?.outcomes.length ?? 0;
-  const repeat = gate ? gate.max - before : (spec?.repeat ?? 1);
-  // A golden replayed more than once in a session is one test run with its attempts (`meta.test`
-  // `attempt` and `of`): while they run, each attempt after the first is filed under the first, and
-  // once they have all ended, under the attempt the result shows, so the Runs page, the sidebar and
-  // the Tests screen all open the run that says how the golden came out.
-  const testMeta = (i: number, of: string | null): Partial<RunMeta> | null => (ctx.test ? { test: { ...ctx.test, ...(repeat + before > 1 ? { attempt: before + i + 1 } : {}), ...(of ? { of } : {}) } } : null);
+  const { config } = ctx;
+  return {
+    cwd: ctx.cwd,
+    upstreams,
+    extraEnv,
+    writes: ctx.writes,
+    guard: ctx.guard,
+    normalizers: config.normalize,
+    prices: config.prices,
+    clock: config.clock,
+    http: config.http,
+    ...(config.redact ? { redact: config.redact } : {}),
+    spec,
+    ...(ctx.argv ? { argv: ctx.argv } : {}),
+    ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
+    ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
+    ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
+  };
+}
+
+/** A golden's attempts as they ran, and what they decided as they came in. */
+interface AttemptsRun {
+  /** Every attempt run, unavailable ones included, in order. */
+  attempts: GoldenAttempt[];
+  decision: GateDecision;
+  /** Its first attempt replayed clean, which settled its gate. */
+  clean: boolean;
+  /** Attempts a check could not judge: the first one stops the golden. */
+  unjudged: number;
+  /**
+   * What the provider did to the attempts: those never counted, those cut short and counted by the
+   * gate, how many in a row, and whether too many in a row stopped it.
+   */
+  providers: ProviderRetry;
+  /** The attempts carried over, unless a clean replay settled the gate without them. */
+  carry: Carry | null;
+}
+
+/** Runs a golden's attempts until its gate decides, its count is run, or something stops it. */
+async function runAttempts(parent: RunRecord, spec: TestSpec | null, ctx: RecordingTestContext, plan: AttemptPlan): Promise<AttemptsRun> {
+  const { gate } = plan;
+  const options = attemptOptions(parent, spec, ctx);
   const retry = ctx.unavailable ?? UNAVAILABLE_RETRY;
   const sleep = ctx.sleep ?? ((ms: number) => pause(ms, ctx.stopped));
-  let decision: GateDecision = 'continue';
-  let clean = false;
-  let unjudged = 0;
-  // What the provider did to the attempts: those never counted, those cut short and counted by the
-  // gate, how many in a row, and whether too many in a row stopped it.
   // A gate and a fixed count alike count an attempt cut short after the model answered, against either verdict.
   const providers = new ProviderRetry({ retry, sleep, onUnavailable: ctx.onUnavailable, count: true, streak: ctx.streak ?? null });
+  const run: AttemptsRun = { attempts: [], decision: 'continue', clean: false, unjudged: 0, providers, carry: plan.carry };
   // Attempts that count: every one but those the provider was unavailable for and nobody counts.
   let counted = 0;
-  // Of the attempts carried over, those the provider cut short.
-  const carriedCut = carry ? (carry.unavailableAt ?? []).filter((i) => i >= 0 && i < carry!.outcomes.length && !carry!.outcomes[i]).length : 0;
   // A gate's max counts the attempts the provider didn't cut short (decideUnavailable): those it did
   // run beside them, up to as many again, where the gate is left inconclusive.
-  const room = () => (gate ? before - carriedCut + counted - providers.cutShort < gate.max : counted < repeat);
+  const room = () => (gate ? plan.before - plan.carriedCut + counted - providers.cutShort < gate.max : counted < plan.repeat);
   while (room()) {
     if (ctx.stopped?.()) break;
     if (gate && counted >= 2 * gate.max) {
-      decision = 'inconclusive';
+      run.decision = 'inconclusive';
       break;
     }
-    const i = attempts.length;
-    const meta = testMeta(i, i > 0 ? (attempts[0]?.ended.summary.runId ?? null) : null);
-    // Its turn among the session's goldens, given back once the attempt has ended and any pause the
-    // provider asked for after it is over: the provider is the session's, and every golden waits.
-    const turn = ctx.turns ? await ctx.turns.take() : null;
-    if (ctx.stopped?.()) {
-      turn?.();
-      break;
-    }
-    // The provider stayed unavailable too many attempts in a row across the session: nothing more runs.
-    const down0 = ctx.streak?.gaveUp ?? null;
-    if (down0) {
-      turn?.();
-      if (!attempts.length) throw new ProviderStopped(sessionUnavailableReason(ctx.streak!.inARow, down0));
-      providers.gaveUp = down0;
-      break;
-    }
-    let after: Awaited<ReturnType<ProviderRetry['after']>>;
-    let attempt: GoldenAttempt;
-    try {
-      attempt = await testAttempt(ctx.store, parent, {
-        cwd: ctx.cwd,
-        upstreams,
-        extraEnv,
-        writes: ctx.writes,
-        guard: ctx.guard,
-        normalizers: ctx.config.normalize,
-        prices: ctx.config.prices,
-        clock: ctx.config.clock,
-        http: ctx.config.http,
-        ...(ctx.config.redact ? { redact: ctx.config.redact } : {}),
-        spec,
-        ...(ctx.argv ? { argv: ctx.argv } : {}),
-        ...(meta ? { meta } : {}),
-        ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, before + i + 1, before + repeat + providers.unavailable) } : {}),
-        ...(ctx.timeoutMs ? { timeoutMs: ctx.timeoutMs } : {}),
-        ...(ctx.stopped ? { onSignal: 'return' as const } : {}),
-        ...(ctx.allowUnrecorded ? { allowUnrecorded: ctx.allowUnrecorded } : {}),
-      });
-      attempts.push(attempt);
-      if (attempt.interrupted) break;
-      // The agent failed while its provider was unavailable (ProviderRetry): before the model answered,
-      // no evidence about the agent, run again after a pause, never counted; cut short after it, counted
-      // by the gate against either verdict; too many in a row, and the golden is inconclusive.
-      const down = unavailableIn(ctx.store, attempt);
-      if (down) attempt.unavailable = down;
-      after = await providers.after(down);
-    } finally {
-      turn?.();
-    }
-    if (after === 'stop') break;
-    if (after === 'retry') continue;
-    if (after === 'cut') attempt.cutShort = true;
+    const next = await nextAttempt(parent, ctx, plan, run, options);
+    if (next === 'stop') break;
+    if (next === 'retry') continue;
     counted++;
     // A check that couldn't be judged here won't be on the next attempt either.
-    if (after === 'counted' && attemptVerdict(attempt) === 'inconclusive') {
-      unjudged++;
+    if (next.after === 'counted' && attemptVerdict(next.attempt) === 'inconclusive') {
+      run.unjudged++;
       break;
     }
     if (!gate) continue;
-    // A clean replay comes out the same every time: its one attempt settles the gate, whatever
-    // attempts that forked were carried over (the agent no longer forks).
-    if (i === 0 && after === 'counted' && replayedClean(attempt)) {
-      clean = true;
-      carry = null;
-      decision = attempt.failure ? 'fail' : 'pass';
-      break;
-    }
-    const carriedPasses = carry ? carry.outcomes.filter(Boolean).length : 0;
-    const mine = attempts.filter((a) => !a.unavailable || a.cutShort);
-    decision = decideUnavailable(carriedPasses + mine.filter((a) => !a.failure).length, (carry?.outcomes.length ?? 0) + mine.length, (carry ? carriedCut : 0) + mine.filter((a) => a.cutShort).length, gate, ctx.history ?? null);
-    if (decision !== 'continue') break;
+    run.decision = gateAfter(gate, next, run, plan.carriedCut, ctx.history ?? null);
+    if (run.decision !== 'continue') break;
   }
-  if (!attempts.length) throw new ReplayInterrupted();
-  const gaveUp = providers.gaveUp;
-  const unavailable = providers.unavailable;
-  // In a row across the session when its streak stopped it, else this golden's own.
-  const inARow = ctx.streak?.gaveUp ? ctx.streak.inARow : providers.inARow;
-  // The attempts that count: what the agent did with its provider there, the ones it cut short and a gate counted included.
+  return run;
+}
+
+/**
+ * The next attempt, run in its turn among the session's goldens, and how the provider's answers in
+ * it count; `retry` for one the provider was unavailable for before the model answered, and `stop`
+ * when nothing more runs: a signal, the attempt interrupted, the provider down too long.
+ */
+async function nextAttempt(parent: RunRecord, ctx: RecordingTestContext, plan: AttemptPlan, run: AttemptsRun, options: Parameters<typeof testAttempt>[2]): Promise<{ attempt: GoldenAttempt; after: 'counted' | 'cut' } | 'retry' | 'stop'> {
+  const { attempts, providers } = run;
+  const i = attempts.length;
+  const meta = plan.testMeta(i, i > 0 ? (attempts[0]?.ended.summary.runId ?? null) : null);
+  // Its turn among the session's goldens, given back once the attempt has ended and any pause the
+  // provider asked for after it is over: the provider is the session's, and every golden waits.
+  const turn = ctx.turns ? await ctx.turns.take() : null;
+  try {
+    if (ctx.stopped?.()) return 'stop';
+    // The provider stayed unavailable too many attempts in a row across the session: nothing more runs.
+    const down0 = ctx.streak?.gaveUp ?? null;
+    if (down0) {
+      if (!attempts.length) throw new ProviderStopped(sessionUnavailableReason(ctx.streak!.inARow, down0));
+      providers.gaveUp = down0;
+      return 'stop';
+    }
+    const attempt: GoldenAttempt = await testAttempt(ctx.store, parent, {
+      ...options,
+      ...(meta ? { meta } : {}),
+      ...(ctx.onRun ? { onRun: (runId: string) => ctx.onRun!(runId, plan.before + i + 1, plan.before + plan.repeat + providers.unavailable) } : {}),
+    });
+    attempts.push(attempt);
+    if (attempt.interrupted) return 'stop';
+    // The agent failed while its provider was unavailable (ProviderRetry): before the model answered,
+    // no evidence about the agent, run again after a pause, never counted; cut short after it, counted
+    // by the gate against either verdict; too many in a row, and the golden is inconclusive.
+    const down = unavailableIn(ctx.store, attempt);
+    if (down) attempt.unavailable = down;
+    const after = await providers.after(down);
+    if (after === 'stop' || after === 'retry') return after;
+    if (after === 'cut') attempt.cutShort = true;
+    return { attempt, after };
+  } finally {
+    turn?.();
+  }
+}
+
+/** What a gate decides once an attempt has counted: a clean first replay settles it, else the tally so far. */
+function gateAfter(gate: Gate, next: { attempt: GoldenAttempt; after: 'counted' | 'cut' }, run: AttemptsRun, carriedCut: number, history: GateHistory | null): GateDecision {
+  // A clean replay comes out the same every time: its one attempt settles the gate, whatever
+  // attempts that forked were carried over (the agent no longer forks).
+  if (run.attempts.length === 1 && next.after === 'counted' && replayedClean(next.attempt)) {
+    run.clean = true;
+    run.carry = null;
+    return next.attempt.failure ? 'fail' : 'pass';
+  }
+  const { carry } = run;
+  const carriedPasses = carry ? carry.outcomes.filter(Boolean).length : 0;
+  const mine = run.attempts.filter((a) => !a.unavailable || a.cutShort);
+  return decideUnavailable(carriedPasses + mine.filter((a) => !a.failure).length, (carry?.outcomes.length ?? 0) + mine.length, (carry ? carriedCut : 0) + mine.filter((a) => a.cutShort).length, gate, history);
+}
+
+/** How a golden's attempts came out together. */
+interface Judged {
+  /** The attempts that count: what the agent did with its provider there, the ones it cut short and a gate counted included. */
+  mine: GoldenAttempt[];
+  passed: number;
+  required: number | null;
+  /** Of `mine`, the attempts the provider cut short. */
+  cut: number;
+  /** The outcomes of the attempts carried over. */
+  carried: boolean[];
+  verdict: RecordingOutcome['verdict'];
+  result: GateResult | null;
+  shown: GoldenAttempt;
+  interrupted: boolean;
+  /** The attempt a check could not decide, when it left the golden undecided. */
+  unjudgedAttempt: GoldenAttempt | undefined;
+  /** The last attempt, when the provider being unavailable too long left the golden undecided. */
+  unavailableAttempt: GoldenAttempt | undefined;
+}
+
+function judgeAttempts(spec: TestSpec | null, plan: AttemptPlan, run: AttemptsRun, history: GateHistory | null): Judged {
+  const { gate, repeat } = plan;
+  const { attempts, decision, unjudged, carry } = run;
+  const { gaveUp, unavailable } = run.providers;
   const mine = attempts.filter((a) => !a.unavailable || a.cutShort);
   const interrupted = attempts.some((a) => a.interrupted !== null) || (!gaveUp && (gate ? decision === 'continue' && !unjudged : mine.length < repeat && !unjudged));
   const passed = mine.filter((a) => !a.failure).length;
@@ -319,56 +409,78 @@ export async function testRecording(parent: RunRecord, spec: TestSpec | null, ct
   const unavailableStop = gaveUp !== null && (gate !== null ? decision === 'continue' : byCount === 'continue');
   // The positions, among the gate's outcomes, of the attempts the provider cut short: carried over and this session's.
   const unavailableAt = [...(carry?.unavailableAt ?? []), ...judged.flatMap((a, k) => (a.cutShort ? [carried.length + k] : []))];
-  const result = gate && !undecided ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history: ctx.history ?? null, clean, decision, carried: carried.length, unavailable, ...(unavailableAt.length ? { unavailableAt } : {}) }) : null;
-  const verdict: RecordingOutcome['verdict'] = undecided || unavailableStop ? 'inconclusive' : gate ? (decision === 'pass' ? 'passed' : decision === 'fail' ? 'failed' : 'inconclusive') : byCount === 'pass' ? 'passed' : byCount === 'fail' ? 'failed' : 'inconclusive';
+  const result = gate && !undecided ? gateResult(gate, [...carried, ...judged.map((a) => !a.failure)], { history, clean: run.clean, decision, carried: carried.length, unavailable, ...(unavailableAt.length ? { unavailableAt } : {}) }) : null;
+  const verdict: RecordingOutcome['verdict'] = undecided || unavailableStop ? 'inconclusive' : verdictWord(gate ? decision : byCount!);
   const unjudgedAttempt = undecided ? mine.find((a) => attemptVerdict(a) === 'inconclusive') : undefined;
   const unavailableAttempt = unavailableStop ? attempts.at(-1) : undefined;
   const shown = verdict === 'passed' ? mine.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? unavailableAttempt ?? mine.find((a) => attemptVerdict(a) === 'failed') ?? mine.find((a) => a.failure) ?? attempts.at(-1)!);
-  if (attempts.length > 1 && !interrupted) fileUnder(ctx.store, attempts, shown, testMeta);
-  let failure: JunitCase['failure'];
-  const mark = (a: GoldenAttempt) => (a.cutShort ? `⏸ the provider cut it short (${a.unavailable!.reason}), counted against either verdict: ${a.failure!.message}` : a.unavailable ? `⏸ the provider was unavailable (${a.unavailable.reason}), not counted: ${a.failure!.message}` : a.failure ? `${attemptVerdict(a) === 'inconclusive' ? '?' : '✗'} ${a.failure.message}` : '✓ passed');
-  const each = () =>
-    [
-      ...(carried.length ? [`attempts 1 to ${carried.length}  carried over: ${carried.filter(Boolean).length} passed`] : []),
-      ...attempts.map((a, i) => `attempt ${carried.length + i + 1}  ${mark(a)}`),
-    ].join('\n');
-  if (unjudgedAttempt) {
-    const f = unjudgedAttempt.failure!;
-    // The attempt's own line already says a check was inconclusive, and which.
-    const message = /^check inconclusive: /.test(f.message) ? f.message : `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`;
-    // The attempts of a repeat an undecided check kept from running.
-    const left = gate ? 0 : repeat - mine.length;
-    const notRun = left > 0 ? `; ${left} more attempt${left === 1 ? '' : 's'} not run: ${left === 1 ? 'it' : 'they'} would be undecided too` : '';
-    failure = { message: `${message}${notRun}`, details: attempts.length === 1 ? f.details : `${each()}\n\n${f.details}` };
-  } else if (unavailableAttempt && gaveUp) {
+  return { mine, passed, required, cut, carried, verdict, result, shown, interrupted, unjudgedAttempt, unavailableAttempt };
+}
+
+/** A gate's or a count's decision as a verdict: one still going is inconclusive. */
+const verdictWord = (d: GateDecision): RecordingOutcome['verdict'] => (d === 'pass' ? 'passed' : d === 'fail' ? 'failed' : 'inconclusive');
+
+/** An attempt's line in a golden's details: how it ended, and how its provider's answers counted. */
+function attemptMark(a: GoldenAttempt): string {
+  if (a.cutShort) return `⏸ the provider cut it short (${a.unavailable!.reason}), counted against either verdict: ${a.failure!.message}`;
+  if (a.unavailable) return `⏸ the provider was unavailable (${a.unavailable.reason}), not counted: ${a.failure!.message}`;
+  return a.failure ? `${attemptVerdict(a) === 'inconclusive' ? '?' : '✗'} ${a.failure.message}` : '✓ passed';
+}
+
+/** Every attempt's line, those carried over first. */
+function attemptLines(carried: readonly boolean[], attempts: readonly GoldenAttempt[]): string {
+  return [
+    ...(carried.length ? [`attempts 1 to ${carried.length}  carried over: ${carried.filter(Boolean).length} passed`] : []),
+    ...attempts.map((a, i) => `attempt ${carried.length + i + 1}  ${attemptMark(a)}`),
+  ].join('\n');
+}
+
+/** Why a golden failed or is inconclusive, as its result says it; undefined when it passed. */
+function failureOf(plan: AttemptPlan, run: AttemptsRun, j: Judged, inARow: number): JunitCase['failure'] {
+  const { attempts } = run;
+  const { gaveUp } = run.providers;
+  const each = () => attemptLines(j.carried, attempts);
+  if (j.unjudgedAttempt) return unjudgedFailure(j.unjudgedAttempt, plan.gate ? 0 : plan.repeat - j.mine.length, attempts.length === 1 ? null : each());
+  if (j.unavailableAttempt && gaveUp) {
     // Inconclusive with the provider named: nothing here is a verdict on the agent.
-    failure = { message: unavailableReason(inARow, gaveUp), details: `${result ? `${formatTally(result)}\n` : ''}${each()}\n\n${unavailableAttempt.failure!.details}` };
-  } else if (result && verdict !== 'passed') {
-    const f = shown.failure;
-    const tally = formatTally(result);
-    failure = {
-      message: `${result.sentence}${f && verdict === 'failed' ? `. Attempt ${carried.length + attempts.indexOf(shown) + 1}: ${f.message}` : ''}`,
-      details: `${tally}\n${each()}${f ? `\n\n${f.details}` : ''}`,
+    return { message: unavailableReason(inARow, gaveUp), details: `${j.result ? `${formatTally(j.result)}\n` : ''}${each()}\n\n${j.unavailableAttempt.failure!.details}` };
+  }
+  if (j.result && j.verdict !== 'passed') {
+    const f = j.shown.failure;
+    return {
+      message: `${j.result.sentence}${f && j.verdict === 'failed' ? `. Attempt ${j.carried.length + attempts.indexOf(j.shown) + 1}: ${f.message}` : ''}`,
+      details: `${formatTally(j.result)}\n${each()}${f ? `\n\n${f.details}` : ''}`,
     };
-  } else if (!gate && verdict === 'inconclusive' && cut) {
+  }
+  if (plan.gate) return undefined;
+  if (j.verdict === 'inconclusive' && j.cut) {
     // The attempts the provider cut short decide the count either way: no verdict rests on how they would have ended.
-    failure = {
-      message: `inconclusive: ${passed} of ${mine.length} attempts passed, ${cut} of them cut short by the provider, ${required!} needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended`,
+    return {
+      message: `inconclusive: ${j.passed} of ${j.mine.length} attempts passed, ${j.cut} of them cut short by the provider, ${j.required!} needed: counted as failures the count is lost, as passes it is met, so it rests on how they would have ended`,
       details: each(),
     };
-  } else if (!gate && verdict === 'failed') {
-    const f = shown.failure!;
-    // An attempt a check could not decide after the count was lost is counted apart, never as failed.
-    failure =
-      attempts.length === 1
-        ? f
-        : {
-            message: `${passed} of ${mine.length} attempts passed${unjudged ? `, ${unjudged} inconclusive` : ''}${cut ? `, ${cut} cut short by the provider, counted against either verdict` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${required!} needed. Attempt ${attempts.indexOf(shown) + 1}: ${f.message}`,
-            details: `${each()}\n\n${f.details}`,
-          };
   }
-  const kind: TestFailure | null = verdict === 'passed' ? null : verdict === 'inconclusive' ? 'inconclusive' : (shown.kind ?? 'error');
-  return { spec, attempts, shown, passed, required, failure, kind, verdict, gate: result, inconclusive: unjudged, unavailable, cutShort: providers.cutShort, interrupted, carried: carry ? { sessions: carry.sessions, attempts: carry.outcomes.length } : null };
+  if (j.verdict !== 'failed') return undefined;
+  const f = j.shown.failure!;
+  if (attempts.length === 1) return f;
+  // An attempt a check could not decide after the count was lost is counted apart, never as failed.
+  const unavailable = run.providers.unavailable;
+  return {
+    message: `${j.passed} of ${j.mine.length} attempts passed${run.unjudged ? `, ${run.unjudged} inconclusive` : ''}${j.cut ? `, ${j.cut} cut short by the provider, counted against either verdict` : ''}${unavailable ? `, ${unavailable} not counted: the provider was unavailable` : ''}, ${j.required!} needed. Attempt ${attempts.indexOf(j.shown) + 1}: ${f.message}`,
+    details: `${each()}\n\n${f.details}`,
+  };
+}
+
+/**
+ * Why a golden a check could not decide is inconclusive: the attempt's own line already says a check
+ * was inconclusive, and which; with the attempts of a repeat it kept from running (`left`), and every
+ * attempt's line when there were several (`lines`).
+ */
+function unjudgedFailure(a: GoldenAttempt, left: number, lines: string | null): NonNullable<JunitCase['failure']> {
+  const f = a.failure!;
+  const message = /^check inconclusive: /.test(f.message) ? f.message : `inconclusive: ${f.message.replace(/^check failed: /, 'a check could not be judged: ')}`;
+  const notRun = left > 0 ? `; ${left} more attempt${left === 1 ? '' : 's'} not run: ${left === 1 ? 'it' : 'they'} would be undecided too` : '';
+  return { message: `${message}${notRun}`, details: lines === null ? f.details : `${lines}\n\n${f.details}` };
 }
 
 /**

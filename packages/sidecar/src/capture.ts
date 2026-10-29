@@ -10,7 +10,7 @@ import type { SidecarCore } from './core.js';
 import { encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, withoutCredentials, type HttpResult, type StoredBody } from './http.js';
 import { carriesPlaceholder, placeholderRefusal } from './placeholders.js';
 import { forwardedHeaders, lowerHeaders, readBody } from './requests.js';
-import { storedOrigin, type RunContext, type TrackedCall } from './run-context.js';
+import type { RunContext, TrackedCall } from './run-context.js';
 import { cacheToolFingerprint, fencedRead, recordToolStart, trustMeta } from './tool-calls.js';
 import { requestUpstream } from './upstream.js';
 
@@ -120,10 +120,8 @@ function resolveHttpCall(core: SidecarCore, call: HttpCall): PlacedHttpCall {
   const { ctx, scope, name, args, effect } = call;
   const matched = matchedAs({ kind: 'tool', name, meta: { http: call.host } }, ctx.normalizers, ctx.redactions);
   const { fingerprint } = fingerprintTool(matched.name, args, matched.normalizers, ctx.clockRef);
-  const callNo = ctx.nextCallNo++;
-  const decision = ctx.session.resolve({ callNo, kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}), ...(matched.name !== name ? { recordedName: matched.name } : {}) });
-  const tracked: TrackedCall = { identity: { kind: 'tool', name, fingerprint, occurrence: decision.occurrence }, effect, origin: storedOrigin('tool', decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false };
-  ctx.calls.set(callNo, tracked);
+  const { callNo, tracked } = ctx.openCall({ kind: 'tool', name, fingerprint, effect, request: { args }, ...(scope ? { scope } : {}), ...(matched.name !== name ? { recordedName: matched.name } : {}) });
+  const { decision } = tracked;
   core.noteDivergence(ctx);
   // A plain read the recording held no counterpart for, answered live while the replay goes on.
   const requestRef = recordToolStart(core, ctx, callNo, tracked, { args }, { http: call.host, ...(scope ? { scope } : {}), ...(decision.origin === 'live' && decision.extra ? { extraRead: true } : {}), ...trustMeta(core, name, call.host, null) });

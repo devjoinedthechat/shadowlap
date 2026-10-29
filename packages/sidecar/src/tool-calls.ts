@@ -11,7 +11,7 @@ import { configuredTrust, fingerprintMisc, fingerprintTool, isRawNumber, matchab
 import { HttpError, jsonBytes } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { clockMarks, encodeMarks, fingerprintKey, rulesId, type FingerprintRules } from './fingerprint-cache.js';
-import { storedOrigin, type RunContext, type TrackedCall } from './run-context.js';
+import type { RunContext, TrackedCall } from './run-context.js';
 
 export interface ResolveBody {
   kind: CallKind;
@@ -95,11 +95,9 @@ export function resolveCall(core: SidecarCore, ctx: RunContext, body: ResolveBod
 function resolveToolCall(core: SidecarCore, call: ToolCall): PlacedToolCall {
   const { ctx, body, scope, kind, name, effect, request, input } = call;
   const { fingerprint } = 'args' in request ? fingerprintTool(name, request.args, ctx.normalizers, ctx.clockRef) : fingerprintMisc(kind as 'clock' | 'random', name, request.label);
-  const callNo = ctx.nextCallNo++;
   // The session diffs requests as plain JSON, with an integer past 2^53 as its digits, as loadRequest reads the recorded side.
-  const decision = ctx.session.resolve({ callNo, kind, name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
-  const tracked: TrackedCall = { identity: { kind, name, fingerprint, occurrence: decision.occurrence }, effect, origin: storedOrigin(kind, decision), decision, attempts: 0, inFlight: 0, retryable: false, done: false };
-  ctx.calls.set(callNo, tracked);
+  const { callNo, tracked } = ctx.openCall({ kind, name, fingerprint, effect, request: reportable(request), ...(scope ? { scope } : {}), ...(input ? { input } : {}) });
+  const { decision } = tracked;
   core.noteDivergence(ctx);
 
   const meta: CallStartRow['meta'] = {};

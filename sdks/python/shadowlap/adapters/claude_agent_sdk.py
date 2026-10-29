@@ -210,55 +210,116 @@ def fence_hooks(
     for name, effect in table.items():
         if effect not in ("pure", "read", "write"):
             raise TypeError(f'effect for {name} must be "pure", "read" or "write", not {effect!r}')
-    say = log or (lambda line: print("[shadowlap] " + line, file=sys.stderr))
-    pending: dict[str, dict[str, Any]] = {}
-    files = _Scratch(scratch)
-    inner_pre = list((hooks or {}).get("PreToolUse") or [])
-    inner_post = list((hooks or {}).get("PostToolUse") or [])
-    places: dict[str, Any] = dict(settings or {})
-    # The folder the session started in, where Claude Code reads the project's settings: the first hook's, unless with_fence said.
-    project: dict[str, Optional[str]] = {"dir": places.get("cwd")}
-    said: set[str] = set()
-    greeted: dict[str, bool] = {"done": False}
+    f = _Fence(table, on_fork=on_fork, scratch=scratch, log=log, hooks=hooks, settings=settings, query=query)
+    names = list(table)
+    # An exact list (letters, digits, _ and -), which Claude Code compares name by name; the hooks
+    # check the name again. With the query's own hooks inside, every tool: theirs may pick any.
+    listed = "|".join(names) if all(re.match(r"^[A-Za-z0-9_-]+$", n) for n in names) else None
 
-    async def greet() -> None:
+    def on(hook: Hook, inner: Optional[Sequence[Any]] = None) -> list[Any]:
+        return [_matcher(None if inner else listed, hook, _longest(inner))]
+
+    return {
+        "UserPromptSubmit": [_matcher(None, f.prompted)],
+        "PreToolUse": on(f.pre, f.inner_pre),
+        "PostToolUse": on(f.post, f.inner_post),
+        "PostToolUseFailure": on(f.failed),
+        "Stop": [_matcher(None, f.settle)],
+        "SubagentStop": [_matcher(None, f.settle)],
+    }
+
+
+def _allow(updated: dict[str, Any], why: str) -> dict[str, Any]:
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": why, "updatedInput": updated}}
+
+
+def _deny(reason: str) -> dict[str, Any]:
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
+
+
+def _denied(out: Mapping[str, Any]) -> bool:
+    specific = out.get("hookSpecificOutput")
+    return isinstance(specific, dict) and specific.get("permissionDecision") == "deny"
+
+
+def _where(h: Mapping[str, Any]) -> str:
+    """A PreToolUse hook beside the fence, as a sentence names it: its file, its subagent, its matcher."""
+    agent = f', which runs while the subagent "{h["agent"]}" runs' if h.get("agent") is not None else ""
+    return "a PreToolUse hook in %s%s%s" % (h["source"], agent, ' (matcher "%s")' % h["matcher"] if h["matcher"] is not None else "")
+
+
+@dataclasses.dataclass
+class _Asked:
+    """A call the fence is asked about: the tool, its effect and the input it would run with, and who asks."""
+
+    name: str
+    effect: str
+    #: The call's tool_use_id, by which PostToolUse finds what PreToolUse kept of it.
+    key: str
+    args: dict[str, Any]
+    agent: str
+    agent_type: str
+    cwd: Any
+
+
+class _Fence:
+    """The hooks of fence_hooks over one query, and what they share while it runs: the calls PreToolUse
+    let through that PostToolUse ends (``pending``), where stand-ins write, the query's own hooks, and
+    what has been said once."""
+
+    def __init__(
+        self,
+        table: dict[str, str],
+        *,
+        on_fork: Optional[Callable[[str, dict[str, Any], Any], Any]],
+        scratch: Optional[str],
+        log: Optional[Callable[[str], None]],
+        hooks: Optional[Mapping[str, Sequence[Any]]],
+        settings: Optional[Mapping[str, Any]],
+        query: Optional[Mapping[str, Any]],
+    ) -> None:
+        self.table = table
+        self.on_fork = on_fork
+        self.say: Callable[[str], None] = log or (lambda line: print("[shadowlap] " + line, file=sys.stderr))
+        self.pending: dict[str, dict[str, Any]] = {}
+        self.files = _Scratch(scratch)
+        self.inner_pre = list((hooks or {}).get("PreToolUse") or [])
+        self.inner_post = list((hooks or {}).get("PostToolUse") or [])
+        self.places: dict[str, Any] = dict(settings or {})
+        # The folder the session started in, where Claude Code reads the project's settings: the first hook's, unless with_fence said.
+        self.project: Optional[str] = self.places.get("cwd")
+        self.said: set[str] = set()
+        self.greeted = False
+        self.query = query
+
+    async def greet(self) -> None:
         """The Claude Code CLI the SDK runs is a native program, which Shadowlap's preloads can't load
         into, so the network guard can't watch the connections it makes itself. The fence says so for
         it, once, as a preload says it loaded, with what the query leaves the CLI to reach
         (claude_reach): the run's summary names each, and ``--guard block`` fails the run unless there
         are none. From this process, the one the CLI's hooks answer in."""
-        if greeted["done"]:
+        if self.greeted:
             return
-        greeted["done"] = True
+        self.greeted = True
         body: dict[str, Any] = {"runtime": "claude-code", "pid": os.getpid(), "ppid": os.getppid(), "guard": "off", "capture": False}
-        if query is not None:
+        if self.query is not None:
             try:
-                paths = claude_reach(query, {"cwd": project["dir"], **places}, {**os.environ, **(places.get("env") or {})}, os.environ.get("ANTHROPIC_BASE_URL"))
+                paths = claude_reach(self.query, {"cwd": self.project, **self.places}, {**os.environ, **(self.places.get("env") or {})}, os.environ.get("ANTHROPIC_BASE_URL"))
                 # The sidecar keeps 20: the rest are counted in the last.
                 body["reach"] = paths if len(paths) <= 20 else [*paths[:19], f"{len(paths) - 19} more"]
             except Exception as err:
-                say(f"could not work out what the Claude Code CLI can reach: {err}")
+                self.say(f"could not work out what the Claude Code CLI can reach: {err}")
         try:
             await _finish(_say_hello, body)
         except Exception as err:
-            say(f"could not tell Shadowlap that the Claude Code CLI runs unguarded: {err}")
+            self.say(f"could not tell Shadowlap that the Claude Code CLI runs unguarded: {err}")
 
-    def once(key: str, line: str) -> None:
-        if key not in said:
-            said.add(key)
-            say(line)
+    def once(self, key: str, line: str) -> None:
+        if key not in self.said:
+            self.said.add(key)
+            self.say(line)
 
-    def allow(updated: dict[str, Any], why: str) -> dict[str, Any]:
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": why, "updatedInput": updated}}
-
-    def deny(reason: str) -> dict[str, Any]:
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}
-
-    def denied(out: Mapping[str, Any]) -> bool:
-        specific = out.get("hookSpecificOutput")
-        return isinstance(specific, dict) and specific.get("permissionDecision") == "deny"
-
-    def stand_in(name: str, args: dict[str, Any], recorded: Any) -> Optional[dict[str, Any]]:
+    def stand_in(self, name: str, args: dict[str, Any], recorded: Any) -> Optional[dict[str, Any]]:
         """The harmless call that runs in place of a recorded write, as Claude Code accepts it; None where there is none."""
         if name == "Bash":
             cwd = _text(recorded.get(_CWD)) if isinstance(recorded, dict) else ""
@@ -267,132 +328,143 @@ def fence_hooks(
             # environment) runs nothing.
             return {**args, "command": "builtin cd -- %s 2>/dev/null || true" % _quote(cwd) if cwd else "true", "run_in_background": False}
         if name == "Write":
-            return {"file_path": files.fresh("write"), "content": ""}
+            return {"file_path": self.files.fresh("write"), "content": ""}
         if name == "Edit":
             # An edit with nothing to find creates a new file: the only edit Claude Code takes on a file nobody read.
-            return {"file_path": files.fresh("edit"), "old_string": "", "new_string": "."}
+            return {"file_path": self.files.fresh("edit"), "old_string": "", "new_string": "."}
         if name == "MultiEdit":
-            return {"file_path": files.fresh("edit"), "edits": [{"old_string": "", "new_string": "."}]}
+            return {"file_path": self.files.fresh("edit"), "edits": [{"old_string": "", "new_string": "."}]}
         return None
 
-    def failing_bash(args: dict[str, Any], code: int, rest: str) -> dict[str, Any]:
+    def failing_bash(self, args: dict[str, Any], code: int, rest: str) -> dict[str, Any]:
         """A recorded Bash failure, reproduced: the same output, the same exit code."""
-        printed = "cat -- %s" % _quote(files.write("output", rest)) if len(rest) > 16000 or "\0" in rest else "printf '%%s' %s" % _quote(rest)
+        printed = "cat -- %s" % _quote(self.files.write("output", rest)) if len(rest) > 16000 or "\0" in rest else "printf '%%s' %s" % _quote(rest)
         return {**args, "command": "%s; exit %d" % (printed, code), "run_in_background": False}
 
-    def stub_output(name: str, args: dict[str, Any], output: Any) -> Any:
-        if on_fork is not None:
-            return on_fork(name, args, output)
+    def stub_output(self, name: str, args: dict[str, Any], output: Any) -> Any:
+        if self.on_fork is not None:
+            return self.on_fork(name, args, output)
         if isinstance(output, dict) and isinstance(output.get("filePath"), str) and isinstance(args.get("file_path"), str):
             return {**output, "filePath": args["file_path"]}
         return output
 
-    def besides(name: str, agent_type: str) -> Optional[dict[str, Any]]:
+    def besides(self, name: str, agent_type: str) -> Optional[dict[str, Any]]:
         """A PreToolUse hook Claude Code runs beside the fence that picks ``name`` in the session or the
         subagent ``agent_type`` (a settings file's, a plugin's, a skill's or that subagent's), or None."""
-        found = settings_pre_tool_use(places, project["dir"] or os.getcwd())
+        found = settings_pre_tool_use(self.places, self.project or os.getcwd())
         return next((h for h in found if matcher_picks(h["matcher"], name, "all") and hook_runs_for(h, agent_type)), None)
 
-    def where(h: Mapping[str, Any]) -> str:
-        agent = f', which runs while the subagent "{h["agent"]}" runs' if h.get("agent") is not None else ""
-        return "a PreToolUse hook in %s%s%s" % (h["source"], agent, ' (matcher "%s")' % h["matcher"] if h["matcher"] is not None else "")
-
-    def stand_in_or_refuse(name: str, agent_type: str, stand: dict[str, Any], why: str) -> dict[str, Any]:
+    def stand_in_or_refuse(self, name: str, agent_type: str, stand: dict[str, Any], why: str) -> dict[str, Any]:
         """A write the fence would hand a stand-in, refused instead when a hook beside the fence could
         rewrite its input after the fence: the recorded write would run again for real."""
-        beside = besides(name, agent_type)
+        beside = self.besides(name, agent_type)
         if beside is None:
-            return allow(stand, why)
+            return _allow(stand, why)
         reason = (
-            f"shadowlap: {name} was not run again: {where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, "
+            f"shadowlap: {name} was not run again: {_where(beside)} runs beside Shadowlap's, and Claude Code takes the input from whichever hook answers last, "
             f"so it could run the recorded {name} again for real. The replay forks here. Give that hook to the query in its hooks option, where with_fence runs "
             "it inside the fence, or leave its file out for this agent (its setting_sources entry, or the plugin that holds it)."
         )
-        once("beside:" + name, reason)
-        return deny(reason)
+        self.once("beside:" + name, reason)
+        return _deny(reason)
 
-    async def fence(input_data: dict[str, Any], key: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def fence(self, input_data: dict[str, Any], key: str, args: dict[str, Any]) -> dict[str, Any]:
         """The fence's own answer to a call, from the input the call would run with (the query's hooks' rewrite included)."""
         name = _text(input_data.get("tool_name"))
-        effect = table[name]
-        agent = _text(input_data.get("agent_id"))
-        agent_type = _text(input_data.get("agent_type"))
+        c = _Asked(name=name, effect=self.table[name], key=key, args=args, agent=_text(input_data.get("agent_id")), agent_type=_text(input_data.get("agent_type")), cwd=input_data.get("cwd"))
         try:
-            r = await _resolve_shielded(functools.partial(_resolve_tool, name, effect, args), _complete_call)
-            if r is None:
-                return {}
-            origin = r.get("origin")
-            if origin == "live":
-                pending[key] = {"kind": "live", "call_no": r["callNo"], "name": name, "started": time.time(), "agent": agent, "cwd": input_data.get("cwd"), "input": args}
-                # Recorded as it runs; a replay of it will meet the same hook beside the fence, and refuse it.
-                if effect == "write":
-                    beside = besides(name, agent_type)
-                    if beside is not None:
-                        once("record:" + name, f"{where(beside)} runs beside Shadowlap's for {name}: a replay of this run refuses {name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where with_fence runs it inside the fence.")
-                return {}
-            if origin == "blocked":
-                return deny(str(r["error"]["message"]))
-            if origin == "stubbed":
-                stand = stand_in(name, args, None)
-                if stand is None:
-                    await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": f"{name} has no stand-in Claude Code takes, so it was refused instead of stubbed"}})
-                    return deny(f"{name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and {name} can't be.")
-                out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a write stubbed after the fork")
-                if denied(out):
-                    await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": out["hookSpecificOutput"]["permissionDecisionReason"]}})
-                    return out
-                pending[key] = {"kind": "stubbed", "call_no": r["callNo"], "name": name, "started": time.time(), "agent": agent, "input": args, "stand_in": stand}
-                return out
-            if origin == "replayed":
-                if r.get("outcome") == "ok":
-                    result = r.get("result")
-                    output = {k: v for k, v in result.items() if k != _CWD} if isinstance(result, dict) and _CWD in result else result
-                    if effect != "write":
-                        # A read runs as it is; the model gets the recorded output.
-                        pending[key] = {"kind": "replayed", "name": name, "agent": agent, "output": output, "input": args, "stand_in": None}
-                        return {}
-                    stand = stand_in(name, args, result)
-                    if stand is None:
-                        return deny(f"shadowlap: {name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.")
-                    out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a recorded call, replayed")
-                    if not denied(out):
-                        pending[key] = {"kind": "replayed", "name": name, "agent": agent, "output": output, "input": args, "stand_in": stand}
-                    return out
-                error = r.get("error") or {}
-                if r.get("injected"):
-                    return deny(str(error.get("message", "injected failure")))
-                if effect != "write":
-                    return {}  # a read that failed: it runs, and fails as it did
-                failure = _bash_failure(str(error.get("message", ""))) if name == "Bash" else None
-                if failure is not None:
-                    stand = failing_bash(args, failure[0], failure[1])
-                    out = stand_in_or_refuse(name, agent_type, stand, "shadowlap: a recorded failure, replayed")
-                    if not denied(out):
-                        pending[key] = {"kind": "failure", "name": name, "agent": agent, "input": args, "stand_in": stand}
-                    return out
-                return deny(str(error.get("message", "recorded failure")))
-            return deny(f"shadowlap: the sidecar answered {name} with an unknown origin; it was not run")
+            r = await _resolve_shielded(functools.partial(_resolve_tool, name, c.effect, args), _complete_call)
+            return {} if r is None else await self.answer(c, r)
         except Exception as err:
             # A hook that raises lets the tool run unchanged, so nothing may escape: a write that
             # can't be recorded is refused (this could be a replay), and a read runs unrecorded.
-            say(f"could not record {name}: {err}")
-            if effect == "write":
-                return deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under Shadowlap, since this may be a replay.")
+            self.say(f"could not record {name}: {err}")
+            if c.effect == "write":
+                return _deny(f"shadowlap: {name} was not run: it is a write, and it could not be recorded ({err}). A write never runs unrecorded under Shadowlap, since this may be a replay.")
             return {}
 
-    async def pre(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
-        if project["dir"] is None:
-            project["dir"] = _text(input_data.get("cwd")) or None
-        await greet()
+    async def answer(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
+        """The answer to a call, by what the sidecar said of it: run live, refused, stubbed, or replayed from the recording."""
+        origin = r.get("origin")
+        if origin == "live":
+            return self.live(c, r)
+        if origin == "blocked":
+            return _deny(str(r["error"]["message"]))
+        if origin == "stubbed":
+            return await self.stubbed(c, r)
+        if origin == "replayed":
+            return self.replayed(c, r) if r.get("outcome") == "ok" else self.replayed_failure(c, r)
+        return _deny(f"shadowlap: the sidecar answered {c.name} with an unknown origin; it was not run")
+
+    def live(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
+        """A call that runs as it is, recorded as it runs: PostToolUse ends it."""
+        self.pending[c.key] = {"kind": "live", "call_no": r["callNo"], "name": c.name, "started": time.time(), "agent": c.agent, "cwd": c.cwd, "input": c.args}
+        # Recorded as it runs; a replay of it will meet the same hook beside the fence, and refuse it.
+        if c.effect == "write":
+            beside = self.besides(c.name, c.agent_type)
+            if beside is not None:
+                self.once("record:" + c.name, f"{_where(beside)} runs beside Shadowlap's for {c.name}: a replay of this run refuses {c.name} rather than let that hook run it again for real. Give the hook to the query in its hooks option, where with_fence runs it inside the fence.")
+        return {}
+
+    async def stubbed(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
+        """A write after the fork under ``--writes stub``: its stand-in runs, or it is refused where it has none, or where a hook beside the fence could run it."""
+        stand = self.stand_in(c.name, c.args, None)
+        if stand is None:
+            await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": f"{c.name} has no stand-in Claude Code takes, so it was refused instead of stubbed"}})
+            return _deny(f"{c.name} was not run: write tools are stubbed after the fork (shadowlap replay --writes stub), and {c.name} can't be.")
+        out = self.stand_in_or_refuse(c.name, c.agent_type, stand, "shadowlap: a write stubbed after the fork")
+        if _denied(out):
+            await _finish(_complete_call, r["callNo"], {"outcome": "error", "error": {"name": "ShadowlapWriteBlocked", "message": out["hookSpecificOutput"]["permissionDecisionReason"]}})
+            return out
+        self.pending[c.key] = {"kind": "stubbed", "call_no": r["callNo"], "name": c.name, "started": time.time(), "agent": c.agent, "input": c.args, "stand_in": stand}
+        return out
+
+    def replayed(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
+        """A recorded call that answered: a read runs as it is, a write runs its stand-in, and the model gets the recorded output."""
+        result = r.get("result")
+        output = {k: v for k, v in result.items() if k != _CWD} if isinstance(result, dict) and _CWD in result else result
+        if c.effect != "write":
+            # A read runs as it is; the model gets the recorded output.
+            self.pending[c.key] = {"kind": "replayed", "name": c.name, "agent": c.agent, "output": output, "input": c.args, "stand_in": None}
+            return {}
+        stand = self.stand_in(c.name, c.args, result)
+        if stand is None:
+            return _deny(f"shadowlap: {c.name} was not run again on replay: it is a write, and it has no stand-in Claude Code takes. The replay forks here.")
+        out = self.stand_in_or_refuse(c.name, c.agent_type, stand, "shadowlap: a recorded call, replayed")
+        if not _denied(out):
+            self.pending[c.key] = {"kind": "replayed", "name": c.name, "agent": c.agent, "output": output, "input": c.args, "stand_in": stand}
+        return out
+
+    def replayed_failure(self, c: _Asked, r: dict[str, Any]) -> dict[str, Any]:
+        """A recorded call that failed: an injected failure is refused with its message, a read runs and
+        fails as it did, a Bash failure is reproduced, and any other write is refused with its error."""
+        error = r.get("error") or {}
+        if r.get("injected"):
+            return _deny(str(error.get("message", "injected failure")))
+        if c.effect != "write":
+            return {}  # a read that failed: it runs, and fails as it did
+        failure = _bash_failure(str(error.get("message", ""))) if c.name == "Bash" else None
+        if failure is None:
+            return _deny(str(error.get("message", "recorded failure")))
+        stand = self.failing_bash(c.args, failure[0], failure[1])
+        out = self.stand_in_or_refuse(c.name, c.agent_type, stand, "shadowlap: a recorded failure, replayed")
+        if not _denied(out):
+            self.pending[c.key] = {"kind": "failure", "name": c.name, "agent": c.agent, "input": c.args, "stand_in": stand}
+        return out
+
+    async def pre(self, input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+        if self.project is None:
+            self.project = _text(input_data.get("cwd")) or None
+        await self.greet()
         name = _text(input_data.get("tool_name"))
         # The query's own hooks first, as Claude Code would run them: a refusal of theirs stands, and
         # nothing runs, so nothing is recorded or fenced; a rewrite of theirs is what the call runs with.
-        own = combine(await run_hooks(inner_pre, name, input_data, tool_use_id, context), "PreToolUse")
-        if own.get("decision") in ("deny", "defer") or name not in table:
+        own = combine(await run_hooks(self.inner_pre, name, input_data, tool_use_id, context), "PreToolUse")
+        if own.get("decision") in ("deny", "defer") or name not in self.table:
             return as_output(own, "PreToolUse")
         given = input_data.get("tool_input")
         args: dict[str, Any] = own["updatedInput"] if isinstance(own.get("updatedInput"), dict) else given if isinstance(given, dict) else {}
-        out = await fence({**input_data, "tool_input": args}, tool_use_id or _text(input_data.get("tool_use_id")), args)
+        out = await self.fence({**input_data, "tool_input": args}, tool_use_id or _text(input_data.get("tool_use_id")), args)
         mine = out.get("hookSpecificOutput")
         if not isinstance(mine, dict):
             return as_output(own, "PreToolUse")
@@ -405,7 +477,7 @@ def fence_hooks(
             merged["updatedInput"] = mine["updatedInput"]
         return as_output(merged, "PreToolUse")
 
-    async def lost(p: dict[str, Any], ran: Any) -> dict[str, Any]:
+    async def lost(self, p: dict[str, Any], ran: Any) -> dict[str, Any]:
         """Another hook's rewrite came after the fence's stand-in, so Claude Code ran the call itself: a
         recorded write ran again for real. The model is not handed the recording as if nothing happened,
         a stubbed call is not kept as stubbed, and the session stops there."""
@@ -416,58 +488,63 @@ def fence_hooks(
             "recorded call run again for real. The session stops here. A hook the fence doesn't run did it, one in a settings file, a plugin or managed settings: "
             "see Claude Agent SDK in docs/frameworks.md."
         )
-        say(line)
+        self.say(line)
         if p["kind"] == "stubbed":
             try:
                 await _finish(_complete_call, p["call_no"], {"outcome": "error", "error": {"name": "ShadowlapFenceLost", "message": line}})
             except Exception as err:
-                say(f"could not record that {p['name']} ran: {err}")
+                self.say(f"could not record that {p['name']} ran: {err}")
         return {"continue_": False, "stopReason": line, "systemMessage": line}
 
-    async def post(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
-        name = _text(input_data.get("tool_name"))
-        p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
+    async def theirs(self, call: tuple[dict[str, Any], Optional[str], Any], seen: Optional[tuple[dict[str, Any], Any]], mine: Optional[tuple[Any]]) -> dict[str, Any]:
+        """The query's own PostToolUse hooks on what the model is to read (``seen``: the input and the
+        output, as they ran on them when it was recorded), and the fence's output (``mine``) where they give none."""
+        input_data, tool_use_id, context = call
+        given = {**input_data, "tool_input": seen[0], "tool_response": seen[1]} if seen is not None else input_data
+        own = combine(await run_hooks(self.inner_post, _text(input_data.get("tool_name")), given, tool_use_id, context), "PostToolUse")
+        if own.get("output") is None and mine is not None:
+            own["output"] = mine
+        return as_output(own, "PostToolUse")
 
-        async def theirs(seen: Optional[tuple[dict[str, Any], Any]], mine: Optional[tuple[Any]]) -> dict[str, Any]:
-            """The query's own PostToolUse hooks, on what the model is to read, as they ran on it when it was recorded."""
-            given = {**input_data, "tool_input": seen[0], "tool_response": seen[1]} if seen is not None else input_data
-            own = combine(await run_hooks(inner_post, name, given, tool_use_id, context), "PostToolUse")
-            if own.get("output") is None and mine is not None:
-                own["output"] = mine
-            return as_output(own, "PostToolUse")
-
+    async def post(self, input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+        p = self.pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
+        call = (input_data, tool_use_id, context)
         if p is None:
-            return await theirs(None, None)
+            return await self.theirs(call, None, None)
         try:
             if p["kind"] != "live" and p.get("stand_in") is not None and _ran_other(p["name"], input_data.get("tool_input"), p["stand_in"]):
-                return await lost(p, input_data.get("tool_input"))
+                return await self.lost(p, input_data.get("tool_input"))
             if p["kind"] == "replayed":
-                return await theirs((p["input"], p["output"]), (p["output"],))
+                return await self.theirs(call, (p["input"], p["output"]), (p["output"],))
             if p["kind"] == "failure":
-                say(f"the replayed failure of {p['name']} ran without failing; the replay forks here")
-                return await theirs(None, None)
+                self.say(f"the replayed failure of {p['name']} ran without failing; the replay forks here")
+                return await self.theirs(call, None, None)
             if p["kind"] == "live":
-                output = input_data.get("tool_response")
-                cwd = input_data.get("cwd")
-                # Where a command left the shell is part of what the model sees next: kept for the replay's stand-in.
-                moved = p["name"] == "Bash" and isinstance(cwd, str) and isinstance(p["cwd"], str) and cwd != p["cwd"]
-                result = {**output, _CWD: cwd} if moved and isinstance(output, dict) else output
-                await _finish(_complete_call, p["call_no"], {"outcome": "ok", "result": result, "latencyMs": int((time.time() - p["started"]) * 1000)})
-                return await theirs(None, None)
-            output = stub_output(p["name"], p["input"], input_data.get("tool_response"))
+                await self.ran(p, input_data)
+                return await self.theirs(call, None, None)
+            output = self.stub_output(p["name"], p["input"], input_data.get("tool_response"))
             await _finish(_complete_call, p["call_no"], {"outcome": "ok", "result": output, "latencyMs": 0})
-            return await theirs((p["input"], output), (output,))
+            return await self.theirs(call, (p["input"], output), (output,))
         except Exception as err:
-            say(f"could not record the result of {p['name']}: {err}")
+            self.say(f"could not record the result of {p['name']}: {err}")
             return {}
 
-    async def failed(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
-        p = pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
+    async def ran(self, p: dict[str, Any], input_data: dict[str, Any]) -> None:
+        """A live call's output, recorded: with where a Bash command left the shell, part of what the
+        model sees next, kept for the replay's stand-in."""
+        output = input_data.get("tool_response")
+        cwd = input_data.get("cwd")
+        moved = p["name"] == "Bash" and isinstance(cwd, str) and isinstance(p["cwd"], str) and cwd != p["cwd"]
+        result = {**output, _CWD: cwd} if moved and isinstance(output, dict) else output
+        await _finish(_complete_call, p["call_no"], {"outcome": "ok", "result": result, "latencyMs": int((time.time() - p["started"]) * 1000)})
+
+    async def failed(self, input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+        p = self.pending.pop(tool_use_id or _text(input_data.get("tool_use_id")), None)
         if p is None:
             return {}
         try:
             if p["kind"] != "live" and p.get("stand_in") is not None and _ran_other(p["name"], input_data.get("tool_input"), p["stand_in"]):
-                return await lost(p, input_data.get("tool_input"))
+                return await self.lost(p, input_data.get("tool_input"))
             if p["kind"] in ("live", "stubbed"):
                 error = _text(input_data.get("error")) or "the tool failed"
                 serialized: dict[str, Any] = {"name": "ToolError", "message": error}
@@ -478,47 +555,30 @@ def fence_hooks(
                     serialized["data"] = {"interrupted": True}
                 await _finish(_complete_call, p["call_no"], {"outcome": "error", "error": serialized, "latencyMs": int((time.time() - p["started"]) * 1000)})
             elif p["kind"] == "replayed":
-                say(f"the stand-in for {p['name']} failed; the replay forks here")
+                self.say(f"the stand-in for {p['name']} failed; the replay forks here")
         except Exception as err:
-            say(f"could not record the failure of {p['name']}: {err}")
+            self.say(f"could not record the failure of {p['name']}: {err}")
         return {}
 
-    async def settle(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+    async def settle(self, input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         """Calls PreToolUse saw that never ran (a permission refused them): ended, so the recording has no hole."""
         agent = _text(input_data.get("agent_id"))
-        for key, p in list(pending.items()):
+        for key, p in list(self.pending.items()):
             if p["agent"] != agent:
                 continue
-            del pending[key]
+            del self.pending[key]
             if p["kind"] not in ("live", "stubbed"):
                 continue
             try:
                 await _finish(_complete_call, p["call_no"], {"outcome": "error", "error": {"name": "NotRun", "message": f"Claude Code did not run {p['name']}: a permission rule, can_use_tool or a person refused it"}})
             except Exception as err:
-                say(f"could not record that {p['name']} did not run: {err}")
+                self.say(f"could not record that {p['name']} did not run: {err}")
         return {}
 
-    names = list(table)
-    # An exact list (letters, digits, _ and -), which Claude Code compares name by name; the hooks
-    # check the name again. With the query's own hooks inside, every tool: theirs may pick any.
-    listed = "|".join(names) if all(re.match(r"^[A-Za-z0-9_-]+$", n) for n in names) else None
-
-    def on(hook: Hook, inner: Optional[Sequence[Any]] = None) -> list[Any]:
-        return [_matcher(None if inner else listed, hook, _longest(inner))]
-
-    async def prompted(input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
+    async def prompted(self, input_data: dict[str, Any], tool_use_id: Optional[str], context: Any) -> dict[str, Any]:
         """The first prompt comes before any model call or tool: the CLI is running, and says hello then."""
-        await greet()
+        await self.greet()
         return {}
-
-    return {
-        "UserPromptSubmit": [_matcher(None, prompted)],
-        "PreToolUse": on(pre, inner_pre),
-        "PostToolUse": on(post, inner_post),
-        "PostToolUseFailure": on(failed),
-        "Stop": [_matcher(None, settle)],
-        "SubagentStop": [_matcher(None, settle)],
-    }
 
 
 def with_fence(options: Opts, effects: Optional[Mapping[str, str]] = None, **fence: Any) -> Opts:
