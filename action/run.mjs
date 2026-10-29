@@ -91,9 +91,9 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const store = input('STORE') ? resolve(workdir, input('STORE')) : null;
   // The team store: the test runs and the session's report (test --push), then any fix opened.
   const push = bool('PUSH', false);
-  // What an inconclusive golden does to the step, and each gate's limit for this run.
-  const inconclusive = input('INCONCLUSIVE', 'fail').toLowerCase() || 'fail';
-  if (!['fail', 'warn'].includes(inconclusive)) fail(`input inconclusive must be fail or warn, not "${inconclusive}"`);
+  // What an inconclusive golden does to the step (empty: as shadowlap test does by default), and each gate's limit for this run.
+  const inconclusive = input('INCONCLUSIVE').toLowerCase();
+  if (inconclusive && !['fail', 'warn'].includes(inconclusive)) fail(`input inconclusive must be fail or warn, or empty, not "${inconclusive}"`);
   const maxAttempts = input('MAX_ATTEMPTS');
   if (maxAttempts && !/^[1-9]\d{0,3}$/.test(maxAttempts)) fail(`input max-attempts must be a whole number of attempts, such as 160, not "${maxAttempts}"`);
   const comment = bool('COMMENT', true);
@@ -130,7 +130,7 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const junit = input('JUNIT') ? resolve(workdir, input('JUNIT')) : join(out, 'shadowlap-junit.xml');
   const args = [cli, ...(store ? ['--db', store] : []), 'test', ...packs, '--json', json, '--markdown', markdown, '--junit', junit, '--writes', writes, '--guard', guard];
   if (bool('ONLINE', false)) args.push('--online');
-  args.push('--inconclusive', inconclusive);
+  if (inconclusive) args.push('--inconclusive', inconclusive);
   if (maxAttempts) args.push('--max-attempts', maxAttempts);
   if (bool('ANNOTATIONS', true)) args.push('--annotations');
   if (push) args.push('--push');

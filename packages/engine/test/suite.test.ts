@@ -45,6 +45,30 @@ function walkOver(gate: BaselineGate, h: Tally | null, seen: Tally | null): { re
   return { red: 1 - passed, attempts };
 }
 const redOver = (gate: BaselineGate, h: Tally | null, seen: Tally | null): number => walkOver(gate, h, seen).red;
+/** The same walk's chance of failing, as a golden whose inconclusive only warns goes red. */
+function failOver(gate: BaselineGate, h: Tally | null, seen: Tally | null): number {
+  const shown = seen ?? RECORDING_BASELINE;
+  const yes = 1 + shown.passes;
+  const no = 1 + PLANNED_FAILURES + shown.attempts - shown.passes;
+  let walking = new Map<number, number>([[0, 1]]);
+  let failed = 0;
+  for (let n = 1; n <= gate.max; n++) {
+    const next = new Map<number, number>();
+    for (const [s, m] of walking) {
+      const up = (yes + s) / (yes + no + n - 1);
+      for (const [s2, q] of [
+        [s + 1, up],
+        [s, 1 - up],
+      ] as const) {
+        const d = decide(s2, n, gate, h);
+        if (d === 'fail') failed += m * q;
+        else if (d === 'continue') next.set(s2, (next.get(s2) ?? 0) + m * q);
+      }
+    }
+    walking = next;
+  }
+  return failed;
+}
 const attemptsOver = (gate: BaselineGate, h: Tally | null, seen: Tally | null): number => walkOver(gate, h, seen).attempts;
 
 describe('planSuite', () => {
@@ -191,6 +215,23 @@ describe('planSuite', () => {
     if (p.red > 0.0025) expect(p.over).toContain('averaged over the pass rates the 20 sessions before its last 10 leave open (100 of 106 attempts passed)');
   });
 
+  it('plans a golden whose inconclusive only warns, its history short, as the session sizes it, and counts its failures alone', () => {
+    const base = { passes: 14, attempts: 15 };
+    const record = { passes: 14, attempts: 15, sessions: 3 };
+    const golden: SuiteGolden = { golden: 'goldens/h', gate: history(), maxGiven: false, history: base, sessions: record, record };
+    const counted = planSuite(Array.from({ length: 20 }, () => golden))!.planned[0];
+    const warned = planSuite(Array.from({ length: 20 }, () => ({ ...golden, inconclusive: 'warn' as const })))!.planned[0];
+    // Counted, it can't keep within its share with 3 sessions. With its inconclusive only warning, it
+    // runs the same gate, the attempts that would settle it, and its chance is of failing, which it says.
+    expect(counted.red).toBeGreaterThan(0.0025);
+    expect(counted.early).toMatch(/^only 3 sessions yet: against its baseline \(14 of 15\) it goes red about /);
+    expect(warned.gate).toEqual(counted.gate);
+    expect(warned.attempts).toBe(counted.attempts);
+    expect(warned.red).toBeCloseTo(failOver(warned.gate as BaselineGate, base, record), 12);
+    expect(warned.red).toBeLessThan(counted.red / 10);
+    expect(warned.early).toMatch(/^only 3 sessions yet: against its baseline \(14 of 15\) it fails about 0\.32% of the time, /);
+  });
+
   it('holds a pass past 40 to the record for a max the config set too, and works its red rate out under that rule', () => {
     const base = { passes: 47, attempts: 50 };
     const record = { passes: 150, attempts: 170, sessions: 30 };
@@ -206,13 +247,13 @@ describe('planSuite', () => {
     const record = { passes: 14, attempts: 15, sessions: 3 };
     const p = planSuite(Array.from({ length: 20 }, () => ({ golden: 'goldens/h', gate: history(), maxGiven: false, history: base, sessions: record, record })))!.planned[0];
     expect(p.over).toBeUndefined();
-    expect(p.early).toBe(`only 3 sessions yet: against its baseline (14 of 15) it goes red about ${+(100 * p.red).toPrecision(2)}% of the time, averaged over the pass rates its last 3 sessions leave open (14 of 15 attempts passed), where its share of the suite's risk is 0.25%; sessions that pass make it surer`);
+    expect(p.early).toBe(`only 3 sessions yet: against its baseline (14 of 15) it goes red about ${+(100 * p.red).toPrecision(2)}% of the time, averaged over the pass rates its last 3 sessions leave open (14 of 15 attempts passed), where its share of the suite's risk is 0.25%; sessions that pass make it surer, or give it a gate on fixed rates, "good" and "bad", which needs no history`);
     expect(p.red).toBeCloseTo(redOver(p.gate as BaselineGate, base, record), 12);
   });
 
   it('with no history, compares a gate with its recording, at its own max, and says it has no baseline yet', () => {
     const p = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: history(), maxGiven: false })))!.planned[0];
-    expect(p.early).toMatch(/^no baseline yet, only its recording, one attempt that passed: against that it goes red about 37% of the time, averaged over the pass rates that leaves open \(more for an agent that fails more often\), where its share of the suite's risk is 0\.25%; sessions that pass make it a baseline$/);
+    expect(p.early).toMatch(/^no baseline yet, only its recording, one attempt that passed: against that it goes red about 37% of the time, averaged over the pass rates that leaves open \(more for an agent that fails more often\), where its share of the suite's risk is 0\.25%; sessions that pass make it a baseline, or give it a gate on fixed rates, "good" and "bad", which needs no history$/);
     expect(p.over).toBeUndefined();
     // No more attempts than its own max: against its recording, an agent that fails often can't pass however long it runs.
     expect(p.gate).toEqual(history({ risk: 0.0025 }));

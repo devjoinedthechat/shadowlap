@@ -106,6 +106,15 @@ export interface SuiteGolden {
    * taken for it, else its baseline: a shorter record, which holds the gate to more.
    */
   record?: (Tally & { sessions?: number }) | null;
+  /**
+   * What its inconclusive does, when not what the session's does (`planSuite`'s `inconclusive`): a gate
+   * against history whose record holds fewer sessions than it reads only warns by default, its history
+   * too short to tell a drop from chance. Its chance of going red is then of failing alone. A gate
+   * against history is still sized as the session's are, so it runs the attempts that would settle it,
+   * and the sessions they pass keep its baseline learning; an SPRT gate, with no baseline to keep, is
+   * sized for what its own inconclusive does.
+   */
+  inconclusive?: 'fail' | 'warn';
   /** Its pass rate as its recent results show it, for the forecast; null for one with none. */
   rate?: number | null;
   /** USD an attempt costs, from its recent results or its recording; null when no price is known. */
@@ -380,7 +389,7 @@ interface Plan {
  * `early`: too few to tell. With no session at all, its baseline is its recording, one attempt that
  * passed.
  */
-function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; sessions: Tally | null; record: (Tally & { sessions?: number }) | null }, o: { maxGiven: boolean; mode: 'fail' | 'warn' }): Plan {
+function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; sessions: Tally | null; record: (Tally & { sessions?: number }) | null }, o: { maxGiven: boolean; mode: 'fail' | 'warn'; sizing?: 'fail' | 'warn' }): Plan {
   const known = x.history && x.history.attempts > 0 ? x.history : null;
   const recent = x.sessions && x.sessions.attempts > 0 ? x.sessions : null;
   // Its record: absent, its last window of sessions, else its baseline (an API caller that gives neither).
@@ -413,18 +422,21 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const kept = record === x.record ? x.record?.sessions : undefined;
   const reference = (dropped || declining) && older ? { ...older, ...(kept !== undefined ? { sessions: kept - Math.min(kept, g.window) } : {}) } : record ? { passes: record.passes, attempts: record.attempts, ...(kept !== undefined ? { sessions: kept } : {}) } : null;
   const bound = reference ? { from, record: reference, ...((dropped || declining) && older ? { before: g.window } : {}), risk: g.risk } : null;
-  const inconclusive = o.mode === 'fail' ? Math.min(INCONCLUSIVE_AT_GOOD, r / 2) : INCONCLUSIVE_AT_GOOD;
+  // Sized as the session counts an inconclusive (`sizing`), so one whose own inconclusive only warns
+  // still runs the attempts that would settle it; its chance of going red is counted as its own is.
+  const sizing = o.sizing ?? o.mode;
+  const inconclusive = sizing === 'fail' ? Math.min(INCONCLUSIVE_AT_GOOD, r / 2) : INCONCLUSIVE_AT_GOOD;
   const c = historyCurves({ ...gate, max: limit, ...(bound ? { widened: bound } : {}) }, known, predictive(seen), limit, () => false);
-  const redAt = (m: number) => Math.max(0, o.mode === 'fail' ? 1 - c.pass[m]! : c.fail[m]!);
+  const redAt = (m: number, mode: 'fail' | 'warn') => Math.max(0, mode === 'fail' ? 1 - c.pass[m]! : c.fail[m]!);
   // The fewest attempts from its own max that leave few enough undecided and keep within the share; else every attempt it may.
   let max = limit;
   for (let m = floor; m <= limit; m++) {
-    if (c.going[m]! <= inconclusive && redAt(m) <= r) {
+    if (c.going[m]! <= inconclusive && redAt(m, sizing) <= r) {
       max = m;
       break;
     }
   }
-  const red = redAt(max);
+  const red = redAt(max, o.mode);
   const planned: BaselineGate = { ...gate, max, ...(bound ? { widened: bound } : {}) };
   // What it costs, for the agent as its last sessions show it: a drop runs on longer than the agent before it.
   const now = recent ?? record ?? known;
@@ -457,9 +469,13 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
           ? `its last ${sessions === 1 ? 'session leaves' : `${sessions} sessions leave`}`
           : 'its sessions leave';
   const rates = seen ? `averaged over the pass rates ${whose} open (${seen.passes} of ${seen.attempts} attempts passed)` : 'averaged over the pass rates that leaves open (more for an agent that fails more often)';
-  if (!known && !x.record && !recent) plan.early = `no baseline yet, only its recording, one attempt that passed: against that it goes red about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it a baseline`;
-  else if (sessions !== null && sessions < RECORD_WINDOWS * g.window) plan.early = `only ${sessions === 1 ? 'one session' : `${sessions} sessions`} yet: ${against} it goes red about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it surer`;
-  else plan.over = `${against} it goes red about ${pct(red)} of the time, ${rates}, ${share}: a baseline that came out lucky, or too short a one, to tell a drop from chance at that share`;
+  // Under --inconclusive warn, or for a golden whose inconclusive only warns, its chance is of failing.
+  const goes = o.mode === 'fail' ? 'goes red' : 'fails';
+  // A gate on two fixed rates needs no history at all: worth knowing while there is little.
+  const fixed = 'or give it a gate on fixed rates, "good" and "bad", which needs no history';
+  if (!known && !x.record && !recent) plan.early = `no baseline yet, only its recording, one attempt that passed: against that it ${goes} about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it a baseline, ${fixed}`;
+  else if (sessions !== null && sessions < RECORD_WINDOWS * g.window) plan.early = `only ${sessions === 1 ? 'one session' : `${sessions} sessions`} yet: ${against} it ${goes} about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it surer, ${fixed}`;
+  else plan.over = `${against} it ${goes} about ${pct(red)} of the time, ${rates}, ${share}: a baseline that came out lucky, or too short a one, to tell a drop from chance at that share`;
   return plan;
 }
 
@@ -481,10 +497,12 @@ export function planSuite(goldens: readonly SuiteGolden[], o: { risk?: number; i
   // Goldens under one tests entry share their figures: each set of figures is planned once.
   const plans = new Map<string, Plan>();
   const planOf = (x: SuiteGolden, history: Tally | null): Plan => {
-    const key = JSON.stringify([x.gate, x.maxGiven, x.gate.kind === 'baseline' ? [history, x.sessions ?? null, x.record ?? null] : null]);
+    // A golden whose inconclusive does otherwise than the session's (its history short): its chance is counted as it does.
+    const own = x.inconclusive ?? mode;
+    const key = JSON.stringify([x.gate, x.maxGiven, own, x.gate.kind === 'baseline' ? [history, x.sessions ?? null, x.record ?? null] : null]);
     const known = plans.get(key);
     if (known) return known;
-    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode }), at: x.gate.good, estimate: x.gate.good } : planHistory(x.gate, share, { history, sessions: x.sessions ?? null, record: x.record ?? null }, { maxGiven: x.maxGiven, mode });
+    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode: own }), at: x.gate.good, estimate: x.gate.good } : planHistory(x.gate, share, { history, sessions: x.sessions ?? null, record: x.record ?? null }, { maxGiven: x.maxGiven, mode: own, sizing: mode });
     plans.set(key, p);
     return p;
   };

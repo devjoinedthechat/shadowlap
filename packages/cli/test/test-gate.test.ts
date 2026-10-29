@@ -239,7 +239,8 @@ describe('shadowlap test with a gate against history', () => {
   it('passes an unchanged agent after its minimum of attempts, fails one whose pass rate dropped, and keeps a failed session and a pull request out of the baseline', async () => {
     const db = join(work, 'history.db');
     const clean = cleanCheckout();
-    const shadowlapTest = (tests: unknown, env: NodeJS.ProcessEnv, o: { db?: string } = {}) => runTest(tests, env, { ...o, flags: ['--cwd', clean] });
+    // Every inconclusive counted, as --inconclusive fail has it: with none given, a golden with fewer than 30 sessions only warns (below).
+    const shadowlapTest = (tests: unknown, env: NodeJS.ProcessEnv, o: { db?: string } = {}) => runTest(tests, env, { ...o, flags: ['--cwd', clean, '--inconclusive', 'fail'] });
     // The gate as the docs give it: every figure its default, so it decides from 5 attempts on.
     const tests = { baselineBranch: 'main', 'goldens/reference-agent': { fork: true, gate: { baseline: 'history' }, expect: CHECKS } };
     // No history yet: compared with its recording, the one attempt it was packed from, and it says so.
@@ -253,7 +254,7 @@ describe('shadowlap test with a gate against history', () => {
     const rule = 'gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to 40';
     expect(first.out).toContain(`✓ reference-agent: passed · 5 of 5 · rate >= 0.47 (95%) · against its recording (no history yet) · ${rule}`);
     expect(first.out).toContain('no session that passed on the baseline branch for it yet, so its gate compared with its recording');
-    expect(first.out).toMatch(/goldens\/reference-agent: no baseline yet, only its recording, one attempt that passed: against that it goes red about \d+% of the time, averaged over the pass rates that leaves open \(more for an agent that fails more often\), where its share of the suite's risk is 5%; sessions that pass make it a baseline/);
+    expect(first.out).toMatch(/goldens\/reference-agent: no baseline yet, only its recording, one attempt that passed: against that it goes red about \d+% of the time, averaged over the pass rates that leaves open \(more for an agent that fails more often\), where its share of the suite's risk is 5%; sessions that pass make it a baseline, or give it a gate on fixed rates, "good" and "bad", which needs no history/);
     hold([['testGateHistory', first.report.results[0].gate], ['testGateHistoryEvidence', first.report.results[0].gate.evidence]]);
 
     // The same agent again: its own history is the baseline, and its 5 attempts settle it, no more.
@@ -266,7 +267,7 @@ describe('shadowlap test with a gate against history', () => {
     const widened = `gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to ${max}, and past 40 passes only once that drop from every attempt of its last session (5 of 5) is 5% likely or less`;
     expect(again.out).toContain(`passed · 5 of 5 · rate >= 0.47 (95%) · against 1.00 over its last session (5 of 5) · ${widened}`);
     expect(again.out).toContain(`attempt 5 of up to ${max}`);
-    expect(again.out).toMatch(/goldens\/reference-agent: only one session yet: against its baseline \(5 of 5\) it goes red about \d+% of the time, averaged over the pass rates its last session leaves open \(5 of 5 attempts passed\), where its share of the suite's risk is 5%; sessions that pass make it surer/);
+    expect(again.out).toMatch(/goldens\/reference-agent: only one session yet: against its baseline \(5 of 5\) it goes red about \d+% of the time, averaged over the pass rates its last session leaves open \(5 of 5 attempts passed\), where its share of the suite's risk is 5%; sessions that pass make it surer, or give it a gate on fixed rates, "good" and "bad", which needs no history/);
     expect(again.out).not.toContain('attempt 6 of');
     expect(again.out).not.toContain('no session that passed');
 
@@ -327,6 +328,38 @@ describe('shadowlap test with a gate against history', () => {
     } finally {
       store.close();
     }
+  }, 300_000);
+
+  it('lets a gate against history with too few sessions yet through when it runs out of attempts, saying it needs more history, and counts it under --inconclusive fail', async () => {
+    const db = join(work, 'short-history.db');
+    const clean = cleanCheckout();
+    const shadowlapTest = (tests: unknown, env: NodeJS.ProcessEnv, o: { db?: string; flags?: string[] } = {}) => runTest(tests, env, { ...o, flags: ['--cwd', clean, ...(o.flags ?? [])] });
+    // Its config's max of 5: an agent that passes every other attempt ends it between a pass and a drop beyond doubt.
+    const tests = { baselineBranch: 'main', 'goldens/reference-agent': { fork: true, gate: { baseline: 'history', max: 5 }, expect: CHECKS } };
+    const first = await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
+    expect(first.code, first.out).toBe(0);
+    const flakyRun = async (flags: string[] = []) => {
+      flaky = true;
+      attemptsSeen = 1;
+      try {
+        return await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db, flags });
+      } finally {
+        flaky = false;
+      }
+    };
+    // One session behind it: inconclusive, and let through, its line saying why.
+    const short = await flakyRun();
+    expect(short.code, short.out).toBe(0);
+    expect(short.report.results[0]).toMatchObject({ verdict: 'inconclusive', ok: true, warned: 'needs more history: 1 of 30 sessions' });
+    expect(short.out).toContain('needs more history: 1 of 30 sessions: until then an inconclusive only warns (--inconclusive fail counts it), or give it a gate on fixed rates, "good" and "bad", which needs no history');
+    expect(short.out).toContain('1 inconclusive (let through: too few sessions yet)');
+    expect(short.junit).toContain('<skipped');
+    // --inconclusive fail counts it, as before: exit 3.
+    const counted = await flakyRun(['--inconclusive', 'fail']);
+    expect(counted.code, counted.out).toBe(3);
+    expect(counted.report.results[0]).toMatchObject({ verdict: 'inconclusive', ok: false });
+    expect(counted.report.results[0].warned).toBeUndefined();
+    expect(counted.out).not.toContain('needs more history');
   }, 300_000);
 });
 

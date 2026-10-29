@@ -16,8 +16,10 @@ export interface PackResult {
   golden: string;
   /** `replay` must send the requests it recorded; `fork` may diverge and passes on its checks. */
   mode: 'replay' | 'fork';
-  /** Whether CI lets it through: it passed, or it is inconclusive and `--inconclusive warn` was given. */
+  /** Whether CI lets it through: it passed, or it is inconclusive and only warns (`--inconclusive warn`, or with none given, a gate against history whose golden has too few sessions yet: `warned`). */
   ok: boolean;
+  /** Why an inconclusive verdict only warns when no `--inconclusive` was given: `needs more history: 3 of 30 sessions`. */
+  warned?: string;
   /**
    * How it came out, whatever CI does with it: `passed`, `failed` or `inconclusive` (its gate ran out
    * of attempts between its bounds, all it fell short on is checks that could not be decided, or its
@@ -93,7 +95,7 @@ export interface TestReport {
    * went red for nothing at most as planned, and the forecast made before it ran: attempts on
    * average and at most, and their cost on average (null with no price; `unpriced` goldens had none).
    */
-  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number }; over?: number; early?: number; drop?: number; averaged?: true };
+  suite?: { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: { attempts: number; most: number; cost: number | null; unpriced: number }; over?: number; early?: number; drop?: number; averaged?: true; short?: number };
 }
 
 /**
@@ -295,7 +297,8 @@ export function githubAnnotations(report: TestReport): string {
       const file = `${r.dir.replace(/\\/g, '/').replace(/\/+$/, '')}/run.json`;
       const failedChecks = (r.checks ?? []).filter((c) => !c.ok).map((c) => (checkStatus(c) === 'inconclusive' ? `? ${safeText(c.label)}: inconclusive · ${safeText(c.detail ?? '')}` : `✗ ${safeText(c.label)}: ${safeText(c.detail ?? '')}`));
       const details = moreThanMessage(r);
-      const body = [r.message ?? 'failed', ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
+      // Why an inconclusive only warns, when its history is too short for one to count.
+      const body = [r.message ?? 'failed', ...(r.warned ? [safeText(r.warned)] : []), ...(failedChecks.length ? ['', ...failedChecks] : []), ...(details ? ['', ...safeText(details).split('\n').slice(0, 30)] : [])].join('\n');
       // The gate's pass^k, which its verdict line (the message) leaves out, unless the details carry it.
       const passK = r.gate ? formatPassK(r.gate) : null;
       const evidence = passK && !details?.includes(passK) ? ['', passK] : [];
