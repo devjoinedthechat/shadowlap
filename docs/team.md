@@ -167,19 +167,23 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
   machine replays, or whom it names as its author.
-- **No credential goes up.** A push copies runs as recorded, with no redaction rules applied, but a
-  credential a recording made by an earlier version kept in a call's record stays behind: a model
-  call's query string goes without its credentials (an Azure `subscription-key`, a `key`, a
-  signature) and a credential response header (`authorization`, `x-subject-token`) with
-  `<CREDENTIAL>` for its value, as the sidecar records them. See
-  [Redaction](./normalizers-and-redaction.md#redaction) for the names read as credentials.
+- **No credential of a run goes up.** A push copies runs as recorded, with no redaction rules
+  applied, but a credential a recording made by an earlier version kept in a call's record stays
+  behind, as the sidecar records them: a model call's query string goes without its credentials
+  (an Azure `subscription-key`, a `key`, a signature), a credential response header
+  (`authorization`, `x-subject-token`) with `<CREDENTIAL>` for its value, and a captured call's
+  name, address, body and answer with theirs masked. A key the agent's command line carries goes
+  as `<CREDENTIAL>`, as in a pack. See [Redaction](./normalizers-and-redaction.md#redaction) for
+  the names read as credentials.
 - **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
   copies merge: every blame, repair and verdict either made, open turned verified by either, and a
   title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
   sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
-  way.
+  way. A fix goes with the command line each of its blames, verdicts and repairs ran, as it was
+  typed, a command after `--` and a `--build` included: give a key the agent needs through the
+  environment, never on those command lines.
 - **A teammate's blame or verdict is run again only from what was checked.** A pull marks every
   blame and verdict it brings as pulled, on this machine only. **Blame again**, **Run more
   attempts** and **Verify again** build their command from the report and the flags kept beside
@@ -339,8 +343,8 @@ writes the run's [HTML report](./cli.md#export-html), with every redaction rule 
 expires after 7 days. Anyone with the link can open it, without an account; each share is a new
 object, so an older link keeps working until it expires. Without redaction rules the report holds
 the prompts and tool data as recorded, and the command says so. Either way it holds no credential
-a recording kept (a model call's query string, a response header, a captured call's query, form
-body or response headers), and a report is only read, so a model's signed reasoning is masked in
+a recording kept (a model call's query string or response header; a captured call's address, body
+or answer), nor a key the command line carries, and a report is only read, so a model's signed reasoning is masked in
 it like any other text. The recording goes into the file as data, never as markup: the page draws
 it without HTML from the recording, and its content policy lets it load nothing from anywhere else.
 

@@ -714,8 +714,10 @@ can replay your own code against.
 
 Anthropic, OpenAI, Gemini, Azure, Vertex and Bedrock hosts are recognised; every other entry is
 skipped, and `--json` lists the reasons. So is an entry whose fields aren't what the format says
-(a method that isn't text, a null entry), naming the field. Credentials in the capture are never
-stored, and header names and values are escaped and bounded, because a capture is a file from
+(a method that isn't text, a null entry), naming the field. The capture's credential headers
+(`authorization`, `x-api-key`, `api-key`, cookies, `proxy-authorization`, `x-goog-api-key`,
+`x-amz-security-token`) and its query's credentials are never stored, the rest of an answer's
+headers is kept as captured and masked in every copy, and header names and values are escaped and bounded, because a capture is a file from
 anywhere. An import that stops part way leaves no run behind.
 
 The request bodies are the real ones, which is what matters: replay matches on a fingerprint of the
