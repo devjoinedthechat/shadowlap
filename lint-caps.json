@@ -112,7 +112,7 @@
     "packages/engine/src/report.ts": 43,
     "packages/engine/src/responses.ts": 45,
     "packages/engine/src/session.ts": 66,
-    "packages/engine/src/suite.ts": 78,
+    "packages/engine/src/suite.ts": 73,
     "packages/engine/src/tasks.ts": 47,
     "packages/engine/src/translate-converse.ts": 53,
     "packages/engine/src/translate-gemini.ts": 72,

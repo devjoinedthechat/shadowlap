@@ -50,6 +50,15 @@ const HISTORY_SIZE_LIMIT = 400;
  */
 export const DECLINE_AT = 0.8;
 
+/**
+ * How likely a golden's last sessions sit below the sessions of its record before them before its
+ * inconclusive counts though its history is short (`SuiteGolden.inconclusive`): a decline that more
+ * history would not explain away, 99 to 1, or a drop. Not `DECLINE_AT`: at 4 to 1 a healthy agent's
+ * sessions sit that far below often enough that a suite of 20 at 80% went red for nothing in 2.3% of
+ * its 11th to 20th sessions, where at 99 to 1 it does in 0.9%, and in 0.8% with every one only warning.
+ */
+export const COUNTS_AT = 0.99;
+
 /** How many windows of a golden's last sessions a plan reads for what its agent passes (`record`): 30 by default, so a session the agent's luck went one way weighs little. */
 export const RECORD_WINDOWS = 3;
 
@@ -112,7 +121,10 @@ export interface SuiteGolden {
    * too short to tell a drop from chance. Its chance of going red is then of failing alone. A gate
    * against history is still sized as the session's are, so it runs the attempts that would settle it,
    * and the sessions they pass keep its baseline learning; an SPRT gate, with no baseline to keep, is
-   * sized for what its own inconclusive does.
+   * sized for what its own inconclusive does. One whose inconclusive only warns where the session's
+   * counts counts it all the same once its last sessions sit below the sessions before them, 99 to 1
+   * likely (`COUNTS_AT`, a decline) or beyond chance at its share (a drop), which more history would
+   * not explain away (`PlannedGolden.counts`).
    */
   inconclusive?: 'fail' | 'warn';
   /** Its pass rate as its recent results show it, for the forecast; null for one with none. */
@@ -142,6 +154,13 @@ export interface PlannedGolden {
   early?: string;
   /** A gate against history whose last sessions sit below the sessions before them beyond chance: what they show. It runs as its baseline asks, at its share and its max. */
   drop?: string;
+  /** What its inconclusive does this session, when not what the session's does (`SuiteGolden.inconclusive`), and `red` counts it so. */
+  inconclusive?: 'fail' | 'warn';
+  /**
+   * A golden whose inconclusive would only warn, its history short, that counts it as the session does:
+   * its last sessions sit below the sessions before them, a decline or a drop. What they show.
+   */
+  counts?: string;
 }
 
 /** What `shadowlap test --json` reports as `suite`, and the session prints before it runs. */
@@ -366,6 +385,8 @@ interface Plan {
   over?: string;
   early?: string;
   drop?: string;
+  inconclusive?: 'fail' | 'warn';
+  counts?: string;
 }
 
 /**
@@ -403,6 +424,13 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const below = older && recent ? dropProbability(recent, older, 0) : 0;
   const dropped = below > 1 - r;
   const declining = below > DECLINE_AT;
+  // Sized as the session counts an inconclusive (`sizing`), so one whose own inconclusive only warns
+  // still runs the attempts that would settle it; its chance of going red is counted as its own is,
+  // unless its last sessions sit below the sessions before them, 99 to 1 likely (`COUNTS_AT`) or beyond
+  // chance at its share: a decline or a drop is no shortage of history, and then its inconclusive
+  // counts as the session's does.
+  const sizing = o.sizing ?? o.mode;
+  const mode = o.mode === 'warn' && sizing === 'fail' && (dropped || below > COUNTS_AT) ? sizing : o.mode;
   const seen = dropped ? (older ?? known) : declining ? (older ?? record ?? known) : (record ?? known);
   const shown = seen ?? RECORDING_BASELINE;
   const estimate = shown.passes / shown.attempts;
@@ -422,12 +450,9 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const kept = record === x.record ? x.record?.sessions : undefined;
   const reference = (dropped || declining) && older ? { ...older, ...(kept !== undefined ? { sessions: kept - Math.min(kept, g.window) } : {}) } : record ? { passes: record.passes, attempts: record.attempts, ...(kept !== undefined ? { sessions: kept } : {}) } : null;
   const bound = reference ? { from, record: reference, ...((dropped || declining) && older ? { before: g.window } : {}), risk: g.risk } : null;
-  // Sized as the session counts an inconclusive (`sizing`), so one whose own inconclusive only warns
-  // still runs the attempts that would settle it; its chance of going red is counted as its own is.
-  const sizing = o.sizing ?? o.mode;
   const inconclusive = sizing === 'fail' ? Math.min(INCONCLUSIVE_AT_GOOD, r / 2) : INCONCLUSIVE_AT_GOOD;
   const c = historyCurves({ ...gate, max: limit, ...(bound ? { widened: bound } : {}) }, known, predictive(seen), limit, () => false);
-  const redAt = (m: number, mode: 'fail' | 'warn') => Math.max(0, mode === 'fail' ? 1 - c.pass[m]! : c.fail[m]!);
+  const redAt = (m: number, as: 'fail' | 'warn') => Math.max(0, as === 'fail' ? 1 - c.pass[m]! : c.fail[m]!);
   // The fewest attempts from its own max that leave few enough undecided and keep within the share; else every attempt it may.
   let max = limit;
   for (let m = floor; m <= limit; m++) {
@@ -436,7 +461,7 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
       break;
     }
   }
-  const red = redAt(max, o.mode);
+  const red = redAt(max, mode);
   const planned: BaselineGate = { ...gate, max, ...(bound ? { widened: bound } : {}) };
   // What it costs, for the agent as its last sessions show it: a drop runs on longer than the agent before it.
   const now = recent ?? record ?? known;
@@ -447,36 +472,66 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const plan: Plan = { gate: planned, red, at, estimate, forecast: { attempts, at: (1 + shownNow.passes) / (2 + PLANNED_FAILURES + shownNow.attempts) } };
   // How many sessions its record holds, when known (none: its recording alone).
   const sessions = record ? (x.record?.sessions ?? null) : 0;
+  if (mode !== sizing) plan.inconclusive = mode;
+  if (mode !== o.mode && recent && older) plan.counts = countsWhy(recent, older, { sessions, window: g.window, share: r, dropped });
   if (dropped && recent && older) {
-    const last = sessions === null ? 'last sessions' : `last ${Math.min(sessions, g.window)} session${Math.min(sessions, g.window) === 1 ? '' : 's'}`;
-    const earlier = sessions === null ? 'the sessions before them' : `the ${sessions - Math.min(sessions, g.window) === 1 ? 'session' : `${sessions - Math.min(sessions, g.window)} sessions`} before them`;
-    plan.drop = `its ${last} passed ${recent.passes} of ${recent.attempts} attempts, below ${earlier}, ${older.passes} of ${older.attempts}, beyond chance at its ${pct(r)} share: a drop; it runs as its baseline asks, at its share, up to its ${max} attempts`;
+    plan.drop = dropWhy(recent, older, { sessions, window: g.window, share: r, max });
     return plan;
   }
   if (red <= r) return plan;
   const share = `where its share of the suite's risk is ${pct(r)}`;
   const against = known ? `against its baseline (${known.passes} of ${known.attempts})` : 'against its recording';
-  // Whose attempts the rates come from: the sessions before its last ones when those sit below them, else its record, else its baseline.
-  const before = sessions === null ? null : sessions - Math.min(sessions, g.window);
-  const whose =
-    seen === older
-      ? before
-        ? `the ${before === 1 ? 'session' : `${before} sessions`} before its last ${Math.min(sessions!, g.window)} leave${before === 1 ? 's' : ''}`
-        : 'its sessions before its last ones leave'
-      : seen === known && !x.record && !recent
-        ? 'its baseline leaves'
-        : sessions
-          ? `its last ${sessions === 1 ? 'session leaves' : `${sessions} sessions leave`}`
-          : 'its sessions leave';
-  const rates = seen ? `averaged over the pass rates ${whose} open (${seen.passes} of ${seen.attempts} attempts passed)` : 'averaged over the pass rates that leaves open (more for an agent that fails more often)';
+  const rates = ratesWhy(seen, { older: seen === older, baselineOnly: seen === known && !x.record && !recent, sessions, window: g.window });
   // Under --inconclusive warn, or for a golden whose inconclusive only warns, its chance is of failing.
-  const goes = o.mode === 'fail' ? 'goes red' : 'fails';
+  const goes = mode === 'fail' ? 'goes red' : 'fails';
   // A gate on two fixed rates needs no history at all: worth knowing while there is little.
   const fixed = 'or give it a gate on fixed rates, "good" and "bad", which needs no history';
   if (!known && !x.record && !recent) plan.early = `no baseline yet, only its recording, one attempt that passed: against that it ${goes} about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it a baseline, ${fixed}`;
   else if (sessions !== null && sessions < RECORD_WINDOWS * g.window) plan.early = `only ${sessions === 1 ? 'one session' : `${sessions} sessions`} yet: ${against} it ${goes} about ${pct(red)} of the time, ${rates}, ${share}; sessions that pass make it surer, ${fixed}`;
   else plan.over = `${against} it ${goes} about ${pct(red)} of the time, ${rates}, ${share}: a baseline that came out lucky, or too short a one, to tell a drop from chance at that share`;
   return plan;
+}
+
+/** Its last `window` sessions and the sessions of its record before them, in words: how many of each, when known. */
+function lastAndBefore(sessions: number | null, window: number): { last: number; before: number } | null {
+  if (sessions === null) return null;
+  const last = Math.min(sessions, window);
+  return { last, before: sessions - last };
+}
+
+/**
+ * Why a golden whose inconclusive would only warn, its history short, counts it all the same: its last
+ * sessions sit below the sessions before them, every attempt of each, 99 to 1 likely or more (a
+ * decline, `COUNTS_AT`) or beyond chance at its share (a drop), which more history would not explain away.
+ */
+function countsWhy(recent: Tally, older: Tally, o: { sessions: number | null; window: number; share: number; dropped: boolean }): string {
+  const n = lastAndBefore(o.sessions, o.window);
+  const last = !n ? 'its last sessions sit' : n.last === 1 ? 'its last session sits' : `its last ${n.last} sessions sit`;
+  const before = !n ? 'the sessions before them' : `the ${n.before === 1 ? 'one' : n.before} before ${n.last === 1 ? 'it' : 'them'}`;
+  const odds = Math.round(COUNTS_AT / (1 - COUNTS_AT));
+  return `${last} below ${before}, ${recent.passes} of ${recent.attempts} attempts against ${older.passes} of ${older.attempts}, ${o.dropped ? `beyond chance at its ${pct(o.share)} share: a drop` : `${odds} to 1 likely or more: a decline`}`;
+}
+
+/** What a drop the plan reads shows: its last sessions against the sessions before them, and how it runs. */
+function dropWhy(recent: Tally, older: Tally, o: { sessions: number | null; window: number; share: number; max: number }): string {
+  const n = lastAndBefore(o.sessions, o.window);
+  const last = !n ? 'last sessions' : `last ${n.last} session${n.last === 1 ? '' : 's'}`;
+  const earlier = !n ? 'the sessions before them' : `the ${n.before === 1 ? 'session' : `${n.before} sessions`} before them`;
+  return `its ${last} passed ${recent.passes} of ${recent.attempts} attempts, below ${earlier}, ${older.passes} of ${older.attempts}, beyond chance at its ${pct(o.share)} share: a drop; it runs as its baseline asks, at its share, up to its ${o.max} attempts`;
+}
+
+/**
+ * Over which pass rates a gate against history's chance is averaged, in words: whose attempts they come
+ * from (the sessions before its last ones when those sit below them, else its record, else its
+ * baseline) and how many of them passed.
+ */
+function ratesWhy(seen: Tally | null, from: { older: boolean; baselineOnly: boolean; sessions: number | null; window: number }): string {
+  if (!seen) return 'averaged over the pass rates that leaves open (more for an agent that fails more often)';
+  const n = lastAndBefore(from.sessions, from.window);
+  const sessions = from.sessions;
+  const older = n?.before ? `the ${n.before === 1 ? 'session' : `${n.before} sessions`} before its last ${n.last} leave${n.before === 1 ? 's' : ''}` : 'its sessions before its last ones leave';
+  const whose = from.older ? older : from.baselineOnly ? 'its baseline leaves' : sessions ? `its last ${sessions === 1 ? 'session leaves' : `${sessions} sessions leave`}` : 'its sessions leave';
+  return `averaged over the pass rates ${whose} open (${seen.passes} of ${seen.attempts} attempts passed)`;
 }
 
 /** The attempts an SPRT gate runs on average at rate p, as `gateOdds` works them out. */
@@ -502,7 +557,7 @@ export function planSuite(goldens: readonly SuiteGolden[], o: { risk?: number; i
     const key = JSON.stringify([x.gate, x.maxGiven, own, x.gate.kind === 'baseline' ? [history, x.sessions ?? null, x.record ?? null] : null]);
     const known = plans.get(key);
     if (known) return known;
-    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode: own }), at: x.gate.good, estimate: x.gate.good } : planHistory(x.gate, share, { history, sessions: x.sessions ?? null, record: x.record ?? null }, { maxGiven: x.maxGiven, mode: own, sizing: mode });
+    const p = x.gate.kind === 'sprt' ? { ...planSprt(x.gate, share, { maxGiven: x.maxGiven, mode: own }), at: x.gate.good, estimate: x.gate.good, ...(own !== mode ? { inconclusive: own } : {}) } : planHistory(x.gate, share, { history, sessions: x.sessions ?? null, record: x.record ?? null }, { maxGiven: x.maxGiven, mode: own, sizing: mode });
     plans.set(key, p);
     return p;
   };
@@ -524,6 +579,8 @@ export function planSuite(goldens: readonly SuiteGolden[], o: { risk?: number; i
       ...(p.over ? { over: p.over } : {}),
       ...(p.early ? { early: p.early } : {}),
       ...(p.drop ? { drop: p.drop } : {}),
+      ...(p.inconclusive ? { inconclusive: p.inconclusive } : {}),
+      ...(p.counts ? { counts: p.counts } : {}),
     };
   });
   const priced = planned.filter((x) => x.cost !== null);

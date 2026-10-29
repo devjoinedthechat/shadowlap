@@ -459,15 +459,16 @@ class Session {
     return { outcome: { ...o, ...(o.result ? { result: { ...o.result, verdict } } : {}), failure, kind: 'injection' }, injection: data };
   }
 
-  /** What a golden's inconclusive does, and why when it only warns for its short history (inconclusiveFor). */
+  /** What a golden's inconclusive does, and why when it only warns for its short history, or counts all the same (inconclusiveFor). */
   private inconclusiveOf(golden: string, o: GoldenOutcome): ReturnType<typeof inconclusiveFor> {
-    return inconclusiveFor(o, this.request.inconclusiveGiven, this.planned?.short.get(golden));
+    return inconclusiveFor(o, this.request.inconclusiveGiven, this.planned?.short.get(golden), this.planned?.counts.get(golden));
   }
 
-  /** A golden's lines, with why its inconclusive only warns. */
+  /** A golden's lines, with why its inconclusive only warns, or counts though its history is short. */
   private show(golden: string, o: GoldenOutcome, suffix = ''): void {
-    const why = this.inconclusiveOf(golden, o).why;
-    printGolden(why ? { ...o, notes: [...(o.notes ?? []), `${why}: until then an inconclusive only warns (--inconclusive fail counts it), or give it a gate on fixed rates, "good" and "bad", which needs no history`] } : o, suffix);
+    const { warned, counted } = this.inconclusiveOf(golden, o);
+    const note = warned ? `${warned}: until then an inconclusive only warns (--inconclusive fail counts it), or give it a gate on fixed rates, "good" and "bad", which needs no history` : counted;
+    printGolden(note ? { ...o, notes: [...(o.notes ?? []), note] } : o, suffix);
   }
 
   private printGate(d: InjectionGateData | null): void {
@@ -581,7 +582,7 @@ class Session {
     });
     const decided = this.inconclusiveOf(golden, outcome);
     this.cases.push(junitCase(outcome, decided.mode));
-    this.results.push(packResult(outcome, { expect, updated, inconclusive: decided.mode, warned: decided.why, injection }));
+    this.results.push(packResult(outcome, { expect, updated, inconclusive: decided.mode, warned: decided.warned, counted: decided.counted, injection }));
     this.tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
     if (!flags.update && early) this.forkedEarly.push({ packDir, golden, ...early });
     const divergence = outcome.result?.shown.ended.summary.divergence;
@@ -619,7 +620,7 @@ async function reportSession(request: TestRequest, pusher: Pusher | null, s: Ses
   const notRun = packs.length - results.length;
   for (const c of s.cut) process.stdout.write(`${p.yellow('⏹')} ${safe(c)}: interrupted, so it has no result this time\n`);
   if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', s.cases));
-  const report = testReport(results, { id: s.session.sessionId, revision: s.revision, interrupted: signal !== null }, s.planned ? suiteJson(s.planned.plan, s.planned.short.size) : null);
+  const report = testReport(results, { id: s.session.sessionId, revision: s.revision, interrupted: signal !== null }, s.planned ? suiteJson(s.planned.plan) : null);
   if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
   if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
   if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');
