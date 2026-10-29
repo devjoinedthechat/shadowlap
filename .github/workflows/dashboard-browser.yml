@@ -12,6 +12,8 @@ on:
   pull_request:
     paths: ['packages/**', 'scripts/demo-store.mjs', 'scripts/demo-store/**', 'testing/mock-anthropic/**', 'testing/mock-openai/**', 'testing/mock-gemini/**', 'package-lock.json', '.github/workflows/dashboard-browser.yml']
   workflow_dispatch:
+  # The release runs it on the tagged commit, and publishes only if it passes (release.yml).
+  workflow_call:
 
 # The job reads the repository and nothing else.
 permissions:

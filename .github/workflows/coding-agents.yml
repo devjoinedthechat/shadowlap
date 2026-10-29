@@ -15,6 +15,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # The release runs it on the tagged commit, and publishes only if it passes (release.yml).
+  workflow_call:
 
 # The job only reads the repository, and it runs a package downloaded from npm: its token can do no more.
 permissions:

@@ -23,6 +23,18 @@ on:
         description: Run on macOS and Windows as well as Linux
         type: boolean
         default: false
+  # The release runs it on the tagged commit, and publishes only if it passes (release.yml): the
+  # pinned frameworks, on Linux, as a push to main runs them.
+  workflow_call:
+    inputs:
+      latest:
+        description: Test against the latest framework releases instead of the pinned ones
+        type: boolean
+        default: false
+      platforms:
+        description: Run on macOS and Windows as well as Linux
+        type: boolean
+        default: false
 
 # The jobs read the repository and nothing else.
 permissions:

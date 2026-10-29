@@ -4,7 +4,8 @@ name: Scope
 # are billed, a macOS minute as ten and a Windows minute as two; a public repository's are free.
 # While this repository is private, a run that starts on its own (a push, a pull request, the
 # schedule) covers Linux only, and the slower suites wait; a run started by hand (Actions → Run
-# workflow) covers everything. Once the repository is public, every run covers everything.
+# workflow) covers everything, and so does a version tag's, which a release publishes only once it
+# passes (release.yml). Once the repository is public, every run covers everything.
 
 on:
   workflow_call:
@@ -33,13 +34,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # When the visibility can't be read, the run takes the cheaper scope.
+          # When the visibility can't be read, the run takes the cheaper scope; a release's never does.
           private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private 2>/dev/null || echo true)
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ]; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then
             echo 'full=true' >> "$GITHUB_OUTPUT"
             echo 'os=["ubuntu-latest","macos-latest","windows-latest"]' >> "$GITHUB_OUTPUT"
           else
             echo 'full=false' >> "$GITHUB_OUTPUT"
             echo 'os=["ubuntu-latest"]' >> "$GITHUB_OUTPUT"
           fi
-          echo "private: $private · event: $GITHUB_EVENT_NAME"
+          echo "private: $private · event: $GITHUB_EVENT_NAME · ref: $GITHUB_REF"

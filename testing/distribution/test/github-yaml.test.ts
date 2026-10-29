@@ -135,15 +135,16 @@ describe('the workflows', () => {
     expect(concurrency).toContain("cancel-in-progress: ${{ github.event_name == 'pull_request' }}");
   });
 
-  it('cover what CONTRIBUTING.md says, as scope.yml decides it: Linux on every run, macOS and Windows by hand while the repository is private', () => {
+  it('cover what CONTRIBUTING.md says, as scope.yml decides it: Linux on every run, macOS and Windows by hand or for a release while the repository is private', () => {
     const scope = workflow('scope.yml');
-    expect(scope).toContain('if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ]; then');
+    expect(scope).toContain('if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] || [ "$private" = false ] || [[ "$GITHUB_REF" == refs/tags/* ]]; then');
     expect(scope).toContain(`echo 'os=["ubuntu-latest","macos-latest","windows-latest"]'`);
     expect(scope).toContain(`echo 'os=["ubuntu-latest"]'`);
     const contributing = read('CONTRIBUTING.md');
     expect(contributing).toContain('Every push to main and every pull request runs it on Linux. macOS and Windows join a run started by hand (Actions, then CI, then Run workflow) while the repository is private, and every run once it is public');
     expect(contributing).toContain('CI covers Linux, macOS and Windows (macOS and Windows on a run started by hand while the repository is private)');
     expect(contributing).not.toMatch(/CI runs all of it on Linux, macOS and Windows|CI runs Linux, macOS and Windows\./);
+    expect(contributing).toContain("A version tag's run covers everything, as one started by hand does");
   });
 
   it('name their concurrency groups each its own way', () => {
@@ -165,6 +166,15 @@ describe('the workflows', () => {
   });
 });
 
+/** The workflows the release runs on the tagged commit, by the id of the job that calls each. */
+const CALLED = [
+  ['ci', 'ci.yml'],
+  ['browser', 'dashboard-browser.yml'],
+  ['frameworks', 'frameworks.yml'],
+  ['action', 'action.yml'],
+  ['coding-agents', 'coding-agents.yml'],
+] as const;
+
 describe('the release workflow', () => {
   const yml = workflow('release.yml');
   const jobs = jobsOf(yml);
@@ -174,22 +184,26 @@ describe('the release workflow', () => {
     return block ? block[1].trim().split('\n').map((l) => l.trim()) : [];
   };
 
-  it('runs CI on the tagged commit, and publishes nothing before it and the release checks pass', () => {
+  it('runs CI and the suites apart from it on the tagged commit, and publishes nothing before they and the release checks pass', () => {
     expect(topBlock(yml, 'permissions')).toEqual(['{}']);
-    expect(jobs.get('ci')!.keys.get('uses')).toBe('./.github/workflows/ci.yml');
-    expect(/^\s+workflow_call:/m.test(workflow('ci.yml'))).toBe(true);
+    for (const [id, file] of CALLED) {
+      expect(jobs.get(id)!.keys.get('uses'), id).toBe(`./.github/workflows/${file}`);
+      expect(/^\s+workflow_call:/m.test(workflow(file)), file).toBe(true);
+    }
+    // Every workflow but the live and local-model ones, which call a model, and scope.yml, which each calls.
+    expect(workflows.filter((f) => /^\s+workflow_call:/m.test(workflow(f))).sort()).toEqual([...CALLED.map(([, file]) => file), 'scope.yml'].sort());
     // CI is the whole of it: lint, the tests (conformance included), the Python SDK on every Python, mypy.
     const ci = jobsOf(workflow('ci.yml'));
     expect([...ci.keys()]).toEqual(expect.arrayContaining(['lint', 'test', 'python-sdk', 'python-sdk-types']));
     expect(ci.get('test')!.text).toContain('testing/conformance/conformance.test.mjs');
-    expect(jobs.get('build')!.keys.get('needs')).toBe('[ci, verify]');
+    expect(jobs.get('build')!.keys.get('needs')).toBe(`[${[...CALLED.map(([id]) => id), 'verify'].join(', ')}]`);
     expect(jobs.get('npm')!.keys.get('needs')).toBe('build');
     expect(jobs.get('pypi')!.keys.get('needs')).toBe('build');
   });
 
   it('asks for each permission in the job that needs it, the tests and the build reading the repository and nothing more', () => {
     for (const id of jobs.keys()) expect(permissionsOf(id).length, `${id} names its permissions`).toBeGreaterThan(0);
-    for (const id of ['ci', 'verify', 'build']) expect(permissionsOf(id), id).toEqual(['contents: read']);
+    for (const id of [...CALLED.map(([id]) => id), 'verify', 'build']) expect(permissionsOf(id), id).toEqual(['contents: read']);
     expect(permissionsOf('npm')).toEqual(['id-token: write']);
     expect(permissionsOf('pypi')).toEqual(['id-token: write']);
     expect(permissionsOf('github-release')).toEqual(['contents: write']);
