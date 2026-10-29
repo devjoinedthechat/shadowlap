@@ -39,7 +39,6 @@ const model = process.env.LC_MODEL === 'anthropic' ? new ChatAnthropic({ model: 
 const tools = [lookupOrder, refundOrder];
 const prompt = 'You resolve refund requests.';
 // createReactAgent is LangGraph's older entry point, which agents written before createAgent still use.
-// eslint-disable-next-line @typescript-eslint/no-deprecated
 const agent = process.env.LC_AGENT === 'react' ? createReactAgent({ llm: model, tools, prompt }) : createAgent({ model, tools, systemPrompt: prompt });
 const input = { messages: [new HumanMessage(process.env.TICKET ?? 'Refund order A-1042.')] };
 

@@ -218,6 +218,13 @@ export default defineConfig(
     files: ['testing/frameworks/jest-project/**'],
     languageOptions: { globals: { ...globals.jest } },
   },
+  {
+    files: ['testing/frameworks/**'],
+    // The framework agents call each framework's own API, the parts it has deprecated included, as the agents they
+    // stand for do. The frameworks are installed only where those suites run, so whether a call reads as deprecated
+    // would depend on the machine lint runs on.
+    rules: { '@typescript-eslint/no-deprecated': 'off' },
+  },
 
   // React: the dashboard's browser code and the terminal UI.
   {
