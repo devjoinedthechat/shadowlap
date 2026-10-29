@@ -1,4 +1,4 @@
-import { BLAME_DEFAULTS, fixLabelInfo, fixLabels, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type BlameReport, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, fixLabelInfo, fixLabels, outcomeOf, repairPatchProblem, repairToApply, SPRT_DEFAULTS, verdictCounts, type AttemptVerdict, type FixRecords, type PulledFrom, type RepairCandidate, type RunRecord, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type SprtGate, type StoredVerdict, type VerifiedRun } from '@shadowlap/engine';
 import { type VerifyEvidence } from './evidence.js';
 import { links } from './links.js';
 import { isCount } from './rerun.js';
@@ -153,15 +153,6 @@ export function brokenOf(rec: FixRecords): string | null {
   if (rec.fix.status !== 'applied') return null;
   if (rec.fix.data.applied?.tests === 'failed') return 'shadowlap test failed on its goldens';
   return rejectedSinceApplied(rec) ? 'a verify rejected it after it was applied' : null;
-}
-
-/**
- * The two calls a blame found the run lost gradually around (`range.gradual`: the check of the call
- * the probes pinned found no drop there), or null when it was lost at one call.
- */
-export function gradualRange(r: BlameReport): { from: number; to: number } | null {
-  const g = r.range;
-  return g?.gradual && g.to > g.from ? { from: g.from, to: g.to } : null;
 }
 
 /** A failed attempt's first failure, short: `issue_refund called once`, `the agent exited with code 1`. */

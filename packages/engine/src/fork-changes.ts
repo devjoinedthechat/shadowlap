@@ -1,5 +1,6 @@
 import { canonicalize } from './canonical.js';
 import { isFailedOutcome, outcomeLabel, type RunOutcome } from './classify.js';
+import { lostWords } from './run-verdicts.js';
 import { clipText, compareDecisions, effectsOf, isHandover, type DecisionCall, type DecisionChangeKind, type DecisionRank, type ModelDecision } from './decisions.js';
 import { isJudgeCall } from './judge-scope.js';
 import { applyNormalizers, rewriteText } from './normalize.js';
@@ -109,7 +110,7 @@ export function forkEnd(status: RunStatus, outcome: RunOutcome, failed: boolean 
   if (status === 'running') return { ...base, words: 'still running', tone: null };
   if (failed) {
     if (o.kind === 'check-failed') return { ...base, words: o.check ? `failed: ${o.check}` : 'exited with an error', tone: 'err' };
-    if (o.kind === 'lost') return { ...base, words: `failed, lost at #${o.callNo}`, tone: 'err' };
+    if (o.kind === 'lost') return { ...base, words: `failed, ${lostWords(o.callNo, o.range)}`, tone: 'err' };
     if (o.kind === 'diverged') return { ...base, words: `diverged at #${o.callNo}`, tone: 'err' };
     return { ...base, words: 'failed', tone: 'err' };
   }

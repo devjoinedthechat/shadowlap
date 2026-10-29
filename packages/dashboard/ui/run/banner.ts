@@ -1,6 +1,6 @@
 import { num } from '../format.js';
 import { isObject } from '../../../engine/src/is-object.js';
-import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason } from '../../../engine/src/run-verdicts.js';
+import { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, lostWords } from '../../../engine/src/run-verdicts.js';
 import type { RunType } from '../runs.js';
 import { presetWhy, type PresetAttempt } from './preset.js';
 
@@ -42,7 +42,8 @@ export interface BannerInput {
   flagCall?: { kind: string; name: string; attempts: number; input?: boolean } | null;
   /** A fork blame rescued its parent with: the call it asked again. */
   rescued: { callNo: number | null } | null;
-  blame: { callNo: number | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
+  /** `range`: the two calls it was lost gradually around, when no one call lost the run. */
+  blame: { callNo: number | null; range?: { from: number; to: number; gradual: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
@@ -126,7 +127,8 @@ export type Banner =
   | { kind: 'attempt'; of: AttemptInput['kind'] | 'rescued'; callNo: number | null; outcome: AttemptOutcome; why: string; flag: string | null; diff: boolean }
   /** `failed`: the fork failed (its check, or its agent's exit), so Run blame applies to it as to any failed run. */
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean; failed: boolean }
-  | { kind: 'lost'; callNo: number; why: string; rescuedRunId: string | null }
+  /** `words`: where blame found the run lost, in the engine's words (lostWords): at the call, or gradually around two. */
+  | { kind: 'lost'; callNo: number; words: string; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
   | { kind: 'interrupted'; why: string }
@@ -223,8 +225,15 @@ export function flagWhy(iv: FlagView, call: BannerInput['flagCall'], forkName: s
   }
 }
 
+/**
+ * Where the blamed call sits among the model calls of the blame's scope (model call k of m; for a run
+ * lost gradually around two calls, that call and the next, k and k + 1 of m), then the confidence, the
+ * scope and what asking again did.
+ */
 function lostWhy(b: NonNullable<BannerInput['blame']>): string {
-  const where = b.modelCall ? `model call ${b.modelCall.k} of ${b.modelCall.m}` : `call #${b.callNo!}`;
+  const m = b.modelCall;
+  const two = b.range && (!m || m.k < m.m) ? b.range : null;
+  const where = m ? (two ? `model calls ${m.k} and ${m.k + 1} of ${m.m}` : `model call ${m.k} of ${m.m}`) : two ? `calls #${two.from} and #${two.to}` : `call #${b.callNo!}`;
   return `${where}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}${b.short ? ` · ${b.short}` : ''}`;
 }
 
@@ -519,7 +528,7 @@ export function bannerFor(i: BannerInput): Banner | null {
     return { kind: 'fork', callNo: d.callNo, name: d.name, why: failedModelCall ? what : `${what} · ${beforeFork(d, i.calls, named)}`, flag: flagText(iv) ?? forced, path, normalizer: !!d.hints?.some((h) => h.normalizer), diff, failed };
   }
   const b = i.blame;
-  if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
+  if (b && b.callNo !== null && b.outcome !== 'unrescuable' && b.outcome !== 'stopped') return { kind: 'lost', callNo: b.callNo, words: lostWords(b.callNo, b.range), why: lostWhy(b), rescuedRunId: b.rescuedRunId ?? null };
   if (i.notRecorded && (i.notRecorded.tools.length || i.notRecorded.hosts.length)) return { kind: 'not-recorded', why: notRecordedWhy(i.notRecorded) };
   const failedCheck = i.checks.find(checkFailed);
   // No check failed: each says how it came out, one that did not apply or could not be decided too.

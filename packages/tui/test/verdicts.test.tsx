@@ -112,6 +112,17 @@ describe('how a run stands, in the terminal', () => {
     s.close();
   });
 
+  it('says a run blame found lost gradually around two calls was, in the run list, never lost at the first', async () => {
+    const { s, rec } = story();
+    s.updateRunMeta(rec, { blame: { ...s.getRun(rec)!.meta!.blame!, range: { from: 9, to: 11, fromStep: 4, toStep: 5, gradual: true } } });
+    const { lastFrame, unmount } = renderAt(<App store={s} columns={160} rows={30} />, 160, 30);
+    const frame = await frameWhere(lastFrame, (f) => f.includes('2 runs'));
+    expect(frame).toMatch(/recording\s+Research request.*✗ 1\/2\s+lost gradually around #9 and #11\s+refund/);
+    expect(frame).not.toContain('lost at #9');
+    unmount();
+    s.close();
+  });
+
   it('marks a run good or bad with + and -, never both, as the dashboard does', async () => {
     const { s, rec } = story();
     const { lastFrame, stdin, unmount } = renderAt(<App store={s} columns={120} rows={30} />, 120, 30);

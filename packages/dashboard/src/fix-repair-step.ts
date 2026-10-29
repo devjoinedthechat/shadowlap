@@ -1,4 +1,4 @@
-import { commitTitle, eachRun, noRepairerOf, patchFiles, repairMarkdown, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
+import { commitTitle, eachRun, noRepairerOf, patchFiles, repairMarkdown, targetWhere, verdictCounts, type FixRecords, type RepairCandidate, type RepairOutcome, type StoreOf, type StoredRepair, unrescuedWords } from '@shadowlap/engine';
 import { acceptedCandidate, fixHref, repairerLabel, ROLE, s, sprtGate } from './fix-shared.js';
 
 /** A fix's Repair step: the change repair proposed, every candidate it tried, and why each was kept or dropped. */
@@ -156,7 +156,8 @@ export function repairStep(store: StoreOf<'fixes'>, rec: FixRecords, r: StoredRe
     rule: v ? eachRun({ ...v, gate: sprtGate(v.gate) }) : null,
     lost: rep.targets.map((t) => ({
       runId: t.runId,
-      at: t.outcome === 'blamed' && t.callNo !== null ? `model call #${t.callNo} (${t.step!} of ${t.steps})${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
+      // As repair's report and its pull request say it: at a model call, or gradually around (or between) two.
+      at: t.outcome === 'blamed' && t.callNo !== null ? `${targetWhere(t)}${t.rescuedBy ? `, rescued by ${t.rescuedBy}` : ''}` : t.outcome === 'unrescuable' ? unrescuedWords(t.unsettled === true) : (t.note ?? t.outcome),
       href: fixHref(fixId, 'blame'),
     })),
     diagnosis: rep.diagnosis,
