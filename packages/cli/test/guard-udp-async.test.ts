@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { guardEnv } from '../src/index.js';
-import { pythonWith } from './python-with.js';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * The network guard on the paths beyond a socket's connect(): UDP datagrams in Node (dgram) and in

@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { guardEnv } from '../src/index.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * What the network guard saw bypass Shadowlap is kept on the run, by host name: a Python agent
@@ -16,17 +17,7 @@ import { guardEnv } from '../src/index.js';
 
 const run = promisify(execFile);
 
-function python(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString())) return cmd;
-    } catch {
-      // next
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+const PYTHON = pythonCommand();
 
 let store: Store;
 let sidecar: Sidecar;

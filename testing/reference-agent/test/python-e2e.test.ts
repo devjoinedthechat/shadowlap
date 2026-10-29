@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +9,7 @@ import { Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { EXPECTED_MODEL_CALLS, EXPECTED_TOOL_CALLS, EXPECTED_TOTAL_CALLS, referenceScript } from '../src/index.js';
+import { pythonCommand } from '../../python-with.mjs';
 
 /**
  * The reference scenario in Python: the real `anthropic` package (streaming) and the Python SDK,
@@ -21,21 +22,7 @@ const CLI = fileURLToPath(new URL('../../../packages/cli/bin/shadowlap.js', impo
 /** The key a request carried, in whichever header the installed SDK sent it: `x-api-key` from anthropic 1.x, a bearer token from 2.0 on. */
 const keySent = (headers: Record<string, string | undefined>) => headers['x-api-key'] ?? headers.authorization?.replace(/^Bearer /, '');
 
-function findPython(): string | null {
-  const candidates = [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c);
-  for (const cmd of candidates) {
-    try {
-      const v = execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      if (!/Python 3\.(9|[1-9]\d)/.test(v)) continue;
-      execFileSync(cmd, ['-c', 'import anthropic'], { stdio: 'ignore' });
-      return cmd;
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-const PYTHON = findPython();
+const PYTHON = pythonCommand('anthropic');
 
 interface Result {
   finalText: string;

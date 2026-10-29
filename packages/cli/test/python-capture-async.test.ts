@@ -10,7 +10,7 @@ import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { message, startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { agentEnv, guardEnv } from '../src/run-agent.js';
-import { pythonWith } from './python-with.js';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * In-process capture in Python agents on aiohttp (LiteLLM's async transport, aiobotocore, the SDKs'

@@ -1,9 +1,10 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * The Python fence (shadowlap.adapters.claude_agent_sdk) against a real sidecar: an agent's tool calls
@@ -13,17 +14,7 @@ import { Sidecar } from '@shadowlap/sidecar';
 
 const SCRIPT = fileURLToPath(new URL('../../../sdks/python/tests/claude_agent_script.py', import.meta.url));
 
-function python(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { encoding: 'utf8' }))) return cmd;
-    } catch {
-      // the next one
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+const PYTHON = pythonCommand();
 
 interface Output {
   results: Array<{ content: string; is_error: boolean }>;

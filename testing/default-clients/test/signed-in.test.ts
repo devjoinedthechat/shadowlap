@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from '@shadowlap/sidecar';
-import { answered, ciEnv, CLI, committed, findPython, HERE, node, recorded, refusal, run, startProviders, workdir, type Providers } from './clients.js';
+import { answered, ciEnv, CLI, committed, HERE, node, recorded, refusal, run, startProviders, workdir, type Providers } from './clients.js';
+import { pythonCommand } from '../../python-with.mjs';
 
 /**
  * Agents that bring a credential of their own, not a key the environment holds when they start:
@@ -143,7 +144,7 @@ describe('Azure OpenAI signed in with a Microsoft Entra ID token provider', () =
   });
 });
 
-const boto3 = findPython('boto3');
+const boto3 = pythonCommand('boto3');
 
 describe.skipIf(!boto3)('Bedrock through boto3 on an instance role, which the metadata service hands out', () => {
   let imds: Server;

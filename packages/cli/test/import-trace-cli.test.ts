@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * The trace importers through the CLI: OpenTelemetry from a file, Langfuse, LangSmith, Phoenix and
@@ -52,19 +53,8 @@ const LOGFIRE_TOKEN = 'pylf_v1_us_donotstore7a1c';
 /** Where Phoenix and Logfire would be found otherwise, cleared so a developer's own setup can't reach the tests. */
 const NO_STORE_ENV = { PHOENIX_ENDPOINT: '', PHOENIX_COLLECTOR_ENDPOINT: '', PHOENIX_BASE_URL: '', PHOENIX_API_KEY: '', PHOENIX_PROJECT: '', PHOENIX_PROJECT_NAME: '', LOGFIRE_BASE_URL: '', LOGFIRE_READ_TOKEN: '' };
 
-/** A Python ≥ 3.9 that can import `anthropic`, for trace_agent.py: SHADOWLAP_PYTHON, python3 or python. */
-function findPython(): string | null {
-  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c)) {
-    try {
-      execFileSync(cmd, ['-c', 'import sys, anthropic; sys.exit(sys.version_info < (3, 9))'], { stdio: 'ignore' });
-      return cmd;
-    } catch {
-      // the next one
-    }
-  }
-  return null;
-}
-const PYTHON = findPython();
+/** For trace_agent.py, which builds its client with the Anthropic SDK. */
+const PYTHON = pythonCommand('anthropic');
 
 beforeAll(async () => {
   cwd = realpathSync(mkdtempSync(join(tmpdir(), 'sl-import-trace-')));
