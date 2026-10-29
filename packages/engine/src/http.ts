@@ -2,6 +2,7 @@ import { ACCOUNT_HEADERS } from './account-headers.js';
 import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
+import { quoteArgv } from './text.js';
 import { isObject } from './is-object.js';
 
 /**
@@ -422,6 +423,21 @@ function argvWithoutCredentials(argv: readonly string[], depth: number): readonl
 /** Whether two command lines are one, but for the credentials a copy masks in them (credentialFreeArgv). */
 export function sameCommandLine(a: readonly string[], b: readonly string[]): boolean {
   return JSON.stringify(credentialFreeArgv(a)) === JSON.stringify(credentialFreeArgv(b));
+}
+
+/**
+ * A command line written as one text, as quoteArgv writes it (the command a blame, a verdict or a
+ * repair keeps, as the CLI printed it), with its credentials masked as credentialFreeArgv masks its
+ * words, each word read as a shell reads it (shellWords): a word that changes is written again in
+ * its place, quoted as quoteArgv quotes it, every other character as it was. A text whose quote is
+ * left open has each of its words between white space masked as one. The same string when nothing
+ * changes.
+ */
+export function credentialFreeCommandLine(text: string): string {
+  const words = shellWords(text) ?? [...text.matchAll(/\S+/g)].map((m) => ({ start: m.index, end: m.index + m[0].length, value: m[0] }));
+  const values = words.map((w) => w.value);
+  const masked = credentialFreeArgv(values);
+  return masked === values ? text : rewriteWords(text, words, masked, (v) => quoteArgv([v]));
 }
 
 /**

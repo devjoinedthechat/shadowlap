@@ -71,7 +71,8 @@ export interface FixLink {
  * command line: flag and value pairs as the CLI took them (`--writes block`, `--from gpt-4o`), a
  * flag with no value alone (`--fail-fast`), and the command given after `--`. The dashboard takes
  * only the flags it allows, with values of their shape (rerun.ts); of a record pulled from the team
- * store, never `--base`, `--build` or the command after `--`.
+ * store, never `--base`, `--build` or the command after `--`. Kept here as they ran, which a run
+ * again needs; the copy a push sends has a key in them masked, as a run's command line goes.
  */
 export interface StepRerun {
   flags: string[];
@@ -98,7 +99,10 @@ export interface StoredBlame {
   expect: unknown;
   /** The scope whose model calls were probed, when blame was limited to one. */
   scope: string | null;
-  /** A command that blames the run the same way again, as the CLI printed it: shown, never split back into one to run. */
+  /**
+   * A command that blames the run the same way again, as the CLI printed it, a key in it masked
+   * (credentialFreeCommandLine): shown, never split back into one to run.
+   */
   command: string;
   /** Its flags, to run it again from (`StepRerun`); absent from a blame kept before they were. */
   rerun?: StepRerun | null;
@@ -117,7 +121,7 @@ export interface StoredVerdict {
   candidate: number | null;
   report: VerifyReport;
   expect: unknown;
-  /** The command it ran, as the CLI printed it: shown, never split back into one to run. */
+  /** The command it ran, as the CLI printed it, a key in it masked (credentialFreeCommandLine): shown, never split back into one to run. */
   command: string;
   /** Its flags, to run it again from (`StepRerun`); absent from a verdict kept before they were. */
   rerun?: StepRerun | null;
@@ -136,6 +140,7 @@ export interface StoredRepair {
   accepted: boolean;
   report: RepairReport;
   expect: unknown;
+  /** The command that repairs the same way again, as the CLI printed it, a key in it masked (credentialFreeCommandLine). */
   command: string;
 }
 
