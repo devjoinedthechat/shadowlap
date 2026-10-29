@@ -2,7 +2,7 @@ import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
 import caps from '../../../scripts/lint-caps-rules.mjs';
-import { qualifiedName } from '../../../scripts/lint-caps.mjs';
+import { fileWaivers, qualifiedName } from '../../../scripts/lint-caps.mjs';
 
 /**
  * The caps held per function (scripts/lint-caps-rules.mjs): every function to the cap, and a function
@@ -79,5 +79,11 @@ describe("a Python function's name in lint-caps.json", () => {
     expect(qualifiedName(lines, 2)).toBe('Tool.stream');
     expect(qualifiedName(lines, 6)).toBe('Tool.stream.wrapper');
     expect(qualifiedName(lines, 9)).toBe('top');
+  });
+
+  it('is never waived for a whole file, where its functions would escape the list', () => {
+    const toml = ['[tool.ruff.lint.per-file-ignores]', '"tests/**" = ["PT009", "S301"]', '"shadowlap/big.py" = ["C901"]', '', '[tool.ruff.lint.mccabe]', 'max-complexity = 15', '[lint.extend-per-file-ignores]', '"guard/x.py" = ["S110", "PLR0915"]'].join('\n');
+    expect(fileWaivers(toml)).toEqual(['"shadowlap/big.py" = ["C901"]', '"guard/x.py" = ["S110", "PLR0915"]']);
+    expect(fileWaivers('[tool.ruff.lint]\nselect = ["C90", "PLR0915"]')).toEqual([]);
   });
 });

@@ -96,9 +96,30 @@ export function qualifiedName(lines, row) {
   return names.join('.');
 }
 
+/**
+ * The lines of a ruff config (pyproject.toml's tool.ruff, or ruff.toml) that waive a whole file from
+ * C901 or PLR0915: its functions would escape ruff and this list alike, so they carry a noqa and a
+ * ceiling each instead.
+ */
+export function fileWaivers(toml) {
+  const out = [];
+  let inTable = false;
+  for (const line of toml.split('\n')) {
+    const header = /^\s*\[(.+)\]\s*$/.exec(line);
+    if (header) {
+      inTable = header[1].includes('per-file-ignores');
+      continue;
+    }
+    if ((inTable || line.includes('per-file-ignores')) && /"(C90\d*|PLR0915)"/.test(line)) out.push(line.trim());
+  }
+  return out;
+}
+
 /** The Python functions over a cap now, `{ file: { qualified name: value } }` by rule: ruff with every limit at 0, noqa and per-file ignores aside. */
 function measurePython() {
   if (!RUFF) throw new Error("package.json's lint script names no ruff to run");
+  const waived = ['sdks/python/pyproject.toml', 'ruff.toml'].flatMap((file) => fileWaivers(readFileSync(`${root}${file}`, 'utf8')).map((line) => `${file}: ${line}`));
+  if (waived.length) throw new Error(`a file waived from a Python cap escapes lint-caps.json: give each of its functions over the cap a noqa and a ceiling instead\n${waived.join('\n')}`);
   const select = Object.values(PY_CAPS)
     .map((c) => c.code)
     .join(',');
