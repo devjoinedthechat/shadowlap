@@ -49,8 +49,8 @@ inputs:
     description: The store that keeps the test history and the replays, relative to working-directory. Empty uses the project's, .shadowlap/shadowlap.db.
     default: ''
   inconclusive:
-    description: What an inconclusive golden does to the step, as shadowlap test --inconclusive takes it (fail or warn). An inconclusive golden is one whose gate ran out of attempts between its bounds, or whose check could not be judged. fail counts it in the failed output and fails the step; warn lets it through with a warning annotation. Either way the inconclusive output counts it.
-    default: fail
+    description: What an inconclusive golden does to the step, as shadowlap test --inconclusive takes it (fail or warn). An inconclusive golden is one whose gate ran out of attempts between its bounds, or whose check could not be judged. fail counts it in the failed output and fails the step; warn lets it through with a warning annotation. Empty does as shadowlap test does by default, fail, except that a gate against history whose golden has too few sessions yet only warns. Either way the inconclusive output counts it.
+    default: ''
   max-attempts:
     description: Raise every gate's limit for this run, as shadowlap test --max-attempts. Empty keeps each gate's own max.
     default: ''

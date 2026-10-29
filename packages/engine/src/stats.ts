@@ -71,14 +71,16 @@ export interface BaselineGate {
   /** The most attempts it runs: with a drop still likelier than not but short of 1 − risk then, it is inconclusive. */
   max: number;
   /**
-   * Set by a session's plan when it gave the gate more attempts than the `max` its config or the
-   * default gives (`from`), for the agent the golden's record shows (`planSuite`): past `from`, a
-   * pass must also make a drop of `drop` from `record`, every attempt of the golden's last sessions
-   * whatever they came to, at most `risk` likely. The attempts it adds are for a healthy agent whose
-   * baseline came out lucky; one that dropped sits below its record by the drop, and can't pass on
-   * them by luck, so it is caught as often as at `from`.
+   * Set by a session's plan for a golden with a record (`planSuite`): past `from`, the most attempts a
+   * gate against history runs by default, a pass must also make a drop of `drop` from `record` at
+   * most `risk` likely, however its `max` came past `from`: the plan's, the config's, `test
+   * --max-attempts` or Run more attempts. `record` is every attempt of the golden's last sessions,
+   * whatever they came to, or with `before`, of the sessions before its last `before`, when those sit
+   * below them. Attempts past `from` are for a healthy agent whose baseline came out lucky; one that
+   * dropped sits below its record by the drop, and can't pass on them by luck, so it is caught as
+   * often as at `from`.
    */
-  widened?: { from: number; record: Tally & { sessions?: number }; risk: number };
+  widened?: { from: number; record: Tally & { sessions?: number }; before?: number; risk: number };
 }
 
 export type Gate = SprtGate | BaselineGate;
@@ -1032,8 +1034,9 @@ export function describeGate(gate: Gate): string {
   const places = doubt < 1 ? Math.min(6, 2 - Math.floor(Math.log10(doubt))) : 1;
   const likely = `${+rounded(100 - doubt, places, 'down').toFixed(places)}%`;
   const w = gate.widened;
-  const record = !w?.record.sessions ? 'its record' : w.record.sessions === 1 ? 'every attempt of its last session' : `every attempt of its last ${w.record.sessions} sessions`;
-  const past = w ? `, and past ${w.from} passes only once that drop from ${record} (${w.record.passes} of ${w.record.attempts}) is ${riskPercent(w.risk)} likely or less` : '';
+  const sessions = (n: number) => (n === 1 ? 'session' : `${n} sessions`);
+  const record = !w?.record.sessions ? 'its record' : w.before ? `every attempt of the ${sessions(w.record.sessions)} before its last ${w.before}` : w.record.sessions === 1 ? 'every attempt of its last session' : `every attempt of its last ${w.record.sessions} sessions`;
+  const past = w && gate.max > w.from ? `, and past ${w.from} passes only once that drop from ${record} (${w.record.passes} of ${w.record.attempts}) is ${riskPercent(w.risk)} likely or less` : '';
   return `fails a drop of ${points(gate.drop)}+ points from its last ${plural(gate.window, 'session')} once ${likely} likely, from ${plural(gate.min, 'attempt')} up to ${gate.max}${past}`;
 }
 
@@ -1080,8 +1083,8 @@ export interface BaselineEvidence {
   threshold: number;
   /** It passes at or below this: 1/2, a drop no likelier than not. */
   passAt: number;
-  /** A widened gate's record (`BaselineGate.widened`): past `from`, a pass also needs P(now < record − drop) at most `risk`, here after each attempt, null up to `from`. */
-  widened?: { from: number; risk: number; record: Tally & { sessions?: number }; probabilities: Array<number | null> };
+  /** A gate's record (`BaselineGate.widened`): past `from`, a pass also needs P(now < record − drop) at most `risk`, here after each attempt, null up to `from`. */
+  widened?: { from: number; risk: number; record: Tally & { sessions?: number }; before?: number; probabilities: Array<number | null> };
 }
 
 /** What a gate made of its attempts. */
@@ -1128,7 +1131,7 @@ export type GateResult = Gate & GateOutcome;
 export function gateOf(r: Gate): Gate {
   if (r.kind === 'sprt') return { kind: 'sprt', good: r.good, bad: r.bad, risk: r.risk, ...(r.failRisk !== undefined && r.failRisk !== r.risk ? { failRisk: r.failRisk } : {}), max: r.max };
   const w = r.widened;
-  return { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min, max: r.max, ...(w ? { widened: { from: w.from, record: { passes: w.record.passes, attempts: w.record.attempts, ...(w.record.sessions !== undefined ? { sessions: w.record.sessions } : {}) }, risk: w.risk } } : {}) };
+  return { kind: 'baseline', drop: r.drop, risk: r.risk, window: r.window, min: r.min, max: r.max, ...(w ? { widened: { from: w.from, record: { passes: w.record.passes, attempts: w.record.attempts, ...(w.record.sessions !== undefined ? { sessions: w.record.sessions } : {}) }, ...(w.before !== undefined ? { before: w.before } : {}), risk: w.risk } } : {}) };
 }
 
 /** The largest k a report lists pass^k for. */
@@ -1182,6 +1185,7 @@ export function gateResult(gate: Gate, outcomes: readonly boolean[], o: { histor
           from: w.from,
           risk: w.risk,
           record: { passes: w.record.passes, attempts: w.record.attempts, ...(w.record.sessions !== undefined ? { sessions: w.record.sessions } : {}) },
+          ...(w.before !== undefined ? { before: w.before } : {}),
           probabilities: outcomes.map((x, i) => {
             if (x) held++;
             return i + 1 > w.from ? dropProbability({ passes: held, attempts: i + 1 }, w.record, gate.drop) : null;

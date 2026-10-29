@@ -17,6 +17,12 @@ export interface SessionPlan {
   plan: SuitePlan;
   /** Each gated golden's gate as it runs this session, by its name in the test history. */
   gates: Map<string, Gate>;
+  /**
+   * The goldens gated against history whose inconclusive only warns this session, by name: with no
+   * `--inconclusive` given, one whose record holds fewer sessions than it reads (30 by default) is
+   * too new to tell a drop from chance by its gate's own limit. How many it has, and of how many.
+   */
+  short: Map<string, { sessions: number; of: number }>;
 }
 
 /** The cost of an attempt of a recording that forks: at most what the whole recording's model calls cost. Null with a model that has no price. */
@@ -39,8 +45,9 @@ function recordingCost(store: Store, run: RunRecord, prices: Record<string, Pric
  * history: its sessions') and the cost of its recording. A pack that can't be read is left to fail on
  * its own when it runs. Null with no gated golden.
  */
-export function planSession(packs: readonly string[], o: { store: Store; tests: TestEntry[]; projectDir: string; prices?: Record<string, Price> | undefined; baselineBranch?: string | null | undefined; risk: number; inconclusive: 'fail' | 'warn'; maxAttempts?: number | undefined }): SessionPlan | null {
+export function planSession(packs: readonly string[], o: { store: Store; tests: TestEntry[]; projectDir: string; prices?: Record<string, Price> | undefined; baselineBranch?: string | null | undefined; risk: number; inconclusive: 'fail' | 'warn' | null; maxAttempts?: number | undefined }): SessionPlan | null {
   const goldens: SuiteGolden[] = [];
+  const short = new Map<string, { sessions: number; of: number }>();
   for (const dir of packs) {
     const spec: TestSpec | null = specFor(o.tests, dir, o.projectDir);
     if (!spec?.gate) continue;
@@ -60,10 +67,13 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
     const sum = (xs: readonly Tally[]): Tally => ({ passes: xs.reduce((n, x) => n + x.passes, 0), attempts: xs.reduce((n, x) => n + x.attempts, 0) });
     const sessions = record && spec.gate.kind === 'baseline' ? sum(record.pooled.slice(0, spec.gate.window)) : null;
     const recent = recentAttempts(o.store, golden, { window: RECENT, goldenRunId: parent.runId, checks });
+    // Too few sessions for its record: with no --inconclusive given, its inconclusive only warns.
+    if (spec.gate.kind === 'baseline' && o.inconclusive === null && (record?.pooled.length ?? 0) < RECORD_WINDOWS * spec.gate.window) short.set(golden, { sessions: record?.pooled.length ?? 0, of: RECORD_WINDOWS * spec.gate.window });
     goldens.push({
       golden,
       gate: spec.gate,
       maxGiven: !!spec.gateMaxGiven,
+      ...(short.has(golden) ? { inconclusive: 'warn' as const } : {}),
       ...(history?.attempts ? { history: { passes: history.passes, attempts: history.attempts } } : {}),
       ...(sessions?.attempts ? { sessions } : {}),
       ...(record?.attempts ? { record: { passes: record.passes, attempts: record.attempts, sessions: record.pooled.length } } : {}),
@@ -71,12 +81,12 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
       costPerAttempt: recent?.costPerAttempt ?? recordingCost(o.store, parent, o.prices),
     });
   }
-  const plan = planSuite(goldens, { risk: o.risk, inconclusive: o.inconclusive });
+  const plan = planSuite(goldens, { risk: o.risk, inconclusive: o.inconclusive ?? 'fail' });
   if (!plan) return null;
   // --max-attempts raises every gate's limit past what the session sized.
   if (o.maxAttempts) for (const p of plan.planned) p.most = Math.max(p.most, o.maxAttempts);
   plan.forecast.most = plan.planned.reduce((n, p) => n + p.most, 0);
-  return { plan, gates: new Map(plan.planned.map((p) => [p.golden, p.gate])) };
+  return { plan, gates: new Map(plan.planned.map((p) => [p.golden, p.gate])), short };
 }
 
 const count = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -90,7 +100,7 @@ const plural = (n: number, noun: string) => `${count(n)} ${noun}${Math.round(n) 
  * the suite's risk, the line says what the plan works out instead (`suiteRed`), and each golden that
  * can't keep within its share, or has too few sessions yet to, says why: one over its own share
  * whose suite keeps within its risk takes room the others leave, and isn't named. A gate against
- * history whose last sessions sit below its baseline beyond chance is always named.
+ * history whose last sessions sit below the sessions before them beyond chance is always named.
  */
 export function suiteLines(plan: SuitePlan): string[] {
   const f = plan.forecast;
@@ -121,11 +131,12 @@ function suiteCounts(plan: SuitePlan): { risk: number; red: number; over: number
 /**
  * The plan as `--json` reports it, under `suite`: with `over`, the goldens whose share could not be
  * met, `early`, those with too few sessions yet, and `drop`, those whose last sessions sit below
- * their baseline beyond chance, when there are any; `averaged`, when gates against history make its
- * `red` an average over the pass rates their sessions leave open rather than a bound.
+ * the sessions before them beyond chance, when there are any; `averaged`, when gates against history
+ * make its `red` an average over the pass rates their sessions leave open rather than a bound; and
+ * `short`, the gates against history whose inconclusive only warns, their history short.
  */
-export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number; early?: number; drop?: number; averaged?: true } {
+export function suiteJson(plan: SuitePlan, short = 0): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number; early?: number; drop?: number; averaged?: true; short?: number } {
   const { over, early, averaged } = suiteCounts(plan);
   const drop = plan.planned.filter((p) => p.drop).length;
-  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}), ...(early ? { early } : {}), ...(drop ? { drop } : {}), ...(averaged ? { averaged: true as const } : {}) };
+  return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}), ...(early ? { early } : {}), ...(drop ? { drop } : {}), ...(averaged ? { averaged: true as const } : {}), ...(short ? { short } : {}) };
 }

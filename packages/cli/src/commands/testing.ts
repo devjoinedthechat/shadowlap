@@ -19,7 +19,7 @@ import { ProviderStreak, unavailableWords } from '../provider-retry.js';
 import { planSession, suiteJson, suiteLines } from '../suite-plan.js';
 import { readExpect } from './fix.js';
 import { shortFixId } from '../fix-format.js';
-import { formatChecks, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
+import { formatChecks, inconclusiveFor, junitCase, outputTail, packResult, pruneQuietly, resultData, testGolden, verdictOf, type GoldenOutcome, type InconclusiveMode, type RecordingTestContext } from '../golden-test.js';
 import { Turns } from '../turns.js';
 import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
 import { callCounts, describeChange, keepJudgeVerdicts, requestChanges, rerecordGolden, updateReceipt, volatileWarning } from '../golden-update.js';
@@ -262,7 +262,7 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'working directory for the recorded commands (default: current)')
     .option('--guard <mode>', 'network guard: block, warn or off (re-recording under --update, warn unless given)', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
     .option('--push', "push every test run and the report to the team store, with this machine's (or the CI job's) own credentials; a pull request's job pushes to its own folder")
-    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's, a check's or, with --chaos, a preset's: fail the run, or warn and let it through", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
+    .option('--inconclusive <mode>', "what an inconclusive verdict does, a gate's, a check's or, with --chaos, a preset's: fail the run, or warn and let it through; with neither given, a gate against history whose golden has fewer than 30 sessions only warns", parseChoice<InconclusiveMode>(['fail', 'warn']), 'fail')
     .option('--max-attempts <n>', "raise each gate's limit for this session: its max, the most attempts it runs", parseIntArg)
     .option('--suite-risk <r>', 'the most a healthy suite may go red for nothing, split across its gated goldens (default: tests.suiteRisk in the config, else 0.05)', parseSuiteRisk)
     .option('--continue', "carry an inconclusive gate's attempts over from the golden's last result, when its recording, checks and gate are unchanged, and run only the attempts still needed (with --max-attempts, the higher limit to run to)")
@@ -317,7 +317,17 @@ export function register(program: Command): void {
       const session = store.startTestSession({ command: givenCommand(process.argv, 'test'), revision, actor });
       // One risk for the session, split across its gated goldens before any runs (suite-plan.ts):
       // each gate takes its share, and the forecast says what the session costs.
-      const planned = planSession(packs, { store, tests, projectDir, prices: config.prices, baselineBranch: source.baselineBranch, risk: flags.suiteRisk ?? settings.suiteRisk ?? SUITE_RISK, inconclusive: flags.inconclusive, maxAttempts: flags.maxAttempts });
+      // --inconclusive given decides for every golden; with none, a gate against history whose golden has
+      // too few sessions yet only warns when it runs out of attempts, and every other inconclusive fails.
+      const given = this.getOptionValueSource('inconclusive') === 'cli' ? flags.inconclusive : null;
+      const planned = planSession(packs, { store, tests, projectDir, prices: config.prices, baselineBranch: source.baselineBranch, risk: flags.suiteRisk ?? settings.suiteRisk ?? SUITE_RISK, inconclusive: given, maxAttempts: flags.maxAttempts });
+      /** What a golden's inconclusive does, and why when it only warns for its short history. */
+      const inconclusiveOf = (golden: string, o: GoldenOutcome) => inconclusiveFor(o, given, planned?.short.get(golden));
+      /** A golden's lines, with why its inconclusive only warns. */
+      const show = (golden: string, o: GoldenOutcome, suffix = '') => {
+        const why = inconclusiveOf(golden, o).why;
+        printGolden(why ? { ...o, notes: [...(o.notes ?? []), `${why}: until then an inconclusive only warns (--inconclusive fail counts it), or give it a gate on fixed rates, "good" and "bad", which needs no history`] } : o, suffix);
+      };
       if (planned) for (const line of suiteLines(planned.plan)) process.stdout.write(p.dim(`${safe(line)}\n`));
       const cases: JunitCase[] = [];
       const results: PackResult[] = [];
@@ -480,7 +490,7 @@ export function register(program: Command): void {
           }
           outcome = first.outcome;
           let injection = first.injection;
-          printGolden(outcome);
+          show(golden, outcome);
           printGate(injection);
           const forked = !outcome.failure && spec?.fork ? (outcome.result?.shown.ended.summary.divergence ?? null) : null;
           const takeover = forked ? takeoverAt(packDir) : null;
@@ -508,7 +518,7 @@ export function register(program: Command): void {
               if (again.interrupted) process.stdout.write(p.dim(`    the replay of the updated golden was interrupted; it runs with the next test\n`));
               else {
                 outcome = again;
-                printGolden(outcome, ' (judged)');
+                show(golden, outcome, ' (judged)');
               }
             }
           } else if (flags.update && (outcome.failure || early) && !signal) {
@@ -563,7 +573,7 @@ export function register(program: Command): void {
                   }
                   outcome = regated.outcome;
                   injection = regated.injection;
-                  printGolden(outcome, ' (updated)');
+                  show(golden, outcome, ' (updated)');
                   printGate(injection);
                 }
               }
@@ -582,8 +592,9 @@ export function register(program: Command): void {
             revision,
             data: { ...resultData(store, outcome), ...(updated ? { updated } : {}), ...(injection ? { injection } : {}), ...ran },
           });
-          cases.push(junitCase(outcome, flags.inconclusive));
-          results.push(packResult(outcome, { expect, updated, inconclusive: flags.inconclusive, injection }));
+          const decided = inconclusiveOf(golden, outcome);
+          cases.push(junitCase(outcome, decided.mode));
+          results.push(packResult(outcome, { expect, updated, inconclusive: decided.mode, warned: decided.why, injection }));
           tested.set(golden, { ok: !outcome.failure, fork: !!spec?.fork });
           if (!flags.update && early) forkedEarly.push({ packDir, golden, ...early });
           const divergence = outcome.result?.shown.ended.summary.divergence;
@@ -626,7 +637,7 @@ export function register(program: Command): void {
       const notRun = packs.length - results.length;
       for (const c of cut) process.stdout.write(`${p.yellow('⏹')} ${safe(c)}: interrupted, so it has no result this time\n`);
       if (flags.junit) writeFileSync(flags.junit, junitXml('shadowlap', cases));
-      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null }, planned ? suiteJson(planned.plan) : null);
+      const report = testReport(results, { id: session.sessionId, revision, interrupted: signal !== null }, planned ? suiteJson(planned.plan, planned.short.size) : null);
       if (flags.json) writeFileSync(flags.json, JSON.stringify(report, null, 2) + '\n');
       if (flags.markdown) writeFileSync(flags.markdown, markdownReport(report), { flag: 'a' });
       if (flags.annotations && (report.failed || report.inconclusive)) process.stdout.write(githubAnnotations(report) + '\n');
@@ -640,7 +651,12 @@ export function register(program: Command): void {
       else for (const r of results.filter((x) => !x.ok && x.runId).slice(0, FAILED_LINKS)) emitJobEvent({ type: 'link', label: `Open ${r.name}’s run`, href: links.run(r.runId!), secondary: true });
       emitJobEvent({ type: 'link', label: 'Tests', href: links.tests(), ...(only?.runId ? { secondary: true } : {}) });
       // Inconclusive ones are counted apart, and what CI does with them is said.
-      const inconclusive = report.inconclusive ? `, ${report.inconclusive} inconclusive (${flags.inconclusive === 'warn' ? 'let through: --inconclusive warn' : 'failing the run: --inconclusive warn lets them through'})` : '';
+      // Those inconclusive that only warn (--inconclusive warn, or too few sessions yet), and those that fail the run.
+      const warned = results.filter((r) => r.verdict === 'inconclusive' && r.ok).length;
+      const failing = report.inconclusive - warned;
+      const inconclusive = report.inconclusive
+        ? `, ${report.inconclusive} inconclusive (${[warned ? `${given === 'warn' ? 'let through: --inconclusive warn' : `${warned === report.inconclusive ? '' : `${warned} `}let through: too few sessions yet`}` : '', failing ? `${warned ? `${failing} ` : ''}failing the run: --inconclusive warn lets them through` : ''].filter(Boolean).join(', ')})`
+        : '';
       const passedCount = results.filter((r) => r.verdict === 'passed').length;
       const failedCount = results.filter((r) => r.verdict === 'failed').length;
       process.stdout.write(`\n${passedCount} passed, ${failedCount} failed${inconclusive}${signal && notRun ? `, ${notRun} not run: interrupted` : ''} · ${upstreamRequests} upstream request${upstreamRequests === 1 ? '' : 's'}\n`);

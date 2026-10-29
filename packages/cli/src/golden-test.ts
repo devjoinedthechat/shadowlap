@@ -719,8 +719,22 @@ export const letThrough = (o: Pick<GoldenOutcome, 'result' | 'failure'> & { kind
   return v === 'passed' || (v === 'inconclusive' && mode === 'warn');
 };
 
+/**
+ * What a golden's inconclusive does this session: `--inconclusive` when it was given; else a gate
+ * against history that ran out of attempts while its record holds fewer sessions than it reads
+ * (`short`) only warns, as with so little history it can't tell a drop from chance, and says so
+ * (`needs more history: 3 of 30 sessions`); anything else fails the run. A clear failure fails
+ * either way, and an inconclusive the provider or a check that couldn't be decided caused counts.
+ */
+export function inconclusiveFor(o: Pick<GoldenOutcome, 'result' | 'failure'> & { kind?: GoldenOutcome['kind'] }, given: InconclusiveMode | null, short: { sessions: number; of: number } | null | undefined): { mode: InconclusiveMode; why: string | null } {
+  if (given) return { mode: given, why: null };
+  const gate = o.result?.gate;
+  if (short && verdictOf(o) === 'inconclusive' && gate?.kind === 'baseline' && gate.decision === 'inconclusive') return { mode: 'warn', why: `needs more history: ${short.sessions} of ${short.of} sessions` };
+  return { mode: 'fail', why: null };
+}
+
 /** The golden's entry in the JSON report (`--json`), which the GitHub Action reads. */
-export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode; injection?: PackResult['injection'] }): PackResult {
+export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unknown> | null; updated?: PackResult['updated']; inconclusive?: InconclusiveMode; warned?: string | null; injection?: PackResult['injection'] }): PackResult {
   const r = o.result;
   const s = r?.shown.ended.summary ?? null;
   return {
@@ -730,6 +744,7 @@ export function packResult(o: GoldenOutcome, extra: { expect: Record<string, unk
     mode: o.spec?.fork ? 'fork' : 'replay',
     ok: letThrough(o, extra.inconclusive ?? 'fail'),
     verdict: verdictOf(o),
+    ...(extra.warned ? { warned: extra.warned } : {}),
     failure: o.kind,
     message: o.failure?.message ?? null,
     details: o.failure?.details ?? null,

@@ -158,12 +158,16 @@ describe('the GitHub Action and inconclusive goldens', () => {
   const run = (inputs: Record<string, string>) => action({ RECORDINGS: 'testing/golden/reference-agent', WORKING_DIRECTORY: ROOT, ...inputs }, { SHADOWLAP_CLI: fake.cli, FAKE_ARGS: fake.args });
   const given = () => JSON.parse(readFileSync(fake.args, 'utf8')) as string[];
 
-  it('fails the step on an inconclusive golden by default, and counts it in both outputs', () => {
+  it('leaves an inconclusive golden to shadowlap test by default, which fails the step on this one, and counts it in both outputs', () => {
     const r = run({});
     expect(r.code).toBe(1);
-    expect(given()).toEqual(expect.arrayContaining(['--inconclusive', 'fail']));
+    // No --inconclusive: the CLI's default, under which only a gate against history with too few sessions yet warns.
+    expect(given()).not.toContain('--inconclusive');
     expect(given()).not.toContain('--max-attempts');
     expect(r.outputs).toMatchObject({ passed: '0', failed: '1', inconclusive: '1', diverged: '0', 'checks-failed': '0' });
+    // inconclusive: fail says so.
+    run({ INCONCLUSIVE: 'fail' });
+    expect(given()).toEqual(expect.arrayContaining(['--inconclusive', 'fail']));
   });
 
   it('lets it through with inconclusive: warn, still counting it, and passes max-attempts on', () => {
@@ -202,7 +206,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
   });
 
   it('says what is wrong with those inputs', () => {
-    expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, not "maybe"');
+    expect(run({ INCONCLUSIVE: 'maybe' }).out).toContain('input inconclusive must be fail or warn, or empty, not "maybe"');
     expect(run({ MAX_ATTEMPTS: 'lots' }).out).toContain('input max-attempts must be a whole number of attempts');
     expect(run({ MAX_ATTEMPTS: '0' }).code).toBe(1);
   });
