@@ -189,7 +189,7 @@ describe('Edit and fork in the inspector', () => {
   });
 });
 
-describe('Edit and fork in the inspector', () => {
+describe('Edit and fork in the inspector, on every tab', () => {
   it('is under the call’s name on every tab, not only beside the result on Response', async () => {
     const d = detail();
     const call = { ...d.call, effect: 'read', scope: null, model: null, usage: null, latencyMs: 2, fingerprint: 'f16', occurrence: 1, startedAt: 1, endedAt: 2, implHash: null, headers: {}, provider: null } as unknown as CallRow;

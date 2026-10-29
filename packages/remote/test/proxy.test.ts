@@ -141,7 +141,8 @@ describe('a request through a proxy', () => {
   });
 
   it('tunnels https with TLS end to end, one tunnel for several requests', async (ctx) => {
-    if (!secure || !ca) return ctx.skip(); // no openssl to make the test's certificate
+    // eslint-disable-next-line vitest/no-disabled-tests -- skipped where there is no openssl to make the test's certificate, which beforeAll finds out
+    if (!secure || !ca) return ctx.skip();
     seen.length = 0;
     const viaProxy = proxyFetch(new URL(`http://127.0.0.1:${port(proxy)}`), { ca });
     for (const n of [1, 2, 3]) {

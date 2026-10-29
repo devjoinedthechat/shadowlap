@@ -101,10 +101,10 @@ describe('turns', () => {
     const held = await turns.take();
     const waiting = [turns.take(), turns.take()];
     turns.close();
-    await Promise.all(waiting);
+    expect(await Promise.all(waiting)).toHaveLength(2);
     held();
     // A turn given back twice gives nothing more.
-    held();
+    expect(held).not.toThrow();
   });
 });
 

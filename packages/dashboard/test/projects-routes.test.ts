@@ -862,7 +862,7 @@ describe('folder limits', () => {
   });
 });
 
-describe('a dashboard that serves one store', () => {
+describe('a dashboard that serves one store, whose file is deleted', () => {
   // Windows can't delete a file another connection holds open.
   it.skipIf(process.platform === 'win32')('says its store was deleted while it served it, rather than read on from the old file', async () => {
     const dir = tempDir('sl-one-store-');

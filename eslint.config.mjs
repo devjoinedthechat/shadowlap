@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
+import vitest from '@vitest/eslint-plugin';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -256,6 +257,26 @@ export default defineConfig(
       '@typescript-eslint/restrict-plus-operands': ['error', { allowAny: true, allowNullish: true, allowNumberAndString: true, allowBoolean: false, allowRegExp: false }],
     },
   },
+
+  // The tests vitest runs (the browser's run on Playwright's own runner), with its plugin's recommended rules.
+  {
+    files: [...TESTS, ...domTests],
+    plugins: vitest.configs.recommended.plugins,
+    rules: {
+      ...vitest.configs.recommended.rules,
+      // vitest's expect takes the message to fail with second: `expect(r.code, r.out).toBe(0)`.
+      'vitest/valid-expect': ['error', { maxArgs: 2 }],
+      // A hook asserts what it set up, so a suite whose setup failed says why.
+      'vitest/no-standalone-expect': ['error', { additionalTestBlockFunctions: ['beforeAll', 'beforeEach', 'afterAll', 'afterEach'] }],
+      // What holds on one platform only (a file's mode off Windows), or for some cases of a table, is asserted
+      // where it holds: what the rest of the test asserts holds everywhere.
+      'vitest/no-conditional-expect': 'off',
+      // A test may assert through a helper of its file's own, each named here.
+      'vitest/expect-expect': ['error', { assertFunctionNames: ['expect', 'expect*', 'rejects', 'refuses', 'follows', 'replaysEachBranch', 'holds', 'gitApplies'] }],
+    },
+  },
+  // Each command's checks are functions in a table, which its tests call.
+  { files: ['testing/coding-agents/test/commands.test.ts'], rules: { 'vitest/no-standalone-expect': 'off' } },
 
   // Growth stops (CAPS), a test's function length aside, and today's files over a cap held to what they
   // are (lint-caps.json).
