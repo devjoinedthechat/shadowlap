@@ -69,7 +69,7 @@ $ shadowlap blame 01M64J32D4 --expect @refund-check.json
 
 ### Prove the fix
 
-[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
+[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that verify accepts twice, the second time with fresh attempts: one that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
 
 ```console
 $ shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -181,7 +181,7 @@ npm install -D @shadowlap/test
 pip install shadowlap
 ```
 
-Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. A tool you don't wrap runs for real on every replay: `run` names each one the model called, and `replay` won't run one that writes until you wrap it, declare it a read, or pass `--allow-unrecorded`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
+Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. A tool you don't wrap runs for real on every replay: `run` names each one the model called, and every command that replays a run won't run one that writes, or one nothing says the effect of, until you wrap it, declare its effect under `tools.unrecorded`, or pass `--allow-unrecorded`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
 
 ```ts
 import { tool } from '@shadowlap/sdk';
@@ -212,7 +212,7 @@ shadowlap dashboard
 
 `shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side. A failed run opens where it first failed, its calls grouped under the model call each belongs to, and a fork's page says what the fork did differently, ranked as `shadowlap decisions` ranks a change. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
 
-One press labels a run good or bad, which `repair --keeps label:good` keeps working, and Runs keeps its filters in the address. Large stores and long runs open at once: the heavy views are worked out beside the server, and a long run's calls come a page at&nbsp;a&nbsp;time.
+One press labels a run good or bad, and `u` undoes it; a fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists them with `label:good` and keeps its filters in the address. Large stores and long runs open at once: what reads every run or every call, the search index included, is worked out beside the server, and a long run's calls come a page at a time, from any depth, while the rest is&nbsp;read.
 
 <p align="center">
   <picture>
@@ -224,7 +224,7 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: where a fork left its parent, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: why a run failed, where blame found it lost and whether its fix held, where a fork left its parent and what it then did differently, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
 
 ```text
  01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
@@ -277,7 +277,7 @@ shadowlap run -- node agent.mjs
 
 | Area | Works with |
 |:---|:---|
-| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Claude on Microsoft&nbsp;Foundry, Vertex&nbsp;AI and Amazon&nbsp;Bedrock (OpenAI's SDK on it too); OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq); and any gateway or host that speaks one of their formats, declared in&nbsp;the&nbsp;config |
+| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Claude on Microsoft&nbsp;Foundry, Vertex&nbsp;AI and Amazon&nbsp;Bedrock (OpenAI's SDK on it too); Vercel's AI&nbsp;Gateway; OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq); and any gateway or host that speaks one of their formats, declared in&nbsp;the&nbsp;config |
 | [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the&nbsp;[wire&nbsp;protocol](docs/protocol.md) |
 | [Frameworks](docs/frameworks.md) | TypeScript: Mastra, Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Anthropic&nbsp;tool&nbsp;runner, Claude&nbsp;Agent&nbsp;SDK<br>Python: CrewAI, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Pydantic&nbsp;AI, Google&nbsp;ADK, LlamaIndex, Microsoft&nbsp;Agent&nbsp;Framework, Strands, smolagents, Agno, Claude&nbsp;Agent&nbsp;SDK |
 | [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test; a test records&nbsp;once, then&nbsp;replays&nbsp;offline |
