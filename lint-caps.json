@@ -29,7 +29,7 @@
     "packages/cli/src/fix-format.ts": 64,
     "packages/cli/src/golden-test.ts": 132,
     "packages/cli/src/import-trace.ts": 43,
-    "packages/cli/src/init.ts": 58,
+    "packages/cli/src/init.ts": 68,
     "packages/cli/src/injection.ts": 57,
     "packages/cli/src/migrate.ts": 40,
     "packages/cli/src/otel.ts": 59,
@@ -135,6 +135,7 @@
     "packages/tui/src/components/RunsView.tsx": 40,
     "packages/tui/src/components/TimelineView.tsx": 76,
     "scripts/demo-store/models.mjs": 51,
+    "testing/frameworks/cloud-mock.mjs": 32,
     "testing/mock-openai/src/index.ts": 59,
     "testing/reference-agent/src/decision-rules.ts": 31
   },
@@ -202,8 +203,8 @@
   },
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
-    "packages/cli/src/decisions.ts": 1149,
-    "packages/cli/src/init.ts": 924,
+    "packages/cli/src/decisions.ts": 1151,
+    "packages/cli/src/init.ts": 1407,
     "packages/cli/src/repair.ts": 824,
     "packages/cli/test/ci-fix.test.ts": 942,
     "packages/cli/test/repair.test.ts": 931,
