@@ -12,7 +12,9 @@
 
 Works on tools made with `@tool` (their function is wrapped) and on `BaseTool` subclasses (their
 `_run` and `_arun`). CrewAI validates the arguments first, so the recording holds what the agent
-asked for.
+asked for. Each call is recorded under the name CrewAI shows the model, which it makes from the
+tool's own name ("Search the web" is search_the_web), so a replay matches the model's calls to
+what was recorded.
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ T = TypeVar("T")
 def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., Any]] = None, exclude: tuple[str, ...] = (), trust: Optional[str] = None) -> T:
     """Records and replays a CrewAI tool instance as `effect`, and returns the same instance."""
     t: Any = crew_tool
-    name = getattr(t, "name", None) or type(t).__name__
+    name = _model_name(getattr(t, "name", None) or type(t).__name__)
     wrap = tool(name, effect=effect, on_fork=on_fork, exclude=exclude, trust=trust)
     func = getattr(t, "func", None)
     if callable(func):
@@ -45,3 +47,12 @@ def with_effect(crew_tool: T, effect: str, *, on_fork: Optional[Callable[..., An
     if not touched:
         raise TypeError(f"with_effect: {name} has no function or _run method to wrap")
     return crew_tool
+
+
+def _model_name(name: str) -> str:
+    """The name CrewAI gives the model for a tool named `name`, where this CrewAI makes one."""
+    try:
+        from crewai.utilities.string_utils import sanitize_tool_name
+    except ImportError:
+        return name
+    return str(sanitize_tool_name(name))
