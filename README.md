@@ -210,7 +210,7 @@ shadowlap dashboard
 
 ## Dashboard and terminal UI
 
-`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side. A failed run opens where it first failed, its calls grouped under the model call each belongs to, and a fork's page says what the fork did differently, ranked as `shadowlap decisions` ranks a change. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
+`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side. A failed run opens where blame found it lost, or else where it first failed, its calls grouped under the model call each belongs to, and a fork's page says what the fork did differently, ranked as `shadowlap decisions` ranks a change. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
 
 One press labels a run good or bad, and `u` undoes it; a fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists them with `label:good` and keeps its filters in the address. Large stores and long runs open at once: what reads every run or every call, the search index included, is worked out beside the server, and a long run's calls come a page at a time, from any depth, while the rest is&nbsp;read.
 
@@ -290,8 +290,8 @@ shadowlap run -- node agent.mjs
 ## Security
 
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
-- **Keys never stored.** API keys pass through to the provider; a clean replay needs no&nbsp;real&nbsp;key.
-- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with no rule applied. No copy carries a&nbsp;credential.
+- **Keys never stored.** The API keys your calls send pass through to the provider and are never written; a clean replay needs no&nbsp;real&nbsp;key.
+- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with no rule applied. Every copy of a run masks each credential whose shape Shadowlap&nbsp;knows.
 - **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what&nbsp;is&nbsp;sent](docs/telemetry.md) never includes prompts or tool&nbsp;data. `DO_NOT_TRACK=1` opts&nbsp;out.
 
 [SECURITY.md](SECURITY.md) lists every safeguard and how to report&nbsp;a&nbsp;vulnerability.
