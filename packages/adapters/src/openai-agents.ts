@@ -25,7 +25,7 @@ function functionToolName(definition: OpenAIAgentsToolDefinition): string {
   return name;
 }
 
-export function withEffect<T extends OpenAIAgentsToolDefinition>(definition: T, spec: EffectSpec): T {
+export function withEffect<T extends OpenAIAgentsToolDefinition>(definition: T, spec: EffectSpec): T & { name: string } {
   const name = functionToolName(definition);
   // The name goes with the definition: tool() can't take it from the wrapper, which has none.
   return { ...definition, name, execute: wrapFirstArg(name, spec, definition.execute as (input: unknown, ...rest: unknown[]) => unknown) };

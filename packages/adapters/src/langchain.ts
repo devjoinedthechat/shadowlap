@@ -166,7 +166,7 @@ async function esmEntryFromAgent(specifier: string): Promise<string | null> {
       } catch {
         continue;
       }
-      const target = esmTarget(isObject(manifest.exports) ? (manifest.exports as Json)[subpath] : subpath === '.' ? manifest.module ?? manifest.main : undefined);
+      const target = esmTarget(isObject(manifest.exports) ? manifest.exports[subpath] : subpath === '.' ? manifest.module ?? manifest.main : undefined);
       if (target) return path.join(root, target);
     }
   }

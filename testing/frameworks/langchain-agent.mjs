@@ -38,6 +38,8 @@ const refundOrder = withEffect(
 const model = process.env.LC_MODEL === 'anthropic' ? new ChatAnthropic({ model: 'claude-sonnet-5' }) : new ChatOpenAI({ model: 'gpt-5' });
 const tools = [lookupOrder, refundOrder];
 const prompt = 'You resolve refund requests.';
+// createReactAgent is LangGraph's older entry point, which agents written before createAgent still use.
+// eslint-disable-next-line @typescript-eslint/no-deprecated
 const agent = process.env.LC_AGENT === 'react' ? createReactAgent({ llm: model, tools, prompt }) : createAgent({ model, tools, systemPrompt: prompt });
 const input = { messages: [new HumanMessage(process.env.TICKET ?? 'Refund order A-1042.')] };
 
@@ -47,6 +49,6 @@ if (process.env.LC_RUN === 'stream') {
 } else {
   state = await agent.invoke(input);
 }
-const outputs = state.messages.filter((m) => m.getType() === 'tool').map((m) => ({ name: m.name, status: m.status, content: m.content }));
+const outputs = state.messages.filter((m) => m.type === 'tool').map((m) => ({ name: m.name, status: m.status, content: m.content }));
 const last = state.messages.at(-1);
 console.log(JSON.stringify({ text: typeof last.content === 'string' ? last.content : last.text, outputs, executed }));

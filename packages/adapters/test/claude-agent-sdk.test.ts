@@ -576,7 +576,7 @@ describe('tools of an in-process MCP server', () => {
     const [named] = withEffects('Order desk.v2', [{ ...lookup, name: 'look up' }], { 'look up': 'read' });
     const rec = sidecar.startRun({ mode: 'record', command });
     within(rec);
-    await named!.handler({ id: 'C-3' });
+    await named.handler({ id: 'C-3' });
     sidecar.endRun(rec.runId, 'completed');
     expect(store.getCalls(rec.runId).map((c) => c.name)).toEqual(['mcp__Order_desk_v2__look_up']);
   });
