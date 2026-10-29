@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BASELINE_DEFAULTS, RECORDING_BASELINE, SPRT_DEFAULTS, decide, describeGate, dropProbability, gateOdds, lnGamma, type BaselineGate, type SprtGate, type Tally } from '../src/stats.js';
-import { DECLINE_AT, INCONCLUSIVE_AT_GOOD, PLANNED_FAILURES, SUITE_RISK, planSuite, type SuiteGolden } from '../src/suite.js';
+import { COUNTS_AT, DECLINE_AT, INCONCLUSIVE_AT_GOOD, PLANNED_FAILURES, SUITE_RISK, planSuite, type SuiteGolden } from '../src/suite.js';
 
 /**
  * A test session's one risk, split across its gated goldens: what each gate becomes, that every
@@ -230,6 +230,39 @@ describe('planSuite', () => {
     expect(warned.red).toBeCloseTo(failOver(warned.gate as BaselineGate, base, record), 12);
     expect(warned.red).toBeLessThan(counted.red / 10);
     expect(warned.early).toMatch(/^only 3 sessions yet: against its baseline \(14 of 15\) it fails about 0\.32% of the time, /);
+  });
+
+  it('counts the inconclusive of a golden with too few sessions all the same once its last sessions sit below the sessions before them, and says what they show', () => {
+    const base = { passes: 48, attempts: 50 };
+    const plan = (sessions: Tally, record: Tally & { sessions: number }, inconclusive?: 'warn') => {
+      const golden: SuiteGolden = { golden: 'goldens/h', gate: history(), maxGiven: false, history: base, sessions, record, ...(inconclusive ? { inconclusive } : {}) };
+      return planSuite(Array.from({ length: 20 }, () => golden))!.planned[0];
+    };
+    // 15 sessions: its last 10 at 44 of 57 against the 5 before them at 30 of 31, below them 99.2% likely, past 99 to 1: a decline.
+    const decline = { sessions: { passes: 44, attempts: 57 }, record: { passes: 74, attempts: 88, sessions: 15 } };
+    expect(dropProbability(decline.sessions, { passes: 30, attempts: 31 }, 0)).toBeGreaterThan(COUNTS_AT);
+    const declined = plan(decline.sessions, decline.record, 'warn');
+    const counted = plan(decline.sessions, decline.record);
+    // Counted as the session counts it: the same gate and chance as with every inconclusive counted, and why.
+    expect(declined.inconclusive).toBeUndefined();
+    expect(declined.counts).toBe('its last 10 sessions sit below the 5 before them, 44 of 57 attempts against 30 of 31, 99 to 1 likely or more: a decline');
+    expect(declined.gate).toEqual(counted.gate);
+    expect(declined.red).toBe(counted.red);
+    expect(declined.early).toMatch(/ it goes red about /);
+    // Below them beyond chance at its share: a drop, which counts too, and the plan names it.
+    const drop = plan({ passes: 40, attempts: 56 }, { passes: 70, attempts: 87, sessions: 15 }, 'warn');
+    expect(drop.counts).toBe('its last 10 sessions sit below the 5 before them, 40 of 56 attempts against 30 of 31, beyond chance at its 0.25% share: a drop');
+    expect(drop.drop).toMatch(/^its last 10 sessions passed 40 of 56 attempts, below the 5 sessions before them, 30 of 31, /);
+    // Below them 4 to 1 likely, as the plan reads it for its max, but not 99 to 1: its inconclusive only warns, and its chance is of failing.
+    const quiet = plan({ passes: 51, attempts: 57 }, { passes: 81, attempts: 88, sessions: 15 }, 'warn');
+    expect(dropProbability({ passes: 51, attempts: 57 }, { passes: 30, attempts: 31 }, 0)).toBeGreaterThan(DECLINE_AT);
+    expect(quiet.inconclusive).toBe('warn');
+    expect(quiet.counts).toBeUndefined();
+    expect(quiet.red).toBeLessThan(plan({ passes: 51, attempts: 57 }, { passes: 81, attempts: 88, sessions: 15 }).red);
+    // Under --inconclusive warn, the session's, every inconclusive only warns, whatever its sessions show.
+    const warned = planSuite(Array.from({ length: 20 }, () => ({ golden: 'goldens/h', gate: history(), maxGiven: false, history: base, ...decline })), { inconclusive: 'warn' })!.planned[0];
+    expect(warned.counts).toBeUndefined();
+    expect(warned.inconclusive).toBeUndefined();
   });
 
   it('holds a pass past 40 to the record for a max the config set too, and works its red rate out under that rule', () => {

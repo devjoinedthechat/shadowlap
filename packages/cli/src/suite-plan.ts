@@ -23,6 +23,8 @@ export interface SessionPlan {
    * too new to tell a drop from chance by its gate's own limit. How many it has, and of how many.
    */
   short: Map<string, { sessions: number; of: number }>;
+  /** Of those, the ones whose inconclusive counts all the same, by name: their last sessions sit below the sessions before them (`PlannedGolden.counts`). */
+  counts: Map<string, string>;
 }
 
 /** The cost of an attempt of a recording that forks: at most what the whole recording's model calls cost. Null with a model that has no price. */
@@ -86,7 +88,7 @@ export function planSession(packs: readonly string[], o: { store: Store; tests: 
   // --max-attempts raises every gate's limit past what the session sized.
   if (o.maxAttempts) for (const p of plan.planned) p.most = Math.max(p.most, o.maxAttempts);
   plan.forecast.most = plan.planned.reduce((n, p) => n + p.most, 0);
-  return { plan, gates: new Map(plan.planned.map((p) => [p.golden, p.gate])), short };
+  return { plan, gates: new Map(plan.planned.map((p) => [p.golden, p.gate])), short, counts: new Map(plan.planned.flatMap((p) => (p.counts ? [[p.golden, p.counts] as const] : []))) };
 }
 
 const count = (n: number) => Math.round(n).toLocaleString('en-US');
@@ -135,8 +137,9 @@ function suiteCounts(plan: SuitePlan): { risk: number; red: number; over: number
  * make its `red` an average over the pass rates their sessions leave open rather than a bound; and
  * `short`, the gates against history whose inconclusive only warns, their history short.
  */
-export function suiteJson(plan: SuitePlan, short = 0): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number; early?: number; drop?: number; averaged?: true; short?: number } {
+export function suiteJson(plan: SuitePlan): { risk: number; perGoldenRisk: number; method: 'bonferroni'; goldens: number; inconclusive: 'fail' | 'warn'; red: number; forecast: SuitePlan['forecast']; over?: number; early?: number; drop?: number; averaged?: true; short?: number } {
   const { over, early, averaged } = suiteCounts(plan);
   const drop = plan.planned.filter((p) => p.drop).length;
+  const short = plan.planned.filter((p) => p.inconclusive === 'warn').length;
   return { risk: plan.risk, perGoldenRisk: plan.perGoldenRisk, method: plan.method, goldens: plan.goldens, inconclusive: plan.inconclusive, red: plan.red, forecast: plan.forecast, ...(over ? { over } : {}), ...(early ? { early } : {}), ...(drop ? { drop } : {}), ...(averaged ? { averaged: true as const } : {}), ...(short ? { short } : {}) };
 }

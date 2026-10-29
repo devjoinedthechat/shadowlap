@@ -361,6 +361,43 @@ describe('shadowlap test with a gate against history', () => {
     expect(counted.report.results[0].warned).toBeUndefined();
     expect(counted.out).not.toContain('needs more history');
   }, 300_000);
+
+  it('counts the inconclusive of a gate against history with too few sessions once its last sessions sit below the ones before them, and says why', async () => {
+    const db = join(work, 'short-decline.db');
+    const clean = cleanCheckout();
+    const shadowlapTest = (tests: unknown, env: NodeJS.ProcessEnv, o: { db?: string; flags?: string[] } = {}) => runTest(tests, env, { ...o, flags: ['--cwd', clean, ...(o.flags ?? [])] });
+    // A window of 2, so its record reads 6 sessions: three that passed, then an agent that passes every other attempt.
+    const tests = { baselineBranch: 'main', 'goldens/reference-agent': { fork: true, gate: { baseline: 'history', max: 5, window: 2 }, expect: CHECKS } };
+    for (let i = 0; i < 3; i++) {
+      const passed = await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
+      expect(passed.code, passed.out).toBe(0);
+    }
+    const flakyRun = async () => {
+      flaky = true;
+      attemptsSeen = 1;
+      try {
+        return await shadowlapTest(tests, { ...FIX, ...ON_MAIN }, { db });
+      } finally {
+        flaky = false;
+      }
+    };
+    // Its last 2 sessions sit no lower than the ones before them, then lower but not 99 to 1: each only warns.
+    for (const sessions of [3, 4]) {
+      const short = await flakyRun();
+      expect(short.code, short.out).toBe(0);
+      expect(short.report.results[0]).toMatchObject({ verdict: 'inconclusive', ok: true, warned: `needs more history: ${sessions} of 6 sessions` });
+    }
+    // Now its last 2, 6 of 10, sit below the 3 before them, 15 of 15, 99 to 1 likely or more: no shortage of history.
+    const declined = await flakyRun();
+    expect(declined.code, declined.out).toBe(3);
+    const result = declined.report.results[0];
+    expect(result).toMatchObject({ verdict: 'inconclusive', ok: false });
+    expect(result.warned).toBeUndefined();
+    expect(result.counted).toMatch(/^counts though it has only 5 of 6 sessions: its last 2 sessions sit below the 3 before them, 6 of 10 attempts against 15 of 15, .*: a (decline|drop)$/);
+    expect(declined.out).toContain(result.counted);
+    expect(declined.out).toContain('1 inconclusive (failing the run: --inconclusive warn lets them through)');
+    expect(declined.junit).not.toContain('<skipped');
+  }, 300_000);
 });
 
 describe('shadowlap test with several gated goldens', () => {
