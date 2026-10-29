@@ -315,6 +315,10 @@ describe('read models on threads beside the server', () => {
     const lines: string[] = [];
     const stuck = new ReadPool({ dbPath, keep: { stats: () => undefined, asks: () => undefined }, size: 1, script: pathToFileURL(script), log: (l) => lines.push(l) });
     try {
+      // The warm-up's first slice over: the first answer comes from the thread the calls job then holds,
+      // not from a spare answering beside that slice.
+      for (let i = 0; i < 400 && !stuck.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(stuck.warmed).toBe(true);
       const first = JSON.parse((await stuck.run({ kind: 'recent', read: {} })).body) as { thread: number };
       const t0 = Date.now();
       const late = stuck.run({ kind: 'calls', runId: 'R', read: {}, from: 1, limit: 500 }, { affinity: 'R' });
