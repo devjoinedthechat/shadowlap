@@ -1,7 +1,7 @@
 // Python framework tests run a script as a subprocess against the harness's in-process sidecar.
 // SHADOWLAP_PYTHON picks the interpreter, before python3 and python, as pythonWith picks one for the
-// suite's own Python tests (packages/cli/test/python-with.ts). A suite skips where no interpreter has
-// its framework installed, but not under CI, whose frameworks job installs every one: there it fails,
+// suite's own Python tests (testing/python-with.mjs). A suite skips where no interpreter has its
+// framework installed, but not under CI, whose frameworks job installs every one: there it fails,
 // saying so, rather than skip and leave the run green. Anywhere, a framework that is installed but
 // raises as it imports fails its suite, with the error.
 import { execFile, spawnSync } from 'node:child_process';

@@ -1,4 +1,4 @@
-import { ACCOUNT_HEADERS, eventStreamMessages, isObject, type Usage } from '@shadowlap/engine';
+import { ACCOUNT_HEADERS, decodedSegment, eventStreamMessages, isObject, type Usage } from '@shadowlap/engine';
 import { PLACEHOLDER_AWS_ACCESS_KEY_ID, PLACEHOLDER_KEY } from './placeholders.js';
 
 /**
@@ -119,15 +119,6 @@ export function withoutHeaderParameters(provider: Provider, headers: Readonly<Re
 function modelInBody(body: unknown): string | null {
   const m = isObject(body) ? body.model : undefined;
   return typeof m === 'string' ? m : null;
-}
-
-/** A path segment decoded, or as it was sent when it doesn't decode (`anthropic.claude%ZZ`): a malformed path names its model as it stands. */
-function decodedSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
 }
 
 /** `models/gemini-2.5-flash:streamGenerateContent` → `gemini-2.5-flash`. */

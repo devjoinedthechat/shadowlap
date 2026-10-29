@@ -91,15 +91,6 @@ export function bareHost(host: string): string {
   return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
 }
 
-/** A path segment decoded, or as it is when it doesn't decode. */
-export function decodedSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
-
 /** An upstream as a run's summary names it: its origin, never a path or a password it may carry. */
 export function originOf(upstream: string): string {
   try {

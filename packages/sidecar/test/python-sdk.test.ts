@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,24 +7,13 @@ import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '../src/index.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /** Drives the Python SDK's test agent as a real subprocess against an in-process sidecar. */
 
 const SCRIPT = fileURLToPath(new URL('../../../sdks/python/tests/agent_script.py', import.meta.url));
 
-function pythonAvailable(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      const v = execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      if (/Python 3\.(9|[1-9]\d)/.test(v)) return cmd;
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-
-const PYTHON = pythonAvailable();
+const PYTHON = pythonCommand();
 
 interface Output {
   active: boolean;

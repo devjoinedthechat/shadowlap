@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer } from '@shadowlap-testing/mock-anthropic';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * Sub-agents that send the same request at the same time, recorded in one order and replayed in the
@@ -16,18 +17,8 @@ const AGENT = fileURLToPath(new URL('./subagents-agent.mjs', import.meta.url));
 const PROCESSES = fileURLToPath(new URL('./subagents-processes.mjs', import.meta.url));
 const PY_PROCESSES = fileURLToPath(new URL('./subagents_processes.py', import.meta.url));
 
-/** A Python with an HTTP library the capture covers (SHADOWLAP_PYTHON picks another interpreter). */
-function python(): string | null {
-  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c)) {
-    try {
-      if (execFileSync(cmd, ['-c', 'import importlib.util as u; print(any(u.find_spec(m) for m in ("httpx", "requests", "urllib3")))'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() === 'True') return cmd;
-    } catch {
-      // next
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+/** A Python with urllib3, the HTTP library its agent falls back to where it has neither httpx nor requests. */
+const PYTHON = pythonCommand('urllib3');
 
 let mock: MockServer;
 let cwd: string;

@@ -461,7 +461,7 @@ class RecordingRules(unittest.TestCase):
         odd = shadowlap.ReplayedError({"name": "Error", "message": "m", "fields": {"with_traceback": 1, "_message": "x", "name": "y", "status": 500, "nested": {"a": 1}}})
         self.assertEqual((str(odd), odd.name, getattr(odd, "status", None), hasattr(odd, "nested"), callable(odd.with_traceback)), ("m", "Error", 500, False, True))
 
-    def test_a_replayed_error_reads_as_the_recorded_one(self):
+    def test_a_replayed_error_reads_as_the_recorded_one(self):  # noqa: PLR0915  (held to its ceiling in lint-caps.json)
         # An agent hands a tool's error to the model as f"error: {err}", or as repr(err) the way
         # LangGraph's ToolNode does: a replay of unchanged code must hand it the same text, or the
         # next model call forks. Recorded through the SDK and the JSON the sidecar stores, then replayed.

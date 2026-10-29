@@ -114,7 +114,7 @@ def _decision(out: Mapping[str, Any], specific: Mapping[str, Any]) -> Optional[t
     return None
 
 
-def combine(answers: Sequence[Answer], event: str) -> dict[str, Any]:
+def combine(answers: Sequence[Answer], event: str) -> dict[str, Any]:  # noqa: C901  (held to its ceiling in lint-caps.json)
     """Hooks' answers put together: the most restrictive decision with its reason (deny, then defer, ask
     and allow); the last rewrite of the input or the output, in the order the hooks were given; every
     context and message, joined; a stop when any asks for one. A hook that ran out of time blocks a

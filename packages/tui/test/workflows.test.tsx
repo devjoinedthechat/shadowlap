@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { fixRecords, needsConsent, recordBlame, repairArgv, repairJobArgv, selectedRuns, Store, unpackRun, verifyArgv, type StoredFix } from '@shadowlap/engine';
+import { blameCheckFor, fixRecords, needsConsent, recordBlame, repairArgv, repairJobArgv, selectedRuns, Store, unpackRun, verifyArgv, type StoredFix } from '@shadowlap/engine';
 import { blameReport } from '../../engine/test/fix-fixtures.js';
 import { fitAbout } from '../src/about.js';
 import { App } from '../src/app.js';
 import { markTerms } from '../src/components/SearchResults.js';
-import { blameCheck, expectError, fixActions, fixJob, settleJob, type BlameAction, type FixAction } from '../src/fix-actions.js';
+import { expectError, fixActions, fixJob, settleJob, type BlameAction, type FixAction } from '../src/fix-actions.js';
 import { queryTerms, readSearch, searchArgs } from '../src/search.js';
 import { renderAt } from './terminal.js';
 
@@ -83,17 +83,20 @@ describe('the Fixes flow from the terminal', () => {
     const { s, own, golden } = stores();
     const run = s.getRun(own)!;
     // It failed a check nothing names: blaming on the exit alone would look for another failure.
-    expect(blameCheck(s, run)).toBeNull();
+    expect(blameCheckFor(s, run)).toBeNull();
     const b = blameOf(fixActions(s, run, { failing: true, recording: false }));
     expect([b.key, b.needsExpect, b.disabled ?? null]).toEqual(['B', true, null]);
     expect(b.build('{"tools":{"send_email":1}}')).toEqual(['blame', own, '--expect', '{"tools":{"send_email":1}}']);
     expect(expectError('', true)).toContain('say what a passing run does');
     // Its replay's --expect, then the fix it fails in, then an exit with an error.
-    expect(blameCheck(s, { ...run, meta: { ...run.meta, expect: { tools: { send_email: 1 } } } })).toEqual({ expect: { tools: { send_email: 1 } }, from: 'replay' });
+    expect(blameCheckFor(s, { ...run, meta: { ...run.meta, expect: { tools: { send_email: 1 } } } })).toEqual({ expect: { tools: { send_email: 1 } }, from: 'replay' });
     s.insertFix({ fixId: 'fx-1', title: 't', labels: [], check: { expect: { tools: { send_email: 0 } }, key: 'k', oracle: [], text: 'x' }, status: 'open', openedAt: 1, verifiedAt: null, appliedAt: null, data: {} });
     s.addFixLink('fx-1', 'failing', own);
-    expect(blameCheck(s, run)).toEqual({ expect: { tools: { send_email: 0 } }, from: 'fix' });
-    expect(blameCheck(s, { ...s.getRun(golden)!, status: 'failed', meta: {} })).toEqual({ expect: null, from: 'exit' });
+    expect(blameCheckFor(s, run)).toEqual({ expect: { tools: { send_email: 0 } }, from: 'fix' });
+    expect(blameCheckFor(s, { ...s.getRun(golden)!, status: 'failed', meta: {} })).toEqual({ expect: null, from: 'exit' });
+    // A check that could not be decided is no failure to look for: the exit is blamed on, as the dashboard blames it.
+    const undecided = { ...s.getRun(golden)!, status: 'failed' as const, meta: { checks: [{ ok: false, status: 'inconclusive' as const, label: 'judge: the reply is polite', detail: null }] } };
+    expect(blameOf(fixActions(s, undecided, { failing: true, recording: false }))).toMatchObject({ expect: '', needsExpect: false, from: 'judged by the agent’s exit: it exited with an error' });
     // Not for a run that passed, or one still recording.
     expect(fixActions(s, s.getRun(golden)!, { failing: false, recording: false })[0].disabled).toBe('for a run that failed');
     expect(fixActions(s, run, { failing: true, recording: true })[0].disabled).toBe('once the recording finishes');

@@ -115,4 +115,28 @@ describe('what shadowlap test prints of a failed golden, in a CI log', () => {
     expect(r.out).toContain('    node: --import is not allowed in NODE_OPTIONS\n    :\\x3astop-commands::tok\n      :\\x3aerror::forged\n');
     expect(commandsIn(r.out)).toEqual([]);
   }, 60_000);
+
+  // A folder's name can hold a line break where the system allows one (Windows doesn't), and a pull request can add the folder.
+  it.skipIf(process.platform === 'win32')("keeps a golden's folder name from starting a workflow command, in its lines, its annotation and the summary", async () => {
+    const recorded = await shadowlap(['run', '--summary-json', 'named.json', '--', process.execPath, AGENT]);
+    expect(recorded.code, recorded.out).toBe(0);
+    const runId = (JSON.parse(readFileSync(join(work, 'named.json'), 'utf8')) as { summary: { runId: string } }).summary.runId;
+    const golden = 'goldens/named\n::error::x';
+    expect((await shadowlap(['pack', runId, golden])).code).toBe(0);
+    // A check it fails, so that it has an annotation of its own.
+    writeFileSync(join(work, 'shadowlap.config.json'), JSON.stringify({ tests: { [golden]: { expect: { tools: { issue_refund: 0 } } } } }));
+    const summary = join(work, 'summary.md');
+    const r = await shadowlap(['test', golden, '--annotations', '--markdown', summary]);
+    expect(r.code, r.out).toBe(1);
+    // Named as every line names a golden, by its folder under goldens/, the line break written \\n.
+    expect(r.out).toContain('✗ named\\n::error::x: check failed');
+    expect(r.out).toContain('[shadowlap] replaying run ');
+    expect(r.out).toContain(' for goldens/named\\n::error::x\n');
+    // The one command is the annotation the test writes, its title the name with its line break escaped.
+    expect(commandsIn(r.out)).toEqual([expect.stringMatching(/^::error file=goldens\/named%0A%3A%3Aerror%3A%3Ax\/run\.json,title=Shadowlap%3A named%0A%3A%3Aerror%3A%3Ax::/)]);
+    // No line starts with the name's own command, in the log or in the job's summary, where the name keeps its line.
+    const md = readFileSync(summary, 'utf8');
+    expect([...r.out.split('\n'), ...md.split('\n')].filter((l) => /^\s*::error::x/.test(l))).toEqual([]);
+    expect(md).toContain('| ❌ | `named ::error::x` |');
+  }, 60_000);
 });

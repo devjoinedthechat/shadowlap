@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { guardEnv } from '../src/index.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * The network guard, in real child processes: a Node script and a Python script each try to reach
@@ -17,17 +18,7 @@ import { guardEnv } from '../src/index.js';
 const run = promisify(execFile);
 const GUARD_DIR = fileURLToPath(new URL('../guard/', import.meta.url));
 
-function python(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      if (/Python 3\.(9|[1-9]\d)/.test(execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString())) return cmd;
-    } catch {
-      // next
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+const PYTHON = pythonCommand();
 
 let store: Store;
 let sidecar: Sidecar;

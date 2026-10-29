@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * `--fail-at <call>=timeout|error` on an HTTP host recorded as a tool: the agent's HTTP client raises
@@ -17,19 +18,9 @@ const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const NODE_AGENT = fileURLToPath(new URL('./http-failure-agent.mjs', import.meta.url));
 const PYTHON_AGENT = fileURLToPath(new URL('./http_failure_agent.py', import.meta.url));
 
-/** The Python to run, and which of its HTTP libraries it has (SHADOWLAP_PYTHON picks another interpreter). */
-function python(): { cmd: string; libraries: string[] } | null {
-  for (const cmd of [process.env.SHADOWLAP_PYTHON, 'python3', 'python'].filter((c): c is string => !!c)) {
-    try {
-      const found = execFileSync(cmd, ['-c', 'import importlib.util as u; print(",".join(m for m in ("requests", "urllib3", "httpx") if u.find_spec(m)))'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-      return { cmd, libraries: found ? found.split(',') : [] };
-    } catch {
-      // the next one
-    }
-  }
-  return null;
-}
-const PYTHON = python();
+/** The HTTP libraries the Python agent reads with, each failed in turn. */
+const LIBRARIES = ['requests', 'urllib3', 'httpx'];
+const PYTHON = pythonWith(...LIBRARIES);
 
 let server: Server;
 let cwd: string;
@@ -105,11 +96,10 @@ describe('an HTTP tool failed with --fail-at, from Node', () => {
   });
 });
 
-describe.skipIf(!PYTHON?.libraries.length)('an HTTP tool failed with --fail-at, from Python', () => {
+describe.skipIf(!PYTHON)('an HTTP tool failed with --fail-at, from Python', () => {
   it('raises the timeout and the connection error each library raises for the real thing', async () => {
-    const libraries = PYTHON!.libraries;
-    const { runId, calls } = await record([PYTHON!.cmd, PYTHON_AGENT]);
-    expect(calls).toBe(libraries.length);
+    const { runId, calls } = await record([...PYTHON!, PYTHON_AGENT]);
+    expect(calls).toBe(LIBRARIES.length);
     const before = hits;
     const timeout = report((await shadowlap(['replay', runId, ...failEvery(calls, 'timeout')])).stdout);
     const error = report((await shadowlap(['replay', runId, ...failEvery(calls, 'error:connection reset by peer')])).stdout);
@@ -118,7 +108,7 @@ describe.skipIf(!PYTHON?.libraries.length)('an HTTP tool failed with --fail-at, 
       urllib3: ['urllib3.exceptions.ReadTimeoutError', 'urllib3.exceptions.ProtocolError', /Connection aborted\..*connection reset by peer/],
       httpx: ['httpx.ReadTimeout', 'httpx.ReadError', /^connection reset by peer$/],
     };
-    for (const library of libraries) {
+    for (const library of LIBRARIES) {
       const [timedOut, failed, message] = expected[library];
       expect(timeout[library], library).toMatchObject({ error: timedOut });
       expect(error[library], library).toMatchObject({ error: failed, message: expect.stringMatching(message) });

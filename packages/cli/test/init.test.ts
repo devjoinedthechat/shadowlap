@@ -5,7 +5,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { plain } from '@shadowlap/engine';
-import { formatInit, inspectProject, suggestEffect, writeInitialConfig } from '../src/init.js';
+import { inspectProject, writeInitialConfig } from '../src/init.js';
+import { formatInit } from '../src/init-format.js';
+import { suggestEffect } from '../src/init-tools.js';
 import { CONFIG_SCHEMA_URL } from '../src/config.js';
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));

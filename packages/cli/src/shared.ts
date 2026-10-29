@@ -223,6 +223,13 @@ export function givenCommand(argv: readonly string[], name: string): string[] {
   return ['shadowlap', ...(args[i] === name ? args.slice(i) : [name, ...args.slice(i)])];
 }
 
+/** `--budget 0.50` or `--budget $0.50`: an amount in USD, more than nothing. */
+export function parseUsd(value: string): number {
+  const n = Number(value.replace(/^\$/, ''));
+  if (!Number.isFinite(n) || n <= 0) throw new InvalidArgumentError('must be an amount in USD, such as 0.50');
+  return n;
+}
+
 export function parseIntArg(value: string): number {
   const n = Number.parseInt(value, 10);
   if (!Number.isFinite(n) || n < 1) throw new InvalidArgumentError('must be a positive integer');

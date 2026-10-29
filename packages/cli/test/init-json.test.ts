@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { ProjectRegistry } from '@shadowlap/engine';
-import { initFindings, initJson, inspectProject, noteInspected, writeInitialConfig, wrapSnippets, type InitJson } from '../src/init.js';
+import { inspectProject, writeInitialConfig } from '../src/init.js';
+import { initFindings, initJson, noteInspected, wrapSnippets, type InitJson } from '../src/init-format.js';
 
 const CLI = fileURLToPath(new URL('../bin/shadowlap.js', import.meta.url));
 const dirs: string[] = [];

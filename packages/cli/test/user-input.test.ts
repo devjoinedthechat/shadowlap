@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { message, startMockAnthropic, text, type MockServer, type Script } from '@shadowlap-testing/mock-anthropic';
 import { inputIdentity } from '../src/run-agent.js';
+import { pythonCommand } from '../../../testing/python-with.mjs';
 
 /**
  * What a person types is recorded as `user_input` calls, so an interactive agent replays, tests and
@@ -22,18 +23,7 @@ const PY_SDK = fileURLToPath(new URL('../../../sdks/python', import.meta.url));
 const MOCK_MODEL = fileURLToPath(new URL('../../../examples/support-chat/mock_model.mjs', import.meta.url));
 const GUARD = fileURLToPath(new URL('../guard/', import.meta.url));
 
-function pythonAvailable(): string | null {
-  for (const cmd of ['python3', 'python']) {
-    try {
-      const v = execFileSync(cmd, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-      if (/Python 3\.(9|[1-9]\d)/.test(v)) return cmd;
-    } catch {
-      // try the next one
-    }
-  }
-  return null;
-}
-const PYTHON = pythonAvailable();
+const PYTHON = pythonCommand();
 
 /**
  * A person typing is played here through a pipe, each answer written once its prompt shows: CI has

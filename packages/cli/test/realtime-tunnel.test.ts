@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
-import { pythonWith } from './python-with.js';
+import { pythonWith } from '../../../testing/python-with.mjs';
 
 /**
  * A Realtime WebSocket end to end, through `shadowlap run`: the OpenAI SDK's Realtime client makes a
