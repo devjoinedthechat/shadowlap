@@ -71,13 +71,13 @@ jobs:
         run: |
           if [ -n "$LATEST" ]; then
             npm install --no-save ai@latest @ai-sdk/anthropic@latest @openai/agents@latest @mastra/core@latest @langchain/core@latest @langchain/langgraph@latest @langchain/openai@latest @langchain/anthropic@latest langchain@latest @anthropic-ai/sdk@latest zod@latest @aws-sdk/client-bedrock-runtime@latest @anthropic-ai/bedrock-sdk@latest @anthropic-ai/vertex-sdk@latest @google/genai@latest openai@latest jest@latest @anthropic-ai/claude-agent-sdk@latest
-            python -m pip install --quiet pydantic-ai-slim openai-agents langgraph langchain-core langchain langchain-openai crewai boto3 "anthropic[vertex]" google-adk llama-index-core llama-index-llms-anthropic agent-framework-core agent-framework-openai strands-agents smolagents agno claude-agent-sdk pytest pytest-xdist
+            python -m pip install --quiet pydantic-ai-slim openai-agents langgraph langchain-core langchain langchain-openai crewai boto3 "anthropic[vertex]" google-adk llama-index-core llama-index-llms-anthropic llama-index-llms-openai agent-framework-core agent-framework-openai strands-agents smolagents agno claude-agent-sdk pytest pytest-xdist
           else
             npm ci
-            python -m pip install --quiet pydantic-ai-slim==2.43.0 openai-agents==0.20.0 langgraph==1.2.11 langchain-core==1.6.3 langchain==1.4.3 langchain-openai==1.6.2 crewai==1.15.22 boto3==1.43.96 "anthropic[vertex]==1.6.0" google-adk==2.12.0 llama-index-core==0.14.25 llama-index-llms-anthropic==0.12.3 agent-framework-core==1.23.0 agent-framework-openai==1.17.0 strands-agents==1.62.0 smolagents==1.26.0 agno==3.1.10 claude-agent-sdk==0.2.173 pytest==8.4.2 pytest-xdist==3.8.0
+            python -m pip install --quiet pydantic-ai-slim==2.43.0 openai-agents==0.20.0 langgraph==1.2.11 langchain-core==1.6.3 langchain==1.4.3 langchain-openai==1.6.2 crewai==1.15.22 boto3==1.43.96 "anthropic[vertex]==1.6.0" google-adk==2.12.0 llama-index-core==0.14.25 llama-index-llms-anthropic==0.12.3 llama-index-llms-openai==0.8.3 agent-framework-core==1.23.0 agent-framework-openai==1.17.0 strands-agents==1.62.0 smolagents==1.26.0 agno==3.1.10 claude-agent-sdk==0.2.173 pytest==8.4.2 pytest-xdist==3.8.0
           fi
           npm ls ai @ai-sdk/anthropic @openai/agents @mastra/core @langchain/core @langchain/langgraph @langchain/openai @langchain/anthropic langchain @anthropic-ai/sdk zod jest @anthropic-ai/claude-agent-sdk --depth=0 || true
-          python -m pip list 2>/dev/null | grep -iE '^(pydantic-ai-slim|openai-agents|langgraph|langchain-core|langchain|langchain-openai|crewai|boto3|anthropic|google-adk|llama-index-core|llama-index-llms-anthropic|agent-framework-core|agent-framework-openai|strands-agents|smolagents|agno|claude-agent-sdk|pytest|pytest-xdist) '
+          python -m pip list 2>/dev/null | grep -iE '^(pydantic-ai-slim|openai-agents|langgraph|langchain-core|langchain|langchain-openai|crewai|boto3|anthropic|google-adk|llama-index-core|llama-index-llms-anthropic|llama-index-llms-openai|agent-framework-core|agent-framework-openai|strands-agents|smolagents|agno|claude-agent-sdk|pytest|pytest-xdist) '
       - name: Test
         working-directory: testing/frameworks
         shell: bash

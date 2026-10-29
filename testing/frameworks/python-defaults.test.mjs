@@ -1,13 +1,14 @@
 // Python frameworks on the model client each builds when given none, run by the real CLI as a user
 // runs them: `shadowlap run -- python agent.py`, with nothing in the agent naming Shadowlap's address.
 // Strands' BedrockModel, Agno's OpenAIResponses, Microsoft Agent Framework's OpenAIChatClient (the
-// Responses API), LlamaIndex's OpenAI LLM and smolagents' CodeAgent. Each asks a scripted model API to
+// Responses API), LlamaIndex's OpenAI LLM, and smolagents' CodeAgent on OpenAIServerModel and on its
+// default InferenceClientModel (Hugging Face's router, a host the config declares). Each asks a scripted model API to
 // research QUERY and email the team: a recording with both tools run, a strict replay with the
 // upstream unreachable that runs no tool, and a fork on another QUERY where the email is blocked, the
 // framework hands the refusal to its model, and the run completes.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +57,17 @@ async function openaiModel() {
   return { mock, upstream: { SHADOWLAP_UPSTREAM_OPENAI: mock.url }, count: () => mock.requests.length + mock.otherRequests.length, env: { OPENAI_API_KEY: 'sk-placeholder' } };
 }
 
+/**
+ * Chat Completions for a CodeAgent, which acts by writing Python: each turn is code in <code> tags
+ * that calls a tool and prints what it returns, or ends with final_answer. Read from the conversation
+ * without its system prompt, whose worked examples would read as steps already taken.
+ */
+async function codeModel(upstream, env) {
+  const code = (t) => (t.tool ? `print(${t.tool[0]}(${Object.entries(t.tool[1]).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')}))` : `final_answer(${JSON.stringify(t.text)})`);
+  const mock = await startMockOpenAI({ script: ({ request }) => ({ turn: turn(`Thought: the next step.\n<code>\n${code(next(request.messages.filter((m) => m.role !== 'system')))}\n</code>`) }) });
+  return { mock, upstream: { [upstream]: mock.url }, count: () => mock.requests.length + mock.otherRequests.length, env };
+}
+
 const CASES = [
   {
     name: 'Strands Agents on its default BedrockModel (ConverseStream through boto3)',
@@ -96,6 +108,29 @@ const CASES = [
     provider: 'openai',
     refused: (value) => assert.ok(value.results.some((r) => r.name === 'send_email' && r.is_error && /blocked/.test(r.output)), JSON.stringify(value.results)),
   },
+  {
+    name: "smolagents' CodeAgent on OpenAIModel (the tools called from the Python it writes)",
+    module: 'smolagents, openai',
+    script: 'smolagents_code.py',
+    model: () => codeModel('SHADOWLAP_UPSTREAM_OPENAI', { OPENAI_API_KEY: 'sk-placeholder' }),
+    client: 'OpenAIModel',
+    provider: 'openai',
+    refused: (value) => assert.ok(value.errors.some((e) => /blocked/.test(e)), JSON.stringify(value.errors)),
+  },
+  {
+    // smolagents' default model calls Hugging Face's router, which Shadowlap doesn't know: the
+    // project's config declares it, in OpenAI's format. A replay needs HF_TOKEN set, to any hf_ value.
+    // huggingface_hub looks up, once a day, which coding agent runs it: a connection outside Shadowlap.
+    name: "smolagents' CodeAgent on its default InferenceClientModel (Hugging Face's router, declared in the config)",
+    module: 'smolagents, huggingface_hub',
+    script: 'smolagents_code.py',
+    model: () => codeModel('SHADOWLAP_UPSTREAM_ROUTER_HUGGINGFACE_CO', { HF_TOKEN: 'hf_placeholder', HF_HUB_DISABLE_TELEMETRY: '1', MODEL: 'inference' }),
+    config: { providers: [{ host: 'router.huggingface.co', format: 'openai', root: '/v1' }] },
+    client: 'InferenceClientModel',
+    provider: 'openai',
+    via: 'router.huggingface.co',
+    refused: (value) => assert.ok(value.errors.some((e) => /blocked/.test(e)), JSON.stringify(value.errors)),
+  },
 ];
 
 let dir;
@@ -108,21 +143,25 @@ for (const c of CASES) {
   const PYTHON = findPython(c.module);
   describe(c.name, { skip: PYTHON ? false : `no Python with ${c.module} (set SHADOWLAP_PYTHON)` }, () => {
     let model;
+    let cwd;
     let db;
     let recordedRun;
     let recorded;
     before(async () => {
       model = await c.model();
-      db = join(dir, `${CASES.indexOf(c)}.db`);
+      // A folder of the case's own, for its config: run and replay keep their active-run file in the one they run in.
+      cwd = join(dir, String(CASES.indexOf(c)));
+      mkdirSync(cwd);
+      if (c.config) writeFileSync(join(cwd, 'shadowlap.config.json'), JSON.stringify(c.config));
+      db = join(cwd, 'store.db');
     });
     after(() => model.mock.close());
 
-    // In the test's own folder: run and replay keep their active-run file in the one they run in.
     const shadowlap = async (args, extra) => {
       const env = { ...process.env, SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1', ...model.env, ...c.env, ...extra };
       for (const k of Object.keys(env)) if (/^(OPENAI|ANTHROPIC)_BASE_URL$|^SHADOWLAP_(URL|RUN_ID)$/.test(k)) delete env[k];
       try {
-        const { stdout, stderr } = await promisify(execFile)(process.execPath, [CLI, '--db', db, ...args], { cwd: dir, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+        const { stdout, stderr } = await promisify(execFile)(process.execPath, [CLI, '--db', db, ...args], { cwd, env, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
         return { code: 0, out: stdout + stderr, stdout };
       } catch (err) {
         return { code: err.code ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}`, stdout: err.stdout ?? '' };
@@ -151,7 +190,7 @@ for (const c of CASES) {
       const { calls } = callsOf(recordedRun);
       const api = calls.filter((x) => x.kind === 'api');
       assert.equal(api.length, 3, JSON.stringify(calls.map((x) => x.name)));
-      assert.ok(api.every((x) => x.origin === 'live' && x.end?.outcome === 'ok' && x.meta.provider === c.provider), JSON.stringify(api.map((x) => [x.name, x.meta.provider, x.end?.outcome])));
+      assert.ok(api.every((x) => x.origin === 'live' && x.end?.outcome === 'ok' && x.meta.provider === c.provider && x.meta.via === c.via), JSON.stringify(api.map((x) => [x.name, x.meta.provider, x.meta.via, x.end?.outcome])));
       assert.deepEqual(toolTrace(calls), ['search_web:read:live:ok', 'send_email:write:live:ok']);
       assert.equal(model.count(), 3);
     });
