@@ -271,6 +271,77 @@ describe('read models on threads beside the server', () => {
     }
   }, 30_000);
 
+  it('answers on a spare thread what waits behind two long requests, once it has waited a moment', async () => {
+    const { pool: two, said } = timedPool({ compare: 4000 }, 'spare-requests');
+    const order: string[] = [];
+    const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // Two whole Compares, one on each thread.
+      const compares = [noted('compare', two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null })), noted('compare', two.run({ kind: 'compare', a: 'C', b: 'D', cwd: null }))];
+      // A small run's page behind them: a third thread answers it, once it has waited a moment.
+      const t0 = Date.now();
+      const page = await noted('page', two.run({ kind: 'calls', runId: 'S', read: {}, from: 1, limit: 500 }, { affinity: 'S', calls: 30 }));
+      expect(order).toEqual(['page']);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(READ_LIMITS.spareAfterMs - 20);
+      const [a, b] = await Promise.all(compares);
+      expect(new Set([a.thread, b.thread, page.thread]).size).toBe(3);
+      expect(order).toEqual(['page', 'compare', 'compare']);
+    } finally {
+      await two.close();
+    }
+  }, 30_000);
+
+  it('hands a long run’s whole request to another thread once its holder has kept it waiting, with the run and what waits for it', async () => {
+    const { pool: two, said } = timedPool({ compare: 4000 }, 'handed-jobs');
+    const was = READ_LIMITS.stealLongMs;
+    READ_LIMITS.stealLongMs = 800;
+    const order: string[] = [];
+    const noted = (name: string, p: Promise<{ body: string }>) => p.then((a) => (order.push(name), said(a)));
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // One thread reads a run of 100,000 calls: it holds it. Then two whole Compares take both threads.
+      const holder = said(await two.run({ kind: 'calls', runId: 'BIG', read: {}, from: 1, limit: 500 }, { affinity: 'BIG', calls: 100_000 })).thread;
+      const compares = [noted('compare', two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null })), noted('compare', two.run({ kind: 'compare', a: 'C', b: 'D', cwd: null }))];
+      // The long run's tools, then its JSON: both wait for the holder a while, then a third thread takes
+      // the tools with the run, and the JSON follows them there rather than read the run on yet another.
+      const tools = noted('tools', two.run({ kind: 'unrecorded', runId: 'BIG', declared: {} }, { affinity: 'BIG', calls: 100_000 }));
+      const json = noted('json', two.run({ kind: 'show', runId: 'BIG', read: {} }, { affinity: 'BIG', calls: 100_000 }));
+      const [t, j] = await Promise.all([tools, json]);
+      expect(t.thread).not.toBe(holder);
+      expect(j.thread).toBe(t.thread);
+      await Promise.all(compares);
+      expect(order).toEqual(['tools', 'json', 'compare', 'compare']);
+      // The run is that thread's now: its next request goes there, though the holder is free.
+      expect(said(await two.run({ kind: 'unrecorded', runId: 'BIG', declared: {} }, { affinity: 'BIG', calls: 100_000 })).thread).toBe(t.thread);
+    } finally {
+      READ_LIMITS.stealLongMs = was;
+      await two.close();
+    }
+  }, 30_000);
+
+  it('hands a long run’s whole request over a moment after its holder starts what can wait on another run', async () => {
+    const { pool: two, said } = timedPool({ analyse: 3000 }, 'handed-behind-analysis');
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      // One thread reads a run of 100,000 calls, then answers run R's first page, whose whole analysis
+      // it starts once both threads are free: a slice of what can wait that takes seconds.
+      const holder = said(await two.run({ kind: 'calls', runId: 'BIG', read: {}, from: 1, limit: 500 }, { affinity: 'BIG', calls: 100_000 })).thread;
+      expect(said(await two.run({ kind: 'run', runId: 'R', read: {} }, { affinity: 'R', calls: 5000 })).thread).toBe(holder);
+      await new Promise((r) => setTimeout(r, 50));
+      // The long run's tools wait for the holder a moment only, then go to the free thread with the run.
+      const t0 = Date.now();
+      const tools = said(await two.run({ kind: 'unrecorded', runId: 'BIG', declared: {} }, { affinity: 'BIG', calls: 100_000 }));
+      const took = Date.now() - t0;
+      expect(tools.thread).not.toBe(holder);
+      expect(took).toBeGreaterThanOrEqual(2 * READ_LIMITS.warmSliceMs - 20);
+      expect(took).toBeLessThan(2500);
+      expect(said(await two.run({ kind: 'show', runId: 'BIG', read: {} }, { affinity: 'BIG', calls: 100_000 })).thread).toBe(tools.thread);
+    } finally {
+      await two.close();
+    }
+  }, 30_000);
+
   it('leaves a run with the thread that holds it: a long one’s whole request waits for it, a short one’s is taken but stays its', async () => {
     const { pool: two, said } = timedPool({ 'injection-run': 1500, unrecorded: 300 }, 'holder-jobs');
     try {
