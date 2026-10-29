@@ -279,7 +279,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
 
             setattr(transport, "sendto", guarded_sendto)
 
-    def _patch_uvloop(module: types.ModuleType) -> None:
+    def _patch_uvloop(module: types.ModuleType) -> None:  # noqa: C901  (held to its ceiling in lint-caps.json)
         """uvloop connects, resolves and sends in libuv, out of the socket module's sight."""
         loop = getattr(module, "Loop", None)
         if loop is None or getattr(loop, "_shadowlap_guard", False):
