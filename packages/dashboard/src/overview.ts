@@ -1,4 +1,4 @@
-import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type RunOutcome, type RunStatus, type Store, type StoreOf } from '@shadowlap/engine';
+import { countOrigins, emptyOriginCounts, fixOfRun, importedRecording, lostAt, originCells, sumCacheUse, type OriginCounts, type RunAbout, type RunKind, type RunOutcome, type RunStatus, type Store } from '@shadowlap/engine';
 import { fixesSummary, needsLookFixes, type PatchCheck } from './fixes.js';
 import { upgradeLooks } from './looks.js';
 import { links } from './links.js';
