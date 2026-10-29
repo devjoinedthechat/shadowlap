@@ -293,14 +293,15 @@ describe('shadowlap test with a gate against history', () => {
     expect(path[9]).toBeGreaterThan(0.95);
 
     // A change that makes it email again: every attempt fails, against its history. The session that
-    // failed is no part of it: the baseline is still the agent before the drop, 10 of 10. Its last
-    // sessions, the one that failed among them, sit below that baseline: no more than its own 40.
+    // failed is no part of it: the baseline is still the agent before the drop, 10 of 10. With 3
+    // sessions there are none before its last 10 to tell a drop against: a pass past 40 is held to
+    // all three, the one that failed among them.
     const broken = await shadowlapTest(tests, { ...FORKS_AND_EMAILS, ...ON_MAIN }, { db });
     expect(broken.code).toBe(1);
-    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, max: 40, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
-    expect(broken.report.results[0].gate.widened).toBeUndefined();
-    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · ${rule}`);
-    expect(broken.out).toContain('goldens/reference-agent: only 3 sessions yet: against its baseline (10 of 10) it goes red about 49% of the time, averaged over the pass rates its last 3 sessions leave open (15 of 20 attempts passed)');
+    expect(broken.report.results[0]).toMatchObject({ verdict: 'failed', gate: { decision: 'fail', attempts: 5, widened: { from: 40, record: { passes: 15, attempts: 20, sessions: 3 }, risk: 0.05 }, evidence: { history: { passes: 10, attempts: 10, sessions: 2 } } } });
+    const brokenMax = broken.report.results[0].gate.max as number;
+    expect(broken.out).toContain(`✗ reference-agent: failed · 0 of 5 · rate <= 0.53 (95%) · against 1.00 over the last 2 sessions (10 of 10) · gate: fails a drop of 15+ points from its last 10 sessions once 95% likely, from 5 attempts up to ${brokenMax}${brokenMax > 40 ? ', and past 40 passes only once that drop from every attempt of its last 3 sessions (15 of 20) is 5% likely or less' : ''}`);
+    expect(broken.out).toMatch(/goldens\/reference-agent: only 3 sessions yet: against its baseline \(10 of 10\) it goes red about \d+% of the time, averaged over the pass rates its last 3 sessions leave open \(15 of 20 attempts passed\)/);
 
     // A pull request's session that passes is kept, and is still no part of the baseline.
     const pr = await shadowlapTest(tests, { ...FIX, ...ON_PR }, { db });

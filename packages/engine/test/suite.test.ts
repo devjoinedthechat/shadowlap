@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BASELINE_DEFAULTS, RECORDING_BASELINE, SPRT_DEFAULTS, decide, describeGate, dropProbability, gateOdds, type BaselineGate, type SprtGate, type Tally } from '../src/stats.js';
+import { BASELINE_DEFAULTS, RECORDING_BASELINE, SPRT_DEFAULTS, decide, describeGate, dropProbability, gateOdds, lnGamma, type BaselineGate, type SprtGate, type Tally } from '../src/stats.js';
 import { DECLINE_AT, INCONCLUSIVE_AT_GOOD, PLANNED_FAILURES, SUITE_RISK, planSuite, type SuiteGolden } from '../src/suite.js';
 
 /**
@@ -106,8 +106,9 @@ describe('planSuite', () => {
   it('gives a gate against history its share as its risk, and works out its red rate over every pass rate its sessions leave open', () => {
     const base = { passes: 47, attempts: 50 };
     const one = planSuite([{ golden: 'goldens/h', gate: history(), maxGiven: false, history: base }])!.planned[0];
-    // One golden: its gate as it was, within the whole 5%, worked out around the mean of the rates its baseline leaves open, one failure more.
-    expect(one.gate).toEqual(history());
+    // One golden: its gate as it was, within the whole 5%, worked out around the mean of the rates its baseline leaves open, one failure more;
+    // past its own max, should it be raised, a pass held to its record, here its baseline, as a caller that gives no record has it.
+    expect(one.gate).toEqual({ ...history(), widened: { from: BASELINE_DEFAULTS.max, record: base, risk: BASELINE_DEFAULTS.risk } });
     expect(one.red).toBeCloseTo(redOver(history(), base, base), 12);
     expect(one.red).toBeLessThanOrEqual(0.05);
     expect(one.at).toBeCloseTo(48 / 53, 12);
@@ -130,7 +131,9 @@ describe('planSuite', () => {
     expect(PAGE.includes(`\`gate: ${describeGate(g)}\``), 'docs/gating.md shows the widened rule').toBe(true);
     // With a record as good as its baseline, its own max does.
     const steady = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: history(), maxGiven: false, history: base, sessions: { passes: 53, attempts: 56 }, record: { passes: 160, attempts: 170, sessions: 30 } })))!.planned[0];
-    expect(steady.gate).toEqual(history({ risk: 0.0025 }));
+    expect(steady.gate).toEqual(history({ risk: 0.0025, widened: { from: 40, record: { passes: 160, attempts: 170, sessions: 30 }, risk: 0.05 } }));
+    // Its rule says nothing of the record until its max comes past 40.
+    expect(describeGate(steady.gate)).toBe('fails a drop of 15+ points from its last 10 sessions once 99.75% likely, from 5 attempts up to 40');
     expect(steady.red).toBeLessThanOrEqual(0.0025);
     // A caller that gives no record: its baseline is what the plan sizes for, and what a pass past 40 holds to.
     const bare = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: history(), maxGiven: false, history: base })))!.planned[0];
@@ -158,32 +161,44 @@ describe('planSuite', () => {
     expect(p.attempts).toBeCloseTo(attemptsOver(g, base, sessions), 9);
   });
 
-  it('reads a drop when its last sessions sit below its baseline beyond chance at its share, and runs as its baseline asks, at its own max', () => {
+  it('reads a drop when its last sessions sit below the sessions before them beyond chance at its share, and runs as its baseline asks, at its own max', () => {
     const base = { passes: 47, attempts: 50 };
     // 20 sessions as the baseline shows the agent, then 10 at about 70%.
     const record = { passes: 105 + 40, attempts: 112 + 56, sessions: 30 };
     const sessions = { passes: 40, attempts: 56 };
-    expect(dropProbability(sessions, base, 0)).toBeGreaterThan(1 - 0.0025);
+    expect(dropProbability(sessions, { passes: 105, attempts: 112 }, 0)).toBeGreaterThan(1 - 0.0025);
     const p = planSuite(Array.from({ length: 20 }, () => ({ golden: 'goldens/h', gate: history(), maxGiven: false, history: base, sessions, record })))!.planned[0];
-    expect(p.drop).toBe("its last 10 sessions passed 40 of 56 attempts, below its baseline's 47 of 50 beyond chance at its 0.25% share: a drop, or a baseline that came out lucky; it runs as its baseline asks, at its share, up to its 40 attempts");
+    expect(p.drop).toBe('its last 10 sessions passed 40 of 56 attempts, below the 20 sessions before them, 105 of 112, beyond chance at its 0.25% share: a drop; it runs as its baseline asks, at its share, up to its 40 attempts');
     expect(PAGE.includes(`\`${p.drop}\``), 'docs/gating.md shows the drop').toBe(true);
     expect(p.over).toBeUndefined();
-    expect(p.gate).toEqual(history({ risk: 0.0025 }));
+    // Raised past 40, a pass is held to the agent before the drop: the 20 sessions before its last 10.
+    expect(p.gate).toEqual(history({ risk: 0.0025, widened: { from: 40, record: { passes: 105, attempts: 112, sessions: 20 }, before: 10, risk: 0.05 } }));
+    expect(describeGate({ ...p.gate, max: 160 })).toContain('and past 40 passes only once that drop from every attempt of the 20 sessions before its last 10 (105 of 112) is 5% likely or less');
     // Its red rate, for the agent before the drop: the 20 sessions before its last 10.
     expect(p.red).toBeCloseTo(redOver(p.gate as BaselineGate, base, { passes: 105, attempts: 112 }), 12);
   });
 
-  it('gives a golden whose last sessions sit below its baseline no more than its own max, and says the rates come from the sessions before them', () => {
+  it('gives a golden whose last sessions sit below the sessions before them no more than its own max, and says its rates come from those', () => {
     const base = { passes: 47, attempts: 50 };
-    const record = { passes: 100 + 48, attempts: 106 + 57, sessions: 30 };
-    const sessions = { passes: 48, attempts: 57 };
-    const below = dropProbability(sessions, base, 0);
+    const record = { passes: 100 + 51, attempts: 106 + 57, sessions: 30 };
+    const sessions = { passes: 51, attempts: 57 };
+    const below = dropProbability(sessions, { passes: 100, attempts: 106 }, 0);
     expect(below).toBeGreaterThan(DECLINE_AT);
     expect(below).toBeLessThan(1 - 0.0025);
     const p = planSuite(Array.from({ length: 20 }, () => ({ golden: 'goldens/h', gate: history(), maxGiven: false, history: base, sessions, record })))!.planned[0];
-    expect(p.gate).toEqual(history({ risk: 0.0025 }));
+    expect(p.gate).toEqual(history({ risk: 0.0025, widened: { from: 40, record: { passes: 100, attempts: 106, sessions: 20 }, before: 10, risk: 0.05 } }));
     expect(p.red).toBeCloseTo(redOver(p.gate as BaselineGate, base, { passes: 100, attempts: 106 }), 12);
     if (p.red > 0.0025) expect(p.over).toContain('averaged over the pass rates the 20 sessions before its last 10 leave open (100 of 106 attempts passed)');
+  });
+
+  it('holds a pass past 40 to the record for a max the config set too, and works its red rate out under that rule', () => {
+    const base = { passes: 47, attempts: 50 };
+    const record = { passes: 150, attempts: 170, sessions: 30 };
+    const p = planSuite(Array.from({ length: 20 }, () => ({ golden: 'goldens/h', gate: history({ max: 160 }), maxGiven: true, history: base, sessions: { passes: 51, attempts: 57 }, record })))!.planned[0];
+    expect(p.gate).toEqual(history({ risk: 0.0025, max: 160, widened: { from: 40, record, risk: 0.05 } }));
+    expect(p.red).toBeCloseTo(redOver(p.gate as BaselineGate, base, record), 12);
+    // With none of its sessions in a record, there is nothing to hold it to.
+    expect((planSuite([{ golden: 'goldens/h', gate: history({ max: 160 }), maxGiven: true }])!.planned[0].gate as BaselineGate).widened).toBeUndefined();
   });
 
   it('with fewer than its window of sessions, says it has too few yet when it can\'t keep within its share', () => {
@@ -235,5 +250,55 @@ describe('planSuite', () => {
     expect(planSuite([])).toBeNull();
     expect(() => planSuite(goldens(2), { risk: 0.5 })).toThrow('the suite risk must be above 0 and below 0.5');
     expect(() => planSuite(goldens(2), { risk: 0 })).toThrow();
+  });
+});
+
+describe('reading a drop, and holding a pass past 40, as docs/gating.md states them', () => {
+  const lnChoose = (n: number, k: number) => lnGamma(n + 1) - lnGamma(k + 1) - lnGamma(n - k + 1);
+  const binomial = (n: number, k: number, p: number) => Math.exp(lnChoose(n, k) + k * Math.log(p) + (n - k) * Math.log1p(-p));
+  /**
+   * The chance n attempts of an agent at p read as a drop against m earlier ones of the same agent, at
+   * share r, exactly: for each count now, the earlier counts from which a drop is read, as the chance
+   * of one only rises with them.
+   */
+  function falseDrops(n: number, m: number, p: number, r: number): number {
+    let total = 0;
+    for (let s = 0; s <= n; s++) {
+      let from = m + 1;
+      for (let lo = 0, hi = m; lo <= hi; ) {
+        const mid = (lo + hi) >> 1;
+        if (dropProbability({ passes: s, attempts: n }, { passes: mid, attempts: m }, 0) > 1 - r) {
+          from = mid;
+          hi = mid - 1;
+        } else lo = mid + 1;
+      }
+      let tail = 0;
+      for (let k = from; k <= m; k++) tail += binomial(m, k, p);
+      total += binomial(n, s, p) * tail;
+    }
+    return total;
+  }
+
+  it('reads a drop from like tallies of one agent about as often as its share, at every rate', () => {
+    const rates = [0.5, 0.6, 0.7, 0.8, 0.9, 0.95];
+    // The last 10 sessions' attempts against the 20 before them, at about 5.6 attempts a session.
+    const level = rates.map((p) => falseDrops(56, 112, p, 0.0025));
+    for (const [i, x] of level.entries()) expect(x, `at ${rates[i]}`).toBeLessThan(0.003);
+    const pct = (x: number) => `${(100 * x).toFixed(2)}%`;
+    const says = `two tallies of one agent, its last 10 sessions' 56 attempts against the 112 before them, read as a drop ${pct(Math.min(...level))} to ${pct(Math.max(...level))} of the time at a 0.25% share, at 50% to 95%`;
+    expect(PAGE.includes(says), `docs/gating.md says: ${says}`).toBe(true);
+  });
+
+  it('holds a regressed agent continued past an inconclusive 40 to the agent before its drop', () => {
+    const base = { passes: 48, attempts: 50 };
+    const before = { passes: 107, attempts: 112, sessions: 20 };
+    const at = (max: number, held: boolean): BaselineGate => history({ risk: 0.0025, max, ...(held ? { widened: { from: 40, record: before, before: 10, risk: 0.05 } } : {}) });
+    const continued = (max: number, held: boolean) => {
+      const at40 = gateOdds(at(40, held), 0.75, base);
+      return (gateOdds(at(max, held), 0.75, base).pass - at40.pass) / at40.inconclusive;
+    };
+    const pct = (x: number, d: number) => `${(100 * x).toFixed(d)}%`;
+    const says = `an agent at 75% passed ${pct(continued(80, false), 1)} of the time by 80 and ${pct(continued(160, false), 1)} by 160 under the plain rule, and held to the 20 sessions before its drop (107 of 112), ${pct(continued(80, true), 2)} and ${pct(continued(160, true), 2)}`;
+    expect(PAGE.includes(says), `docs/gating.md says: ${says}`).toBe(true);
   });
 });

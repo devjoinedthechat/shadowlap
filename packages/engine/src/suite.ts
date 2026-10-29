@@ -24,14 +24,14 @@ import { BASELINE_DEFAULTS, GATE_MAX_ATTEMPTS, RECORDING_BASELINE, SPRT_DEFAULTS
  * as its `risk`, its red rate worked out over every pass rate the golden's record leaves open, those
  * sessions that went red included (`predictive`): no single rate will do, as a baseline that came
  * out lucky makes the gate fail an agent that is as it was, and a short one comes out lucky often.
- * Its `max` grows until that rate is within the share, a pass past its own max held to the record
- * too (`BaselineGate.widened`), so the attempts added let a drop through by luck all but never.
- * Last sessions below its baseline beyond chance read as a drop (`drop`); with fewer sessions than
- * its record reads, a gate over its share has too few yet (`early`), and with none its baseline is
- * its recording, one attempt that passed. A seeded loop of sessions, each planned, decided and
- * pooled as `shadowlap test` does from a golden's first session on, holds the plan to that at 90%
- * down to 50% (gate-history-budget.test.ts), and a regression to being caught about as often as at
- * the gate's own max (gate-history-regression.test.ts).
+ * Its `max` grows until that rate is within the share, and a pass past 40, however its max got
+ * there, is held to the record too (`BaselineGate.widened`), so attempts added let a drop through by
+ * luck all but never. Last sessions below the ones before them beyond chance read as a drop
+ * (`drop`); with fewer sessions than its record reads, a gate over its share has too few yet
+ * (`early`), and with none its baseline is its recording, one attempt that passed. A seeded loop of
+ * sessions, each planned, decided and pooled as `shadowlap test` does from a golden's first session
+ * on, holds the plan to that at 90% down to 50% (gate-history-budget.test.ts), and a regression to
+ * being caught about as often as at the gate's own max (gate-history-regression.test.ts).
  */
 
 /** The most a healthy suite goes red for nothing, by default: `--suite-risk`, `tests.suiteRisk`. */
@@ -44,9 +44,9 @@ export const INCONCLUSIVE_AT_GOOD = 0.01;
 const HISTORY_SIZE_LIMIT = 400;
 
 /**
- * How likely a golden's last sessions may be below its baseline before its gate gets no more than
- * its own `max`: past this they may be a drop, and its record, which holds them, too low a bar for
- * a pass past that max to clear.
+ * How likely a golden's last sessions may be below the sessions of its record before them before
+ * its gate gets no more than its own `max`: past this they may be a drop, and a pass past that max
+ * is held to those earlier sessions, as the record that holds them is too low a bar.
  */
 export const DECLINE_AT = 0.8;
 
@@ -90,8 +90,8 @@ export interface SuiteGolden {
   history?: Tally | null;
   /**
    * A gate against history: every attempt of its last `window` sessions that could be part of a
-   * baseline, whatever they came to (null or none: none yet). Whether they sit below its baseline
-   * beyond chance tells a drop from one (`drop`).
+   * baseline, whatever they came to (null or none: none yet). Whether they sit below the sessions
+   * of its record before them beyond chance tells a drop (`drop`).
    */
   sessions?: Tally | null;
   /**
@@ -131,7 +131,7 @@ export interface PlannedGolden {
   over?: string;
   /** A gate against history with too few sessions yet to keep within its share, and why: what it goes red, about, over the rates they leave open. */
   early?: string;
-  /** A gate against history whose last sessions sit below its baseline beyond chance: what they show. It runs as its baseline asks, at its share and its max. */
+  /** A gate against history whose last sessions sit below the sessions before them beyond chance: what they show. It runs as its baseline asks, at its share and its max. */
   drop?: string;
 }
 
@@ -365,28 +365,35 @@ interface Plan {
  * baseline the gate has, and its `max` is raised from its own until at most 1% of attempts (or half
  * the share, when that is less) end undecided and its red rate is within the share, or as far as
  * `HISTORY_SIZE_LIMIT` when none is. More attempts pass more agents that are as they were, and the
- * pass rule (a drop no likelier than not) would pass more that dropped too: so past its own `max` a
- * pass also needs its attempts to make a drop from the golden's record at most the gate's own risk
- * likely (`BaselineGate.widened`), which an agent that dropped, below its record by the drop, all
- * but never does by luck; and its red rate is worked out under that rule. A gate gets no more than its own `max`
- * with no baseline its sessions made (against its recording, an agent that passes much less often
- * than that one attempt suggests can't pass however long it runs), nor once its last sessions sit
- * below its baseline (`DECLINE_AT`). Below it beyond chance, at its share, the plan reads a drop
- * (`drop`), works its red rate out for the agent before it, and says so. With fewer sessions behind
- * it than its record reads (`RECORD_WINDOWS` windows), a gate over its share is `early`: too few to
- * tell. With no session at all, its baseline is its recording, one attempt that passed.
+ * pass rule (a drop no likelier than not) would pass more that dropped too: so past the most attempts
+ * a gate against history runs by default, however its `max` gets there (this plan, its config,
+ * `--max-attempts`, Run more attempts), a pass also needs its attempts to make a drop from the
+ * golden's record at most the gate's own risk likely (`BaselineGate.widened`), which an agent that
+ * dropped, below its record by the drop, all but never does by luck; and its red rate is worked out
+ * under that rule. A gate gets no more than its own `max` with no baseline its sessions made
+ * (against its recording, an agent that passes much less often than that one attempt suggests can't
+ * pass however long it runs), nor once its last sessions sit below the sessions of its record before
+ * them (`DECLINE_AT`), every attempt of each against every attempt of the others, and a pass past
+ * that max is then held to the agent before them. Below them beyond chance, at its share, the plan
+ * reads a drop (`drop`), works its red rate out for the agent before it, and says so. With fewer
+ * sessions behind it than its record reads (`RECORD_WINDOWS` windows), a gate over its share is
+ * `early`: too few to tell. With no session at all, its baseline is its recording, one attempt that
+ * passed.
  */
 function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; sessions: Tally | null; record: (Tally & { sessions?: number }) | null }, o: { maxGiven: boolean; mode: 'fail' | 'warn' }): Plan {
   const known = x.history && x.history.attempts > 0 ? x.history : null;
   const recent = x.sessions && x.sessions.attempts > 0 ? x.sessions : null;
   // Its record: absent, its last window of sessions, else its baseline (an API caller that gives neither).
   const record = x.record && x.record.attempts > 0 ? x.record : (recent ?? known);
-  // How likely its last sessions sit below its baseline: past DECLINE_AT, no more attempts; beyond chance at its share, a drop.
-  const below = known && recent ? dropProbability(recent, known, 0) : 0;
+  // The agent before what its last sessions show: the sessions of its record before them.
+  const older = record && recent && record.attempts > recent.attempts ? { passes: record.passes - recent.passes, attempts: record.attempts - recent.attempts } : null;
+  // How likely its last sessions sit below the sessions before them, like with like: every attempt of
+  // each, whatever it came to, and none in both. Past DECLINE_AT, no more attempts; beyond chance at its
+  // share, a drop. Against its baseline instead, which takes only sessions that passed, the first `min`
+  // attempts of each, a healthy agent that fails often looked dropped well past its share.
+  const below = older && recent ? dropProbability(recent, older, 0) : 0;
   const dropped = below > 1 - r;
   const declining = below > DECLINE_AT;
-  // The agent before what its last sessions show: the sessions before them, else its baseline.
-  const older = record && recent && record.attempts > recent.attempts ? { passes: record.passes - recent.passes, attempts: record.attempts - recent.attempts } : null;
   const seen = dropped ? (older ?? known) : declining ? (older ?? record ?? known) : (record ?? known);
   const shown = seen ?? RECORDING_BASELINE;
   const estimate = shown.passes / shown.attempts;
@@ -398,8 +405,14 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const limit = widen ? Math.max(floor, HISTORY_SIZE_LIMIT) : floor;
   const risk = Math.min(g.risk, roundDown(r));
   const gate: BaselineGate = { kind: 'baseline', drop: g.drop, risk, window: g.window, min: g.min, max: g.max };
-  // Past its own max, a pass also holds against the record: every attempt of the golden's last sessions, at the gate's own risk.
-  const bound = limit > floor && record ? { from: floor, record: { passes: record.passes, attempts: record.attempts, ...(record === x.record && x.record.sessions !== undefined ? { sessions: x.record.sessions } : {}) }, risk: g.risk } : null;
+  // Past the most attempts a gate against history runs by default, a pass also holds against the
+  // golden's record, at the gate's own risk, however its max comes past them (this plan, its config,
+  // --max-attempts, Run more attempts): every attempt of its last sessions, or of those before its
+  // last `window` when these sit below them, the agent before what they show.
+  const from = Math.max(BASELINE_DEFAULTS.max, g.min);
+  const kept = record === x.record ? x.record?.sessions : undefined;
+  const reference = (dropped || declining) && older ? { ...older, ...(kept !== undefined ? { sessions: kept - Math.min(kept, g.window) } : {}) } : record ? { passes: record.passes, attempts: record.attempts, ...(kept !== undefined ? { sessions: kept } : {}) } : null;
+  const bound = reference ? { from, record: reference, ...((dropped || declining) && older ? { before: g.window } : {}), risk: g.risk } : null;
   const inconclusive = o.mode === 'fail' ? Math.min(INCONCLUSIVE_AT_GOOD, r / 2) : INCONCLUSIVE_AT_GOOD;
   const c = historyCurves({ ...gate, max: limit, ...(bound ? { widened: bound } : {}) }, known, predictive(seen), limit, () => false);
   const redAt = (m: number) => Math.max(0, o.mode === 'fail' ? 1 - c.pass[m]! : c.fail[m]!);
@@ -412,7 +425,7 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
     }
   }
   const red = redAt(max);
-  const planned: BaselineGate = { ...gate, max, ...(bound && max > floor ? { widened: bound } : {}) };
+  const planned: BaselineGate = { ...gate, max, ...(bound ? { widened: bound } : {}) };
   // What it costs, for the agent as its last sessions show it: a drop runs on longer than the agent before it.
   const now = recent ?? record ?? known;
   const shownNow = now ?? RECORDING_BASELINE;
@@ -422,15 +435,16 @@ function planHistory(g: BaselineGate, r: number, x: { history: Tally | null; ses
   const plan: Plan = { gate: planned, red, at, estimate, forecast: { attempts, at: (1 + shownNow.passes) / (2 + PLANNED_FAILURES + shownNow.attempts) } };
   // How many sessions its record holds, when known (none: its recording alone).
   const sessions = record ? (x.record?.sessions ?? null) : 0;
-  if (dropped && known && recent) {
+  if (dropped && recent && older) {
     const last = sessions === null ? 'last sessions' : `last ${Math.min(sessions, g.window)} session${Math.min(sessions, g.window) === 1 ? '' : 's'}`;
-    plan.drop = `its ${last} passed ${recent.passes} of ${recent.attempts} attempts, below its baseline's ${known.passes} of ${known.attempts} beyond chance at its ${pct(r)} share: a drop, or a baseline that came out lucky; it runs as its baseline asks, at its share, up to its ${max} attempts`;
+    const earlier = sessions === null ? 'the sessions before them' : `the ${sessions - Math.min(sessions, g.window) === 1 ? 'session' : `${sessions - Math.min(sessions, g.window)} sessions`} before them`;
+    plan.drop = `its ${last} passed ${recent.passes} of ${recent.attempts} attempts, below ${earlier}, ${older.passes} of ${older.attempts}, beyond chance at its ${pct(r)} share: a drop; it runs as its baseline asks, at its share, up to its ${max} attempts`;
     return plan;
   }
   if (red <= r) return plan;
   const share = `where its share of the suite's risk is ${pct(r)}`;
   const against = known ? `against its baseline (${known.passes} of ${known.attempts})` : 'against its recording';
-  // Whose attempts the rates come from: the sessions before its last ones when those sit below its baseline, else its record, else its baseline.
+  // Whose attempts the rates come from: the sessions before its last ones when those sit below them, else its record, else its baseline.
   const before = sessions === null ? null : sessions - Math.min(sessions, g.window);
   const whose =
     seen === older

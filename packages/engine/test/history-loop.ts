@@ -1,5 +1,5 @@
 import { sessionAttempts } from '../src/gate-history.js';
-import { BASELINE_DEFAULTS, decide, type BaselineGate, type GateResult, type Tally } from '../src/stats.js';
+import { BASELINE_DEFAULTS, decide, dropProbability, type BaselineGate, type GateResult, type Tally } from '../src/stats.js';
 import { RECORD_WINDOWS, planSuite, type PlannedGolden } from '../src/suite.js';
 import type { TestResultData } from '../src/store.js';
 
@@ -124,6 +124,8 @@ export interface Stage {
   redEarly: number;
   plannedEarly: number;
   drop: number;
+  /** The sessions whose last 10 sat below its baseline beyond chance at its share: what a drop was read from before (round 3). */
+  dropAgainstBaseline: number;
   /** Suites of `goldens` of them, replicas taken that many at a time: how often their plans' reds add up past the suite's risk, how often one of them says it can't keep within its share then, how often they go red more often than the risk in fact, and how often they say so when they don't. */
   suites: number;
   flagged: number;
@@ -150,7 +152,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
   const random = seeded(seed);
   const share = SUITE_RISK / goldens;
   const fixed: BaselineGate = { ...GATE, risk: share };
-  const zero = () => ({ sessions: 0, red: 0, within: 0, redWithin: 0, aboveShare: 0, over: 0, redOver: 0, plannedOver: 0, early: 0, redEarly: 0, plannedEarly: 0, drop: 0 });
+  const zero = () => ({ sessions: 0, red: 0, within: 0, redWithin: 0, aboveShare: 0, over: 0, redOver: 0, plannedOver: 0, early: 0, redEarly: 0, plannedEarly: 0, drop: 0, dropAgainstBaseline: 0 });
   const sums = STAGES.map(zero);
   // Each session's stated red, exact red, and whether it said over, replica by replica.
   const said: Array<Array<[number, number, boolean]>> = Array.from({ length: o.sessions }, () => []);
@@ -164,7 +166,8 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
       const h = pool(passed.slice(-GATE.window));
       const kept = pool(every.slice(-RECORD));
       const record = kept ? { ...kept, sessions: Math.min(every.length, RECORD) } : null;
-      const plan = planFor(goldens, h, pool(every.slice(-GATE.window)), record);
+      const recent = pool(every.slice(-GATE.window));
+      const plan = planFor(goldens, h, recent, record);
       const gate = plan.gate as BaselineGate;
       const outcomes: boolean[] = [];
       let passes = 0;
@@ -182,6 +185,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
         const s = sums[i];
         s.sessions++;
         s.red += red;
+        if (h && recent && dropProbability(recent, h, 0) > 1 - share) s.dropAgainstBaseline++;
         if (plan.drop) s.drop++;
         else if (plan.early) {
           s.early++;
@@ -246,6 +250,7 @@ export function loop(goldens: number, rate: number, seed: number, o: { replicas:
       redEarly: s.early ? s.redEarly / s.early : 0,
       plannedEarly: s.early ? s.plannedEarly / s.early : 0,
       drop: s.drop,
+      dropAgainstBaseline: s.dropAgainstBaseline,
       suites,
       flagged: of(flagged),
       saysOver: of(saysOver),
@@ -261,7 +266,7 @@ export const pct = (x: number, places = 3) => `${(100 * x).toFixed(places)}%`;
 /** The loops' figures as a table, for the log. */
 export function table(cases: readonly Loop[]): string {
   return [
-    'goldens  rate  stage            sessions  red (exact)  within      red  above  over      red  planned  early      red  planned  drop  suites flagged says-over over-in-fact false',
+    'goldens  rate  stage            sessions  red (exact)  within      red  above  over      red  planned  early      red  planned  drop (vs baseline)  suites flagged says-over over-in-fact false',
     ...cases
       .filter((c) => c.to === null)
       .flatMap((c) =>
@@ -269,7 +274,7 @@ export function table(cases: readonly Loop[]): string {
           .filter((s) => s.sessions)
           .map(
             (s) =>
-              `${String(c.goldens).padStart(7)}  ${c.rate.toFixed(2)}  ${s.name.padEnd(15)}  ${String(s.sessions).padStart(8)}  ${pct(s.red).padStart(11)}  ${String(s.within).padStart(6)}  ${pct(s.redWithin).padStart(7)}  ${String(s.aboveShare).padStart(5)}  ${String(s.over).padStart(4)}  ${pct(s.redOver).padStart(7)}  ${pct(s.plannedOver).padStart(7)}  ${String(s.early).padStart(5)}  ${pct(s.redEarly).padStart(7)}  ${pct(s.plannedEarly).padStart(7)}  ${String(s.drop).padStart(4)}  ${String(s.suites).padStart(6)}  ${pct(s.flagged, 0).padStart(6)}  ${pct(s.saysOver, 0).padStart(8)}  ${pct(s.overInFact, 0).padStart(11)}  ${pct(s.falseAlarms, 0).padStart(5)}`,
+              `${String(c.goldens).padStart(7)}  ${c.rate.toFixed(2)}  ${s.name.padEnd(15)}  ${String(s.sessions).padStart(8)}  ${pct(s.red).padStart(11)}  ${String(s.within).padStart(6)}  ${pct(s.redWithin).padStart(7)}  ${String(s.aboveShare).padStart(5)}  ${String(s.over).padStart(4)}  ${pct(s.redOver).padStart(7)}  ${pct(s.plannedOver).padStart(7)}  ${String(s.early).padStart(5)}  ${pct(s.redEarly).padStart(7)}  ${pct(s.plannedEarly).padStart(7)}  ${String(s.drop).padStart(4)} (${String(s.dropAgainstBaseline).padStart(4)})  ${String(s.suites).padStart(6)}  ${pct(s.flagged, 0).padStart(6)}  ${pct(s.saysOver, 0).padStart(8)}  ${pct(s.overInFact, 0).padStart(11)}  ${pct(s.falseAlarms, 0).padStart(5)}`,
           ),
       ),
     ...cases

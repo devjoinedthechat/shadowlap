@@ -592,6 +592,28 @@ describe('a history gate a session widened past its own max', () => {
     expect(Math.abs(gateOdds(widened, 0.95, base).pass - gateOdds(plain, 0.95, base).pass)).toBeLessThan(1e-4);
   });
 
+  it('holds a pass to the record however its max came past 40: a regressed agent continued past an inconclusive 40 all but never passes', () => {
+    // Of the attempts still undecided at 40, those that pass by `max`: none at max 40 itself.
+    const continued = (gate: BaselineGate, p: number) => {
+      const at40 = gateOdds({ ...gate, max: 40 }, p, base);
+      return (gateOdds(gate, p, base).pass - at40.pass) / at40.inconclusive;
+    };
+    const plain = (max: number) => baseline({ risk: 0.0025, max });
+    // Held to the agent before the drop: 20 sessions at 95.5%, as a plan that read the drop holds it.
+    const held = (max: number) => baseline({ risk: 0.0025, max, widened: { from: 40, record: { passes: 107, attempts: 112, sessions: 20 }, before: 10, risk: 0.05 } });
+    // The review's figures for the plain rule, as --max-attempts and Run more attempts ran it: at 75%, 12.8% by 80 and 17.9% by 160; at 80%, 36% and 57%.
+    expect(continued(plain(80), 0.75)).toBeCloseTo(0.1275, 3);
+    expect(continued(plain(160), 0.75)).toBeCloseTo(0.1793, 3);
+    expect(continued(plain(80), 0.8)).toBeCloseTo(0.3643, 3);
+    expect(continued(plain(160), 0.8)).toBeCloseTo(0.5715, 3);
+    for (const p of [0.6, 0.7, 0.75]) for (const max of [80, 160]) expect(continued(held(max), p), `${p} to ${max}`).toBeLessThan(0.0005);
+    // An agent at 80% is 15.5 points below that record, as near the drop as can be: under 1% of them.
+    expect(continued(held(80), 0.8)).toBeLessThan(0.001);
+    expect(continued(held(160), 0.8)).toBeLessThan(0.01);
+    // One as the record shows it passes on them about as it would with no bound at all.
+    expect(Math.abs(continued(held(160), 0.95) - continued(plain(160), 0.95))).toBeLessThan(0.005);
+  });
+
   it('states the bound with its rule, keeps it in what a result reports, and gives the chance of a drop from the record after each attempt past it', () => {
     expect(describeGate(widened)).toBe('fails a drop of 15+ points from its last 10 sessions once 99.75% likely, from 5 attempts up to 400, and past 40 passes only once that drop from every attempt of its last 30 sessions (160 of 170) is 5% likely or less');
     expect(describeGate(baseline({ widened: { from: 40, record: { passes: 9, attempts: 10 }, risk: 0.05 }, max: 60 }))).toContain('and past 40 passes only once that drop from its record (9 of 10) is 5% likely or less');

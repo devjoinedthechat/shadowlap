@@ -90,7 +90,7 @@ const plural = (n: number, noun: string) => `${count(n)} ${noun}${Math.round(n) 
  * the suite's risk, the line says what the plan works out instead (`suiteRed`), and each golden that
  * can't keep within its share, or has too few sessions yet to, says why: one over its own share
  * whose suite keeps within its risk takes room the others leave, and isn't named. A gate against
- * history whose last sessions sit below its baseline beyond chance is always named.
+ * history whose last sessions sit below the sessions before them beyond chance is always named.
  */
 export function suiteLines(plan: SuitePlan): string[] {
   const f = plan.forecast;

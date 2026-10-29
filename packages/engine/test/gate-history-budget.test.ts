@@ -61,16 +61,29 @@ describe('a healthy agent’s goldens gated against their own history, from thei
     const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
     const says = (text: string) => expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
     console.log(table(cases));
-    // Within, on average: at 80% down to 50%, from the second session on; and how many sessions it said so for went past the share.
+    // Within, on average, at 80% down to 50%, from the second session on, and how many of the sessions
+    // it said so for went past the share, at those rates and at 90%. The review's loop, 400 histories a
+    // rate, found at most 0.16% in any stage, and 8.6% to 11.2% of them past the share, 4.8% at 90%.
+    // Histories share their baseline's luck from session to session, so these 16 to 40 are far fewer
+    // than their sessions: the page states a bound they keep to, and shares they fall within.
     const said = [0.8, 0.7, 0.5].flatMap((rate) => healthy(20, rate).stages.filter((s) => s.within && s.name !== 'session 1'));
-    says(`where the plan says a golden of 20 keeps within its 0.25% share, it goes red ${pct(Math.min(...said.map((s) => s.redWithin)), 2)} to ${pct(Math.max(...said.map((s) => s.redWithin)), 2)} of the time on average, at 80% down to 50%`);
-    const above = said.reduce((t, s) => t + s.aboveShare, 0) / said.reduce((t, s) => t + s.within, 0);
-    says(`${pct(above, 0)} of the sessions it says so for, against a baseline that came out lucky, go red more often than the share`);
+    for (const s of said) expect(s.redWithin, s.name).toBeLessThanOrEqual(0.002);
+    says('where the plan says a golden of 20 keeps within its 0.25% share, it goes red at most 0.2% of the time on average over a stage of its sessions, at 80% down to 50%');
+    const share = (stages: readonly Stage[]) => stages.reduce((t, s) => t + s.aboveShare, 0) / stages.reduce((t, s) => t + s.within, 0);
+    const above = share(said);
+    const ninety = share(healthy(20, 0.9).stages.filter((s) => s.within && s.name !== 'session 1'));
+    expect(above).toBeGreaterThan(0.02);
+    expect(above).toBeLessThan(0.15);
+    expect(ninety).toBeLessThan(0.1);
+    says('up to about one in ten of the sessions it says so for, one in twenty at 90%, against a baseline that came out lucky, go red more often than the share');
     const half = healthy(20, 0.5);
     says(`an agent at 50% goes red ${pct(stage(half, 'session 1').redEarly, 0)} of the time in its first session, where the plan says about ${pct(stage(half, 'session 1').plannedEarly, 0)}`);
-    // A healthy suite at 80% from its 21st session on.
+    // A healthy suite at 80% from its 21st session on: the review's loop found 22% and 7%.
     const later: Stage = stage(healthy(20, 0.8), 'sessions 21-40');
-    says(`a healthy suite of 20 goldens at 80% states a chance past its 5% in ${pct(later.flagged, 0)} of its sessions from the 21st to the 40th, and goes red for nothing more often than that in ${pct(later.overInFact, 0)} of them`);
+    expect(later.flagged).toBeGreaterThan(0.1);
+    expect(later.flagged).toBeLessThan(0.4);
+    expect(later.overInFact).toBeLessThan(0.1);
+    says('a healthy suite of 20 goldens at 80% states a chance past its 5% in about one session in four from the 21st to the 40th, and goes red for nothing more often than that in fewer than one in ten');
     // The first session's forecast: over the rates its recording leaves open, and what an agent at 95% and at 50% take.
     const first = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: GATE, maxGiven: false })))!.planned[0];
     const g = first.gate as BaselineGate;

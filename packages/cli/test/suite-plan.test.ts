@@ -66,7 +66,7 @@ describe('the session plan', () => {
     expect(lines.slice(2)).toEqual([
       `goldens/new0: ${plan.planned[0].early}`,
       `goldens/new1: ${plan.planned[1].early}`,
-      "goldens/dropped: its last 10 sessions passed 40 of 56 attempts, below its baseline's 47 of 50 beyond chance at its 0.25% share: a drop, or a baseline that came out lucky; it runs as its baseline asks, at its share, up to its 40 attempts",
+      'goldens/dropped: its last 10 sessions passed 40 of 56 attempts, below the 20 sessions before them, 105 of 112, beyond chance at its 0.25% share: a drop; it runs as its baseline asks, at its share, up to its 40 attempts',
     ]);
     expect(plan.planned[0].early).toMatch(/^no baseline yet, only its recording, one attempt that passed: against that it goes red about 37% of the time/);
     expect(suiteJson(plan)).toMatchObject({ early: 2, drop: 1, averaged: true });
