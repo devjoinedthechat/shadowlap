@@ -1,6 +1,7 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
 import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
+import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
 import { isObject } from './is-object.js';
 
 /**
@@ -348,27 +349,59 @@ function credentialFreeArgument(value: string): string {
   return URL_SHAPED.test(value) ? maskUrlCredentials(value) : value;
 }
 
+/** A shell a command line hands a script to with `-c`: `sh`, `bash`, `zsh` and their kin, by name, a folder before it or `.exe` after it. */
+const SHELL = /(?:^|[\\/])(?:sh|bash|zsh|dash|ksh|mksh|ash|fish|csh|tcsh)(?:\.exe)?$/i;
+/** The option that hands a shell its script: `-c`, or `-c` last in a cluster of options (`-lc`, `-ec`). */
+const SCRIPT_FLAG = /^-[A-Za-z]*c$/;
+/** How many scripts deep a script inside a script is read word by word; one deeper is masked as any other argument. */
+const MAX_SCRIPTS = 4;
+
+/**
+ * A script a shell runs (`sh -c '…'`'s), masked word by word as credentialFreeArgv masks a command
+ * line's arguments, each word read as the shell reads it (shellWords): an assignment's value up to
+ * where its word ends, the rest of the script kept, a flag's value and a header line as in any
+ * command line, and a script it hands a shell in turn. A word that changes is written again in its
+ * place (scriptWord), every other character as it was. A script whose quote is left open, or one
+ * inside MAX_SCRIPTS others, is masked as any other argument.
+ */
+function credentialFreeScript(script: string, depth: number): string {
+  const words = depth < MAX_SCRIPTS ? shellWords(script) : null;
+  if (!words) return credentialFreeArgument(script);
+  // No program before its first word, which is read as any other (`API_KEY=… node agent.js`).
+  const values = ['', ...words.map((w) => w.value)];
+  const masked = argvWithoutCredentials(values, depth + 1);
+  return masked === values ? script : rewriteWords(script, words, masked.slice(1), scriptWord);
+}
+
 /**
  * A command line as every copy that leaves the machine writes it (a pack, an HTML file or a share
  * link, a push, a trace, a dataset), its credentials masked with CREDENTIAL_PLACEHOLDER: the value
  * of each flag that takes one (`--api-key <value>`, `--api-key=<value>`, `-token <value>` as Go's
- * flags are written: credentialFlag), and in any other argument or flag value a JWT, an assignment's
- * or a header line's credential, and a URL's (credentialFreeArgument). The program stays as it is.
- * The store keeps the command as it ran, which a replay runs again. The same array when nothing
- * changes.
+ * flags are written: credentialFlag), in any other argument or flag value a JWT, an assignment's
+ * or a header line's credential, and a URL's (credentialFreeArgument), and in a script a shell runs
+ * (`sh -c '…'`, `bash -lc '…'`) each of those word by word (credentialFreeScript). The program stays
+ * as it is. The store keeps the command as it ran, which a replay runs again. The same array when
+ * nothing changes.
  */
 export function credentialFreeArgv(argv: readonly string[]): readonly string[] {
+  return argvWithoutCredentials(argv, 0);
+}
+
+/** credentialFreeArgv, `depth` scripts deep. */
+function argvWithoutCredentials(argv: readonly string[], depth: number): readonly string[] {
   let out: string[] | null = null;
   const set = (i: number, value: string) => {
     if (value === argv[i]) return;
     out ??= [...argv];
     out[i] = value;
   };
+  // The first shell named, whose `-c` takes a script wherever it stands: `env MODE=1 bash -lc '…'`, `docker exec app sh -c '…'`.
+  const shell = argv.findIndex((a) => SHELL.test(a));
   for (let i = 1; i < argv.length; i++) {
     const arg = argv[i]!;
     const flag = FLAG_ARG.exec(arg);
     if (!flag) {
-      set(i, credentialFreeArgument(arg));
+      set(i, shell >= 0 && shell < i - 1 && SCRIPT_FLAG.test(argv[i - 1]!) ? credentialFreeScript(arg, depth) : credentialFreeArgument(arg));
       continue;
     }
     const [, name = '', value] = flag;

@@ -36,6 +36,23 @@ describe('a command line', () => {
     expect(credentialFreeArgv(['agent', '--db', 'postgres://app:SLSEC_ARGV_DBPASS@db/app', '--notify=https://hooks.slack.com/services/T0/B0/SLSEC_ARGV_HOOK', 'https://api.example.com/v1?access_token=SLSEC_ARGV_QS'])).toEqual(['agent', '--db', `postgres://app:${C}@db/app`, `--notify=https://hooks.slack.com/services/T0/B0/${C}`, `https://api.example.com/v1?access_token=${C}`]);
   });
 
+  it("masks a script a shell runs word by word: an assignment's value to where its word ends, and the rest of the script kept", () => {
+    expect(credentialFreeArgv(['sh', '-c', 'OPENAI_API_KEY=sk-test-EXAMPLE0000 node agent.js --task refund'])).toEqual(['sh', '-c', `OPENAI_API_KEY="${C}" node agent.js --task refund`]);
+    // Its words as a shell reads them: quoted, after `;`, a flag's value and a header line too; bash -lc after env.
+    const script = `export API_KEY='sk-test-EXAMPLE0001'; node agent.js --api-key sk-test-EXAMPLE0002 -H 'Authorization: Bearer sk-test-EXAMPLE0003' && echo "done"`;
+    const masked = credentialFreeArgv(['env', 'MODE=fast', '/bin/bash', '-lc', script]);
+    expect(masked).toEqual(['env', 'MODE=fast', '/bin/bash', '-lc', `export API_KEY="${C}"; node agent.js --api-key "${C}" -H "Authorization: ${C}" && echo "done"`]);
+    expect(credentialFreeArgv(masked)).toBe(masked);
+    // A script inside a script, and one with nothing to mask, kept as it is.
+    expect(credentialFreeArgv(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN=sk-test-EXAMPLE0004 ./run' > out.log`])).toEqual(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN="${C}" ./run' > out.log`]);
+    const plain = ['sh', '-c', 'MODE=fast node agent.js | tee out.log'];
+    expect(credentialFreeArgv(plain)).toBe(plain);
+    // Outside a shell's script, an assignment's value with spaces is masked whole, as before; so is a script whose quote is left open.
+    expect(credentialFreeArgv(['env', 'DB_PASSWORD=correct horse battery staple', 'node', 'agent.js'])).toEqual(['env', `DB_PASSWORD=${C}`, 'node', 'agent.js']);
+    expect(credentialFreeArgv(['python', '-c', 'API_KEY="sk-test-EXAMPLE0005"; run()'])).toEqual(['python', '-c', `API_KEY=${C}`]);
+    expect(credentialFreeArgv(['sh', '-c', "OPENAI_API_KEY='sk-test-EXAMPLE0006 node agent.js"])).toEqual(['sh', '-c', `OPENAI_API_KEY=${C}`]);
+  });
+
   it('is the same command line as the one it masks, and masking it again changes nothing', () => {
     const argv = ['node', 'agent.mjs', '--api-key', 'SLSEC_ARGV_0123456789'];
     const masked = credentialFreeArgv(argv);
