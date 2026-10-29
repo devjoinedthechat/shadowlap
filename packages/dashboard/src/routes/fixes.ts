@@ -1,14 +1,11 @@
-import { commandIsImported, FIX_STATUSES, FixIdError, hasRecordedCommand, importedCommandSource, quoteArgv, readConfigFile, resolveFix, setFixTitle, type FixStatus, type RunRecord, type StoreOf, type StoredFix } from '@shadowlap/engine';
+import { DEFAULT_REPAIRER, FIX_STATUSES, FixIdError, type FixStatus, hasRecordedCommand, type JobConsent, needsConsent, readConfigFile, repairerProblem, repairJobArgv, resolveFix, type RunRecord, selectedRuns, setFixTitle, type StoredFix, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from '../api.js';
 import type { RouteContext } from '../context.js';
-import { blameCheckFor, DEFAULT_REPAIRER, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck, repairJobArgv } from '../fixes.js';
-import { jobConsent, type JobConsent } from '../consent.js';
+import { blameCheckFor, failedChecks, fixBundles, fixDetail, fixList, patchesToCheck } from '../fixes.js';
 import { HttpError } from '../http.js';
 import type { JobBuildResult, JobRequest } from '../jobs.js';
 import { patchesInTree } from '../patch-in-tree.js';
-import { leftWords } from '../rerun.js';
 import { storePrStates } from '../pr-state.js';
-import { repairerProblem } from '../repairer-check.js';
 import { sendAnswer } from '../read-pool.js';
 import type { ReadAnswer } from '../read-jobs.js';
 import { recordingNow } from '../run-exports.js';
@@ -101,57 +98,9 @@ function requestedCheck(raw: unknown): { expect: unknown } | { error: string } {
   return { expect: value };
 }
 
-/**
- * What runs only once the user said yes to it, with the exact command line the job runs (`args`,
- * after `shadowlap`): a run whose command came from someone else's pack or from the team store, and
- * a blame or a verdict a pull brought (`pulled`), whose command is made here from its checked
- * fields, without what it ran with on a teammate's machine (`left`). The yes is to the lines the
- * question showed (consent.ts): one a pull has since changed is asked again.
- */
-function needsConsent(o: { runs: RunRecord[]; yes: unknown; args: readonly string[]; pulled?: { what: string; left: readonly string[] } | null }): JobConsent {
-  const imported = o.runs.find((r) => commandIsImported(r));
-  // `--yes` reaches the CLI only once the request said yes to this question: with none asked, a yes sent anyway is passed on to nothing.
-  if (!imported && !o.pulled) return jobConsent([], o.yes, () => '');
-  const lines = [['shadowlap', ...o.args], ...(imported ? [imported.command.argv] : [])];
-  const line = quoteArgv(['shadowlap', ...o.args]);
-  return jobConsent(lines, o.yes, () => {
-    if (o.pulled) {
-      const p = o.pulled;
-      const without = p.left.length ? `, without the ${leftWords(p.left)} it ran with there` : '';
-      const and = imported ? `, and the command ${imported.runId.slice(0, 10)} was recorded with (${quoteArgv(imported.command.argv)}), which came from ${importedCommandSource(imported)}` : '';
-      return `${p.what} came from the team store: this runs the command ${line}, made here from its own fields${without}${and}. Confirm it to run it`;
-    }
-    return `${imported!.runId.slice(0, 10)} came from ${importedCommandSource(imported!)}: this runs the command it was recorded with (${quoteArgv(imported!.command.argv)}), under ${line}. Confirm it to run it`;
-  });
-}
-
 /** A run whose command came from someone else's pack, or from the team store, runs only once the user said yes to it and to `args`. */
 function importedCommand(runs: RunRecord[], yes: unknown, args: readonly string[]): JobConsent {
   return needsConsent({ runs, yes, args });
-}
-
-/**
- * The runs a repair command line gives its `--fixes`, `--holdout` and `--keeps`, as the CLI selects
- * them when it runs: run ids, and `label:<name>` for every run with that label, imported ones too.
- */
-function selectedRuns(store: StoreOf<'recording'>, argv: readonly string[]): RunRecord[] {
-  const out = new Map<string, RunRecord>();
-  let listing = false;
-  for (const a of argv) {
-    if (a.startsWith('--')) {
-      listing = a === '--fixes' || a === '--holdout' || a === '--keeps';
-      continue;
-    }
-    if (!listing) continue;
-    if (a.startsWith('label:')) {
-      const label = a.slice('label:'.length);
-      for (const r of store.allRuns()) if (r.meta?.labels?.includes(label)) out.set(r.runId, r);
-    } else {
-      const r = lookupRun(store, a);
-      if (r) out.set(r.runId, r);
-    }
-  }
-  return [...out.values()];
 }
 
 /** A model as `--model` takes it: a name, never a flag. */

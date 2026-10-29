@@ -1,6 +1,5 @@
-import { cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, injectionTemplates, proofLine, quoteArgv, trustOf, untrustedReads, withoutCommand, type CallRecord, type InjectionMark, type InjectionReport, type PlantReport, type StoreOf, type StoredInjectionResult, type ToolTrust, type TrustSource } from '@shadowlap/engine';
+import { type CallRecord, cleanBound, cleanDecided, commandIsImported, goldensNeedingConsent, hasRecordedCommand, importedCommandSource, type InjectionMark, type InjectionReport, injectionTemplates, jobConsent, type PlantReport, proofLine, quoteArgv, type StoredInjectionResult, type StoreOf, type ToolTrust, trustOf, type TrustSource, untrustedReads, withoutCommand } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
-import { jobConsent } from './consent.js';
 import type { JobBuildContext, JobBuildResult, JobRequest } from './jobs.js';
 import { recordingNow } from './run-exports.js';
 import { links } from './links.js';

@@ -14,11 +14,10 @@
  * the commands its buttons run, and exports the rest.
  */
 
-import { applyLeft, commitTitle, fixCost, FixIdError, fixLabelInfo, fixRecords, gitApplyCommand, GOOD_LABEL, hasRecordedCommand, patchFiles, repairPatchProblem, repairToApply, resolveFix, type FixData, type FixRecords, type RepairOutcome, type RunRecord, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, unsettledFirst } from '@shadowlap/engine';
-import { expectArgs, scopeArg } from './rerun.js';
+import { applyLeft, commitTitle, DEFAULT_REPAIRER, expectArgs, fixCost, type FixData, FixIdError, fixRecords, type FixRecords, gitApplyCommand, noFixToTry, patchFiles, repairArgv, repairJobArgv, type RepairOutcome, repairPatchProblem, repairToApply, resolveFix, type RunRecord, shownBlame, type StoredBlame, type StoredFix, type StoredRepair, type StoreOf, unsettledFirst, verifyArgv } from '@shadowlap/engine';
 import { type FixRow, rowOf } from './fix-list.js';
-import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, runHref, short, shownBlame, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
-import { blameNext, blameStep, type BlameStep, noFixToTry } from './fix-blame-step.js';
+import { acceptedCandidate, commandLine, counting, fieldsSet, type FixActions, type PatchCheck, patchMerged, patchToCheck, runHref, short, shownRepair, type StepKey, unrepairedVerdict } from './fix-shared.js';
+import { blameNext, blameStep, type BlameStep } from './fix-blame-step.js';
 import { repairStep, type RepairStep } from './fix-repair-step.js';
 import { verifyStep, type VerifyStep } from './fix-verify-step.js';
 export { type StepState, type FixStep, type FixRow, type FixList, fixList } from './fix-list.js';
@@ -88,114 +87,6 @@ function runRef(store: StoreOf<'recording'>, runId: string): FixRunRef {
 export function fieldChange(rec: FixRecords): string | null {
   const v = unrepairedVerdict(rec);
   return v ? fieldsSet(v) : null;
-}
-
-/**
- * Whether `label:<label>` selects exactly the fix's failing runs that are left: none of another
- * fix's (a customer's label, say), no run in no fix (a run that passed, labelled with the failure
- * it was recorded for), and every one of the fix's. Anything else would be repaired as failing.
- */
-function labelSelectsFix(store: StoreOf<'recording'>, label: string, left: readonly string[]): boolean {
-  const failing = new Set(left);
-  const labelled = store.allRuns().filter((r) => r.meta?.labels?.includes(label));
-  return labelled.length === failing.size && labelled.every((r) => failing.has(r.runId));
-}
-
-/** A word of a command that names the script it runs: `agent.mjs`, `src/agent.ts`, `refund_agent.py`. */
-const SCRIPT = /\.(?:[cm]?[jt]sx?|py|rb|sh|php|pl|lua|exs?|jl)$/i;
-
-/**
- * The agent a command runs, to tell one agent's runs from another's: its words up to the script it
- * runs (`node agent.mjs`, `python -m support.agent`), without the arguments of one run (`A-1150`,
- * `--persona pushy-customer`); the whole command when no word names a script. Null for none.
- */
-export function agentOfArgv(argv: readonly string[]): string | null {
-  if (!argv.length) return null;
-  for (let i = 0; i < argv.length; i++) {
-    const w = argv[i]!;
-    if (w === '-m' && i + 1 < argv.length) return argv.slice(0, i + 2).join(' ');
-    if (!w.startsWith('-') && SCRIPT.test(w)) return argv.slice(0, i + 1).join(' ');
-  }
-  return argv.join(' ');
-}
-
-/** The agent a run ran: its recording's, for a replay, a fork or an attempt; null for a run with no command (an import). */
-function agentOfRun(store: StoreOf<'recording'>, run: RunRecord): string | null {
-  let root = run;
-  const seen = new Set([root.runId]);
-  while (root.parentRunId) {
-    const parent = store.getRun(root.parentRunId);
-    if (!parent || seen.has(parent.runId)) break;
-    seen.add(parent.runId);
-    root = parent;
-  }
-  return hasRecordedCommand(root) ? agentOfArgv(root.command.argv) : null;
-}
-
-/**
- * The good runs a repair or a verify from a fix keeps: the fix's own good runs (those a repair or a
- * verify of it kept); else the runs labelled good that run the same agent as its failing runs
- * (`label:good` when that is all of them, else by id), since a good run of another agent checks
- * nothing a change to this one touches; else none.
- */
-function keepArgs(store: StoreOf<'recording'>, rec: FixRecords, left: readonly string[]): string[] {
-  const own = rec.good.filter((id) => store.getRun(id) !== null);
-  if (own.length) return own;
-  const agents = new Set(left.map((id) => agentOfRun(store, store.getRun(id)!)).filter((a): a is string => a !== null));
-  if (!agents.size) return [];
-  const failing = new Set(left);
-  const good = store.allRuns().filter((r) => r.meta?.labels?.includes(GOOD_LABEL));
-  const same = good.filter((r) => !failing.has(r.runId) && agents.has(agentOfRun(store, r) ?? ''));
-  if (!same.length) return [];
-  return same.length === good.length ? [`label:${GOOD_LABEL}`] : same.map((r) => r.runId);
-}
-
-/** What a repair from a fix and a verify of it are given: its failing runs, the good runs it keeps, and its check. */
-function fixRunArgs(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): { fixes: string[]; keeps: string[]; expect: string[] } | null {
-  // Without a failing run left, a label would select nothing, and repair would refuse it.
-  const left = rec.failing.filter((id) => store.getRun(id) !== null);
-  if (!left.length) return null;
-  const { label } = fixLabelInfo(store, rec.fix);
-  // A check that is no object (one a pull brought, say) is no `--expect`: nothing runs under it.
-  const expect = expectArgs(rec.fix.check.expect);
-  if (!expect) return null;
-  return {
-    fixes: label && labelSelectsFix(store, label, left) ? [`label:${label}`] : left,
-    keeps: keepArgs(store, rec, left),
-    expect,
-  };
-}
-
-/**
- * `shadowlap repair` from a fix: its failing runs (by its label when that selects exactly them),
- * the good runs it keeps (`keepArgs`), the scope its blame searched, so the repair blames the same
- * calls and reuses that blame rather than make it again, and its check. Empty when none of its
- * failing runs is left in the store.
- */
-export function repairArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
-  const runs = fixRunArgs(store, rec);
-  // A blame's scope (a pulled one's too) goes as `--scope` only when it is a name, never a flag.
-  const scope = scopeArg(shownBlame(rec)?.scope);
-  if (!runs || !scope) return [];
-  return ['repair', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...scope, ...runs.expect];
-}
-
-/** `shadowlap verify` of a change for a fix, as its empty Verify step shows it: the runs and the check a repair from it would take. Empty as `repairArgv` is. */
-function verifyArgv(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords): string[] {
-  const runs = fixRunArgs(store, rec);
-  if (!runs) return [];
-  return ['verify', '--fixes', ...runs.fixes, ...(runs.keeps.length ? ['--keeps', ...runs.keeps] : []), ...runs.expect];
-}
-
-/** The repairer a repair from the dashboard (or `fix show`'s next step) uses when the config names none. */
-export const DEFAULT_REPAIRER = 'claude-code';
-
-/**
- * `shadowlap repair` as the dashboard runs it: a repairer set in shadowlap.config.json applies by
- * itself, as the CLI reads it; otherwise the user's own Claude Code, named on the command line.
- */
-export function repairJobArgv(argv: readonly string[], configured: string | null | undefined): string[] {
-  return [...argv, ...(configured ? [] : ['--repairer', DEFAULT_REPAIRER])];
 }
 
 /** What applying a fix left undone, in words, or null. */

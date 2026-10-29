@@ -1,5 +1,5 @@
-import { commitTitle, fixCost, fixLabelInfo, fixRecords, formatUsd, noRepairerOf, outcomeOf, unrescuedHead, type FixRecords, type FixStatus, type RepairCandidate, type StoreOf, type StoredFix, unsettledFirst } from '@shadowlap/engine';
-import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, gradualRange, repairCounts, repairerLabel, s, shownBlame, shownRepair, type StepKey } from './fix-shared.js';
+import { commitTitle, fixCost, fixLabelInfo, type FixRecords, fixRecords, type FixStatus, formatUsd, noRepairerOf, outcomeOf, type RepairCandidate, shownBlame, type StoredFix, type StoreOf, unrescuedHead, unsettledFirst } from '@shadowlap/engine';
+import { acceptedCandidate, acceptedVerdict, brokenOf, counting, fixHref, gradualRange, repairCounts, repairerLabel, s, shownRepair, type StepKey } from './fix-shared.js';
 
 /** The Fixes list: a row for each fix, the most recently opened first, with its status, its failing runs and how far blame, repair and verify got. */
 

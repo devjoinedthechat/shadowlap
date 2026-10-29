@@ -1,8 +1,7 @@
-import { checksOf, cleanLabel, describeGate, displayOrigin, gateOf, messageOf, ORIGIN_CODE, verdictLine, withLabels, withNote, type RunNote, compareRuns, estimateCost, loadApiRequest, shortModel, summarizeRun, type CallRecord, type Price, type RunAbout, type RunComparison, type RunKind, type RunOutcome, type RunRecord, type RunSummary, type Store, type StoreOf, type ToolTrust, normalizeConversation, normalizeResponse, type Conversation, type NormalizedResponse } from '@shadowlap/engine';
+import { askConsent, type CallRecord, checksOf, cleanLabel, compareRuns, type Conversation, describeGate, displayOrigin, estimateCost, gateOf, loadApiRequest, messageOf, normalizeConversation, type NormalizedResponse, normalizeResponse, ORIGIN_CODE, type Price, type RunAbout, type RunComparison, type RunKind, type RunNote, type RunOutcome, type RunRecord, type RunSummary, saidYes, shortModel, type Store, type StoreOf, summarizeRun, type ToolTrust, verdictLine, withLabels, withNote } from '@shadowlap/engine';
 import { actionContext, actionMissing, buildActions, commandIsImported, forkMenuTitle, importedCommandSource, notRun, quoteArgv, type ActionContext } from '@shadowlap/engine';
 import { kindFacts, modelResolver, runLabel } from '@shadowlap/engine';
 import { presetMarks, type PresetMark } from './chaos.js';
-import { askConsent, saidYes } from './consent.js';
 import { fixForRun, type FixForRun } from './fixes.js';
 import { aboutOfRun, aboutsOf } from './run-about.js';
 import { captureSource, loadRunIndex } from './run-index.js';

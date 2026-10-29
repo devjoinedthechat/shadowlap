@@ -1,6 +1,6 @@
-import { BLAME_DEFAULTS, describeBlocks, describeRescue, findPairs, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, pinWords, probeBound, probeFinding, probeTally, probeWord, rescueRule, unrescuedWhy, type AttemptVerdict, type BlameReport, type FixRecords, type PulledFrom, type RunRecord, type StoreOf, type StoredBlame, type SprtGate, unsettledFirst } from '@shadowlap/engine';
+import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
-import { expectArgs, fieldArgs, rerunFlags, runIds, scopeArg, type RerunFlags } from './rerun.js';
+import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate } from './fix-shared.js';
 
 /** A fix's Blame step: where blame found the run lost, the probes that showed it, and what to run next. */
@@ -238,30 +238,4 @@ function sameBlame(b: StoredBlame, fallback: string): string {
   const g = pulledGate(sprtGate(b.report.gate), !!b.pulled, PULLED_CAP.blame);
   const made = blameArgs(b, b.expect, g ? gateArg(g, BLAME_DEFAULTS) : blameCount(b.report, !!b.pulled));
   return made ? commandLine(made.argv) : fallback;
-}
-
-/**
- * Why a repair from here would end "No fix to try" without running the agent, in a sentence, or
- * null when it would run it. A repair reuses the blame kept on a failing run when it searched under
- * the same check, rescue and scope, rather than search again (as `shadowlap repair` does): when that
- * blame of every failing run left rescued it from no call, there is no passing path to learn from.
- * Said as the CLI says why: no answer of the model's lost the runs, blame couldn't settle where they
- * were lost, or nothing rescued them.
- */
-export function noFixToTry(store: StoreOf<'recording' | 'fixes'>, rec: FixRecords, scope: string | null): string | null {
-  const runs = rec.failing.map((id) => store.getRun(id)).filter((r): r is RunRecord => r !== null);
-  if (!runs.length) return null;
-  const oracle = JSON.stringify(rec.fix.check.oracle);
-  const kept: StoredBlame[] = [];
-  for (const run of runs) {
-    const stored = run.meta?.blame;
-    const last = store.blamesOfRun(run.runId).at(-1);
-    if (!stored || !last || stored.outcome !== 'unrescuable') return null;
-    if (JSON.stringify(stored.oracle) !== oracle || Object.keys(stored.fields ?? {}).length || (stored.scope ?? null) !== scope) return null;
-    kept.push(last);
-  }
-  const one = runs.length === 1;
-  if (kept.every(noAnswerLost)) return `Blame found that no answer of the model's lost ${one ? 'this run' : 'these runs'}, so a rewrite of the prompt can't fix ${one ? 'it' : 'them'}: the repair ends “No fix to try”. Look at the tools, the harness or the command.`;
-  if (kept.every((b, i) => runs[i]!.meta?.blame?.unsettled === true || (b.outcome === 'unrescuable' && unsettledFirst(b.report)))) return `Blame couldn't settle where ${one ? 'the run was' : 'the runs were'} lost, so a rewrite of the prompt has nothing to aim at yet: the repair ends “No fix to try”. Settle the blame first.`;
-  return 'No failing run was rescued, so there is no passing path to learn from: the repair ends “No fix to try”.';
 }

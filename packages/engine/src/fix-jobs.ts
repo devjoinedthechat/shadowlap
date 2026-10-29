@@ -9,9 +9,9 @@ import { quoteArgv } from './text.js';
 import type { RunRecord } from './types.js';
 
 /**
- * The commands a repair from a fix and a verify of it run, and the yes they need first, as the
- * dashboard builds them (packages/dashboard/src/fixes.ts, rerun.ts, consent.ts, repairer-check.ts,
- * routes/fixes.ts), so every place that starts one runs the same line and asks about the same runs:
+ * The commands a repair from a fix and a verify of it run, and the yes they need first, built here
+ * for the dashboard and the terminal UI alike, so every place that starts one runs the same line and
+ * asks about the same runs:
  * the failing runs (by the fix's label when that selects exactly them), the good runs of the same
  * agent it keeps, the scope its blame searched, its check, and the repairer when the config names
  * none. A run whose command came from someone else's pack or the team store, among every run the
@@ -217,7 +217,7 @@ export function repairerProblem(repairer: string, configured: boolean, o: { env?
  * folder of PATH, which on Windows also tries the extensions PATHEXT lists (`claude.cmd`, as npm
  * installs it). Empty and relative PATH entries name the folder it starts in, so they are skipped.
  */
-function findProgram(program: string, o: { path: string; pathext?: string; platform: NodeJS.Platform; isFile: (path: string) => boolean }): boolean {
+export function findProgram(program: string, o: { path: string; pathext?: string; platform: NodeJS.Platform; isFile: (path: string) => boolean }): boolean {
   const win = o.platform === 'win32';
   const p = win ? win32 : posix;
   // Windows' names ignore case: `.CMD` in PATHEXT finds claude.cmd, which npm installs.

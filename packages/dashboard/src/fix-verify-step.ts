@@ -1,6 +1,6 @@
-import { describeGate, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, SPRT_DEFAULTS, rateBound, type FixRecords, type PulledFrom, type SprtGate, type StoredVerdict, type VerdictStanding, type VerifiedRun, type VerifyOutcome, unsettledReason } from '@shadowlap/engine';
+import { describeGate, expectArgs, type FixRecords, footprintDelta, GATE_MAX_ATTEMPTS, gateOdds, keptAttemptVerdict, outcomeOf, type PulledFrom, rateBound, SPRT_DEFAULTS, type SprtGate, type StoredVerdict, unsettledReason, type VerdictStanding, type VerifiedRun, type VerifyOutcome } from '@shadowlap/engine';
 import { verifyEvidence } from './evidence.js';
-import { expectArgs, fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
+import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { changeName, commandLine, countArgs, finite, fixHref, gateArg, PULLED_CAP, pulledGate, ROLE, runHref, s, shortFailure, sprtGate, type VerifyRow } from './fix-shared.js';
 
 /** A fix's Verify step: every verdict on a change for it, run by run, and how to ask again. */

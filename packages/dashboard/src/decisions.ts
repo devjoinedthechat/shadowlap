@@ -1,6 +1,5 @@
-import { commandIsImported, goldensNeedingConsent, importedCommandSource, isReservedScope, judgedOutcome, quoteArgv, retirementOf, retirementTable, type DecisionRun, type DecisionStep, type RetirementNotice, type StoreOf } from '@shadowlap/engine';
+import { commandIsImported, type DecisionRun, type DecisionStep, goldensNeedingConsent, importedCommandSource, isReservedScope, type JobConsent, jobConsent, judgedOutcome, quoteArgv, type RetirementNotice, retirementOf, retirementTable, type StoreOf } from '@shadowlap/engine';
 import { lookupRun } from './api.js';
-import { jobConsent, type JobConsent } from './consent.js';
 import type { JobBuildResult, JobRequest } from './jobs.js';
 import { links } from './links.js';
 import { optionLike, type GoldenSource } from './tests.js';

@@ -108,11 +108,6 @@ const quote = (a: string) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/
 
 export const commandLine = (argv: string[]) => ['shadowlap', ...argv].map(quote).join(' ');
 
-/** The blame a fix shows: the latest that found where a run was lost, else the latest. */
-export function shownBlame(rec: FixRecords): StoredBlame | null {
-  return [...rec.blames].reverse().find((b) => b.outcome === 'blamed') ?? rec.blames.at(-1) ?? null;
-}
-
 /**
  * Whether a blame placed the failure on no call and knows that no answer of the model's lost the
  * run: its passing attempts answered as the recording did, or every attempt met a write's recorded
