@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { describeBaselineRule, KEPT_DEFAULTS, SPRT_DEFAULTS } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, describeBaselineRule, KEPT_DEFAULTS, RECORD_WINDOWS, SPRT_DEFAULTS } from '@shadowlap/engine';
+import { EXIT } from '../src/exit-codes.js';
+import { parseHeaderFlags } from '../src/mcp-http.js';
 import { growthReason } from '../src/repair.js';
 
 /**
@@ -45,9 +47,51 @@ describe('defaults in --help', () => {
 
   it("say how repair keeps a good run, in verify's words: the rule its report states, and the drop it bounds", () => {
     const repair = help(['repair']).replace(/\s+/g, ' ');
-    expect(repair).toContain('--keeps <run...> runs that pass and must keep passing, e.g. label:good: one that forks is kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs, as verify keeps one, its baseline the same run on the code without the candidate, and its verdict bounds the drop as verify\'s does (drop <= 0.10 (95%));');
+    // Kept against its own baseline: a good run may fail now and then, as long as it gets no worse.
+    expect(repair).toContain('--keeps <run...> runs that passed and must not get worse, each against its own baseline, e.g. label:good: one that forks is kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs, as verify keeps one, its baseline the same run on the code without the candidate, and its verdict bounds the drop as verify\'s does (drop <= 0.10 (95%));');
+    expect(repair).not.toContain('must keep passing');
     // The rule as verify's report words it, from the same function.
     expect(repair).toContain(describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'paired' }));
+  });
+});
+
+describe('what --help says an option does', () => {
+  /** An option's description, as the program the CLI builds from its source holds it. */
+  const said = (path: string[], flag: string): string => {
+    let c = program;
+    for (const name of path) c = c.commands.find((x) => x.name() === name)!;
+    const o = c.options.find((x) => x.long === flag);
+    expect(o, `shadowlap ${path.join(' ')} ${flag}`).toBeDefined();
+    return o!.description;
+  };
+
+  it('gives the status an inconclusive result ends decisions and migrate with: 3, as exit-codes.ts has it', () => {
+    for (const command of ['decisions', 'migrate']) {
+      expect(said([command], '--inconclusive')).toBe(`what an inconclusive result does to the exit status: fail (${EXIT.inconclusive}) or warn (${EXIT.ok}, with a warning)`);
+    }
+  });
+
+  it("says what test's --inconclusive covers, and the rule a young golden's gate against history keeps with neither given", () => {
+    const text = said(['test'], '--inconclusive');
+    expect(text).toContain("a gate's, a check's, an injection gate's or, with --chaos, a preset's");
+    // The history it is young below is three of its windows: 30 sessions at the default window.
+    expect(RECORD_WINDOWS * BASELINE_DEFAULTS.window).toBe(30);
+    expect(text).toContain('with neither given, a gate against history whose golden has fewer than 30 sessions (three of its windows) only warns, unless the plan reads its last sessions below the ones before them, a decline at 99 to 1 or a drop: then it counts');
+  });
+
+  it('says --annotations marks every pack that did not pass, an inconclusive one let through with a warning', () => {
+    expect(said(['test'], '--annotations')).toBe('print a GitHub Actions annotation for each pack that did not pass: an error, or a warning for an inconclusive one let through');
+  });
+
+  it("gives mcp --header an example a shell and a client leave for the proxy to read, as docs/mcp.md writes it", () => {
+    const text = said(['mcp'], '--header');
+    // Single quotes, and $TOKEN: a shell expands nothing inside them, and Claude Code fills in only ${…} itself.
+    expect(text).toContain("such as 'Authorization: Bearer $TOKEN'");
+    expect(text).not.toContain('"Authorization: Bearer ${TOKEN}"');
+    const example = /'([^']+)'/.exec(text)![1];
+    expect(parseHeaderFlags([example], { TOKEN: 'tok-example-123' })).toEqual({ authorization: 'Bearer tok-example-123' });
+    expect(parseHeaderFlags(['X-Price: $$5 for ${TOKEN}'], { TOKEN: 'tok-example-123' })).toEqual({ 'x-price': '$5 for tok-example-123' });
+    expect(text).toContain("$VAR or ${VAR} is read from the proxy's environment, and $$ is a $");
   });
 });
 
