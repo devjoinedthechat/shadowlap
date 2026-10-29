@@ -287,12 +287,6 @@ export default defineConfig(
   { files: TEST_FILES, rules: { 'max-lines-per-function': 'off' } },
   ...Object.entries(OVER).flatMap(([rule, files]) => Object.entries(files).map(([file, max]) => ({ files: [file], rules: { [rule]: capped(rule, max) } }))),
 
-  // Files another pass is changing now, held out of the strict rules they don't meet yet until it merges.
-  {
-    files: ['packages/dashboard/src/read-pool.ts'],
-    rules: { '@typescript-eslint/no-unnecessary-type-parameters': 'off' },
-  },
-
   // The code of the packages that load the engine, the dashboard's browser code among it, reads a caught
   // value with messageOf; the CLI's names its exit statuses.
   {

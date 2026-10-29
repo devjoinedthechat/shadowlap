@@ -626,6 +626,7 @@ function answerError(a: ReadAnswer): HttpError {
 }
 
 /** A read model's answer as data, for a route that answers with more than it: an answer that is no 200 is thrown, as sendAnswer throws it. */
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- the caller names what the read model's JSON is, as with JSON.parse: a return-only generic on purpose
 export function answerData<T>(a: ReadAnswer): T {
   if (a.status !== 200) throw answerError(a);
   return JSON.parse(a.body) as T;
