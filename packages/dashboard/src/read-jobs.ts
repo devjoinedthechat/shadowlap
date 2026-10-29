@@ -269,11 +269,13 @@ export async function runJob(store: Store, job: ReadJob, o: { whole?: boolean } 
       case 'analyse': {
         const run = lookupRun(store, job.runId);
         if (run) {
-          analyseRun(store, run, runCalls(store, run.runId));
-          // And what its user asked first, read from every request it sent: kept for its about line.
+          const calls = runCalls(store, run.runId);
+          const analysis = analyseRun(store, run, calls);
+          // And what its user asked first, from the conversations the analysis placed its calls in:
+          // kept for its about line.
           const index = loadRunIndex(store);
           const r = index.byId.get(run.runId);
-          if (r && asksFor(r)) asksOf(store, index, [r]);
+          if (r && asksFor(r)) asksOf(store, index, [r], { analysed: { runId: run.runId, calls, conversations: analysis.conversations } });
         }
         return answer(null);
       }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
+import { runJob } from '../src/read-jobs.js';
 import { loadRunIndex } from '../src/run-index.js';
 import { asksOf, asksRead, warmRunStats } from '../src/run-stats.js';
 import { listRunsPage, runsByDay } from '../src/runs-list.js';
@@ -64,6 +65,24 @@ describe('what recordings’ users asked, with the run index', () => {
     expect(asksRead(store)).toBe(before);
     expect(loadRunIndex(store).byId.get(run.runId)!.ask?.text).toBe('Kept before');
     store.close();
+  });
+});
+
+describe('what a run just analysed asked', () => {
+  it('is quoted from the conversations its analysis placed its calls in, its calls read once', async () => {
+    const store = Store.open(':memory:');
+    try {
+      // A batch: two tickets, each a conversation of its own.
+      const id = addRun(store, { startedAt: NOW - DAY, argv: ['node', 'refund_agent.mjs'], calls: [{ code: 'l', request: asked('A-1131') }, { code: 'l', kind: 'tool' }, { code: 'l', request: asked('B-2242') }, { code: 'l', kind: 'tool' }] });
+      const reads = vi.spyOn(store, 'getCalls');
+      // The whole analysis a long run's page asks for beside the server.
+      await runJob(store, { kind: 'analyse', runId: id });
+      expect(loadRunIndex(store).byId.get(id)!.ask).toEqual({ text: 'A customer asks for a refund of order A-1131', agent: false, batch: true });
+      // Its calls read for the analysis alone: the ask came from what the analysis had.
+      expect(reads.mock.calls.filter(([runId]) => runId === id)).toHaveLength(1);
+    } finally {
+      store.close();
+    }
   });
 });
 

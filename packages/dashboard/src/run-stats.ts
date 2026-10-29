@@ -1,4 +1,4 @@
-import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
+import { countOrigins, displayOrigin, estimateCost, importedRecording, ORIGIN_CODE, runAsk, runCacheUse, type CallRecord, type ModelResolver, type Origin, type OriginCounts, type Outcome, type Price, type RunAsk, type RunCacheUse, type RunConversations, type SqlValue, type Store, type Usage } from '@shadowlap/engine';
 import { modelResolver } from '@shadowlap/engine';
 import { askKeyOf, loadRunIndex, type IndexedRun, type RunIndex } from './run-index.js';
 
@@ -389,8 +389,11 @@ export const asksFor = (r: Pick<IndexedRun, 'kind'>): boolean => r.kind === 'rec
  * tell a batch by its conversations; then it is kept in `run_asks`. A run still recording is read by
  * its first request alone, kept in memory once it asked anything. With `known`, nothing is read from
  * any request: a run whose ask isn't known yet is left out of the answer, for the warm-up to work out.
+ * With `analysed`, a run just analysed (read-jobs.ts `analyse`) is quoted from its calls and the
+ * conversations its analysis placed them in, rather than every request read again to tell a batch:
+ * that held the thread holding a run of 100,000 calls 30 s, while the run's next page waited for it.
  */
-export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { known?: boolean } = {}): Map<string, RunAsk | null> {
+export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[], o: { known?: boolean; analysed?: { runId: string; calls: readonly CallRecord[]; conversations: RunConversations } } = {}): Map<string, RunAsk | null> {
   const k = keptFor(store);
   const out = new Map<string, RunAsk | null>();
   const todo: IndexedRun[] = [];
@@ -424,13 +427,14 @@ export function asksOf(store: Store, index: RunIndex, runs: readonly IndexedRun[
   }
   if (!todo.length) return out;
   // What an earlier build kept with the totals is moved to `run_asks`; with `known`, only from memory or the store.
-  const totals = o.known ? knownTotals(store, index, todo).out : callTotals(store, index, todo);
+  const totals = o.known || o.analysed ? knownTotals(store, index, todo).out : callTotals(store, index, todo);
   const keep: Array<{ runId: string; key: string; ask: string | null }> = [];
   for (const r of todo) {
     let ask = totals.get(r.runId)?.ask;
     if (ask === undefined) {
       if (o.known) continue;
-      ask = runAsk(store, store.getCalls(r.runId), { conversations: true });
+      const given = o.analysed?.runId === r.runId ? o.analysed : null;
+      ask = given ? runAsk(store, given.calls, { conversations: given.conversations }) : runAsk(store, store.getCalls(r.runId), { conversations: true });
       k.asksRead++;
     }
     k.runningAsks.delete(r.runId);
