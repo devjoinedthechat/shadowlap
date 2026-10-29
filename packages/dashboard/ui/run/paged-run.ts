@@ -135,17 +135,19 @@ export function usePagedRun(client: Pick<Client, 'calls'>, run: RunDetail): { ru
   const [failed, setFailed] = useState<Failure | null>(null);
   const failure = failed?.runId === runId ? failed : null;
   const readNow = useLatest(read);
-  /** When a call not read was last asked for: the pages read in order wait a moment after it. */
+  /** When a call not read was last asked for, but a recording's newest picked as it is followed: the pages read in order wait a moment after it. */
   const askedAt = useRef(0);
   const need = useCallback(
     (n: number, o: { pick?: boolean } = {}) => {
       if (isRead(readNow.current, n)) return;
-      askedAt.current = Date.now();
+      // A recording's page that follows its newest call picks each call it makes: the pages read in
+      // order don't wait after those, only after what the window asks and a call picked elsewhere.
+      if (!o.pick || !liveNow.current) askedAt.current = Date.now();
       // A call picked tries again at once; what the window asks waits for the next try.
       if (o.pick) setFailed((f) => (f?.runId === runId && f.waiting && !f.gone ? { ...f, waiting: false } : f));
       setWanted((w) => (w?.runId === runId && w.n === n ? w : { runId, n }));
     },
-    [runId, readNow],
+    [runId, readNow, liveNow],
   );
   // The next try after a failure, a second later, then two, up to thirty.
   const waiting = failure?.waiting === true && !failure.gone;

@@ -207,7 +207,7 @@ function Workspace({ run: answered, id, call, view }: { run: RunDetail; id: stri
   // clock and random reads are never where a run opens (open-at.ts).
   const failed = run.state?.failed ?? run.run.status === 'failed';
   const failedAt = useMemo(() => (failed ? firstFailedCall(calls, paging?.origins ?? null) : null), [failed, calls, paging?.origins]);
-  const fallback = useMemo(() => openingCall({ forkAt, lostAt, live, failed, calls, origins: paging?.origins ?? null }), [forkAt, lostAt, live, failed, calls, paging?.origins]);
+  const fallback = useMemo(() => openingCall({ forkAt, lostAt, live, failed, calls, origins: paging?.origins ?? null, total: paging?.total ?? null }), [forkAt, lostAt, live, failed, calls, paging?.origins, paging?.total]);
   // While its pages come, a call of the run is one numbered up to its count, read yet or not.
   const isCall = (n: number) => (paging ? n >= 1 && n <= paging.total : calls.some((c) => c.callNo === n));
   const selected = call !== null && isCall(call) ? call : call !== null && live ? call : fallback;

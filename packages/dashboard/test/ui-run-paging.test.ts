@@ -2,6 +2,7 @@ import { createElement, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type CallRow, type CallsPage, type Client, type RunDetail } from '../ui/api.js';
 import { RunPage } from '../ui/pages/Run.js';
+import { useRoute } from '../ui/router.js';
 import { CallsTable } from '../ui/run/CallsView.js';
 import { ASKING_PAUSE_MS, PAGES_AFTER_MS, RETRY_MS, usePagedRun } from '../ui/run/paged-run.js';
 import { followPages, listedCalls, nextRead, PAGE, rangeOf, withPage, withRange } from '../ui/run/paging.js';
@@ -146,6 +147,12 @@ function addressBar(hash: string) {
 
 const rows = () => r!.all('table.calls tbody tr[data-wi]');
 const pending = () => r!.all('table.calls tbody tr[aria-busy]');
+
+/** The run's page as the shell routes to it: the call the address names is the one selected. */
+function Routed() {
+  const route = useRoute();
+  return route.page === 'run' ? createElement(RunPage, { id: route.id, call: route.call, view: route.view }) : null;
+}
 
 describe('the pages a run’s calls come in', () => {
   it('reads around a call asked for, within the gap it is in, else from the first call not read', () => {
@@ -448,10 +455,11 @@ describe('a long run’s page', () => {
     await r.wait(PAGES_AFTER_MS + 100);
     grow(1300);
     await r.until('its new count', () => r!.one('table.calls').getAttribute('aria-rowcount') === '1301');
-    // Every page comes, until the line that says how many are read is gone.
+    // Every page comes, until the line that says how many are read is gone: the newest call's first,
+    // since the page follows it.
     for (let n = 0; n < 50 && r.all('.toolbar[role="status"]').length; n++) {
       held.splice(0).forEach((answer_) => answer_());
-      await r.wait(ASKING_PAUSE_MS + 50);
+      await r.until('the next page, or every page read', () => held.length > 0 || !r!.all('.toolbar[role="status"]').length);
     }
     expect(r.all('.toolbar[role="status"]')).toHaveLength(0);
     expect(pending()).toHaveLength(0);
@@ -460,6 +468,42 @@ describe('a long run’s page', () => {
     const read = asked.flatMap(({ from, limit }) => range(from, Math.min(from + limit - 1, 1300)));
     expect(new Set(read).size).toBe(read.length);
     expect(read.length).toBe(1300 - 500);
+  });
+
+  it('opens a long recording linked without a call at its newest, past the calls read, and follows it as it grows', async () => {
+    // Watch live, a Runs row and the sidebar link a recording with no call.
+    const bar = addressBar(`#/run/${RUN}`);
+    let total = 3000;
+    const { client: base, details } = server(total, 500, 'running');
+    const client = {
+      ...base,
+      run: () => Promise.resolve(answer(total, 500, 'running')),
+      calls: (_id: string, from: number, limit = PAGE): Promise<CallsPage> => {
+        const to = Math.min(total, from + Math.min(limit, PAGE) - 1);
+        return Promise.resolve({ runId: RUN, calls: range(from, to).map(call), callsTotal: total, callsNext: to < total ? to + 1 : null });
+      },
+    } as unknown as Client;
+    let grow: (n: number) => void = () => undefined;
+    function Host() {
+      const [state, setState] = useState(() => ({ ...app(client), live: [{ runId: RUN, calls: total }] }));
+      grow = (n) => {
+        total = n;
+        setState((s) => ({ ...s, live: [{ runId: RUN, calls: n }] }));
+      };
+      return createElement(AppContext.Provider, { value: state }, createElement(Routed));
+    }
+    r = await render(createElement(Host));
+    // Its count, not #500, the last of the calls its page came with.
+    await r.until('its newest call', () => bar.hash !== `#/run/${RUN}`);
+    expect(bar.hash).toBe(`#/run/${RUN}/3000`);
+    await r.until('its details', () => details.length > 0);
+    expect(details).toEqual([3000]);
+    for (const n of [3010, 3200]) {
+      grow(n);
+      await r.until(`#${n}`, () => bar.hash === `#/run/${RUN}/${n}`);
+      // Its count as the poll says it, the newest call's number, though its page wasn't asked for again.
+      expect(r.all('.metrics .metric b')[0].textContent).toBe(n.toLocaleString('en-US'));
+    }
   });
 
   it('reads again a recording’s call it read before it was answered, as the recording moves on', async () => {
