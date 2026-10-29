@@ -53,23 +53,23 @@ All three runs are labelled `refund-bug`. A fourth run refunds $60, within the l
 [`shadowlap blame`](docs/blame.md) asks model calls again, each from a fork that replays everything before it. It names the last call whose new answer can still save the run. Here a passing run never calls `issue_refund`&nbsp;for&nbsp;$240:
 
 ```console
-$ shadowlap blame 01M5NW6DN7 --expect @refund-check.json
+$ shadowlap blame 01M64J32D4 --expect @refund-check.json
 …
 ⑂ The run was lost at model call #5 (3 of 5)
 …
 
-  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 33 attempts;
+  Probes (gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts;
           resample the probed call)
-    #1  1 of 5  5 of 10 passed · rate >= 0.10 (99.2%)  rescued
-    #5  3 of 5  5 of 10 passed · rate >= 0.10 (99.2%)  rescued  ◂ blamed
-    #7  4 of 5  0 of 6 passed · rate <= 0.60 (99.2%)   lost
-    #9  5 of 5  0 of 6 passed · rate <= 0.60 (99.2%)   lost
+    #1  1 of 5  5 of 10 passed · rate >= 0.10 (99.1%)  rescued
+    #5  3 of 5  5 of 10 passed · rate >= 0.10 (99.1%)  rescued  ◂ blamed
+    #7  4 of 5  0 of 6 passed · rate <= 0.60 (99.1%)   lost
+    #9  5 of 5  0 of 6 passed · rate <= 0.60 (99.1%)   lost
 …
 ```
 
 ### Prove the fix
 
-[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
+[`shadowlap repair`](docs/repair.md) asks a model, or your own Claude&nbsp;Code, to rewrite the system prompt or a tool description. It keeps the smallest rewrite that verify accepts twice, the second time with fresh attempts: one that fixes the failing runs, even held&#8209;out runs the model never saw, and leaves no good run 10&nbsp;points or more worse than before, at 5%&nbsp;risk a&nbsp;run. Here it rewrites one line of&nbsp;the&nbsp;system&nbsp;prompt:
 
 ```console
 $ shadowlap repair --fixes label:refund-bug --keeps label:good \
@@ -107,14 +107,14 @@ npm install -g @anthropic-ai/sdk
 
 ### Keep it fixed in CI
 
-Blame opened fix `fx-01M5NW6JAH` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
+Blame opened fix `fx-01M64J3BR1` for this failure, and repair verified its patch. Apply it: the patch goes into your working tree, the fixed runs become goldens (recordings kept as tests), and those&nbsp;tests&nbsp;run.
 
 ```console
-$ shadowlap fix apply fx-01M5NW6JAH
-⑂ Applying fx-01M5NW6JAH · issue_refund called with amount 240
+$ shadowlap fix apply fx-01M64J3BR1
+⑂ Applying fx-01M64J3BR1 · issue_refund called with amount 240
 …
     3 passed, 0 failed · 0 upstream requests
-✓ fx-01M5NW6JAH applied: the patch is in the working tree,
+✓ fx-01M64J3BR1 applied: the patch is in the working tree,
   3 of 3 goldens copied to goldens/, shadowlap test passed
 ```
 
@@ -136,12 +136,12 @@ A second agent, `refund_agent.mjs`, handles the same order from support ticket&n
 No tool runs. Each step is asked three times under the change and three times as recorded, so a change counts only when it shows beyond the model's own variation. Changes are ranked by what they do, writes first. Under a scripted Haiku, the agent no longer issues&nbsp;the&nbsp;refund:
 
 ```console
-$ shadowlap decisions 01M5NW7430 --model claude-haiku-4-5
+$ shadowlap decisions 01M64J4EMP --model claude-haiku-4-5
 …
 ✗ 1 of 1 run decides a write or when to stop differently, under the model claude-haiku-4-5
   14 steps asked, 3 samples each and as many as recorded: 1 rank 1, 13 the same · no tool ran
 
-01M5NW7430  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
+01M64J4EMP  14 of 14 model calls asked · 1 changed, most: rank 1 (a write changed)
   #17   step 8  rank 1  issue_refund is no longer called · in 3 of 3 samples, 0 of 3 as recorded
          recorded issue_refund({"order_id":"A-1042","amount":240})
          now      queue_status({"team":"refunds-tier2"})  −8 tokens · −<$0.001
@@ -181,7 +181,7 @@ npm install -D @shadowlap/test
 pip install shadowlap
 ```
 
-Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. A tool you don't wrap runs for real on every replay: `run` names each one the model called, and `replay` won't run one that writes until you wrap it, declare it a read, or pass `--allow-unrecorded`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
+Wrap each tool where you define it and declare its effect: `read`, `write` or `pure`. A tool you don't wrap runs for real on every replay: `run` names each one the model called, and every command that replays a run won't run one that writes, or one nothing says the effect of, until you wrap it, declare its effect under `tools.unrecorded`, or pass `--allow-unrecorded`. Outside Shadowlap the wrapper only calls your function, so wrapped tools&nbsp;ship&nbsp;unchanged:
 
 ```ts
 import { tool } from '@shadowlap/sdk';
@@ -210,9 +210,9 @@ shadowlap dashboard
 
 ## Dashboard and terminal UI
 
-`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side. A failed run opens where it first failed, its calls grouped under the model call each belongs to, and a fork's page says what the fork did differently, ranked as `shadowlap decisions` ranks a change. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
+`shadowlap dashboard` opens your runs on 127.0.0.1. Fork from any call, or compare two runs side by side. A failed run opens where blame found it lost, or else where it first failed, its calls grouped under the model call each belongs to, and a fork's page says what the fork did differently, ranked as `shadowlap decisions` ranks a change. Edit a tool's result, or what a person answered, in the call inspector and fork&nbsp;from&nbsp;it.
 
-One press labels a run good or bad, which `repair --keeps label:good` keeps working, and Runs keeps its filters in the address. Large stores and long runs open at once: the heavy views are worked out beside the server, and a long run's calls come a page at&nbsp;a&nbsp;time.
+One press labels a run good or bad, and `u` undoes it; a fix must leave each good run no worse than its own baseline, as `repair --keeps label:good` holds it, and Runs lists them with `label:good` and keeps its filters in the address. Large stores and long runs open at once: what reads every run or every call, the search index included, is worked out beside the server, and a long run's calls come a page at a time, from any depth, while the rest is&nbsp;read.
 
 <p align="center">
   <picture>
@@ -224,10 +224,10 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
   <sub>What if <code>lookup_policy</code> had returned the EU limit? The&nbsp;run&nbsp;forks&nbsp;at&nbsp;call&nbsp;17&nbsp;(<a href="scripts/readme-shots.mjs">source</a>).</sub>
 </p>
 
-`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: where a fork left its parent, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at&nbsp;the&nbsp;selected&nbsp;call:
+`shadowlap ui` shows your runs in the terminal, in the dashboard's colours on a dark or a light background: why a run failed, where blame found it lost and whether its fix held, where a fork left its parent and what it then did differently, and conversation, request, response and meta tabs for each call. Press&nbsp;`:` for the what&#8209;ifs at the selected call, and to blame, repair or verify the&nbsp;run:
 
 ```text
- 01M5NW76RA fork @17 of 01M5NW7430 · 32 calls · 15 replayed · …
+ 01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
 ╭──────────────────────────────────────────────────────────────╮
 │ Fork menu                                                    │
 │ At #16 · lookup_policy · pure tool                           │
@@ -239,6 +239,10 @@ One press labels a run good or bad, which `repair --keeps label:good` keeps work
 │   e  Repeat the replay and comp…                  --repeat 5 │
 │   s  Stub the writes                           --writes stub │
 │   b  Find the commit that chang…             bisect --good … │
+│ Fixes                                                        │
+│   B  Find the call it was lost …                       blame │
+│   R  Repair the fix it fails in…                      repair │
+│   V  Verify a change for the fi…                      verify │
 │ ────────────────────────                                     │
 │   r  Replay this run (clean if …                      replay │
 │   p  Pack this run to a directo…                        pack │
@@ -273,7 +277,7 @@ shadowlap run -- node agent.mjs
 
 | Area | Works with |
 |:---|:---|
-| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Claude on Microsoft&nbsp;Foundry, Vertex&nbsp;AI and Amazon&nbsp;Bedrock (OpenAI's SDK on it too); OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq); and any gateway or host that speaks one of their formats, declared in&nbsp;the&nbsp;config |
+| [Providers](docs/providers.md) | Anthropic, OpenAI, Gemini, Azure&nbsp;OpenAI, Claude on Microsoft&nbsp;Foundry, Vertex&nbsp;AI and Amazon&nbsp;Bedrock (OpenAI's SDK on it too); Vercel's AI&nbsp;Gateway; OpenAI&#8209;compatible servers (Ollama,&nbsp;vLLM, OpenRouter,&nbsp;Groq); and any gateway or host that speaks one of their formats, declared in&nbsp;the&nbsp;config |
 | [SDKs](docs/sdk.md) | TypeScript and Python; any other language over the&nbsp;[wire&nbsp;protocol](docs/protocol.md) |
 | [Frameworks](docs/frameworks.md) | TypeScript: Mastra, Vercel&nbsp;AI&nbsp;SDK, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Anthropic&nbsp;tool&nbsp;runner, Claude&nbsp;Agent&nbsp;SDK<br>Python: CrewAI, OpenAI&nbsp;Agents&nbsp;SDK, LangChain, LangGraph, Pydantic&nbsp;AI, Google&nbsp;ADK, LlamaIndex, Microsoft&nbsp;Agent&nbsp;Framework, Strands, smolagents, Agno, Claude&nbsp;Agent&nbsp;SDK |
 | [Test suites](docs/testing.md) | pytest, Vitest, Jest and node:test; a test records&nbsp;once, then&nbsp;replays&nbsp;offline |
@@ -286,8 +290,8 @@ shadowlap run -- node agent.mjs
 ## Security
 
 - **Local only.** The sidecar and the dashboard listen on 127.0.0.1 behind a session token; recordings stay in your project, readable&nbsp;only&nbsp;by&nbsp;you.
-- **Keys never stored.** API keys pass through to the provider; a clean replay needs no&nbsp;real&nbsp;key.
-- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with no rule applied. No copy carries a&nbsp;credential.
+- **Keys never stored.** The API keys your calls send pass through to the provider and are never written; a clean replay needs no&nbsp;real&nbsp;key.
+- **Masked on the way out.** Your redaction rules mask packs, exports, share links and what repair shows its model. Runs you push to your own bucket go as recorded, with no rule applied. Every copy of a run masks each credential whose shape Shadowlap&nbsp;knows.
 - **No telemetry by default.** Nothing is sent unless `SHADOWLAP_TELEMETRY_URL` names a collector you run, and [what&nbsp;is&nbsp;sent](docs/telemetry.md) never includes prompts or tool&nbsp;data. `DO_NOT_TRACK=1` opts&nbsp;out.
 
 [SECURITY.md](SECURITY.md) lists every safeguard and how to report&nbsp;a&nbsp;vulnerability.

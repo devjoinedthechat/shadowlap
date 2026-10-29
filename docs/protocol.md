@@ -231,10 +231,17 @@ Optional. A preload says it loaded in one process of the agent, once, when it ha
 { "runtime": "node", "runtimeVersion": "22.16.0", "pid": 4242, "ppid": 4241, "guard": "warn" | "block" | "off", "capture": true }
 ```
 
-Answers `202`, or `409` when the run has ended. The sidecar counts processes by `pid`, so a second
-hello from one process (a worker thread's) changes nothing. A run the CLI started its agent for that
+The Claude Agent SDK's fence says hello for the Claude Code CLI, which loads no preload:
+`"runtime": "claude-code"`, `"guard": "off"`, and `reach`, what the CLI can still connect to
+unwatched, a few words each (20 kept), `[]` when nothing is left open.
+
+Answers `202`, or `409` when the run has ended. The sidecar keeps one entry per runtime and `pid`: a
+later hello from that process (a worker thread's, a second query's fence) updates it, `reach` holding
+what both said, and unknown once one says nothing of it. A run the CLI started its agent for that
 made model or tool calls with no hello from any process was never watched by the network guard: its
-summary says so, and under `--guard block` it fails. A client that loads no preload sends none. The
+summary says so, and under `--guard block` it fails. So does a hello with `guard` `off`, but the
+Claude Code CLI's when its `reach` is empty or `guard.accept` takes it. A client that loads no
+preload sends none. The
 sidecar also reads `x-shadowlap-sdk` (`python/0.1.0`) on a hello, as on every `/v1/calls/*` request,
 and names an SDK whose major.minor differs from its own once per run.
 
