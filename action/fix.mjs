@@ -703,20 +703,21 @@ export function branchNote({ goldens, others = { diverging: [], failing: [], inc
 }
 
 /**
- * Where a fix's branch goes: on GitHub Actions, the repository the workflow runs in, as the runner
- * names it (GITHUB_SERVER_URL and GITHUB_REPOSITORY, which no step can change), once the checkout's
- * origin names that repository too, so a job that checked out another one opens nothing; elsewhere,
- * the checkout's origin. `{ url, why }`.
+ * Where a fix's branch goes: the repository the workflow runs in, as the runner names it
+ * (GITHUB_SERVER_URL and GITHUB_REPOSITORY, which no step can change), once the checkout's origin
+ * names that repository too, so a job that checked out another one opens nothing. A job that names
+ * no repository pushes nothing: the checkout is where the agent ran, which could have pointed its
+ * origin anywhere, so its origin is never pushed to in the runner's place. `{ url, why }`.
  * @param {string} root
  * @param {NodeJS.ProcessEnv} env
  * @returns {{ url: string | null; why: string | null }}
  */
 export function pushTarget(root, env) {
-  const origin = run('git', ['remote', 'get-url', 'origin'], root, env);
-  const originUrl = origin.status === 0 ? origin.stdout.trim() : '';
   const server = (env.GITHUB_SERVER_URL ?? '').replace(/\/+$/, '');
   const repo = env.GITHUB_REPOSITORY ?? '';
-  if (!server || !repo) return originUrl ? { url: originUrl, why: null } : { url: null, why: 'the checkout has no origin to push the fix to' };
+  if (!server || !repo) return { url: null, why: "the job doesn't name the repository it runs in (GITHUB_SERVER_URL and GITHUB_REPOSITORY), so no fix is pushed from it: the checkout's origin, which the agent could have changed, is never pushed to in its place" };
+  const origin = run('git', ['remote', 'get-url', 'origin'], root, env);
+  const originUrl = origin.status === 0 ? origin.stdout.trim() : '';
   const named = /[/:]([^/:]+\/[^/]+?)(?:\.git)?\/*$/.exec(originUrl)?.[1] ?? '';
   if (named.toLowerCase() !== repo.toLowerCase()) return { url: null, why: `the checkout's origin is not ${repo}, the repository this workflow runs in, so no fix is pushed from it` };
   return { url: `${server}/${repo}.git`, why: null };

@@ -182,7 +182,7 @@ describe('starting the workflow on a fix\'s branch', () => {
 });
 
 describe("a fix's branch and its pull request", () => {
-  it("goes to the repository the workflow runs in, as the runner names it, once the checkout's origin names it too", () => {
+  it("goes to the repository the workflow runs in, as the runner names it, once the checkout's origin names it too, and nowhere else", () => {
     const repo = temp('sl-push-target-');
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
     execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:northwind/agent.git'], { cwd: repo });
@@ -192,8 +192,11 @@ describe("a fix's branch and its pull request", () => {
     expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'Northwind/Agent' })).toEqual({ url: 'https://github.test/Northwind/Agent.git', why: null });
     // A job that checked out another repository opens nothing in this one.
     expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: 'northwind/other' })).toEqual({ url: null, why: "the checkout's origin is not northwind/other, the repository this workflow runs in, so no fix is pushed from it" });
-    // Outside GitHub Actions, the checkout's origin.
-    expect(pushTarget(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toEqual({ url: 'git@github.com:northwind/agent.git', why: null });
+    // A job that names no repository pushes nothing: the checkout's origin, which the agent could have changed, never stands in.
+    const unnamed = "the job doesn't name the repository it runs in (GITHUB_SERVER_URL and GITHUB_REPOSITORY), so no fix is pushed from it: the checkout's origin, which the agent could have changed, is never pushed to in its place";
+    expect(pushTarget(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toEqual({ url: null, why: unnamed });
+    expect(pushTarget(repo, { ...env, GITHUB_REPOSITORY: '' })).toEqual({ url: null, why: unnamed });
+    expect(pushTarget(repo, { ...env, GITHUB_SERVER_URL: '' })).toEqual({ url: null, why: unnamed });
   });
 
   it("is opened through GitHub's API with the token, never by gh in the checkout, and says why when GitHub refuses", async () => {
