@@ -167,19 +167,23 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   its first push and comes down with its first pull, and nothing changes it after that. Anyone your
   admin lets write to the bucket could edit a run there; such an edit can't change how a run on your
   machine replays, or whom it names as its author.
-- **No credential goes up.** A push copies runs as recorded, with no redaction rules applied, but a
-  credential a recording made by an earlier version kept in a call's record stays behind: a model
-  call's query string goes without its credentials (an Azure `subscription-key`, a `key`, a
-  signature) and a credential response header (`authorization`, `x-subject-token`) with
-  `<CREDENTIAL>` for its value, as the sidecar records them. See
-  [Redaction](./normalizers-and-redaction.md#redaction) for the names read as credentials.
+- **No credential of a run goes up.** A push copies runs as recorded, with no redaction rules
+  applied, but a credential a recording made by an earlier version kept in a call's record stays
+  behind, as the sidecar records them: a model call's query string goes without its credentials
+  (an Azure `subscription-key`, a `key`, a signature), a credential response header
+  (`authorization`, `x-subject-token`) with `<CREDENTIAL>` for its value, and a captured call's
+  name, address, body and answer with theirs masked. A key the agent's command line carries goes
+  as `<CREDENTIAL>`, as in a pack. See [Redaction](./normalizers-and-redaction.md#redaction) for
+  the names read as credentials.
 - **Fixes** go with the runs they are about: a push sends a [fix](./cli.md#fix) (its blames,
   repairs and verdicts) once one of its failing or good runs is in the store, and a pull brings the
   team's, so a teammate's Fixes page shows its three steps. A fix only grows, so two machines'
   copies merge: every blame, repair and verdict either made, open turned verified by either, and a
   title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
   sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
-  way.
+  way. A fix goes with the command line each of its blames, verdicts and repairs ran, as it was
+  typed, a command after `--` and a `--build` included: give a key the agent needs through the
+  environment, never on those command lines.
 - **A teammate's blame or verdict is run again only from what was checked.** A pull marks every
   blame and verdict it brings as pulled, on this machine only. **Blame again**, **Run more
   attempts** and **Verify again** build their command from the report and the flags kept beside
@@ -224,7 +228,7 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   and nothing in it that could rewrite a terminal. A command line may hold tabs and line breaks
   (`python -c '…'`), shown escaped. One the store marks as still running comes in as interrupted,
   since nothing here records it. Its replay asks before running the command it was recorded
-  with, as an unpacked run's does, saying it came from the team store and who recorded it.
+  with, as an unpacked run's does, saying it came from the team store, and in the CLI who recorded it.
 - **A run a pull would refuse** never goes up: `push` checks each run with the same rules and
   leaves one that fails here, saying why. A run in the store that can't be read (changed there by
   hand, or written by a newer Shadowlap) is skipped with its forks, and the other runs come; the
@@ -272,8 +276,9 @@ identity federation or an Azure federated credential, so no key is stored in CI.
 step for pull requests, with credentials of their own; see [Pull requests](#pull-requests). On
 GitHub that step is only for pull requests from your own repository: a fork's gets no OIDC token,
 so its job skips the step and runs the tests without pushing. R2 has no OIDC, so its token's keys
-go in the CI's secrets, for protected branches only. A golden that runs live (one marked `fork`, or
-with an injection gate) calls your agent's providers, so the step that runs the tests needs their
+go in the CI's secrets: on GitHub, to every job that isn't a pull request's (an environment only
+protected branches can use keeps them to those), and on GitLab as protected variables. A golden
+that runs live (one marked `fork`, or with an injection gate) calls your agent's providers, so the step that runs the tests needs their
 keys: `store ci` names those its goldens' recordings call, in the step's `env` from the repository's
 secrets on GitHub, and in a note on GitLab and any other CI. A missing store or missing credentials is a
 warning: the tests still decide the job's result.
@@ -339,8 +344,8 @@ writes the run's [HTML report](./cli.md#export-html), with every redaction rule 
 expires after 7 days. Anyone with the link can open it, without an account; each share is a new
 object, so an older link keeps working until it expires. Without redaction rules the report holds
 the prompts and tool data as recorded, and the command says so. Either way it holds no credential
-a recording kept (a model call's query string, a response header, a captured call's query, form
-body or response headers), and a report is only read, so a model's signed reasoning is masked in
+a recording kept (a model call's query string or response header; a captured call's address, body
+or answer), nor a key the command line carries, and a report is only read, so a model's signed reasoning is masked in
 it like any other text. The recording goes into the file as data, never as markup: the page draws
 it without HTML from the recording, and its content policy lets it load nothing from anywhere else.
 

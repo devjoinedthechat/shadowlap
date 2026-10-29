@@ -52,8 +52,10 @@ if yours is called something else. Calls carrying none are imported together, an
 
 The request captured is the one **the agent sent to the proxy**, not the one the proxy sent to the
 provider. That is the right one: replay matches what the agent's own code produces, and to the agent
-the proxy *is* the provider. Credentials are dropped before anything is written, and so are the
-fields LiteLLM adds to the body on its way through.
+the proxy *is* the provider. Its credential headers (`authorization`, `x-api-key`, `api-key`,
+cookies, `x-goog-api-key`, `x-amz-security-token`) are dropped before anything is written, and so
+are the fields LiteLLM adds to the body on its way through; the import keeps of a request's headers
+only those that change what the model does, and its query without credentials.
 
 An imported run is a [partial recording](./how-it-works.md#partial-recordings) like any other
 import: a gateway sees model calls and nothing else, so a replay runs tool, clock and randomness
