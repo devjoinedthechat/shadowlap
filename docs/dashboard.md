@@ -2,6 +2,12 @@
 
 `shadowlap dashboard` opens your recordings in a browser: the same store the CLI and the terminal UI use, with more room to read. Follow a failed run to the call that lost it, fork it at any call, and take its fix through blame, repair and verify.
 
+This page walks through each page of the dashboard, then what you can do from it, then the reference:
+
+- **The pages**: [the shell](#the-shell), [Search or jump to](#search-or-jump-to), [Overview](#overview), [Runs](#runs), [a run's page](#a-runs-page), [Compare](#compare), [Fixes](#fixes), [Tests](#tests), [Training](#training), [Settings](#settings), [the team store's setup](#the-team-stores-setup) and [Projects](#projects).
+- **What you can do**: [Actions](#actions), [read-only mode](#read-only-mode) and [sending a run to someone](#send-a-run-to-someone).
+- **Reference**: [keyboard shortcuts](#keyboard-shortcuts), [limits](#limits), [security and consent](#security-and-consent), [large stores and long runs](#large-stores-and-long-runs), [how the page stays current](#how-the-page-stays-current), the [HTTP API](#http-api), [notes for contributors](#for-contributors) and [troubleshooting](#troubleshooting).
+
 ## Start the dashboard
 
 Run it in your project's folder:
@@ -19,7 +25,7 @@ Shadowlap dashboard  http://127.0.0.1:4777/#token=…
 
 The dashboard runs until you press Ctrl-C in its terminal. Open a run from the sidebar or from [Runs](#runs), or press ⌘K (Ctrl K) and type its id.
 
-Name a run to open it directly:
+Other ways to start it:
 
 ```sh
 shadowlap dashboard <run>             # opens a run directly
@@ -89,10 +95,12 @@ The about line is worked out from the run and never edited. It depends on the ki
 | An import | Its file or trace; an import of several files shortens to *a.jsonl and 1 more* |
 | Anything else | Its command |
 
-So in a tree, a child shows only its change. Where the about line has to fit:
+So in a tree, a child shows only its change.
+
+How the about line fits the room it gets:
 
 - **On one line**, it is fitted to the room it gets at whole words: its first words and its last, with *…* between (*Ticket T-8812 … arrived damaged*). It keeps a ticket or order number rather than a UUID, and gives its place up rather than show part of a word.
-- **What a replay or a fork changed** is never shortened, but for a field set by its path, which keeps its last parts with the value and the call (*budget_tokens=4096 #17* for *thinking.budget_tokens=4096 #17*).
+- **What a replay or a fork changed** is never shortened, except a field set by its path, which keeps its last parts with the value and the call (*budget_tokens=4096 #17* for *thinking.budget_tokens=4096 #17*).
 - **In the sidebar**, a test replay's status beside it (*check failed*) gives way before its golden's name does.
 
 The about line quotes what the run recorded. So a copy that leaves the store (an HTML file, a share link) works it out from that copy, with the project's redaction rules applied. Labels stay chips beside it, for meaning and filtering, never a name. Runs' filter matches it.
@@ -110,7 +118,7 @@ Every typed word must match. Matches in recordings, forks, tests and captures co
 
 ### How search stays current
 
-The dashboard keeps the search index up to date on a thread of its own, with its own connection to the store, so no page waits for it. So a search answers at once from what is indexed.
+The dashboard keeps the search index up to date on a thread of its own, with its own connection to the store. No page waits for it, and a search answers at once from what is indexed.
 
 - **While another command writes the store** (`gc`, a pull, an import), the index waits a tenth of a second at most and tries again later.
 - **A store in memory**, which no other thread can open, is indexed on the server's own thread, a slice at a time while it answers no request.
@@ -184,7 +192,7 @@ Below, the Overview's panels show the rest of the week:
 | --- | --- |
 | **Today** | Tests counted as the tile counts them, each golden by its newest result, and the blames that ran today |
 | **Calls by origin** | The week's calls by origin |
-| **Prompt cache** | Where the prompt cache stopped hitting, by the Context view's rule, with the tokens sent again |
+| **Prompt cache** | Where the prompt cache stopped hitting, by the [Context view](#context-view)'s rule, with the tokens sent again |
 | **Fixes** | How far each failure got towards a fix |
 | **Spent and not re-spent** | What was spent and not re-spent each day, as a chart or a table |
 | **Activity** | The latest activity: see [Activity](#activity) |
@@ -371,7 +379,7 @@ A fork that failed, by its check or its agent's exit, says *failed* beside its i
 
 ### Where a run opens
 
-A run opens at the call that matters most, unless the link names a call:
+Unless the link names a call, a run opens at:
 
 | Run | Opens at |
 | --- | --- |
@@ -382,7 +390,7 @@ A run opens at the call that matters most, unless the link names a call:
 
 ### Banners
 
-Under the header, a banner says how a run came about, when there's more to say than its kind.
+Under the header, a banner says more about some kinds of run.
 
 **An attempt.** An attempt of blame, verify or `replay --repeat` says it is one: *blame attempt*, *verify attempt* or *repeat attempt* above its id. The fork blame rescued a run with is its *rescued fork*. Its banner says, in order:
 
@@ -633,7 +641,7 @@ The **good/bad key** labels a run `good` or `bad` in one press:
 
 - two buttons beside a run's labels, and at the end of each row of Runs;
 - `+` and `-` on a run's page, and on the row of Runs that has the focus;
-- and Search or jump to.
+- in Search or jump to.
 
 What the two labels mean:
 
@@ -652,7 +660,7 @@ Besides each call as recorded, the run's endpoint (`/api/runs/<id>`, which the p
 
 - **Continuing a conversation**: a model request continues a conversation when it extends that conversation's latest request in the same [scope](./sdk.md). The messages sent last time (Gemini's contents, the Responses API's input items) come first again, with the answer and what followed it appended.
 - **What doesn't count**: cache breakpoints, thinking blocks and thought signatures that an agent moves or drops between requests, and a system message that only carries the time.
-- **An agent that edits its history** still continues its conversation. One that drops its oldest turns is followed by the tool-use ids it still carries. One that strips a reminder from an earlier message, or completes a prefilled answer, is followed by the last answer it carries right after the history it kept.
+- **An agent that edits its history** still continues its conversation. One that drops its oldest turns is matched by the tool-use ids it still carries. One that strips a reminder from an earlier message, or completes a prefilled answer, is matched by the last answer it carries right after the history it kept.
 - **Starting a conversation**: a request that continues no conversation starts one of its own. So does one that repeats another conversation's request word for word, unless that request failed and this is its retry.
 - **A tool call** belongs to the conversation of the model call that asked for it, matched by name and arguments in its scope, with the tool-use id the provider gave.
 - **A call no model asked for** goes with the tool that was running when it started (the HTTP request a tool sends). Else it goes with the model call whose tools have not all run yet, else with the next model call (the ticket fetched before it).
@@ -662,8 +670,7 @@ A call's *Conversation* is its own conversation as it stood at that call, never 
 **Where the prompt cache stopped hitting.** A model call misses when its cache read is smaller than the previous model call's whole input (uncached, written and read) in the same scope and conversation, by at least 1,024 tokens. The tokens sent again are the difference.
 
 - A conversation's first call is never a miss, so a batch doesn't flag the start of every ticket.
-- Every call whose cache read is known is judged. Anthropic and OpenAI report it, zero included; Gemini leaves it out when it read nothing.
-- So an agent that never asks to cache shows each turn's history as sent again.
+- Every call whose cache read is known is judged: Anthropic and OpenAI report it, zero included, and Gemini leaves it out when it read nothing. So an agent that never asks to cache shows each turn's history as sent again.
 - A server that reports no cache at all (a local model behind an OpenAI-compatible API) shows no misses.
 - The share of input read from the cache counts live model calls.
 
@@ -833,12 +840,14 @@ One that doesn't count for the fix is drawn plain and headed with why (*Doesn't 
 
 **An incomplete verdict** is amber, as inconclusive is everywhere, and leads with what settles it, the fix's header plain meanwhile:
 
-- **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled. Its runs are verified again from the start, named in their roles, since verify has no `--continue`: the limit doubled where a gate ran out of attempts, and without the budget that stopped it.
-- **Verify again**, for one that an attempt that couldn't be judged stopped.
+- **Run more attempts**, for a run its gate couldn't settle in its attempts, or that the verify stopped before it settled.
+- **Verify again**, for one stopped by an attempt that couldn't be judged.
+
+Run more attempts verifies its runs again from the start, named in their roles, since verify has no `--continue`. It doubles the limit where a gate ran out of attempts, and runs without the budget that stopped it.
 
 Both are built from the verdict's report and the flags kept beside it, never from its command line:
 
-- A verdict kept before its flags were offers neither.
+- A verdict kept before its flags were kept beside it offers neither.
 - One a pull brought from the [team store](./team.md) asks first, showing the exact command. It runs without a teammate's `--build`, `--base` and command after `--`, and spends at most twice what Shadowlap runs by itself: a gate up to 160 attempts a run, a fixed count up to 10.
 
 A line under the verdict says which run is open and why, and what settling it takes (*about 12 attempts, ≈$0.045*), at the run's pass rate so far and the verdict's spend per attempt.
@@ -928,7 +937,7 @@ An inconclusive golden follows too:
 - **A [judge check](./judges.md#not-judged) with no verdict its replay could use** offers **Update golden**, as below.
 - **A golden marked `fork`**, whose judges are asked live, names the key the judge's provider lacked.
 
-A judge's verdict in a pack can be missing, given to an older form of the judge's request, or given on other material, and a test that replays offline can't ask the judge. **Update golden** asks first, then runs `shadowlap test <golden> --update`. The judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack; nothing is re-recorded.
+Such a judge check's pack holds no verdict its replay can use: none, one given to an older form of the judge's request, or one given on other material. A test that replays offline can't ask the judge. **Update golden** asks first, then runs `shadowlap test <golden> --update`: the judge is asked once, live, with the key in the dashboard's environment, and its verdict kept in the pack. Nothing is re-recorded.
 
 For a verdict given on other material, it says first that a value that changes every run needs a [normalizer](./normalizers-and-redaction.md#normalizers) before the update, or the next test reads not judged again.
 
@@ -1124,7 +1133,9 @@ The project at the top of the sidebar opens the switcher. It lists every project
 
 **A project whose folder is gone** (deleted, or moved, even while the dashboard shows it) stays listed as *folder not found*. Its pages say so and offer to remove it, and its actions are refused with the reason. They come back once the folder does.
 
-**A store deleted while the dashboard serves it**, its folder still there, is said to be, by the file it was rather than its name. Its pages say so, its actions are refused with the reason, and nothing reads the deleted file any more. A store made where it was (a run recorded) is read anew, with none of the old one's runs. A dashboard that serves one store, as the terminal UI's does, says so and asks to be started again.
+**A store deleted while the dashboard serves it**, its folder still there, is reported as deleted: the dashboard tells by the file it was rather than its name. Its pages say so, its actions are refused with the reason, and nothing reads the deleted file any more.
+
+A store made where it was (a run recorded) is read anew, with none of the old one's runs. A dashboard that serves one store, as the terminal UI's does, says so and asks to be started again.
 
 ### Switching projects
 
@@ -1311,7 +1322,7 @@ Where jobs can't run (a read-only dashboard), **Share → HTML file** comes stra
 
 With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
 
-**Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does. It removes the recorded data nothing else uses too.
+**Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does. It also removes the recorded data nothing else uses.
 
 **Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
 
@@ -1337,13 +1348,13 @@ It asks first, since it runs your agent live. It says that each candidate is ver
 - **Claude Code not found**: when that repairer is Claude Code and `claude` can't be found on the PATH the dashboard's jobs get (or where `SHADOWLAP_CLAUDE` points), the dialog says so, with what to do, and Repair stays off. The server refuses the job: it would blame every failing run and find no one to propose a fix.
 - **An API repairer's key** can't be checked without asking it, so the repair says why when it couldn't.
 
-**No fix to try.** When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent. Repair from here stays, but is no longer the page's lead button. Its hover and its dialog say so, and why, the dialog without the line about billed model calls:
+**No fix to try.** When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent. Repair from here stays, but is no longer the page's lead button. Its hover and its dialog say so, and why:
 
 - no answer of the model's lost the run, since every attempt met a write's recorded error again, or the attempts that passed answered as the recording did;
 - blame couldn't settle where it was lost;
 - or no probe rescued it.
 
-The blame's own next step leads instead:
+The dialog then leaves out the line about billed model calls, and the blame's own next step leads instead:
 
 - **Blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
 - **Blame with a stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
@@ -1379,9 +1390,9 @@ Tests runs its goldens as jobs too:
 | **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
 | **Find the commit**           | `shadowlap bisect`, from the newest revision where the golden passed  |
 
-These jobs run one at a time in a project. **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find the commit** wait, saying what is running, while any of these runs:
+These jobs run one at a time in a project. While any of the following runs, **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find the commit** wait, saying what is running:
 
-- one of these jobs, **Find the commit** on a golden among them, which reads its pack and answers the failure it started from;
+- another of these jobs, **Find the commit** on a golden among them, which reads its pack and answers the failure it started from;
 - a setup packing and testing its golden;
 - a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
 
@@ -1393,7 +1404,7 @@ The server refuses another such job with the same words, from any tab, the palet
 
 **Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
 
-**Find the commit** runs `shadowlap bisect` from the newest revision where the golden passed under the checks it has as they stand. A pass from before a check was added may be a commit where it already fails that check.
+**Find the commit** runs `shadowlap bisect` from the newest revision where the golden passed under its checks as they stand. A pass from before a check was added may be a commit where it already fails that check.
 
 - **It asks first** when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
 - **Another commit…** is a field beside the list, which stays to pick one from again.
@@ -1576,7 +1587,7 @@ The dashboard's limits, in one place:
 | **Stop**, on an agent that ignores the signal | Killed after five seconds                                         |
 | Reconnecting                                  | After 5, 10, 20, then every 30 seconds                            |
 
-How the dashboard stays quick on a large store is under [Large stores and long runs](#large-stores-and-long-runs).
+How the dashboard works through a large store is under [Large stores and long runs](#large-stores-and-long-runs).
 
 ## Security and consent
 
@@ -1629,7 +1640,7 @@ The work done on those threads:
 
 **A third thread.** While every thread is busy, a third thread answers what comes behind them. It starts at once while what can wait (a long run's whole analysis, the warm-up) holds one, and after half a second while requests hold both (two whole Compares of long runs). It ends once it has had nothing to do for a while.
 
-**A run stays with its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
+**A run keeps its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
 
 - A request that reads the whole of a run over 20,000 calls waits for that thread up to 5 s (half a second while it does what can wait), rather than read the run again on another.
 - Past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there.
@@ -1687,7 +1698,6 @@ An exported copy holds every call.
 
 The dashboard's first script holds the shell and what the pages share; a page's own code loads the first time you open it. An exported copy is one script with every page in it.
 
-`node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds such a store and times what a browser asks for on it.
 
 ## How the page stays current
 
@@ -2018,7 +2028,7 @@ A matrix has a cell per preset: its verdict, the call it hit, passes and attempt
 
 What some of them do:
 
-- **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` runs its runs from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
+- **`blame`**, **`verify`**, **`repair`** and **`apply`** are a fix's jobs. `verify` verifies its runs again from the start, the limit doubled where a gate ran out of attempts, without the budget that stopped it. A `repair` whose repairer `shadowlap.config.json` no longer names is a 409, and nothing runs.
 - **`test`**: `maxAttempts` raises each gate's limit for that session (`test --max-attempts`), and `continue` carries an inconclusive gate's attempts over (`test --continue`).
 - **`test-update`**: one that replayed clean and lacks a judge's verdict it can use gets the verdict asked and kept instead.
 - **Tests' jobs** (`test`, `test-update`, `bisect`, `normalize-and-test`) run one at a time in a project, and none while a test session or error-path presets on goldens run, wherever they were started: a terminal, another dashboard or a job (409).
@@ -2044,7 +2054,7 @@ Outside a dashboard job the variable is unset, and nothing is written.
 
 ## For contributors
 
-`npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store, built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names). It checks it with axe-core for no serious or critical violation:
+**Browser tests.** `npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store, built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names). It checks it with axe-core for no serious or critical violation:
 
 - on any page, Settings tab, run, view, inspector tab, menu or dialog;
 - on Fixes and each fix's steps, the palette, and the shortcuts on Overview, Runs, Fixes and Settings;
@@ -2053,7 +2063,9 @@ Outside a dashboard job the variable is unset, and nothing is written.
 
 It also checks the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page.
 
-Where the code is:
+**A large store.** `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds a large store and times what a browser asks for on it; see [Large stores and long runs](#large-stores-and-long-runs).
+
+**Where the code is:**
 
 - **Links**: the server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too.
 - **Attempts**: which runs are attempts is one rule, `packages/engine/src/run-roles.ts`.
