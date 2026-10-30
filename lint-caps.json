@@ -11,9 +11,6 @@
     "action/run.mjs": {
       "main": 58
     },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 118
-    },
     "packages/cli/guard/node-capture.mjs": {
       "fetchViaSidecar": 34
     },
@@ -446,9 +443,6 @@
     "packages/adapters/src/claude-agent-sdk.ts": {
       "fenceHooks": 230
     },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 182
-    },
     "packages/cli/src/bisect.ts": {
       "runBisect": 193
     },
@@ -577,9 +571,6 @@
   "max-depth": {
     "action/fix.mjs": {
       "runFixes": 6
-    },
-    "packages/adapters/src/claude-reach.ts": {
-      "claudeReach": 6
     },
     "packages/cli/src/repair.ts": {
       "handOver": 6
