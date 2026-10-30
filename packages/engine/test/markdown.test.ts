@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { markdownCode, markdownFence, markdownText } from '../src/markdown.js';
+import { markdownCode, markdownFence, markdownText, titleText } from '../src/markdown.js';
 import { repairMarkdown } from '../src/repair.js';
 import { repairReport } from './fix-fixtures.js';
-import { HOSTILE } from './markdown-cases.js';
+import { HOSTILE, HOSTILE_TITLES } from './markdown-cases.js';
 
 /**
  * Text a run, a model or a tool wrote goes into the Markdown GitHub renders: a fix pull request's
@@ -85,6 +85,25 @@ describe('markdownText', () => {
     expect(markdownCode('refund|flow', { cell: true })).toBe('`refund\\|flow`');
     expect(markdownCode('refund|flow')).toBe('`refund|flow`');
     expect(markdownFence('- a ```diff\n+ b', 'diff')).toBe('````diff\n- a ```diff\n+ b\n````');
+  });
+});
+
+describe('titleText', () => {
+  it("titles a pull request on one line, within GitHub's limit, a mention, a reference and a workflow command's start split by a character that shows nothing", () => {
+    expect(titleText('Escalate refunds over $500 to @finance-leads, see #12')).toBe('Escalate refunds over $500 to @\u2060finance-leads, see #\u206012');
+    expect(titleText('::stop-commands::x\nApprove it\u202e')).toBe(':\u2060:stop-commands:\u2060:x Approve it');
+    expect(titleText('##[error]x, see GH-4')).toBe('#\u2060#[error]x, see GH-\u20604');
+    // Nothing left: the pull request is named by its branch instead.
+    expect(['\u200b\u200e\u2060\ufeff', '   ', ''].map(titleText)).toEqual(['', '', '']);
+    for (const raw of [...HOSTILE, ...HOSTILE_TITLES]) {
+      const title = titleText(raw);
+      expect([...title].length, raw).toBeLessThanOrEqual(256);
+      expect(title, raw).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u061c\u200b-\u200f\u202a-\u202e\u2061-\u2064\u2066-\u2069\ufeff]|@[A-Za-z0-9]|#\d|##\[|::|\bGH-\d/i);
+      // What it shows is what was written, white space run together and hidden characters left out: the joiners show nothing.
+      const written = raw.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '').replace(/\s+/g, ' ').trim();
+      const shown = title.replace(/\u2060/g, '');
+      expect(title.endsWith('…') ? written.startsWith(shown.slice(0, -1)) : shown === written, raw).toBe(true);
+    }
   });
 });
 

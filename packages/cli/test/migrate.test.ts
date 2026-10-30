@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { emptyCounts, Store, type DecisionRun, type DecisionsVerify } from '@shadowlap/engine';
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
-import { formatMigrate, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
+import { formatMigrate, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
 import { quoteArgv } from '../src/ui.js';
 import { departures } from './json-shapes.js';
 
@@ -294,6 +294,38 @@ describe('shadowlap migrate', () => {
     expect(problems.flatMap((x) => [...x.missing, ...x.extra])).toEqual([]);
     expect(existsSync(join(cwd, '.shadowlap', 'migrations'))).toBe(true);
   }, 240_000);
+});
+
+// Links: Windows makes one only with a privilege a runner may not have, so this runs elsewhere, as the other link tests do.
+describe.skipIf(process.platform === 'win32')("migrate's change to the project's files", () => {
+  it("reads a link only as a file git lists: nothing of a key file outside the project, an .env git ignores or git's config is in the patch or the review", () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-migrate-links-')));
+    try {
+      const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+      const project = join(base, 'project');
+      mkdirSync(join(project, 'config'), { recursive: true });
+      const git = (...args: string[]) => execFileSync('git', args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
+      git('init', '-q');
+      writeFileSync(join(project, 'agent.py'), `MODEL = "${FROM}"\n`);
+      // Settings kept outside the project, a key beside the model, and linked into it.
+      writeFileSync(join(base, 'settings.py'), `MODEL = "${FROM}"\nAPI_KEY = "${TOKEN}"\n`);
+      symlinkSync(join(base, 'settings.py'), join(project, 'config', 'settings.py'));
+      // Git's config, a token in a remote's URL and the model named, and a link to it, as a pull request could add.
+      git('remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
+      git('config', 'acme.model', FROM);
+      symlinkSync('../.git/config', join(project, 'config', 'git.py'));
+      // A .env git ignores, a key beside the model, and a link to it.
+      writeFileSync(join(project, '.gitignore'), '.env\n');
+      writeFileSync(join(project, '.env'), `MODEL="${FROM}"\nAPI_KEY="${TOKEN}"\n`);
+      symlinkSync('../.env', join(project, 'config', 'env.py'));
+      const change = modelMentions(project, [FROM], 'claude-sonnet-4-6');
+      expect(change).toMatchObject({ files: [{ path: 'agent.py', places: 1 }], review: [] });
+      expect(JSON.stringify(change)).not.toContain(TOKEN);
+      expect(readFileSync(join(base, 'settings.py'), 'utf8')).toContain(FROM);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("migrate's first line", () => {

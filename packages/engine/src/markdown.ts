@@ -55,6 +55,36 @@ export function markdownText(text: string): string {
     .replace(/^(\s*)([#>+=-]|\d+(?=[.)]))/, (_m, space: string, mark: string) => `${space}${[...mark].map((ch) => `&#${ch.charCodeAt(0)};`).join('')}`);
 }
 
+/** Shows nothing, and splits what GitHub or the runner would read in text GitHub shows as it is written, as SPLIT does in Markdown: the word joiner. */
+const JOINER = '\u2060';
+/** The most characters GitHub takes in a pull request's title. */
+const TITLE_MAX = 256;
+
+/**
+ * Text as a pull request's title, which GitHub shows as it is written, not as Markdown, held to the
+ * rules markdownText holds a body to: one line (line breaks and control characters a space, white
+ * space run together), the characters that reorder or hide what is shown left out, and a mention, an
+ * issue or pull request reference (`#12`, `GH-12`) and the start of a workflow command (`::`, `##[`),
+ * which the job's log would read in it, split by a word joiner, which shows nothing; at most 256
+ * characters, as GitHub takes. Empty when nothing is left: name the pull request by its branch then.
+ * action/markdown.mjs's titleText, which titles the Action's fix pull request, is the same, held to
+ * the same cases.
+ */
+export function titleText(text: string): string {
+  const split = String(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ')
+    .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/@(?=[A-Za-z0-9])/g, `@${JOINER}`)
+    .replace(/#(?=\d)/g, `#${JOINER}`)
+    .replace(/\bGH-(?=\d)/gi, (m) => `${m}${JOINER}`)
+    .replace(/:(?=:)/g, `:${JOINER}`)
+    .replace(/#(?=#\[)/g, `#${JOINER}`);
+  const chars = [...split];
+  return chars.length > TITLE_MAX ? `${chars.slice(0, TITLE_MAX - 1).join('')}…` : split;
+}
+
 /**
  * Text as a code span, `like this`, in which GitHub renders nothing: its own backticks can't end it
  * (the fence is longer than any run of them inside). In a table `cell`, its `|` is escaped, which

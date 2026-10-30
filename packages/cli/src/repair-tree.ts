@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { closeSync, constants, cpSync, existsSync, fstatSync, ftruncateSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync, type BigIntStats } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { linkDependencies, mapArgv } from './bisect.js';
 import { physicalPath, realPath } from './real-path.js';
 
@@ -111,13 +111,42 @@ const within = (root: string, path: string) => {
 };
 
 /**
+ * Whether a path relative to a repository's root is in a folder named .git, or is one, at any depth,
+ * its name read as Windows and macOS read it: in any case, without the dots and spaces Windows drops
+ * from its end. That is git's own, never the project's.
+ */
+const inGitFolder = (rel: string) => rel.split(/[\\/]/).some((part) => part.replace(/[. ]+$/, '').toLowerCase() === '.git');
+
+/**
+ * The folders git keeps the repository at `root` in, as the system names them: its git dir and, for
+ * a linked worktree, the common one, wherever they are (`.git` at the root, or a folder a `.git` file
+ * names, inside the repository or out of it). Neither holds a file of the project's, and the config
+ * in them can hold a credential: a remote's URL with a token, the header actions/checkout writes.
+ */
+export function gitFolders(root: string): string[] {
+  const named = git(root, ['rev-parse', '--absolute-git-dir', '--git-common-dir']).split('\n').filter(Boolean);
+  return [...new Set(named.map((dir) => physicalPath(resolve(root, dir))))];
+}
+
+/** The root of the git repository `cwd` is in, as git names it, or null for none. */
+export function repositoryRoot(cwd: string): string | null {
+  try {
+    return git(cwd, ['rev-parse', '--show-toplevel']).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The file a project path names, as repair may read and rewrite it: the path itself for a regular
  * file, or for a link (or a path through one) the path of the regular file it ends at, relative to
- * `root` with forward slashes, when that file is inside the repository. A link out of it, to a file
- * of another project, a home folder or the system, names nothing repair may touch: null, as for
- * anything that isn't a regular file or can't be read.
+ * `root` with forward slashes, when that file is inside the repository and is not git's own: in no
+ * folder named .git, and in none of `gitOwn` (gitFolders), git's own folders by whatever name a
+ * `.git` file gives them. A link out of the repository, to a file of another project, a home folder
+ * or the system, or into git's own folder, to its config, names nothing repair may touch: null, as
+ * for anything that isn't a regular file or can't be read.
  */
-export function fileInside(root: string, rel: string): string | null {
+export function fileInside(root: string, rel: string, gitOwn: readonly string[] = []): string | null {
   const realRoot = physicalPath(root);
   let real: string;
   try {
@@ -127,7 +156,43 @@ export function fileInside(root: string, rel: string): string | null {
     return null;
   }
   if (!within(realRoot, real) || real === realRoot) return null;
-  return relative(realRoot, real).split(sep).join('/');
+  const inside = relative(realRoot, real).split(sep).join('/');
+  if (inGitFolder(inside) || gitOwn.some((dir) => within(dir, real))) return null;
+  return inside;
+}
+
+/** Whether `path` itself is a link, not following it; false for nothing there. */
+const isLink = (path: string) => {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The project's files git lists in `dir` (tracked, and untracked but not ignored), each once, as the
+ * file it names, relative to `dir` with forward slashes. A link counts as the file it ends at only
+ * when git lists that file too: one to a file git ignores (a `.env`, a build's output), out of `dir`,
+ * or into git's own folders (fileInside) names nothing. Git lists a link, never a path through one.
+ * `skip` leaves a path out, by the name git lists or by the file's own.
+ */
+export function listedFiles(dir: string, skip: (path: string) => boolean = () => false): string[] {
+  const real = physicalPath(dir);
+  const gitOwn = gitFolders(real);
+  const names = git(dir, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0').filter(Boolean);
+  const listed = new Set(names);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (skip(name)) continue;
+    const path = fileInside(real, name, gitOwn);
+    if (!path || skip(path) || seen.has(path)) continue;
+    if (path !== name && isLink(join(real, name)) && !listed.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
 }
 
 /**

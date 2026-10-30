@@ -3,7 +3,8 @@ import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { projectFiles } from '../src/repair.js';
+import { unifiedDiff } from '@shadowlap/engine';
+import { applyAccepted, projectFiles } from '../src/repair.js';
 import { candidateTree, fileInside, readInside, writeInside } from '../src/repair-tree.js';
 
 /**
@@ -126,6 +127,53 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
     expect(['prompts/abs.md', 'prompts/rel.md', 'prompts/alias.md', 'prompts/local.md', 'prompts/inside.md', 'prompts/none.md'].map((f) => fileInside(repo, f))).toEqual([null, null, 'prompts/inside.md', null, 'prompts/inside.md', null]);
     // So the project's files hold the prompt once, under its own path, and nothing from outside.
     expect(projectFiles(repo).map((f) => f.path)).toEqual(['prompts/inside.md']);
+  });
+
+  /** An invented credential, in the shape of a GitHub token, and the header actions/checkout writes with one. */
+  const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+  const HEADER = Buffer.from(`x-access-token:${TOKEN}`).toString('base64');
+
+  it("is never read in git's own folder, a link to .git/config with a credential in it included", () => {
+    const { repo } = linked();
+    // The checkout's config holds a credential: a remote's URL with a token, and the header actions/checkout writes.
+    sh(repo, 'remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
+    sh(repo, 'config', 'http.https://github.com/.extraheader', `AUTHORIZATION: basic ${HEADER}`);
+    // Links to it, as a pull request could add them: by a relative name, by its absolute one, and to the folder.
+    symlinkSync('../.git/config', join(repo, 'prompts', 'remote.md'));
+    symlinkSync(join(repo, '.git', 'config'), join(repo, 'prompts', 'config.md'));
+    symlinkSync('../.git', join(repo, 'prompts', 'git'));
+    sh(repo, 'add', '.');
+    sh(repo, '-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'links to the git config');
+    const files = projectFiles(repo);
+    expect(files.map((f) => f.path)).toEqual(['prompts/inside.md']);
+    expect(JSON.stringify(files)).not.toContain(TOKEN);
+    expect(JSON.stringify(files)).not.toContain(HEADER);
+    expect(['prompts/remote.md', 'prompts/config.md', '.git/config'].map((f) => fileInside(repo, f))).toEqual([null, null, null]);
+  });
+
+  it('counts as the file it names only when git lists that file too: never one git ignores, a .env with a key in it included', () => {
+    const root = repository();
+    // Git ignores the .env, here with a key in it, and the build's output.
+    write(join(root, '.env'), `SUPPORT_KEY=${TOKEN}\n`);
+    for (const [target, link] of [['../.env', 'env.md'], ['../dist/agent.js', 'built.js'], ['agent.mjs', 'current.mjs'], ['notes.txt', 'notes.md']]) symlinkSync(target, join(root, 'agent', link));
+    const files = projectFiles(root);
+    // The tracked file and the untracked one git doesn't ignore count, under their own paths; what git ignores, never.
+    expect(files.map((f) => f.path).sort()).toEqual(['.gitignore', 'README.md', 'agent/agent.mjs', 'agent/notes.txt']);
+    expect(JSON.stringify(files)).not.toContain(TOKEN);
+  });
+
+  it('is never read in a git dir by another name inside the repository, which git lists as files it does not track', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-gitdir-')));
+    dirs.push(base);
+    sh(base, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(base, '.repo-git')}`);
+    write(join(base, 'agent.mjs'), "export const system = 'Follow the refund policy.';\n");
+    sh(base, 'remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
+    sh(base, 'add', 'agent.mjs');
+    sh(base, '-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'agent');
+    expect(sh(base, 'ls-files', '--others', '--exclude-standard')).toContain('.repo-git/config');
+    const files = projectFiles(base);
+    expect(files.map((f) => f.path)).toEqual(['agent.mjs']);
+    expect(JSON.stringify(files)).not.toContain(TOKEN);
   });
 
   it('is never written through, in a worktree or the working tree: nothing outside either changes', () => {
@@ -278,6 +326,30 @@ describe("a candidate's worktree, its size and a build", () => {
       expect(readlinkSync(join(plain.root, '.venv'))).toBe(join(root, '.venv'));
     } finally {
       plain.remove();
+    }
+  });
+});
+
+/** The only change a repair makes in the working tree: the accepted candidate, with --apply, once its patch is checked to be that rewrite. */
+describe('applyAccepted', () => {
+  const candidate = { id: 1, source: 'repairer' as const, strategy: 's', why: 'w', surface: 'system prompt', file: 'agent.mjs', offset: 16, before: 'Follow the refund policy.', after: 'Follow the refund policy: escalate above the limit.', size: 26, state: 'accepted' as const, reason: null, verify: null };
+  const content = "const system = 'Follow the refund policy.';\n";
+
+  it('writes the accepted candidate into the working tree, and nothing when its patch is anything more', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-apply-'));
+    try {
+      writeFileSync(join(dir, 'agent.mjs'), content);
+      writeFileSync(join(dir, 'other.mjs'), 'export {};\n');
+      const fixed = content.replace(candidate.before, candidate.after);
+      const report = { candidates: [candidate], accepted: 1, patch: unifiedDiff('agent.mjs', content, fixed), output: { dir: null, patch: 'fix.patch', report: null, goldens: [], applied: false, branch: null, pr: null } };
+      // A patch that also changes another file is not the candidate's change: refused, nothing written.
+      const more = { ...report, patch: report.patch + unifiedDiff('other.mjs', 'export {};\n', 'process.exit(1);\n') };
+      expect(() => applyAccepted(more, dir)).toThrow(/the patch is not the accepted candidate's change \(it changes agent\.mjs and other\.mjs, where its accepted candidate changes agent\.mjs alone\), so nothing was applied/);
+      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(content);
+      applyAccepted(report, dir);
+      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(fixed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

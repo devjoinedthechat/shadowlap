@@ -85,7 +85,7 @@ export { CONTROL, PACK_LIMITS, PackError } from './pack-schema.js';
 export { callRefs, validateCall, validateRun } from './pack-schema.js';
 export { decodedSegment, quoteArgv, safeLine, safeText } from './text.js';
 // Text safe in the Markdown GitHub renders, for pull request bodies, comments and job summaries.
-export { markdownCode, markdownFence, markdownText } from './markdown.js';
+export { markdownCode, markdownFence, markdownText, titleText } from './markdown.js';
 export { shortCallName } from './labels.js';
 export { ORIGIN_CODE, ORIGIN_CODES, ORIGIN_OF_CODE, ORIGIN_RANK, attemptBundles, binOrigins, checksOf, classifyRun, countOrigins, displayOrigin, emptyOriginCounts, failedChecks, filedTestAttempt, isFailedOutcome, kindLabel, lostAt, notableOrigin, originCells, outcomeLabel, pulledRun, runKind, runOutcome, withAttempts, type CheckCounts } from './classify.js';
 export { deletionPlan, type DeletionPlan } from './run-deletion.js';

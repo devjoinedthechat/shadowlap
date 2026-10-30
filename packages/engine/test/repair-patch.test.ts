@@ -98,6 +98,9 @@ describe('repairPatchProblem', () => {
     for (const file of ['src/prompt.txt', 'prompts/run.md', 'src/blobs/prompt.ts', 'run.json.md']) expect(repairPatchProblem(pulled(file)), file).toBeNull();
     expect(repairNeverRewrites('goldens/refund/run.json')).toMatch(/run\.json/);
     expect(repairNeverRewrites('agent.mjs')).toBeNull();
+    // Nor anything in git's own folder, at any depth, its name read as Windows reads it.
+    for (const file of ['.git/config', '.GIT/hooks/pre-commit', 'vendor/lib/.git/config', '.git./config', '.git /config']) expect(repairNeverRewrites(file), file).toBe("a file in git's own folder, where the repository and its config are, which can hold a credential");
+    for (const file of ['.gitignore', '.github/workflows/ci.yml', 'docs/.gitkeep']) expect(repairNeverRewrites(file), file).toBeNull();
   });
 
   it("refuses a patch to the candidate's file that is not the candidate's rewrite", () => {

@@ -268,7 +268,7 @@ agent's golden with `"templates": ["system-notice"]`, one attempt at each of its
 | `influenced` | no limit | Attempts that may be influenced |
 | `repeat` | `1` | Attempts per untrusted read and payload |
 | `templates` | `"all"` | `"all"`, `"none"` or a list of template ids |
-| `payloads` | none | A file of your own payloads, relative to the config |
+| `payloads` | none | A file of your own payloads, relative to the config, in the project: never in git's own folder or through a link out of the project (`--payloads` plants one kept elsewhere) |
 | `baselines` | `3` | Clean replays of each read to compare with |
 | `liveReads` | `false` | Run the reads the recording doesn't hold instead of fencing them |
 
