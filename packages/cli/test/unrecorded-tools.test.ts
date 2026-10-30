@@ -99,7 +99,7 @@ describe('a run whose model called tools Shadowlap never recorded', () => {
     // The sample in how-it-works.md is this output, line for line.
     const docs = readFileSync(DOCS, 'utf8');
     const section = docs.slice(docs.indexOf('## Tools Shadowlap did not record'));
-    const sample = /```\n([\s\S]*?)\n```/.exec(section)![1].split('\n');
+    const sample = /```(?:text)?\n([\s\S]*?)\n```/.exec(section)![1].split('\n');
     const lines = recorded.out.split('\n');
     const at = lines.indexOf(sample[0]);
     expect(at, recorded.out).toBeGreaterThan(-1);
