@@ -240,7 +240,7 @@ describe('a copy of a run whose command line carries a secret by a word’s plac
 
   it('carries none of them, and a pack an earlier version wrote with them in it is still the recording made here', () => {
     const store = Store.open(':memory:');
-    const run = store.createRun({ mode: 'record', command: { argv: ['sh', '-c', script(PLACED[0]!, PLACED[1]!, PLACED[2]!, 'sk-test-EXAMPLE0000')], cwd: '/tmp' } });
+    const run = store.createRun({ mode: 'record', command: { argv: ['sh', '-c', script(PLACED[0], PLACED[1], PLACED[2], 'sk-test-EXAMPLE0000')], cwd: '/tmp' } });
     store.endRun(run.runId, 'completed');
     expect(carriesCredentials(store, run.runId)).toBe(true);
     const dir = packOf(store, run.runId);
@@ -249,7 +249,7 @@ describe('a copy of a run whose command line carries a secret by a word’s plac
     expect(unpackRun(store, dir).mismatched).toEqual([]);
     // As an earlier version wrote the pack: these as the command ran, the flag's key masked.
     const manifest = JSON.parse(readFileSync(join(dir, 'run.json'), 'utf8')) as { runs: Array<{ command: { argv: string[] } }> };
-    manifest.runs[0]!.command.argv = ['sh', '-c', script(PLACED[0]!, PLACED[1]!, PLACED[2]!, `"${CREDENTIAL_PLACEHOLDER}"`)];
+    manifest.runs[0].command.argv = ['sh', '-c', script(PLACED[0], PLACED[1], PLACED[2], `"${CREDENTIAL_PLACEHOLDER}"`)];
     writeFileSync(join(dir, 'run.json'), JSON.stringify(manifest));
     expect(unpackRun(store, dir).mismatched).toEqual([]);
     store.close();
