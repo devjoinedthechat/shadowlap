@@ -1610,17 +1610,106 @@ Closing the terminal stops the dashboard and its jobs. To keep it running after 
 
 ## Large stores and long runs
 
-What reads every call of a run, or every run, is worked out on two threads beside the server's own, each reading the store through a connection of its own that only reads: the Overview, the totals the Runs table filters and sorts by, a run's page and its calls, its Provenance, what a run's untrusted reads are, Compare, what a fork did differently, a fix's page and its attempt groups, the activity feed, a search, Settings → Tools' list, what the project switcher and a project's setup count of its store, Training's pairs, and Copy JSON. Every other request is answered meanwhile, so the status bar and the page you are on never wait for them. While every thread is busy, a third thread answers what comes behind them: at once while what can wait (a long run's whole analysis, the warm-up) holds one, after half a second while requests hold both (two whole Compares of long runs), and it ends once it has had nothing to do for a while. A run stays with the thread that read it, which keeps it: a request about it goes there, and one that reads the whole of a run over 20,000 calls waits for that thread up to 5 s (half a second while it does what can wait) rather than read the run again on another; past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there. The warm-up works on the thread that answered a request least lately, so the run you are reading keeps the thread that holds it. A job that runs past two minutes (ten for what can wait, such as a long run's whole analysis) is stopped with its thread, and its page says it took too long rather than wait for good; a new thread takes what comes after. The search index is kept up to date on a thread of its own, runs are deleted on one of their own, through a connection of its own, what the threads work out to keep (each run's totals, what its user asked) is written on another, and the counts the status bar polls for take in only what was written since: a recording's new calls, and the runs started, ended or labelled, as the store's log of runs written names them.
+How the dashboard works through a large store or a long run: on which threads, and in what order.
 
-- **Totals.** Each finished run's totals (what it spent, its calls, what its user asked first) are worked out once in the store's life, newest first, and kept in the store by a thread of their own, so a write never holds the server's; while another command is writing the store (the search index, a recording, `gc`), they wait and are kept once it is done. On a store no dashboard has opened yet, the Overview says how many runs are added up so far until they all are, and every other page works meanwhile. Until then the Runs table filters by the about lines known so far and sorts by what the runs known so far spent, says how many that is, and reads its first page again as more are known. A row adds up its own run's totals as it is asked for only when that is quick (5,000 calls a request in all): a longer run's row shows at once with its spend as … and its strip empty, and the table and the sidebar ask again until the warm-up has them; a long recording's about line quotes its first calls until then. The Overview works the same way at any time: a short run that just ended is added up as it asks, and a long one that isn't yet (its prompt cache, say) has it say how far the runs are added up, and the warm-up go through them again, rather than read every call of that run while you wait. What one thread worked out, another reads from the store.
-- **A long run's calls come a page at a time.** A run's page comes with the first page of its calls, how many it has and every call's origin. The page lists every call at once, those not read yet as their number and origin, reads the page of the call it opens on first (a link, the fork, the lost call), then the page of any call you go to, then the rest in order, one page at a time; while the dashboard is still analysing a long run, the page of a call deep in it comes at once from the calls around it, without its conversations' numbers, and is read again with them in order; a page on its way is never asked for again, and while one is, a scroll asks for the page where it stops rather than one for every step, the pages read in order waiting until it has stopped; a line under the view says how many are read, and that a filter, a scope or another view shows those read so far. A page that can't be read (the dashboard stopped, a server too busy) is tried again a second later, then two, up to thirty, or at once when you pick a call; a run deleted while its page is open is read no further, and the page says it is no longer in the store. A run that ended with 1,000 calls or more is answered from its first calls, with what its page says of the whole run (its numbers, the strip, its models, blame's step) worked out without reading the rest. A recording's page is read the same way, following its newest call: opened from a link that names no call (Watch live, Runs, the sidebar), it opens at its newest call by its count, not the last of the calls read, and reads that page first; the calls it makes are read as they come, one page at a time, the selection following them, and a call read before it was answered is read again with them. An exported copy holds every call.
-- **Each page's code loads when it opens.** The dashboard's first script holds the shell and what the pages share; a page's own code loads the first time you open it. An exported copy is one script with every page in it.
+### Worker threads
+
+What reads every call of a run, or every run, is worked out on two threads beside the server's own. Each reads the store through a connection of its own that only reads. Every other request is answered meanwhile, so the status bar and the page you are on never wait for them.
+
+The work done on those threads:
+
+- the Overview, and the totals the Runs table filters and sorts by;
+- a run's page and its calls, its Provenance, and what a run's untrusted reads are;
+- Compare, and what a fork did differently;
+- a fix's page and its attempt groups;
+- the activity feed, and a search;
+- Settings → Tools' list;
+- what the project switcher and a project's setup count of its store;
+- Training's pairs, and Copy JSON.
+
+**A third thread.** While every thread is busy, a third thread answers what comes behind them. It starts at once while what can wait (a long run's whole analysis, the warm-up) holds one, and after half a second while requests hold both (two whole Compares of long runs). It ends once it has had nothing to do for a while.
+
+**A run stays with its thread.** A run stays with the thread that read it, which keeps it, and a request about it goes there.
+
+- A request that reads the whole of a run over 20,000 calls waits for that thread up to 5 s (half a second while it does what can wait), rather than read the run again on another.
+- Past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there.
+- The warm-up works on the thread that answered a request least lately, so the run you are reading keeps the thread that holds it.
+
+**Work that takes too long.** A job that runs past two minutes (ten for what can wait, such as a long run's whole analysis) is stopped with its thread. Its page says it took too long rather than wait for good, and another thread takes what comes after.
+
+**Writes have threads of their own:**
+
+- The search index is kept up to date on a thread of its own.
+- Runs are deleted on one of their own, through a connection of its own.
+- What the threads work out to keep (each run's totals, what its user asked) is written on another.
+- The counts the status bar polls for take in only what was written since: the calls a recording added, and the runs started, ended or labelled, as the store's log of runs written names them.
+
+### Totals
+
+Each finished run's totals (what it spent, its calls, what its user asked first) are worked out once in the store's life, newest first. They are kept in the store by a thread of their own, so a write never holds the server's. While another command is writing the store (the search index, a recording, `gc`), they wait, and are kept once it is done. What one thread worked out, another reads from the store.
+
+**On a store no dashboard has opened yet**, the Overview says how many runs are added up so far, until they all are, and every other page works meanwhile. Until then, the Runs table filters by the about lines known so far, and sorts by what the runs known so far spent. It says how many that is, and reads its first page again as more are known.
+
+**A row** adds up its own run's totals as it is asked for only when that is quick (5,000 calls a request in all):
+
+- A longer run's row shows at once, with its spend as … and its strip empty, and the table and the sidebar ask again until the warm-up has them.
+- A long recording's about line quotes its first calls until then.
+
+**The Overview** works the same way at any time. A short run that just ended is added up as it asks. A long one that isn't yet (its prompt cache, say) has the Overview say how far the runs are added up, and the warm-up go through them again, rather than read every call of that run while you wait.
+
+### A long run's calls come a page at a time
+
+A run's page comes with the first page of its calls, how many it has, and every call's origin. The page lists every call at once, those not read yet as their number and origin. It reads pages in this order:
+
+1. the page of the call it opens on (a link, the fork, the lost call);
+2. the page of any call you go to;
+3. the rest in order, one page at a time.
+
+While it reads:
+
+- **A call deep in a long run**: while the dashboard is still analysing the run, the page of such a call comes at once from the calls around it, without its conversations' numbers. It is read again with them, in order.
+- **Scrolling**: a page on its way is never asked for again. While one is, a scroll asks for the page where it stops rather than one for every step, and the pages read in order wait until it has stopped.
+- **Progress**: a line under the view says how many are read, and that a filter, a scope or another view shows those read so far.
+- **A page that can't be read** (the dashboard stopped, a server too busy) is tried again a second later, then two, up to thirty, or at once when you pick a call.
+- **A run deleted while its page is open** is read no further, and the page says it is no longer in the store.
+
+A run that ended with 1,000 calls or more is answered from its first calls. What its page says of the whole run (its numbers, the strip, its models, blame's step) is worked out without reading the rest.
+
+A recording's page is read the same way, following its newest call:
+
+- Opened from a link that names no call (Watch live, Runs, the sidebar), it opens at its newest call by its count, not the last of the calls read, and reads that page first.
+- The calls it makes are read as they come, one page at a time, the selection following them.
+- A call read before it was answered is read again with them.
+
+An exported copy holds every call.
+
+### Each page's code loads when it opens
+
+The dashboard's first script holds the shell and what the pages share; a page's own code loads the first time you open it. An exported copy is one script with every page in it.
 
 `node scripts/dashboard-scale.mjs --calls 20000 --runs 10000` builds such a store and times what a browser asks for on it.
 
 ## How the page stays current
 
-The server keeps a change feed: one small endpoint that says what changed since the page last asked, so a page that polls it fetches again only what moved. A run added, ended, labelled or deleted, by the dashboard, the CLI or another dashboard, means the run list; calls arriving mean the recording that is growing, with its count; a command's activity entry means the feed; a job starting, ending or reporting what it made means the jobs. A running job's output is not in the feed: the drawer follows it from the job itself, from the last line it has. The store counts its own writes, so asking costs almost nothing, even with a recording in progress. A run's page asks for the run again only when runs move or, while it records, when its own calls do: a finished run's page fetches nothing while another run records, and a recording's page fetches only the calls after those that won't change (`?after=`): from the first still on its way, or answered with a failure the agent may retry, which its retry answers again under the same number. A recording too long for one page takes its count from the feed and its new calls a page at a time; its page, which works out the whole run, is asked again no sooner than ten times as long as it last took, and at once when it ends. Asked again, a run the page already has is answered 304 from where it stands (the rows of its family, its calls, its state, the fixes) without being worked out again, so another run starting or ending doesn't send it again. For a recording, the server reads and places in conversations only the calls that arrived since it last looked, so following a run of 50,000 calls costs what its newest calls cost; a call that feeds the model call after it waits for that call to arrive, and the run is worked out whole once it ends.
+The server keeps a change feed: one small endpoint that says what changed since the page last asked. So a page that polls it fetches again only what moved:
+
+| What changed | What the page fetches again |
+| --- | --- |
+| A run added, ended, labelled or deleted, by the dashboard, the CLI or another dashboard | The run list |
+| Calls arriving | The recording that is growing, with its count |
+| A command's activity entry | The feed |
+| A job starting, ending or reporting what it made | The jobs |
+
+A running job's output is not in the feed: the drawer follows it from the job itself, from the last line it has. The store counts its own writes, so asking costs almost nothing, even with a recording in progress.
+
+A run's page asks for the run again only when runs move, or, while it records, when its own calls do:
+
+- **A finished run's page** fetches nothing while another run records.
+- **A recording's page** fetches only the calls after those that won't change (`?after=`): from the first still on its way, or answered with a failure the agent may retry, which its retry answers again under the same number.
+- **A recording too long for one page** takes its count from the feed, and the calls it adds a page at a time. Its page, which works out the whole run, is asked again no sooner than ten times as long as it last took, and at once when it ends.
+- **A run the page already has**, asked again, is answered 304 from where it stands (the rows of its family, its calls, its state, the fixes), without being worked out again. So another run starting or ending doesn't send it again.
+
+For a recording, the server reads and places in conversations only the calls that arrived since it last looked, so following a run of 50,000 calls costs what its newest calls cost. A call that feeds the model call after it waits for that call to arrive, and the run is worked out whole once it ends.
 
 For contributors, `npm run test:browser` (from `packages/dashboard`) opens the dashboard in Chromium over the whole demo store built by real commands (`scripts/demo-store.mjs`, or the one `SHADOWLAP_DEMO_DIR` names) and checks it with axe-core: no serious or critical violation on any page, Settings tab, run, view, inspector tab, menu or dialog, Fixes and each fix's steps, the palette, the shortcuts on Overview, Runs, Fixes and Settings, a toast with Undo or the bar that says the dashboard can't be reached, and every page, Settings tab and fix step again, with a few runs and Import a capture, at a phone's width (390 px); the contrast, the focus order, the skip link, the focus rings and every overlay's focus; 24 px targets; a phone's width; and that every link the server writes opens a page. The server builds its links with `packages/dashboard/src/links.ts`, the builder the page uses too, and which runs are attempts is one rule, `packages/engine/src/run-roles.ts`. The server's endpoints are registered by feature in `packages/dashboard/src/routes/`, and the shapes they answer with are in `packages/dashboard/src/views.ts` and `api.ts`. A read of something the store doesn't hold is a 404 with `{ error }`; the page asks its reads with `x-shadowlap-not-found: answer` and gets a 200 with `{ error, notFound: true }` instead, as it says what is missing itself and the browser would log the 404 as a failed load. The endpoints:
 
