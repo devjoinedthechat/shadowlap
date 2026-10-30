@@ -1,5 +1,6 @@
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BASELINE_DEFAULTS, RECORD_WINDOWS } from '@shadowlap/engine';
 import { ciWorkflows, CI_DEFAULTS, type CiWorkflowOptions } from '../src/ci-workflows.js';
 import type { Client } from '../ui/api.js';
 import { SettingsPage } from '../ui/pages/Settings.js';
@@ -95,7 +96,10 @@ describe('Settings → CI', () => {
     r = await render(createElement(AppContext.Provider, { value: app(ask as unknown as Client['ciWorkflows'], toast) }, createElement(SettingsPage, { tab: 'alerts' })));
     await r.until('the panels', () => r!.all('#workflow .cilist').length > 1);
     const row = () => r!.all('#workflow .setrow').find((x) => x.querySelector('b')?.textContent === 'An inconclusive golden')!;
-    expect(row().querySelector('span')!.textContent).toBe('Fails the step, as a failed one does. Run more attempts can settle it.');
+    // Fails writes no input, as shadowlap test does by default: a gate against a short history only warns, and the row says so.
+    expect(row().querySelector('span')!.textContent).toBe('Fails the step, as a failed one does, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them. Run more attempts can settle it.');
+    expect(RECORD_WINDOWS * BASELINE_DEFAULTS.window).toBe(30);
+    expect(r.one('#workflow .codebox').textContent).not.toContain('inconclusive:');
     const seg = r.one('#workflow .seg[aria-label="An inconclusive golden in CI"]');
     expect(seg.querySelectorAll('button').map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
       ['Fails', 'true'],
@@ -109,6 +113,12 @@ describe('Settings → CI', () => {
     expect(row().querySelector('span')!.textContent).toBe('Lets the step pass with a warning: inconclusive: warn. Every report still says inconclusive.');
     expect(row().querySelector('span code')!.textContent).toBe('inconclusive: warn');
     expect(r.byText('#workflow .seg[aria-label="An inconclusive golden in CI"] button', 'Warns').getAttribute('aria-pressed')).toBe('true');
+    // Back to Fails: the input goes, and the toast says what the default does with a short history.
+    await r.click(r.byText('#workflow .seg[aria-label="An inconclusive golden in CI"] button', 'Fails'));
+    await r.until('the answer for fail', () => r!.all('#workflow .teamside .cilist li').length === 6);
+    expect(ask).toHaveBeenLastCalledWith(expect.objectContaining({ inconclusive: 'fail' }));
+    expect(toast).toHaveBeenLastCalledWith('An inconclusive golden fails the step, the default · a gate against fewer than 30 sessions only warns');
+    expect(r.one('#workflow .codebox').textContent).not.toContain('inconclusive:');
   });
 
   it('keeps each key of a long list whole, breaking only after a comma', async () => {
