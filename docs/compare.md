@@ -35,7 +35,7 @@ Each row asks one question of every kind of tool. A cell answers yes, partly or 
 | Examples |  | VCR.py, Polly.js, nock | LangSmith, Langfuse, Braintrust, Phoenix, Weave, Logfire, Helicone | Kitaru | Laminar, OrcaReplay | LangGraph, Microsoft Agent Framework, Google ADK, Claude Agent SDK | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal |
 | Re-runs your code against the model's recorded answers | **yes** — every call before the first changed request, at zero tokens | partly — while requests match; VCR.py's default match ignores the body | no — a playground or an experiment asks the model again | no — the agent's model calls run live, by design | partly — up to a call you choose; Laminar's cache key leaves out the system message | no — continuing from a checkpoint asks the model again | partly — a model call made as a step keeps its result before the restart point |
 | Forks at the first changed request, with a diff | **yes** — a structural diff of that request, then live from there | no — a miss raises an error or goes live, by library | no — every call runs live | no — every replay starts from the top | partly — live from a call you choose, or from Laminar's first cache miss | no — from a checkpoint you choose | no — from a step you choose |
-| Fences write tools after a fork | **yes** — blocked by default; `--writes` stubs or allows them | no — tools outside HTTP run every time | no — tools run unless your agent blocks them (LangSmith Engine's docs give `safe_tools` middleware) | partly — a policy per tool; with none set, tools run live | no — tool calls run again; OrcaReplay says replay is not a sandbox | no — tools run again after the checkpoint | no — every step after the restart point runs, writes included |
+| Fences write tools after a fork | **yes** — blocked in `replay` and `test`, stubbed in `blame`, `verify` and `repair`, by default; `--writes` changes it | no — tools outside HTTP run every time | no — tools run unless your agent blocks them (LangSmith Engine's docs give `safe_tools` middleware) | partly — a policy per tool; with none set, tools run live | no — tool calls run again; OrcaReplay says replay is not a sandbox | no — tools run again after the checkpoint | no — every step after the restart point runs, writes included |
 | Finds the model call that lost a run | **yes** — `blame` re-asks calls from forks and names the last one that can still save the run | no | partly — LangSmith Engine diagnoses recurring issues from traces and your code | no — you review sessions, in investigations a coding assistant drafts | no — you read the trace (Laminar) or its causal graph (OrcaReplay) | no | no |
 | Proves a fix holds | **yes** — `verify` replays failing, held-out and good runs, each at a stated error rate; `repair` proposes fixes | no | partly — LangSmith Engine replays up to 5 traces live against its pull request (private beta, LangSmith Cloud) | partly — an experiment scores your change across a cohort, with the model live | partly — a rerun of your change, graded by an eval (Laminar) or a command (OrcaReplay) | no | no |
 | Gates a pull request offline, with no model key | **yes** — goldens, replayed by `shadowlap test` and the GitHub Action | yes — tests replay what the cassette recorded | no — evals in CI call the model, unless LangSmith's test cache answers | no — the model runs live; `--wait` fails only on a failed run | partly — OrcaReplay replays offline and reports in JSON, for a script you write | no | no |
@@ -71,7 +71,8 @@ Shadowlap instead:
 - counts occurrences, so that order does not matter;
 - replays the unchanged prefix, then keeps going live with a diff of the first change instead of
   failing;
-- records tools through the SDK, with an effect, so a replay never re-sends an email.
+- records tools through the SDK, with an effect, so a replay re-sends no email unless you pass
+  `--writes allow`.
 
 What these captures are good for is *starting* a recording. `shadowlap import` reads a HAR (what
 mitmproxy, Charles, Proxyman, devtools and Polly.js write), a nock recording, or a VCR cassette in its
@@ -199,8 +200,8 @@ being measured.
 
 Shadowlap replays the model's recorded answers as well, so a fix to the harness reproduces the same
 run at no cost, and a change forks at the first request it affects, with a diff of that request. Each
-wrapped tool declares its effect once, and write tools are blocked after every fork. A golden's test in
-CI runs offline.
+wrapped tool declares its effect once, and write tools are blocked or stubbed after every fork. A
+golden's test in CI runs offline.
 
 Use Kitaru to compare models and prompts across many sessions with scored evals. Use Shadowlap to
 reproduce one run exactly, find the call that lost it, and gate a pull request offline.
@@ -237,8 +238,8 @@ says replay is not a sandbox.
 Shadowlap matches every request in full, the system prompt included, and forks at the first request
 your change affects; `--diverge-at` forces a call live, and `--prompt-from` applies a changed prompt
 from a later call when that is the question. Tools go through the SDK with a declared effect, so a
-replay serves their recorded results and a fork blocks writes. Blame, repair, verify and offline CI
-goldens sit on top.
+replay serves their recorded results and a fork blocks or stubs writes. Blame, repair, verify and
+offline CI goldens sit on top.
 
 Use Laminar to iterate quickly on an agent it already traces, with a coding agent driving the loop.
 Use OrcaReplay to record a coding agent you can't change and to compare models from a checkpoint,

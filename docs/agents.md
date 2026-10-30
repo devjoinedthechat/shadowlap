@@ -135,7 +135,7 @@ agent's prompt, tools, model or code this way before calling it done. To investi
    Not sure where it went wrong? `shadowlap blame <run> --expect '<checks>' --json` names the model
    call that lost the run and shows what the model answered there in a fork that passed. `<checks>`
    is what a passing run must do besides exiting 0, as JSON: `{"tools":{"send_email":0}}`.
-4. Writes (emails, tickets, payments) are blocked after a fork; never pass `--writes allow`.
+4. Writes (emails, tickets, payments) are blocked or stubbed after a fork; never pass `--writes allow`.
 5. Before finishing, run `shadowlap verify --fixes <runs> --keeps label:good --expect '<checks>'`
    with the failing runs as `<runs>`, and make sure it is accepted; then `shadowlap test goldens/*`.
    A fix inside a tool needs `--live-tool <tool>`.
