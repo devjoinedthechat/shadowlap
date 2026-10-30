@@ -1,13 +1,15 @@
 import { atPath, carriesMark, cleanBound, cleanDecided, cleanRule, decideUnavailable, describeIdentifiers, fillPayload, findCanary, formatUsd, goneWrites, loadApiRequest, INJECTION_CHECK, injectionTemplates, literalValue, messageOf, neutralResult, newCanary, normalizedArgs, noVerdicts, parsePayloads, plantMarks, proofLine, recordEvent, refused, selectTemplates, strongestVerdict, trustOf, ulid, unexplainedWrites, untrustedReads, writeBaseline, canaryIn } from '@shadowlap/engine';
 import type { AttemptReport, BaselineReport, CallRecord, Canary, CauseVerdict, CleanReport, Evidence, Gate, GateReport, InjectionEntry, InjectionGateData, InjectionMark, InjectionReport, InjectionVerdict, Limits, Normalizer, Payload, PlantReport, ReadReport, RunMeta, RunRecord, Store, StoreOf, VerdictCounts, WriteBaseline, WriteSeen } from '@shadowlap/engine';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AttemptRunner, BYPASSED, type Attempt, type AttemptTarget } from './attempts.js';
 import type { InconclusiveMode } from './golden-test.js';
 import type { GuardMode } from './run-agent.js';
 import type { GlobalOpts } from './shared.js';
 import { parsePlants, storedResult } from './interventions.js';
 import { emitJobEvent } from './job-events.js';
+import { physicalPath } from './real-path.js';
+import { fileInside, gitFolders, readInside, repositoryRoot } from './repair-tree.js';
 import { palette as p, safe, shortId } from './ui.js';
 
 /**
@@ -690,6 +692,25 @@ export interface GateInput {
 }
 
 /**
+ * The payloads in the file a golden's `injection` entry names, relative to the config's folder. The
+ * config comes with the repository, and each payload is planted where the model reads it, its calls
+ * from there on live, and kept in the report; so the file is read only when it is the project's own
+ * (in the git repository, or the config's folder outside one), not git's, whose config can hold a
+ * credential, and reached through no link out of the project (fileInside, readInside). A file kept
+ * elsewhere is planted with --payloads, which names it on the command line.
+ */
+export function entryPayloads(configDir: string, file: string): Payload[] {
+  const top = repositoryRoot(configDir);
+  const root = physicalPath(top ?? configDir);
+  const rel = relative(root, resolve(physicalPath(configDir), file));
+  const out = !rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+  const inside = out ? null : fileInside(root, rel.split(sep).join('/'), top ? gitFolders(root) : []);
+  if (inside) return parsePayloads(readInside(root, inside), file);
+  if (!out && !existsSync(join(root, rel))) throw new Error(`${file} does not exist`);
+  throw new Error(`${file} is no file of the project's own: a payload file the config names is read only from the project, outside git's own folder and not through a link out of it (give one kept elsewhere with --payloads)`);
+}
+
+/**
  * A golden's injection gate, as `shadowlap test` runs it once the golden's replay passed: the
  * golden's injection test, judged by the entry's limits. Its model calls from the planted read on
  * are live, as a golden marked `fork` makes them. It passes, fails, or is inconclusive when it showed
@@ -697,7 +718,7 @@ export interface GateInput {
  */
 export async function injectionGate(input: GateInput, say: Say): Promise<{ data: InjectionGateData; report: PlantReport }> {
   const e = input.entry;
-  const payloads = [...selectTemplates(e.templates), ...(e.payloads ? parsePayloads(readFileSync(resolve(input.configDir, e.payloads), 'utf8'), e.payloads) : [])];
+  const payloads = [...selectTemplates(e.templates), ...(e.payloads ? entryPayloads(input.configDir, e.payloads) : [])];
   const runner = await AttemptRunner.start(input.opts, { writes: 'stub', reads: 'replay', liveTools: [], spec: null, budget: null, timeoutMs: null, guard: input.guard, cwd: input.cwd, ...(input.allowUnrecorded ? { allowUnrecorded: input.allowUnrecorded } : {}) }, { store: input.store });
   try {
     const report = await plantInjections(runner, { parent: input.parent, argv: input.parent.command.argv, commandFromImport: false }, { repeat: e.repeat, payloads, baselines: e.baselines, concurrency: 1, limits: { obeyed: e.obeyed, influenced: e.influenced }, golden: input.golden, sessionId: input.sessionId, actor: input.actor }, say, { liveReads: e.liveReads });

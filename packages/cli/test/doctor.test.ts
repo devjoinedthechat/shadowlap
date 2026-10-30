@@ -1,4 +1,5 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,7 +98,8 @@ describe('shadowlap doctor', () => {
     expect(byName.config?.verdict).toBe('fail');
     expect(byName.config?.detail).toMatch(/prices\["m"\]/);
     expect(byName['active run']?.verdict).toBe('warn');
-    expect(byName.repair).toMatchObject({ verdict: 'warn', detail: expect.stringContaining('agent.mjs') });
+    // Outside a git repository, where no repair runs, a journal is none a repair here left.
+    expect(byName.repair).toMatchObject({ verdict: 'warn', detail: ".shadowlap/repair-journal.json is no interrupted repair's of this checkout: the folder is in no git repository" });
     expect(byName['runs still marked running']).toMatchObject({ verdict: 'warn', detail: '01ABANDONE', fix: expect.stringContaining('shadowlap gc marks them interrupted') });
     expect(byName.store?.detail).toMatch(/2 runs/);
     expect(byName.NODE_OPTIONS?.verdict).toBe('warn');
@@ -105,6 +107,28 @@ describe('shadowlap doctor', () => {
     const text = formatDoctor(checks, plain);
     expect(text).toMatch(/\d problems?/);
     expect(text).toContain('✗ node');
+  });
+
+  it("reads a repair's journal as repair does: one an interrupted repair left names its file, one that names a file outside the repository or that git tracks is no repair's", () => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'fp-doctor-')));
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', ...args], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(dir, '.gitignore'), '.shadowlap/\n');
+    writeFileSync(join(dir, 'agent.mjs'), 'candidate');
+    mkdirSync(join(dir, '.shadowlap'));
+    const b64 = (s: string) => Buffer.from(s).toString('base64');
+    // As an older Shadowlap wrote it: its process, gone, and the file by its absolute path.
+    const journal = (path: string) => writeFileSync(join(dir, '.shadowlap', 'repair-journal.json'), JSON.stringify({ pid: 2 ** 22 - 1, files: [{ path, original: b64('original'), patched: b64('candidate') }] }));
+    const repair = () => runDoctor({ cwd: dir, env: {}, version: '0.1.0', guardDir, python: () => 'Python 3.12.1' }).find((c) => c.name === 'repair');
+    journal(join(dir, 'agent.mjs'));
+    expect(repair()).toMatchObject({ verdict: 'warn', detail: "an interrupted shadowlap repair may have left a candidate's edit in agent.mjs", fix: expect.stringContaining('Run shadowlap repair again') });
+    const ignored = { verdict: 'warn', fix: 'shadowlap repair restores nothing from it and leaves it as it is: check where it came from, and delete it.' };
+    journal(join(tmpdir(), 'elsewhere.txt'));
+    expect(repair()).toMatchObject({ ...ignored, detail: ".shadowlap/repair-journal.json is no interrupted repair's of this checkout: it names a file outside the repository, which no repair of it edited" });
+    journal(join(dir, 'agent.mjs'));
+    git('add', '-f', '.');
+    git('commit', '-q', '-m', 'a journal, committed');
+    expect(repair()).toMatchObject({ ...ignored, detail: ".shadowlap/repair-journal.json is no interrupted repair's of this checkout: git tracks it, so it came with the repository" });
   });
 
   it('wants Node 22.16 or later, not 23, and blames the Node, not the store, for a SQLite without full-text search', () => {

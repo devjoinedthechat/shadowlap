@@ -7,12 +7,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { afterAll, describe, expect, it } from 'vitest';
-import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store } from '@shadowlap/engine';
-import { HOSTILE } from '../../engine/test/markdown-cases.js';
+import { markdownCode as engineCode, markdownFence as engineFence, markdownText as engineText, Store, titleText as engineTitle } from '@shadowlap/engine';
+import { HOSTILE, HOSTILE_TITLES } from '../../engine/test/markdown-cases.js';
 import { baseSession, commentBody, commentMarker, commentNote, postComment, readHistory, verdictLine } from '../../../action/comment.mjs';
 import { branchNote, cannotFix, checksNote, evidenceNote, fixSummary, goldenGate, goldenNote, groupFixes, KEEPS_AT_MOST, leftOutWhy, planFixes, pushLine, pushTarget, repairArgs, repairPlan } from '../../../action/fix.mjs';
 import { annotation, commandText, logLine, logLines } from '../../../action/log.mjs';
-import { markdownCode, markdownFence, markdownText } from '../../../action/markdown.mjs';
+import { markdownCode, markdownFence, markdownText, titleText } from '../../../action/markdown.mjs';
 import { dispatchWorkflow, githubToken, openPullRequest, pullRequestOf, TOKEN_VARIABLES, tokenEnv, upsertComment, withoutTokens, workflowFile } from '../../../action/github.mjs';
 import { outputsOf } from '../../../action/run.mjs';
 import type { Fetch, ReportResult, StoredSession } from '../../../action/types.mjs';
@@ -671,6 +671,10 @@ describe("what the Action posts, in the Markdown GitHub renders", () => {
       expect(markdownCode(raw, { cell: true }), raw).toBe(engineCode(raw, { cell: true }));
       expect(markdownFence(raw, 'sh'), raw).toBe(engineFence(raw, 'sh'));
     }
+  });
+
+  it("titles its fix's pull request as the engine titles repair --pr's, case for case", () => {
+    for (const raw of [...HOSTILE, ...HOSTILE_TITLES]) expect(titleText(raw), raw).toBe(engineTitle(raw));
   });
 
   /** What GitHub would render, link or mention in Markdown, outside fenced blocks and code spans. */

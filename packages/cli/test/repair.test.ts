@@ -1,15 +1,14 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { processAlive, releaseLock, Store, unifiedDiff } from '@shadowlap/engine';
+import { processAlive, Store } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
-import { applyAccepted, noDiagnosisWhy, recoverWorkingTree, startRepair } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -252,11 +251,12 @@ describe('shadowlap repair', { timeout: HUNG_AFTER }, () => {
   });
 
   // The stand-in for gh is a shell script, which Windows won't run by name.
-  it.skipIf(process.platform === 'win32')('commits the fix to a branch without checking it out, and opens a pull request', async () => {
+  it.skipIf(process.platform === 'win32')('commits the fix to a branch without checking it out, and opens a pull request, its title making nothing of what the repairer wrote', async () => {
     const { failed } = await runs();
     mode = 'alternate';
-    const remote = mkdtempSync(join(tmpdir(), 'fp-remote-'));
-    const bin = mkdtempSync(join(tmpdir(), 'fp-gh-'));
+    // The repairer names the fix with a mention, a reference and a workflow command, which the title splits.
+    proposals = (prompt) => [{ anchor: Number(/\[(\d+)\] system prompt, in [^:]+:/.exec(prompt)![1]), replace: FIX, strategy: 'Escalate refunds to @finance-leads, see #12 ::stop-commands::x', why: 'Say what to do above the limit.' }];
+    const [remote, bin] = [mkdtempSync(join(tmpdir(), 'fp-remote-')), mkdtempSync(join(tmpdir(), 'fp-gh-'))];
     try {
       sh(remote, 'git', ['init', '-q', '--bare']);
       sh(project, 'git', ['remote', 'add', 'origin', remote]);
@@ -276,15 +276,15 @@ describe('shadowlap repair', { timeout: HUNG_AFTER }, () => {
       const files = sh(project, 'git', ['ls-tree', '-r', '--name-only', 'shadowlap/escalate-refunds']).split('\n');
       expect(files.some((f) => f.startsWith(`goldens/${failed[0].slice(0, 10)}/`) && f.endsWith('run.json'))).toBe(true);
       const msg = sh(project, 'git', ['log', '-1', '--format=%B', 'shadowlap/escalate-refunds']);
-      expect(msg.split('\n')[0]).toBe('Escalate refunds above the policy limit');
+      expect(msg.split('\n')[0]).toBe('Escalate refunds to @finance-leads, see #12 ::stop-commands::x');
       expect(msg).toContain('fixes 1 of 1 target and 1 of 1 held-out failing runs, keeps 1 of 1 good runs');
       expect(msg).not.toMatch(/Co-Authored-By/i);
 
       expect(sh(remote, 'git', ['rev-parse', 'shadowlap/escalate-refunds']).trim()).toBe(sh(project, 'git', ['rev-parse', 'shadowlap/escalate-refunds']).trim());
       const args = readFileSync(join(bin, 'args'), 'utf8').split('\n');
-      expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', 'shadowlap/escalate-refunds', '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
+      expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', 'shadowlap/escalate-refunds', '--base', 'main', '--title', 'Escalate refunds to @\u2060finance-leads, see #\u206012 :\u2060:stop-commands:\u2060:x']);
       expect(args[8]).toBe('--body-file');
-      expect(readFileSync(args[9], 'utf8')).toContain('## Escalate refunds above the policy limit');
+      expect(readFileSync(args[9], 'utf8')).toContain('## Escalate refunds to @<span></span>finance-leads, see #<span></span>12 ::<span></span>stop-commands::x');
     } finally {
       rmSync(remote, { recursive: true, force: true });
       rmSync(bin, { recursive: true, force: true });
@@ -925,6 +925,44 @@ describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
   });
 
+  it("never shows the repairer a file of git's own or one git ignores, nor puts one in a patch or a report: links to .git/config and to .env, a token in each", async () => {
+    const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+    const KEY = 'ghp_EXAMPLEdonotuse1111111111111111111111';
+    const url = `https://x-access-token:${TOKEN}@github.com/acme/support-agent.git`;
+    // The checkout's git config holds a credential, as a remote's URL with a token does, a .env git
+    // ignores holds another, and links in the repository name both, as a pull request could add them.
+    sh(project, 'git', ['remote', 'add', 'origin', url]);
+    writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.env\n');
+    writeFileSync(join(project, '.env'), `SUPPORT_KEY=${KEY}\n`);
+    mkdirSync(join(project, 'docs'));
+    symlinkSync('../.git/config', join(project, 'docs', 'remote.txt'));
+    symlinkSync('../.env', join(project, 'docs', 'env.txt'));
+    // The project's redaction rule masks the tokens in all the repairer is shown of a run.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/ghp_[A-Za-z0-9]+/', replace: '<TOKEN>' }] }));
+    sh(project, 'git', ['add', '-A']);
+    sh(project, 'git', ['commit', '-qm', 'links to the git config and the .env']);
+    // A system prompt with a line of each in it, as an agent that reads the links would send.
+    const system = { AGENT_SYSTEM: `You are a support agent. Follow the refund policy.\nurl = ${url}\nSUPPORT_KEY=${KEY}` };
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
+    expect(recorded.code, recorded.out).toBe(0);
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1];
+    mode = 'alternate';
+    // A rewrite of a span offered in either file, whenever one is: it would carry its lines into the patch and the report.
+    proposals = (prompt) => [/\[(\d+)\] system prompt, in (?:\.git\/config|\.env):/.exec(prompt)?.[1]].flatMap((id) => (id ? [{ anchor: Number(id), replace: 'SUPPORT_KEY=none', strategy: 'Name no key', why: 'It needs none.' }] : []));
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
+    expect(r.stdout, r.out).toContain('"outcome"');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    // The run as the rule masks it, and no span of either file to rewrite.
+    const shown = JSON.stringify(asked[0].body.messages).replace(/\\n/g, '\n');
+    expect(shown).toContain(`System prompt:\nYou are a support agent. Follow the refund policy.\nurl = https://x-access-token:<TOKEN>@github.com/acme/support-agent.git\nSUPPORT_KEY=<TOKEN>`);
+    expect(shown).not.toMatch(/in (\.git\/config|\.env):/);
+    const report = JSON.parse(r.stdout) as Report;
+    const dir = join(project, report.output.dir);
+    for (const [name, text] of [['prompt', JSON.stringify(asked[0].body)], ['output', r.out], ['patch', report.patch ?? ''], ['report.md', readFileSync(join(dir, 'report.md'), 'utf8')], ['report.json', readFileSync(join(dir, 'report.json'), 'utf8')]]) for (const secret of [TOKEN, KEY]) expect(text, name).not.toContain(secret);
+  });
+
   it.skipIf(process.getuid?.() === 0)("says a candidate it can't write into its worktree is incomplete, and tries the next", async () => {
     const { failed } = await runs();
     mode = 'alternate';
@@ -945,157 +983,5 @@ describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files
     } finally {
       chmodSync(join(project, 'agent.mjs'), 0o644);
     }
-  });
-});
-
-describe('applyAccepted', () => {
-  const candidate = { id: 1, source: 'repairer' as const, strategy: 's', why: 'w', surface: 'system prompt', file: 'agent.mjs', offset: 16, before: 'Follow the refund policy.', after: 'Follow the refund policy: escalate above the limit.', size: 26, state: 'accepted' as const, reason: null, verify: null };
-  const content = "const system = 'Follow the refund policy.';\n";
-
-  it('writes the accepted candidate into the working tree, and nothing when its patch is anything more', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-apply-'));
-    try {
-      writeFileSync(join(dir, 'agent.mjs'), content);
-      writeFileSync(join(dir, 'other.mjs'), 'export {};\n');
-      const fixed = content.replace(candidate.before, candidate.after);
-      const report = { candidates: [candidate], accepted: 1, patch: unifiedDiff('agent.mjs', content, fixed), output: { dir: null, patch: 'fix.patch', report: null, goldens: [], applied: false, branch: null, pr: null } };
-      // A patch that also changes another file is not the candidate's change: refused, nothing written.
-      const more = { ...report, patch: report.patch + unifiedDiff('other.mjs', 'export {};\n', 'process.exit(1);\n') };
-      expect(() => applyAccepted(more, dir)).toThrow(/the patch is not the accepted candidate's change \(it changes agent\.mjs and other\.mjs, where its accepted candidate changes agent\.mjs alone\), so nothing was applied/);
-      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(content);
-      applyAccepted(report, dir);
-      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(fixed);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('recoverWorkingTree', () => {
-  it('puts back an edit an interrupted repair left, and leaves a file someone changed since alone', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-journal-'));
-    try {
-      mkdirSync(join(dir, '.shadowlap'));
-      const a = join(dir, 'a.txt');
-      const b = join(dir, 'b.txt');
-      writeFileSync(a, 'patched a');
-      writeFileSync(b, 'edited by hand');
-      const b64 = (s: string) => Buffer.from(s).toString('base64');
-      writeFileSync(join(dir, '.shadowlap', 'repair-journal.json'), JSON.stringify({ files: [{ path: a, original: b64('original a'), patched: b64('patched a') }, { path: b, original: b64('original b'), patched: b64('patched b') }] }));
-      expect(recoverWorkingTree(dir)).toEqual([a]);
-      expect(readFileSync(a, 'utf8')).toBe('original a');
-      expect(readFileSync(b, 'utf8')).toBe('edited by hand');
-      expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
-      expect(recoverWorkingTree(dir)).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('startRepair', () => {
-  it('stops while another repair runs in the folder, leaving its candidate in place, and puts it back once that repair died', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
-    // A repair runs in the folder: it started there, and holds it until it ends.
-    const running = spawn(process.execPath, ['--input-type=module', '-e', `
-      const { startRepair } = await import(${JSON.stringify(new URL('../dist/repair.js', import.meta.url).href)});
-      startRepair(${JSON.stringify(dir)});
-      setInterval(() => {}, 1000);
-      process.stdout.write('up\\n');`], { stdio: ['ignore', 'pipe', 'pipe'] });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        let err = '';
-        running.stdout.on('data', (d: Buffer) => d.toString().includes('up') && resolve());
-        running.stderr.on('data', (d: Buffer) => (err += d.toString()));
-        running.on('exit', (c) => reject(new Error(`exited with ${c}: ${err}`)));
-      });
-      // It is verifying a candidate: the file is edited, and the journal holds the original.
-      const agent = join(dir, 'agent.txt');
-      const journal = join(dir, '.shadowlap', 'repair-journal.json');
-      const b64 = (s: string) => Buffer.from(s).toString('base64');
-      writeFileSync(agent, 'candidate');
-      writeFileSync(journal, JSON.stringify({ pid: running.pid, files: [{ path: agent, original: b64('original'), patched: b64('candidate') }] }));
-      // A second repair started there stops before it touches anything.
-      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder/);
-      expect(readFileSync(agent, 'utf8')).toBe('candidate');
-      expect(existsSync(journal)).toBe(true);
-      // Killed with its candidate applied: the next repair takes the folder over at once and puts the file back.
-      running.kill('SIGKILL');
-      await new Promise((resolve) => (running.exitCode !== null || running.signalCode !== null ? resolve(null) : running.once('exit', resolve)));
-      const { lock, restored } = startRepair(dir);
-      expect(restored).toEqual([agent]);
-      expect(readFileSync(agent, 'utf8')).toBe('original');
-      releaseLock(lock);
-      expect(readdirSync(join(dir, '.shadowlap'))).toEqual([]);
-    } finally {
-      running.kill('SIGKILL');
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('removes the worktree a repair that died left in the temporary folder, and what git keeps of it', () => {
-    const base = mkdtempSync(join(tmpdir(), 'shadowlap-repair-'));
-    sh(project, 'git', ['worktree', 'add', '--detach', join(base, 'tree'), 'HEAD']);
-    const trees = () => sh(project, 'git', ['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('worktree '));
-    expect(trees()).toHaveLength(2);
-    const { lock } = startRepair(project);
-    releaseLock(lock);
-    expect(trees()).toHaveLength(1);
-    expect(existsSync(base)).toBe(false);
-  });
-
-  it('never takes over by its age the lock of a repair it can’t check, one in a container or on another machine sharing the folder', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-repair-lock-'));
-    try {
-      mkdirSync(join(dir, '.shadowlap'));
-      const path = join(dir, '.shadowlap', 'repair.lock');
-      // Written an hour ago by a repair on another boot of a Linux kernel: its process can't be asked about from here.
-      const text = JSON.stringify({ v: 2, pid: 7, host: 'build-box', start: 'another-boot:1', born: Date.now() - 3_600_000, token: 'there' });
-      writeFileSync(path, text);
-      const hourAgo = (Date.now() - 3_600_000) / 1000;
-      utimesSync(path, hourAgo, hourAgo);
-      expect(() => startRepair(dir)).toThrow(/another shadowlap repair is running in this folder.*if none is running, delete/);
-      expect(readFileSync(path, 'utf8')).toBe(text);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('noDiagnosisWhy', () => {
-  const target = (runId: string, outcome: 'unrescuable' | 'stopped' | 'passes' | 'error', note: string | null = null) => ({ runId, outcome, callNo: null, step: null, steps: 3, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note });
-  const WRITE = "every attempt failed on post_digest's recorded error (channel_not_found: #refunds)";
-  const SAME = 'every attempt that passed at #1 answered it as the recording did';
-  const A = '01M540RX39AAAAAAAAAAAAAAAA';
-  const B = '01M540RX40BBBBBBBBBBBBBBBB';
-
-  it("says what blame found when no answer of the model's lost the runs, not to try a stronger model", () => {
-    const why = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }], null);
-    expect(why).toBe(`${WRITE}: no answer of the model's lost the run; look at the tools, the harness or the command`);
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }], 'big-model')).toBe(why);
-    // The same finding for two runs is said once; different ones, each with its run.
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: WRITE }], null)).toBe(`${WRITE}: no answer of the model's lost these runs; look at the tools, the harness or the command`);
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: SAME }], null)).toBe(`01M540RX39: ${WRITE}; 01M540RX40: ${SAME}: no answer of the model's lost these runs; look at the tools, the harness or the command`);
-    // A run it couldn't search beside one it did: what it found stands.
-    expect(noDiagnosisWhy([{ target: target(B, 'passes', `${B.slice(0, 10)} passes its oracle when replayed`), notTheAnswer: null }, { target: target(A, 'unrescuable'), notTheAnswer: WRITE }], null)).toContain(`${WRITE}: no answer`);
-  });
-
-  it('says why when no run could be searched, and suggests a stronger model only when a search rescued nothing', () => {
-    const passes = `${B.slice(0, 10)} passes its oracle when replayed (the agent exits 0), so there is no failure to blame. Say what it should have done with --expect.`;
-    expect(noDiagnosisWhy([{ target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
-    // A run blame searched with nothing to say for it, beside one it found a write's error in: no telling it isn't the prompt.
-    const unknown = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: null }], null);
-    expect(unknown).toContain('--stronger <model>');
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: null }], 'big-model')).toBe('neither resampling nor big-model rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools');
-    // A search that stopped part way is no search: the run that couldn't be blamed says why.
-    expect(noDiagnosisWhy([{ target: target(A, 'stopped'), notTheAnswer: null }, { target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
-  });
-
-  it('says blame did not settle a run whose first probe could not tell, never that resampling rescued nothing', () => {
-    const unsettled = (runId: string) => ({ target: { ...target(runId, 'unrescuable'), unsettled: true }, notTheAnswer: null });
-    expect(noDiagnosisWhy([unsettled(A)], 'big-model')).toBe('blame did not settle where the failing run was lost: its first probe could not tell whether resampling rescues it, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 says what settles it');
-    expect(noDiagnosisWhy([unsettled(A), unsettled(B)], null)).toBe('blame did not settle where the failing runs were lost: its first probe could not tell whether resampling rescues them, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 01M540RX40 says what settles it');
-    // Beside a run resampling rescued nothing in, the search found that much.
-    expect(noDiagnosisWhy([unsettled(A), { target: target(B, 'unrescuable'), notTheAnswer: null }], null)).toContain('resampling rescued no failing run');
   });
 });

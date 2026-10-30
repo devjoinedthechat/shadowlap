@@ -9,7 +9,7 @@ import { loadConfig, loadTests } from '../config.js';
 import { confirmGolden, goldenNeedsConsent } from '../golden-consent.js';
 import { importGolden } from '../golden-test.js';
 import { expandRecordings, goldenName } from '../goldens.js';
-import { CLEAN_GATE, cleanInjection, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
+import { CLEAN_GATE, cleanInjection, entryPayloads, formatClean, formatPlant, plantInjections, type InconclusiveMode } from '../injection.js';
 import { EXIT, inconclusiveStatus, interruptedStatus } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
@@ -120,7 +120,13 @@ function payloadsFor(flags: { templates?: string; payloads?: string }, entry: In
     // Your own payloads alone, unless --templates names some too.
     out = [...selectTemplates(flags.templates ?? (flags.payloads !== undefined ? 'none' : 'all')), ...(flags.payloads !== undefined ? fromFile(flags.payloads, '--payloads') : [])];
   } else if (entry) {
-    out = [...selectTemplates(entry.templates), ...(entry.payloads ? fromFile(resolve(configDir, entry.payloads), 'the golden\'s "injection" payloads') : [])];
+    let own: Payload[];
+    try {
+      own = entry.payloads ? entryPayloads(configDir, entry.payloads) : [];
+    } catch (err) {
+      throw new InvalidArgumentError(`the golden's "injection" payloads: ${messageOf(err)}`);
+    }
+    out = [...selectTemplates(entry.templates), ...own];
   } else {
     out = selectTemplates('all');
   }

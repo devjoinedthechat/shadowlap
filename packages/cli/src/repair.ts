@@ -1,10 +1,11 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
+import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
-import { fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
+import { recoverWorkingTree } from './repair-journal.js';
+import { listedFiles, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -89,8 +90,6 @@ export class HandOverError extends RepairError {
   }
 }
 
-const journalPath = (cwd: string) => join(cwd, '.shadowlap', 'repair-journal.json');
-
 /**
  * The characters one token of the repairer's prompt is taken to hold when what asking it could cost is
  * worked out: fewer than tokenizers fit into a token of English (about 4), so its tokens are counted
@@ -116,41 +115,28 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
   return estimateCost(model, { inputTokens: turns * promptTokens + (turns - 1) * REPAIRER_ANSWER_TOKENS, outputTokens: turns * REPAIRER_ANSWER_TOKENS }, prices);
 }
 
-/** Puts back whatever an interrupted repair left in the working tree. Returns the files it restored. */
-export function recoverWorkingTree(cwd: string): string[] {
-  const path = journalPath(cwd);
-  if (!existsSync(path)) return [];
-  const journal = JSON.parse(readFileSync(path, 'utf8')) as { files: Array<{ path: string; original: string; patched: string }> };
-  const restored: string[] = [];
-  for (const f of journal.files) {
-    const now = existsSync(f.path) ? readFileSync(f.path, 'utf8') : null;
-    // Only undo our own edit: a file someone changed since is theirs now.
-    if (now === Buffer.from(f.patched, 'base64').toString('utf8')) {
-      writeFileSync(f.path, Buffer.from(f.original, 'base64'));
-      restored.push(f.path);
-    }
-  }
-  rmSync(path, { force: true });
-  return restored;
-}
-
 /**
- * Starts a repair in `cwd`: takes `.shadowlap/repair.lock` (the engine's lock file), held until the
- * repair ends, then cleans up after one that died: the worktrees it verified candidates in, and the
- * working tree an older Shadowlap, which tried candidates in place, may have left edited (its
- * journal). One repair runs in a folder at a time, as `--apply` writes the working tree, so what is
- * found here is never a running repair's: the repair that left it died, and the lock of a process
- * that died is taken over at once. A repair runs for minutes, so a lock whose holder this machine
- * can't check (one in a container or on another machine that shares the folder) is never taken over
- * by its age: it waits until someone deletes it. Throws when another repair runs here.
+ * Starts a repair in `cwd`, in the git repository whose root is `root` (found from `cwd` when not
+ * given): takes `.shadowlap/repair.lock` (the engine's lock file), held until the repair ends, then
+ * cleans up after one that died: the worktrees it verified candidates in, and the working tree an
+ * older Shadowlap, which tried candidates in place, may have left edited (its journal, which
+ * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). A
+ * `.shadowlap` that is a link is refused before anything is made, so nothing goes through it. One
+ * repair runs in a folder at a time, as `--apply` writes the working tree, so what is found here is
+ * never a running repair's: the repair that left it died, and the lock of a process that died is
+ * taken over at once. A repair runs for minutes, so a lock whose holder this machine can't check (one
+ * in a container or on another machine that shares the folder) is never taken over by its age: it
+ * waits until someone deletes it. Throws when another repair runs here.
  */
-export function startRepair(cwd: string): { lock: HeldLock; restored: string[] } {
+export function startRepair(cwd: string, root?: string): { lock: HeldLock; restored: string[]; ignored: string | null } {
+  // A repository can ship .shadowlap as a link, which would send the lock, the journal's reading and the reports elsewhere.
+  if (lstatSync(join(cwd, '.shadowlap'), { throwIfNoEntry: false })?.isSymbolicLink()) throw new RepairError(`.shadowlap in ${cwd} is a link, which repair never writes through: make it a folder of its own`);
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
   const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder: wait for it to end (if none is running, delete ${path})`) });
   try {
     removeCandidateTrees(cwd);
-    return { lock, restored: recoverWorkingTree(cwd) };
+    return { lock, ...recoverWorkingTree(cwd, root) };
   } catch (err) {
     releaseLock(lock);
     throw err;
@@ -182,20 +168,16 @@ const git = (root: string, args: string[], o: { input?: string; env?: NodeJS.Pro
 
 /**
  * The project's text files: tracked, and untracked but not ignored. A link is read as the file it
- * ends at, under that file's own path, and only when that file is in the repository too (fileInside):
- * a rewrite is only ever written to a file of the repository's, never through a link to another.
+ * ends at, under that file's own path, and only when git lists that file too and it is not git's own
+ * (listedFiles): a rewrite is only ever written to a file of the repository's, never through a link
+ * to another, and nothing of a file git ignores, such as a `.env`, nor of git's own folder, whose
+ * config can hold a credential, reaches the repairer or a report.
  */
 export function projectFiles(root: string): SourceFile[] {
   const out: SourceFile[] = [];
-  const seen = new Set<string>();
   const real = physicalPath(root);
-  for (const listed of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
-    if (!listed) continue;
-    // A committed recording (a golden, or __recordings__/) holds copies of the prompts, not their source.
-    if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(listed)) continue;
-    const path = fileInside(real, listed);
-    if (!path || seen.has(path)) continue;
-    seen.add(path);
+  // A committed recording (a golden, or __recordings__/) holds copies of the prompts, not their source.
+  for (const path of listedFiles(root, (p) => /(^|\/)blobs\/[0-9a-f]{64}$/.test(p))) {
     try {
       if (statSync(join(real, path)).size > REPAIR_FILE_LIMIT) continue;
       const content = readInside(real, path);
@@ -396,6 +378,12 @@ function commitBranch(root: string, name: string, c: RepairCandidate, extra: Arr
   return name;
 }
 
+/**
+ * Pushes the fix's branch and opens its pull request with `gh`. The title is the fix's commit subject,
+ * the repairer's own words, which GitHub shows as written: titleText splits what GitHub or a job's log
+ * would read in it (a mention, a reference, a workflow command's start), as the Action titles its fix,
+ * and names it by its branch when nothing is left.
+ */
 function openPullRequest(root: string, branch: string, title: string, body: string): string {
   const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   if (base === 'HEAD') throw new RepairError('HEAD is detached, so there is no branch to open the pull request against');
@@ -404,7 +392,7 @@ function openPullRequest(root: string, branch: string, title: string, body: stri
   } catch (err) {
     throw new RepairError(`git push origin ${branch} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() ?? messageOf(err)}`);
   }
-  const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', body], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', titleText(title) || titleText(branch), '--body-file', body], { cwd: root, encoding: 'utf8' });
   if (r.error || r.status !== 0) throw new RepairError(`gh pr create failed: ${(r.stderr || r.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand`);
   return r.stdout.trim().split('\n').at(-1) ?? '';
 }
