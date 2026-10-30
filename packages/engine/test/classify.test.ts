@@ -177,8 +177,12 @@ describe('runOutcome: what the status column says', () => {
     const gradual = runOutcome(run({ status: 'failed', meta: { blame: { ...blame('blamed', 9, 'F'), range: { from: 9, to: 11, fromStep: 4, toStep: 5, gradual: true } } } }));
     expect(gradual).toEqual({ kind: 'lost', callNo: 9, range: { from: 9, to: 11, gradual: true } });
     expect(outcomeLabel(gradual)).toBe('lost gradually around #9 and #11');
-    // A range pinned to one call, or one the probes left open between two, is said at the call blame names.
-    expect(runOutcome(run({ status: 'failed', meta: { blame: { ...blame('blamed', 9), range: { from: 9, to: 12 } } } }))).toEqual({ kind: 'lost', callNo: 9 });
+    // One the probes left open between two calls: lost between them, never at the first alone.
+    const between = runOutcome(run({ status: 'failed', meta: { blame: { ...blame('blamed', 9), range: { from: 9, to: 12, fromStep: 4, toStep: 6 } } } }));
+    expect(between).toEqual({ kind: 'lost', callNo: 9, range: { from: 9, to: 12 } });
+    expect(outcomeLabel(between)).toBe('lost between #9 and #12');
+    // Pinned to one call, the call.
+    expect(runOutcome(run({ status: 'failed', meta: { blame: { ...blame('blamed', 9), range: { from: 9, to: 9 } } } }))).toEqual({ kind: 'lost', callNo: 9 });
     expect(runOutcome(run({ meta: { blame: blame('unrescuable', null) } })).kind).toBe('check-failed');
     expect(runOutcome(run({ meta: { blame: blame('stopped', null) } })).kind).toBe('check-failed');
     expect(lostAt(run({ meta: { blame: blame('blamed', 9) } }))).toBe(9);

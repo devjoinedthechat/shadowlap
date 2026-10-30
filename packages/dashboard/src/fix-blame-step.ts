@@ -97,7 +97,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
   let boundary: string;
   let title: string;
   if (b.outcome === 'blamed' && r.blamed) {
-    // Two calls when the check of the one the probes pinned found no drop there: lost gradually around them.
+    // Two calls when it pinned no one: lost gradually around them, or between them when the probes there could not decide.
     title = lostWords(r.blamed.callNo, r.range, 'title');
     const checked = r.pin ? ` ${pinWords(r.pin)}` : '';
     boundary =

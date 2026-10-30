@@ -1,6 +1,6 @@
 import { importedRecording, pulledRun } from '../../../engine/src/classify.js';
 import { canonicalModel, shortModel } from '../../../engine/src/prices.js';
-import { lostAround } from '../../../engine/src/run-verdicts.js';
+import { lostRange } from '../../../engine/src/run-verdicts.js';
 import { num } from '../format.js';
 import { personName } from '../overview/model.js';
 import type { BlameView, CallRow, CheckView, LineageNode, RunDetail, RunListItem } from '../types.js';
@@ -218,7 +218,7 @@ export function forkMarkOf(d: Pick<RunDetail, 'forkAt' | 'calls'> & { run: Pick<
 }
 
 /**
- * What blame found: the call the run was lost at (and the two it was lost gradually around, when no
+ * What blame found: the call the run was lost at (and the two it was lost around or between, when no
  * one call lost it), model call k of m in its scope, the confidence and the fork it rescued; or, when
  * it placed the failure on no call (`unrescuable`, `stopped`), that it ran. Null when the run was never blamed.
  */
@@ -229,7 +229,7 @@ export function blameOf(d: Pick<RunDetail, 'blame' | 'calls'> & { run: { meta?: 
     (stored && typeof stored === 'object'
       ? {
           callNo: stored.outcome === 'blamed' && typeof stored.callNo === 'number' ? stored.callNo : null,
-          range: lostAround(stored.range),
+          range: lostRange(stored.range),
           confidence: stored.confidence ?? null,
           rescuedRunId: stored.rescuedRunId ?? null,
           scope: stored.scope ?? null,

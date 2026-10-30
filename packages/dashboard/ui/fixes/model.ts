@@ -742,7 +742,7 @@ export function inlineParts(text: string): Array<{ code: boolean; text: string }
 
 /**
  * How another blame of the fix came out, as the Blame step lists it after Also blamed: where it found
- * the run lost (at a call, or gradually around two), not settled or not rescued, or stopped.
+ * the run lost (at a call, or around or between two), not settled or not rescued, or stopped.
  */
 export function otherBlameWords(o: FixDetail['blames'][number]): string {
   if (o.outcome === 'blamed' && o.lostAt !== null) return lostWords(o.lostAt, o.range);
@@ -754,7 +754,7 @@ export function otherBlameWords(o: FixDetail['blames'][number]): string {
 
 /**
  * How a blame, a repair or a fix apply ended, as the drawer's status says it, from the result the
- * command reported: "lost at #5 · exit 0" (or "lost gradually around #5 and #7 · exit 0"), "no fix
+ * command reported: "lost at #5 · exit 0" (or "lost between #7 and #9 · exit 0"), "no fix
  * found · exit 1", "applied · tests passed · exit 0".
  * A repair whose repairer was never asked (claude was not found, none is configured, it had nothing
  * to rewrite) and that tried nothing else looked for no fix: "repairer not asked", in amber. Null
@@ -767,7 +767,7 @@ export function fixJobStatus(job: { kind?: string; code: number | null; result?:
   const tone = job.code === 0 ? 'ok' : 'err';
   if (job.kind === 'blame') {
     const blamed = isObject(r.blamed) && typeof r.blamed.callNo === 'number' ? r.blamed.callNo : null;
-    // At the call it names, or gradually around two when no one call lost the run.
+    // At the call it names, or around or between two when no one call is pinned.
     if (r.outcome === 'blamed' && blamed !== null) return { text: `${lostWords(blamed, r.range)} · ${exit}`, tone };
     if (r.outcome === 'unrescuable') {
       // Its first probe couldn't tell, and nothing else was found (blame's unsettledFirst): not settled, never "not rescued".

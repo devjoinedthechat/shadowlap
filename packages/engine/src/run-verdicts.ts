@@ -35,30 +35,31 @@ export function failureReason<C extends KeptCheck>(run: { status: string; checks
 }
 
 /**
- * The two calls blame found a run lost gradually around, as its range keeps them: when the check of the
- * call the probes pinned found no drop from it to the next (`gradual`), so no one call lost the run.
- * Null for a run lost at one call, and for anything that isn't such a range, two whole call numbers,
- * the first before the second: a report, a run's blame, an event or a page from a pack can carry anything.
+ * The two calls blame found a run lost around or between, as its range keeps them, when no one call
+ * is pinned: `gradual` when the check of the call the probes pinned found no drop from it to the next,
+ * so no one call lost the run; else the probes between the two could not decide, and the run was lost
+ * at one of the calls from the first to the second. Null for a run lost at one call, and for anything
+ * that isn't such a range, two whole call numbers, the first before the second: a report, a run's
+ * blame, an event or a page from a pack can carry anything.
  */
-export function lostAround(range: unknown): { from: number; to: number; gradual: true } | null {
+export function lostRange(range: unknown): { from: number; to: number; gradual?: true } | null {
   if (typeof range !== 'object' || range === null) return null;
   const { from, to, gradual } = range as { from?: unknown; to?: unknown; gradual?: unknown };
-  if (gradual !== true || typeof from !== 'number' || typeof to !== 'number') return null;
-  return Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to > from ? { from, to, gradual: true } : null;
+  if (typeof from !== 'number' || typeof to !== 'number' || !Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to <= from) return null;
+  return { from, to, ...(gradual === true ? { gradual } : {}) };
 }
 
 /**
- * Where blame found a run lost, as the dashboard and the terminal UI say it: `lost at #5`, or `lost
- * gradually around #5 and #7` when it found no one call lost it (lostAround). `calls` names them as
- * model calls, as a sentence does (`lost at model call #5`, `lost gradually around model calls #5 and
- * #7`), and `title` does so as a title starts (`Lost at model call #5`). `callNo` is the call blame
- * names; a range the probes left open between two calls is said at it, as these views have it, the
- * Blame step naming the range beside it (the CLI's report words that one too: lostWhere).
+ * Where blame found a run lost, as the dashboard and the terminal UI say it, as the CLI's report does
+ * (lostWhere): `lost at #5`; `lost gradually around #5 and #7` when no one call lost it; `lost between
+ * #7 and #9` when the probes between them could not decide (lostRange). `calls` names them as model
+ * calls, as a sentence does (`lost at model call #5`, `lost between model calls #7 and #9`), and
+ * `title` does so as a title starts (`Lost at model call #5`). `callNo` is the call blame names.
  */
 export function lostWords(callNo: number, range?: unknown, form: 'short' | 'calls' | 'title' = 'short'): string {
-  const around = lostAround(range);
-  const calls = form === 'short' ? '' : around ? 'model calls ' : 'model call ';
-  const words = around ? `gradually around ${calls}#${around.from} and #${around.to}` : `at ${calls}#${callNo}`;
+  const two = lostRange(range);
+  const calls = form === 'short' ? '' : two ? 'model calls ' : 'model call ';
+  const words = two ? `${two.gradual ? 'gradually around' : 'between'} ${calls}#${two.from} and #${two.to}` : `at ${calls}#${callNo}`;
   return `${form === 'title' ? 'Lost' : 'lost'} ${words}`;
 }
 

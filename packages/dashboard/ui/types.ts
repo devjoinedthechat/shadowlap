@@ -21,8 +21,8 @@ export type { InjectionMark } from '../../engine/src/types.js';
 export type RunOutcomeView =
   | { kind: 'running' }
   | { kind: 'diverged'; callNo: number }
-  /** Lost at `callNo`, or with `range`, gradually around two calls: no one call lost it. */
-  | { kind: 'lost'; callNo: number; range?: { from: number; to: number; gradual: true } | null }
+  /** Lost at `callNo`, or with `range`, gradually around two calls (no one call lost it) or between two (the probes between could not decide). */
+  | { kind: 'lost'; callNo: number; range?: { from: number; to: number; gradual?: true } | null }
   | { kind: 'check-failed'; check: string | null }
   /** No check failed, and one could not be decided. */
   | { kind: 'inconclusive'; check: string | null }
@@ -55,8 +55,8 @@ export interface RunListExtras {
   /** The run an attempt is bundled under, and what made it one (`repeat`, `probe`, `verify`). */
   attemptOf?: string | null;
   attemptKind?: string | null;
-  /** Where blame found the run lost: `range`, the two calls it was lost gradually around, when no one call lost it. */
-  blame?: { callNo: number | null; range?: { from: number; to: number; gradual: true } | null } | null;
+  /** Where blame found the run lost: `range`, the two calls it was lost around or between, when no one call is pinned. */
+  blame?: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null } | null;
   /** Where blame found the run was lost, as the Runs table's rows say it. */
   lostAt?: number | null;
   checks?: CheckCountsView | null;
@@ -113,8 +113,8 @@ export interface Intervention {
 export interface BlameView {
   /** The model call whose answer lost the run; null when blame placed it nowhere. */
   callNo: number | null;
-  /** The two calls it was lost gradually around, when no one call lost the run: the banner says so, never "lost at". */
-  range?: { from: number; to: number; gradual: true } | null;
+  /** The two calls it was lost around or between, when no one call is pinned: the banner says so, never "lost at". */
+  range?: { from: number; to: number; gradual?: true } | null;
   /** The blamed call counted among the model calls in the blame's scope: k of m. */
   modelCall?: { k: number; m: number } | null;
   confidence?: string | null;

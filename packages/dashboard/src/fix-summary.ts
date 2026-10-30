@@ -127,7 +127,7 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
     const rec = fixRecords(store, fix);
     if (fix.status === 'open') {
       const b = shownBlame(rec);
-      // At the call blame names, or gradually around two when no one call lost the run.
+      // At the call blame names, or around or between two when no one call is pinned.
       const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);

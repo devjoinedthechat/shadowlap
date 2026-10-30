@@ -42,8 +42,8 @@ export interface BannerInput {
   flagCall?: { kind: string; name: string; attempts: number; input?: boolean } | null;
   /** A fork blame rescued its parent with: the call it asked again. */
   rescued: { callNo: number | null } | null;
-  /** `range`: the two calls it was lost gradually around, when no one call lost the run. */
-  blame: { callNo: number | null; range?: { from: number; to: number; gradual: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
+  /** `range`: the two calls it was lost around or between, when no one call is pinned. */
+  blame: { callNo: number | null; range?: { from: number; to: number; gradual?: true } | null; modelCall?: { k: number; m: number } | null; confidence?: string | null; scope?: string | null; rescuedRunId?: string | null; outcome?: string | null; unsettled?: boolean; short?: string | null } | null;
   notRecorded: { hosts: ReadonlyArray<{ target: string; count: number | null; action: string | null }>; tools: readonly string[] } | null;
   /** Each check, with its `status` when the server says (passed, failed, inconclusive, not-applicable). */
   checks: ReadonlyArray<{ label: string; ok: boolean; count?: number; of?: number; detail?: string; status?: string }>;
@@ -127,7 +127,7 @@ export type Banner =
   | { kind: 'attempt'; of: AttemptInput['kind'] | 'rescued'; callNo: number | null; outcome: AttemptOutcome; why: string; flag: string | null; diff: boolean }
   /** `failed`: the fork failed (its check, or its agent's exit), so Run blame applies to it as to any failed run. */
   | { kind: 'fork'; callNo: number; name: string; why: string; flag: string | null; path: string | null; normalizer: boolean; diff: boolean; failed: boolean }
-  /** `words`: where blame found the run lost, in the engine's words (lostWords): at the call, or gradually around two. */
+  /** `words`: where blame found the run lost, in the engine's words (lostWords): at the call, or around or between two. */
   | { kind: 'lost'; callNo: number; words: string; why: string; rescuedRunId: string | null }
   | { kind: 'not-recorded'; why: string }
   | { kind: 'checks'; checks: ReadonlyArray<{ label: string; text: string; status?: string }>; why: string | null }
@@ -226,15 +226,21 @@ export function flagWhy(iv: FlagView, call: BannerInput['flagCall'], forkName: s
 }
 
 /**
- * Where the blamed call sits among the model calls of the blame's scope (model call k of m; for a run
- * lost gradually around two calls, that call and the next, k and k + 1 of m), then the confidence, the
- * scope and what asking again did.
+ * Where the blamed call sits among the model calls of the blame's scope: model call k of m; for a run
+ * lost gradually around two calls, that call and the next, k and k + 1 of m; for one lost between two,
+ * from the first's place. Without its place, the calls themselves.
  */
-function lostWhy(b: NonNullable<BannerInput['blame']>): string {
+function lostPlace(b: NonNullable<BannerInput['blame']>): string {
   const m = b.modelCall;
-  const two = b.range && (!m || m.k < m.m) ? b.range : null;
-  const where = m ? (two ? `model calls ${m.k} and ${m.k + 1} of ${m.m}` : `model call ${m.k} of ${m.m}`) : two ? `calls #${two.from} and #${two.to}` : `call #${b.callNo!}`;
-  return `${where}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}${b.short ? ` · ${b.short}` : ''}`;
+  const two = b.range;
+  if (!m) return two ? `calls #${two.from} ${two.gradual ? 'and' : 'to'} #${two.to}` : `call #${b.callNo!}`;
+  if (two?.gradual && m.k < m.m) return `model calls ${m.k} and ${m.k + 1} of ${m.m}`;
+  return `${two ? 'from ' : ''}model call ${m.k} of ${m.m}`;
+}
+
+/** Where the blamed call sits (lostPlace), then the confidence, the scope and what asking again did. */
+function lostWhy(b: NonNullable<BannerInput['blame']>): string {
+  return `${lostPlace(b)}${b.confidence ? ` · confidence ${b.confidence}` : ''}${b.scope ? ` · scope ${b.scope}` : ''}${b.short ? ` · ${b.short}` : ''}`;
 }
 
 function notRecordedWhy(nr: NonNullable<BannerInput['notRecorded']>): string {

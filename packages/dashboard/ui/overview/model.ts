@@ -43,7 +43,7 @@ export function reproducedNote(o: OverviewSummary['outcomes']['reproduced']): st
 
 /**
  * How a blame on Today's line came out, in the words Needs a look and the fix use: where the run
- * was lost (at a call, or gradually around two), that no model call rescued it (or, when its first
+ * was lost (at a call, or around or between two), that no model call rescued it (or, when its first
  * probe couldn't tell, that it is not settled), or that it stopped early; while it still probes, that
  * nothing is placed yet.
  */
