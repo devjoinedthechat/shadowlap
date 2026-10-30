@@ -17,7 +17,7 @@ Shadowlap dashboard  http://127.0.0.1:4777/#token=…
   /home/you/support-agent/.shadowlap/shadowlap.db · the link carries a session token; keep it to yourself · Ctrl-C stops
 ```
 
-The dashboard runs until you press Ctrl-C in its terminal. Open a run from the sidebar or from Runs, or press ⌘K (Ctrl K) and type its id.
+The dashboard runs until you press Ctrl-C in its terminal. Open a run from the sidebar or from [Runs](#runs), or press ⌘K (Ctrl K) and type its id.
 
 Name a run to open it directly:
 
@@ -212,10 +212,112 @@ An entry no page shows, such as a [preview of a change](./decisions.md), is a pl
 
 Who did it is the run's author, worked out when the run was made: `SHADOWLAP_AUTHOR` if set, `ci` in CI, else git's `user.email`, else the OS user. The author stays on this machine: packs and HTML files (`export html`, or **Share → HTML file** on a run) leave it out.
 
+## Runs
+
+Runs lists every run in a table, a page at a time, one row per run.
+
+### The table
+
+Each row shows these columns:
+
+| Column | Shows |
+| --- | --- |
+| Run | The run's id |
+| About | What it was about, with its labels as chips |
+| By | Who made it, with a [team store](#runs-with-a-team-store) |
+| Calls by origin | Its calls, colored by origin |
+| Calls | How many calls it made |
+| Spent | What it spent |
+| Status | Its outcome: a fork's says what came of its writes (*forked · 2 writes blocked*), or names the check it failed under *check failed* |
+| When | When it ran |
+| *good · bad* | The good/bad key |
+
+While the about line would get too little room, what only adds to a row gives way, measured: first the calls by origin, then the labels, then who made it. Only then, and on a tablet or a phone, the about line goes under the id.
+
+Some runs are shown differently:
+
+- **Attempts** (`--repeat`, blame, verify and the [error-path presets](./error-paths.md)) are bundled under the run they came from rather than listed.
+- **A golden replayed more than once** in one test session (`repeat`) is one test run too: the attempt its result shows, whose checks count every attempt (*5 of 5*).
+- **A run imported from a capture** shows the file it came from where a command would be, and its cost as captured rather than spent: that money was spent where the traffic ran.
+- **A run whose recorder stopped before it ended** (killed, or out of memory) reads *interrupted*. It is deleted, packed and pushed like a run that ended.
+
+### Filter, chips and sort
+
+Above the table:
+
+- **Chips by kind**, with their counts: recordings, forks, clean replays, tests, captures, failed.
+- **A filter**: every word must be in the run's id, about line, kind, labels, command, source or revision. `label:good` is the runs labelled exactly that. A label with a space in it is quoted, `label:"needs review"`, as its chip writes it.
+- **Sorting** by calls, spend or time.
+
+### The calendar and Find the commit
+
+Above the table, twelve weeks of days, a column per week, are shaded by how many runs each day had of what the chips and the filter match. So with **Failed** picked, it shows when something started failing.
+
+- **Pick days**: click a day, drag across several, or Shift-click to extend. The table and the chip counts follow.
+- **From the keyboard**: the arrow keys move between days, Enter picks one, and Escape clears.
+
+With **Failed** picked and days chosen, **Find the commit** bisects from the first failure of those days, between a commit where it still worked and its own:
+
+- It offers only commits this checkout has. A teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD.
+- A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search. The dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did.
+
+### Act on several runs
+
+Tick runs to label, pack, export, compare or delete them together. A run ticked and then deleted elsewhere leaves the selection.
+
+- **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done. It leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running. Its dialog shows the `shadowlap rm` command: for a long pick, the first ids and how many more, with **Copy the whole command**.
+- **Pack** asks for a folder first. One run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project. Several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once).
+- **Dataset** says how many redaction rules its copy applies, and shows the `shadowlap export dataset` command it runs, with the file it writes. One dataset takes at most 500 runs.
+
+### Runs with a team store
+
+With a [team store](./team.md) set, the table:
+
+- shows who made each run as their avatar, with the name on hover (yours marked *you*);
+- shows a teammate's run at what it cost where it was recorded;
+- tags `local` the runs only on this machine, and a run whose attempts are;
+- offers **Pull** above it, and **Push** for the runs ticked, with the attempts bundled under them; a run still recording goes when it ends.
+
+The **Local** chip lists the runs only on this machine, as Needs a look counts them. The status bar names the store and when this machine last pushed or pulled.
+
+### The view is in the address
+
+What the table shows is in the address: the filter's words, the chip, the sort and the days picked, the days the viewer's own (`#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`). So a view of Runs keeps through a reload, can be kept as a bookmark, and opens from the link the dashboard prints, with the view at the end (`#token=…&open=/runs?types=failed`).
+
+- Picking a chip, a sort or days is a step of its own, which Back goes back through.
+- The words typed take the place of the step they were typed in, once they settle.
+- Runs opened on `#/runs` alone from another page shows what it showed last while the dashboard is open, and says so in the address.
+
+### Import a capture or a trace
+
+**Import a capture or a trace** is on Runs, and in Search or jump to. Drop or pick a file. The format is guessed from its name and its first bytes, and can be changed:
+
+| File | Read as |
+| --- | --- |
+| `.har` | HAR |
+| `.json`, its name saying otel, otlp or trace | OpenTelemetry |
+| `.json`, its name saying cassette or vcr | A VCR cassette |
+| Any other `.json` | What it starts with: a HAR log, OTLP spans, a cassette's interactions, a nock recording or a Shadowlap capture; nock when that says nothing |
+| `.jsonl` | LiteLLM, unless its name or its first line says OpenTelemetry |
+| YAML | Refused, with the reason |
+
+**Use a sample: otel-traces.json** picks the trace the dashboard ships, dated to end as you pick it: one agent run as an OpenTelemetry collector exports it, with two model calls and the tool call between them. **Import** then brings it in as any file you pick.
+
+You can also give a Langfuse, LangSmith, Phoenix or Logfire host and trace id. The CLI reads the trace with the keys already in the environment the dashboard runs in, and they never pass through the browser.
+
+| Trace store | Trace id | Keys it reads |
+| --- | --- | --- |
+| Langfuse | A UUID, or 32 hex characters as on the trace's page | `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` |
+| LangSmith | A UUID | `LANGSMITH_API_KEY` |
+| Phoenix | 32 hex characters, and the project | `PHOENIX_API_KEY`, when your Phoenix asks for one |
+| Logfire | 32 hex characters | `LOGFIRE_READ_TOKEN` |
+
+Phoenix's project starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal.
+
+The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked. Its drawer links to each run it made, or past three, to Runs filtered to them.
+
 ## What you see
 
-- **Runs**: every run in a table, a page at a time, one row a run: its id, then what it was about with its labels as chips, its calls by origin, calls, spend, outcome (a fork's says what came of its writes, *forked · 2 writes blocked*, or names the check it failed under *check failed*) and when; with chips by kind (recordings, forks, clean replays, tests, captures, failed) and their counts, a filter (every word must be in the run's id, about line, kind, labels, command, source or revision; `label:good` is the runs labelled exactly that, and a label with a space in it is quoted, `label:"needs review"`, as its chip writes it), and sorting by calls, spend or time. What only adds to a row gives way, measured, while the about line would get too little room: first the calls by origin, then the labels, then who made it; only then, and on a tablet or a phone, the about line goes under the id. Attempts (`--repeat`, blame, verify and the [error-path presets](./error-paths.md)) are bundled under the run they came from rather than listed, and so are a golden's when one test session replays it more than once (`repeat`): one test run, the attempt its result shows, whose checks count every attempt (*5 of 5*). A run imported from a capture shows the file it came from where a command would be, and its cost as captured rather than spent: that money was spent where the traffic ran. Above the table, twelve weeks of days, a column per week, shaded by how many runs each day had of what the chips and the filter match, so with **Failed** picked it shows when something started failing. Click a day, drag across several or Shift-click to extend, and the table and the chip counts follow; the arrow keys move between days, Enter picks one, Escape clears. With **Failed** picked and days chosen, **Find the commit** bisects from the first failure of those days, between a commit where it still worked and its own, offering only commits this checkout has: a teammate's runs can name commits of theirs, and a failure whose own commit isn't here is bisected up to HEAD. A failure at the repository's first commit (or the oldest a shallow clone has) has nothing before it to search: the dialog says so, and bisects from the first failure of those days that started later, or offers no search when none did. With a [team store](./team.md), the **Local** chip lists the runs only on this machine, as Needs a look counts them. Tick runs to label, pack, export (one dataset takes at most 500 runs), compare or delete them together. **Delete** names the attempts bundled under the runs ticked, which go with them as `shadowlap rm` takes them, and counts them when it is done; it leaves alone a run still recording, one a replay in progress reads from, and one with an attempt still running, and its dialog shows the `shadowlap rm` command (for a long pick, the first ids and how many more, with **Copy the whole command**). **Pack** asks for a folder first: one run goes into `.shadowlap/exports/<id>` unless you name another folder inside the project; several go into a folder each, named by its id, inside `.shadowlap/exports` or the folder you name, in one job whose drawer lists every folder (at most 100 runs at once). **Dataset** says how many redaction rules its copy applies and shows the `shadowlap export dataset` command it runs, with the file it writes. A run whose recorder stopped before it ended (killed, or out of memory) reads *interrupted*, and is deleted, packed and pushed like a run that ended. A run ticked and then deleted elsewhere leaves the selection. With a [team store](./team.md) set, the table shows who made each run as their avatar, the name on hover (yours marked *you*), shows a teammate's run at what it cost where it was recorded, tags `local` the runs only on this machine (and a run whose attempts are), and offers **Pull** above it and **Push** for the runs ticked, with the attempts bundled under them (one still recording goes when it ends); the status bar names the store and when this machine last pushed or pulled. What the table shows is in the address: the filter's words, the chip, the sort and the days picked (`#/runs?q=refund&types=failed&sort=spent&from=2026-10-20&to=2026-10-22`, the days the viewer's own). So a view of Runs keeps through a reload, can be kept as a bookmark, and opens from the link the dashboard prints with it at the end (`#token=…&open=/runs?types=failed`). Picking a chip, a sort or days is a step of its own, which Back goes back through; the words typed take the place of the step they were typed in, once they settle. Runs opened on `#/runs` alone from another page shows what it showed last while the dashboard is open, and says so in the address.
-- **Import a capture or a trace** (on Runs, or from Search or jump to): drop or pick a file, and the format is guessed from its name and its first bytes, and can be changed: `.har` is HAR; a `.json` file is OpenTelemetry when its name says otel, otlp or trace and a VCR cassette when it says cassette or vcr, and otherwise what it starts with decides (a HAR log, OTLP spans, a cassette's interactions, a nock recording or a Shadowlap capture), nock when that says nothing; a `.jsonl` file is LiteLLM unless its name or its first line says OpenTelemetry. YAML is refused with the reason. **Use a sample: otel-traces.json** picks the trace the dashboard ships (one agent run as an OpenTelemetry collector exports it: two model calls and the tool call between them), dated to end now; **Import** then brings it in as any file you pick. Or give a Langfuse, LangSmith, Phoenix or Logfire host and trace id (a UUID for Langfuse and LangSmith, or for Langfuse also 32 hex characters, as on the trace's page; 32 hex characters for Phoenix and Logfire), and for Phoenix the project, which starts as `PHOENIX_PROJECT` or `PHOENIX_PROJECT_NAME`, else `default`: the CLI reads the trace with the keys already in the environment the dashboard runs in (`LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`, `LANGSMITH_API_KEY`, `PHOENIX_API_KEY` when your Phoenix asks for one, or `LOGFIRE_READ_TOKEN`), and they never pass through the browser. Logfire is searched back 30 days; an older trace takes [`--since`](./cli.md#traces) in a terminal. The job runs [`shadowlap import`](./cli.md#import) under the name of the file you picked, and its drawer links to each run it made, or past three, to Runs filtered to them.
 - **A run**: what it is and where it came from, its command, revision and timing, and why it failed (the check it failed in the CLI's words, with the arguments it names and how a tool's calls were fenced, as `send_email called 1 time, but called 2 times (2 blocked)`; the agent's exit; where a test diverged); a capture whose file kept no times (nock, VCR) shows no duration, and one of the model calls alone says its tool calls were not captured; its counts first (calls, replayed, live, fenced, upstream requests, spent), then what replaying saved: not re-spent, and the time not waited (each replayed call's duration where it was recorded). A recording unpacked from someone's pack says *recording · from a pack*; a teammate's run pulled from the [team store](./team.md) is a recording like any, with the requests it sent and what it spent where it was recorded, by whom (*≈$0.0030 spent · by maya*, and the same in Provenance's Upstream row), and its replay asks first, as a pack's does. One banner says how an [error-path preset](./error-paths.md)'s attempt came out, by the verdict of the session that decided it (an earlier session's attempt keeps its own once the presets run again), then the preset and the golden it ran on, which attempt of the preset it was and what the preset played in where (*failed · tool timeout preset on goldens/list-inbox, attempt 1 of 1: list_inbox (#2) timed out, played in by the preset · writes stubbed*, with **Tests →** for a golden's), wrapping rather than cut; its status chip goes by that verdict, and the meta line says why it failed, the agent's exit with its last line, how it forked, what the flag did and what came before it ("answered with HTTP 529 by `--fail-at 19=529` · nothing sent", "tool #16 overridden with `--override 16=@policy.json` · 15 replayed and #16 overridden before it"), where blame found it lost (with the fork it rescued and its fix), which checks it passed, what was not recorded, or that it failed and was not blamed yet. The header says each thing once: the line above the id what kind of run it is (*recording*, *fork @17*, *blame attempt*), the chip beside the id how it stands (*in progress*, *failed*, *inconclusive*, *interrupted*, or no chip when all is well) and the line under it why it failed. The header's one lime button is the run's next step: **Open the fix** for a failure a fix holds (its hover names the fix, and the banner says how it stands, *fix open* or *fix verified*, where it linked it), **Run blame** for a failure never blamed (not on a run that made no model call, or one that was stopped: blame needs a run that fails again as recorded), **Compare with parent** for a fork or an attempt (a blame probe's, a verify's, a `--repeat`'s, an injection test's, a model's scoring, an error-path preset's, or a golden's repeated replay in one test session, whose failure counts towards its golden's result), the banner's **Add normalizer** for a test or a replay that left its recording on a value made anew on every run, and **Replay** only where nothing needs doing; every other action stays beside it, plain, and the banner doesn't offer the step again. A fork that failed, by its check or its agent's exit, says *failed* beside its id as any run that failed does, keeps the banner that says how it forked, and leads with **Run blame** (or **Open the fix**, once a fix holds it); until it is blamed, it counts among the failures not blamed yet. An attempt of blame, verify or `replay --repeat` says it is one (*blame attempt*, *verify attempt*, *repeat attempt* above its id; the fork blame rescued a run with is its *rescued fork*), and its banner says how it came out first (*passed*, *failed*, *inconclusive*, or *interrupted*), then what was asked again and which attempt it is of those made (*failed · resampled #5, attempt 2 of 4: the model was asked #5 again, the request as recorded · writes stubbed*; *passed · verify · target, attempt 1 of 12 · code 35034be: the change it verified is in the request (~ $.system)*, or the flag a `--model` or `--set` change was made with; *replay --repeat 5 at #16, attempt 2 of 5: forced live with `--live-tool lookup_policy`*), then how the writes after it went and, for one that could not be decided, the check that couldn't be. A gate that settles makes fewer attempts than its limit, and the count is of the attempts made. The banner wraps rather than cut its words, and links back to the attempt's probe on its fix's Blame step or to the verdict it counted towards, and to all its attempts in Forks; it offers no Run blame, since its failure counts towards what made it. A replay an injection test, a model's scoring or an error-path preset made keeps its fork banner. A fork whose only flag is `--writes` forked where its request changed, and its banner says that. A test that diverged on a value made anew on every run says what the value looks like, with **Add normalizer** (it adds the rule and runs the golden again; once the rule is in the config, the banner says *normalizer added* and links the replay that passed) and **Update golden**, which asks first, as on Tests. When the rule alone can't make the replay match (the request carries a field the recording never had, as a per-run id added since), the button reads **Add normalizer and update…** and asks first too, in the Tests screen's dialog with both commands, since the golden is then re-recorded live after the rule; once the rule is in, **Update golden** stays beside *normalizer added* until a replay of the golden passes. A fork opens at its divergence, a run blame found lost at the call that lost it, and any other run that failed at its first call that failed (a model call answered with an error, a tool that threw; never a write fenced after a fork); else a run opens at its first call, past any clock or random reads, which hold a value rather than a step of the agent's. **Show diff** shows the request that changed, and the normalizer to add when the change is a date or an id: for a test that diverged, the value its banner found made anew on every run, what it looks like and its normalizer, so the diff never says that no normalizer is suggested where the banner offers one.
 - **How a run stands**, worked out once, by the server, for its page and every list: a test of a golden that may fork is judged by its checks, not where it left the recording (its banner lists the checks it passed and where it forked, or the check it failed); a run a fix lists among its failing runs (verify's target) fails that fix's check here and in Runs, with how the fix stands; a run whose agent exited with an error reads *failed*, one that failed a check *check failed*. A run that stopped before it ended (Ctrl-C, a kill, a crash, a recorder that went away) reads *interrupted* in grey after what it is (*recording · interrupted*, *fork @3 · interrupted*), ended at its last call: it stopped, it did not fail. Its page says so in a banner (a fork's banner says how it forked, and its header that it stopped), and, open while it recorded, ends on *Recording interrupted*; Runs, the sidebar, the Forks view (a `--repeat`'s attempts too), Provenance's lineage, the Overview and the activity feed say *interrupted* too.
 - **What a fork did differently**: under a fork's banner, from the call it left its parent at on: the tool calls it made that its parent didn't and the other way round, those it made with other arguments, how each run ended and its last words, ranked as [`decisions`](./decisions.md) ranks a changed decision (a write first, then how the run ends, a read added or removed, a read asked differently, other words), each with the call it was in either run; then its writes, each with what became of it (*blocked*, *stubbed*, *ran live*): up to three one by one, more grouped by tool and what became of them, each group from its first call (*send_email ×9 blocked, from #950*), and **Show each** lists them one by one (a hundred at most; Compare has the rest). Arguments and words are compared after the project's normalizers, so an id or a time made anew is no change. The first four changes show, **Show all** opens the rest, and **Compare →** the whole comparison. An exported copy holds it when the file holds the fork's parent too (`export html --lineage`, **Share → HTML file**), masked by the redaction rules, and leaves it out otherwise.
