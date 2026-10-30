@@ -215,6 +215,17 @@ describe('calls paired across two runs', () => {
     for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
+
+  it('names what changed in a Gemini conversation, never the call ids each run’s client made up', () => {
+    const store = Store.open(':memory:');
+    const asked = (city: string, id: string) => ({ contents: [{ role: 'user', parts: [{ text: `weather in ${city}` }] }, { role: 'model', parts: [{ functionCall: { id, name: 'weather', args: {} } }] }, { role: 'user', parts: [{ functionResponse: { id, name: 'weather', response: { c: 18 } } }] }] });
+    const gemini = (run: RunRecord, fingerprint: string, city: string, id: string) => put(store, run, 1, { kind: 'api', name: 'POST /v1beta/models/gemini-2.5-flash:generateContent', fingerprint, request: asked(city, id), meta: { provider: 'gemini', query: '' }, answer: '{"candidates":[]}' });
+    const [a, b] = [store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } }), store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } })];
+    gemini(a, '1'.repeat(64), 'Oslo', 'PfyxZOhr4ro30QGk');
+    gemini(b, '2'.repeat(64), 'Bergen', 'Rb4nQypSnBKnJXzi');
+    expect(compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId)).firstRequestDifference?.diff?.map((e) => e.path)).toEqual(['$.contents[0].parts[0].text']);
+    store.close();
+  });
 });
 
 describe('what made a fork, when it changed an answer', () => {
