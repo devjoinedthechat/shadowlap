@@ -188,8 +188,12 @@ export function spawnAgent(command: string, args: readonly string[], options: Sp
 export interface ProcessInfo {
   pid: number;
   ppid: number;
-  /** The command line, as far as the system shows it. */
-  args: string | null;
+  /**
+   * The command line, as far as the system shows it: its words apart where the system keeps them so
+   * (Linux's /proc, this process's own argv), else one line (`ps` joins them with spaces, losing
+   * where a word with a space in it ends; Windows keeps the line a process was started with).
+   */
+  args: string | readonly string[] | null;
 }
 
 /**
@@ -278,9 +282,12 @@ function procInfo(pid: number): ProcessInfo | null {
   try {
     const ppid = parentFromProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
     if (ppid === null) return null;
-    let args: string | null = null;
+    let args: string[] | null = null;
     try {
-      args = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join(' ') || null;
+      // Each word ends with a NUL, so a word with a space in it stays whole.
+      const words = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+      if (words.at(-1) === '') words.pop();
+      args = words.length ? words : null;
     } catch {
       // a process of another user, or one that just ended
     }
@@ -296,7 +303,7 @@ function procInfo(pid: number): ProcessInfo | null {
  * PowerShell failing, which a proxy's log should name.
  */
 export function processAncestors(note?: (why: string) => void): ProcessInfo[] | null {
-  const chain: ProcessInfo[] = [{ pid: process.pid, ppid: process.ppid, args: process.argv.join(' ') }];
+  const chain: ProcessInfo[] = [{ pid: process.pid, ppid: process.ppid, args: process.argv }];
   const linux = process.platform === 'linux' && existsSync('/proc/self/stat');
   const table = linux ? null : processTable(note && ((why) => note(`the process tree could not be read (${why}), so only this process's parent is looked up for its run`)));
   if (!linux && !table) return null;
@@ -435,15 +442,25 @@ export function agentCommands(program: Command): ReadonlySet<string> {
 /**
  * Whether a command line is the Shadowlap CLI running one of `commands`, those that start agents
  * (agentCommands). Used only to refuse writes when such an ancestor is seen but its sidecar can't be
- * found.
+ * found. Its words apart give the command exactly. A line the system joined loses where `--db`'s
+ * path ends when the path holds a space, so there any word after it that names such a command, up
+ * to `--`, counts: a command that starts no agent is then taken for one only when its own words
+ * name one, which refuses writes where none would run, never lets one through unrecorded.
  */
-export function startsAgents(args: string | null, commands: ReadonlySet<string>): boolean {
-  if (!args) return false;
-  const tokens = args.split(/\s+/).filter(Boolean);
-  const at = tokens.findIndex((t) => /(?:^|[\\/])shadowlap(?:\.[cm]?js|\.cmd|\.exe)?["']?$/i.test(t));
+export function startsAgents(args: string | readonly string[] | null, commands: ReadonlySet<string>): boolean {
+  if (!args?.length) return false;
+  const joined = typeof args === 'string';
+  const words = joined ? args.split(/\s+/).filter(Boolean) : args;
+  const at = words.findIndex((t) => /(?:^|[\\/])shadowlap(?:\.[cm]?js|\.cmd|\.exe)?["']?$/i.test(t));
   if (at < 0) return false;
-  for (let i = at + 1; i < tokens.length; i++) {
-    const t = tokens[i]!;
+  for (let i = at + 1; i < words.length; i++) {
+    const t = words[i]!;
+    if (t === '--') return false;
+    if (joined && (t === '--db' || t.startsWith('--db='))) {
+      const rest = words.slice(i + 1);
+      const end = rest.indexOf('--');
+      return (end < 0 ? rest : rest.slice(0, end)).some((w) => commands.has(w));
+    }
     if (t === '--db') {
       i++;
       continue;
