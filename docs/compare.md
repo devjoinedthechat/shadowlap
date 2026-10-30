@@ -24,7 +24,7 @@ Each kind of tool is the better choice for a different job:
 | [Agent debuggers](#agent-debuggers-with-cached-replay) | Laminar, OrcaReplay | Iterate on an agent Laminar already traces, or compare models from a checkpoint of a coding agent |
 | [Time travel](#framework-checkpoints-and-time-travel) | LangGraph, Microsoft Agent Framework, Google ADK, Claude Agent SDK | Explore alternative paths inside that framework, or resume a long workflow |
 | [Durable execution](#durable-execution) | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal | Make long-running agents survive crashes, and resume or patch a failed run in production |
-| Shadowlap | — | Reproduce one run of any agent exactly, find the call that lost it, and prove the fix offline |
+| Shadowlap | — | Reproduce one run of any agent exactly, find the call that lost it, prove the fix, and gate a pull request offline |
 
 ## Side by side
 
@@ -127,7 +127,7 @@ compose:
 
 Use a tracing platform for production visibility, evals across large datasets, human review and
 dashboards over time. Use Shadowlap to reproduce one run exactly, find the call that lost it, and
-prove the fix offline.
+prove the fix.
 
 ### LangSmith Engine
 
