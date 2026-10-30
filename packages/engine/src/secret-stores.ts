@@ -11,10 +11,10 @@ import { isJsonSpace, NUMBER_OR_LITERAL, type HeldValues, type StringTest } from
  *   its `payload`'s `data`, and `dataCrc32c`, the checksum that would confirm a guess of it;
  * - an Azure Key Vault secret (an `id` under `https://….vault.azure.net/secrets/`): its `value`;
  * - HashiCorp Vault's KV secrets engine, version 2 (a `data` member holding `data` and a `metadata`
- *   with a `version` number): that inner `data`, every field of it; and version 1, whose answer has
- *   no shape of its own, when the masking is told the call read a path under `/v1/secret/`, where
- *   Vault mounts it by default (vaultKv1Read): the answer's `data`, unless it is a list of the
- *   secrets' names (`"data": {"keys": […]}`), which `names` reads.
+ *   with a `version` number): that inner `data`, every field of it.
+ *
+ * And where a call to a secret store holds one by the call itself (StoreCall), in what it sends and
+ * in an answer of no shape of its own: a write's secret, and a Vault KV version 1 answer's.
  *
  * What says which secret it is stays as it was: its name, id, type, metadata, attributes and tags.
  * The masking (http.ts) reads each such value as it reads a credential member's, every string in it.
@@ -24,16 +24,78 @@ import { isJsonSpace, NUMBER_OR_LITERAL, type HeldValues, type StringTest } from
 const GCP_VERSION = /^projects\/[^/\s]+(?:\/locations\/[^/\s]+)?\/secrets\/[^/\s]+\/versions\/[^/\s]+$/;
 /** A Key Vault secret's id, its version after it or not, in any of Azure's clouds: `https://<vault>.vault.azure.net/secrets/<name>/<version>`. */
 const AZURE_SECRET = /^https:\/\/[\w-]+\.vault\.(?:azure\.net|azure\.cn|usgovcloudapi\.net|microsoftazure\.de)(?::443)?\/secrets\/[^/\s]+(?:\/[^/\s]*)?$/i;
-/** A captured call's name (`GET host/path`) for a path under `/v1/secret/`. */
-const VAULT_KV1 = /^[A-Z]+ [^/\s]+\/v1\/secret\//;
 
 /**
- * Whether a captured call (by its name, `GET vault.example.com:8200/v1/secret/db`) read a path under
- * `/v1/secret/`, where Vault mounts its KV secrets engine by default: version 1 answers with the
- * secret as its `data`, with no other shape to say so.
+ * Where a captured call to a secret store holds a secret by the call itself, the body's shape saying
+ * nothing of one: read from the call's name (`PUT acme.vault.azure.net/secrets/db`, its method, host
+ * and path) and whether the body is what the call sends or the answer it gets (storeCall).
+ *
+ * What a call sends:
+ * - `whole`: every string in it: a write to Vault's KV engine, version 1, at `secret/`, where Vault
+ *   mounts it by default, or at `cubbyhole/`; and what `sys/wrapping/wrap` wraps;
+ * - `kv2`: the `data` a write to the KV engine, version 2, sends at any mount (`/v1/<mount>/data/…`),
+ *   beside its `options` alone;
+ * - `value`: an Azure Key Vault secret's `value` a write sends, and a certificate's an import does;
+ * - `payload`: the `payload` Secret Manager's `:addVersion` sends, its `data` and `dataCrc32c`;
+ * - `kubernetes`: the `data` and `stringData` a Kubernetes Secret's create, replace or patch sends,
+ *   with a kind or none, and the value a JSON patch puts under them.
+ *
+ * The answer it gets:
+ * - `kv1`: the `data` of the answer to a read under `secret/` or `cubbyhole/`, as KV version 1
+ *   answers with the secret, but a list of the secrets' names (`{"keys": […]}`), which `names` reads;
+ * - `mount`: as `kv1`, at any other path whose answer names its mount `kv` (`"mount_type": "kv"`), but
+ *   a path of version 2's own (KV2_OWN), whose answers hold metadata;
+ * - `unwrap`: all of the `data` `sys/wrapping/unwrap` hands back.
  */
-export function vaultKv1Read(callName: string): boolean {
-  return VAULT_KV1.test(callName);
+export type StoreCall = 'whole' | 'kv2' | 'value' | 'payload' | 'kubernetes' | 'kv1' | 'mount' | 'unwrap';
+
+/** A captured call's name: its method, its host (and port), and the path it asked for. */
+const CALL_NAME = /^([A-Z]+) ([^/\s]+)(\/[^]*)?$/;
+/** The methods that send a body to write. */
+const WRITES = new Set(['POST', 'PUT', 'PATCH']);
+/** A path's segments under a KV engine, version 2, that are its own (`/v1/<mount>/metadata/…`): what follows them names a secret, never holds one. */
+const KV2_OWN = new Set(['data', 'metadata', 'config', 'subkeys', 'delete', 'undelete', 'destroy']);
+/** An Azure Key Vault's host, in any of Azure's clouds. */
+const KEY_VAULT_HOST = /^[\w-]+\.vault\.(?:azure\.net|azure\.cn|usgovcloudapi\.net|microsoftazure\.de)(?::443)?$/i;
+/** A Key Vault path a write sends a secret to: a secret (a version after it or not, or a backup restored), a certificate imported. */
+const KEY_VAULT_WRITE = /^\/(?:secrets\/[^/]+(?:\/[^/]*)?|certificates\/[^/]+\/import)$/;
+/** Secret Manager's `:addVersion`, in a location or not, from any host (a regional or private endpoint). */
+const ADD_VERSION = /^\/v1(?:beta\d+)?\/projects\/[^/]+(?:\/locations\/[^/]+)?\/secrets\/[^/:]+:addVersion$/;
+/** A Kubernetes Secret, or the Secrets of a namespace, behind a proxy's path or not. */
+const KUBERNETES_SECRET = /\/api\/v1\/namespaces\/[^/]+\/secrets(?:\/[^/]+)?$/;
+
+/**
+ * How a captured call (by its name, `PUT vault.example.com:8200/v1/secret/data/db`) holds a secret
+ * by the call itself (StoreCall), in what it sends (`sent`) or in its answer; null for a call whose
+ * body's shape says it all.
+ */
+export function storeCall(callName: string, sent: boolean): StoreCall | null {
+  const m = CALL_NAME.exec(callName);
+  if (!m) return null;
+  const [, method = '', host = '', path = '/'] = m;
+  const vault = path.startsWith('/v1/') ? path.slice(4).split('/') : null;
+  if (!sent) return vault && vaultAnswer(vault);
+  if (!WRITES.has(method)) return null;
+  if (KEY_VAULT_HOST.test(host) && KEY_VAULT_WRITE.test(path)) return 'value';
+  if (ADD_VERSION.test(path)) return 'payload';
+  if (KUBERNETES_SECRET.test(path)) return 'kubernetes';
+  return vault && vaultWrite(vault);
+}
+
+/** How the answer to a Vault path (its segments after `/v1/`) holds a secret by the path. */
+function vaultAnswer([mount, ...rest]: readonly string[]): StoreCall | null {
+  if (mount === 'sys') return rest.join('/') === 'wrapping/unwrap' ? 'unwrap' : null;
+  if (!rest.length) return null;
+  if (mount === 'secret' || mount === 'cubbyhole') return 'kv1';
+  return rest.some((segment) => KV2_OWN.has(segment)) ? null : 'mount';
+}
+
+/** How what a write to a Vault path (its segments after `/v1/`) sends holds a secret by the path. */
+function vaultWrite(segments: readonly string[]): StoreCall | null {
+  const [mount, first] = segments;
+  if (mount === 'sys') return segments.join('/') === 'sys/wrapping/wrap' ? 'whole' : null;
+  if (first !== undefined && (mount === 'cubbyhole' || (mount === 'secret' && !KV2_OWN.has(first)))) return 'whole';
+  return segments.slice(1, -1).includes('data') ? 'kv2' : null;
 }
 
 /**
@@ -44,10 +106,16 @@ export function mayHoldSecrets(text: string): boolean {
   return text.includes('"Secret') || text.includes('/secrets/') || text.includes('\\/secrets\\/') || (text.includes('"metadata"') && text.includes('"version"'));
 }
 
-/** Members whose values a rule may hold a secret in, noted by where each starts. */
-const HOLDERS = new Set(['data', 'stringData', 'value', 'dataCrc32c']);
-/** Members whose strings say what an object is: a Kubernetes object's `kind`, a version's `name`, a Key Vault secret's `id`. */
-const NAMING = new Set(['kind', 'name', 'id']);
+/** Members whose values a rule may hold a secret in, noted by where each starts; and a KV version 2 write's `options`, which may stand beside its `data`. */
+const HOLDERS = new Set(['data', 'stringData', 'value', 'dataCrc32c', 'options']);
+/**
+ * Members whose strings say what an object is: a Kubernetes object's `kind`, a version's `name`, a
+ * Key Vault secret's `id`, the mount a Vault answer names (`mount_type`), and where a JSON patch's
+ * operation puts its value (`path`).
+ */
+const NAMING = new Set(['kind', 'name', 'id', 'mount_type', 'path']);
+/** Where a JSON patch's operation puts a Kubernetes Secret's secret: under its `data` or `stringData`. */
+const SECRET_PATCH = /^\/(?:data|stringData)(?:\/|$)/;
 /** The longest such string read: any of them is far shorter. */
 const NAMING_MAX = 2048;
 /** The characters JSON escapes with a backslash, `\u` aside. */
@@ -64,7 +132,7 @@ interface Open {
   first: boolean;
   /** How many members an object has. */
   members: number;
-  /** Its `kind`, `name` and `id`, each a string. */
+  /** Its strings in NAMING: `kind`, `name`, `id`, `mount_type`, `path`. */
   named?: Map<string, string>;
   /** Where the values of its members in HOLDERS start (a member written twice, each). */
   starts?: Map<string, number[]>;
@@ -90,7 +158,8 @@ interface Reader {
   i: number;
   readonly stack: Open[];
   readonly held: Map<number, true | StringTest>;
-  readonly vaultKv1: boolean;
+  /** How the call the text is the body of holds a secret (StoreCall), when the masking is told. */
+  readonly call: StoreCall | null;
   readonly names: StringTest;
   /** The value it began at is read. */
   done: boolean;
@@ -98,13 +167,20 @@ interface Reader {
 
 /**
  * Where the JSON value that starts at `start` in `text` holds a secret by the shapes above
- * (HeldValues): every string in each value a credential, but a Vault KV version 1 list of names
- * (with `vaultKv1`), whose strings are one only when `names` passes one of them. Read once, in time
- * linear in the text, by the grammar walkValue reads JSON by, so it stops where that walk stops; an
- * object the text ends in, or stops being JSON in, is read by what it held before there.
+ * (HeldValues), and by `call`, how the call the text is the body of holds one (StoreCall): every
+ * string in each value a credential, but a Vault KV version 1 list of names, whose strings are one
+ * only when `names` passes one of them. Read once, in time linear in the text, by the grammar
+ * walkValue reads JSON by, so it stops where that walk stops; an object the text ends in, or stops
+ * being JSON in, is read by what it held before there. All of what a call sends `whole` is held, and
+ * read no further.
  */
-export function secretStoreValues(text: string, start: number, vaultKv1: boolean, names: StringTest): HeldValues {
-  const r: Reader = { text, i: start, stack: [], held: new Map(), vaultKv1, names, done: false };
+export function secretStoreValues(text: string, start: number, call: StoreCall | null, names: StringTest): HeldValues {
+  const r: Reader = { text, i: start, stack: [], held: new Map(), call, names, done: false };
+  if (call === 'whole') {
+    while (r.i < text.length && isJsonSpace(text.charCodeAt(r.i))) r.i++;
+    r.held.set(r.i, true);
+    return r.held;
+  }
   for (let more = true; more && !r.done; ) more = step(r);
   while (r.stack.length) closeTop(r);
   return r.held;
@@ -220,7 +296,10 @@ function closeTop(r: Reader): void {
   ended(r, parent);
 }
 
-/** Marks where `frame`, an object read, holds a secret by its shape (the shapes above). */
+/**
+ * Marks where `frame`, an object read, holds a secret by its shape (the shapes above), and by the
+ * call (StoreCall): the body's own object, or an operation of the JSON patch the body is.
+ */
 function markHeld(r: Reader, frame: Open, parent: Open | undefined): void {
   const kind = frame.named?.get('kind');
   const name = frame.named?.get('name');
@@ -232,11 +311,27 @@ function markHeld(r: Reader, frame: Open, parent: Open | undefined): void {
   if (name !== undefined && frame.payload && GCP_VERSION.test(name)) append(found, frame.payload);
   if (id !== undefined && AZURE_SECRET.test(id)) append(found, starts('value'));
   if (frame.versioned && parent?.object && parent.key === 'data') append(found, starts('data'));
-  if (r.vaultKv1 && !parent && !frame.kv2) {
+  if (!parent) heldByCall(r, frame, found);
+  else if (r.call === 'kubernetes' && !parent.object && r.stack.length === 1 && SECRET_PATCH.test(frame.named?.get('path') ?? '')) append(found, starts('value'));
+  for (const at of found) r.held.set(at, true);
+}
+
+/** Notes in `found` where `frame`, the object a call's body is, holds a secret by the call (StoreCall); a list of names, where `names` reads it. */
+function heldByCall(r: Reader, frame: Open, found: number[]): void {
+  const starts = (key: string) => frame.starts?.get(key) ?? [];
+  const call = r.call;
+  if (call === 'kv1' || (call === 'mount' && frame.named?.get('mount_type') === 'kv')) {
+    if (frame.kv2) return;
     if (frame.names === undefined) append(found, starts('data'));
     else if (!r.held.has(frame.names)) r.held.set(frame.names, r.names);
-  }
-  for (const at of found) r.held.set(at, true);
+  } else if (call === 'unwrap') append(found, starts('data'));
+  else if (call === 'kv2') {
+    // Its data, an object, beside its options alone.
+    const data = starts('data');
+    if (data.length === 1 && r.text[data[0]!] === '{' && frame.members === 1 + starts('options').length) append(found, data);
+  } else if (call === 'value') append(found, starts('value'));
+  else if (call === 'payload') append(found, frame.payload ?? []);
+  else if (call === 'kubernetes') append(found, starts('data'), starts('stringData'));
 }
 
 /** What a rule reading `parent` needs of `frame`, its current member's value or one of its items. */

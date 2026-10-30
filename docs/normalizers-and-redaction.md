@@ -544,9 +544,26 @@ A secret store's answer holds the secret under a member whose name says nothing 
 | Google Cloud Secret Manager | a version's `name` of `projects/…/secrets/…/versions/…` | `payload.data`, and `dataCrc32c`, the checksum that would confirm a guess of it |
 | Azure Key Vault | an `id` under `https://….vault.azure.net/secrets/`, or another Azure cloud's vault | the secret's `value` |
 | Vault's KV engine, version 2 | a `metadata` with a `version` | `data.data`, every field of it |
-| Vault's KV engine, version 1 | a read of a path under `/v1/secret/`, where Vault mounts it by default | the answer's `data`, but for a list of the secrets' names (`{"keys": […]}`) none of which reads as a key |
+| Vault's KV engine, version 1 | a read under `/v1/secret/`, where Vault mounts it by default, or `/v1/cubbyhole/`; elsewhere, an answer that names its mount `kv` | the answer's `data`, but for a list of the secrets' names (`{"keys": […]}`) none of which reads as a key |
+| Vault's response wrapping | a call to `/v1/sys/wrapping/unwrap` | all of the answer's `data` |
 
-What names the secret stays as sent: its name, id, type, metadata, attributes and tags.
+At another mount, Vault's answer names its mount's type (`"mount_type": "kv"`). A path of version 2's own there (`data/`, `metadata/`, `config`, `subkeys/`) holds its metadata, and is kept.
+
+**What a call writes** to a store is masked too, told by the call's method and address, whatever its body's shape:
+
+| Store | A write to | Masked |
+|---|---|---|
+| Vault's KV engine, version 2 | `/v1/<mount>/data/<path>`, at any mount | `data`, every field of it, when only `options` stands beside it |
+| Vault's KV engine, version 1 | `/v1/secret/<path>` or `/v1/cubbyhole/<path>` | every string in the body |
+| Vault's response wrapping | `/v1/sys/wrapping/wrap` | every string in the body |
+| Azure Key Vault | a secret (`PUT …/secrets/<name>`, a backup restored), or a certificate's import | `value` |
+| Google Cloud Secret Manager | `…/secrets/<name>:addVersion` | `payload.data` and `payload.dataCrc32c` |
+| A Kubernetes Secret | a create, a replace or a patch, with a kind or none | `data` and `stringData`, and the `value` a JSON patch puts under them |
+
+What names the secret stays as sent: its name, id, type, metadata, attributes and tags, and a write's address and options.
+
+- **Matching.** A write is matched with its secret masked, so a replay with a rotated secret still replays, and two writes to two secrets stay two calls.
+- **Recorded before.** A recording an earlier version made, which kept a write as sent, is matched the same way, and its replay stores the write masked.
 
 ### Headers
 
@@ -671,12 +688,12 @@ In a script, each form above is masked, and an assignment's value to the end of 
 A key the agent puts anywhere else is stored like any other value, so mask it with a [redaction rule](#redaction):
 
 - in a wrapped tool's arguments or result, whatever its name;
-- under a name that reads as none in a captured call's body, such as a secret a call writes to a store in a body that doesn't say what it holds;
+- under a name that reads as none in a captured call's body, such as a secret written to Vault's KV engine, version 1, at a mount other than `secret/` or `cubbyhole/`;
 - in a Kubernetes Secret written as YAML;
 - in a prompt;
 - in another part of a URL's path.
 
-A body that doesn't say what it holds is one sent to Vault, Azure Key Vault or Secret Manager, or a patch of a Kubernetes Secret's `data`; a whole Secret's manifest says so.
+A write to Vault's KV engine, version 1, at another mount sends the secret as its whole body, and neither its address nor its body says so. A read there is masked when Vault's answer names its mount.
 
 **Encoded secrets.** So is a key left encoded, as masking reads what a credential is written as, and not what it is encoded into:
 

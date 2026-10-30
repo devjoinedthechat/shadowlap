@@ -132,7 +132,7 @@ Calls to the hosts declared under `http` in `shadowlap.config.json` are captured
 - **Each credential is masked in place**, the rest of the body kept as the service sent it.
 - **The agent gets the real values while recording**, and a client that reads its token from the response still finds it there on replay.
 
-[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back, and each response header.
+[Credentials](docs/normalizers-and-redaction.md#credentials) lists what is read as one: webhook secrets in a path, sessions, every body shape, the secrets a secret store hands back and those a call writes to one, and each response header.
 
 ### What each copy masks
 
