@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { lstatSync, rmSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { isObject, messageOf } from '@shadowlap/engine';
-import { fileInside, gitFolders, readInside, writeInside } from './repair-tree.js';
+import { fileInside, gitFolders, readInside, repositoryRoot, writeInside } from './repair-tree.js';
 import { physicalPath, realPath } from './real-path.js';
 
 /**
@@ -43,15 +43,6 @@ export interface JournaledFile {
 export type Journal = { kind: 'none' } | { kind: 'left'; root: string; pid: number | null; files: JournaledFile[] } | { kind: 'ignored'; why: string };
 
 const git = (cwd: string, args: string[]) => execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 }).toString();
-
-/** The root of the git repository `cwd` is in, or null for none. */
-function repositoryOf(cwd: string): string | null {
-  try {
-    return git(cwd, ['rev-parse', '--show-toplevel']).trim() || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Why git doesn't list `rel` as a file of the repository's that it doesn't track, or null when it
@@ -117,7 +108,7 @@ export function readJournal(cwd: string, root?: string): Journal {
   } catch {
     return { kind: 'none' };
   }
-  const top = root ?? repositoryOf(cwd);
+  const top = root ?? repositoryRoot(cwd);
   if (!top) return { kind: 'ignored', why: 'the folder is in no git repository' };
   const realRoot = physicalPath(top);
   // Where it is by the folder's own name, every folder on the way and the file itself checked as they are.

@@ -128,6 +128,15 @@ export function gitFolders(root: string): string[] {
   return [...new Set(named.map((dir) => physicalPath(resolve(root, dir))))];
 }
 
+/** The root of the git repository `cwd` is in, as git names it, or null for none. */
+export function repositoryRoot(cwd: string): string | null {
+  try {
+    return git(cwd, ['rev-parse', '--show-toplevel']).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The file a project path names, as repair may read and rewrite it: the path itself for a regular
  * file, or for a link (or a path through one) the path of the regular file it ends at, relative to
