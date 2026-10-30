@@ -1,7 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
+import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
 import { recoverWorkingTree } from './repair-journal.js';
@@ -382,6 +382,12 @@ function commitBranch(root: string, name: string, c: RepairCandidate, extra: Arr
   return name;
 }
 
+/**
+ * Pushes the fix's branch and opens its pull request with `gh`. The title is the fix's commit subject,
+ * the repairer's own words, which GitHub shows as written: titleText splits what GitHub or a job's log
+ * would read in it (a mention, a reference, a workflow command's start), as the Action titles its fix,
+ * and names it by its branch when nothing is left.
+ */
 function openPullRequest(root: string, branch: string, title: string, body: string): string {
   const base = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   if (base === 'HEAD') throw new RepairError('HEAD is detached, so there is no branch to open the pull request against');
@@ -390,7 +396,7 @@ function openPullRequest(root: string, branch: string, title: string, body: stri
   } catch (err) {
     throw new RepairError(`git push origin ${branch} failed: ${(err as { stderr?: Buffer }).stderr?.toString().trim() ?? messageOf(err)}`);
   }
-  const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', title, '--body-file', body], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('gh', ['pr', 'create', '--head', branch, '--base', base, '--title', titleText(title) || titleText(branch), '--body-file', body], { cwd: root, encoding: 'utf8' });
   if (r.error || r.status !== 0) throw new RepairError(`gh pr create failed: ${(r.stderr || r.error?.message || '').trim()}; the branch ${branch} is pushed, so it can be opened by hand`);
   return r.stdout.trim().split('\n').at(-1) ?? '';
 }

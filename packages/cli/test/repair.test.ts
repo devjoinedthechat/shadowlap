@@ -252,11 +252,12 @@ describe('shadowlap repair', { timeout: HUNG_AFTER }, () => {
   });
 
   // The stand-in for gh is a shell script, which Windows won't run by name.
-  it.skipIf(process.platform === 'win32')('commits the fix to a branch without checking it out, and opens a pull request', async () => {
+  it.skipIf(process.platform === 'win32')('commits the fix to a branch without checking it out, and opens a pull request, its title making nothing of what the repairer wrote', async () => {
     const { failed } = await runs();
     mode = 'alternate';
-    const remote = mkdtempSync(join(tmpdir(), 'fp-remote-'));
-    const bin = mkdtempSync(join(tmpdir(), 'fp-gh-'));
+    // The repairer names the fix with a mention, a reference and a workflow command, which the title splits.
+    proposals = (prompt) => [{ anchor: Number(/\[(\d+)\] system prompt, in [^:]+:/.exec(prompt)![1]), replace: FIX, strategy: 'Escalate refunds to @finance-leads, see #12 ::stop-commands::x', why: 'Say what to do above the limit.' }];
+    const [remote, bin] = [mkdtempSync(join(tmpdir(), 'fp-remote-')), mkdtempSync(join(tmpdir(), 'fp-gh-'))];
     try {
       sh(remote, 'git', ['init', '-q', '--bare']);
       sh(project, 'git', ['remote', 'add', 'origin', remote]);
@@ -276,15 +277,15 @@ describe('shadowlap repair', { timeout: HUNG_AFTER }, () => {
       const files = sh(project, 'git', ['ls-tree', '-r', '--name-only', 'shadowlap/escalate-refunds']).split('\n');
       expect(files.some((f) => f.startsWith(`goldens/${failed[0].slice(0, 10)}/`) && f.endsWith('run.json'))).toBe(true);
       const msg = sh(project, 'git', ['log', '-1', '--format=%B', 'shadowlap/escalate-refunds']);
-      expect(msg.split('\n')[0]).toBe('Escalate refunds above the policy limit');
+      expect(msg.split('\n')[0]).toBe('Escalate refunds to @finance-leads, see #12 ::stop-commands::x');
       expect(msg).toContain('fixes 1 of 1 target and 1 of 1 held-out failing runs, keeps 1 of 1 good runs');
       expect(msg).not.toMatch(/Co-Authored-By/i);
 
       expect(sh(remote, 'git', ['rev-parse', 'shadowlap/escalate-refunds']).trim()).toBe(sh(project, 'git', ['rev-parse', 'shadowlap/escalate-refunds']).trim());
       const args = readFileSync(join(bin, 'args'), 'utf8').split('\n');
-      expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', 'shadowlap/escalate-refunds', '--base', 'main', '--title', 'Escalate refunds above the policy limit']);
+      expect(args.slice(0, 8)).toEqual(['pr', 'create', '--head', 'shadowlap/escalate-refunds', '--base', 'main', '--title', 'Escalate refunds to @\u2060finance-leads, see #\u206012 :\u2060:stop-commands:\u2060:x']);
       expect(args[8]).toBe('--body-file');
-      expect(readFileSync(args[9], 'utf8')).toContain('## Escalate refunds above the policy limit');
+      expect(readFileSync(args[9], 'utf8')).toContain('## Escalate refunds to @<span></span>finance-leads, see #<span></span>12 ::<span></span>stop-commands::x');
     } finally {
       rmSync(remote, { recursive: true, force: true });
       rmSync(bin, { recursive: true, force: true });
