@@ -1,6 +1,9 @@
 # Normalizers and redaction
 
-Normalizers and redaction rules are rewrite rules with the same shape: an optional scope (`kind`, `name`), an optional JSONPath, a pattern, and a replacement. **Normalizers** mask values before fingerprinting and never touch what is stored. **Redaction rules** mask stored content when a run is exported, and are then applied as normalizers when that export is replayed, so a redacted recording still matches.
+Normalizers and redaction rules are rewrite rules with the same shape: an optional scope (`kind`, `name`), an optional JSONPath, a pattern, and a replacement.
+
+- **Normalizers** mask values before fingerprinting, and never touch what is stored.
+- **Redaction rules** mask stored content when a run is exported. When that export is replayed, they apply as normalizers, so a redacted recording still matches.
 
 Rules live in `shadowlap.config.json` in the working directory, and the commands below edit it one change at a time (see [Editing the file](#editing-the-file)):
 
