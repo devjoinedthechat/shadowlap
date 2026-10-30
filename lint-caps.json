@@ -45,7 +45,6 @@
       "formatGc": 36
     },
     "packages/cli/src/commands/fix-repair.ts": {
-      "repairTargets": 31,
       "reportRepair": 36
     },
     "packages/cli/src/commands/import.ts": {

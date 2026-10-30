@@ -5,7 +5,7 @@ import { isJudgeCall } from './judge-scope.js';
 import { normalizeAddCommand } from './volatile.js';
 import { loadApiRequest } from './manifest.js';
 import { estimateCost, formatUsd, type Price } from './prices.js';
-import { safeLine, safeText } from './text.js';
+import { fitLines, safeLine, safeText } from './text.js';
 import type { StoreOf } from './store.js';
 import type { CallKind, CallRecord, DivergenceReport, JudgeSummary, NotReached, Origin, RunRecord, RunSummary, Usage } from './types.js';
 
@@ -167,6 +167,11 @@ export interface Palette {
 }
 
 export const plain: Palette = { green: (s) => s, red: (s) => s, yellow: (s) => s, dim: (s) => s, bold: (s) => s, cyan: (s) => s };
+
+/** A dim line of prose, `text` after `indent`, fit to a terminal `columns` wide (`fitLines`): the one line as it is with none. */
+export function dimLines(p: Palette, indent: string, text: string, columns: number | null | undefined): string[] {
+  return fitLines(indent, text, columns).map((line) => p.dim(line));
+}
 
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 10)}…` : id;

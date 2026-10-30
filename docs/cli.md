@@ -1009,6 +1009,10 @@ Its progress goes to stderr:
 - **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
   with its run id.
 
+In a terminal, the dim lines that say how it decides and what it took, before it starts and in its
+report, wrap at whole words to the terminal's width, each line indented as the first. Written to a
+pipe or a file, each stays one line.
+
 Verify and repair print theirs the same way.
 
 `blame` exits with:

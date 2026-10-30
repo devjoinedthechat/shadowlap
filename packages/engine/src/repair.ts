@@ -2,9 +2,9 @@ import { lostWhere, unrescuedWords } from './blame.js';
 import { markdownCode, markdownFence, markdownText } from './markdown.js';
 import { formatUsd } from './prices.js';
 import type { Palette } from './report.js';
-import { plain } from './report.js';
+import { dimLines, plain } from './report.js';
 import { formatTally } from './stats.js';
-import { quoteArgv, safeLine } from './text.js';
+import { quoteArgv, safeLine, wrapWords } from './text.js';
 import { eachRun, footprintDelta, keptTally, outcomeOf, type VerifiedRun, type VerifyReport } from './verify.js';
 
 /**
@@ -1030,21 +1030,8 @@ function verifiedLine(v: VerifyReport): string {
   return `${verifiedCounts(v)}, ${eachRun(v)}`;
 }
 
-/** Words wrapped to lines of at most `width` columns (a longer word has a line of its own). */
-function wrap(text: string, width: number): string[] {
-  const lines: string[] = [];
-  let line = '';
-  for (const word of text.split(' ')) {
-    if (line && line.length + 1 + word.length > width) {
-      lines.push(line);
-      line = word;
-    } else line = line ? `${line} ${word}` : word;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-export function formatRepair(r: RepairReport, p: Palette = plain): string {
+/** The report as the CLI prints it, its dim lines of prose fit to a terminal `columns` wide; whole with none, for a pipe or a file. */
+export function formatRepair(r: RepairReport, p: Palette = plain, columns?: number | null): string {
   const lines: string[] = [];
   const accepted = r.candidates.find((c) => c.id === r.accepted) ?? null;
   if (r.outcome === 'fixed' && accepted) {
@@ -1052,7 +1039,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     lines.push(`  ${p.dim(`${safeLine(accepted.file)} · ${safeLine(accepted.surface)}`)}`);
     lines.push(`  ${p.red(`- ${one(accepted.before, 200)}`)}`, `  ${p.green(`+ ${one(accepted.after, 200)}`)}`);
     // The counts, then how each run was decided, under them, wrapped to fit an 80-column terminal.
-    if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, ...wrap(eachRun(accepted.verify), 66).map((l) => `            ${l}`));
+    if (accepted.verify) lines.push('', `  Verified: ${verifiedCounts(accepted.verify)},`, ...wrapWords(eachRun(accepted.verify), 66).map((l) => `            ${l}`));
   } else {
     const head = r.outcome === 'stopped' ? `${p.yellow('!')} ${p.bold('Stopped')}` : r.outcome === 'no-diagnosis' ? `${p.yellow('!')} ${p.bold('No fix to try')}` : `${p.red('✗')} ${p.bold('Not fixed')}`;
     lines.push(`${head}${r.why ? `: ${safeLine(r.why)}` : ''}`);
@@ -1078,7 +1065,7 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
     for (const c of r.candidates) {
       const state = c.state === 'accepted' ? p.green(c.state.padEnd(w)) : c.state === 'untried' ? p.dim(c.state.padEnd(w)) : p.yellow(c.state.padEnd(w));
       lines.push(`    ${String(c.id).padStart(2)}  ${state}  ${one(`${c.surface}: ${c.after}`, 80)}`);
-      if (c.reason) lines.push(`        ${p.dim(one(c.reason, 150))}`);
+      if (c.reason) lines.push(...dimLines(p, '        ', one(c.reason, 150), columns));
     }
   }
 
@@ -1086,7 +1073,8 @@ export function formatRepair(r: RepairReport, p: Palette = plain): string {
 
   const repairer = r.repairer ? ` · repairer ${r.repairer.cost === null ? `(no price for ${safeLine(r.repairer.served ?? r.repairer.model)})` : `≈${formatUsd(r.repairer.cost)}`}` : '';
   const judged = r.cost.judge ? ` · judge checks ≈${formatUsd(r.cost.judge)}` : '';
-  lines.push('', p.dim(`  cost: blame ≈${formatUsd(r.cost.blame)}${repairer} · verify ≈${formatUsd(r.cost.verify)}${judged}`));
+  lines.push('', ...dimLines(p, '  ', `cost: blame ≈${formatUsd(r.cost.blame)}${repairer} · verify ≈${formatUsd(r.cost.verify)}${judged}`, columns));
+  // The files and the commands to run next stay on one line each, as they are copied.
   if (r.output.patch) lines.push(p.dim(`  patch: ${safeLine(r.output.patch)}${r.output.applied ? ' (applied to the working tree)' : `   apply it: ${gitApplyCommand(safeLine(r.output.patch))}`}`));
   if (r.output.report) lines.push(p.dim(`  report: ${safeLine(r.output.report)}`));
   if (r.output.goldens.length) lines.push(p.dim(`  recordings of the fixed runs, for shadowlap test: ${r.output.goldens.map(safeLine).join(' ')}`));
