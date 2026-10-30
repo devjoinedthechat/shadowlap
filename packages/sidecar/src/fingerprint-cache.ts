@@ -32,9 +32,10 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * before did (RunMeta.secretNames), which the key names. 14: but a value under such a name that reads
  * as a key (`secret_name: "ghp_…"`), which is masked. 15: and a secret's path, ref, scope, namespace and
  * id, which keep their value too, under the rule a run stores as RunMeta.secretNames 2: the key names
- * any other rule a run's captured calls were read under.
+ * any other rule a run's captured calls were read under. 16: and an object or a list under such a
+ * name, masked through when a string in it reads as a key.
  */
-const CACHE_VERSION = 15;
+const CACHE_VERSION = 16;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =

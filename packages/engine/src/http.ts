@@ -1,5 +1,5 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask } from './credential-shapes.js';
+import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask, type StringTest } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
 import { quoteArgv } from './text.js';
@@ -606,9 +606,17 @@ function maskedString(key: string | null, value: string, under: boolean, depth: 
 /**
  * Whether a member's object or array value is a credential through and through, every string in it
  * masked: its name read as one by itself (`client_secret`, `api_keys`, `recovery_codes`, `cookies`),
- * which a bare `key`, `token` or `code` never is.
+ * which a bare `key`, `token` or `code` never is; and, for a name that names or describes a secret
+ * (`secret_version`, `secret_tags`), when any string in it reads as a key (readsAsKey), as one
+ * given it directly would (`{"secret_version": {"value": "ghp_…"}}`).
  */
-const credentialMember = (key: string): boolean => credentialParam(key, '');
+const credentialMember = (key: string): boolean | StringTest => (credentialParam(key, '') ? true : describesASecret(key) ? readsAsKey : false);
+
+/** Whether a name names or describes a secret under the rule masking reads by (namesASecret), so it keeps a value that reads as no key. */
+function describesASecret(name: string): boolean {
+  const words = wordsOf(name);
+  return secretNames > 0 && words.some(secretWord) && namesASecret(words, secretNames);
+}
 
 /** The string rule for strings `depth` deep, as walkJson takes it; with `byName`, as a redirect's JSON is read (maskedString). */
 const stringsAt =

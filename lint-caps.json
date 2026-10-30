@@ -320,8 +320,7 @@
       "Placement.placeModelCall": 31
     },
     "packages/engine/src/credential-shapes.ts": {
-      "maskXml": 33,
-      "walkValue": 52
+      "walkValue": 42
     },
     "packages/engine/src/decisions.ts": {
       "formatDecisions": 85

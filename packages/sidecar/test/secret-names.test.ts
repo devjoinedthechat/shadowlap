@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CREDENTIAL_PLACEHOLDER, fingerprintTool, normalizersHash, Store, withoutStoredCredentials, withSecretNames, type RunMeta, type RunRecord } from '@shadowlap/engine';
+import { storedRequestBody, storedResponse } from '../src/http.js';
 import { Sidecar } from '../src/index.js';
 
 /**
@@ -234,5 +235,49 @@ describe('a captured call’s secret name', () => {
     expect(storedAs(same.runId, 'SecretId')).toEqual([C, C]);
     const again = await replay(s, same.runId, ['prod/db', 'prod/cache'], 'SecretId');
     expect(again.divergence).toBeNull();
+  });
+});
+
+describe('a key nested under a secret’s name', () => {
+  const KEY = 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A';
+  const json = JSON.stringify({ value: KEY });
+  const b = 'EXAMPLEBOUNDARY';
+  // Each body holds the key under a name that describes a secret, and a name that holds none beside it.
+  const bodies: Array<[string, string, string]> = [
+    ['JSON', 'application/json', JSON.stringify({ secret_version: { value: KEY }, secret_tags: [{ Key: 'team', Value: 'data' }], secret_name: 'prod/db' })],
+    ['a form', 'application/x-www-form-urlencoded', `secret_version=${encodeURIComponent(json)}&secret_name=prod%2Fdb`],
+    ['XML', 'application/xml', `<r><SecretName><Value>${KEY}</Value></SecretName><secret_path>prod/db</secret_path></r>`],
+    ['multipart', `multipart/form-data; boundary=${b}`, `--${b}\r\nContent-Disposition: form-data; name="secret_version"\r\n\r\n${json}\r\n--${b}\r\nContent-Disposition: form-data; name="secret_name"\r\n\r\nprod/db\r\n--${b}--\r\n`],
+    ['an event stream', 'text/event-stream', `data: {"secret_tags":[{"Value":"${KEY}"}],"secret_name":"prod/db"}\n\n`],
+    ['lines of JSON', 'application/x-ndjson', `{"secret_version":{"value":"${KEY}"}}\n{"secret_name":"prod/db"}\n`],
+  ];
+
+  it('is stored masked in each body a call sends or gets back, the names beside it kept', () => {
+    for (const [shape, contentType, text] of bodies) {
+      const sent = JSON.stringify(storedRequestBody(Buffer.from(text), contentType));
+      const got = storedResponse({ status: 200, headers: { 'content-type': contentType }, contentType }, Buffer.from(text)).toString('utf8');
+      for (const [side, stored] of [['sent', sent], ['got back', got]] as const) {
+        expect(stored, `${shape}, ${side}`).not.toContain(KEY);
+        expect(stored, `${shape}, ${side}`).toContain('prod');
+      }
+    }
+  });
+
+  it('is masked on both sides where a recording made before kept it, and the recording still replays', async () => {
+    const s = await sidecar();
+    const ask = async (runId: string) => (await fetch(`${s.url}/r/${runId}/http/v1/secrets/describe`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-shadowlap-upstream': service.at }, body: JSON.stringify({ secret_name: 'prod/db', secret_version: { value: KEY } }) })).status;
+    const nested = (runId: string) => (argsOf(runId)[0] as { body: { secret_version: { value: string } } }).body.secret_version.value;
+    const now = s.startRun({ mode: 'record', command });
+    expect(await ask(now.runId)).toBe(200);
+    s.endRun(now.runId, 'completed');
+    expect(nested(now.runId)).toBe(C);
+    // As the version before stored it: the nested key as sent, in a run marked 2.
+    const made = earlier(store.getRun(now.runId)!, (stored) => ({ ...(stored as Record<string, unknown>), body: { secret_name: 'prod/db', secret_version: { value: KEY } } }), { secretNames: 2 });
+    expect(nested(made.runId)).toBe(KEY);
+    const run = s.startRun({ mode: 'replay', parentRunId: made.runId, command, offline: true });
+    expect(await ask(run.runId)).toBe(200);
+    expect(s.endRun(run.runId, 'completed').summary.divergence).toBeNull();
+    expect(store.getRun(run.runId)!.meta?.secretNames).toBe(2);
+    expect(nested(run.runId)).toBe(C);
   });
 });

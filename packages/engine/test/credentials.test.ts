@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CREDENTIAL_PLACEHOLDER, credentialFreeBody, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialHeader, credentialParam, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskTextCredentials, rawJsonMember, resultBlob, secretNamesMeta, secretNamesOf, withoutCredentials, withoutStoredCredentials, withSecretNames } from '../src/http.js';
 import { parseMultipart } from '../src/multipart.js';
 import type { RunMeta } from '../src/types.js';
+import { times, timesOf } from './timing.js';
 
 describe('credentialParam: the one list of credential parameters', () => {
   it('names every credential a service takes in a query or a form, in any case', () => {
@@ -221,6 +222,42 @@ describe('a name with a password or secret word in it', () => {
     expect([undefined, {}, { secretNames: true as const }, { secretNames: 2 as const }].map((m) => secretNamesOf(m))).toEqual([0, 0, 1, 2]);
     expect(secretNamesOf({ secretNames: 3 } as unknown as RunMeta)).toBe(0);
     expect(([0, 1, 2] as const).map((rule) => secretNamesMeta(rule))).toEqual([{}, { secretNames: true }, { secretNames: 2 }]);
+  });
+
+  it('masks an object or a list under such a name through, as a credential member’s, when a string in it reads as a key, in each shape a body is read by', () => {
+    const key = KEYS.ghp_;
+    // JSON: an object, a list of objects, deeper still; every string in it, the key's neighbours too.
+    expect(maskJsonCredentials({ secret_version: { value: key, stage: 'AWSCURRENT' }, q: 'refund' })).toEqual({ secret_version: { value: C, stage: C }, q: 'refund' });
+    expect(maskJsonCredentials({ secret_tags: [{ Key: 'team', Value: key }] })).toEqual({ secret_tags: [{ Key: C, Value: C }] });
+    expect(maskJsonCredentials({ secret_name: { a: { b: ['x', KEYS['sk-']] } } })).toEqual({ secret_name: { a: { b: [C, C] } } });
+    // As text, as an answer is masked: every other byte as it was, a number past 2^53 too.
+    expect(maskJsonTextCredentials(`{"secret_version": {"value": "${key}", "id": 12345678901234567891}}`)).toBe(`{"secret_version": {"value": "${C}", "id": 12345678901234567891}}`);
+    // XML: an element named so by its tag or its key attribute, a value attribute in it too.
+    expect(maskTextCredentials(`<r><SecretName><Value>${key}</Value><Note>x</Note></SecretName><Other>y</Other></r>`)).toBe('<r><SecretName><Value>&lt;CREDENTIAL&gt;</Value><Note>&lt;CREDENTIAL&gt;</Note></SecretName><Other>y</Other></r>');
+    expect(maskTextCredentials(`<r><entry key="secret_version"><item value="${key}"/></entry></r>`)).toBe('<r><entry key="secret_version"><item value="&lt;CREDENTIAL&gt;"/></entry></r>');
+    expect(maskTextCredentials(`<r><SecretName><![CDATA[${key}]]></SecretName></r>`)).toBe(`<r><SecretName><![CDATA[${C}]]></SecretName></r>`);
+    // A form's value, a multipart part, an event's data, lines of JSON, JSON among other text.
+    expect(withoutCredentials(`secret_version=${encodeURIComponent(JSON.stringify({ value: key }))}&q=1`)).toBe(`secret_version=${C}&q=1`);
+    const part = (content: string) => `--EXAMPLE\r\nContent-Disposition: form-data; name="secret_version"\r\n\r\n${content}\r\n--EXAMPLE--\r\n`;
+    expect(maskTextCredentials(part(JSON.stringify({ value: key })))).toBe(part(C));
+    expect(maskTextCredentials(`data: {"secret_tags":[{"Value":"${key}"}]}\n\n`)).toBe(`data: {"secret_tags":[{"Value":"${C}"}]}\n\n`);
+    expect(maskTextCredentials(`{"secret_tags":[{"Value":"${key}"}]}\n{"q":1}`)).toBe(`{"secret_tags":[{"Value":"${C}"}]}\n{"q":1}`);
+    expect(maskTextCredentials(`// state\n{"secret_version":{"value":"${key}"}};`)).toBe(`// state\n{"secret_version":{"value":"${C}"}};`);
+  });
+
+  it('keeps an object or a list under such a name when no string in it reads as a key', () => {
+    const plain = { secret_tags: [{ Key: 'team', Value: 'data' }], secret_version: { stage: 'AWSCURRENT', created: '2026-10-30T12:00:00Z', arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf' } };
+    expect(maskJsonCredentials(plain)).toBe(plain);
+    expect(maskTextCredentials('<r><SecretName><Value>prod/db</Value></SecretName></r>')).toBeNull();
+    // A credential inside one is masked by its own name, the rest kept.
+    expect(maskJsonCredentials({ secret_version: { stage: 'AWSCURRENT', password: 'EXAMPLE-pw' } })).toEqual({ secret_version: { stage: 'AWSCURRENT', password: C } });
+  });
+
+  it('reads the strings under such a name once, however deep the names nest', () => {
+    const nested = (n: number, leaf: string) => `${'{"secret_name":'.repeat(n)}"${leaf}"${'}'.repeat(n)}`;
+    const t = timesOf({ clean: () => maskJsonTextCredentials(nested(2000, 'x')), clean4: () => maskJsonTextCredentials(nested(8000, 'x')), keyed: () => maskJsonTextCredentials(`{"secret_tags":[${nested(2000, KEYS.ghp_)}]}`), keyed4: () => maskJsonTextCredentials(`{"secret_tags":[${nested(8000, KEYS.ghp_)}]}`) }, { rounds: 2 });
+    expect(t.clean4, `4 times the names took ${times(t.clean4, t.clean)} as long`).toBeLessThan(12 * t.clean);
+    expect(t.keyed4, `4 times the names took ${times(t.keyed4, t.keyed)} as long`).toBeLessThan(12 * t.keyed);
   });
 });
 
