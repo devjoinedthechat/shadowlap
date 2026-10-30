@@ -31,7 +31,7 @@ const GONE = 2 ** 22 - 9;
 
 describe('the MCP proxies a command lets its agents reach', () => {
   let home: string;
-  const folder = () => join(home, '.shadowlap', 'mcp');
+  const folder = () => join(home, 'mcp');
   beforeEach(() => {
     home = realpathSync(mkdtempSync(join(tmpdir(), 'sl-proxies-')));
   });
@@ -121,7 +121,7 @@ except OSError as err:
     expect(await reach(liveProxies({ home }).join(','))).toEqual({ node: 'reached', python: PYTHON ? 'reached' : null, unguarded: [] });
     registered.unregister();
     // Left by a proxy that was killed: its process is gone.
-    writeFileSync(join(home, '.shadowlap', 'mcp', `${GONE}.json`), JSON.stringify({ v: 1, pid: GONE, host: '127.0.0.1', port }), { mode: 0o600 });
+    writeFileSync(join(home, 'mcp', `${GONE}.json`), JSON.stringify({ v: 1, pid: GONE, host: '127.0.0.1', port }), { mode: 0o600 });
     const refused = await reach(liveProxies({ home }).join(','));
     expect(refused.node).toBe('ESHADOWLAP');
     if (PYTHON) expect(refused.python).toMatch(/^refused .*shadowlap: blocked an outbound connection to 127\.0\.0\.1:\d+/);
@@ -180,8 +180,8 @@ console.log(JSON.stringify({ read: read.result.content[0].text, sent: sent.resul
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
-  // The home folder is HOME, and on Windows USERPROFILE: the proxy registers there, and every command reads it.
-  const env = () => ({ ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: undefined, SHADOWLAP_URL: undefined, SHADOWLAP_RUN_ID: undefined });
+  // The home folder is HOME, and on Windows USERPROFILE: with no SHADOWLAP_HOME, the proxy registers in its .shadowlap, and every command reads it.
+  const env = () => ({ ...process.env, HOME: home, USERPROFILE: home, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_HOME: undefined, SHADOWLAP_GUARD: undefined, SHADOWLAP_URL: undefined, SHADOWLAP_RUN_ID: undefined });
 
   function shadowlap(args: string[]): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve) => {

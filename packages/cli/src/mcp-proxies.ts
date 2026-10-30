@@ -19,7 +19,7 @@ import { isLoopbackHost } from './loopback.js';
  * address, the only kind a proxy serves on.
  */
 
-const FOLDER = join('.shadowlap', 'mcp');
+const FOLDER = 'mcp'; // in Shadowlap's home folder (safeHome): ~/.shadowlap, or SHADOWLAP_HOME
 
 interface ProxyRegistration {
   v: 1;

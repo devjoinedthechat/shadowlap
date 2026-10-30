@@ -51,7 +51,7 @@ describe('whether a process runs', () => {
     expect(check).toMatchObject({ verdict: 'warn', detail: `${active} points at run 01ACTIVE00 from a process that is gone` });
     // An agent's registration named 0 is pruned by the next agent's, as one whose process is gone.
     const home = temp('sl-alive-home-');
-    const agents = join(home, '.shadowlap', 'agents');
+    const agents = join(home, 'agents');
     mkdirSync(agents, { recursive: true, mode: 0o700 });
     writeFileSync(join(agents, '0.json'), '{}', { mode: 0o600 });
     const registered = registerAgent(process.pid, { url: 'http://127.0.0.1:9/t', runId: '01ACTIVE000000000000000000' }, { cwd, home });

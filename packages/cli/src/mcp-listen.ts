@@ -467,7 +467,7 @@ export async function listen(url: URL, at: { host: string; port: number }, heade
   const port = Number(new URL(listener.url).port);
   const registered = found.kind === 'none' ? registerProxy({ host: at.host, port }) : null;
   log(`serving ${url.host} at ${listener.url}`);
-  if (registered && !registered.file) log(`could not register it in the home folder's .shadowlap/mcp, so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
+  if (registered && !registered.file) log(`could not register it in Shadowlap's home folder (~/.shadowlap, or SHADOWLAP_HOME), so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
   return new Promise((resolve) => {
     const stop = (signal: NodeJS.Signals) =>
       void listener.close().then(() => {

@@ -4832,7 +4832,7 @@ These environment variables change what Shadowlap does:
 | `SHADOWLAP_TELEMETRY_URL` | Send [telemetry](./telemetry.md) to a collector you run | Nothing is sent |
 | `SHADOWLAP_AUTHOR` | Who made the runs and activity entries a command records, as the dashboard shows them | `ci` in CI, else git's `user.email`, else the OS user |
 | `SHADOWLAP_PR` | A pull request's number, set in its CI build (below) | — |
-| `SHADOWLAP_HOME` | The folder for this machine's own files, such as the dashboard's [project list](./dashboard.md#projects), as an absolute path | `~/.shadowlap` |
+| `SHADOWLAP_HOME` | Where this machine's files go, as an absolute path: the dashboard's [project list](./dashboard.md#projects), and the registrations of running agents and `mcp --listen` proxies | `~/.shadowlap` |
 | `SHADOWLAP_PROJECT_ROOTS` | Folders besides your home folder that the dashboard may suggest and add projects from, separated like `PATH` | — |
 | `SHADOWLAP_TASKS_TOKEN` | The token `tasks serve` requires, at least 16 characters | A random one, printed |
 | `SHADOWLAP_ALLOW_UNRECORDED` | For `serve --recordings`, in a recording's environment: what `--allow-unrecorded <names>` says ([`serve`](#serve)) | — |
@@ -4847,7 +4847,9 @@ These environment variables change what Shadowlap does:
 - **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
   Actions and GitLab CI. The build then writes only to that pull request's folder in the
   [team store](./team.md#pull-requests).
-- **`SHADOWLAP_HOME`**: a relative path is ignored.
+- **`SHADOWLAP_HOME`**: a relative path is ignored. Processes that find each other's files there need
+  the same one, so give it to `shadowlap mcp` in your MCP client's configuration too
+  ([details](./mcp.md#finding-the-run)).
 - **The proxy variables**: the agent never reaches the sidecar through one. `run`, `replay`, `test` and
   `serve --recordings` add `127.0.0.1`, `localhost` and `::1` to `NO_PROXY` and `no_proxy`.
 
