@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { releaseLock } from '@shadowlap/engine';
-import { startRepair } from '../src/repair.js';
+import { repairReport } from '../../engine/test/fix-fixtures.js';
+import { handOver, startRepair, type RepairSettings } from '../src/repair.js';
 import { recoverWorkingTree } from '../src/repair-journal.js';
 
 /**
@@ -242,6 +243,26 @@ describe('startRepair', () => {
       expect(() => startRepair(project)).toThrow(/^\.shadowlap in .* is a link, which repair never writes through/);
       expect(readdirSync(elsewhere)).toEqual([]);
     } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!LINKS)('refuses a link inside a real .shadowlap too, before it takes the lock and again when it writes the report: nothing is made through it', () => {
+    const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-elsewhere-')));
+    const cwd = process.cwd();
+    try {
+      // A repository can track .shadowlap/repairs as a link while .shadowlap itself is a folder.
+      mkdirSync(join(project, '.shadowlap'));
+      symlinkSync(elsewhere, join(project, '.shadowlap', 'repairs'));
+      expect(() => startRepair(project)).toThrow(/^\.shadowlap\/repairs in .* is a link, which repair never writes through/);
+      expect(existsSync(join(project, '.shadowlap', 'repair.lock'))).toBe(false);
+      // One that turns up while a repair runs: its report is written through no link either.
+      process.chdir(project);
+      const report = repairReport({ targets: ['01M3RZ4XKNQ8V2H7T5C9J6B1DW'], accepted: false });
+      expect(() => handOver(report, { opts: {}, outputs: { apply: false, branch: null, pr: false, goldens: null }, settings: {} as RepairSettings, log: () => {} })).toThrow(/^\.shadowlap\/repairs in .* is a link, which repair never writes through/);
+      expect(readdirSync(elsewhere)).toEqual([]);
+    } finally {
+      process.chdir(cwd);
       rmSync(elsewhere, { recursive: true, force: true });
     }
   });

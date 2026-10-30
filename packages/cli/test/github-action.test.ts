@@ -8,6 +8,7 @@ import { trackInGit } from './tracked.js';
 import { parseRepairer } from '../src/repairer.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 import { gateResult, Store } from '@shadowlap/engine';
+import { EVENTS } from '../../../action/events.mjs';
 import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
 
 /**
@@ -28,8 +29,9 @@ function action(inputs: Record<string, string>, extraEnv: Record<string, string>
   const summary = join(dir, 'summary.md');
   writeFileSync(output, '');
   writeFileSync(summary, '');
-  // The test history goes to a store of the test's own, not the repository's.
-  const env: NodeJS.ProcessEnv = { ...process.env, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: dir, NO_COLOR: '1', SHADOWLAP_GUARD: 'off', INPUT_STORE: join(dir, 'shadowlap.db'), ...extraEnv };
+  // The test history goes to a store of the test's own, not the repository's. A job for a push, as
+  // GitHub names its event, unless the test names another: never the event of the job running the tests.
+  const env: NodeJS.ProcessEnv = { ...process.env, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: dir, NO_COLOR: '1', SHADOWLAP_GUARD: 'off', INPUT_STORE: join(dir, 'shadowlap.db'), GITHUB_EVENT_NAME: 'push', ...extraEnv };
   for (const [k, v] of Object.entries(inputs)) env[`INPUT_${k}`] = v;
   const r = spawnSync(process.execPath, [RUN], { cwd: ROOT, env, encoding: 'utf8', timeout: 120_000 });
   const outputs = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -253,7 +255,7 @@ describe('the GitHub Action and inconclusive goldens', () => {
 });
 
 describe('the test history the GitHub Action keeps', () => {
-  const plan = (o: Partial<Parameters<typeof historyPlan>[0]> = {}) => historyPlan({ keep: 'auto', workdir: '/work', store: '', config: null, branch: 'main', defaultBranch: 'main', runId: '42', attempt: '1', ...o });
+  const plan = (o: Partial<Parameters<typeof historyPlan>[0]> = {}) => historyPlan({ keep: 'auto', workdir: '/work', store: '', config: null, branch: 'main', defaultBranch: 'main', runId: '42', attempt: '1', event: 'push', ...o });
   const historyGate = { tests: { 'goldens/refund-*': { fork: true, gate: { baseline: 'history' } } } };
 
   it('keeps it, with auto, when a golden has a gate against history', () => {
@@ -285,7 +287,13 @@ describe('the test history the GitHub Action keeps', () => {
       expect(plan({ config: historyGate, event }), event).toMatchObject({ keep: false, refused: expect.stringContaining(`the action does not run on ${event}, which`) });
       expect(plan({ keep: 'true', event }).keep, event).toBe(false);
     }
-    expect(plan({ config: historyGate, event: 'pull_request' })).toMatchObject({ keep: true, refused: null });
+    // Nor on one it doesn't name, nor in a job that names none.
+    for (const event of ['check_run', 'check_suite', 'pull_request_review', 'release']) {
+      expect(plan({ config: historyGate, event }), event).toMatchObject({ keep: false, refused: expect.stringContaining(`the action does not run on ${event}: it runs on pull_request`) });
+      expect(plan({ keep: 'true', event }).keep, event).toBe(false);
+    }
+    expect(plan({ keep: 'true', event: undefined })).toMatchObject({ keep: false, refused: expect.stringContaining('the job names no event (GITHUB_EVENT_NAME)') });
+    for (const event of EVENTS) expect(plan({ config: historyGate, event }), event).toMatchObject({ keep: true, refused: null });
     // As its step runs it: keep is false, so action.yml's restore and save steps are skipped, and the log says why.
     const dir = mkdtempSync(join(tmpdir(), 'fp-history-refused-'));
     dirs.push(dir);
@@ -304,7 +312,7 @@ describe('the test history the GitHub Action keeps', () => {
     writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify(historyGate));
     const output = join(dir, 'output');
     writeFileSync(output, '');
-    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'history.mjs')], { env: { ...process.env, INPUT_WORKING_DIRECTORY: dir, INPUT_KEEP_HISTORY: 'auto', INPUT_STORE: '', GITHUB_OUTPUT: output, GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '7', GITHUB_RUN_ATTEMPT: '2', DEFAULT_BRANCH: 'main' }, encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'history.mjs')], { env: { ...process.env, INPUT_WORKING_DIRECTORY: dir, INPUT_KEEP_HISTORY: 'auto', INPUT_STORE: '', GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: 'push', GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '7', GITHUB_RUN_ATTEMPT: '2', DEFAULT_BRANCH: 'main' }, encoding: 'utf8' });
     expect(r.status, r.stderr).toBe(0);
     const text = readFileSync(output, 'utf8');
     expect(text).toContain('keep=true\n');
@@ -661,13 +669,35 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(() => fake.seen()).toThrow();
   });
 
-  it('runs on the events that run a branch of this repository, or a pull request with what a fork may have', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-action-events-'));
+  // Every event it doesn't name too: more give the job those secrets and that token beside a pull
+  // request's code (a check run or suite asked for again, a review), and from the event alone the
+  // action can't tell whose code the job checked out. So is a job that names no event.
+  it.each(['check_run', 'check_suite', 'pull_request_review', 'pull_request_review_comment', 'repository_dispatch', 'release', ''])('refuses to run on an event it does not name (%j), before anything runs', (event) => {
+    const dir = mkdtempSync(join(tmpdir(), 'fp-action-unnamed-'));
     dirs.push(dir);
     const fake = fakeCli(dir);
-    for (const event of ['pull_request', 'push', 'schedule', 'workflow_dispatch', 'merge_group']) {
+    const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), FIX_ON_FAILURE: 'true' }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
+    expect(r.code).toBe(1);
+    const on = "it runs on pull_request for a pull request's code, and on push, schedule, workflow_dispatch or merge_group for a branch of this repository";
+    expect(r.out).toContain(event ? `::error title=Shadowlap::the action does not run on ${event}: ${on}` : `::error title=Shadowlap::the job names no event (GITHUB_EVENT_NAME), so the action can't tell whose code it would run: ${on}`);
+    expect(() => fake.seen()).toThrow();
+  });
+
+  it('runs on the events that run a branch of this repository, or a pull request with what a fork may have', () => {
+    expect(EVENTS).toEqual(['pull_request', 'push', 'schedule', 'workflow_dispatch', 'merge_group']);
+    for (const event of EVENTS) {
+      const dir = mkdtempSync(join(tmpdir(), 'fp-action-events-'));
+      dirs.push(dir);
+      const fake = fakeCli(dir);
       const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project() }, { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: event });
       expect(r.out, event).not.toContain('the action does not run on');
+      expect(fake.seen().some((s) => s.args.includes('test')), event).toBe(true);
     }
+  });
+
+  it('runs on the events action.yml, docs/ci.md, SECURITY.md and the changelog name, and on those alone', () => {
+    // Each says so in one list: "runs on `pull_request`, ... and `merge_group` alone".
+    const named = (text: string) => /runs on ((?:`?[a-z_]+`?, )*`?[a-z_]+`? and `?[a-z_]+`?) alone/.exec(text)?.[1].split(/, | and /).map((e) => e.replace(/`/g, ''));
+    for (const file of ['action.yml', 'docs/ci.md', 'SECURITY.md', 'CHANGELOG.md']) expect(named(readFileSync(join(ROOT, file), 'utf8')), file).toEqual([...EVENTS]);
   });
 });

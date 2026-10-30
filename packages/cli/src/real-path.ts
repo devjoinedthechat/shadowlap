@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 /**
@@ -34,5 +34,28 @@ export function physicalPath(path: string): string {
       rest.push(basename(head));
       head = up;
     }
+  }
+}
+
+/**
+ * The first of the folders `rel` names under `root`, from the top, that is a link, as `rel` names it
+ * (`.shadowlap/repairs`); null when none is. Each is looked at itself, never followed: a repository
+ * can track a folder as a link, and what is written through one lands wherever it points.
+ */
+export function linkInPath(root: string, rel: string): string | null {
+  const parts = rel.split('/');
+  for (let i = 1; i <= parts.length; i++) {
+    const path = parts.slice(0, i).join('/');
+    if (isLink(join(root, path))) return path;
+  }
+  return null;
+}
+
+/** Whether `path` itself is a link; false for nothing there, or a path under a file. */
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
   }
 }

@@ -255,6 +255,8 @@ describe('the agent registry', () => {
     const chain = processAncestors();
     if (!chain) return; // a system that won't say
     expect(chain[0]).toMatchObject({ pid: process.pid, ppid: process.ppid });
+    // Its own words as they are, apart: one may hold a space.
+    expect(chain[0].args).toEqual(process.argv);
     expect(chain[1]?.pid).toBe(process.ppid);
   });
 
@@ -288,6 +290,20 @@ describe('the agent registry', () => {
     expect(startsAgents('shadowlap ui', commands)).toBe(false);
     expect(startsAgents('python agent.py run test', commands)).toBe(false);
     expect(startsAgents(null, commands)).toBe(false);
+  });
+
+  it('knows one whose --db path holds a space, whether the system gives its words apart or joined', () => {
+    // Apart, as Linux's /proc and this process's own argv give them: each word whole.
+    const store = '/Users/maya/Library/Application Support/shadowlap/store.db';
+    expect(startsAgents(['node', '/opt/shadowlap/bin/shadowlap.js', '--db', store, 'run', '--', 'node', 'agent.js'], commands)).toBe(true);
+    expect(startsAgents(['node', '/opt/shadowlap/bin/shadowlap.js', `--db=${store}`, 'test', 'goldens/*'], commands)).toBe(true);
+    expect(startsAgents(['node', '/opt/shadowlap/bin/shadowlap.js', '--db', store, 'ls', '--label', 'run'], commands)).toBe(false);
+    // Joined, as ps prints them on macOS, and as Windows keeps a command line, its quotes and all.
+    expect(startsAgents(`node /opt/shadowlap/bin/shadowlap.js --db ${store} run -- node agent.js`, commands)).toBe(true);
+    expect(startsAgents(`/usr/local/bin/shadowlap --db=${store} test goldens/*`, commands)).toBe(true);
+    expect(startsAgents('"C:\\Program Files\\nodejs\\node.exe" "C:\\Users\\maya\\AppData\\Roaming\\npm\\node_modules\\shadowlap\\bin\\shadowlap.js" --db "C:\\Users\\maya\\My Documents\\store.db" replay 01ABC', commands)).toBe(true);
+    // An agent's own command after `--` is the agent's, not Shadowlap's.
+    expect(startsAgents(`shadowlap --db ${store} ui -- run`, commands)).toBe(false);
   });
 
   it('takes every command of the CLI that runs an agent, and only those, from the command tree: each that decides its guard', () => {

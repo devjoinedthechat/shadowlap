@@ -6,6 +6,8 @@
 // agent's and changes nothing, and Node's dns.lookup never comes here at all.
 //
 // SHADOWLAP_GUARD=off disables it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
+// SHADOWLAP_MCP_PROXIES names the `shadowlap mcp --listen` proxies the command that started the
+// agent found running: they record the tool calls they carry, so reaching one bypasses nothing.
 import dgram from 'node:dgram';
 import { readFileSync, realpathSync } from 'node:fs';
 import net from 'node:net';
@@ -30,7 +32,7 @@ if (url && mode !== 'off' && !shared.__shadowlapGuard) {
     const h2 = new URL(process.env.SHADOWLAP_HTTP2_URL);
     allowed.add(`${h2.hostname}:${h2.port}`);
   }
-  for (const item of (process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(',')) if (item.trim()) allowed.add(item.trim());
+  for (const item of [...(process.env.SHADOWLAP_GUARD_ALLOW ?? '').split(','), ...(process.env.SHADOWLAP_MCP_PROXIES ?? '').split(',')]) if (item.trim()) allowed.add(item.trim());
   // `shadowlap mcp --url` talks to its server for the agent and records the tool calls itself, so
   // its connections are not traffic that bypasses Shadowlap: that process alone may allow its
   // server's host:port. No other process gets the hook, so an agent's code can't lift the guard.

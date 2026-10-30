@@ -207,6 +207,18 @@ describe('shadowlap mcp --listen', () => {
     sidecar.endRun(rec.runId, 'completed');
     const [call] = store.getCalls(rec.runId);
     expect([call.name, call.end?.outcome]).toEqual(['cut', 'error']);
+
+    // Replayed, the client's response breaks off as it did live, never answered with an error in its place.
+    const rep = sidecar.startRun({ mode: 'replay', parentRunId: rec.runId, command: { argv: ['agent'], cwd: '/' } });
+    current = target(rep.runId);
+    const r = httpClient(listener.url);
+    await r.handshake();
+    const before = server.calls.length;
+    const again = fetch(listener.url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': r.session! }, body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'cut', arguments: {} } }) });
+    expect(await again.then((res) => res.text()).then((t) => `answered: ${t}`, () => 'broken off')).toBe('broken off');
+    const replayed = sidecar.endRun(rep.runId, 'completed');
+    expect([replayed.summary.divergence, replayed.summary.byOrigin.replayed]).toEqual([null, 1]);
+    expect(server.calls.length).toBe(before);
     current = null;
   });
 

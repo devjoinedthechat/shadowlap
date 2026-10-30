@@ -151,7 +151,8 @@ describe('the GitHub Action, in a job without secrets', () => {
     writeFileSync(summary, '');
     const before = providers.all().length;
     const inputs = { INPUT_RECORDINGS: 'goldens/*', INPUT_WORKING_DIRECTORY: work.dir, INPUT_STORE: join(work.dir, 'action.db'), INPUT_KEEP_HISTORY: 'false' };
-    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'run.mjs')], { cwd: work.dir, env: env({ ...inputs, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: work.dir }), encoding: 'utf8', timeout: 240_000 });
+    // A job for a push, one of the events the action runs on, whatever the job running the tests is for.
+    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'run.mjs')], { cwd: work.dir, env: env({ ...inputs, SHADOWLAP_CLI: CLI, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary, RUNNER_TEMP: work.dir, GITHUB_EVENT_NAME: 'push' }), encoding: 'utf8', timeout: 240_000 });
     expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
     const outputs = Object.fromEntries(readFileSync(output, 'utf8').split('\n').filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
     expect(outputs).toMatchObject({ passed: String(packed), failed: '0' });

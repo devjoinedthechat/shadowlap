@@ -61,7 +61,7 @@ export function isLoopbackUrl(url: string): boolean {
   }
 }
 
-function safeHome(): string | null {
+export function safeHome(): string | null {
   try {
     return homedir() || null;
   } catch {
@@ -77,7 +77,7 @@ export function registryDirs(cwd: string = process.cwd(), home: string | null = 
 const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
 
 /** Why a folder or file can't be trusted with a session token, or null. Ownership and modes are POSIX ideas; Windows keeps home folders private. */
-function untrusted(st: Stats, what: string, kind: 'dir' | 'file'): string | null {
+export function untrusted(st: Stats, what: string, kind: 'dir' | 'file'): string | null {
   if (st.isSymbolicLink()) return `${what} is a symbolic link`;
   if (kind === 'dir' ? !st.isDirectory() : !st.isFile()) return `${what} is not a ${kind === 'dir' ? 'folder' : 'regular file'}`;
   if (ownUid !== null && st.uid !== ownUid) return `${what} belongs to another user`;
@@ -133,8 +133,15 @@ const readOr = (file: string): string | null => {
  */
 export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: string; home?: string | null } = {}): { unregister: () => void; file: string | null } {
   const body: Registration = { v: 1, pid, parent: process.pid, url: target.url, runId: target.runId };
-  const text = JSON.stringify(body) + '\n';
-  for (const dir of registryDirs(o.cwd, o.home === undefined ? safeHome() : o.home)) {
+  return publish(registryDirs(o.cwd, o.home === undefined ? safeHome() : o.home), pid, JSON.stringify(body) + '\n');
+}
+
+/**
+ * Writes `text` as `<pid>.json`, owner-only, in the first of `dirs` that can be used, under its lock
+ * (see the header), until the returned function is called; `file` is null when none could be used.
+ */
+export function publish(dirs: readonly string[], pid: number, text: string): { unregister: () => void; file: string | null } {
+  for (const dir of dirs) {
     if (!prepareDir(dir)) continue;
     const file = join(dir, `${pid}.json`);
     try {
@@ -154,12 +161,12 @@ export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: str
         if (done) return;
         done = true;
         try {
-          // Only while it is the file written for this agent: its process id may be another agent's by now.
+          // Only while it is the file written for this process: its id may be another's by now.
           underLock(dir, () => {
             if (readOr(file) === text) rmSync(file, { force: true });
           });
         } catch {
-          // the folder kept busy: the next registration here removes it, its agent being gone
+          // the folder kept busy: the next registration here removes it, its process being gone
         }
       },
     };
@@ -188,8 +195,12 @@ export function spawnAgent(command: string, args: readonly string[], options: Sp
 export interface ProcessInfo {
   pid: number;
   ppid: number;
-  /** The command line, as far as the system shows it. */
-  args: string | null;
+  /**
+   * The command line, as far as the system shows it: its words apart where the system keeps them so
+   * (Linux's /proc, this process's own argv), else one line (`ps` joins them with spaces, losing
+   * where a word with a space in it ends; Windows keeps the line a process was started with).
+   */
+  args: string | readonly string[] | null;
 }
 
 /**
@@ -278,9 +289,12 @@ function procInfo(pid: number): ProcessInfo | null {
   try {
     const ppid = parentFromProcStat(readFileSync(`/proc/${pid}/stat`, 'utf8'));
     if (ppid === null) return null;
-    let args: string | null = null;
+    let args: string[] | null = null;
     try {
-      args = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join(' ') || null;
+      // Each word ends with a NUL, so a word with a space in it stays whole.
+      const words = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
+      if (words.at(-1) === '') words.pop();
+      args = words.length ? words : null;
     } catch {
       // a process of another user, or one that just ended
     }
@@ -296,7 +310,7 @@ function procInfo(pid: number): ProcessInfo | null {
  * PowerShell failing, which a proxy's log should name.
  */
 export function processAncestors(note?: (why: string) => void): ProcessInfo[] | null {
-  const chain: ProcessInfo[] = [{ pid: process.pid, ppid: process.ppid, args: process.argv.join(' ') }];
+  const chain: ProcessInfo[] = [{ pid: process.pid, ppid: process.ppid, args: process.argv }];
   const linux = process.platform === 'linux' && existsSync('/proc/self/stat');
   const table = linux ? null : processTable(note && ((why) => note(`the process tree could not be read (${why}), so only this process's parent is looked up for its run`)));
   if (!linux && !table) return null;
@@ -435,15 +449,25 @@ export function agentCommands(program: Command): ReadonlySet<string> {
 /**
  * Whether a command line is the Shadowlap CLI running one of `commands`, those that start agents
  * (agentCommands). Used only to refuse writes when such an ancestor is seen but its sidecar can't be
- * found.
+ * found. Its words apart give the command exactly. A line the system joined loses where `--db`'s
+ * path ends when the path holds a space, so there any word after it that names such a command, up
+ * to `--`, counts: a command that starts no agent is then taken for one only when its own words
+ * name one, which refuses writes where none would run, never lets one through unrecorded.
  */
-export function startsAgents(args: string | null, commands: ReadonlySet<string>): boolean {
-  if (!args) return false;
-  const tokens = args.split(/\s+/).filter(Boolean);
-  const at = tokens.findIndex((t) => /(?:^|[\\/])shadowlap(?:\.[cm]?js|\.cmd|\.exe)?["']?$/i.test(t));
+export function startsAgents(args: string | readonly string[] | null, commands: ReadonlySet<string>): boolean {
+  if (!args?.length) return false;
+  const joined = typeof args === 'string';
+  const words = joined ? args.split(/\s+/).filter(Boolean) : args;
+  const at = words.findIndex((t) => /(?:^|[\\/])shadowlap(?:\.[cm]?js|\.cmd|\.exe)?["']?$/i.test(t));
   if (at < 0) return false;
-  for (let i = at + 1; i < tokens.length; i++) {
-    const t = tokens[i]!;
+  for (let i = at + 1; i < words.length; i++) {
+    const t = words[i]!;
+    if (t === '--') return false;
+    if (joined && (t === '--db' || t.startsWith('--db='))) {
+      const rest = words.slice(i + 1);
+      const end = rest.indexOf('--');
+      return (end < 0 ? rest : rest.slice(0, end)).some((w) => commands.has(w));
+    }
     if (t === '--db') {
       i++;
       continue;
