@@ -5,7 +5,7 @@ import { declaredManager, detectCommand, lockfileManager, nodeWorkspaceManager, 
 import { findModelServer, scanModels } from './init-models.js';
 import { type Framework, type InitReport, type Language, type Provider, type UnrecordedModel } from './init-report.js';
 import { installedVersion, pythonDependencies, pythonExtras, readJson, readUtf8, rel, sourceFiles } from './init-source.js';
-import { declaredEffects, scanBaseUrls, scanToolLists, scanTools } from './init-tools.js';
+import { declaredEffects, scanBaseUrls, scanFences, scanToolLists, scanTools } from './init-tools.js';
 
 /**
  * `shadowlap init`: reads a project the way a colleague would before helping set Shadowlap up, and
@@ -107,6 +107,7 @@ export function inspectProject(cwd: string, env: NodeJS.ProcessEnv = process.env
     frameworks,
     command: detectCommand(cwd, pkg, packageManager, python, languages, texts),
     tools,
+    fence: scanFences(frameworks, languages, texts, cwd),
     hardcodedBaseUrls,
     unrecordedModels,
     modelServer: findModelServer(cwd, env, texts, providers, frameworks),

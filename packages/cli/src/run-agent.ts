@@ -469,7 +469,7 @@ export function requireModelCall(callNo: number, parentCalls: CallRecord[], flag
 const JUDGE_CALL = (flag: string, callNo: number) => `${flag}: call #${callNo} is a judge check's call, not the agent's: give the number of one of the agent's model calls (see shadowlap show)`;
 
 /** `--inject 15="text"`, `--set 15:max_tokens=2048`, `--model 15:claude-opus-5`. */
-export function parseInterventions(flags: { inject?: string; injectAs: 'system' | 'user'; set: string[]; model?: string }, parentCalls: CallRecord[]): Interventions | undefined {
+export function parseInterventions(flags: { inject?: string; injectAs: 'system' | 'user'; set?: string[]; model?: string }, parentCalls: CallRecord[]): Interventions | undefined {
   const out: Interventions = {};
   if (flags.inject) {
     const m = /^(\d+)=([\s\S]+)$/.exec(flags.inject);
@@ -485,7 +485,7 @@ export function parseInterventions(flags: { inject?: string; injectAs: 'system' 
     if (fromCall !== undefined && fromCall !== n) throw new Error(`${flag}: all --set/--model patches must start at the same model call (got ${fromCall} and ${n})`);
     fromCall = n;
   };
-  for (const spec of flags.set) {
+  for (const spec of flags.set ?? []) {
     const m = /^(\d+):([A-Za-z_][\w.]*)=([\s\S]*)$/.exec(spec);
     if (!m) throw new Error(`--set expects <call>:<key>=<value>, got "${spec}"`);
     at(Number(m[1]), '--set');

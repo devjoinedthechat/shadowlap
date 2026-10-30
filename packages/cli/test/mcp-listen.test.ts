@@ -253,7 +253,8 @@ describe('shadowlap mcp --listen, as a command', () => {
   it('says where it serves, refuses the writes of a session with no run, and stops on a signal', async () => {
     const server = await startFakeMcpHttpServer({ streams: true });
     const project = mkdtempSync(join(tmpdir(), 'shadowlap-listen-'));
-    const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url, '--listen', '127.0.0.1:0'], { cwd: project, env: { ...process.env, SHADOWLAP_URL: '', SHADOWLAP_RUN_ID: '', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
+    // A proxy started on its own registers in the home folder (HOME, and on Windows USERPROFILE): the test's own, never the user's.
+    const child = spawn(process.execPath, [CLI, 'mcp', '--url', server.url, '--listen', '127.0.0.1:0'], { cwd: project, env: { ...process.env, HOME: project, USERPROFILE: project, SHADOWLAP_URL: '', SHADOWLAP_RUN_ID: '', SHADOWLAP_TELEMETRY: '0', NO_COLOR: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';
     const endpoint = await new Promise<string>((resolve, reject) => {
       child.stderr.on('data', (chunk: Buffer) => {

@@ -36,7 +36,7 @@
       "match": 56
     },
     "packages/cli/src/commands/changes.ts": {
-      "register > action(\"decisions\")": 53
+      "register > action(\"decisions\")": 47
     },
     "packages/cli/src/commands/coverage.ts": {
       "register > action(\"coverage\")": 46
@@ -56,9 +56,6 @@
     },
     "packages/cli/src/commands/inspect.ts": {
       "register > action(\"show\")": 87
-    },
-    "packages/cli/src/commands/replay.ts": {
-      "replayRun": 32
     },
     "packages/cli/src/commands/training.ts": {
       "register > action(\"score\")": 60
@@ -462,7 +459,7 @@
       "runPresets": 156
     },
     "packages/cli/src/commands/changes.ts": {
-      "register": 189
+      "register": 186
     },
     "packages/cli/src/commands/data.ts": {
       "register": 207

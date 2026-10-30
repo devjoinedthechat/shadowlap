@@ -1,12 +1,13 @@
 import type { Effect } from '@shadowlap/engine';
 import { toolNameEffect } from '@shadowlap/engine';
-import { type BaseUrlWarning, type FoundTool, type Framework } from './init-report.js';
+import { type BaseUrlWarning, type Fence, type FoundTool, type Framework, type Language } from './init-report.js';
 import { callArguments, inCommentAt, kwarg, lineOf, positional, pyCalls, pyDecoratedDefs, pyImports, pyOrigin, rel, type PyImports } from './init-source.js';
 
 /**
  * The tools `shadowlap init` finds in a project, as each framework defines them (a decorator, a class,
- * a list handed to an agent), with the effect each declares or the one its name suggests, and the
- * model clients whose base URL is written into the code, which bypass Shadowlap.
+ * a list handed to an agent), with the effect each declares or the one its name suggests, whether a
+ * Claude Agent SDK query runs through the fence, and the model clients whose base URL is written
+ * into the code, which bypass Shadowlap.
  */
 
 /** The decorators each Python framework makes a tool with, by the module they come from. */
@@ -253,6 +254,35 @@ export function scanToolLists(texts: ReadonlyArray<readonly [string, string]>, c
     }
   }
   return out;
+}
+
+/**
+ * A call of the fence, as each language's adapter exports it, and not its own definition: `withFence(`
+ * and `fenceHooks(` (`withClaudeAgentFence(` and `claudeAgentFenceHooks(` from the package's index),
+ * `with_fence(` and `fence_hooks(`.
+ */
+const FENCE_CALL = {
+  js: /(?<!\bfunction\s+)\b(?:withFence|fenceHooks|withClaudeAgentFence|claudeAgentFenceHooks)\s*\(/g,
+  py: /(?<!\bdef\s+)\b(?:with_fence|fence_hooks)\s*\(/g,
+};
+
+/**
+ * Each Claude Agent SDK the project uses, and where a query of its runs through the fence: a call of
+ * withFence (with_fence in Python), or of its hooks, in a file that imports Shadowlap's adapters, not
+ * in a comment. The SDK's built-in tools run inside Claude Code, where no wrapper reaches them.
+ */
+export function scanFences(frameworks: readonly Framework[], languages: readonly Language[], texts: ReadonlyArray<readonly [string, string]>, cwd: string): Fence[] {
+  return frameworks.flatMap((f): Fence[] => {
+    if (f.id !== 'claude-agent-sdk' && f.id !== 'claude-agent-sdk-python') return [];
+    const py = f.id === 'claude-agent-sdk-python';
+    const language: Language = py ? 'python' : languages.includes('typescript') ? 'typescript' : 'javascript';
+    for (const [path, text] of texts) {
+      if (path.endsWith('.py') !== py || !text.includes(py ? 'shadowlap.adapters' : '@shadowlap/adapters')) continue;
+      const call = [...text.matchAll(py ? FENCE_CALL.py : FENCE_CALL.js)].find((m) => !inCommentAt(text, m.index, py));
+      if (call) return [{ framework: f.id, language, at: { file: rel(cwd, path), line: lineOf(text, call.index) } }];
+    }
+    return [{ framework: f.id, language, at: null }];
+  });
 }
 
 /** Model clients constructed with a literal base URL: `shadowlap run` cannot redirect them. */

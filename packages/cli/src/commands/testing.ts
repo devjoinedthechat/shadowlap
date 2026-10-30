@@ -10,7 +10,7 @@ import { BisectDeclined, BisectError, formatBisect, runBisect } from '../bisect.
 import { checkLine, judgeResults, specFor, type JudgeCheck } from '../checks.js';
 import { codeVersion, loadConfig, loadTests, upstreamOverrides } from '../config.js';
 import { EXIT, interruptedStatus } from '../exit-codes.js';
-import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded } from '../unrecorded.js';
 import { confirmGolden } from '../golden-consent.js';
 import { readExpect } from './fix-flags.js';
 import { parseSuiteRisk, testPacks, type TestFlags } from './test-session.js';
@@ -19,7 +19,7 @@ import { cannotJudge, judgedOptions, judgeEndedRun, judgesOf, type JudgedRun } f
 import { emitJobEvent } from '../job-events.js';
 import { RecordingHost } from '../recordings.js';
 import { captureConfig, noProxyEnv, type GuardMode } from '../run-agent.js';
-import { ancestorsOf, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, printOutcome, readStore, requireEnded, requireRun, telemetry, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { pushIfQueued, teamEnv } from '../team.js';
 import { palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
@@ -150,7 +150,7 @@ export function register(program: Command): void {
     .option('--chaos', "run the error-path presets instead: each golden forked at one call with a tool timeout, an empty result, malformed JSON, an oversized result, a provider 429 and a 500, live from the call it hits (writes stubbed unless --writes says otherwise), each judged by its tests entry's chaos.expect, else the upper bounds its expect sets on write tools")
     .option('--presets <list>', 'with --chaos: the presets to run, comma-separated: timeout, empty, malformed, oversized, 429, 500 (default: all, or the tests entry\'s "chaos.presets")')
     .option('--chaos-tool <name>', 'with --chaos: the tool whose first call the tool presets hit (default: the first tool call that reads the world)')
-    .option(ALLOW_UNRECORDED, 'run these tools again for real though a golden never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)', collectNames)
+    .option(ALLOW_UNRECORDED, 'run these tools again for real though a golden never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)', collect)
     .option('-y, --yes', "run the recorded command of a golden from someone else's pack that this repository doesn't track, without asking (without it, such a golden asks first, and without a terminal isn't run)")
     .action(async function (this: Command, packArgs: string[], flags: TestFlags) {
       await testPacks(this, program.opts<GlobalOpts>(), packArgs, flags);
@@ -169,7 +169,7 @@ export function register(program: Command): void {
     .option('--cwd <dir>', 'the working directory of the recorded command, inside the repository (default: current)')
     .option('--timeout <seconds>', 'stop a replay after this long and count it as failing', parseIntArg, 300)
     .option('--guard <mode>', 'network guard: block, warn or off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', "run the recorded command of a run from a pack or the team store, or of a golden from a pack this repository doesn't track, at each commit without asking")
     .option('--json', 'print the result as JSON (progress still goes to stderr)')
     .action(async (target: string, command: string[], flags: { good: string; bad: string; expect?: string; fork?: boolean; build?: string; cwd?: string; timeout: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {
@@ -278,7 +278,7 @@ export function register(program: Command): void {
     .command('serve')
     .description('Start a sidecar with one recording run for a process you launch yourself; prints the environment to set')
     .option('--recordings', 'no run of its own: serve recordings to a test-runner plugin (pytest, Vitest), and print its connection details as one JSON line')
-    .option(ALLOW_UNRECORDED, 'with --recordings: replay these tools again for real though a recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable; SHADOWLAP_ALLOW_UNRECORDED in the test run says the same)', collectNames)
+    .option(ALLOW_UNRECORDED, 'with --recordings: replay these tools again for real though a recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable; SHADOWLAP_ALLOW_UNRECORDED in the test run says the same)', collect)
     .action(async (flags: { recordings?: boolean; allowUnrecorded?: string[] }) => {
       const opts = program.opts<GlobalOpts>();
       const store = openStore(opts);

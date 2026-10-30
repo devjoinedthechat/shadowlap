@@ -14,7 +14,7 @@ Shadowlap records every model and tool call an agent makes (`shadowlap run -- <c
 
 ## 1. Find the agent and its tools
 
-`shadowlap init --json` reads the project's source and runs nothing; it writes only an empty `shadowlap.config.json`, when there is none. It gives back the model SDKs (`providers`), the framework (`frameworks`), the package manager (`packageManager`), the command that starts the agent (`command`), every tool definition it found (`tools`, each with its `effect`, a `suggested` one and whether it is `wrapped`), and the code that wraps the tools through the project's framework (`wrap`). A model client built with a literal base URL is listed in `hardcodedBaseUrls`: Shadowlap can't redirect it, so its calls would go unrecorded; have it read the base URL from the environment instead.
+`shadowlap init --json` reads the project's source and runs nothing; it writes only an empty `shadowlap.config.json`, when there is none. It gives back the model SDKs (`providers`), the framework (`frameworks`), the package manager (`packageManager`), the command that starts the agent (`command`), every tool definition it found (`tools`, each with its `effect`, a `suggested` one and whether it is `wrapped`), the code that wraps the tools through the project's framework (`wrap`), and for a Claude Agent SDK project where each query is fenced (`fence`). A model client built with a literal base URL is listed in `hardcodedBaseUrls`: Shadowlap can't redirect it, so its calls would go unrecorded; have it read the base URL from the environment instead.
 
 ## 2. Mark what each tool does
 
@@ -24,7 +24,7 @@ A replay decides by a tool's effect whether it may run again after a fork, so ev
 - **read**: it reads outside state and changes nothing (a search, a query, a file read).
 - **write**: it changes something outside (sends an email or a message, opens a ticket, takes a payment, writes a file or a row).
 
-Decide from the tool's code, not its name: the suggestion goes by the first verb of the name alone. A tool that both reads and writes, or one you can't be sure of, is a write: a write never runs again after a fork, while a write marked as a read would send its email again. Install the package the `wrap` code imports with the project's `packageManager`, apply the code with the effects you chose where the tools are defined, then run `shadowlap init --json` again: no tool should be left in `unwrapped`.
+Decide from the tool's code, not its name: the suggestion goes by the first verb of the name alone. A tool that both reads and writes, or one you can't be sure of, is a write: a write never runs again after a fork, while a write marked as a read would send its email again. Install the package the `wrap` code imports with the project's `packageManager`, apply the code with the effects you chose where the tools are defined (the Claude Agent SDK's fence goes on the options its query takes), then run `shadowlap init --json` again: no tool should be left in `unwrapped`, and no `fence` entry without its `at`.
 
 A read that brings outside text in (a web page, an email, a support ticket) could carry a prompt injection. Mark it untrusted in the wrapper's options, or by its name in `shadowlap.config.json`, so injection tests know where to plant:
 

@@ -14,9 +14,9 @@ import { EXIT, inconclusiveStatus, interruptedStatus } from '../exit-codes.js';
 import { emitJobEvent } from '../job-events.js';
 import { textOrFile } from '../interventions.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
+import { collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, requireEnded, requireRun, VERSION, withoutCommand, type GlobalOpts } from '../shared.js';
 import { palette as p, safe, shortId } from '../ui.js';
-import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, collectNames, refuseUnrecorded } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, allowedUnrecorded, refuseUnrecorded } from '../unrecorded.js';
 
 /** `shadowlap injection`: causal prompt-injection tests on recorded runs and goldens (injection.ts). */
 
@@ -159,7 +159,7 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: block | warn | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'block')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', "run the recorded command of an imported run, or of a golden from a pack this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
     .action(async (args: string[], flags: { repeat?: number; templates?: string; payloads?: string; listTemplates?: boolean; baselines?: number; obeyed?: number; influenced?: number; clean?: string; write?: number[]; gate?: string; liveReads?: boolean; inconclusive: InconclusiveMode; html?: string; redact: boolean; concurrency: number; budget?: number; timeout?: number; guard: GuardMode; allowUnrecorded?: string[]; yes?: boolean; json?: boolean }) => {

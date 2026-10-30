@@ -11,7 +11,7 @@ import { EXIT, inconclusiveStatus, interruptedStatus, stoppedBy } from '../exit-
 import { emitJobEvent } from '../job-events.js';
 import { formatMigrate, runMigrate, type MigrateReport } from '../migrate.js';
 import { type GuardMode } from '../run-agent.js';
-import { confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, type GlobalOpts } from '../shared.js';
+import { collect, confirmImportedCommand, openStore, parseChoice, parseIntArg, parseUsd, type GlobalOpts } from '../shared.js';
 import { palette as p, quoteArgv, shortId } from '../ui.js';
 
 /**
@@ -19,8 +19,6 @@ import { palette as p, quoteArgv, shortId } from '../ui.js';
  * call again with only the change swapped in, and ranks what it decides differently; `migrate` does
  * that for a model switch, verifies what it flags, and writes the report a pull request needs.
  */
-
-const repeat = (v: string, acc: string[]) => [...acc, v];
 
 /** The command given after `--`, out of the arguments commander collected with the runs. */
 function splitCommand(program: Command, given: string[]): { specs: string[]; argv: string[] | null } {
@@ -31,6 +29,19 @@ function splitCommand(program: Command, given: string[]): { specs: string[]; arg
   const after = raw.length - at - 1;
   if (after <= 0 || after > given.length) return { specs: given, argv: null };
   return { specs: given.slice(0, given.length - after), argv: given.slice(given.length - after) };
+}
+
+/**
+ * The change `decisions` asks under, read from its flags: the model (`--set model=…` is the model, as
+ * verify and blame read it; both at once is refused there), the request fields, and the models it
+ * switches from, null when none is named (the one the runs use most).
+ */
+function decisionsChange(flags: { model?: string; fromCode?: boolean; set?: string[]; from?: string[] }): Pick<DecisionsSettings, 'model' | 'fields' | 'from'> {
+  const { model: setModel, ...fields } = parseFields(flags.set, flags.model);
+  const model = typeof setModel === 'string' ? setModel : null;
+  if (!model && !flags.fromCode && !Object.keys(fields).length) throw new InvalidArgumentError('give the change: --model <model>, --set <key=value>, or --from-code for the prompt and tools in your working tree');
+  if (flags.from?.length && !model && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
+  return { model, fields, from: flags.from?.length ? flags.from : null };
 }
 
 /**
@@ -111,8 +122,8 @@ export function register(program: Command): void {
     .argument('[runs...]', 'runs (ids, unique prefixes, label:<name>) or goldens (pack folders, such as goldens/*); after "--", the command to run for --from-code and --then-verify')
     .option('--model <model>', "the change is this model, at the agent's model calls: those made with the model --from names, else the one the runs use most")
     .option('--from-code', 'the change is the system prompt and tools your working tree sends now, read by replaying each run offline; nothing is sent to read them')
-    .option('--set <key=value>', 'the change sets this request field, e.g. temperature=0 (repeatable)', repeat, [] as string[])
-    .option('--from <model>', 'the recorded model the change switches from: --model and --set change only the calls made with it (repeatable; default: the model the runs use most)', repeat, [] as string[])
+    .option('--set <key=value>', 'the change sets this request field, e.g. temperature=0 (repeatable)', collect)
+    .option('--from <model>', 'the recorded model the change switches from: --model and --set change only the calls made with it (repeatable; default: the model the runs use most)', collect)
     .option('--samples <n>', "ask each model call this many times under the change and, from 3 on, as many times as recorded, and rank a change only when it decides otherwise beyond the model's own variation: at 3, six requests a step", parseIntArg, DECISIONS_SAMPLES)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--scope <name>', "ask only the model calls made in this scope, such as the agent's and not a simulated user's; none for those made in no scope")
@@ -130,7 +141,7 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'with --then-verify or --verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set: string[]; from: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (given: string[], flags: { model?: string; fromCode?: boolean; set?: string[]; from?: string[]; samples: number; concurrency: number; scope?: string; thenVerify?: boolean; verify?: string; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; strict?: boolean; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const { specs, argv } = splitCommand(program, given);
       // Verify's own rule: its gate, unless a fixed count is given.
@@ -142,7 +153,7 @@ export function register(program: Command): void {
 
       if (flags.verify !== undefined) {
         // A kept session's flagged runs, verified: nothing is asked again.
-        if (flags.model || flags.fromCode || flags.set.length || flags.from.length || flags.thenVerify) throw new InvalidArgumentError('--verify verifies the change a kept session asked: give no other change with it');
+        if (flags.model || flags.fromCode || flags.set?.length || flags.from?.length || flags.thenVerify) throw new InvalidArgumentError('--verify verifies the change a kept session asked: give no other change with it');
         try {
           const out = await verifySession({ opts, sessionId: flags.verify, runs: specs, settings: { thenVerify, argv, timeoutMs, guard: flags.guard }, budget: flags.budget ?? null, yes: !!flags.yes, log });
           if (flags.json) process.stdout.write(JSON.stringify(out, null, 2) + '\n');
@@ -158,11 +169,7 @@ export function register(program: Command): void {
       }
 
       if (!specs.length) throw new InvalidArgumentError('name the runs or goldens to ask again: shadowlap decisions goldens/* --model <model>');
-      // `--set model=…` is the model, as verify and blame read it; both at once is refused there.
-      const { model: setModel, ...fields } = parseFields(flags.set, flags.model);
-      const model = typeof setModel === 'string' ? setModel : null;
-      if (!model && !flags.fromCode && !Object.keys(fields).length) throw new InvalidArgumentError('give the change: --model <model>, --set <key=value>, or --from-code for the prompt and tools in your working tree');
-      if (flags.from.length && !model && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
+      const { model, fields, from } = decisionsChange(flags);
       if (flags.samples > 20) throw new InvalidArgumentError('--samples is at most 20');
       if (!flags.thenVerify && (flags.expect !== undefined || flags.gate !== undefined || flags.attempts !== undefined || flags.passes !== undefined)) throw new InvalidArgumentError('--expect, --gate, --attempts and --passes are for --then-verify, which verifies the runs a change flags');
       const store = openStore(opts);
@@ -182,7 +189,7 @@ export function register(program: Command): void {
         const settings: DecisionsSettings = {
           model,
           fields,
-          from: flags.from.length ? flags.from : null,
+          from,
           fromCode: !!flags.fromCode,
           samples: flags.samples,
           concurrency: flags.concurrency,
@@ -214,9 +221,9 @@ export function register(program: Command): void {
     .description("Switch models with the evidence: ask your goldens' model calls again under the new model (with the fields it refuses changed to what it takes), verify the runs with a write, stop or judged change, and compare what a run costs. Ends in one report, what changes, what still passes, what it costs and what to set, with the change to your files and a pull request body.")
     .argument('[goldens...]', 'goldens (pack folders) or runs to migrate (default: goldens/*); after "--", the command to verify with')
     .requiredOption('--to <model>', 'the model to switch to')
-    .option('--from <model>', 'the recorded model to switch from (repeatable; default: the models the runs use that retire, else the one they use most)', repeat, [] as string[])
+    .option('--from <model>', 'the recorded model to switch from (repeatable; default: the models the runs use that retire, else the one they use most)', collect)
     .option('--scope <name>', "only the model calls made in this scope, such as the agent's; none for those made in no scope")
-    .option('--set <key=value>', 'a request field the switch sets as well (repeatable)', repeat, [] as string[])
+    .option('--set <key=value>', 'a request field the switch sets as well (repeatable)', collect)
     .option('--samples <n>', 'ask each model call this many times', parseIntArg, 1)
     .option('--concurrency <n>', 'requests in flight at once', parseIntArg, 4)
     .option('--expect <json|@file>', "what a passing run must do besides exiting 0 (default: each run's checks from shadowlap.config.json, its golden's, or for a run named by id those of the recording it comes from)")
@@ -230,7 +237,7 @@ export function register(program: Command): void {
     .option('--guard <mode>', 'verify: network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
     .option('-y, --yes', "run the recorded command of runs imported from someone's pack, and of goldens from packs this repository doesn't track, without asking")
     .option('--json', 'print the report as JSON, as the dashboard reads it (progress still goes to stderr)')
-    .action(async (given: string[], flags: { to: string; from: string[]; scope?: string; set: string[]; samples: number; concurrency: number; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
+    .action(async (given: string[], { from = [], ...flags }: { to: string; from?: string[]; scope?: string; set?: string[]; samples: number; concurrency: number; expect?: string; gate?: string; attempts?: number; passes?: number; writes: 'stub' | 'block'; budget?: number; timeout?: number; inconclusive: 'fail' | 'warn'; guard: GuardMode; yes?: boolean; json?: boolean }) => {
       const opts = program.opts<GlobalOpts>();
       const split = splitCommand(program, given);
       const specs = split.specs.length ? split.specs : ['goldens/*'];
@@ -262,7 +269,7 @@ export function register(program: Command): void {
           '--to',
           flags.to,
           ...specs,
-          ...flags.from.flatMap((m) => ['--from', m]),
+          ...from.flatMap((m) => ['--from', m]),
           ...(flags.scope ? ['--scope', flags.scope] : []),
           ...Object.entries(fields).flatMap(([k, v]) => ['--set', `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`]),
           ...(flags.samples !== 1 ? ['--samples', String(flags.samples)] : []),
@@ -280,7 +287,7 @@ export function register(program: Command): void {
         const report = await runMigrate({
           opts,
           targets,
-          settings: { to: flags.to, from: flags.from.length ? flags.from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
+          settings: { to: flags.to, from: from.length ? from : null, scope: flags.scope ?? null, fields, samples: flags.samples, concurrency: flags.concurrency, budget: flags.budget ?? null, timeoutMs, attempts: rule.attempts, needed: rule.needed, gate: rule.gate, writes: flags.writes, expect, guard: flags.guard, argv: split.argv },
           command,
           log,
         });

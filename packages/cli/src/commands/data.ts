@@ -8,7 +8,7 @@ import { runToHar } from '../export-har.js';
 import { emitJobEvent, inDashboardJob } from '../job-events.js';
 import { CliError, EXIT } from '../exit-codes.js';
 import { OtlpUnreachable, otlpHeaders, runToOtlp, sendOtlp } from '../otel.js';
-import { ancestorsOf, fileSize, formatBytes, openStoreIfExists, parseChoice, parseIntArg, readStore, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
+import { ancestorsOf, collect, fileSize, formatBytes, openStoreIfExists, parseChoice, parseIntArg, readStore, recordEvents, requireEnded, requireRun, unredacted, VERSION, type GlobalOpts } from '../shared.js';
 import { ago, palette as p, quoteArgv, safe, shortId } from '../ui.js';
 
 /** Runs as data for other tools, and removing what is no longer needed. */
@@ -21,14 +21,14 @@ export function register(program: Command): void {
     .command('dataset')
     .description('Recordings as an eval or fine-tuning dataset (JSON Lines): each run\'s final model call, or every one, with its conversation, the model\'s answer, labels, notes and check results')
     .argument('[runs...]', 'run ids or unique prefixes')
-    .option('--label <label>', 'runs with this label (repeatable: all of them)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--label <label>', 'runs with this label (repeatable: all of them)', collect)
     .option('--all', 'every run in the store')
     .option('--calls <which>', 'final: each run\'s last model call; model: every model call', parseChoice(['final', 'model'] as const), 'final')
     .option('--format <format>', 'jsonl | openai-chat | braintrust | langfuse', parseChoice(DATASET_FORMATS), 'jsonl')
     .option('--out <file>', 'write here instead of stdout')
     .option('--no-redact', 'skip the redaction rules in shadowlap.config.json')
-    .action((runArgs: string[], flags: { label: string[]; all?: boolean; calls: 'final' | 'model'; format: DatasetFormat; out?: string; redact: boolean }) => {
-      if (!runArgs.length && !flags.label.length && !flags.all) throw new InvalidArgumentError('name runs, or select them with --label or --all');
+    .action((runArgs: string[], { label: labels = [], ...flags }: { label?: string[]; all?: boolean; calls: 'final' | 'model'; format: DatasetFormat; out?: string; redact: boolean }) => {
+      if (!runArgs.length && !labels.length && !flags.all) throw new InvalidArgumentError('name runs, or select them with --label or --all');
       const store = readStore(program.opts<GlobalOpts>());
       try {
         const picked = new Map<string, RunRecord>();
@@ -40,9 +40,9 @@ export function register(program: Command): void {
         // Runs picked by label or --all that are still recording wait for a later export.
         const live = new Set(store.recordingRuns().live.map((x) => x.run.runId));
         let waiting = 0;
-        if (flags.label.length || flags.all) {
+        if (labels.length || flags.all) {
           for (const r of store.allRuns()) {
-            if (!flags.label.every((l) => r.meta?.labels?.includes(l)) || picked.has(r.runId)) continue;
+            if (!labels.every((l) => r.meta?.labels?.includes(l)) || picked.has(r.runId)) continue;
             if (live.has(r.runId)) waiting++;
             else picked.set(r.runId, r);
           }

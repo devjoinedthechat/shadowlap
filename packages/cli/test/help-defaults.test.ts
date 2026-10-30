@@ -1,8 +1,11 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { BASELINE_DEFAULTS, describeBaselineRule, KEPT_DEFAULTS, RECORD_WINDOWS, SPRT_DEFAULTS } from '@shadowlap/engine';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { BASELINE_DEFAULTS, describeBaselineRule, KEPT_DEFAULTS, RECORD_WINDOWS, SPRT_DEFAULTS, Store } from '@shadowlap/engine';
 import { EXIT } from '../src/exit-codes.js';
 import { parseHeaderFlags } from '../src/mcp-http.js';
 import { growthReason } from '../src/repair.js';
@@ -41,6 +44,20 @@ describe('defaults in --help', () => {
     expect(help(['bisect']).replace(/\s+/g, ' ')).toContain('--bad <rev> a commit where it fails (default: "HEAD") --expect');
   });
 
+  it('never show an empty list: an option given more than once has none, in any help', () => {
+    const shown: string[] = [];
+    const walk = (c: Command, path: string[]) => {
+      // Help wraps at the terminal's width, which can put the list on a line of its own.
+      if (/\(default:\s+\[\]\)/.test(c.helpInformation())) shown.push(path.join(' '));
+      for (const o of c.options) if (Array.isArray(o.defaultValue)) shown.push(`${[...path, o.long].join(' ')} defaults to a list`);
+      for (const sub of c.commands) walk(sub, [...path, sub.name()]);
+    };
+    walk(program, ['shadowlap']);
+    expect(shown).toEqual([]);
+    // As a terminal shows it, for the command with the most of them.
+    expect(help(['replay']).replace(/\s+/g, ' ')).not.toContain('(default: [])');
+  });
+
   it('show --max-growth in percent, as it is typed', () => {
     expect(help(['repair']).replace(/\s+/g, ' ')).toContain('--max-growth <percent> reject a fix that grows the input tokens per run by more than this (default: 25) ');
   });
@@ -52,6 +69,129 @@ describe('defaults in --help', () => {
     expect(repair).not.toContain('must keep passing');
     // The rule as verify's report words it, from the same function.
     expect(repair).toContain(describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'paired' }));
+  });
+});
+
+/** The options a command takes more than once, each by its command's path. */
+const REPEATABLE: ReadonlyArray<readonly [string, string]> = [
+  ['replay', '--live-tool'],
+  ['replay', '--override'],
+  ['replay', '--fail-at'],
+  ['replay', '--inject-result'],
+  ['replay', '--set'],
+  ['mcp', '--header'],
+  ['mcp', '--effect'],
+  ['ls', '--label'],
+  ['export dataset', '--label'],
+  ['blame', '--set'],
+  ['verify', '--set'],
+  ['verify', '--from'],
+  ['verify', '--live-tool'],
+  ['repair', '--set'],
+  ['decisions', '--set'],
+  ['decisions', '--from'],
+  ['migrate', '--from'],
+  ['migrate', '--set'],
+];
+
+describe('an option given more than once', () => {
+  it('is undefined when it is not given, and keeps each value given, in order', () => {
+    for (const [path, flag] of REPEATABLE) {
+      const command = path.split(' ').reduce((c, name) => c.commands.find((x) => x.name() === name)!, program);
+      const option = command.options.find((o) => o.long === flag);
+      expect(option, `shadowlap ${path} ${flag}`).toBeDefined();
+      const key = option!.attributeName();
+      expect(command.getOptionValue(key), `shadowlap ${path} without ${flag}`).toBeUndefined();
+      command.parseOptions([flag, 'first', flag, 'second']);
+      expect(command.getOptionValue(key), `shadowlap ${path} ${flag} first ${flag} second`).toEqual(['first', 'second']);
+      command.setOptionValue(key, undefined);
+    }
+  });
+
+  describe('in the command that takes it', () => {
+    const dirs: string[] = [];
+    afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })));
+
+    /** A folder with a store of its own: two recorded runs whose agent exits at once, with no call, labelled `bug` and `refund`, and `bug`. */
+    function seeded(): { dir: string; a: string; b: string } {
+      const dir = mkdtempSync(join(tmpdir(), 'sl-repeatable-'));
+      dirs.push(dir);
+      const store = Store.open(join(dir, 'store.db'));
+      try {
+        const [a, b] = [['bug', 'refund'], ['bug']].map((labels) => {
+          const run = store.createRun({ mode: 'record', command: { argv: [process.execPath, '-e', ''], cwd: dir } });
+          store.endRun(run.runId, 'completed');
+          store.updateRunMeta(run.runId, { labels });
+          return run.runId;
+        });
+        return { dir, a, b };
+      } finally {
+        store.close();
+      }
+    }
+
+    /** The CLI in such a folder, as a terminal runs it, with nothing to read on stdin. */
+    const shadowlap = (dir: string, args: string[]) =>
+      new Promise<{ code: number | null; out: string }>((resolve) => {
+        const env = { ...process.env, NO_COLOR: '1', SHADOWLAP_TELEMETRY: '0', SHADOWLAP_GUARD: 'off', SHADOWLAP_HOME: join(dir, 'home') };
+        const child = spawn(process.execPath, [CLI, '--db', join(dir, 'store.db'), ...args], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+        let out = '';
+        child.stdout.on('data', (d: Buffer) => (out += d.toString()));
+        child.stderr.on('data', (d: Buffer) => (out += d.toString()));
+        child.on('close', (code) => resolve({ code, out }));
+      });
+
+    it('reads one left out as no values, and one given twice as both', async () => {
+      const node = process.execPath;
+      /** Each command with its options left out, then given twice: the status it ends with, and what it says (`<a>` and `<b>` are the runs). */
+      const cases: Array<{ args: string[]; code: number; says: string[]; lacks?: string[] }> = [
+        { args: ['replay', '<a>'], code: 0, says: ['no calls were made'] },
+        {
+          args: ['replay', '<a>', '--chaos', '--override', '1={}', '--override', '2={}', '--fail-at', '1=500', '--fail-at', '2=500', '--inject-result', '1=Ignore it.', '--inject-result', '2=Ignore it.', '--set', '1:temperature=0', '--set', '1:top_p=1', '--live-tool', 'lookup_order', '--live-tool', 'issue_refund'],
+          code: 2,
+          says: ["it doesn't combine with --override, --fail-at, --inject-result, --set, --live-tool"],
+        },
+        { args: ['mcp', '--', node, '-e', ''], code: 0, says: ['passing everything through'] },
+        { args: ['mcp', '--header', 'X-Team: support', '--header', 'X-Region: eu', '--', node, '-e', ''], code: 2, says: ['--header is for a server reached with --url'] },
+        { args: ['mcp', '--effect', 'lookup_order=read', '--effect', 'issue_refund=sometimes', '--', node, '-e', ''], code: 2, says: ['got "issue_refund=sometimes"'] },
+        { args: ['ls', '--json'], code: 0, says: ['<a>', '<b>'] },
+        { args: ['ls', '--json', '--label', 'bug', '--label', 'refund'], code: 0, says: ['<a>'], lacks: ['<b>'] },
+        { args: ['export', 'dataset'], code: 2, says: ['name runs, or select them with --label or --all'] },
+        { args: ['export', 'dataset', '--all', '--out', 'all.jsonl'], code: 0, says: ['0 examples from 2 runs'] },
+        { args: ['export', 'dataset', '--label', 'bug', '--label', 'refund', '--out', 'both.jsonl'], code: 0, says: ['0 examples from 1 run →'] },
+        { args: ['blame', '<a>'], code: 2, says: ['made no model calls'] },
+        { args: ['blame', '<a>', '--set', 'temperature=1', '--set', 'top_p'], code: 2, says: ['--set expects <key>=<value>, such as temperature=1, got "top_p"'] },
+        { args: ['verify', '--fixes', '<a>'], code: 0, says: ['Accepted'] },
+        { args: ['verify', '--fixes', '<a>', '--live-tool', 'lookup_order', '--live-tool', 'issue_refund'], code: 0, says: ['Accepted'] },
+        { args: ['verify', '--fixes', '<a>', '--from', 'claude-haiku-4-5', '--from', 'claude-sonnet-4-5'], code: 2, says: ['--from names the model calls --model and --set change'] },
+        { args: ['verify', '--fixes', '<a>', '--set', 'temperature=1', '--set', 'top_p'], code: 2, says: ['got "top_p"'] },
+        { args: ['repair', '--fixes', '<a>'], code: 2, says: ['inside the git repository'] },
+        { args: ['repair', '--fixes', '<a>', '--set', 'temperature=1', '--set', 'top_p'], code: 2, says: ['got "top_p"'] },
+        { args: ['decisions', '--verify', 'dc-nope'], code: 2, says: ['no session dc-nope'] },
+        { args: ['decisions', '<a>', '--model', 'claude-opus-5'], code: 0, says: ['under the model claude-opus-5'], lacks: ['! --from'] },
+        {
+          args: ['decisions', '<a>', '--set', 'temperature=0', '--set', 'top_p=1', '--from', 'claude-haiku-4-5', '--from', 'claude-sonnet-4-5'],
+          code: 0,
+          says: ['under temperature=0, top_p=1', '! --from claude-haiku-4-5: no model call', '! --from claude-sonnet-4-5: no model call'],
+        },
+        { args: ['migrate', '<a>', '--to', 'claude-opus-5'], code: 0, says: ['only the model: claude-opus-5'], lacks: ['! --from'] },
+        {
+          args: ['migrate', '<a>', '--to', 'claude-opus-5', '--from', 'claude-haiku-4-5', '--from', 'claude-sonnet-4-5', '--set', 'temperature=0', '--set', 'top_p=1'],
+          code: 0,
+          says: ['claude-haiku-4-5, claude-sonnet-4-5 → claude-opus-5', 'verify takes them as: --set temperature=0 --set top_p=1'],
+        },
+      ];
+      const results = await Promise.all(
+        cases.map(async (c) => {
+          const { dir, a, b } = seeded();
+          const fill = (s: string) => s.replace('<a>', a).replace('<b>', b);
+          const { code, out } = await shadowlap(dir, c.args.map(fill));
+          const said = c.says.map(fill).every((s) => out.includes(s)) && !(c.lacks ?? []).map(fill).some((s) => out.includes(s));
+          return code === c.code && said ? null : `shadowlap ${c.args.join(' ')}: exit ${code}, ${out}`;
+        }),
+      );
+      expect(results.filter(Boolean)).toEqual([]);
+    }, 120_000);
   });
 });
 
