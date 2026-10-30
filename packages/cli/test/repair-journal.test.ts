@@ -107,6 +107,22 @@ describe('a journal planted in the repository', () => {
     }
   });
 
+  it("writes nothing in git's own folder: its config by its path, or through a link in the repository to it", () => {
+    const config = join(project, '.git', 'config');
+    const text = readFileSync(config, 'utf8');
+    const paths = [join(gitTop(), '.git', 'config')];
+    if (LINKS) {
+      mkdirSync(join(project, 'docs'));
+      symlinkSync('../.git/config', join(project, 'docs', 'remote.txt'));
+      paths.push(join(gitTop(), 'docs', 'remote.txt'));
+    }
+    for (const path of paths) {
+      journal([{ path, original: '# PLANTED\n', patched: text }]);
+      expect(startAndEnd()).toMatchObject({ restored: [], ignored: null });
+    }
+    expect(readFileSync(config, 'utf8')).toBe(text);
+  });
+
   it('is ignored when git tracks it: it came with the repository, not from a repair that died here', () => {
     mkdirSync(join(project, 'prompts'));
     writeFileSync(join(project, 'prompts', 'policy.md'), 'Escalate refunds above the limit.\n');

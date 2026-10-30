@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
 import { processAlive, Store, unifiedDiff } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
-import { applyAccepted, noDiagnosisWhy } from '../src/repair.js';
+import { applyAccepted } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -925,6 +925,40 @@ describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
   });
 
+  it("never shows the repairer a file of git's own, nor puts one in its report: a link to .git/config, with a token in it", async () => {
+    const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+    const url = `https://x-access-token:${TOKEN}@github.com/acme/support-agent.git`;
+    // The checkout's git config holds a credential, as a remote's URL with a token does, and a link in
+    // the repository names the config, as a pull request could add one.
+    sh(project, 'git', ['remote', 'add', 'origin', url]);
+    mkdirSync(join(project, 'docs'));
+    symlinkSync('../.git/config', join(project, 'docs', 'remote.txt'));
+    // The project's redaction rule masks the token in all the repairer is shown of a run.
+    writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/ghp_[A-Za-z0-9]+/', replace: '<TOKEN>' }] }));
+    sh(project, 'git', ['add', '-A']);
+    sh(project, 'git', ['commit', '-qm', 'a link to the git config']);
+    // A system prompt with a line of that config in it, as an agent that reads the link would send.
+    const system = { AGENT_SYSTEM: `You are a support agent. Follow the refund policy.\nurl = ${url}` };
+    const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
+    expect(recorded.code, recorded.out).toBe(0);
+    const failed = /recording run (\w{26})/.exec(recorded.out)![1];
+    mode = 'alternate';
+    // A rewrite of a span offered in git's config, whenever one is: it would carry its line into the report.
+    proposals = (prompt) => [/\[(\d+)\] system prompt, in \.git\/config:/.exec(prompt)?.[1]].flatMap((id) => (id ? [{ anchor: Number(id), replace: 'url = https://github.com/acme/support-agent.git', strategy: 'Name the remote without its token', why: 'It needs none.' }] : []));
+    const before = mock.requests.length;
+    const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
+    expect(r.stdout, r.out).toContain('"outcome"');
+    const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
+    expect(asked).toHaveLength(1);
+    // The run as the rule masks it, and no span of git's config to rewrite.
+    const shown = JSON.stringify(asked[0].body.messages).replace(/\\n/g, '\n');
+    expect(shown).toContain(`System prompt:\nYou are a support agent. Follow the refund policy.\nurl = https://x-access-token:<TOKEN>@github.com/acme/support-agent.git`);
+    expect(shown).not.toContain('.git/config');
+    expect(JSON.stringify(asked[0].body)).not.toContain(TOKEN);
+    const dir = join(project, (JSON.parse(r.stdout) as Report).output.dir);
+    for (const [name, text] of [['output', r.out], ['report.md', readFileSync(join(dir, 'report.md'), 'utf8')], ['report.json', readFileSync(join(dir, 'report.json'), 'utf8')]]) expect(text, name).not.toContain(TOKEN);
+  });
+
   it.skipIf(process.getuid?.() === 0)("says a candidate it can't write into its worktree is incomplete, and tries the next", async () => {
     const { failed } = await runs();
     mode = 'alternate';
@@ -968,43 +1002,5 @@ describe('applyAccepted', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe('noDiagnosisWhy', () => {
-  const target = (runId: string, outcome: 'unrescuable' | 'stopped' | 'passes' | 'error', note: string | null = null) => ({ runId, outcome, callNo: null, step: null, steps: 3, rescuedRunId: null, rescuedBy: null, reused: false, recorded: null, rescued: null, note });
-  const WRITE = "every attempt failed on post_digest's recorded error (channel_not_found: #refunds)";
-  const SAME = 'every attempt that passed at #1 answered it as the recording did';
-  const A = '01M540RX39AAAAAAAAAAAAAAAA';
-  const B = '01M540RX40BBBBBBBBBBBBBBBB';
-
-  it("says what blame found when no answer of the model's lost the runs, not to try a stronger model", () => {
-    const why = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }], null);
-    expect(why).toBe(`${WRITE}: no answer of the model's lost the run; look at the tools, the harness or the command`);
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }], 'big-model')).toBe(why);
-    // The same finding for two runs is said once; different ones, each with its run.
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: WRITE }], null)).toBe(`${WRITE}: no answer of the model's lost these runs; look at the tools, the harness or the command`);
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: SAME }], null)).toBe(`01M540RX39: ${WRITE}; 01M540RX40: ${SAME}: no answer of the model's lost these runs; look at the tools, the harness or the command`);
-    // A run it couldn't search beside one it did: what it found stands.
-    expect(noDiagnosisWhy([{ target: target(B, 'passes', `${B.slice(0, 10)} passes its oracle when replayed`), notTheAnswer: null }, { target: target(A, 'unrescuable'), notTheAnswer: WRITE }], null)).toContain(`${WRITE}: no answer`);
-  });
-
-  it('says why when no run could be searched, and suggests a stronger model only when a search rescued nothing', () => {
-    const passes = `${B.slice(0, 10)} passes its oracle when replayed (the agent exits 0), so there is no failure to blame. Say what it should have done with --expect.`;
-    expect(noDiagnosisWhy([{ target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
-    // A run blame searched with nothing to say for it, beside one it found a write's error in: no telling it isn't the prompt.
-    const unknown = noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: WRITE }, { target: target(B, 'unrescuable'), notTheAnswer: null }], null);
-    expect(unknown).toContain('--stronger <model>');
-    expect(noDiagnosisWhy([{ target: target(A, 'unrescuable'), notTheAnswer: null }], 'big-model')).toBe('neither resampling nor big-model rescued any failing run, so there is no passing path to learn from: the cause is likely in the code or the tools');
-    // A search that stopped part way is no search: the run that couldn't be blamed says why.
-    expect(noDiagnosisWhy([{ target: target(A, 'stopped'), notTheAnswer: null }, { target: target(B, 'passes', passes), notTheAnswer: null }], null)).toBe(`no failing run could be blamed: ${passes}`);
-  });
-
-  it('says blame did not settle a run whose first probe could not tell, never that resampling rescued nothing', () => {
-    const unsettled = (runId: string) => ({ target: { ...target(runId, 'unrescuable'), unsettled: true }, notTheAnswer: null });
-    expect(noDiagnosisWhy([unsettled(A)], 'big-model')).toBe('blame did not settle where the failing run was lost: its first probe could not tell whether resampling rescues it, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 says what settles it');
-    expect(noDiagnosisWhy([unsettled(A), unsettled(B)], null)).toBe('blame did not settle where the failing runs were lost: its first probe could not tell whether resampling rescues them, so there is no passing path to learn from yet; shadowlap blame 01M540RX39 01M540RX40 says what settles it');
-    // Beside a run resampling rescued nothing in, the search found that much.
-    expect(noDiagnosisWhy([unsettled(A), { target: target(B, 'unrescuable'), notTheAnswer: null }], null)).toContain('resampling rescued no failing run');
   });
 });

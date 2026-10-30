@@ -620,7 +620,7 @@
     "packages/cli/src/checks.ts": 1051,
     "packages/cli/src/decisions.ts": 1151,
     "packages/cli/test/ci-fix.test.ts": 942,
-    "packages/cli/test/repair.test.ts": 849,
+    "packages/cli/test/repair.test.ts": 847,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1104,
     "packages/dashboard/test/fixes.test.ts": 884,

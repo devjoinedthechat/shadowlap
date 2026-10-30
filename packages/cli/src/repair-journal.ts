@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { lstatSync, rmSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { isObject, messageOf } from '@shadowlap/engine';
-import { fileInside, readInside, writeInside } from './repair-tree.js';
+import { fileInside, gitFolders, readInside, writeInside } from './repair-tree.js';
 import { physicalPath, realPath } from './real-path.js';
 
 /**
@@ -19,10 +19,10 @@ import { physicalPath, realPath } from './real-path.js';
  * pull request writes only what git tracks), of this repository and not a submodule's, reached
  * through no link and with no other name. A journal that names a file outside the repository, which
  * no repair of it edited, is no repair's of this checkout either. Even then, it puts back only a
- * regular file of the repository's own (fileInside), never through a link or onto a file with
- * another name (writeInside), and only one that holds exactly the candidate's text: a file someone
- * changed since is theirs. A journal it doesn't take is left as it is, and repair and `shadowlap
- * doctor` say why.
+ * regular file of the repository's own, never one of git's (fileInside), never through a link or
+ * onto a file with another name (writeInside), and only one that holds exactly the candidate's text:
+ * a file someone changed since is theirs. A journal it doesn't take is left as it is, and repair and
+ * `shadowlap doctor` say why.
  */
 
 /** Where the journal is: `.shadowlap/repair-journal.json` in the folder repair runs in. */
@@ -144,10 +144,11 @@ export function recoverWorkingTree(cwd: string, root?: string): { restored: stri
   if (journal.kind === 'none') return { restored: [], ignored: null };
   if (journal.kind === 'ignored') return { restored: [], ignored: journal.why };
   const realRoot = physicalPath(journal.root);
+  const gitOwn = gitFolders(realRoot);
   const restored: string[] = [];
   for (const f of journal.files) {
-    // The repository's own regular file, a link resolved to the one it names; gone, or anything else, is left.
-    const file = fileInside(realRoot, f.file);
+    // The repository's own regular file, a link resolved to the one it names; gone, git's own, or anything else, is left.
+    const file = fileInside(realRoot, f.file, gitOwn);
     if (!file) continue;
     let now: string;
     try {

@@ -128,6 +128,42 @@ describe.skipIf(process.platform === 'win32')('a prompt file that is a link', ()
     expect(projectFiles(repo).map((f) => f.path)).toEqual(['prompts/inside.md']);
   });
 
+  /** An invented credential, in the shape of a GitHub token, and the header actions/checkout writes with one. */
+  const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+  const HEADER = Buffer.from(`x-access-token:${TOKEN}`).toString('base64');
+
+  it("is never read in git's own folder, a link to .git/config with a credential in it included", () => {
+    const { repo } = linked();
+    // The checkout's config holds a credential: a remote's URL with a token, and the header actions/checkout writes.
+    sh(repo, 'remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
+    sh(repo, 'config', 'http.https://github.com/.extraheader', `AUTHORIZATION: basic ${HEADER}`);
+    // Links to it, as a pull request could add them: by a relative name, by its absolute one, and to the folder.
+    symlinkSync('../.git/config', join(repo, 'prompts', 'remote.md'));
+    symlinkSync(join(repo, '.git', 'config'), join(repo, 'prompts', 'config.md'));
+    symlinkSync('../.git', join(repo, 'prompts', 'git'));
+    sh(repo, 'add', '.');
+    sh(repo, '-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'links to the git config');
+    const files = projectFiles(repo);
+    expect(files.map((f) => f.path)).toEqual(['prompts/inside.md']);
+    expect(JSON.stringify(files)).not.toContain(TOKEN);
+    expect(JSON.stringify(files)).not.toContain(HEADER);
+    expect(['prompts/remote.md', 'prompts/config.md', '.git/config'].map((f) => fileInside(repo, f))).toEqual([null, null, null]);
+  });
+
+  it('is never read in a git dir by another name inside the repository, which git lists as files it does not track', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-repair-gitdir-')));
+    dirs.push(base);
+    sh(base, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(base, '.repo-git')}`);
+    write(join(base, 'agent.mjs'), "export const system = 'Follow the refund policy.';\n");
+    sh(base, 'remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
+    sh(base, 'add', 'agent.mjs');
+    sh(base, '-c', 'user.name=T', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'agent');
+    expect(sh(base, 'ls-files', '--others', '--exclude-standard')).toContain('.repo-git/config');
+    const files = projectFiles(base);
+    expect(files.map((f) => f.path)).toEqual(['agent.mjs']);
+    expect(JSON.stringify(files)).not.toContain(TOKEN);
+  });
+
   it('is never written through, in a worktree or the working tree: nothing outside either changes', () => {
     const { repo, outside } = linked();
     const tree = candidateTree(repo, repo);

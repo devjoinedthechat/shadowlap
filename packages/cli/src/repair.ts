@@ -5,7 +5,7 @@ import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, rele
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
 import { loadConfig } from './config.js';
 import { recoverWorkingTree } from './repair-journal.js';
-import { fileInside, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
+import { fileInside, gitFolders, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS, type Repairer } from './repairer.js';
 import { physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
@@ -165,18 +165,21 @@ const git = (root: string, args: string[], o: { input?: string; env?: NodeJS.Pro
 
 /**
  * The project's text files: tracked, and untracked but not ignored. A link is read as the file it
- * ends at, under that file's own path, and only when that file is in the repository too (fileInside):
- * a rewrite is only ever written to a file of the repository's, never through a link to another.
+ * ends at, under that file's own path, and only when that file is in the repository too and not
+ * git's own (fileInside): a rewrite is only ever written to a file of the repository's, never through
+ * a link to another, and nothing of git's folder, whose config can hold a credential, reaches the
+ * repairer or a report, through a link or under another name git lists as a file it doesn't track.
  */
 export function projectFiles(root: string): SourceFile[] {
   const out: SourceFile[] = [];
   const seen = new Set<string>();
   const real = physicalPath(root);
+  const gitOwn = gitFolders(real);
   for (const listed of git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0')) {
     if (!listed) continue;
     // A committed recording (a golden, or __recordings__/) holds copies of the prompts, not their source.
     if (/(^|\/)blobs\/[0-9a-f]{64}$/.test(listed)) continue;
-    const path = fileInside(real, listed);
+    const path = fileInside(real, listed, gitOwn);
     if (!path || seen.has(path)) continue;
     seen.add(path);
     try {

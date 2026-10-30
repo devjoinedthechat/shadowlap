@@ -701,9 +701,10 @@ const fileList = (files: string[]) => (files.length > 1 ? `${files.slice(0, -1).
  * command its replay runs, which `shadowlap test` runs without asking for a pack the repository
  * tracks: so no file of a recording (a pack's run.json, calls.jsonl and blobs, or anything in
  * `__recordings__`) is ever rewritten, nor Shadowlap's config, which says what runs and where runs
- * go, nor anything in its own folder. Each name is read as Windows reads it too: in any case,
- * without the dots and spaces it drops from the end, and never as a stream of a file
- * (`run.json::$DATA`) or a short name (`RUN~1.JSO`), either of which names another file there.
+ * go, nor anything in its own folder or in git's, whose config can hold a credential. Each name is
+ * read as Windows reads it too: in any case, without the dots and spaces it drops from the end, and
+ * never as a stream of a file (`run.json::$DATA`) or a short name (`RUN~1.JSO`), either of which
+ * names another file there.
  */
 export function repairNeverRewrites(file: string): string | null {
   const parts = file.split('/');
@@ -711,6 +712,7 @@ export function repairNeverRewrites(file: string): string | null {
   if (parts.some((p) => /~\d/.test(p))) return 'a name with a ~ and a digit, which Windows can read as the short name of another file';
   const names = parts.map((p) => p.replace(/[. ]+$/, '').toLowerCase());
   const name = names.at(-1) ?? '';
+  if (names.includes('.git')) return "a file in git's own folder, where the repository and its config are, which can hold a credential";
   if (names.includes('.shadowlap')) return "a file in Shadowlap's own folder, where its store and repairs are";
   if (names.includes('__recordings__')) return 'a file in a folder of recordings';
   if (name === 'shadowlap.config.json') return "Shadowlap's config, which says what runs and where runs go";
