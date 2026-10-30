@@ -88,7 +88,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const budget = Number(input('FIX_BUDGET', '2.00').replace(/^\$/, ''));
   if (!Number.isFinite(budget) || budget <= 0) fail(`input fix-budget must be an amount in dollars, such as 2.00, not "${input('FIX_BUDGET')}"`);
   const repairer = input('REPAIRER');
-  if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`input repairer must be claude-code, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
+  // As shadowlap repair --repairer takes it: an openai repairer names its model.
+  if (repairer && !/^(?:(?:anthropic|claude-code)(?::.+)?|openai:.+)$/.test(repairer)) fail(`input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
   // What builds the agent once a fix changes its source, as shadowlap repair --build runs it.
   const fixBuild = input('FIX_BUILD');
   // The test history, and the runs a fix starts from: the project's store unless one is named.

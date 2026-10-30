@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { trackInGit } from './tracked.js';
+import { parseRepairer } from '../src/repairer.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 import { gateResult, Store } from '@shadowlap/engine';
 import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
@@ -77,7 +78,9 @@ describe('the GitHub Action', () => {
     const budget = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, FIX_BUDGET: 'lots' });
     expect(budget.out).toContain('input fix-budget must be an amount in dollars');
     const repairer = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'gpt' });
-    expect(repairer.out).toContain('input repairer must be claude-code, anthropic');
+    expect(repairer.out).toContain('input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "gpt"');
+    // One the CLI would refuse once the tests had run: an openai repairer names its model.
+    expect(action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'openai' }).out).toContain('input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "openai"');
   });
 
   it('never takes a hidden folder for a recording, as shadowlap test doesn\'t', () => {
@@ -218,6 +221,26 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(yml).toContain('\n  inconclusive:\n    description: Recordings whose verdict is inconclusive');
     expect(yml).toContain('INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}');
     expect(yml).toContain('INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}');
+    // The repairers it names are the ones the CLI takes (parseRepairer): a bare provider only where it needs no model.
+    const repairers = /as for shadowlap repair --repairer \(([^)]*)\)/.exec(yml)![1].split(', ');
+    const takes = (spec: string) => {
+      try {
+        parseRepairer(spec);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const provider of ['claude-code', 'anthropic', 'openai']) {
+      expect(repairers, provider).toContain(`${provider}:<model>`);
+      expect(repairers.includes(provider), provider).toBe(takes(provider));
+    }
+    for (const r of repairers) expect(takes(r.replace('<model>', 'some-model')), r).toBe(true);
+    // What makes a recording inconclusive, and when one fails the step, as docs/ci.md and shadowlap test have it.
+    const outputs = yml.slice(yml.indexOf('\noutputs:'));
+    const said = (name: string) => new RegExp(`\\n  ${name}:\\n    description: ([^\\n]*)`).exec(outputs)![1];
+    for (const why of ['a gate that ran out of attempts between its bounds', 'a check that could not be decided', 'an injection gate that showed too little to say', 'a provider unavailable too many attempts in a row']) expect(said('inconclusive')).toContain(why);
+    for (const why of ['failed a check or an injection gate', 'unless inconclusive is warn', 'fewer than 30 sessions', 'a decline or a drop']) expect(said('failed')).toContain(why);
     // Restored before the tests, saved after them whether they passed or not.
     const restore = yml.indexOf('uses: actions/cache/restore@v4');
     const test = yml.indexOf('id: test');
