@@ -967,10 +967,146 @@ Training shows:
 
 A task whose test forks before its takeover opens that test's run where it forked. It offers **Update the golden…**, which adds the normalizer a value that changes every run needs, and runs `test --update` on the golden.
 
-## What you see
+## Settings
 
-- **Settings** (`#/settings/<tab>`), the one page a project with no runs opens too: *Matching*, the normalizers with **Add normalizer** (a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value; a regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-take-too-long) refuses, as `(a+)+`, which can take minutes on some text, is named with why before it is added) and **Remove**, the clock, and **Calibrate**, which names the run it replays (the setup's, else the newest recording made here); *Redaction*, the rules, where each kind of copy applies them, and what they would mask in a run you pick (the newest recording made here, to start with, each run in the picker by its id and its about line, as Compare's are), path rules included, counted per rule with up to two samples before and after, exactly as a pack masks them (a long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all). Under a rule come quiet lines: for a path rule on what calls got back, how many values HTML, HAR and dataset copies mask there, which a pack keeps for its replay, with them on hover; and for values a pack leaves as they are (a number: a copy masks a JSON document's strings and keeps its numbers as recorded), how many, with the values and where they are on hover, then the path of the first place's path rule with the command that adds it behind **Copy** (one for a request masks them in every copy; one for what a call got back only in HTML, HAR and dataset copies), how many other places have one (`shadowlap redact preview` lists them), the rule that already masks them in those copies, or why none can: a clock or random read, which a replay needs as recorded, a stream's events, the top of a request, or a key no path can name; *CI* (`#/settings/alerts`), [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it, built from its switches, **Fix pull requests** and **Tell Slack** (the checkout, Node 22 and a line for the agent's dependencies before the action; with a fix pull request on, the checkout is of the branch its pull request goes into), with what it needs for what is on and what fails a golden in it; then a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off. The step's `env` names the keys of the providers the goldens' recordings call: with Fix pull requests on, every golden's, since blame and verify run the agent live, else those of the goldens that run live (one marked `fork`, or with an injection gate, and a forking golden's judges), with how many there are among what it needs; where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma. What fails a golden lists the injection gate too, and in amber a gate, judge or injection test that can't decide, which **An inconclusive golden** sets for the step (**Warns** writes `inconclusive: warn`; **Fails** leaves the input out, so a gate against history with too few sessions still only warns); the pull request is shown as CI opens it, its branch named after the golden, blame where the run was lost and verify's line with its rule stated once. The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own: its Team store row says how Push from CI stands and leads to Settings → Store, where it is set, and while it is on the step pushes the test runs and each fix, what it needs names the bucket's credentials (for short-lived ones, the two credentials steps `shadowlap store ci` prints and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push), and what lands in the team store adds the test runs, the fix on teammates' Fixes page and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)); *Coding agents*, which need no MCP server, the CLI being their interface: which of `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them `.cursor/rules` and `.github/copilot-instructions.md`, mention Shadowlap; on the `.agents/skills` row [the skills for Codex, Cursor, Copilot and the others](./agents.md#codex-cursor-copilot-and-others), with **Add the skills**, after which the row reads *found · shadowlap-setup-agent, shadowlap-debug-agent* and its version, and the files of the agents that read them say the skills give them the section; over another version's copy, **Update to** moves them to the CLI's own, and over one edited here, **Replace with** puts the CLI's own copy in its place (it asks first, since that replaces it); where the skills can't go in, the row says why; and the section to paste; *Tools*, every tool the recordings called by what happens to it after a fork, and the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it, and each config with `shadowlap mcp` in front of its servers to copy (a header's value becomes a variable in the entry's `env`, a URL's user and password are never shown or copied: a remote server's become an `Authorization: Basic` header from a variable, or are left out when it sends its own Authorization header, and one in a command shows as `•••@` to put back; the page names every value the copy leaves out, and in `.mcp.json`, whose `${NAME}` Claude Code fills in from the environment it starts from, says to set each variable there). **Add a server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them, and copies the entry as you typed it, a URL's query and path included, less a URL's user and password; *Project*, its store, runs and attempts, size and address, **Clean up old runs** and **Remove from dashboard**; *Store*, the [team store](./team.md): the bucket, the last sync with the runs in the store and only on this machine (by run, attempts filed under their run), **Push local runs**, **Pull** and Push from CI (every test run, its report and each fix CI opens) with its step to copy (the Fix on failure step on the CI tab follows it), and while a setup is under way the step that is next with **Continue the setup**; with none, **Set up the store** opens the store's setup page. While `shadowlap.config.json` can't be read, the tabs say so where their rules would be, and offer neither **Calibrate** nor **Set up the store**, which would read or write the same file; *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does. When the project's folder is gone, Settings says so in its header, with **Remove from the dashboard**, says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, shows no clock mode as chosen (nor while the file can't be read), and changes nothing until the folder is back.
-- **The team store's setup** (`#/setup/store`): its own page, reached from Settings → Store's **Set up the store** and the palette's **Set up the team store**. [Four steps](./team.md#set-it-up), each unlocking the next with its command beside it where it has one: connect your bucket (**Check access and connect** runs `store set --check`, which writes the config only once the check passes), push your runs, push from CI (**I added it** or **Skip for now**), bring your team (**Finish**). While a setup is under way, Needs a look leads back to it first, Settings → Store names the next step, the palette offers **Continue setting up the store**, and the status bar says *setting up*. A setup finished before says so, with the way to Settings → Store.
+Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. It has a tab for each part of the project's setup:
+
+| Tab | What it holds |
+| --- | --- |
+| [Matching](#matching) | The normalizers, the clock, and **Calibrate** |
+| [Redaction](#redaction) | The redaction rules, where each copy applies them, and what they would mask in a run |
+| [CI](#ci) | Your CI workflow, built from its switches |
+| [Coding agents](#coding-agents) | Which instruction files mention Shadowlap, and the skills |
+| [Tools](#tools) | Every tool the recordings called, and the MCP servers |
+| [Project](#project) | The project's store, runs, size and address |
+| [Store](#store) | The [team store](./team.md) |
+
+How Settings writes the config, and what its buttons run, is under Actions in Settings.
+
+### Matching
+
+*Matching* holds:
+
+- **The normalizers**, with **Add normalizer** and **Remove**. **Add normalizer** takes a scope, a path, a named pattern, or under Advanced a regex, a tool or call name, or the whole value.
+- **The clock.**
+- **Calibrate**, which names the run it replays: the setup's, else the newest recording made here.
+
+A regex the [pattern check](./normalizers-and-redaction.md#patterns-that-could-take-too-long) refuses, as `(a+)+`, which can take minutes on some text, is named with why before it is added.
+
+### Redaction
+
+*Redaction* holds the rules, where each kind of copy applies them, and what they would mask in a run you pick. The picker starts on the newest recording made here, and names each run by its id and its about line, as Compare's do.
+
+What the rules would mask is counted per rule, path rules included, with up to two samples before and after, exactly as a pack masks them. A long run is read up to 2,000 calls, 64 MB or 5 seconds, and the page says how far it got; `shadowlap redact preview` reads it all.
+
+Under a rule come quiet lines:
+
+- **A path rule on what calls got back**: how many values HTML, HAR and dataset copies mask there, which a pack keeps for its replay, with them on hover.
+- **Values a pack leaves as they are**: how many, with the values and where they are on hover. These are numbers: a copy masks a JSON document's strings and keeps its numbers as recorded.
+
+For values a pack leaves as they are, the lines then give:
+
+- the path of the first place's path rule, with the command that adds it behind **Copy**: one for a request masks them in every copy, and one for what a call got back only in HTML, HAR and dataset copies;
+- how many other places have one (`shadowlap redact preview` lists them);
+- the rule that already masks them in those copies, or why none can: a clock or random read, which a replay needs as recorded, a stream's events, the top of a request, or a key no path can name.
+
+### CI
+
+*CI* (`#/settings/alerts`) builds [your workflow](./ci.md#one-job-for-all-of-it): one job, in which the action runs the goldens once (`id: goldens`) and the parts you turn on follow it. It is built from its switches, **Fix pull requests** and **Tell Slack**.
+
+The workflow has the checkout, Node 22 and a line for the agent's dependencies before the action. With a fix pull request on, the checkout is of the branch its pull request goes into. The tab shows what the workflow needs for what is on, and what fails a golden in it. Then comes a panel for each part, its settings and what lands, for the repository's default branch, dimmed while it is off.
+
+**Keys.** The step's `env` names the keys of the providers the goldens' recordings call, with how many there are among what it needs:
+
+- With Fix pull requests on, every golden's keys, since blame and verify run the agent live.
+- Otherwise, those of the goldens that run live: one marked `fork`, or with an injection gate, and a forking golden's judges.
+
+Where a golden's keys can't be named, a comment in the `env` says to add them. A list of keys breaks only after a comma.
+
+**What fails a golden** lists the injection gate too, and, in amber, a gate, judge or injection test that can't decide. **An inconclusive golden** sets that for the step:
+
+- **Warns** writes `inconclusive: warn`.
+- **Fails** leaves the input out, so a gate against history with too few sessions still only warns.
+
+**The pull request** is shown as CI opens it: its branch named after the golden, blame where the run was lost, and verify's line with its rule stated once.
+
+**Push from CI.** The step follows the [team store](./team.md#push-from-ci)'s Push from CI, with no switch of its own. Its Team store row says how Push from CI stands, and leads to Settings → Store, where it is set. While it is on:
+
+- the step pushes the test runs and each fix;
+- what it needs names the bucket's credentials: for short-lived ones, the two credentials steps `shadowlap store ci` prints and `id-token: write`; for R2, its keys as secrets, which only your branches' jobs get, and only those push;
+- what lands in the team store adds the test runs, the fix on teammates' Fixes page, and what a pull request's job writes ([Fixes in the team store](./ci.md#fixes-in-the-team-store)).
+
+### Coding agents
+
+*Coding agents* need no MCP server: the CLI is their interface. The tab shows which of these files mention Shadowlap: `CLAUDE.md`, `AGENTS.md`, `.agents/skills`, and where the project has them, `.cursor/rules` and `.github/copilot-instructions.md`.
+
+The `.agents/skills` row offers [the skills for Codex, Cursor, Copilot and the others](./agents.md#codex-cursor-copilot-and-others), with **Add the skills**:
+
+- **After adding them**, the row reads *found · shadowlap-setup-agent, shadowlap-debug-agent* and its version. The files of the agents that read them say the skills give them the section.
+- **Over another version's copy**, **Update to** moves them to the CLI's own.
+- **Over one edited here**, **Replace with** puts the CLI's own copy in its place. It asks first, since that replaces it.
+- **Where the skills can't go in**, the row says why.
+
+The tab also gives the section to paste.
+
+### Tools
+
+*Tools* lists every tool the recordings called, by what happens to it after a fork. It also lists the MCP servers the project's client configs list, each with the `shadowlap mcp` line that records it. Each config comes with `shadowlap mcp` in front of its servers, to copy.
+
+Credentials in a copied config:
+
+- **A header's value** becomes a variable in the entry's `env`.
+- **A URL's user and password** are never shown or copied. A remote server's become an `Authorization: Basic` header from a variable, or are left out when it sends its own Authorization header. One in a command shows as `•••@`, to put back.
+- **Every value the copy leaves out** is named on the page. In `.mcp.json`, whose `${NAME}` Claude Code fills in from the environment it starts from, the page says to set each variable there.
+
+**Add a server…** shows the line and entry for a command or URL you type, credentials hidden as the table hides them. It copies the entry as you typed it, a URL's query and path included, less a URL's user and password.
+
+### Project
+
+*Project* shows the project's store, runs and attempts, size and address, with **Clean up old runs** and **Remove from dashboard**. Beside the store's size, it shows any unused space that runs deleted since left in the store.
+
+### Store
+
+*Store* is the [team store](./team.md). It shows:
+
+- the bucket;
+- the last sync, with the runs in the store and only on this machine, by run (attempts filed under their run);
+- **Push local runs** and **Pull**;
+- Push from CI (every test run, its report and each fix CI opens), with its step to copy; the Fix on failure step on the CI tab follows it;
+- while a setup is under way, the step that is next, with **Continue the setup**.
+
+With no team store, **Set up the store** opens the store's setup page.
+
+### When the config or the folder can't be read
+
+While `shadowlap.config.json` can't be read:
+
+- the tabs say so where their rules would be;
+- they offer neither **Calibrate** nor **Set up the store**, which would read or write the same file;
+- *CI* says so too, and each step says in its `env` what it leaves out until the file is fixed, as an amber row of what it needs does;
+- no clock mode shows as chosen.
+
+When the project's folder is gone, Settings says so in its header, with **Remove from the dashboard**. It says its rules, store, instruction files, recorded tool calls and MCP configs can't be read, and shows no clock mode as chosen. It changes nothing until the folder is back.
+
+## The team store's setup
+
+The team store's setup (`#/setup/store`) is a page of its own. You reach it from Settings → Store's **Set up the store**, or the palette's **Set up the team store**.
+
+It has [four steps](./team.md#set-it-up). Each unlocks the next, with its command beside it where it has one:
+
+1. **Connect your bucket.** **Check access and connect** runs `store set --check`, which writes the config only once the check passes.
+2. **Push your runs.**
+3. **Push from CI**: **I added it**, or `Skip for now`.
+4. **Bring your team**: **Finish**.
+
+While a setup is under way:
+
+- Needs a look leads back to it first;
+- Settings → Store names the next step;
+- the palette offers **Continue setting up the store**;
+- the status bar says *setting up*.
+
+A setup finished before says so, with the way to Settings → Store.
 
 ## Actions
 
