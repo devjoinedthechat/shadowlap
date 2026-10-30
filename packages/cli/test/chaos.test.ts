@@ -211,7 +211,7 @@ describe('test --chaos', () => {
     // docs/error-paths.md shows a golden whose expect lets one alert out: every attempt is held to that.
     config({ 'goldens/forecast': { expect: { tools: { send_alert: 1 } } } });
     const docs = readFileSync(fileURLToPath(new URL('../../../docs/error-paths.md', import.meta.url)), 'utf8');
-    const sample = /^```\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
+    const sample = /^```(?:text)?\n(⚡ goldens\/forecast[\s\S]*?)^```/m.exec(docs)![1];
     const mask = (t: string) => t.replace(/SyntaxError: .*/g, 'SyntaxError: …').trimEnd();
     const held = await shadowlap(['test', 'goldens/forecast', '--chaos']);
     expect(held.code, held.out).toBe(1);
