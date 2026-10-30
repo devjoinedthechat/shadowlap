@@ -45,6 +45,7 @@ import { CONFIG_FILE, configPath, defaultDbPath, loadConfig, loadTests, type Sha
 import { expandRecordings, goldenMode, goldenName } from './goldens.js';
 import { emitJobEvent, inDashboardJob } from './job-events.js';
 import type { TestReport } from './test-report.js';
+import { linkInPath } from './real-path.js';
 import { palette as p, safe, shortId } from './ui.js';
 import { ancestorsOf, stillRecording, VERSION } from './shared.js';
 
@@ -748,14 +749,21 @@ export async function teamPull(t: TeamEnv, runArgs: string[], flags: { json?: bo
  * Writes the files of repairs a pull brought beside the project, as the repair wrote them where it
  * ran: `fix.patch`, `report.json` and `report.md` in `.shadowlap/repairs/<id>/`, so `shadowlap fix
  * apply` and the Fixes page's Copy git apply find the patch here. Never into a folder that is there
- * already. The recordings a repair made of the fixed runs (its goldens) aren't among them: a golden
- * runs the command it recorded when it is tested, so it comes from the repository, never the store.
+ * already, nor through a link on the way to it, which a repository can track (`.shadowlap/repairs`)
+ * to send the files wherever it points. The recordings a repair made of the fixed runs (its goldens)
+ * aren't among them: a golden runs the command it recorded when it is tested, so it comes from the
+ * repository, never the store.
  */
 function writeRepairFiles(t: TeamEnv, store: StoreOf<'fixes'>, repairIds: readonly string[]): string[] {
   const written: string[] = [];
   for (const id of repairIds) {
     const r = store.getRepair(id);
     if (!r || !/^repair-[0-9a-z]{1,40}$/.test(r.repairId) || r.dir !== `.shadowlap/repairs/${r.repairId}`) continue;
+    const link = linkInPath(t.cwd, r.dir);
+    if (link) {
+      note(t, p.yellow(`! couldn't write ${r.dir}: ${link} in ${t.cwd} is a link, which Shadowlap never writes through: make it a folder of its own`));
+      continue;
+    }
     const dir = join(t.cwd, '.shadowlap', 'repairs', r.repairId);
     if (existsSync(dir)) continue;
     try {

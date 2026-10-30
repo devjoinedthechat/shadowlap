@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,6 +214,35 @@ describe('push and pull through the bucket', () => {
     const dstore = Store.open(dana.dbPath);
     expect(dstore.repairPulled('repair-munzln2i')).toBeNull();
     dstore.close();
+  });
+
+  it.skipIf(process.platform === 'win32')("writes a pulled repair's files through no link: a .shadowlap/repairs the repository tracks as one is refused, and nothing lands where it points", async () => {
+    const dana = machine('fixlink-dana', 'dana@northwind.example');
+    storeSet(dana, storeUrl('fixlink'));
+    const runId = goldenInto(dana);
+    const store = Store.open(dana.dbPath);
+    try {
+      recordBlame(store, { runId, report: blameReport(runId), expect: EXPECT, scope: null, command: `shadowlap blame ${runId}`, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times', actor: 'dana@northwind.example' });
+      recordRepair(store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [runId] }), expect: EXPECT, command: `shadowlap repair --fixes ${runId}` });
+    } finally {
+      store.close();
+    }
+    expect(await teamPush(dana, [], { all: true })).toBe(0);
+
+    const maya = teammate(dana, 'fixlink-maya', 'maya@northwind.example');
+    const elsewhere = mkdtempSync(join(tmpdir(), 'sl-team-elsewhere-'));
+    try {
+      // A link the repository tracks, in a .shadowlap that is a folder of its own.
+      mkdirSync(join(maya.cwd, '.shadowlap'), { mode: 0o700 });
+      symlinkSync(elsewhere, join(maya.cwd, '.shadowlap', 'repairs'));
+      expect(await teamPull(maya, [])).toBe(0);
+      const { out, err } = maya.take();
+      expect(out).toContain('1 fix pulled: "Refunds above the limit issued without approval"');
+      expect(`${out}${err}`).toContain(`! couldn't write .shadowlap/repairs/repair-munzln2i: .shadowlap/repairs in ${maya.cwd} is a link, which Shadowlap never writes through`);
+      expect(readdirSync(elsewhere)).toEqual([]);
+    } finally {
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
   });
 
   it("takes a teammate's repair on a push too, when the store's copy of the fix has it, and writes its patch here", async () => {

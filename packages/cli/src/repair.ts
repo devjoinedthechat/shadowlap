@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { applyEdit, messageOf, commitTitle, eachRun, estimateCost, packRun, releaseLock, REPAIR_FILE_LIMIT, repairMarkdown, repairPatchProblem, takeLock, titleText, type HeldLock, type Price, type RepairCandidate, type RepairReport, type RepairTarget, type RunRecord, type SourceFile, type SprtGate, type VerifyRole, lostWhere } from '@shadowlap/engine';
 import { type AttemptSettings, type AttemptTarget } from './attempts.js';
@@ -7,7 +7,7 @@ import { loadConfig } from './config.js';
 import { recoverWorkingTree } from './repair-journal.js';
 import { listedFiles, readInside, removeCandidateTrees, writeInside } from './repair-tree.js';
 import { CLAUDE_CODE_TURNS, DEFAULT_ANTHROPIC_REPAIRER, REPAIRER_ANSWER_TOKENS, type Repairer } from './repairer.js';
-import { physicalPath } from './real-path.js';
+import { linkInPath, physicalPath } from './real-path.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { shortId } from './ui.js';
 
@@ -121,7 +121,8 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
  * cleans up after one that died: the worktrees it verified candidates in, and the working tree an
  * older Shadowlap, which tried candidates in place, may have left edited (its journal, which
  * repair-journal.ts takes only when it is the checkout's own; `ignored` says why one was not). A
- * `.shadowlap` that is a link is refused before anything is made, so nothing goes through it. One
+ * `.shadowlap`, or a `.shadowlap/repairs` in it, that is a link is refused before anything is made
+ * (refuseLink), so nothing goes through it. One
  * repair runs in a folder at a time, as `--apply` writes the working tree, so what is found here is
  * never a running repair's: the repair that left it died, and the lock of a process that died is
  * taken over at once. A repair runs for minutes, so a lock whose holder this machine can't check (one
@@ -129,8 +130,7 @@ export function repairerMost(r: Pick<Repairer, 'provider' | 'model'>, prompt: { 
  * waits until someone deletes it. Throws when another repair runs here.
  */
 export function startRepair(cwd: string, root?: string): { lock: HeldLock; restored: string[]; ignored: string | null } {
-  // A repository can ship .shadowlap as a link, which would send the lock, the journal's reading and the reports elsewhere.
-  if (lstatSync(join(cwd, '.shadowlap'), { throwIfNoEntry: false })?.isSymbolicLink()) throw new RepairError(`.shadowlap in ${cwd} is a link, which repair never writes through: make it a folder of its own`);
+  refuseLink(cwd, '.shadowlap/repairs');
   mkdirSync(join(cwd, '.shadowlap'), { recursive: true, mode: 0o700 });
   const path = join(cwd, '.shadowlap', 'repair.lock');
   const lock = takeLock(path, { wait: 0, mode: 0o600, ageOut: false, busy: () => new RepairError(`another shadowlap repair is running in this folder: wait for it to end (if none is running, delete ${path})`) });
@@ -141,6 +141,16 @@ export function startRepair(cwd: string, root?: string): { lock: HeldLock; resto
     releaseLock(lock);
     throw err;
   }
+}
+
+/**
+ * Refuses a folder on the way to `rel`, in the folder repair runs in, that is a link: a repository can
+ * ship `.shadowlap`, or `.shadowlap/repairs` in it, as one, to send the lock, the journal's reading
+ * and the reports elsewhere.
+ */
+function refuseLink(cwd: string, rel: string): void {
+  const link = linkInPath(cwd, rel);
+  if (link) throw new RepairError(`${link} in ${cwd} is a link, which repair never writes through: make it a folder of its own`);
 }
 
 export function gitRoot(cwd: string): string {
@@ -201,13 +211,15 @@ export function runBuild(cmd: string, cwd: string): { ok: boolean; tail: string 
  * fix, the patch and a recording of every fixed run; then, on request, the change applied to the
  * working tree, committed to a branch, and opened as a pull request. When one of those requests
  * fails, report.json is still written and a HandOverError carries the report as far as it got.
- * Called holding the folder's repair lock.
+ * Called holding the folder's repair lock. Nothing is written through a link on the way to the
+ * directory (refuseLink), one that turned up since the repair started included.
  */
 export function handOver(report: RepairReport, input: Pick<RepairInput, 'opts' | 'outputs' | 'settings' | 'log'>): RepairReport {
   const cwd = process.cwd();
   const root = gitRoot(cwd);
   const id = `repair-${Date.now().toString(36)}`;
   const dir = join(cwd, '.shadowlap', 'repairs', id);
+  refuseLink(cwd, `.shadowlap/repairs/${id}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const out = report.output;
   // Paths in the report are relative to the folder repair ran in, with forward slashes on every
