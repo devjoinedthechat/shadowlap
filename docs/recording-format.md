@@ -267,7 +267,7 @@ with `meta.http` naming the host:
 - **A body masking couldn't read** is `{"body": "<CREDENTIAL>", "encoding": "text"}`, and a result's
   `headers` then `{}`. Two calls to one address whose bodies masking couldn't read have the same
   arguments, so a replay matches them by their order
-  ([redaction](./normalizers-and-redaction.md#redaction) says when that is).
+  ([bodies masking can't read](./normalizers-and-redaction.md#bodies-masking-cant-read) says when that is).
 
 ### Request manifests
 
@@ -457,7 +457,7 @@ Older recordings are matched without what they never kept:
 ### A captured call's arguments
 
 A captured call's `args` count as stored, its credentials masked as `<CREDENTIAL>`
-([redaction](./normalizers-and-redaction.md#redaction)):
+([which credentials](./normalizers-and-redaction.md#credentials)):
 
 - **A Kubernetes Secret's `data` and `stringData`** are among the credentials masked, in a recording
   an earlier version made that kept one as sent too.
