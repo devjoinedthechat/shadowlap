@@ -772,7 +772,7 @@ All, Open and Verified filter them.
 
 ### A fix's page
 
-A fix's page names what failed and its check as the list does, its failing and good runs, and when it was opened and verified. It opens on its last finished step: Blame, Repair or Verify. What you can do from it is under Actions on a fix.
+A fix's page names what failed and its check as the list does, its failing and good runs, and when it was opened and verified. It opens on its last finished step: Blame, Repair or Verify. What you can do from it is under [Actions on a fix](#actions-on-a-fix).
 
 ### Blame step
 
@@ -856,7 +856,7 @@ The stepper counts the runs the verdicts that hold fixed and kept (*3 fixed · 1
 
 ## Tests
 
-Tests lists every [golden](./ci.md) on disk, the packs in `goldens/` and those the config's `tests` name, and how each did. What its buttons run is under Actions on Tests.
+Tests lists every [golden](./ci.md) on disk, the packs in `goldens/` and those the config's `tests` name, and how each did. What its buttons run is under [Actions on Tests](#actions-on-tests).
 
 ### The verdict
 
@@ -981,7 +981,7 @@ Settings (`#/settings/<tab>`) is the one page a project with no runs opens too. 
 | [Project](#project) | The project's store, runs, size and address |
 | [Store](#store) | The [team store](./team.md) |
 
-How Settings writes the config, and what its buttons run, is under Actions in Settings.
+How Settings writes the config, and what its buttons run, is under [Actions in Settings](#actions-in-settings).
 
 ### Matching
 
@@ -1258,19 +1258,224 @@ The only project can't be removed.
 
 ## Actions
 
-Labels, notes and actions run only from a dashboard started with `shadowlap dashboard`; elsewhere their buttons say why they are off. **Replay** re-runs the recorded command. **Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag: at a model call, inject an instruction (always as the user), switch the model, fork with your changed prompt, an HTTP failure (`--fail-at`) or diverge; at a tool call, override its result, answer with a tool error, plant a prompt injection (reads only), force it live or diverge; at a recorded user input, answer differently as the user or diverge; and for the whole run, repeat the replay and compare the attempts (`--repeat`), stub the writes, or find the commit that broke it ([`bisect`](./cli.md#bisect), which asks for a commit where the run still worked and offers the ones its command was recorded at that this checkout has, searching up to HEAD when the run failed at a commit it lacks, such as a teammate's; on a run that passed, the first commit after its own that changed what it does, once there is a commit after it; a run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead; a run that failed on its own is replayed with `--fork`, and the dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass); a fork is made again from its parent, with the flags, command and checks that made it. An action that needs something from you (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first; the inject dialog shows the command it runs. What you type is passed as text, never read as a file. See [Interventions](./interventions.md). A run imported from a capture has no command, so its menu shows a note and one action, **Replay** with your command; that replay records every kind of call, and every fork works on it. **Share** copies the run, each copy a job: an HTML file with the runs it came from and a HAR, which also download; a pack, into a folder inside the project; a dataset for evals, in a format and with the examples you pick; or an OpenTelemetry trace, sent to a collector or written to a file (a file only: it is sent nowhere else). Copies are written into `.shadowlap/exports/` in the project unless a pack names another folder, never through a link that is already there, and the menu says how many redaction rules each applies (a trace carries no prompt text, so only the rules without a path). A run is copied once it has ended. With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link** (the report opens for anyone with the link until it expires, 7 days at most), and a run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them). **Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does, and the recorded data nothing else uses.
+Labels, notes and actions run only from a dashboard started with `shadowlap dashboard`; elsewhere their buttons say why they are off. Each action is a [job](#jobs) that runs the CLI.
 
-A failed run that was never blamed has **Run blame** on its page. It blames the run with the check it failed, found the way a replay is judged: the run's own `--expect`, else the entry under the config's `tests` for the recording it replays (the golden a test replayed, or the pack it was unpacked from, through the runs it came from); else the check of the fix it fails in or of a fix its labels point to; else the agent's exit. When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it. On an open fix, **Repair from here** runs [`shadowlap repair`](./repair.md) from the fix's failing runs, its check and the scope its blame searched (so the repair blames the same calls and reuses that blame), keeping the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent (a good run of another agent checks nothing a change to this one touches), else none, with the repairer `repair.repairer` in shadowlap.config.json names, or else your own Claude Code (`--repairer claude-code`); it asks first, since it runs your agent live, and says that each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself, so a file you change meanwhile is in the candidates made after it. When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent: Repair from here stays but is no longer the page's lead button, and its hover and its dialog say so, and why (no answer of the model's lost the run, since every attempt met a write's recorded error again or the attempts that passed answered as the recording did; blame couldn't settle where it was lost; or no probe rescued it), the dialog without the line about billed model calls. The blame's own next step leads instead: **Blame again** for a blame that couldn't settle (more attempts and a lower bar, as blame's report says) or stopped part way (to the end, without its budget), under the fix's check; **Blame with a stronger model…** for one that asked the recorded model again and rescued the run from no call, which asks for the model first, unless blame found the model's answer isn't what lost the run. Each is built from the blame's report and the flags kept beside it, as Run more attempts is: a blame a pull brought asks first, showing the exact command. The dialog reads the config again as it opens and names the repairer it will ask, whose account pays; if the config names another by the time you confirm, nothing runs and the job says which one it names now. When that repairer is Claude Code and `claude` can't be found on the PATH the dashboard's jobs get (or where `SHADOWLAP_CLAUDE` points), the dialog says so with what to do and Repair stays off, and the server refuses the job: it would blame every failing run and find no one to propose a fix. An API repairer's key can't be checked without asking it, so the repair says why when it couldn't. On a verified fix, **Copy git apply** copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`, which keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line (a teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`), and **Apply the patch** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/` and `shadowlap test` replays them; the button then reads *Patch applied*, and **View the patch** takes the place of Copy git apply. A fix with no patch (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it, its hover naming the change its agent makes, or saying it was verified on the working tree; the activity feed says *Marked applied* too. A patch already in your working tree (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying: the button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied, Copy git apply is gone, and the Overview no longer counts the fix as ready to apply. For a teammate's repair, from the team store, the patch goes in alone, and nothing runs it: its recordings are on their machine, and your goldens aren't replayed against it until you have read it and run `shadowlap test`. A patch that is more than the change its repair verified (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here: the button stays off and says why, Copy git apply is gone, and `fix apply` refuses it. For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too: a prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call. The drawer names each that does, at the call and request field, with **Update goldens**, which asks first and re-records them with `shadowlap test <goldens> --update`. An applied fix whose goldens failed its test holds again once a test session passes every one of them. Applied is this machine's own: a fix a teammate applied is verified here until its patch is in this working tree. An apply changes your working tree, and a repair makes its candidates from it, so each runs alone in its project: it can't start while a job runs your agent from that tree (a recording, a blame, a replay or fork, a test, a calibration), and until it is done any of those is refused with what holds the tree; their buttons wait, with the reason on hover, and Search or jump to leaves Calibrate out. **Run blame**, **Repair from here**, **Apply the patch** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile and say so on hover; any other action that runs your agent is refused with the reason; a job in another project's folder doesn't wait. A repair or a blame that would run a command from someone else's pack asks once more before it does. **Find the commit** is off on such a run, with the reason on hover, since it would run that command at every commit: replay it with your own command first, and find the commit from that run. **Rename** gives a fix a title of your own, as `shadowlap fix title` does.
+### Actions on a run
 
-Each action is a job: the dashboard runs the CLI in the folder of the [project](#projects) it shows, against that project's store, and the job's output streams into a drawer titled with what it does (Replaying, Forking, Repeating, Packing); a screen reader hears how the job stands as that changes (running, stopping, how it ended), not each line it prints. An action that replays a run from someone else's pack, a teammate's pulled from the [team store](./team.md), or one whose command a program sent the sidecar, runs the command recorded: after whatever the action asks first (how many attempts, an instruction, an edited result), a dialog shows that command and what runs it, and only its **Run** starts it; it opens on Cancel, so an Enter pressed once too often runs nothing. The server asks that question itself, a 409 naming the exact command lines with a `confirm` for them, and takes as a yes only that `confirm` sent back as `yes` (`confirmed` for the error-path presets), so a yes is to the lines the dialog showed: a command a pull has changed since is asked again. A job that runs a golden from a pack your repository doesn't track, recorded elsewhere, and passes the CLI `--yes` (a decision diff from the working tree or with a verify, a migration, verifying what a session flagged, an injection test) asks the same of its command; a job the server asked nothing of passes no `--yes`, whatever its request sent, and the CLI, with no terminal to ask in, refuses such a golden ([`test`](./cli.md#test) says why). The command also tells the job what it made, on a pipe of its own rather than in its output: the runs it started (attempts listed apart, since they open as a bundle), where to go next, the files and folders it wrote, and its result (what `--json` would print). So the drawer ends on the outcome and the exit code and links to the new run (**Open run**) or the attempts without reading the text, names the folder a pack went to, and offers a file a job wrote for download. A **Replay** whose request differed from its recording says where, *diverged at #3 · went live · exit 0*, in amber (red when the agent then failed): `replay` forks at the first request that differs and runs live from there, writes blocked, so the run it made is no reproduction. **Calibrate**, beside **Open run**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path); its drawer offers **Add it (--write)**, and the next Replay is clean. A fork from the menu says *forked*: diverging where its flag changed the run is what it was asked for. One that left the recording before the call its flag acts on says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**: the calls before it did not replay, so what the flag changed is not the only difference. Closing the drawer leaves the job running: the top bar counts the jobs running (*1 job running*), from every tab and every page, and a click opens the newest one's drawer again. **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds), and the drawer then says *stopped*; it asks first while the job holds your working tree (a repair verifying candidates made from it, a patch being applied). A run it left recording is marked as interrupted, so it no longer shows as live and can be deleted. Stopping the dashboard (Ctrl-C, a kill, or closing the terminal it runs in) stops its running jobs the same way and waits for them; stopping it again while it waits kills them at once. The dashboard the terminal UI opens (`o` in `shadowlap ui`) does the same when you quit the terminal UI or it is killed, and kills its jobs at once when the terminal it runs in closes.
+**Replay** re-runs the recorded command.
 
-Tests runs its goldens as jobs too, one at a time in a project: while one runs (**Find the commit** on a golden among them, which reads its pack and answers the failure it started from, or a setup packing and testing a new golden), or a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`) started in a terminal or another dashboard run (named by their command), **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find the commit** wait, saying what is running, and the server refuses another such job with the same words, from any tab, the palette's *Run the tests* included; a test replay's page disables its **Add normalizer** (or **Add normalizer and update…**) and **Update golden** the same way. Find the commit on a run that is no test replay touches no golden, and doesn't wait. **Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI, and the page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it; a run of one golden ends on its replay. **Update golden** (or **Update goldens…** for every one that diverged) asks first, in a dialog that says what happens and warns when a normalizer is the lasting fix (or, once the rule is in the config, that a re-run passes without an update), then runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed. **Add normalizer and re-run** is two commands in one job, `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded; the drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first and updates the golden after it. **Find the commit** runs `shadowlap bisect` from the newest revision where the golden passed under the checks it has now (a pass from before a check was added may be a commit where it already fails that check); without one, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens), it asks first, offering the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other (**Another commit…**, a field beside the list, which stays to pick one from again). As on Runs and a run's page, it offers only commits this checkout has: a golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD. On a run's page, a run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick. A job only names goldens the project has on disk.
+**Fork at #n** (or a row's fork button, or `f`) offers what the terminal UI's fork menu offers for that call, one line each with its flag:
 
-Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, `redact add` and `rm` do, keeping the file's other keys, order and indentation. Each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten: the page says so and shows the file as it is now. A rule the CLI would refuse is refused with the same words, and every change lands in the activity feed. **Calibrate** is a job that runs `shadowlap calibrate <run>`, with each round in the drawer; when it proposes normalizers, **Add it (--write)** adds exactly those, without replaying again. **Clean up old runs** runs `shadowlap gc --older-than 30 --dry-run`; when it finds runs, **Delete N runs** asks first (Cancel has the focus), naming the attempts bundled under them, which go too, then deletes exactly the runs the dry run listed, or nothing if others match by then. When no run is that old but runs deleted since (with `rm`, or from Runs) left blobs nothing uses or 1 MB or more of unused space in the store, **Free 53.5 MB** asks first, then runs a plain `shadowlap gc`, which deletes no run and gives that back; Settings → Project shows such unused space beside the store's size.
+| Selected | The menu offers |
+| --- | --- |
+| A model call | Inject an instruction (always as the user), switch the model, fork with your changed prompt, an HTTP failure (`--fail-at`), or diverge |
+| A tool call | Override its result, answer with a tool error, plant a prompt injection (reads only), force it live, or diverge |
+| A recorded user input | Answer differently as the user, or diverge |
+| The whole run | Repeat the replay and compare the attempts (`--repeat`), stub the writes, or find the commit that broke it |
 
-Some jobs take a file from your browser, such as a capture to import. The dashboard keeps it in `.shadowlap/uploads` in the folder of the project it was sent to, readable only by you, at most 64 MB and 32 files at once, until the job that uses it ends; only a job of that project can use it. A file no job used is deleted after an hour, and every upload is deleted when the dashboard stops. Uploaded files are untrusted data: the command that reads one parses it as it would any file you point it at.
+The [terminal UI's fork menu](./tui.md#actions) lists the flag of each line.
 
-More on a run's actions. **Plant a prompt injection** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text. A dataset from **Share** takes up to 500 runs at once, from Runs; past that, `shadowlap export dataset --label`. A run is copied once it has ended. One whose recorder was killed reads *interrupted* in every copy, as it does on every screen: the pack, the HTML file (with the redaction rules or without) and the trace hold it ended at its last call, so whoever opens or unpacks it never sees it recording, and the store is left as it is. Where jobs can't run (a read-only dashboard), **Share → HTML file** comes straight from the dashboard, made apart from its own work so pages keep answering; one that takes more than two minutes (a redaction rule whose pattern is slow on the run's text, or a run too long for a download) is stopped, naming the rule most likely at fault, and `shadowlap export html` makes it from a terminal.
+- **A fork is made again** from its parent, with the flags, command and checks that made it.
+- **An action that needs something from you** (the instruction to inject, the status to fail with, the model to switch to) asks for it in a dialog first. The inject dialog shows the command it runs.
+- **What you type** is passed as text, never read as a file. See [Interventions](./interventions.md).
+- **Plant a prompt injection** starts from a few sample instructions, or takes your own or a red-teaming tool's payload as text.
+
+**Find the commit that broke it** runs [`bisect`](./cli.md#bisect):
+
+- It asks for a commit where the run still worked, and offers the ones its command was recorded at that this checkout has. It searches up to HEAD when the run failed at a commit it lacks, such as a teammate's.
+- On a run that passed, it finds the first commit after its own that changed what it does, once there is a commit after it.
+- A run that failed at the repository's first commit, or the oldest a shallow clone has, has nothing before it to search, and the item says so instead.
+- A run that failed on its own is replayed with `--fork`. The dialog says that one live replay decides each commit, which a failure that doesn't happen every time can pass.
+- A run that failed only the check of its fix (blame found it failing, though it exited 0), or a check given with its own `--expect`, is searched with that check (`--expect … --fork`), from a commit you pick.
+
+**A run imported from a capture** has no command, so its menu shows a note and one action, **Replay** with your command. That replay records every kind of call, and every fork works on it.
+
+**Share** copies the run, each copy a job:
+
+| Copy                | What it makes                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| HTML file           | The run with the runs it came from; it also downloads                                    |
+| HAR                 | The run's model calls; it also downloads                                                 |
+| Pack                | A pack, into a folder inside the project                                                 |
+| Dataset             | A dataset for evals, in a format and with the examples you pick                          |
+| OpenTelemetry trace | A trace sent to a collector, or written to a file (a file only: it is sent nowhere else) |
+
+- **Where copies go**: into `.shadowlap/exports/` in the project, unless a pack names another folder, and never through a link that is already there.
+- **Redaction**: the menu says how many redaction rules each copy applies. A trace carries no prompt text, so only the rules without a path.
+- **When**: a run is copied once it has ended.
+- **A dataset** from **Share** takes up to 500 runs at once, from Runs; past that, `shadowlap export dataset --label`.
+
+A run whose recorder was killed reads *interrupted* in every copy, as it does on every screen. The pack, the HTML file (with the redaction rules or without) and the trace hold it ended at its last call, so whoever opens or unpacks it never sees it recording. The store is left as it is.
+
+Where jobs can't run (a read-only dashboard), **Share → HTML file** comes straight from the dashboard, made apart from its own work so pages keep answering. One that takes more than two minutes (a redaction rule whose pattern is slow on the run's text, or a run too long for a download) is stopped, naming the rule most likely at fault. `shadowlap export html` makes it from a terminal.
+
+With a [team store](./team.md), a share link comes first, its drawer ending on **Copy link**. The report opens for anyone with the link until it expires, 7 days at most. A run only on this machine has **Push** in its header, as does a run in the store whose attempts aren't (Push sends them).
+
+**Delete** removes a run, with the attempts bundled under it, which its dialog names and its toast counts, as `shadowlap rm` does. It removes the recorded data nothing else uses too.
+
+**Run blame** is on the page of a failed run that was never blamed. It blames the run with the check it failed, found the way a replay is judged, the first that applies:
+
+1. the run's own `--expect`;
+2. the entry under the config's `tests` for the recording it replays: the golden a test replayed, or the pack it was unpacked from, through the runs it came from;
+3. the check of the fix it fails in, or of a fix its labels point to;
+4. the agent's exit.
+
+When the run failed a check none of those give, or nothing says what a passing run must do, it asks for the check. The blame opens the run's fix, or joins one, and links to it.
+
+### Actions on a fix
+
+**Repair from here**, on an open fix, runs [`shadowlap repair`](./repair.md):
+
+- **From** the fix's failing runs, its check and the scope its blame searched, so the repair blames the same calls and reuses that blame.
+- **Keeping** the fix's own good runs (those a repair or a verify of it kept), else the runs labelled `good` that run the same agent, else none. A good run of another agent checks nothing a change to this one touches.
+- **With** the repairer `repair.repairer` in `shadowlap.config.json` names, or else your own Claude Code (`--repairer claude-code`).
+
+It asks first, since it runs your agent live. It says that each candidate is verified in a temporary worktree made from your working tree as it is, never in the working tree itself. So a file you change meanwhile is in the candidates made after it.
+
+**The repairer.** The dialog reads the config again as it opens and names the repairer it will ask, whose account pays. If the config names another by the time you confirm, nothing runs, and the job says which one the config names instead.
+
+- **Claude Code not found**: when that repairer is Claude Code and `claude` can't be found on the PATH the dashboard's jobs get (or where `SHADOWLAP_CLAUDE` points), the dialog says so, with what to do, and Repair stays off. The server refuses the job: it would blame every failing run and find no one to propose a fix.
+- **An API repairer's key** can't be checked without asking it, so the repair says why when it couldn't.
+
+**No fix to try.** When the blame of every failing run rescued it from no call, the repair would reuse those blames and end *No fix to try* without running the agent. Repair from here stays, but is no longer the page's lead button. Its hover and its dialog say so, and why, the dialog without the line about billed model calls:
+
+- no answer of the model's lost the run, since every attempt met a write's recorded error again, or the attempts that passed answered as the recording did;
+- blame couldn't settle where it was lost;
+- or no probe rescued it.
+
+The blame's own next step leads instead:
+
+- **Blame again**, for a blame that couldn't settle (more attempts and a lower bar, as blame's report says), or that stopped part way (to the end, without its budget), under the fix's check.
+- **Blame with a stronger model…**, which asks for the model first, for one that asked the recorded model again and rescued the run from no call, unless blame found the model's answer isn't what lost the run.
+
+Each is built from the blame's report and the flags kept beside it, as Run more attempts is. A blame a pull brought asks first, showing the exact command.
+
+**Copy git apply**, on a verified fix, copies the command that applies its patch by hand, `git -c core.autocrlf=false apply <patch>`. The flag keeps Git for Windows' `core.autocrlf` from writing a file with LF back with CRLF on every line. A teammate's patch with LF, for a checkout where the file has CRLF, applies only through that conversion, with plain `git apply`.
+
+**Apply the patch** runs [`shadowlap fix apply`](./cli.md#fix) once you confirm, since it changes your working tree. The confirm dialog names every file the patch changes, and shows the patch itself. The patch goes in with `git apply`, the recordings the fixed code made are copied into `goldens/`, and `shadowlap test` replays them. The button then reads *Patch applied*, and **View the patch** takes the place of Copy git apply.
+
+- **A fix with no patch** (verified on the working tree, or with a change of request fields) reads *Marked applied* once applying marks it. Its hover names the change its agent makes, or says it was verified on the working tree, and the activity feed says *Marked applied* too.
+- **A patch already in your working tree** (a pull request merged it, or you applied it by hand), which `git apply --reverse --check` recognises as `fix apply` does, needs no applying. The button reads **Mark applied**, which copies the goldens it is missing, runs them and marks the fix applied; Copy git apply is gone, and the Overview no longer counts the fix as ready to apply.
+- **A teammate's repair**, from the team store: the patch goes in alone, and nothing runs it. Its recordings are on their machine, and your goldens aren't replayed against it until you have read it and run `shadowlap test`.
+- **A patch that is more than the change its repair verified** (another file, a file made, renamed or given a mode, lines its candidate doesn't rewrite) can't be applied from here. The button stays off and says why, Copy git apply is gone, and `fix apply` refuses it.
+
+For a patch repaired here, or a teammate's already in your tree, the project's other goldens are replayed offline too. A prompt or a tool description goes into every request, so a golden recorded before the change can diverge on it from the first call.
+
+- The drawer names each golden that does, at the call and request field, with **Update goldens**. It asks first, and re-records them with `shadowlap test <goldens> --update`.
+- An applied fix whose goldens failed its test holds again once a test session passes every one of them.
+
+Applied is this machine's own: a fix a teammate applied is verified here until its patch is in this working tree.
+
+**Rename** gives a fix a title of your own, as `shadowlap fix title` does.
+
+### Actions on Tests
+
+Tests runs its goldens as jobs too:
+
+| Button                        | Runs                                                                  |
+| ----------------------------- | --------------------------------------------------------------------- |
+| **Run tests**                 | `shadowlap test goldens/*`, plus each pack the config names elsewhere |
+| **Update golden**             | `shadowlap test <golden> --update`, once you confirm                  |
+| **Add normalizer and re-run** | `shadowlap normalize add …`, then `shadowlap test <golden>`           |
+| **Find the commit**           | `shadowlap bisect`, from the newest revision where the golden passed  |
+
+These jobs run one at a time in a project. **Run tests**, **Update golden**, **Add normalizer and re-run** and **Find the commit** wait, saying what is running, while any of these runs:
+
+- one of these jobs, **Find the commit** on a golden among them, which reads its pack and answers the failure it started from;
+- a setup packing and testing its golden;
+- a test session or the [error-path presets](./error-paths.md) on goldens (`test --chaos`), started in a terminal or another dashboard, named by their command.
+
+The server refuses another such job with the same words, from any tab, the palette's *Run the tests* included. A test replay's page disables its **Add normalizer** (or **Add normalizer and update…**) and **Update golden** the same way. Find the commit on a run that is no test replay touches no golden, and doesn't wait.
+
+**Run tests** runs `shadowlap test goldens/*` (plus each pack the config names elsewhere), with no shell: the CLI expands the pattern itself, as it does in CI. The page follows the session as each result lands. Its drawer ends on one primary action, **Tests**, with the replays of the first three goldens that failed linked above it. A run of one golden ends on its replay.
+
+**Update golden** (or **Update goldens…** for every one that diverged) asks first, in a dialog that says what happens. It warns when a normalizer is the lasting fix, or, once the rule is in the config, that a re-run passes without an update. Then it runs `shadowlap test <golden> --update`, which re-records it live with writes stubbed.
+
+**Add normalizer and re-run** is two commands in one job: `shadowlap normalize add …` for each value that changes every run, then `shadowlap test <golden>`, the second only when the first succeeded. The drawer links to the replay that passed. When the rule alone can't make the replay match, it asks first, and updates the golden after it.
+
+**Find the commit** runs `shadowlap bisect` from the newest revision where the golden passed under the checks it has as they stand. A pass from before a check was added may be a commit where it already fails that check.
+
+- **It asks first** when there is no such revision, after a search from it named no first bad commit, or for a golden marked `fork` (its replays cost tokens). It offers the commits the golden was tested at, each with its subject and how it did there (*c91d0f4 · Escalate refunds above the limit*), or any other.
+- **Another commit…** is a field beside the list, which stays to pick one from again.
+- **Only commits this checkout has**, as on Runs and a run's page. A golden that last passed at a commit it lacks (a pull request's merge commit in CI, say) asks for one, and one that failed at such a commit is searched up to HEAD.
+
+A job only names goldens the project has on disk.
+
+### Actions in Settings
+
+Settings changes `shadowlap.config.json` as `shadowlap normalize add` and `rm`, `redact add` and `rm` do, keeping the file's other keys, order and indentation.
+
+- **No lost edits**: each change names the version of the file the page read, so one made in an editor or a terminal since is never overwritten. The page says so, and shows the file as it stands.
+- **The CLI's words**: a rule the CLI would refuse is refused with the same words.
+- **The activity feed**: every change lands in it.
+
+**Calibrate** is a job that runs `shadowlap calibrate <run>`, with each round in the drawer. When it proposes normalizers, **Add it (--write)** adds exactly those, without replaying again.
+
+**Clean up old runs** runs `shadowlap gc --older-than 30 --dry-run`. When it finds runs, **Delete N runs** asks first (Cancel has the focus), naming the attempts bundled under them, which go too. It then deletes exactly the runs the dry run listed, or nothing if others match by then.
+
+When no run is that old, but runs deleted since (with `rm`, or from Runs) left blobs nothing uses or 1 MB or more of unused space in the store, **Free 53.5 MB** asks first. It then runs a plain `shadowlap gc`, which deletes no run and gives that back. Settings → Project shows such unused space beside the store's size.
+
+### Jobs
+
+Each action is a job: the dashboard runs the CLI in the folder of the [project](#projects) it shows, against that project's store. The job's output streams into a drawer titled with what it does (Replaying, Forking, Repeating, Packing). A screen reader hears how the job stands as that changes (running, stopping, how it ended), not each line it prints.
+
+The command also tells the job what it made, on a pipe of its own rather than in its output:
+
+- the runs it started, attempts listed apart, since they open as a bundle;
+- where to go next;
+- the files and folders it wrote;
+- its result: what `--json` would print.
+
+So the drawer ends on the outcome and the exit code, and links to the run it made (**Open run**) or the attempts without reading the text. It names the folder a pack went to, and offers a file a job wrote for download.
+
+How a replay or a fork ended:
+
+- **A Replay whose request differed from its recording** says where, *diverged at #3 · went live · exit 0*, in amber (red when the agent then failed). `replay` forks at the first request that differs and runs live from there, writes blocked, so the run it made is no reproduction.
+- **Calibrate**, beside **Open run**, replays the recording offline and proposes a normalizer for each value the agent makes anew on every run (a user id, a temporary path). Its drawer offers **Add it (--write)**, and the next Replay is clean.
+- **A fork from the menu** says *forked*: diverging where its flag changed the run is what it was asked for.
+- **A fork that left the recording before the call its flag acts on** says that instead, *diverged at #3, before the inject at #17 · went live · exit 0*, in the same colours and with **Calibrate**. The calls before it did not replay, so what the flag changed is not the only difference.
+
+Closing and stopping:
+
+- **Closing the drawer** leaves the job running. The top bar counts the jobs running (*1 job running*), from every tab and every page, and a click opens the newest one's drawer again.
+- **Stop**, in the drawer while its job runs, stops the command and the agent it started, as Ctrl-C would, even an agent that ignores the signal (it is killed after five seconds); the drawer then says *stopped*. It asks first while the job holds your working tree: a repair verifying candidates made from it, a patch being applied.
+- **A run the stopped job left recording** is marked as interrupted, so it no longer shows as live and can be deleted.
+
+Stopping the dashboard (Ctrl-C, a kill, or closing the terminal it runs in) stops its running jobs the same way, and waits for them. Stopping it again while it waits kills them at once. The dashboard the terminal UI opens (`o` in `shadowlap ui`) does the same when you quit the terminal UI or it is killed, and kills its jobs at once when the terminal it runs in closes.
+
+### Commands from someone else
+
+An action that replays a run from someone else's pack, a teammate's pulled from the [team store](./team.md), or one whose command a program sent the sidecar, runs the command recorded. So it asks before it runs:
+
+1. Whatever the action asks first: how many attempts, an instruction, an edited result.
+2. Then a dialog shows that command and what runs it, and only its **Run** starts it. It opens on Cancel, so an Enter pressed once too often runs nothing.
+
+The server asks that question itself: a 409 naming the exact command lines, with a `confirm` for them. It takes as a yes only that `confirm` sent back as `yes` (`confirmed` for the error-path presets). So a yes is to the lines the dialog showed: a command a pull has changed since is asked again.
+
+**A golden recorded elsewhere.** A job that runs a golden from a pack your repository doesn't track, recorded elsewhere, and passes the CLI `--yes`, asks the same of its command. Such jobs are a decision diff from the working tree or with a verify, a migration, verifying what a session flagged, and an injection test. A job the server asked nothing of passes no `--yes`, whatever its request sent, and the CLI, with no terminal to ask in, refuses such a golden ([`test`](./cli.md#test) says why).
+
+**A repair or a blame** that would run a command from someone else's pack asks once more before it does. **Find the commit** is off on such a run, with the reason on hover, since it would run that command at every commit. Replay it with your own command first, and find the commit from that run.
+
+### One job at a time on your working tree
+
+An apply changes your working tree, and a repair makes its candidates from it, so each runs alone in its project:
+
+- **It can't start** while a job runs your agent from that tree: a recording, a blame, a replay or fork, a test, a calibration.
+- **Until it is done**, any of those is refused, with what holds the tree. Their buttons wait, with the reason on hover, and Search or jump to leaves Calibrate out.
+- **Run blame**, **Repair from here**, **Apply the patch** and the Tests actions that run your agent (**Run tests**, **Update golden**, **Add normalizer and re-run**) are off meanwhile, and say so on hover.
+- **Any other action that runs your agent** is refused, with the reason.
+- **A job in another project's folder** doesn't wait.
+
+### Files you upload
+
+Some jobs take a file from your browser, such as a capture to import. The dashboard keeps it in `.shadowlap/uploads` in the folder of the project it was sent to, until the job that uses it ends.
+
+- It is readable only by you.
+- An upload is at most 64 MB, and 32 files at once.
+- Only a job of that project can use it.
+- A file no job used is deleted after an hour, and every upload is deleted when the dashboard stops.
+
+Uploaded files are untrusted data: the command that reads one parses it as it would any file you point it at.
 
 ## Read-only
 
