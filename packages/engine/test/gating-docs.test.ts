@@ -148,7 +148,7 @@ describe('docs/gating.md, figure by figure', () => {
     const before = walkOdds(wald(tight), tight.max, tight.bad).pass;
     expect(before).toBeGreaterThan(tight.risk);
     expect(gateOdds(tight, tight.bad).pass).toBeLessThanOrEqual(tight.risk);
-    says(`keep the errors only within α / (1 − β), ${pct(g.risk / (1 - g.risk))} at these figures, and a gate's exact error can go past its risk under them: one between 98% and 73% at 5% risk, up to 1,000 attempts, passed an agent at 73% ${pct(before, 2)} of the time`);
+    says(`keep the errors only within α / (1 − β), ${pct(g.risk / (1 - g.risk))} at these figures. Under them, a gate's exact error can go past its risk: one between 98% and 73% at 5% risk, up to 1,000 attempts, passed an agent at 73% ${pct(before, 2)} of the time`);
   });
 
   it('what a gate costs: the exact odds of each verdict, row by row', () => {
@@ -165,16 +165,31 @@ describe('docs/gating.md, figure by figure', () => {
     const goldens = 100;
     const perRun = (x: number) => (x >= 1 ? x.toFixed(1) : String(+x.toPrecision(2)));
     const four = countOdds(5, 4, 0.95);
-    says(`| 4 of 5 | ${(goldens * four.fail).toFixed(2)} | 0 | ${whole(runsRed(four, goldens, 'fail'))} | ${whole(runsRed(four, goldens, 'warn'))} | ${four.attempts.toFixed(1)} |`);
-    for (const max of [80, 40, 20]) {
-      const o = gateOdds(sprt({ max }), 0.95);
-      says(`| A gate per golden at its own 5%, \`max\` ${max} | ${(goldens * o.fail).toFixed(2)} | ${perRun(goldens * o.inconclusive)} | ${whole(runsRed(o, goldens, 'fail'))} | ${whole(runsRed(o, goldens, 'warn'))} | ${o.attempts.toFixed(1)} |`);
-    }
+    const own = [80, 40, 20].map((max) => [`A gate per golden at its own 5%, \`max\` ${max}`, gateOdds(sprt({ max }), 0.95)] as const);
     const plan = planSuite(Array.from({ length: goldens }, (_, i) => ({ golden: `goldens/g${i}`, gate: sprt(), maxGiven: false })))!;
     const split = gateOdds(plan.planned[0].gate, 0.95);
     expect(goldens * split.inconclusive).toBeLessThan(0.0001);
     const red = runsRed(split, goldens, 'fail');
-    says(`| The default: 5% for the suite, split 100 ways | ${String(+(goldens * split.fail).toPrecision(1))} | under 0.0001 | ${(100 * red).toPrecision(2)}% | ${(100 * runsRed(split, goldens, 'warn')).toPrecision(2)}% | ${split.attempts.toFixed(2)} |`);
+    const suite = 'The default: 5% for the suite, split 100 ways';
+    // Two tables, a row for each way of gating them: what each golden comes to, and what each run does.
+    says(
+      [
+        '| Gate | Goldens failed per run | Inconclusive per run | Attempts a golden |',
+        '|---|---:|---:|---:|',
+        `| 4 of 5 | ${(goldens * four.fail).toFixed(2)} | 0 | ${four.attempts.toFixed(1)} |`,
+        ...own.map(([name, o]) => `| ${name} | ${(goldens * o.fail).toFixed(2)} | ${perRun(goldens * o.inconclusive)} | ${o.attempts.toFixed(1)} |`),
+        `| ${suite} | ${String(+(goldens * split.fail).toPrecision(1))} | under 0.0001 | ${split.attempts.toFixed(2)} |`,
+      ].join('\n'),
+    );
+    says(
+      [
+        '| Gate | Runs red | Runs red under `--inconclusive warn` |',
+        '|---|---:|---:|',
+        `| 4 of 5 | ${whole(runsRed(four, goldens, 'fail'))} | ${whole(runsRed(four, goldens, 'warn'))} |`,
+        ...own.map(([name, o]) => `| ${name} | ${whole(runsRed(o, goldens, 'fail'))} | ${whole(runsRed(o, goldens, 'warn'))} |`),
+        `| ${suite} | ${(100 * red).toPrecision(2)}% | ${(100 * runsRed(split, goldens, 'warn')).toPrecision(2)}% |`,
+      ].join('\n'),
+    );
     const one = gateOdds(sprt(), 0.95);
     expect(Math.round(1 / runsRed(one, goldens, 'fail'))).toBe(7);
     says(`${pct(one.fail, 2)} of a healthy agent's goldens fail, and one in seven runs goes red`);
@@ -225,17 +240,33 @@ describe('docs/gating.md, figure by figure', () => {
     const own = ([[0.94, { passes: 47, attempts: 50 }], [0.95, { passes: 95, attempts: 100 }], [0.8, { passes: 40, attempts: 50 }], [0.6, { passes: 30, attempts: 50 }]] as const).map(([p, h]) => gateOdds(g, p, h).fail);
     expect(Math.max(...own)).toBe(own[3]);
     says(`an agent that passes as often as its history says is failed ${pct(own[0])} of the time against 47 of 50, and at most ${pct(own[3])} against a history that passes far less often (30 of 50)`);
-    // The chance it fails a golden, inconclusive in brackets where it rounds to a tenth of a point or more.
+    // The chance it fails a golden, inconclusive in brackets where it rounds to a tenth of a point or more:
+    // a table for the histories of 50 or 100 attempts, one for a short history or none, a row for each
+    // pass rate, and the attempts each takes at 95% and at 75%.
     const cell = (o: GateOdds) => `${pct(o.fail)}${o.inconclusive >= 0.0005 ? ` (+${pct(o.inconclusive)})` : ''}`;
-    for (const [name, h] of [['47 of 50', H47], ['95 of 100', { passes: 95, attempts: 100 }], ['50 of 50', { passes: 50, attempts: 50 }], ['5 of 5', { passes: 5, attempts: 5 }], ['none: its recording', null]] as const) {
-      const cells = [0.95, 0.85, 0.75, 0.6, 0.5, 0.2].map((p) => cell(gateOdds(g, p, h)));
-      says(`| ${name} | ${cells.join(' | ')} | ${gateOdds(g, 0.95, h).attempts.toFixed(1)} / ${gateOdds(g, 0.75, h).attempts.toFixed(1)} |`);
-    }
+    const longer = [['47 of 50', H47], ['95 of 100', { passes: 95, attempts: 100 }], ['50 of 50', { passes: 50, attempts: 50 }]] as const;
+    const shorter = [['5 of 5', { passes: 5, attempts: 5 }], ['None: its recording', null]] as const;
+    const byRate = (baselines: ReadonlyArray<readonly [string, Tally | null]>) =>
+      [
+        `| Pass rate | ${baselines.map(([name]) => name).join(' | ')} |`,
+        `|---:|${baselines.map(() => '---:').join('|')}|`,
+        ...[0.95, 0.85, 0.75, 0.6, 0.5, 0.2].map((p) => `| ${Math.round(100 * p)}% | ${baselines.map(([, h]) => cell(gateOdds(g, p, h))).join(' | ')} |`),
+      ].join('\n');
+    says(byRate(longer));
+    says(byRate(shorter));
+    says(
+      [
+        '| Baseline | Attempts at 95% | Attempts at 75% |',
+        '|---|---:|---:|',
+        ...[...longer, ...shorter].map(([name, h]) => `| ${name} | ${gateOdds(g, 0.95, h).attempts.toFixed(1)} | ${gateOdds(g, 0.75, h).attempts.toFixed(1)} |`),
+      ].join('\n'),
+    );
     const now = (p: number) => gateOdds(g, p, H47).fail;
     // Three times in four, nine in ten; once at 5 attempts, a third and a half; 4 of 5, sixteen times the false failures.
     expect([Math.round(4 * now(0.6)), Math.round(10 * now(0.5))]).toEqual([3, 9]);
+    says('Against 47 of 50, a golden at 60% fails three times in four, and one at 50% nine in ten.');
     const once = history({ max: 5 });
-    says(`where deciding once at 5 attempts caught them ${whole(gateOdds(once, 0.6, H47).fail)} and ${whole(gateOdds(once, 0.5, H47).fail)} of the time, and 4 of 5, which fails a healthy agent ${Math.round(countOdds(5, 4, 0.95).fail / now(0.95))} times as often, ${whole(countOdds(5, 4, 0.6).fail)} and ${whole(countOdds(5, 4, 0.5).fail)}`);
+    says(`Deciding once at 5 attempts caught them ${whole(gateOdds(once, 0.6, H47).fail)} and ${whole(gateOdds(once, 0.5, H47).fail)} of the time, and 4 of 5, which fails a healthy agent ${Math.round(countOdds(5, 4, 0.95).fail / now(0.95))} times as often, ${whole(countOdds(5, 4, 0.6).fail)} and ${whole(countOdds(5, 4, 0.5).fail)}`);
     // 75% against 94%: a 19-point drop, failed a quarter of the time.
     expect(Math.round(4 * now(0.75))).toBe(1);
     says('75% against 94% is a 19-point drop, failed a quarter of the time');
@@ -244,7 +275,7 @@ describe('docs/gating.md, figure by figure', () => {
     const short = { passes: 5, attempts: 5 };
     expect(Math.round(2 * gateOdds(g, 0.5, short).fail)).toBe(1);
     expect(gateOdds(g, 0.2, short).fail).toBeGreaterThan(0.99);
-    says('its baseline could still be anywhere from about 60% up, so it fails a golden now at 50% only half the time, and one at 20% nearly always');
+    says('its baseline could still be anywhere from about 60% up, so it fails a golden that has fallen to 50% only half the time, and one at 20% nearly always');
     // No history: one at 20% mostly ends inconclusive.
     expect(gateOdds(g, 0.2, null).inconclusive).toBeGreaterThan(0.5);
     // No history: one at 60% or 50% is all but never failed (0.0% in the table), and left inconclusive 6% and a quarter of the time.

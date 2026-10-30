@@ -225,7 +225,8 @@ describe('docs/blame.md', () => {
     if (!found.size || figures.gradualPinned === undefined || figures['sharp 0.6 to 0.1 at 17 of 30'] === undefined) return;
     const held = Math.min(...[...found.values()].map((t) => t.highHeld / Math.max(1, t.high)));
     says(`whenever blame says high, the range holds the true boundary at least ${floor(held)} of the time`);
-    says(`blame says with high confidence that the run was lost at one call ${pct(figures.gradualPinned)} of the time, where unchecked it said so ${pct(figures.gradualPinnedUnchecked)} of the time; sharp drops from 95% to 0 and from 60% to 10% are still pinned ${Math.round(100 * figures['sharp 0.95 to 0 at 17 of 30'])}% and ${pct(figures['sharp 0.6 to 0.1 at 17 of 30'])} of the time`);
+    says(`blame says with high confidence that the run was lost at one call ${pct(figures.gradualPinned)} of the time, where unchecked it said so ${pct(figures.gradualPinnedUnchecked)} of the time.`);
+    says(`Sharp drops from 95% to 0 and from 60% to 10% are still pinned ${Math.round(100 * figures['sharp 0.95 to 0 at 17 of 30'])}% and ${pct(figures['sharp 0.6 to 0.1 at 17 of 30'])} of the time`);
     // A search of 30 calls that blames one, on average: as blame runs it, and at the full 5% a probe with no check.
     const blamed = CASES.filter((c) => c.rates.length === 30 && !c.name.startsWith('no rescue'));
     const now = blamed.map((c) => found.get(c.name)!.attempts / REPS);

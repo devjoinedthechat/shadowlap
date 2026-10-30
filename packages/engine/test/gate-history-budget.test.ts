@@ -135,7 +135,7 @@ describe('a healthy agent’s goldens gated against their own history, from thei
     expect(later.flagged).toBeGreaterThan(0.1);
     expect(later.flagged).toBeLessThan(0.4);
     expect(later.overInFact).toBeLessThan(0.1);
-    says('with every inconclusive counted, a healthy suite of 20 goldens at 80% states a chance past its 5% in about one session in four from the 21st to the 40th, and goes red for nothing more often than that in fewer than one in ten');
+    says('with every inconclusive counted, a healthy suite of 20 goldens at 80% states a chance past its 5% in about one session in four from the 21st to the 40th. It goes red for nothing more often than that in fewer than one in ten');
     // The first session's forecast: over the rates its recording leaves open, and what an agent at 95% and at 50% take.
     const first = planSuite(Array.from({ length: 20 }, (_, i) => ({ golden: `goldens/h${i}`, gate: GATE, maxGiven: false })))!.planned[0];
     const g = first.gate as BaselineGate;

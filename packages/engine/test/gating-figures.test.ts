@@ -72,17 +72,32 @@ function figuresOver(histories: number): Figures {
   };
 }
 
-/** The sentences docs/gating.md carries, from the figures over `histories` each. */
+/**
+ * What docs/gating.md carries, from the figures over `histories` each: a healthy suite's sessions and
+ * the sessions after a drop, each a table with the sentence that leads into it, and a sentence.
+ */
 function sentences(f: Figures, histories: number): string[] {
   const percent = (x: number) => `${Math.round(100 * x)}%`;
-  const drops = YOUNG.map((y) => {
-    const e = f.young[y.name];
-    return `from ${Math.round(100 * y.rate)}% to ${Math.round(100 * y.to)}%: red by default in ${percent(e.red)} of them, ${percent(e.counted)} under \`--inconclusive fail\`, warned in ${percent(e.warned)} and passed in ${percent(e.passed)}`;
-  });
+  const drops = YOUNG.map((y) => f.young[y.name]);
+  const row = (name: string, of: (e: Ended) => number) => `| ${name} | ${drops.map((e) => percent(of(e))).join(' | ')} |`;
   const green = f.young['95-75'].passed + f.young['95-75'].warned;
   return [
-    `In the same loops, over ${histories} histories each, a healthy suite of 20 goldens at 80% goes red for nothing in ${pct(f.healthy.byDefault[0], 1)} of its sessions from the 2nd to the 10th and ${pct(f.healthy.byDefault[1], 1)} from the 11th to the 20th, against ${pct(f.healthy.counted[0], 1)} and ${pct(f.healthy.counted[1], 1)} with every inconclusive counted, as \`--inconclusive fail\` counts it.`,
-    `When the agent behind 20 goldens drops after their 15th session, the 10 sessions after it come out, over ${histories} histories, ${drops.join('; ')}.`,
+    `In the same loops, over ${histories} histories each, a healthy suite of 20 goldens at 80% goes red for nothing in this share of its sessions:`,
+    [
+      '| Red for nothing | From the 2nd session to the 10th | From the 11th to the 20th |',
+      '|---|---:|---:|',
+      `| By default | ${pct(f.healthy.byDefault[0], 1)} | ${pct(f.healthy.byDefault[1], 1)} |`,
+      `| With every inconclusive counted, as \`--inconclusive fail\` counts it | ${pct(f.healthy.counted[0], 1)} | ${pct(f.healthy.counted[1], 1)} |`,
+    ].join('\n'),
+    `When the agent behind 20 goldens drops after their 15th session, the 10 sessions after it come out like this, over ${histories} histories:`,
+    [
+      `| Of the 10 sessions after the drop | ${YOUNG.map((y) => `${Math.round(100 * y.rate)}% to ${Math.round(100 * y.to)}%`).join(' | ')} |`,
+      `|---|${YOUNG.map(() => '---:').join('|')}|`,
+      row('Red by default', (e) => e.red),
+      row('Red under `--inconclusive fail`', (e) => e.counted),
+      row('Warned', (e) => e.warned),
+      row('Passed', (e) => e.passed),
+    ].join('\n'),
     `A young golden's green is weaker evidence of no drop than a mature one's: after the drop from 95% to 75%, a golden with 15 sessions stays green in ${percent(green)} of the 10 sessions after it, one with 30 in ${percent(f.mature.passed)}.`,
   ];
 }
@@ -91,7 +106,7 @@ describe('the figures docs/gating.md gives for goldens with too few sessions for
   it.runIf(WRITE)(`works them out over ${HISTORIES} histories each, and over the first ${PINNED} that hold them to the code`, () => {
     const kept: Kept = { histories: HISTORIES, countsAt: COUNTS_AT, figures: figuresOver(HISTORIES), pinned: { histories: PINNED, figures: figuresOver(PINNED) } };
     writeFileSync(WRITE!, `${JSON.stringify(kept, null, 2)}\n`);
-    console.log(sentences(kept.figures, kept.histories).join('\n'));
+    console.log(sentences(kept.figures, kept.histories).join('\n\n'));
     // A young golden's green says less than a mature one's: after the same drop, it is green more often.
     expect(kept.figures.young['95-75'].passed + kept.figures.young['95-75'].warned).toBeGreaterThan(kept.figures.mature.passed);
   });

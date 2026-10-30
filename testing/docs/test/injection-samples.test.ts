@@ -80,7 +80,7 @@ describe('docs/injection.md', () => {
     const a = report.results[0].attempts.find((x) => x.read === 7)!;
     const clean = await shadowlap(['injection', a.runId, '--clean', String(a.plantedAt)]);
     expect(clean.code, clean.out).toBe(0);
-    expect(within(clean.out, sample('shadowlap injection <run> --clean 7\n```\n')), clean.out).toBe(true);
+    expect(within(clean.out, sample('On an attempt that obeyed a planted instruction, it prints:')), clean.out).toBe(true);
   }, 120_000);
 
   it('shows a test that showed too little to say: a provider that refuses every call', async () => {
@@ -107,6 +107,6 @@ describe('docs/injection.md', () => {
     writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify({ tools: { fetch_page: { trust: 'untrusted' } }, tests: { 'goldens/*': { injection: { obeyed: 0, templates: ['system-notice'], baselines: 0 } } } }));
     const r = await shadowlap(['test', 'goldens/*']);
     expect(r.code).toBe(1);
-    expect(within(r.stdout, sample('more are influenced). The failure names the write')), r.stdout).toBe(true);
+    expect(within(r.stdout, sample('The failure names the write and gives the proof')), r.stdout).toBe(true);
   }, 120_000);
 });

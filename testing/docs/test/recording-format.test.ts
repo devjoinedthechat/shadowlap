@@ -26,12 +26,19 @@ afterAll(() => {
   for (const d of dirs) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 });
 
-/** The code-span values in the last cell of the table row that starts with `start`. */
-function listed(start: string): string[] {
-  const line = spec.split('\n').find((l) => l.startsWith(start));
-  if (!line) throw new Error(`no row starting ${start}`);
-  const cells = line.split(' | ');
-  return [...new Set([...cells.at(-1)!.matchAll(/`([^`]+)`/g)].map((m) => m[1]))];
+/** A table row's cells, split as GFM splits them (on every pipe not escaped with a backslash), padding trimmed. */
+const cellsOf = (line: string) => line.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '').split(/(?<!\\)\|/).map((c) => c.trim());
+
+/** The cells of the first table row whose first cell is `first`. */
+function row(first: string): string[] {
+  const line = spec.split('\n').find((l) => l.startsWith('|') && cellsOf(l)[0] === first);
+  if (!line) throw new Error(`no row starting ${first}`);
+  return cellsOf(line);
+}
+
+/** The code-span values in the last cell of the table row whose first cell is `first`. */
+function listed(first: string): string[] {
+  return [...new Set([...row(first).at(-1)!.matchAll(/`([^`]+)`/g)].map((m) => m[1]))];
 }
 
 /** Every fenced block's text. */
@@ -52,9 +59,10 @@ const accepts = (check: () => unknown) => {
 describe('the recording format', () => {
   it('is the version, and has the limits, the engine reads', () => {
     expect(spec).toMatch(new RegExp(`^Version ${PACK_VERSION}\\. `, 'm'));
-    expect(spec).toContain(`| \`format\` | \`"${PACK_FORMAT}"\` |`);
-    expect(spec).toContain(`| \`version\` | \`${PACK_VERSION}\`, this page.`);
-    expect(spec).toContain(`(\`FINGERPRINT_VERSION\`, now ${FINGERPRINT_VERSION})`);
+    expect(row('`format`').slice(1)).toEqual(['string', `\`"${PACK_FORMAT}"\``]);
+    expect(row('`version`')[1]).toBe('integer');
+    expect(row('`version`').at(-1)).toMatch(new RegExp(`^\`${PACK_VERSION}\`, this page\\.`));
+    expect(spec).toContain(`\`FINGERPRINT_VERSION\` is ${FINGERPRINT_VERSION}.`);
     const MiB = 1024 * 1024;
     const size = (n: number) => (n >= 1024 * MiB ? `${n / (1024 * MiB)} GiB` : `${n / MiB} MiB`);
     for (const [label, value] of [
@@ -65,24 +73,24 @@ describe('the recording format', () => {
       ['Runs', PACK_LIMITS.runs.toLocaleString('en-US')],
       ['Calls', PACK_LIMITS.calls.toLocaleString('en-US')],
       ["A command's arguments", String(PACK_LIMITS.argv)],
-    ]) expect(spec, label).toContain(`| ${label} | ${value} |`);
+    ]) expect(row(label).slice(1), label).toEqual([value]);
   });
 
   it('lists every value a field may take, and only those', () => {
     const fields: Array<[string, string[], (v: string) => unknown]> = [
-      ['| `kind` | yes |', ['api', 'tool', 'clock', 'random'], (v) => validateCall({ ...apiCall, kind: v }, 'call')],
-      ['| `origin` | yes |', ['live', 'replayed', 'blocked', 'stubbed', 'overridden'], (v) => validateCall({ ...apiCall, origin: v }, 'call')],
-      ['| `effect` | no |', ['pure', 'read', 'write', 'null'], (v) => validateCall({ ...toolCall, effect: v === 'null' ? null : v }, 'call')],
-      ['| `mode` | yes |', ['record', 'replay'], (v) => validateRun({ ...run, mode: v }, 'run')],
-      ['| `status` | yes |', ['running', 'completed', 'failed', 'crashed'], (v) => validateRun({ ...run, status: v }, 'run')],
-      ['| `outcome` |', ['ok', 'error'], (v) => validateCall({ ...apiCall, end: { ...(apiCall.end as object), outcome: v } }, 'call')],
+      ['`kind`', ['api', 'tool', 'clock', 'random'], (v) => validateCall({ ...apiCall, kind: v }, 'call')],
+      ['`origin`', ['live', 'replayed', 'blocked', 'stubbed', 'overridden'], (v) => validateCall({ ...apiCall, origin: v }, 'call')],
+      ['`effect`', ['pure', 'read', 'write', 'null'], (v) => validateCall({ ...toolCall, effect: v === 'null' ? null : v }, 'call')],
+      ['`mode`', ['record', 'replay'], (v) => validateRun({ ...run, mode: v }, 'run')],
+      ['`status`', ['running', 'completed', 'failed', 'crashed'], (v) => validateRun({ ...run, status: v }, 'run')],
+      ['`outcome`', ['ok', 'error'], (v) => validateCall({ ...apiCall, end: { ...(apiCall.end as object), outcome: v } }, 'call')],
     ];
-    for (const [row, values, check] of fields) {
-      expect(listed(row), row).toEqual(values);
-      for (const v of values) expect(accepts(() => check(v)), `${row} ${v}`).toBe(true);
-      expect(accepts(() => check('anything-else')), `${row} takes a value the page doesn't list`).toBe(false);
+    for (const [field, values, check] of fields) {
+      expect(listed(field), field).toEqual(values);
+      for (const v of values) expect(accepts(() => check(v)), `${field} ${v}`).toBe(true);
+      expect(accepts(() => check('anything-else')), `${field} takes a value the page doesn't list`).toBe(false);
     }
-    const types = /`type` \(([^)]+)\)/.exec(spec.split('\n').find((l) => l.startsWith('| `divergence` |'))!)![1];
+    const types = /`type` \(([^)]+)\)/.exec(row('`divergence`').at(-1)!)![1];
     const divergences = [...types.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
     expect(divergences).toEqual(['request_changed', 'new_call', 'forced', 'beyond_recording', 'ended_early']);
     const divergence = (type: string) => validateRun({ ...run, divergence: { type, callNo: 1, kind: 'api', name: 'POST /v1/messages', replayedBefore: 0 } }, 'run');
@@ -91,13 +99,16 @@ describe('the recording format', () => {
   });
 
   it('names every provider, with the headers that take part in its fingerprints', () => {
-    expect(listed('| `provider` |').sort()).toEqual(providers.map((p) => p.id).sort());
+    expect(listed('`provider`').sort()).toEqual(providers.map((p) => p.id).sort());
     // A call through a host of another's format is recorded under the format's provider, and names the host as `via`.
-    for (const p of hostedProviders) expect(listed('| `via` |'), p.id).toContain(p.id);
+    for (const p of hostedProviders) expect(listed('`via`'), p.id).toContain(p.id);
     const table = new Map<string, string[]>();
-    for (const line of spec.slice(spec.indexOf('| Provider | Fingerprint headers |')).split('\n').slice(2)) {
+    const lines = spec.split('\n');
+    const head = lines.findIndex((l) => l.startsWith('|') && cellsOf(l).join(' | ') === 'Provider | Fingerprint headers');
+    expect(head).toBeGreaterThan(-1);
+    for (const line of lines.slice(head + 2)) {
       if (!line.startsWith('|')) break;
-      const [ids, headers] = line.split(' | ').map((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]));
+      const [ids, headers] = cellsOf(line).map((c) => [...c.matchAll(/`([^`]+)`/g)].map((m) => m[1]));
       for (const id of ids) table.set(id, headers);
     }
     for (const p of [...providers, ...hostedProviders]) expect(table.get(p.id), p.id).toEqual([...p.fingerprintHeaders]);

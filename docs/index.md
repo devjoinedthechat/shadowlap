@@ -6,44 +6,70 @@ Shadowlap is change safety for agents: every change to an agent (its code, its p
 
 ## What it is for
 
+Each job below, done without Shadowlap and with it:
+
 | Job | Without Shadowlap | With Shadowlap |
 |---|---|---|
 | Reproduce a failing run | Re-run and hope; pay for the whole run again | `shadowlap replay <run>`: same run, zero upstream requests |
+| Find where a failed run went wrong | Read the trace and guess | `shadowlap blame <run>`: the model call that lost the run, found with forks that replay everything before it for free |
+| Fix a prompt the agent keeps misreading | Edit it by hand, rerun, repeat | `shadowlap repair`: a model you choose proposes rewrites, and the smallest one `verify` accepts comes back as a patch with its evidence |
+| Know a fix works before it ships | Rerun the failing case once and hope | `shadowlap verify`: the failing runs fixed, runs it was not written against too, and the good runs kept, several attempts each |
 | Fix a harness bug (parsing, dispatch, state, stop condition) | Re-run live; the model may behave differently this time | Full replay against the recorded model behavior; the bug reproduces every time |
 | Verify a fix that changes later requests | Re-run everything live, side effects included | Unchanged prefix replays; only the changed suffix runs live; writes are blocked |
 | Ask "what if call 9 had returned X?" | Hand-edit code and re-run | `--override 9=@x.json`, and only the calls after it run live |
-| Find where a failed run went wrong | Read the trace and guess | `shadowlap blame <run>`: the model call that lost the run, found with forks that replay everything before it for free |
-| Know a fix works before it ships | Rerun the failing case once and hope | `shadowlap verify`: the failing runs fixed, runs it was not written against too, and the good runs kept, several attempts each |
-| Fix a prompt the agent keeps misreading | Edit it by hand, rerun, repeat | `shadowlap repair`: a model you choose proposes rewrites, and the smallest one `verify` accepts comes back as a patch with its evidence |
 | Catch unintended prompt changes in CI | String snapshot tests | `shadowlap test` fails the build on the first changed request |
 | Know what a prompt edit or a model switch decides differently | Run every golden live and read the transcripts | `shadowlap decisions`: each recorded model call asked again with only the change, ranked by consequence, writes first; `shadowlap migrate` for a model switch, verified and priced |
 
 ## Three sentences to keep in mind
 
-1. **A replay forks at the first request that changes, not where the bug is.** Fixes to the code around the model change no request and replay in full. Editing the system prompt changes every request and forks at call 1; you get the diff and a fenced fork, but no savings. See [How it works](./how-it-works.md#where-forks-happen).
-2. **Nothing is matched fuzzily.** Two requests match only if they are identical after the [normalizers](./normalizers-and-redaction.md) you wrote. A false replay hit would be the worst bug this tool could have, so it reports a false divergence instead and shows you how to fix it.
-3. **Side effects that don't go through Shadowlap will run again.** Wrap tools with the [SDK](./sdk.md) or a [framework adapter](./frameworks.md). A tool the model called that the run never recorded is [named](./how-it-works.md#tools-shadowlap-did-not-record), and a replay won't run one that writes until you wrap it, declare it a read or allow it; anything else (a direct database client, an unwrapped HTTP call) is invisible to replay.
+1. **A replay forks at the first request that changes, not where the bug is.**
+
+   Fixes to the code around the model change no request and replay in full. Editing the system prompt changes every request and forks at call 1: you get the diff and a fenced fork, but no savings. See [How it works](./how-it-works.md#where-forks-happen).
+
+2. **Nothing is matched fuzzily.**
+
+   Two requests match only if they are identical after the [normalizers](./normalizers-and-redaction.md) you wrote. A false replay hit would be the worst bug this tool could have, so it reports a false divergence instead and shows you how to fix it.
+
+3. **Side effects that don't go through Shadowlap will run again.**
+
+   Wrap tools with the [SDK](./sdk.md) or a [framework adapter](./frameworks.md). A tool the model called that the run never recorded is [named](./how-it-works.md#tools-shadowlap-did-not-record), and a replay won't run one that writes until you wrap it, declare it a read or allow it. Anything else, such as a direct database client or an unwrapped HTTP call, is invisible to replay.
 
 ## Where to go
+
+### Start here
 
 - [Quickstart](./quickstart.md): record and replay the bundled reference agent in two minutes, then your own.
 - [How it works](./how-it-works.md): the sidecar, fingerprints, matching, effects, thinking blocks, storage.
 - [Why did my replay diverge?](./troubleshooting.md): the page you'll visit most.
-- Fixes: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
 - [Coding agents](./agents.md): Claude Code, Codex, Cursor, Copilot and others setting Shadowlap up for an agent and debugging it through the CLI, with the skills that tell them how.
-- [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
-- [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition; tried on your recordings for free with `shadowlap check`.
-- [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.
-- [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
-- [Decisions](./decisions.md): what a prompt edit or a model switch decides differently on your recorded runs, ranked by consequence, before anything runs live; `migrate` for a model a provider retires.
-- [Injection tests](./injection.md): payloads planted in every read of a tool marked untrusted, with proof of which ones a tool call obeyed, `--clean` to ask whether a recorded read caused a write, and a gate for CI that never passes a test that showed nothing.
-- [Production coverage](./coverage.md): the behaviours your imported production traffic shows that no golden covers, and a golden made of one run of each.
-- [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
-- [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
 - [Compared with other tools](./compare.md): cassettes, tracing and eval platforms, replay evals, agent debuggers with cached replay, framework time travel, durable execution.
+
+### Find and prove a fix
+
+- **Fixes**: [blame](./blame.md) finds the model call that lost a run, [repair](./repair.md) rewrites the prompt, and [verify](./verify.md) proves the fix on failing, held-out and good runs.
+- [Gating](./gating.md): verdicts on attempts that vary, with stated error rates: a forked golden's gate, against two pass rates or its own history, and how verify and blame decide.
+- [Decisions](./decisions.md): what a prompt edit or a model switch decides differently on your recorded runs, ranked by consequence, before anything runs live; `migrate` for a model a provider retires.
+
+### Test every change
+
+- [CI mode](./ci.md): a run kept as a golden, replayed offline on every pull request.
+- [Checks](./checks.md): what a passing run must do, from call counts and budgets to the order of its calls, their arguments against earlier calls' results, and rules that apply only on a condition. You try them on your recordings for free with `shadowlap check`.
+- [Judge checks](./judges.md): a model answers a question about a run, recorded like any call, so a clean replay is judged from the recording, free and the same every time.
+- [Injection tests](./injection.md): payloads planted in every read of a tool marked untrusted, with proof of which ones a tool call obeyed. `--clean` asks whether a recorded read caused a write, and the gate for CI never passes a test that showed nothing.
+- [Error-path presets](./error-paths.md): a golden forked where a tool times out or answers malformed JSON, or the provider fails, to check the agent's error path.
+- [Production coverage](./coverage.md): the behaviours your imported production traffic shows that no golden covers, and a golden made of one run of each.
+
+### Record more of your system
+
 - [Agents across services](./downstream-services.md): a service the agent calls over HTTP, recorded as a tool, so its answers replay without it.
 - [Capturing production traffic](./gateways.md): turning a run that went wrong in production into a recording, through a gateway already in the request path.
 - [Team store](./team.md): your team's runs in a bucket you own, pushed and pulled with your own credentials, with pull requests kept to their own folders, and share links.
-- [The wire protocol](./protocol.md), [the recording format](./recording-format.md) with the recordings protocol, and [the engine as a library](./engine.md): building on Shadowlap, writing an SDK for another language, integrating another test runner, or writing recordings Shadowlap replays.
+- [Training](./training.md): the preference pairs your blames and verifies already left in the store, exported for fine-tuning, and goldens as tasks a model is scored on, in the CLI or on the dashboard's Training page.
+
+### Build on Shadowlap
+
+- [The wire protocol](./protocol.md): writing an SDK for another language.
+- [The recording format](./recording-format.md), with the recordings protocol: integrating another test runner, or writing recordings Shadowlap replays.
+- [The engine as a library](./engine.md): building on Shadowlap.
 
 Shadowlap is open source under Apache-2.0: [github.com/devjoinedthechat/shadowlap](https://github.com/devjoinedthechat/shadowlap).

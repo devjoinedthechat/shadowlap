@@ -1,14 +1,18 @@
 # The engine as a library
 
 `@shadowlap/engine` is the package the CLI, the sidecar, the dashboard and the terminal UI are all
-built on. It is exported, versioned with the rest, and usable on its own — to build an importer, a
-different viewer, a custom CI integration, or anything else that needs to read recordings.
+built on. Use it on its own to build an importer, a different viewer, a custom CI integration, or
+anything else that needs to read recordings.
 
-Nothing here talks to a network or a model provider. It is a SQLite store, a fingerprinting
-function, a replay state machine and the reports around them.
+It is exported and versioned with the rest. Nothing in it talks to a network or a model provider: it
+is a SQLite store, a fingerprinting function, a replay state machine and the reports around them.
 
-> For writing an SDK in another language, you want [the wire protocol](./protocol.md) instead.
-> This page is for programs that read and write recordings directly.
+**Note:** To write an SDK in another language, use [the wire protocol](./protocol.md) instead. This
+page is for programs that read and write recordings directly.
+
+## Read a run
+
+Open the store, find a run by its id, and summarize its calls:
 
 ```ts
 import { Store, summarizeRun } from '@shadowlap/engine';
@@ -20,40 +24,45 @@ console.log(summarizeRun(run, calls).byOrigin); // { live: 11, replayed: 18, blo
 store.close();
 ```
 
-Until the npm release, import from the build output: `packages/engine/dist/index.js`.
+In a clone of the repository, import from the build output: `packages/engine/dist/index.js`.
 
 ## The store
 
-One SQLite file holding runs, call events and content-addressed blobs. Every method is synchronous.
+The store is one SQLite file holding runs, call events and content-addressed blobs. Every method is
+synchronous.
 
 ```ts
 Store.open(path: string): Store        // ':memory:' for a throwaway store
 store.close(): void
 ```
 
-**Reading**
+### Reading
 
-| | |
-|---|---|
-| `getRun(runId)` | One run, or `null`. |
-| `findRun(idOrPrefix)` | By full id or unique prefix — what the CLI accepts. |
-| `listRuns(limit?)` / `allRuns()` | Newest first. |
-| `childRuns(runId)` | The forks of a run. |
-| `getCalls(runId)` | Every call as a `CallRecord`: the start row, the final end row, earlier attempts. |
-| `countCalls(runId)` | Without loading them. |
-| `getBlob(hash)` / `getJson(ref)` | Stored request and response bodies. |
+These methods read the store:
 
-**Writing** — `createRun`, `importRun`, `appendCallStart`, `appendCallEnd`, `endRun`,
-`setDivergence`, `updateRunMeta`, `putBlob`, `putJson`, `deleteRun`, `gcBlobs`, `vacuum`.
+| Method                           | Returns                                                                          |
+|----------------------------------|----------------------------------------------------------------------------------|
+| `getRun(runId)`                  | One run, or `null`                                                               |
+| `findRun(idOrPrefix)`            | A run by its full id or a unique prefix, which is what the CLI accepts           |
+| `listRuns(limit?)` / `allRuns()` | Runs, newest first                                                               |
+| `childRuns(runId)`               | The forks of a run                                                               |
+| `getCalls(runId)`                | Every call as a `CallRecord`: the start row, the final end row, earlier attempts |
+| `countCalls(runId)`              | The number of calls, without loading them                                        |
+| `getBlob(hash)` / `getJson(ref)` | Stored request and response bodies                                               |
+
+### Writing
+
+The writing methods are `createRun`, `importRun`, `appendCallStart`, `appendCallEnd`, `endRun`,
+`setDivergence`, `updateRunMeta`, `putBlob`, `putJson`, `deleteRun`, `gcBlobs` and `vacuum`.
 
 Writing calls directly is the low-level path. **Prefer building a pack**: it is validated, it
 verifies blob hashes, and it is the same door the CLI uses for recordings from elsewhere.
 
 ## Packs: the supported way in
 
-A pack is a directory — `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/` —
-with stable names, so it is diffable and committable. [The recording format](./recording-format.md)
-specifies it, for a program that writes packs without this library.
+A pack is a directory with stable names, so it is diffable and committable: `run.json`,
+`calls.jsonl`, and one uncompressed file per blob under `blobs/`. [The recording
+format](./recording-format.md) specifies it, for a program that writes packs without this library.
 
 ```ts
 packRun(source: Store, runId: string, dir: string, opts?: { lineage?: boolean; redact?: Normalizer[] }): PackResult
@@ -63,29 +72,40 @@ importedCommandSource(run)          // 'the team store' for a pulled run (pulled
 hasRecordedCommand(run): boolean    // false for a run built from a capture, whose command is NO_COMMAND
 ```
 
-`unpackRun` treats its input as hostile: every record is checked for type, range and shape before
-anything reaches the store, every blob is verified against its hash, and every blob a call needs
-must be present. The limits are in `PACK_LIMITS` and failures throw `PackError`.
+`unpackRun` treats its input as hostile:
 
-**If you are writing an importer, prefer the pack format.** Convert your source into a pack
-directory and call `unpackRun`, and you inherit every check for free instead of adding a second way
-into the store.
+- every record is checked for type, range and shape before anything reaches the store;
+- every blob is verified against its hash;
+- every blob a call needs must be present.
 
-Writing calls directly is reasonable when the importer computes the fields that matter — which is
-what `shadowlap import` does, since it derives every id, fingerprint and occurrence itself rather
-than reading them from the file. The obligation that comes with that route is the one `unpackRun`
-would have discharged: **anything taken verbatim from the source is untrusted**. Escape it with
-`safeText` or `safeLine` before it reaches metadata that a terminal or the dashboard will render,
-and bound its length, because nothing else will.
+The limits are in `PACK_LIMITS`, and a failure throws `PackError`.
 
-A capture never knew what started the agent, so give such a run `NO_COMMAND` as its command, mark it
-`meta.imported`, and list the kinds of call it holds in `meta.covers`. Every command that would
-start the agent then asks for one instead of running the placeholder.
+### Write an importer
+
+**If you are writing an importer, prefer the pack format.** Convert your source into a pack directory
+and call `unpackRun`, and you inherit every check for free instead of adding a second way into the
+store.
+
+Writing calls directly is reasonable when the importer computes the fields that matter. That is what
+`shadowlap import` does: it derives every id, fingerprint and occurrence itself rather than reading
+them from the file.
+
+That route comes with the obligation `unpackRun` would have discharged: **anything taken verbatim
+from the source is untrusted**. Escape it with `safeText` or `safeLine` before it reaches metadata
+that a terminal or the dashboard will render, and bound its length, because nothing else will.
+
+A capture never knew what started the agent. For a run built from one:
+
+- give it `NO_COMMAND` as its command;
+- mark it `meta.imported`;
+- list the kinds of call it holds in `meta.covers`.
+
+Every command that would start the agent then asks for one instead of running the placeholder.
 
 ## Identity and matching
 
-A call's identity is `(kind, fingerprint, occurrence)`. Arrival order never takes part, which is
-why parallel tool calls replay in any interleaving.
+A call's identity is `(kind, fingerprint, occurrence)`. Arrival order never takes part, which is why
+parallel tool calls replay in any interleaving.
 
 ```ts
 fingerprintApi(req: ApiRequestShape, normalizers, allowHeaders, clock?, opts?): { fingerprint, canonical }
@@ -95,18 +115,18 @@ normalizersHash(normalizers, clock?, withoutPromptMask?): string
 ```
 
 The fingerprint is a SHA-256 over the canonical form of the request after normalizers. For an API
-call that is `{ method, path, allowlisted headers, body }` — so an importer that reconstructs a
+call that form is `{ method, path, allowlisted headers, body }`. So an importer that reconstructs a
 request body inexactly will not match on replay, however close it looks. `canonicalize` is exported
 if you need the same canonical JSON yourself.
 
-`normalizersHash` identifies the fingerprinting a run's stored fingerprints are valid under; a
+`normalizersHash` identifies the fingerprinting a run's stored fingerprints are valid under. A
 replay under the same list can reuse them instead of recomputing.
 
 ## Normalizers
 
-A `Normalizer` masks values before fingerprinting (so a request id made on every run does not fork it) and
-doubles as a redaction rule on export — the same shape, because a redacted recording still has to
-match a live request.
+A `Normalizer` masks values before fingerprinting, so a request id made on every run does not fork
+it. It doubles as a redaction rule on export, with the same shape, because a redacted recording
+still has to match a live request.
 
 ```ts
 applyNormalizers(value, normalizers, kind, name): unknown
@@ -132,8 +152,8 @@ summarizeRun(run, calls, notReached?, warnings?, options?): RunSummary
 formatSummary(s, palette?) / formatDivergence(d, palette?) / formatComparison(c, palette?): string
 ```
 
-The `format*` functions render for a terminal. Pass `plain` as the palette for output with no
-escape codes — that is what the JSON and CI paths use.
+The `format*` functions render for a terminal. Pass `plain` as the palette for output with no escape
+codes, as the JSON and CI paths do.
 
 ## Cost, datasets and search
 
@@ -150,7 +170,8 @@ searchCalls(store, query, opts?): SearchHit[]
 
 ## Gates
 
-Verdicts on attempts that vary, as `test`'s gate, `verify` and `blame` decide them ([gating](./gating.md)). Pure functions:
+These pure functions decide verdicts on attempts that vary, as `test`'s gate, `verify` and `blame`
+decide them ([gating](./gating.md)):
 
 ```ts
 // { kind: 'sprt', good, bad, risk, max } | { kind: 'baseline', drop, risk, window, min, max }
@@ -198,7 +219,7 @@ gateHistory(store, golden, { window, branch?, goldenRunId?, checks?, mode?, excl
 
 ## The replay state machine
 
-`Session` is what the sidecar drives; you need it only if you are re-implementing replay itself.
+`Session` is what the sidecar drives. You need it only if you are re-implementing replay itself.
 
 ```ts
 const session = new Session(opts);
@@ -207,14 +228,26 @@ const decision = session.resolve({ callNo, kind, name, fingerprint, effect?, req
 session.divergence;   // the DivergenceReport, once one has happened
 ```
 
-`ReplayOptions` are `writes`, `reads`, `liveTools`, `divergeAt`, `promptFrom` and `overrides`;
-`DEFAULT_REPLAY_OPTIONS` is block-writes, live-reads, nothing forced. The semantics each origin
-implies for a caller are specified in [the wire protocol](./protocol.md#endpoints).
+`ReplayOptions` are `writes`, `reads`, `liveTools`, `divergeAt`, `promptFrom` and `overrides`.
+`DEFAULT_REPLAY_OPTIONS` blocks writes, runs reads live and forces nothing. [The wire
+protocol](./protocol.md#endpoints) specifies the semantics each origin implies for a caller.
 
 ## Stability
 
-`SCHEMA_VERSION` is the store schema; `PACK_VERSION` and `PACK_FORMAT` identify the pack format;
-`FINGERPRINT_VERSION` changes when fingerprints would no longer match across versions.
+These constants identify what a program built on the engine depends on:
 
-The engine is pre-1.0 and its surface may change. The pack format is the most stable thing here and
+| Constant | What it identifies |
+|---|---|
+| `SCHEMA_VERSION` | The store schema |
+| `PACK_VERSION`, `PACK_FORMAT` | The pack format |
+| `FINGERPRINT_VERSION` | How fingerprints are computed; it changes when they would no longer match across versions |
+
+The engine is pre-1.0 and its surface may change. The pack format is the most stable thing here, and
 the one to build on where you have the choice.
+
+## See also
+
+- [The recording format](./recording-format.md): packs, call identity and the recordings protocol.
+- [The wire protocol](./protocol.md): what an SDK for another language speaks to the sidecar.
+- [How it works](./how-it-works.md): the sidecar, matching and the replay state machine.
+- [Gating](./gating.md): the verdicts the gate functions decide.
