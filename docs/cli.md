@@ -1469,6 +1469,480 @@ re-recorded what another fix changed, say), which says the fix holds again.
 | `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo` and request field `path` |
 | `update` | The command that re-records them, or `null` |
 
+## decisions
+
+```sh
+shadowlap decisions <runs|goldens...> (--model <model> | --from-code | --set <key=value>) [options] [-- <command> [args...]]
+shadowlap decisions --verify <session> [runs...] [options] [-- <command> [args...]]
+```
+
+Previews what a change decides differently, without running the agent. [Decisions](./decisions.md)
+explains the ranks, the report and the limits.
+
+```sh
+shadowlap decisions goldens/* --model claude-opus-5
+shadowlap decisions label:refund --from-code --then-verify
+```
+
+How it works:
+
+1. Each recorded model call is asked again: its request exactly as recorded, with only what the change
+   touches swapped in, sent through the same upstreams a live call goes to.
+2. The answer's decision (the tools it calls, in order, with their arguments, and whether it stops or
+   hands over) is compared with the recorded one, and ranked by consequence, writes first.
+3. A text-only change that one of the run's [judge checks](./checks.md#judge-checks) reads is judged
+   on the recorded words and on the words under the change. It ranks 2 when the check comes out
+   otherwise.
+
+No tool runs, and a step doesn't depend on the one before, so the steps are asked in parallel.
+
+**What it asks.** Runs are ids, unique prefixes or `label:<name>`. A path such as `goldens/*` names
+packs, which are imported as `test` imports them and named as its history names them. The change is
+one or more of `--model`, `--set` and `--from-code`.
+
+- A model switch changes the agent's calls: those made with the model the runs use most, or with the
+  models `--from` names.
+- A call made with another model (a simulated user, a sub-agent) is left as recorded, and counted
+  `untouched`.
+- Shadowlap's own calls (its judge's, in a `shadowlap:` scope) are no step at all.
+
+**Credentials.** Requests need the provider's credentials on this machine, unless
+`SHADOWLAP_UPSTREAM_<PROVIDER>` points the provider at a server of your own. Without them nothing is
+sent, and the command says which is missing:
+
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` or `AZURE_OPENAI_API_KEY`;
+- or, where the AI SDK keeps the last two, `GOOGLE_GENERATIVE_AI_API_KEY` and `AZURE_API_KEY`;
+- AWS credentials for Bedrock, and Google credentials for Vertex AI.
+
+An Azure OpenAI deployment call is sent with the `api-version` it was recorded with. One recorded before
+recordings kept a call's query takes `OPENAI_API_VERSION` (or `AZURE_OPENAI_API_VERSION`), as the
+AzureOpenAI SDKs do; without it, nothing is sent.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure (below) | — |
+| `--from <model>` | The recorded model the change switches from: `--model` and `--set` change only the calls made with it (repeatable; an alias names its dated snapshots) | The model the runs use most; with `--set` alone, every call |
+| `--from-code` | The change is the system prompt and tool definitions your working tree sends (below) | — |
+| `--set <key=value>` | The change sets this request field, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable | — |
+| `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control (below) | 3: six requests a step |
+| `--concurrency <n>` | Requests in flight at once. A run whose requests carry cache breakpoints is asked one step at a time, in order | 4 |
+| `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope | — |
+| `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those (below) | — |
+| `--verify <session>` | Ask nothing: verify the runs a kept session flagged (below) | — |
+| `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify) | Verify's |
+| `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent | — |
+| `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
+| `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI | — |
+| `--inconclusive fail\|warn` | What an inconclusive result does to the exit status: `fail` exits 3, `warn` exits 0 with a warning | `fail` |
+| `-y`, `--yes` | Run recorded commands without asking (below) | — |
+| `--json` | Print the report as JSON on stdout ([below](#decisions-report-as-json)); progress goes to stderr | — |
+
+More on some of them:
+
+- **`--model`**: a model of another family than the recorded one (a Claude call asked of `gpt-…`) is not
+  asked. Its requests take another format, which is verify's to test.
+- **`--from-code`**: the prompt and tools are read by replaying each run offline under your code, its
+  model calls matched without their prompt and tools. Nothing is sent to read them, no tool runs, and
+  the replay is not kept. A run whose first model request differs in more than its prompt and tools is
+  refused, with the difference.
+- **`--samples`**: a step is ranked only when its decisions run more consequential than the
+  control's, by an exact permutation test at 5% ([sampling](./decisions.md#reading-the-report)).
+  Below 3 there is no control, and a step flags its run when more than half its samples show a write,
+  stop or judged change.
+- **`--then-verify`**: a run that passed as recorded must not get worse than its own baseline, and one
+  that failed must pass. Each is judged under its checks (its golden's, or for a run named by id those
+  of the recording it comes from) or `--expect`, one verify per set of checks.
+- **`--verify`**: it verifies the runs a kept session flagged (its `dc-…` or `mg-…` id, or a prefix of
+  it), or those of them named after it, as `--then-verify` verifies them, under the session's change.
+  It keeps what verify finds in the session. The dashboard runs it as its `decisions-verify` job.
+- **`--gate` and the rest**: each run is decided by verify's gate, unless `--attempts` or `--passes`
+  gives a fixed count.
+- **`--yes`**: it runs the recorded command of a run imported from someone's pack (`--from-code`,
+  `--then-verify`, `--verify`), and of a golden from a pack the repository doesn't track, as `test`
+  asks of one.
+
+The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and
+`--verify`.
+
+`decisions` exits with:
+
+| Status    | Meaning                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------ |
+| `0`       | Every run was asked                                                                                    |
+| `1`       | `--then-verify` or `--verify` rejected the change, or, with `--strict`, a run has a rank 1 or 2 change |
+| `2`       | A refusal before anything is asked: no credentials, no such run or session                             |
+| `3`       | The result settles nothing (below), unless `--inconclusive warn`                                       |
+| `128 + n` | A stop signal; 130 for Ctrl-C                                                                          |
+
+A result that settles nothing is inconclusive. That is when:
+
+- it stopped early: the budget, or a stop signal, which exits 128 + n instead;
+- a run could not be asked at all: a `--from-code` change that is more than a prompt, or a model that
+  refused every step;
+- a run nothing else flags has a text-only change a judge check reads that could not be judged, in any
+  sample of a step its samples don't flag (no key for the judge's provider, the budget spent);
+- a run nothing else flags has a changed step whose control, the request as recorded, got no answer;
+- verify didn't run, or didn't settle the runs it took.
+
+The change is sent as given. When the model it switches to refuses the requests as recorded, a warning
+says what it takes instead (`thinking={"type":"adaptive"}`, `temperature` left out), which
+[`migrate`](#migrate) sends.
+
+A request that fails is retried twice when the provider says so (408, 409, 429, 5xx), honouring
+`retry-after`. One the provider refuses keeps its answer's message in `error`.
+
+Each session is kept in the store, with each run's part as a row of its own for its page in the
+dashboard, and logs a `decisions.done` activity event. Values the project's
+[redaction rules](./normalizers-and-redaction.md) match are masked in every argument, text and error
+the report holds, as in every export, pack and share link.
+
+### Decisions report as JSON
+
+`--json` prints the report the dashboard reads:
+
+| Field | Meaning |
+| --- | --- |
+| `decisionsId` | `dc-…`, the session as the store keeps it |
+| `kind` | `decisions` |
+| `at` | When the session ran |
+| `change` | The change (below) |
+| `command` | The command that asks the same way again, every option given |
+| `samples` | The samples asked of each model call |
+| `runs` | Each run (below) |
+| `counts` | Steps by the rank they were given (below) |
+| `flagged` | The runs a rank 1 or 2 change flags: beyond the control's variation, or with no control by what most samples show |
+| `cost` | Per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price |
+| `tokens` | `before` and `after`, each `input`, `output`, `cacheRead` and `cacheWrite` |
+| `retirements` | Each model the runs use, or switch to, that its provider retires (below) |
+| `notes` | What to keep in mind reading it (below) |
+| `warnings` | The report's warnings |
+| `verify` | With `--then-verify`: what verify found (below); else `null` |
+| `judge` | What the judge checks that read text-only steps found (below); `null` when no check read a step |
+| `remedies` | Empty here; see [`migrate`](#migrate) |
+| `stopReason` | Why it stopped before every step was asked (the budget, Ctrl-C), or `null` |
+
+`change` has its `model`, its `fields`, `from` (the recorded models they change at, or `null` for every
+call), `fromCode`, and `text`, the change in words.
+
+`counts` has the steps by the rank they were given, `1` to `5`, then:
+
+- `noise`: those whose samples decided otherwise no more often than as recorded;
+- `same`;
+- `untouched`: a request the change leaves as it was, such as one the working tree sends with the same
+  prompt, or one made with a model the switch leaves;
+- `notAsked`.
+
+`retirements` lists each model the runs use, or switch to, that its provider retires, as
+[the retirement table](./decisions.md#model-retirements) has it: `provider`, `model`, `platform`,
+`matched`, `deprecated`, `retires`, `earliest`, `regions`, `replacement` as the page words it and the
+model ids it names in `replacements`, `state`, `days`, `source` and `text`.
+
+`notes` says what to keep in mind reading it: later steps are judged in the recorded run's state,
+reasoning left out, cache breakpoints kept, calls left as recorded, the text-only steps a judge check
+reads and how they came out, values masked.
+
+Each of `runs` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `runId`, `golden` | The run, and its golden or `null` |
+| `steps`, `asked` | Its model calls, and how many were asked again |
+| `rank` | The most consequential rank its steps were given, or `null` |
+| `majority` | The same, by what decides a step: beyond the control's variation, or with no control what most samples show (below) |
+| `counts` | Its steps by rank, as `counts` above |
+| `cost` | `before` and `after` for the steps asked, and what asking them `spent` |
+| `tokens` | `before` and `after` |
+| `thinkingStripped` | Reasoning blocks left out of its requests |
+| `refused` | Why none of its calls could be asked, or `null` |
+| `decisions` | Its model calls, the changed ones first, most consequential first (below) |
+| `warnings` | The run's warnings |
+
+A `1` or `2` in a run's `majority` flags the run.
+
+Each of its `decisions`, a step, has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `callNo`, `step`, `scope` | The call in the recording, its place among the run's model calls, and its scope |
+| `rank` | With a control, the rank it earns beyond the control's variation; else the most consequential change any sample showed (below) |
+| `majority` | With a control, the same; else the rank more than half its samples show, or `null` |
+| `changes` | Each change (below) |
+| `recorded`, `now` | The decision as recorded, and under the change (below) |
+| `samples` | `asked`, `answered`, `changed`, `unjudged` (below), and each sample's rank in `ranks`, 0 for the same |
+| `control` | From 3 samples on, the request asked as recorded, as often (below) |
+| `noise` | With `control`: `p`, the exact one-sided p-value that the change's decisions run more consequential than the control's |
+| `sampled` | With `control`: the most consequential change any sample of the change showed, ranked or not |
+| `model` | `recorded` and `asked` |
+| `tokens` | `before` as recorded, and `after` as the answer under the change would use them (below) |
+| `cost` | `before` and `after` for those tokens, and what asking it `spent`, every sample |
+| `thinkingStripped` | Reasoning blocks left out of the request |
+| `error` | Why it wasn't asked, or got no answer |
+| `judge` | For a text-only change a judge check reads (below); `null` when no check read the step |
+
+More on a step's fields:
+
+- **`rank`** is `null` when no sample changed, and when either side got fewer than 3 answers, which
+  leaves the step not settled.
+- **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
+  `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
+  `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and
+  `text`. A `judge` change is a judge check that comes out otherwise for the words under the change,
+  with its status `before` and `after`.
+- **`recorded` and `now`**: each decision's `stop` (one of `tools`, `answer`, `limit`, `refused`,
+  `paused` and `other`), the provider's `stopReason`, its `tools` with their arguments and effect, and
+  its `text`. `now` is `null` when no answer came.
+- **A text**, here and in a `text` change, keeps its first 2,000 characters, and says how many more the
+  recording holds. The comparison reads all of it.
+- **`samples.unjudged`**: the text-only samples whose words a judge check reads but could not judge.
+- **`control`**: `asked`, `answered`, `changed`, `ranks`, and `error`, why fewer than 3 were answered.
+  With it, `rank` and `majority` are the rank the change earns beyond the control, or `null`. It is
+  absent below 3 samples.
+- **`tokens.after`**: in a run like the recorded one, its input split between cache reads, cache writes
+  and plain input, as the recorded call's was.
+
+A step's `judge` is `now`'s, the sample shown: the most consequential, or, among text-only ones, one
+whose words could not be judged. It lists each check:
+
+| Field             | Meaning                                                                      |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `name`            | The check                                                                    |
+| `of`              | What it reads: `answer` or `run`                                             |
+| `model`           | Its model                                                                    |
+| `pass`            | The answer that passes                                                       |
+| `recorded`, `now` | Its verdict on the recorded words, and on the words under the change (below) |
+| `changed`         | Whether the check changed; `null` when either side is inconclusive           |
+
+Each verdict, `recorded` or `now`, has these fields:
+
+| Field     | Meaning                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------ |
+| `status`  | `passed`, `failed` or `inconclusive`                                                       |
+| `verdict` | The judge's verdict: `yes`, `no`, or `null` when not judged                                |
+| `reason`  | The judge's reason, or why it is inconclusive: `not judged: …`                             |
+| `source`  | Where the verdict came from (below)                                                        |
+| `cost`    | What it cost when asked here, in USD; 0 when free                                          |
+| `request` | A digest of the judge's request, by which the very same request is answered again for free |
+
+`source` is `recording` (the golden's own judge call), `kept` (asked before, and kept with a session in
+this store), `live`, or `null` when not judged.
+
+The report's `judge` says what the judge checks that read text-only steps found, and what judging cost
+apart from asking:
+
+| Field | Meaning |
+| --- | --- |
+| `steps` | The steps whose text-only change a check reads |
+| `changed` | Of those, the steps a check came out otherwise for |
+| `inconclusive` | Of those, the steps that wait on a judge: a sample's words could not be judged, and the step's samples don't flag it without them |
+| `spent`, `upstreamRequests` | What the judge's calls in this session cost, and their upstream requests |
+| `unknownModels` | The judge's models with no price |
+
+The rest of `steps` are those every check came out as recorded for.
+
+With `--then-verify`, `verify` holds what verify found:
+
+| Field | Meaning |
+| --- | --- |
+| `verdict` | `accepted`, `rejected`, `incomplete`, or `not-run` when no run needed verifying or verify could not run, with why in `reasons` |
+| `verifyIds` | The verdicts kept |
+| `runs` | Each run verified (below) |
+| `rule` | The rule they were decided by, stated once (below) |
+| `commands` | The commands that verify them again |
+| `spent`, `upstreamRequests` | What it spent, and its upstream requests |
+| `reasons` | Its reasons |
+
+Each run verified has:
+
+- its `runId`, `role`, `outcome` in verify's own words, `passes` and `attempts`;
+- `bound`, the bound of its pass rate under the gate, exact under its stopping (`rate >= 0.73 (95%)`);
+  `null` for a clean replay or a fixed count;
+- `undecided`: why its last attempt could not be judged, which stopped it `inconclusive`. That attempt
+  neither passed nor failed, and there is no bound; `null` otherwise;
+- the `rule` it was decided by.
+
+A good run kept against its own baseline has the `baseline`'s `passes` and `attempts`, and its `bound`
+is the drop's (`drop <= 0.10 (95%)`).
+
+The `rule` is stated once: `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. It is `null`
+in a session whose runs were decided by different rules, verified again later under other figures,
+where each run's own says which.
+
+`--verify --json` prints:
+
+| Field | Meaning |
+| --- | --- |
+| `sessionId` | The session |
+| `kind` | `decisions` or `migrate`, the session's |
+| `change` | The change, in words |
+| `verify` | As above, for the runs it verified |
+| `passes` | A migrate session's runs, as its What still passes reads after this verify, as [`migrate`](#migrate) prints them; `null` for a decisions session |
+
+A refusal before anything is asked (no credentials, no such run or session) prints
+`{ "kind": "decisions", "outcome": "error", "error": { "message": … } }`: `kind`, `outcome` and
+`error`. It exits 2.
+
+## migrate
+
+```sh
+shadowlap migrate --to <model> [goldens...] [options] [-- <command> [args...]]
+```
+
+Switches models with the evidence, for a model a provider retires, or one you would rather pay for.
+[Decisions](./decisions.md#migrate) explains each block of its report.
+
+```sh
+shadowlap migrate --to claude-opus-5
+```
+
+1. It runs [`decisions --model`](#decisions) on the goldens (`goldens/*` unless you name packs or
+   runs), with the fields the model it switches to refuses changed to what it takes (below).
+2. It runs [`verify`](#verify) on the runs with a rank 1 or 2 change.
+3. It compares what a run costs.
+4. It ends in one report: what changes, what still passes, what it costs, and what to set.
+
+It switches the agent's model calls:
+
+- those made with the models `--from` names;
+- else those made with a model the [retirement table](./decisions.md#model-retirements) says retires;
+- else those made with the model the runs use most.
+
+A simulated user or a sub-agent on another model keeps its own, in the preview and in verify alike.
+Shadowlap's own calls (its judge's) are none of the agent's.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--to <model>` | The model to switch to. Required | — |
+| `--from <model>` | The recorded model to switch from (repeatable; an alias names its dated snapshots) | As above |
+| `--scope <name>` | Only the model calls made in this scope; `none` for those made in no scope | — |
+| `--set <key=value>` | A request field the switch sets as well (repeatable) | — |
+| `--samples <n>`, `--concurrency <n>` | As for [`decisions`](#decisions) | 1, 4 |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0 | Each run's checks (below) |
+| `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count | Verify's |
+| `--budget <usd>`, `--timeout <seconds>` | As for [`decisions`](#decisions) | — |
+| `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` | `fail` |
+| `-y`, `--yes` | Run recorded commands without asking (below) | — |
+| `--json` | Print the report as JSON on stdout ([below](#migrate-report-as-json)) | — |
+
+`--expect` defaults to each run's checks from `shadowlap.config.json`: its golden's, or, for a run
+named by id, those of the recording it comes from. `--yes` runs the recorded command of a run imported
+from someone's pack without asking, and of a golden from a pack the repository doesn't track, as
+`test` asks of one.
+
+`migrate` exits with:
+
+| Status | Meaning                                                          |
+| ------ | ---------------------------------------------------------------- |
+| `1`    | A run verify took breaks under the model it switches to          |
+| `3`    | The report settles nothing (below), unless `--inconclusive warn` |
+| `0`    | Otherwise                                                        |
+
+The report settles nothing when it stopped early, a step got no answer, a flagged run went
+unverified, or a run nothing else flags has a text-only change a judge check reads that could not be
+judged.
+
+### The fields it changes
+
+The fields it changes come from two places.
+
+**The [retirement table](./decisions.md#model-retirements)**, which keeps what a provider's pages say it
+stops accepting:
+
+- Anthropic's Claude 4.7 and later, in a Messages API request on the Claude API, Bedrock or Vertex AI,
+  answer a non-default `temperature`, `top_p` or `top_k` with a 400, and the page says to omit them.
+  So they are left out of what to set. The preview and verify send `temperature` its default, 1,
+  meanwhile.
+- They refuse a manual thinking budget too, so `thinking` becomes `{"type": "adaptive"}`.
+- OpenAI's o-series take `max_tokens` as `max_completion_tokens`.
+
+**The target model's own refusal**, when it names what to change: `max_tokens: 64000 > 32000`,
+*at most 16384 completion tokens*, *Only the default (1) value is supported*,
+`"thinking.type.enabled" is not supported`, or
+*'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead*.
+
+- The step is asked once more with that field changed, and so is every later request to that model,
+  through that provider, that needs it.
+- An output limit only ever lowers a request, and never under its thinking budget.
+- A refusal that names nothing to change stays the step's `error`.
+
+Verify runs with the fields set to a value. A field to leave out, or to send under another name, has to
+change in your agent's requests first, since verify runs your code. So verify waits for it, and the
+report says what to change.
+
+### What it writes
+
+It writes the pull request body and the change to the project's files (a patch `git apply` takes)
+under `.shadowlap/migrations/<id>/`. It keeps the report in the store (`mg-…`), logging a
+`migrate.done` activity event.
+
+The patch changes only a string value that names a model it switches from, in code and config: a
+string literal, a JSON value, a YAML, TOML or `.env` value. Every other mention is left as it is, and
+listed for review: in prose and changelogs, in tests, as an object key such as a price table's, inside
+a longer string, or in `shadowlap.config.json`.
+
+### Migrate report as JSON
+
+`--json` prints the report:
+
+| Field | Meaning |
+| --- | --- |
+| `migrateId` | `mg-…`, the report as the store keeps it |
+| `kind` | `migrate` |
+| `at` | When it ran |
+| `from`, `to` | The recorded models it switches from, and the model it switches to |
+| `command` | The command that migrates the same way again, every option given |
+| `decisions` | The [decisions report](#decisions-report-as-json), with its `remedies` (below) |
+| `changes` | `runs`, `flagged`, and each rank 1 or 2 change in `steps` (below) |
+| `passes` | What verify found: its `verdict` and the `runs` (below) |
+| `costs` | `perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, and what `checking` cost (below) |
+| `set` | The `--set` `flags` verify took, the `fields` changed, and those `given` with `--set` |
+| `configChange` | The change to the project's files (below); `null` when no file names the model |
+| `pullRequest` | `title` and `body` |
+| `files` | Where the `dir`, the `pullRequest` body and the `patch` were written |
+| `retirements`, `notes`, `warnings`, `stopReason` | As in the decisions report |
+
+Each of the decisions report's `remedies` has these fields:
+
+| Field       | Meaning                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `field`     | The request field                                                                  |
+| `value`     | What the requests were sent with in its place; `null` when it was left out of them |
+| `leftOut`   | Whether your agent's requests should leave it out                                  |
+| `renamedTo` | The name it goes under instead, or `null`                                          |
+| `why`       | Why                                                                                |
+| `source`    | Its source page, or `null` when the provider's refusal said it                     |
+| `steps`     | The steps that needed it                                                           |
+
+`changes.steps` holds each rank 1 or 2 change most samples show, a judged one included: `runId`,
+`golden`, `callNo`, `rank`, `detail`, the `recorded` and the `now` action, and how the `arguments`
+differ.
+
+`passes` has verify's `verdict`, `not-run` when no run needed verifying or verify waits for a change
+to your code. Each of its `runs` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `runId`, `golden` | The run, and its golden |
+| `verdict` | `passed`, `failed` or `inconclusive` |
+| `outcome` | How it came out (below) |
+| `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it and `undecided`; else `null` |
+
+`outcome` is in verify's own words when it was `verified` (`kept`, `fixed`, `broken`, `not-fixed`,
+`inconclusive`, `unsettled`). Else it is:
+
+- `unchanged`, when no write, stop or judged change was found, so its recording's own verdict stands
+  and it was not re-run;
+- `unsettled`, when a flagged run went unverified;
+- `not-judged`, when a text-only change a judge check reads could not be judged;
+- or `not-asked`.
+
+`checking` is what checking cost: `decisions`, `judge` (judging the text-only changes a judge check
+reads) and `verify`.
+
+`configChange` holds the `files` patched, with the `places` in each, the `patch`, and each mention left
+for `review`: its `path`, `line` and `text`.
+
+A refusal before anything is asked prints `kind`, `outcome` (`error`) and `error`, as `decisions` does.
+
 ## init
 
 ```sh
@@ -1490,78 +1964,6 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 Its install step adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev dependency, which the steps after it run with `npx`, or for a Python project `npm install --global shadowlap`. Run by a global `shadowlap`, it leaves the CLI out, and the steps run that one.
 
 `init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config, and `node`, the Node the project pins with its minor and whether it is older than the guard takes, `tooOld`), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter, with the fence for a Claude Agent SDK query that runs through none (`wrap`). The models it warns about are `unrecordedModels` (each with its `file`, `line`, `model`, and the framework that builds its client, `via`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so. Run by the dashboard, whose setup has its own buttons for the next steps, it prints only what it found, a line each, and what it did with `shadowlap.config.json`. The rest of the object is what was found: `cwd`, `languages`, `packageManager`, `providers` (each SDK and the package it came `via`), `frameworks`, `command` (its `argv` and where it came `from`), `tools` (each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped`), `fence` (each Claude Agent SDK the project uses: its `framework`, the `language` of the code that fences its query, and where a query runs through the fence, `at`, or null), `scannedFiles`, `config` (its `path`, whether it `existed` and was `created`) and `folder` (the kind of project the folder holds).
-
-## decisions
-
-```sh
-shadowlap decisions <runs|goldens...> (--model <model> | --from-code | --set <key=value>) [options] [-- <command> [args...]]
-shadowlap decisions --verify <session> [runs...] [options] [-- <command> [args...]]
-```
-
-Previews what a change decides differently, without running the agent. Each recorded model call is asked again: its request exactly as recorded, with only what the change touches swapped in, sent through the same upstreams a live call goes to. The answer's decision (the tools it calls, in order, with their arguments, and whether it stops or hands over) is compared with the recorded one and ranked by consequence, writes first. A text-only change that one of the run's [judge checks](./checks.md#judge-checks) reads is judged on the recorded words and the new ones, and ranks 2 when the check comes out otherwise. No tool runs, and a step doesn't depend on the one before, so the steps are asked in parallel. [Decisions](./decisions.md) explains the ranks, the report and the limits.
-
-Runs are ids, unique prefixes or `label:<name>`; a path such as `goldens/*` names packs, which are imported as `test` imports them and named as its history names them. The change is one or more of `--model`, `--set` and `--from-code`. A model switch changes the agent's calls: those made with the model the runs use most, or with the models `--from` names. A call made with another model (a simulated user, a sub-agent) is left as recorded and counted `untouched`, and Shadowlap's own calls (its judge's, in a `shadowlap:` scope) are no step at all. Requests need the provider's credentials on this machine (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `AZURE_OPENAI_API_KEY`, or where the AI SDK keeps the last two, `GOOGLE_GENERATIVE_AI_API_KEY` and `AZURE_API_KEY`; AWS credentials for Bedrock, Google credentials for Vertex AI), unless `SHADOWLAP_UPSTREAM_<PROVIDER>` points the provider at a server of your own; without them nothing is sent and the command says which is missing. An Azure OpenAI deployment call is sent with the `api-version` it was recorded with; one recorded before recordings kept a call's query takes `OPENAI_API_VERSION` (or `AZURE_OPENAI_API_VERSION`), as the AzureOpenAI SDKs do, and without it nothing is sent.
-
-| Option | Effect |
-|---|---|
-| `--model <model>` | The change is this model, at the agent's model calls: in the body, or in the path on Gemini, Vertex AI, Bedrock and Azure. A model of another family than the recorded one (a Claude call asked of `gpt-…`) is not asked: its requests take another format, which is verify's to test |
-| `--from <model>` | The recorded model the change switches from: `--model` and `--set` change only the calls made with it (repeatable; an alias names its dated snapshots). Default: the model the runs use most; with `--set` alone, every call |
-| `--from-code` | The change is the system prompt and tool definitions your working tree sends now. They are read by replaying each run offline under your code, its model calls matched without their prompt and tools; nothing is sent to read them, no tool runs, and the replay is not kept. A run whose first model request differs in more than its prompt and tools is refused, with the difference |
-| `--set <key=value>` | The change sets this request field, where the provider keeps it (`temperature` is `generationConfig.temperature` on Gemini); repeatable |
-| `--samples <n>` | Ask each model call *n* times under the change and, from 3 on, *n* times as recorded, the control, and rank a step only when its decisions run more consequential than the control's, by an exact permutation test at 5% ([sampling](./decisions.md#reading-the-report)). Default 3: six requests a step. Below 3 there is no control, and a step flags its run when more than half its samples show a write, stop or judged change |
-| `--concurrency <n>` | Requests in flight at once. Default 4. A run whose requests carry cache breakpoints is asked one step at a time, in order |
-| `--scope <name>` | Ask only the model calls made in this [scope](./sdk.md#scopes); `none` for those made in no scope |
-| `--then-verify` | Then run [`verify`](#verify) on the runs with a rank 1 or 2 change, and only on those: a run that passed as recorded must not get worse than its own baseline, one that failed must now pass, each under its checks (its golden's, or for a run named by id those of the recording it comes from) or `--expect`, one verify per set of checks |
-| `--verify <session>` | Ask nothing: verify the runs a kept session flagged (its `dc-…` or `mg-…` id, or a prefix of it), or those of them named after it, as `--then-verify` verifies them, under the session's change, and keep what verify finds in the session. The dashboard runs it as its `decisions-verify` job |
-| `--expect <json\|@file>`, `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | With `--then-verify` or `--verify`: as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
-| `--budget <usd>` | Send no request, and start no verify attempt, once this much is spent |
-| `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long. A model request waits ten minutes by default, as the official SDKs do |
-| `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI |
-| `--inconclusive fail\|warn` | What an inconclusive result does to the exit status: `fail` (the default) exits 3, `warn` exits 0 with a warning |
-| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack (`--from-code`, `--then-verify`, `--verify`) without asking, and of a golden from a pack the repository doesn't track, as `test` asks of one |
-| `--json` | The report as JSON on stdout (below); progress goes to stderr |
-
-The command after `--` replaces each run's recorded one, for `--from-code`, `--then-verify` and `--verify`.
-
-Exit status 0 when every run was asked; 1 when `--then-verify` or `--verify` rejected the change, or with `--strict` when a run has a rank 1 or 2 change. A result that settles nothing is inconclusive, and exits 3 unless `--inconclusive warn`: it stopped early (the budget; a stop signal exits 128 + n, 130 for Ctrl-C), a run could not be asked at all (a `--from-code` change that is more than a prompt, a model that refused every step), a run nothing else flags has a text-only change a judge check reads that could not be judged, in any sample of a step its samples don't flag (no key for the judge's provider, the budget spent), a run nothing else flags has a changed step whose control, the request as recorded, got no answer, or verify didn't run or didn't settle the runs it took. The change is sent as given: when the new model refuses the requests as recorded, a warning says what it takes instead (`thinking={"type":"adaptive"}`, `temperature` left out), which [`migrate`](#migrate) sends. Each session is kept in the store, with each run's part as a row of its own for its page in the dashboard, and logs a `decisions.done` activity event.
-
-`--json` prints the report the dashboard reads: `decisionsId` (`dc-…`, the session as the store keeps it), `kind` (`decisions`), `at`, `change` (its `model`, its `fields`, `from`, the recorded models they change at, or `null` for every call, `fromCode`, and `text`, the change in words), `command` (the command that asks the same way again, every option given), `samples`, `runs`, `counts` (steps by the rank they were given, `1` to `5`, then `noise` for those whose samples decided otherwise no more often than as recorded, `same`, `untouched` for a request the change leaves as it was, such as one the working tree sends with the same prompt or one made with a model the switch leaves, and `notAsked`), `flagged` (the runs a rank 1 or 2 change flags: beyond the control's variation, or with no control by what most samples show), `cost` (per run, the mean `before` and `after` in USD; what asking `spent`; `upstreamRequests`; and `unknownModels` with no price), `tokens` (`before` and `after`, each `input`, `output`, `cacheRead` and `cacheWrite`), `retirements` (each model the runs use, or switch to, that its provider retires, as [the retirement table](./decisions.md#model-retirements) has it: `provider`, `model`, `platform`, `matched`, `deprecated`, `retires`, `earliest`, `regions`, `replacement` as the page words it and the model ids it names in `replacements`, `state`, `days`, `source` and `text`), `notes` (what to keep in mind reading it: later steps are judged in the recorded run's state, reasoning left out, cache breakpoints kept, calls left as recorded, the text-only steps a judge check reads and how they came out, values masked), `warnings`, `verify` (with `--then-verify`: the `verdict`, `accepted`, `rejected`, `incomplete`, or `not-run` when no run needed verifying or verify could not run, with why in `reasons`; the `verifyIds` kept, each run's `runId`, `role`, `outcome` in verify's own words, `passes` and `attempts`, `bound`, the bound of its pass rate under the gate, exact under its stopping (`rate >= 0.73 (95%)`; `null` for a clean replay or a fixed count), `undecided`, why its last attempt could not be judged, which stopped it `inconclusive`: that attempt neither passed nor failed, and there is no bound (`null` otherwise), and the `rule` it was decided by; a good run kept against its own baseline has the `baseline`'s `passes` and `attempts`, and its `bound` is the drop's (`drop <= 0.10 (95%)`); the `rule` they were decided by, stated once (`gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`; `null` in a session whose runs were decided by different rules, verified again later under other figures, where each run's own says which), the `commands` that verify them again, what it `spent`, its `upstreamRequests` and `reasons`; else `null`), `judge` (what the judge checks that read text-only steps found, and what judging cost apart from asking: the `steps` whose text-only change a check reads, of which the `changed` steps a check came out otherwise for, the `inconclusive` steps that wait on a judge (a sample's words could not be judged, and the step's samples don't flag it without them), and the rest every check came out as recorded for; what the judge's calls made now `spent`, their `upstreamRequests` and the `unknownModels` with no price; `null` when no check read a step), `remedies` (empty here; see [`migrate`](#migrate)) and `stopReason`.
-
-Each of `runs` has `runId`, `golden` (or `null`), `steps` (its model calls), `asked`, `rank` (the most consequential rank its steps were given, or `null`), `majority` (the same by what decides a step: beyond the control's variation, or with no control what most samples show; a `1` or `2` here flags the run), `counts`, `cost` (`before` and `after` for the steps asked, and what asking them `spent`) and `tokens`, `thinkingStripped`, `refused` (why none of its calls could be asked, or `null`), `decisions` and `warnings`. Its `decisions` are its model calls, the changed ones first, most consequential first: `callNo` in the recording, `step` among its model calls, `scope`, `rank` (with a control, the rank it earns beyond the control's variation, else the most consequential change any sample showed; `null` when none, and when either side got fewer than 3 answers for now, which leaves the step not settled), `majority` (with a control, the same; else the rank more than half its samples show, or `null`), `changes` (each with its `rank`, its `kind`, one of `write-added`, `write-removed`, `write-arguments`, `write-order`, `stops`, `handover`, `judge` (a judge check comes out otherwise for the new words, its status `before` and `after`), `read-added`, `read-removed`, `read-arguments` and `text`, the `tool` and its `effect`, `before`, `after` and a `detail` sentence), `recorded` and `now` (each decision's `stop`, one of `tools`, `answer`, `limit`, `refused`, `paused` and `other`, the provider's `stopReason`, its `tools` with their arguments and effect, and its `text`; `now` is `null` when no answer came; a text, here and in a `text` change, keeps its first 2,000 characters, and says how many more the recording holds, while the comparison reads all of it), `samples` (`asked`, `answered`, `changed`, `unjudged`, the text-only samples whose words a judge check reads but could not judge, and each sample's rank in `ranks`, 0 for the same), `control` (the request asked as recorded, as often, from 3 samples on: `asked`, `answered`, `changed`, `ranks`, and `error`, why fewer than 3 were answered; with it, `rank` and `majority` are the rank the change earns beyond the control, or `null`; absent below 3 samples), `noise` (with `control`: `p`, the exact one-sided p-value that the change's decisions run more consequential than the control's), `sampled` (with `control`: the most consequential change any sample of the change showed, ranked or not), `model` (`recorded` and `asked`), `tokens` (`before` as recorded, `after` as the new answer would use them in a run like the recorded one: its input split between cache reads, cache writes and plain input as the recorded call's was), `cost` (`before` and `after` for those tokens, and what asking it `spent`, every sample), `thinkingStripped` (reasoning blocks left out of the request), `error` (why it wasn't asked, or got no answer) and `judge` (for a text-only change a judge check reads, `now`'s, the sample shown: the most consequential, or among text-only ones one whose words could not be judged; each check: its `name`, what it reads (`of`: `answer` or `run`), its `model`, the answer that `pass`es, its verdict on the `recorded` words and on the `now` ones, each with its `status` (`passed`, `failed` or `inconclusive`), the judge's `verdict` (`yes`, `no`, or `null` when not judged), its `reason` (or why it is inconclusive: `not judged: …`), the `source` of the verdict (`recording`, the golden's own judge call; `kept`, asked before and kept with a session in this store; `live`; `null` when not judged), what it `cost` now in USD (0 when free) and `request`, a digest of the judge's request, by which the very same request is answered again for free; and whether the check `changed`, `null` when either side is inconclusive; `null` when no check read the step). Values the project's [redaction rules](./normalizers-and-redaction.md) match are masked in every argument, text and error the report holds, as in every export, pack and share link.
-
-`--verify --json` prints `sessionId`, `kind` (`decisions` or `migrate`, the session's), `change` (in words), `verify` (as above, for the runs verified now) and `passes` (a migrate session's runs as its What still passes reads now, as [`migrate`](#migrate) prints them; `null` for a decisions session). A refusal before anything is asked (no credentials, no such run or session) prints `{ "kind": "decisions", "outcome": "error", "error": { "message": … } }`: `kind`, `outcome` and `error`, and exits 2.
-
-A request that fails is retried twice when the provider says so (408, 409, 429, 5xx), honouring `retry-after`; one the provider refuses keeps its answer's message in `error`.
-
-## migrate
-
-```sh
-shadowlap migrate --to <model> [goldens...] [options] [-- <command> [args...]]
-```
-
-Switches models with the evidence, for a model a provider retires or one you would rather pay for. It runs [`decisions --model`](#decisions) on the goldens (`goldens/*` unless you name packs or runs), with the fields the new model refuses changed to what it takes, then [`verify`](#verify) on the runs with a rank 1 or 2 change, and compares what a run costs. It ends in one report: what changes, what still passes, what it costs, and what to set. [Decisions](./decisions.md#migrate) explains each block.
-
-It switches the agent's model calls: those made with the models `--from` names, else those made with a model the [retirement table](./decisions.md#model-retirements) says retires, else those made with the model the runs use most. A simulated user or a sub-agent on another model keeps its own, in the preview and in verify alike, and Shadowlap's own calls (its judge's) are none of the agent's.
-
-| Option | Effect |
-|---|---|
-| `--to <model>` | The model to switch to. Required |
-| `--from <model>` | The recorded model to switch from (repeatable; an alias names its dated snapshots). Default: as above |
-| `--scope <name>` | Only the model calls made in this scope; `none` for those made in no scope |
-| `--set <key=value>` | A request field the switch sets as well (repeatable) |
-| `--samples <n>`, `--concurrency <n>` | As for `decisions` |
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0. Default: each run's checks from `shadowlap.config.json`, its golden's, or for a run named by id those of the recording it comes from |
-| `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count |
-| `--budget <usd>`, `--timeout <seconds>` | As for `decisions` |
-| `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` |
-| `-y`, `--yes` | Run the recorded command of a run imported from someone's pack without asking, and of a golden from a pack the repository doesn't track, as `test` asks of one |
-| `--json` | The report as JSON on stdout (below) |
-
-The fields it changes come from two places. The [retirement table](./decisions.md#model-retirements) keeps what a provider's pages say it stops accepting: Anthropic's Claude 4.7 and later, in a Messages API request on the Claude API, Bedrock or Vertex AI, answer a non-default `temperature`, `top_p` or `top_k` with a 400, and the page says to omit them, so they are left out of what to set (the preview and verify send `temperature` its default, 1, meanwhile); they refuse a manual thinking budget too, so `thinking` becomes `{"type": "adaptive"}`; and OpenAI's o-series take `max_tokens` as `max_completion_tokens`. And the new model's own refusal, when it names what to change (`max_tokens: 64000 > 32000`, *at most 16384 completion tokens*, *Only the default (1) value is supported*, `"thinking.type.enabled" is not supported`, *'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead*): the step is asked once more with that field changed, and so is every later request to that model through that provider that needs it (an output limit only ever lowers a request, and never under its thinking budget). Verify runs with the fields set to a value; a field to leave out or to send under its new name has to change in your agent's requests first, since verify runs your code, so verify waits for it and the report says what to change. A refusal that names nothing to change stays the step's `error`.
-
-It writes the pull request body and the change to the project's files (a patch `git apply` takes) under `.shadowlap/migrations/<id>/`, and keeps the report in the store (`mg-…`), logging a `migrate.done` activity event. The patch changes only a string value that names a model it switches from in code and config (a string literal, a JSON value, a YAML, TOML or `.env` value); every other mention (in prose and changelogs, in tests, as an object key such as a price table's, inside a longer string, in `shadowlap.config.json`) is left as it is and listed for review. Exit status 1 when a run verify took breaks under the new model; when the report settles nothing (it stopped early, a step got no answer, a flagged run went unverified, a run nothing else flags has a text-only change a judge check reads that could not be judged), 3 unless `--inconclusive warn`; else 0.
-
-`--json` prints `migrateId`, `kind` (`migrate`), `at`, `from` (the recorded models it switches from), `to`, `command`, `decisions` (the [decisions report](#decisions), with its `remedies`: each `field`, its `value` (what the requests were sent with in its place, `null` when it was left out of them), whether your agent's requests should leave it out (`leftOut`), the name it goes under instead (`renamedTo`, or `null`), `why`, its `source` page, or `null` when the provider's refusal said it, and the `steps` that needed it), `changes` (`runs`, `flagged`, and each rank 1 or 2 change most samples show, a judged one included, in `steps`: `runId`, `golden`, `callNo`, `rank`, `detail`, the `recorded` and the `now` action, and how the `arguments` differ), `passes` (verify's `verdict`, `not-run` when no run needed verifying or verify waits for a change to your code, and each run's `runId`, `golden`, `verdict`, one of `passed`, `failed` and `inconclusive`, `outcome`, in verify's own words when it was `verified` (`kept`, `fixed`, `broken`, `not-fixed`, `inconclusive`, `unsettled`), else `unchanged` when no write, stop or judged change was found, so its recording's own verdict stands and it was not re-run, `unsettled` when a flagged run went unverified, `not-judged` when a text-only change a judge check reads could not be judged, or `not-asked`, and `tally`, for a run verify took, its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it and `undecided` as there, else `null`), `costs` (`perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, and what `checking` cost: `decisions`, `judge`, judging the text-only changes a judge check reads, and `verify`), `set` (the `--set` `flags` verify took, the `fields` changed, and those `given` with `--set`), `configChange` (the `files` patched, with the `places` in each, the `patch`, and each mention left for `review`: its `path`, `line` and `text`; `null` when no file names the model), `pullRequest` (`title` and `body`), `files` (where the `dir`, the `pullRequest` body and the `patch` were written), `retirements`, `notes`, `warnings` and `stopReason`. A refusal before anything is asked prints `kind`, `outcome` (`error`) and `error`, as `decisions` does.
 
 ## tasks
 
