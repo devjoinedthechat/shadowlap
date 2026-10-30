@@ -31,8 +31,11 @@ if TYPE_CHECKING:
 
 # Where a proxy answers a challenge (src/mcp-proxies.ts).
 PROOF_PATH = "/.well-known/shadowlap-proxy"
-# How long a proxy, on this machine, has to answer one.
+# How long a proxy, on this machine, has to answer one once connected.
 PROOF_SECONDS = 2.0
+# How long the connection to it may take. On this machine it is taken or refused at once, but Windows
+# tries again for about two seconds before it says refused.
+CONNECT_SECONDS = 5.0
 # A proof's answer is a short HTTP response: more than this is not one.
 _ANSWER_MAX = 4096
 _NAME = re.compile(r"^(\d+)\.json$")

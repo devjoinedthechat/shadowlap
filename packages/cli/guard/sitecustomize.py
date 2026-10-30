@@ -145,7 +145,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         """A connection of the guard's own, never checked: to ask a proxy to prove itself."""
         _reporting.active = True
         try:
-            return socket.create_connection(address, timeout=_shadowlap_proxies.PROOF_SECONDS)
+            return socket.create_connection(address, timeout=_shadowlap_proxies.CONNECT_SECONDS)
         finally:
             _reporting.active = False
 

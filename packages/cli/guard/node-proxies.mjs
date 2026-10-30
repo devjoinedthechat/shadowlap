@@ -17,8 +17,13 @@ import { join } from 'node:path';
 
 /** Where a proxy answers a challenge (src/mcp-proxies.ts). */
 const PROOF_PATH = '/.well-known/shadowlap-proxy';
-/** How long a proxy, on this machine, has to answer one. */
+/** How long a proxy, on this machine, has to answer one once connected. */
 const PROOF_MS = 2_000;
+/**
+ * How long the connection to it may take. On this machine it is taken or refused at once, but
+ * Windows tries again for about two seconds before it says refused.
+ */
+const CONNECT_MS = 5_000;
 /** A proof's answer is a short HTTP response: more than this is not one. */
 const ANSWER_MAX = 4096;
 
@@ -143,11 +148,13 @@ export function proof(connect, host, port, keys) {
     } catch {
       return resolve('unproven');
     }
-    const done = (/** @type {'proven' | 'nothing' | 'unproven'} */ answer) => {
+    const connecting = setTimeout(() => done('unproven'), CONNECT_MS);
+    /** @param {'proven' | 'nothing' | 'unproven'} answer */
+    function done(answer) {
+      clearTimeout(connecting);
       socket.destroy();
       resolve(answer);
-    };
-    socket.setTimeout(PROOF_MS, () => done('unproven'));
+    }
     socket.on('error', (/** @type {NodeJS.ErrnoException} */ err) => done(err.code === 'ECONNREFUSED' ? 'nothing' : 'unproven'));
     socket.on('data', (/** @type {Buffer} */ chunk) => {
       chunks.push(chunk);
@@ -155,7 +162,11 @@ export function proof(connect, host, port, keys) {
       if (size > ANSWER_MAX) done('unproven');
     });
     socket.on('end', () => done(answered(Buffer.concat(chunks).toString('latin1'), keys, challenge) ? 'proven' : 'unproven'));
-    socket.on('connect', () => socket.write(`GET ${PROOF_PATH}?challenge=${challenge} HTTP/1.1\r\nHost: ${host.includes(':') ? `[${host}]` : host}:${port}\r\nConnection: close\r\n\r\n`));
+    socket.on('connect', () => {
+      clearTimeout(connecting);
+      socket.setTimeout(PROOF_MS, () => done('unproven'));
+      socket.write(`GET ${PROOF_PATH}?challenge=${challenge} HTTP/1.1\r\nHost: ${host.includes(':') ? `[${host}]` : host}:${port}\r\nConnection: close\r\n\r\n`);
+    });
   });
 }
 

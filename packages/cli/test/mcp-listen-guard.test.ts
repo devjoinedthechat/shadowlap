@@ -188,7 +188,7 @@ describe("a proxy's proof", () => {
       const other = (plain.address() as AddressInfo).port;
       /** What the Node guard, and the Python one where there is Python, make of what answers at `port` for `keys`. */
       const answer = async (port: number, keys: string[]) => {
-        const program = ['import json, socket, sys', 'sys.path.insert(0, sys.argv[1])', 'import _shadowlap_proxies as p', 'print(json.dumps(p.proof(lambda a: socket.create_connection(a, timeout=2), "127.0.0.1", int(sys.argv[2]), json.loads(sys.argv[3]))))'].join('\n');
+        const program = ['import json, socket, sys', 'sys.path.insert(0, sys.argv[1])', 'import _shadowlap_proxies as p', 'print(json.dumps(p.proof(lambda a: socket.create_connection(a, timeout=p.CONNECT_SECONDS), "127.0.0.1", int(sys.argv[2]), json.loads(sys.argv[3]))))'].join('\n');
         const python = PYTHON ? (JSON.parse((await promisify(execFile)(PYTHON, ['-c', program, GUARD_DIR, String(port), JSON.stringify(keys)], { encoding: 'utf8' })).stdout) as string) : null;
         return { node: await proof((o) => connect(o), '127.0.0.1', port, keys), python };
       };
