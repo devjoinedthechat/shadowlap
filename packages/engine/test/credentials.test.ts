@@ -110,7 +110,8 @@ describe('a name with a password or secret word in it', () => {
     secret_arn: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
     SecretARN: 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf',
     secret_version: 'v3',
-    SecretVersionId: 'EXAMPLE1-90ab-cdef-fedc-ba987EXAMPLE',
+    // A version named by a UUID, as AWS names one, reads as a key: masked, as KEYS's are below.
+    SecretVersionId: '3',
     secret_version_stage: 'AWSCURRENT',
     SecretVersionStages: 'AWSPENDING',
     password_policy: 'min 12, one symbol',
@@ -137,6 +138,26 @@ describe('a name with a password or secret word in it', () => {
   it('is a credential whatever its value, unless its last words name or describe the secret', () => {
     for (const [name, value] of Object.entries(SECRETS)) expect(credentialParam(name, value), name).toBe(true);
     for (const [name, value] of Object.entries(NAMES)) expect(credentialParam(name, value), name).toBe(false);
+  });
+
+  // Values that read as a key, each under every one of those names.
+  const KEYS: Record<string, string> = {
+    JWT: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJFWEFNUExFIn0.c2lnbmF0dXJlLWV4YW1wbGU',
+    'sk-': 'sk-proj-EXAMPLEAbCdEf0123456789AbCdEf0123',
+    ghp_: 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A',
+    UUID: '550e8400-e29b-41d4-a716-446655440000',
+    '32 hex': 'a8f5f167f44f4964e6c998dee827110c',
+    '22 alphanumerics': 'AbCdEfGhIjKlMnOpQrStUv',
+  };
+
+  it('masks a value that reads as a key under a name that describes a secret, as a header’s is, and keeps a plain one', () => {
+    for (const name of Object.keys(NAMES)) {
+      for (const [shape, value] of Object.entries(KEYS)) expect(credentialParam(name, value), `${name}: ${shape}`).toBe(true);
+    }
+    expect(maskJsonCredentials({ secret_name: KEYS.ghp_, secret_description: KEYS['sk-'], secret_tags: 'team:data' })).toEqual({ secret_name: C, secret_description: C, secret_tags: 'team:data' });
+    // A time and an ARN read as no key, their digits and the suffix AWS makes up notwithstanding.
+    expect(credentialParam('password_expires_at', '2027-01-01T00:00:00.125+01:00')).toBe(false);
+    expect(credentialParam('SecretArn', 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf')).toBe(false);
   });
 
   it('keeps what names or describes a secret in each shape a body is read by, and masks the secret', () => {

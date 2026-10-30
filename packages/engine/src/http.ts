@@ -134,8 +134,9 @@ function runTogether(word: string, suffix: 'key' | 'token' | 'code'): boolean {
  * `value` (decoded) reads as one (credentialValue); with no value given, it is taken for one, as a
  * model call's query takes it. So is a name with a password or secret word in it, wherever the word
  * stands (`SecretString`, `password_confirmation`), but one whose last words name or describe the
- * secret (`secret_name`, `password_policy`: namesASecret), which keeps its value when one is given,
- * so lookups of two secrets stay two calls; read by its name alone, it is taken for one too.
+ * secret (`secret_name`, `password_policy`: namesASecret), which keeps a value given it that doesn't
+ * read as a key (readsAsKey), so lookups of two secrets stay two calls, while a key under such a name
+ * (`secret_name: "ghp_…"`) is masked; read by its name alone, it is taken for one too.
  */
 export function credentialParam(name: string, value?: string): boolean {
   const words = wordsOf(name);
@@ -145,7 +146,7 @@ export function credentialParam(name: string, value?: string): boolean {
   const before = words.slice(0, -1);
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
-  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words))) return true;
+  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words) && !readsAsKey(value))) return true;
   if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
   if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));
@@ -202,6 +203,20 @@ const WORDLIKE = /^(?:[a-z]{1,20}|[A-Z][a-z]{0,19}|[A-Z]{1,20}|\d{1,20}|[A-Za-z]
 export function credentialValue(value: string): boolean {
   if (value.length < 16) return false;
   return value.split(/[^A-Za-z0-9]+/).some((part) => part !== '' && !WORDLIKE.test(part));
+}
+
+/** A count, a limit, a duration or a time: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
+const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
+/** An Amazon Resource Name, whose last part may end in a suffix AWS makes up (`arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf`). */
+const ARN_SHAPED = /^arn:[\w-]+:[\w-]+:[\w-]*:\d*:\S+$/;
+
+/**
+ * Whether a value under a name that holds none (a count of tokens, a secret's name) reads as a key
+ * (credentialValue) all the same: never a count, a duration or a time, nor an ARN, whose made-up
+ * suffix reads as a key's part.
+ */
+function readsAsKey(value: string): boolean {
+  return credentialValue(value) && !COUNT_SHAPED.test(value) && !ARN_SHAPED.test(value);
 }
 
 /** A URL-encoded name or value as text: `+` a space, `%xx` its character; as it is when it doesn't decode. */
@@ -909,9 +924,6 @@ const TOKEN_COUNT = new Set(['count', 'counts', 'usage', 'limit', 'limits', 'rem
  */
 const ROUTING_HEADERS = ['azureml-model-session'];
 
-/** A count, a limit, a duration or a time as a header gives it: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
-const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
-
 /**
  * Whether the token word at `i` of a header's name is a count's or a limit's: the word after it is
  * one of TOKEN_COUNT, and ends the name (`…-token-count`). Before it, it says what the token is for:
@@ -929,8 +941,8 @@ function countsTokens(words: readonly string[], i: number): boolean {
  * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
  * explicit list covers the echoed request headers, which read by their words alone aren't
  * credentials. A count or a limit of tokens (countsTokens) and a routing hint (ROUTING_HEADERS) hold
- * none: given its `value`, one is a credential only when that reads as a key (credentialValue)
- * rather than as a count, a duration or a time; with no value given, it is taken for one.
+ * none: given its `value`, one is a credential only when that reads as a key (readsAsKey); with no
+ * value given, it is taken for one.
  */
 export function credentialHeader(name: string, value?: string): boolean {
   const lower = name.toLowerCase();
@@ -940,7 +952,7 @@ export function credentialHeader(name: string, value?: string): boolean {
   const words = wordsOf(lower);
   const counted = words.map((w, i) => w === 'token' && countsTokens(words, i));
   if (words.some((w, i) => HEADER_SECRET_WORD.has(w) && !counted[i])) return !words.some((w) => CURSOR.includes(w));
-  return (routing || counted.includes(true)) && (value === undefined || (credentialValue(value) && !COUNT_SHAPED.test(value)));
+  return (routing || counted.includes(true)) && (value === undefined || readsAsKey(value));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */

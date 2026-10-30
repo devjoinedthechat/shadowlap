@@ -245,9 +245,11 @@ export interface RunMeta {
   headerParameters?: true;
   /**
    * The run's captured calls keep a member, parameter or element whose name names or describes a
-   * secret as sent (`secret_name`, `SecretArn`, `password_policy`: the engine's credentialParam). A
-   * run without it, made before they were kept, stored each as `<CREDENTIAL>`: a replay of it is
-   * matched, and kept, with them masked the same way (withSecretNames), so its own replays match so too.
+   * secret as sent (`secret_name`, `SecretArn`, `password_policy`: the engine's credentialParam), but
+   * for a value that reads as a key. A run without it, made before they were kept, stored each as
+   * `<CREDENTIAL>`: a replay of it is matched, and kept, with them masked the same way
+   * (withSecretNames), so its own replays match so too. One made before the value was read kept a key
+   * there too: a replay masks it, on both sides, as it masks any.
    */
   secretNames?: true;
   /**

@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER, fingerprintTool, normalizersHash, Store, withoutStoredCredentials, withSecretNames, type RunRecord } from '@shadowlap/engine';
+import { CREDENTIAL_PLACEHOLDER, fingerprintTool, normalizersHash, Store, withoutStoredCredentials, withSecretNames, type RunMeta, type RunRecord } from '@shadowlap/engine';
 import { Sidecar } from '../src/index.js';
 
 /**
@@ -78,12 +78,12 @@ const argsOf = (runId: string) => store.getCalls(runId).map((c) => store.getJson
 /**
  * A copy of `run`, as a recording made before a secret's name was kept holds it: no
  * RunMeta.secretNames, each call's arguments as that version stored them (`args`, or masked as it
- * masked them), and fingerprinted so.
+ * masked them), and fingerprinted so. `meta` marks it as an earlier version that kept some marked it.
  */
-function earlier(run: RunRecord, args = (stored: unknown) => withSecretNames(false, () => withoutStoredCredentials(stored))): RunRecord {
-  const old = store.createRun({ mode: 'record', command, meta: { normalizersHash: normalizersHash([], 'exact', false), exactNumbers: true } });
+function earlier(run: RunRecord, args = (stored: unknown, _callNo: number): unknown => withSecretNames(false, () => withoutStoredCredentials(stored)), meta: Partial<RunMeta> = {}): RunRecord {
+  const old = store.createRun({ mode: 'record', command, meta: { normalizersHash: normalizersHash([], 'exact', false), exactNumbers: true, ...meta } });
   for (const call of store.getCalls(run.runId)) {
-    const kept = args(store.getJson<{ args: unknown }>(call.requestRef!)!.args);
+    const kept = args(store.getJson<{ args: unknown }>(call.requestRef!)!.args, call.callNo);
     const fingerprint = fingerprintTool(call.name, kept, []).fingerprint;
     store.appendCallStart({ ...call, runId: old.runId, fingerprint, requestRef: store.putJson({ args: kept }) });
     store.appendCallEnd({ kind: call.kind, name: call.name, fingerprint, occurrence: call.occurrence }, { ...call.end!, runId: old.runId });
@@ -146,6 +146,25 @@ describe('a captured call’s secret name', () => {
     expect(second.got).toEqual(['prod/db', 'prod/cache']);
     expect(second.divergence).toBeNull();
     expect(service.asked).toEqual(['prod/db', 'prod/cache']);
+  });
+
+  it('is masked on both sides where a recording made before the value was read kept a key under it, and the recording still replays', async () => {
+    const s = await sidecar();
+    const key = 'ghp_EXAMPLE16C7e42F292c6912E7710c838347A';
+    const sent = ['prod/db', key];
+    const run = await record(s, sent);
+    const names = (runId: string) => argsOf(runId).map((a) => (a as { body: { secret_name: string } }).body.secret_name);
+    // A key under a secret's name is stored masked.
+    expect(names(run.runId)).toEqual(['prod/db', C]);
+    // As the version before stored it: each name as sent, the key too, in a run marked as keeping secret names.
+    const made = earlier(run, (stored, callNo) => ({ ...(stored as Record<string, unknown>), body: { secret_name: sent[callNo - 1], secret_value: C } }), { secretNames: true });
+    expect(names(made.runId)).toEqual(sent);
+    const replayed = await replay(s, made.runId, sent);
+    expect(replayed.got).toEqual(sent);
+    expect(replayed.divergence).toBeNull();
+    // Its replay keeps the mark, and the key masked.
+    expect(store.getRun(replayed.runId)!.meta?.secretNames).toBe(true);
+    expect(names(replayed.runId)).toEqual(['prod/db', C]);
   });
 
   it('is fingerprinted under each run’s own rule, never from the cache entry the other rule left for the same stored request', async () => {

@@ -29,9 +29,10 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * a URL's user info wherever it stands in text (a .env line's database URL, a sentence). 12: and a
  * JWT as a word of its own anywhere in text. 13: but a name that names or describes a secret
  * (`secret_name`, `password_policy`), which keeps its value, unless the run masked them, as one made
- * before did (RunMeta.secretNames), which the key names.
+ * before did (RunMeta.secretNames), which the key names. 14: but a value under such a name that reads
+ * as a key (`secret_name: "ghp_…"`), which is masked.
  */
-const CACHE_VERSION = 13;
+const CACHE_VERSION = 14;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
