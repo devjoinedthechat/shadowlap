@@ -27,9 +27,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * and HTML by an element's name or key attribute, and inside an element that attribute names as one.
  * 10: and in `key: value` lines, a GraphQL block string, and a token given as a URL's name. 11: and
  * a URL's user info wherever it stands in text (a .env line's database URL, a sentence). 12: and a
- * JWT as a word of its own anywhere in text.
+ * JWT as a word of its own anywhere in text. 13: but a name that names or describes a secret
+ * (`secret_name`, `password_policy`), which keeps its value, unless the run masked them, as one made
+ * before did (RunMeta.secretNames), which the key names.
  */
-const CACHE_VERSION = 12;
+const CACHE_VERSION = 13;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =
@@ -50,11 +52,21 @@ export type FingerprintRules =
       numbers: 'exact' | 'rounded';
     }
   | { kind: 'judge'; method: string; path: string; matchPath: string | null; headers: Record<string, string>; allow: readonly string[]; rules: string; query: string | null; numbers: 'exact' | 'rounded' }
-  | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean };
+  /** `secretNames`: a captured call's arguments read with a secret's name masked, as a run made before such names were kept stored them. */
+  | { kind: 'tool'; name: string; normalizers: string; clock: boolean; captured: boolean; secretNames?: 'masked' };
 
 /** A list of rules as a key names it. */
 export function rulesId(rules: readonly Normalizer[]): string {
   return sha256(canonicalize(rules));
+}
+
+/**
+ * How a tool call is fingerprinted, as its key names it: its name, its normalizers' id, whether dates
+ * are masked, and for a captured call, whether its arguments are read with a secret's name masked
+ * (`secretNames` false, RunMeta.secretNames).
+ */
+export function toolRules(name: string, normalizers: string, clock: boolean, captured: boolean, secretNames: boolean): FingerprintRules {
+  return { kind: 'tool', name, normalizers, clock, captured, ...(captured && !secretNames ? { secretNames: 'masked' as const } : {}) };
 }
 
 /** The cache key of a stored request's fingerprint under `rules`. */

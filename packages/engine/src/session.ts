@@ -1,5 +1,5 @@
 import { CLOCK_PLACEHOLDERS, maskClock, maskClockText } from './clock.js';
-import { queryPairs } from './fingerprint.js';
+import { maskGeminiCallIds, queryPairs } from './fingerprint.js';
 import { multipartView } from './multipart.js';
 import { withoutPrompt } from './prompt.js';
 import { headerDiff, hintsFor, isHeaderEntry, isQueryEntry, queryDiff, structuralDiff } from './diff.js';
@@ -715,7 +715,9 @@ export class Session {
         // A form upload as it was matched: its parts, not its bytes with their random boundary.
         const view = input.kind === 'api' ? multipartView(v) : v;
         const p = this.options.promptFrom !== undefined && input.kind === 'api' ? withoutPrompt(view) : view;
-        return refs === undefined ? p : maskClock(p, refs);
+        // A Gemini conversation's made-up call ids as they were matched: numbered in the order they first appear.
+        const ids = input.kind === 'api' ? maskGeminiCallIds(p) : p;
+        return refs === undefined ? ids : maskClock(ids, refs);
       };
       // The query as it was matched too: dates near either run's start masked, as in the body.
       const query = (q: string | undefined) => queryPairs(q).map(([k, v]): [string, string] => [k, refs === undefined ? v : maskClockText(v, refs)]);
