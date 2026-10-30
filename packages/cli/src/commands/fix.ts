@@ -53,7 +53,8 @@ export function register(program: Command): void {
     .argument('[command...]', 'run this command instead of each run\'s recorded one (after "--")')
     .option('--fixes <run...>', 'failing runs the change was written to fix: run ids, or label:<name>')
     .option('--holdout <run...>', 'failing runs of the same kind that the change was not written against')
-    .option('--keeps <run...>', 'passing runs the change must not break, e.g. label:good')
+    // The rule its report states a good run is kept by, from the same defaults, as repair's --keeps says it.
+    .option('--keeps <run...>', `runs that passed and must not get worse, each against its own baseline, e.g. label:good: one that forks is ${describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'paired' })}, its baseline the same run under the code before the change, or with --baseline history ${describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source: 'history' })}; --margin and verify.max (or a --gate max off its default) change the points and the pairs, --gate's risk the risk, and a fixed count (--attempts, --passes) judges it on its own`)
     .option('--expect <json|@file>', 'what a passing run must do besides exiting 0, as under "expect" in shadowlap.config.json tests')
     .option('--gate <json|@file>', `how a run decides, after each attempt where the replay forks: a gate that tells a run passing "good" of the time or more from one passing "bad" or less, each verdict wrong at most "risk" of the time at those two rates, up to "max" attempts (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)

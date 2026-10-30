@@ -65,6 +65,17 @@ describe('what --help says an option does', () => {
     return o!.description;
   };
 
+  it("says how verify keeps a good run, the rule its report states from the defaults repair's --keeps reads too", () => {
+    const rule = (source: 'paired' | 'history') => describeBaselineRule({ ...KEPT_DEFAULTS, risk: SPRT_DEFAULTS.risk, source });
+    const text = said(['verify'], '--keeps');
+    expect(text).toBe(`runs that passed and must not get worse, each against its own baseline, e.g. label:good: one that forks is ${rule('paired')}, its baseline the same run under the code before the change, or with --baseline history ${rule('history')}; --margin and verify.max (or a --gate max off its default) change the points and the pairs, --gate's risk the risk, and a fixed count (--attempts, --passes) judges it on its own`);
+    // In words: 10 points, 5% risk, 200 pairs, the same figures repair's --keeps states.
+    expect(text).toContain('kept unless it drops 10+ points below its baseline, attempt for attempt, <= 5% risk, up to 200 pairs');
+    expect(text).toContain("kept unless it drops 10+ points below its golden's history, <= 5% risk, up to 200 attempts");
+    expect(said(['repair'], '--keeps')).toContain(rule('paired'));
+    expect(text).not.toContain('must not break');
+  });
+
   it('gives the status an inconclusive result ends decisions and migrate with: 3, as exit-codes.ts has it', () => {
     for (const command of ['decisions', 'migrate']) {
       expect(said([command], '--inconclusive')).toBe(`what an inconclusive result does to the exit status: fail (${EXIT.inconclusive}) or warn (${EXIT.ok}, with a warning)`);
