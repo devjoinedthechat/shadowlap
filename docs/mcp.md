@@ -201,16 +201,29 @@ the model sees, and its read tools pass through unrecorded. The proxy says which
 
 ### Under the network guard
 
-Started on its own, the proxy registers its address while it runs, in
-`~/.shadowlap/mcp/<its process id>.json`, owner-only. Every command that starts agents lets them
-reach each running proxy of yours it finds there, at its address and at `localhost` with its port. The
+The proxy registers its address while it runs, in `~/.shadowlap/mcp/<its process id>.json`,
+owner-only. Every command that starts agents lets them reach each running proxy of yours that
+records their tool calls, at its address and at `localhost` with its port. The
 [network guard](./how-it-works.md#the-network-guard) neither warns of it nor, under `block`
-(`shadowlap test`'s default), refuses it, as the proxy records the tool calls it carries.
+(`shadowlap test`'s default), refuses it.
 
+How the proxy was started decides whose calls it records, and so whose agents it lets through:
+
+| Started | Lets through |
+|---|---|
+| On its own | The agents of every Shadowlap command |
+| By a Shadowlap command, or under one (by the agent's own command, say) | That command's agents alone, whose run it records into |
+| Under a Shadowlap command whose run it can't find | None: it doesn't register |
+
+- **When the agent connects.** The guard reads the folder then, so a proxy started after the agent,
+  or by it, counts.
+- **It proves it runs.** A registration holds a key the proxy keeps. Before a connection goes on,
+  the proxy proves it holds the key, so a file left by a proxy that was killed lets nothing through,
+  even once its process id is another process's.
+- **Nothing listening.** A connection to a registered address where nothing listens is left to fail
+  as it would, as when `localhost` names two addresses and the proxy serves on one.
 - **A file that isn't yours alone,** or that names a process that has ended, lets nothing through.
 - **The home folder only.** The files are read from there, where no repository can put one.
-- **Start the proxy first.** An agent is let through to the proxies running when it starts, so start
-  the proxy before the command that runs it.
 - **By hand.** Where the home folder can't be written, the proxy says so on stderr. Then, or for a
   proxy started under another user, let it through with `SHADOWLAP_GUARD_ALLOW=127.0.0.1:8931` in the
   command's environment.

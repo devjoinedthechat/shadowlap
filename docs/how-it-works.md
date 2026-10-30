@@ -510,9 +510,9 @@ connection and every UDP datagram the process sends:
 | Other runtimes | They ignore both                                         |
 
 The sidecar is allowed, and so is a
-[`shadowlap mcp --listen`](./mcp.md#served-over-http---listen) proxy of yours that is running when the
-agent starts, which records the tool calls it carries. Anything else is a side effect Shadowlap cannot
-replay:
+[`shadowlap mcp --listen`](./mcp.md#under-the-network-guard) proxy of yours that records the agent's
+tool calls, once it proves it is running when the agent connects. Anything else is a side effect
+Shadowlap cannot replay:
 
 | Mode | What happens | Default for |
 |---|---|---|

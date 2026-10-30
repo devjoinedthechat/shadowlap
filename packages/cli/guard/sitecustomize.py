@@ -4,9 +4,10 @@ Loaded by `shadowlap run` / `replay` / `test` through PYTHONPATH, so it needs no
 no dependency. It intercepts every outbound connection the agent process makes, and every UDP
 datagram it sends: the sidecar is allowed, everything else is a side effect Shadowlap cannot
 replay, so it is reported (SHADOWLAP_GUARD=warn) or refused (=block). SHADOWLAP_GUARD=off disables
-it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets. SHADOWLAP_MCP_PROXIES names the
-`shadowlap mcp --listen` proxies the command that started the agent found running: they record the
-tool calls they carry, so reaching one bypasses nothing.
+it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets. SHADOWLAP_MCP_REGISTRY names the
+folder the `shadowlap mcp --listen` proxies of this user's register in: they record the tool calls
+they carry, so reaching one bypasses nothing. It is read when the agent connects
+(_shadowlap_proxies.py).
 
 It sees what goes through Python's socket module, asyncio's event loops (the selector loop, and
 the proactor loop that is Windows' default), and uvloop. A library that opens its sockets in C,
@@ -126,10 +127,38 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     if os.environ.get("SHADOWLAP_HTTP2_URL"):
         _h2 = urlparse(os.environ["SHADOWLAP_HTTP2_URL"])
         _allowed.add("%s:%s" % (_h2.hostname, _h2.port))
-    for _item in [*os.environ.get("SHADOWLAP_GUARD_ALLOW", "").split(","), *os.environ.get("SHADOWLAP_MCP_PROXIES", "").split(",")]:
+    for _item in os.environ.get("SHADOWLAP_GUARD_ALLOW", "").split(","):
         if _item.strip():
             _allowed.add(_item.strip())
     _seen: dict[str, int] = {}
+
+    # The `shadowlap mcp --listen` proxies of this user's, read when the agent connects.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import _shadowlap_proxies
+    finally:
+        sys.path.pop(0)
+    _registry = os.environ.get("SHADOWLAP_MCP_REGISTRY", "")
+    _run = _shadowlap_proxies.run_of(_url, os.environ.get("SHADOWLAP_RUN_ID", ""))
+
+    def _own_connection(address: tuple[str, int]) -> socket.socket:
+        """A connection of the guard's own, never checked: to ask a proxy to prove itself."""
+        _reporting.active = True
+        try:
+            return socket.create_connection(address, timeout=_shadowlap_proxies.PROOF_SECONDS)
+        finally:
+            _reporting.active = False
+
+    def _registered_proxy(host: Any, port: Any, targets: list[str]) -> bool:
+        """Whether host:port is a registered proxy that records this agent's calls and proves it is, or
+        nothing listens there, so the connection fails as it would (_shadowlap_proxies)."""
+        if not _registry or not str(port).isdigit() or not _shadowlap_proxies.is_loopback_host(str(host)):
+            return False
+        try:
+            keys = _shadowlap_proxies.proxy_keys(_registry, _run, targets)
+            return bool(keys) and _shadowlap_proxies.proof(_own_connection, str(host), int(port), keys) != "unproven"
+        except Exception:  # never let the guard break the agent: a folder it can't read lets nothing through
+            return False
 
     def _report(key: str, action: str) -> None:
         _post("/v1/guard", {"target": key, "action": action, "runtime": "python"})
@@ -174,6 +203,8 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
         names = list(dict.fromkeys(_names.get(host, ())))
         named = ["%s:%s" % (name, port) for name in names]
         if named and all(k in _allowed for k in named):
+            return
+        if not datagram and _registered_proxy(host, port, [key, *named]):
             return
         if len(named) == 1:
             key = allow = named[0]

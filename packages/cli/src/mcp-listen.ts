@@ -11,7 +11,7 @@ import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
 import { idKey, isRequest, isToolCall, refuseBatch, REPLAYED_HEADERS, ToolCalls, type HttpAnswer, type JsonRpcId, type JsonRpcMessage, type LiveCall, type McpOrigin, type ProxySidecar } from './mcp-calls.js';
-import { registerProxy } from './mcp-proxies.js';
+import { PROOF_PATH, proofOf, proxyKey, registerProxy } from './mcp-proxies.js';
 import { discoverSidecar, type DiscoverySkip } from './mcp-sidecar.js';
 
 /**
@@ -49,6 +49,8 @@ export interface McpListenOptions {
   sidecar: (client: ClientEnd) => ProxySidecar | Promise<ProxySidecar>;
   /** Effects by tool name; wins over the server's annotations. */
   effects?: Record<string, Effect>;
+  /** The key of its registration, which it proves it holds to a guard that asks (mcp-proxies.ts). */
+  proofKey?: string;
   log?: (line: string) => void;
 }
 
@@ -125,29 +127,20 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     if (!hosts.has(host)) return void res.writeHead(403, { 'content-type': 'text/plain' }).end(`shadowlap mcp serves ${endpoint} only, not the host ${host || '(none)'}`);
     const from = req.headers.origin;
     if (from !== undefined && from !== 'null' && !hosts.has(from.replace(/^https?:\/\//i, '').toLowerCase())) return void res.writeHead(403, { 'content-type': 'text/plain' }).end(`shadowlap mcp refuses requests from ${from}`);
-    if (new URL(req.url ?? '/', 'http://x').pathname !== '/mcp') return void res.writeHead(404, { 'content-type': 'text/plain' }).end(`the MCP endpoint is ${endpoint}`);
+    const path = new URL(req.url ?? '/', 'http://x');
+    // A guard asking whether this is the proxy its registration names (mcp-proxies.ts).
+    if (path.pathname === PROOF_PATH && o.proofKey && req.method === 'GET') return proofAnswer(res, o.proofKey, path.searchParams.get('challenge'));
+    if (path.pathname !== '/mcp') return void res.writeHead(404, { 'content-type': 'text/plain' }).end(`the MCP endpoint is ${endpoint}`);
     if (req.method === 'POST') return post(req, res);
     if (req.method === 'GET' || req.method === 'DELETE') return pass(req, res);
     res.writeHead(405, { allow: 'GET, POST, DELETE' }).end();
-  }
-
-  /** The headers of a request to the server: the client's that matter, then `--header`'s, which win. */
-  function upstreamHeaders(req: IncomingMessage, length?: number): OutgoingHttpHeaders {
-    const out: OutgoingHttpHeaders = {};
-    for (const name of FORWARDED_HEADERS) {
-      const v = req.headers[name];
-      if (typeof v === 'string') out[name] = v;
-    }
-    Object.assign(out, o.headers);
-    if (length !== undefined) out['content-length'] = String(length);
-    return out;
   }
 
   /** A request to the server, its answer handed to `answered`; null when the server can't be reached. */
   function ask(method: string, req: IncomingMessage, body: Buffer | null, answered: (res: IncomingMessage) => void, failed: (err: Error) => void): ClientRequest | null {
     let out: ClientRequest;
     try {
-      out = send(upstream, { method, headers: upstreamHeaders(req, body?.length) }, (r) => {
+      out = send(upstream, { method, headers: upstreamHeaders(req, o.headers, body?.length) }, (r) => {
         open.delete(out);
         answered(r);
       });
@@ -383,6 +376,18 @@ class RawEventStream {
   }
 }
 
+/** The headers of a request to the server: the client's that matter, then `--header`'s (`extra`), which win. */
+function upstreamHeaders(req: IncomingMessage, extra: Record<string, string> | undefined, length?: number): OutgoingHttpHeaders {
+  const out: OutgoingHttpHeaders = {};
+  for (const name of FORWARDED_HEADERS) {
+    const v = req.headers[name];
+    if (typeof v === 'string') out[name] = v;
+  }
+  Object.assign(out, extra);
+  if (length !== undefined) out['content-length'] = String(length);
+  return out;
+}
+
 /** The head of the server's answer, as the client gets it: its status, and the headers it needs (RELAYED_HEADERS). */
 function relayHead(res: ServerResponse, from: IncomingMessage): void {
   const headers: OutgoingHttpHeaders = {};
@@ -407,6 +412,13 @@ function asRecorded(status: number, headers: IncomingMessage['headers'], bytes: 
   }
   const text = bytes.toString('utf8');
   return Buffer.from(text, 'utf8').equals(bytes) ? { status, headers: kept, body: text } : { status, headers: kept, body: bytes.toString('base64'), base64: true };
+}
+
+/** A proxy's answer to a guard's challenge (32 to 128 hex digits): the proof that it holds its registration's key. */
+function proofAnswer(res: ServerResponse, key: string, challenge: string | null): void {
+  if (!challenge || !/^[0-9a-f]{32,128}$/.test(challenge)) return void res.writeHead(400, { 'content-type': 'text/plain' }).end('a challenge is 32 to 128 hex digits');
+  const proof = proofOf(key, challenge);
+  res.writeHead(200, { 'content-type': 'text/plain', 'content-length': String(proof.length), 'cache-control': 'no-store' }).end(proof);
 }
 
 /** Gives the client an HTTP answer as it was recorded (asRecorded). */
@@ -479,15 +491,19 @@ export function sessionSidecar(client: ClientEnd, cwd: string, log: (line: strin
  * session with no run found, or one it can't tell among several, can't be recorded, and this could
  * be a replay: its writes are refused and its reads pass through unrecorded. Resolves with the exit
  * code for the signal that stopped it.
+ *
+ * While it runs it is registered (mcp-proxies.ts), so the network guard of the agents it records
+ * lets them reach it: every command's agents when it started on its own, and its command's own when
+ * it started under one. One that can't record isn't registered: its reads would bypass the run.
  */
 export async function listen(url: URL, at: { host: string; port: number }, headers: Record<string, string>, effects: Record<string, Effect>, found: SidecarLookup, log: (line: string) => void): Promise<number> {
   const cwd = process.cwd();
   const sidecar = (client: ClientEnd): ProxySidecar => (found.kind === 'sidecar' ? found.target : found.kind === 'unusable' ? { unusable: found.reason } : sessionSidecar(client, cwd, log));
   if (found.kind === 'none') log('started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none');
-  const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, log });
-  // On its own it serves every command's agents, whose network guard lets them reach it while it is registered (mcp-proxies.ts).
+  const key = proxyKey();
+  const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, proofKey: key, log });
   const port = Number(new URL(listener.url).port);
-  const registered = found.kind === 'none' ? registerProxy({ host: at.host, port }) : null;
+  const registered = found.kind === 'unusable' ? null : registerProxy({ host: at.host, port }, { key, run: found.kind === 'sidecar' ? found.target : null });
   log(`serving ${url.host} at ${listener.url}`);
   if (registered && !registered.file) log(`could not register it in the home folder's .shadowlap/mcp, so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
   return new Promise((resolve) => {

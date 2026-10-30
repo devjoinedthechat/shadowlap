@@ -616,8 +616,9 @@ None of that text starts a line of the job's log either. The runner would read s
 
 - **Loopback only.** It takes only a loopback address, and answers only requests that name that address in `Host` and, from a browser, in `Origin`. So a web page can't reach the server through it.
 - **Any local process can.** Any process on this machine that can reach the port can reach the server through it, with the `--header` values the proxy holds.
-- **Its registration.** Started on its own, it registers its address while it runs, in `~/.shadowlap/mcp`. The network guard of the agents Shadowlap commands start lets them reach it.
-- **When a registration counts.** Only when it is read from the home folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address. So one left behind by a proxy that died, or planted, lets nothing through.
+- **Its registration.** It registers its address while it runs, in `~/.shadowlap/mcp`, with a key it keeps. The network guard of the agents Shadowlap commands start lets them reach it: every command's agents when it was started on its own, its own command's alone when started under one.
+- **When a registration counts.** Only when it is read from the home folder, is the user's own, owner-only and not a link, in an owner-only folder, and names the process it is filed under, which is running, at a loopback address.
+- **It proves it runs.** A connection goes on only once what answers at that address proves it holds the registration's key. So one left behind by a proxy that died, even after its process id is reused, or planted, lets nothing through.
 
 ## Telemetry
 
