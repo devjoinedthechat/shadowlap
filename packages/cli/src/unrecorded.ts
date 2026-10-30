@@ -17,11 +17,12 @@ export function allowedUnrecorded(values: readonly string[] | undefined): Set<st
   return new Set((values ?? []).flatMap((v) => v.split(',')).map((name) => name.trim()).filter(Boolean));
 }
 
-/** `--allow-unrecorded`, as every command that replays a recording takes it: the flag, its help, and how its values add up. */
+/**
+ * `--allow-unrecorded`, as every command that replays a recording takes it: the flag and its help.
+ * Its values add up with collect (shared.ts), and allowedUnrecorded reads one never given as none.
+ */
 export const ALLOW_UNRECORDED = '--allow-unrecorded <names>';
 export const ALLOW_UNRECORDED_HELP = 'run these tools again for real though the recording never recorded them and they write, or nothing says what they do: names separated by commas (repeatable)';
-// No default, so help never shows an empty list as one: given none, the flag is undefined, which allowedUnrecorded reads as none.
-export const collectNames = (v: string, acc: string[] | undefined): string[] => [...(acc ?? []), v];
 
 /**
  * A command line with a flag added: before its `--`, when it has one, so the flag is Shadowlap's

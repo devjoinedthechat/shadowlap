@@ -30,17 +30,17 @@ export interface ReplayFlags {
   strict?: boolean;
   writes: WritePolicy;
   reads: ReadPolicy;
-  liveTool: string[];
+  liveTool?: string[];
   divergeAt?: number;
   promptFrom?: number;
-  override: string[];
-  failAt: string[];
-  injectResult: string[];
+  override?: string[];
+  failAt?: string[];
+  injectResult?: string[];
   expect?: string;
   watch?: boolean;
   inject?: string;
   injectAs: 'system' | 'user';
-  set: string[];
+  set?: string[];
   model?: string;
   guard: GuardMode;
   allowUnrecorded?: string[];
@@ -145,11 +145,16 @@ function agentStatus(code: number, preloads: PreloadReport | null): number {
   return preloads?.failed ? EXIT.failed : code;
 }
 
+/** The flags given that change the replay, which --chaos refuses: each preset would be judged with them. */
+function changesBesideChaos(flags: ReplayFlags): string[] {
+  return [flags.override?.length && '--override', flags.failAt?.length && '--fail-at', flags.injectResult?.length && '--inject-result', flags.inject && '--inject', flags.set?.length && '--set', flags.model && '--model', flags.promptFrom !== undefined && '--prompt-from', flags.divergeAt !== undefined && '--diverge-at', flags.liveTool?.length && '--live-tool', flags.repeat !== undefined && '--repeat', flags.watch && '--watch', flags.strict && '--strict'].filter((x): x is string => typeof x === 'string');
+}
+
 /** `shadowlap replay <run> [-- command]`. */
 export async function replayRun(command: Command, opts: GlobalOpts, runArg: string, given: string[], flags: ReplayFlags): Promise<void> {
   if (flags.chaos) {
     // The presets play their own failures in, one at a time: anything else that changes the replay would be judged with them.
-    const others = [flags.override.length && '--override', flags.failAt.length && '--fail-at', flags.injectResult.length && '--inject-result', flags.inject && '--inject', flags.set.length && '--set', flags.model && '--model', flags.promptFrom !== undefined && '--prompt-from', flags.divergeAt !== undefined && '--diverge-at', flags.liveTool.length && '--live-tool', flags.repeat !== undefined && '--repeat', flags.watch && '--watch', flags.strict && '--strict'].filter((x): x is string => typeof x === 'string');
+    const others = changesBesideChaos(flags);
     if (others.length) throw new InvalidArgumentError(`--chaos plays each preset in alone; it doesn't combine with ${others.join(', ')}`);
   } else if (flags.presets || flags.chaosTool) throw new InvalidArgumentError('--presets and --chaos-tool go with --chaos');
   const request = parseReplay(opts, runArg, given, flags);
@@ -195,9 +200,9 @@ function parseReplay(opts: GlobalOpts, runArg: string, given: string[], flags: R
   try {
     // A recording still being made has no end to replay to yet, as the dashboard's Replay and Fork wait for it.
     requireEnded(store, parent, 'replay');
-    overrides = parseOverrides(flags.override, parentCalls);
-    failures = parseFailures(flags.failAt, parentCalls);
-    plants = parsePlants(flags.injectResult, parentCalls, storedResult(store));
+    overrides = parseOverrides(flags.override ?? [], parentCalls);
+    failures = parseFailures(flags.failAt ?? [], parentCalls);
+    plants = parsePlants(flags.injectResult ?? [], parentCalls, storedResult(store));
     refuseOverlaps([['--override', overrides.keys()], ['--fail-at', failures.tools.keys()], ['--inject-result', plants.keys()]]);
     interventions = parseInterventions(flags, parentCalls);
     // A change the recorded request can't take is refused now, not by the agent part way through.
@@ -210,7 +215,7 @@ function parseReplay(opts: GlobalOpts, runArg: string, given: string[], flags: R
     store.close();
     throw err;
   }
-  const sources = overrideSources(flags.override);
+  const sources = overrideSources(flags.override ?? []);
   if (flags.promptFrom !== undefined) {
     const target = parentCalls.find((c) => c.callNo === flags.promptFrom);
     if (!target || target.kind !== 'api') {
@@ -244,7 +249,7 @@ function parseReplay(opts: GlobalOpts, runArg: string, given: string[], flags: R
 /** How each replay runs (what it replays, its environment, whether its output is kept) and how it is judged. */
 function replayPlan(opts: GlobalOpts, request: ReplayRequest, flags: ReplayFlags): ReplayPlan {
   const { parent, parentCalls, overrides, failures, plants, interventions, checks, sources, argv, commandFromImport } = request;
-  const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool) };
+  const replay: Partial<ReplayOptions> = { writes: flags.writes, reads: flags.reads, liveTools: new Set(flags.liveTool ?? []) };
   // A placeholder for each provider whose key the recording's environment held and this one lacks,
   // so a clean replay needs no real key: the agent took its key from the environment then. Anything
   // else the agent signs in with is left to it, and the sidecar sends no call that carries one.

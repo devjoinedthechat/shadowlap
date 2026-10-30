@@ -37,7 +37,7 @@ export interface RepairFlags {
   candidates: number;
   stronger?: string;
   scope?: string;
-  set: string[];
+  set?: string[];
   gate?: string;
   attempts?: number;
   passes?: number;

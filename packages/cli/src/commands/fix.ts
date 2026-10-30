@@ -6,10 +6,10 @@ import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-f
 import { emitJobEvent } from '../job-events.js';
 import { EXIT } from '../exit-codes.js';
 import { type GuardMode } from '../run-agent.js';
-import { missingStoreNote, parseChoice, parseIntArg, parseUsd, readStore, type GlobalOpts } from '../shared.js';
+import { collect, missingStoreNote, parseChoice, parseIntArg, parseUsd, readStore, type GlobalOpts } from '../shared.js';
 import { ago, clauses, folder, palette as p, quoteArgv, safe } from '../ui.js';
 import { loadConfig } from '../config.js';
-import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames } from '../unrecorded.js';
+import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP } from '../unrecorded.js';
 import { blameRun, type BlameFlags } from './fix-blame.js';
 import { parseCount, parseMargin, parsePercent } from './fix-flags.js';
 import { repairRuns, type RepairFlags } from './fix-repair.js';
@@ -31,7 +31,7 @@ export function register(program: Command): void {
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per probed model call (5 with --passes alone)', parseIntArg)
     .option('--passes <n>', 'with a fixed count: passing attempts that make a probe a rescue (default: 2, or 1 with one attempt)', parseIntArg)
     .option('--model <model>', 'rescue with this model from the probed call on, instead of asking the recorded one again')
-    .option('--set <key=value>', 'set a request field from the probed call on, e.g. temperature=1 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--set <key=value>', 'set a request field from the probed call on, e.g. temperature=1 (repeatable)', collect)
     .option('--scope <name>', 'probe only model calls made in this scope, such as the agent\'s and not a simulated user\'s (see scope() in the SDKs)')
     .option('--scan <n>', 'model calls past the boundary to probe as well, in case rescue works again after it', parseCount, 2)
     .option('--writes <policy>', 'what write tools do after the fork: stub (the agent carries on as if the write succeeded) or block; a write the recording made, with the same arguments, gets what it got then', parseChoice(['stub', 'block'] as const), 'stub')
@@ -40,7 +40,7 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'start no attempt once this much is spent on live model calls', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', 'run the recorded command of an imported run without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
     .action(async (runArg: string, command: string[], flags: BlameFlags) => {
@@ -60,9 +60,9 @@ export function register(program: Command): void {
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)
     .option('--passes <n>', 'with a fixed count: attempts that must pass for a run to pass (default: 80%, rounded up: 4 of 5)', parseIntArg)
     .option('--model <model>', 'the change is this model, from each run\'s first model call')
-    .option('--set <key=value>', 'the change sets this request field from each run\'s first model call (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .option('--from <model>', 'with --model or --set: change only the model calls made with this model, such as the agent\'s and not a simulated user\'s (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
-    .option('--live-tool <name>', 'the change is in this tool: run it live, its first call and every call of it after a fork (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--set <key=value>', 'the change sets this request field from each run\'s first model call (repeatable)', collect)
+    .option('--from <model>', 'with --model or --set: change only the model calls made with this model, such as the agent\'s and not a simulated user\'s (repeatable)', collect)
+    .option('--live-tool <name>', 'the change is in this tool: run it live, its first call and every call of it after a fork (repeatable)', collect)
     .option('--writes <policy>', 'what write tools do after a fork: stub (the agent carries on as if the write succeeded) or block', parseChoice(['stub', 'block'] as const), 'stub')
     .option('--reads <policy>', 'what read tools do after a fork: live | replay', parseChoice<ReadPolicy>(['live', 'replay']), 'live')
     .option('--concurrency <n>', 'runs verified at once', parseIntArg, 1)
@@ -74,7 +74,7 @@ export function register(program: Command): void {
     .option('--base <rev>', 'with a paired baseline: the commit before the change (default: HEAD, when the working tree has a change)')
     .option('--build <command>', 'with a paired baseline at a commit: build its checkout before its attempts, e.g. "npm run build"')
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
     .action(async (command: string[], flags: VerifyCommandFlags) => {
@@ -95,7 +95,7 @@ export function register(program: Command): void {
     .option('--candidates <n>', 'fixes to ask the repairer for', parseIntArg, 3)
     .option('--stronger <model>', 'when asking the recorded model again rescues nothing, rescue with this one, and try switching to it')
     .option('--scope <name>', 'blame only model calls made in this scope, such as the agent\'s and not a simulated user\'s')
-    .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--set <key=value>', 'blame\'s probes set this request field from the probed call on, e.g. temperature=1 for an agent recorded at 0 (repeatable)', collect)
     .option('--gate <json|@file>', `how verify decides each run, as for shadowlap verify (default '{"good":${SPRT_DEFAULTS.good},"bad":${SPRT_DEFAULTS.bad},"risk":${SPRT_DEFAULTS.risk},"max":${SPRT_DEFAULTS.max}}'; give any of them)`)
     .option('--attempts <n>', 'a fixed count instead of the gate: attempts per run, where the replay forks (5 with --passes alone)', parseIntArg)
     .option('--passes <n>', 'with a fixed count: attempts that must pass (default: 80%, rounded up)', parseIntArg)
@@ -112,7 +112,7 @@ export function register(program: Command): void {
     .option('--budget <usd>', 'stop once this much is spent on live model calls and the repairer', parseUsd)
     .option('--timeout <seconds>', 'stop an attempt after this long and count it as failed', parseIntArg)
     .option('--guard <mode>', 'network guard for connections that bypass Shadowlap: warn | block | off', parseChoice<GuardMode>(['warn', 'block', 'off']), 'warn')
-    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames)
+    .option(ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collect)
     .option('-y, --yes', 'run the recorded command of imported runs without asking')
     .option('--json', 'print the report as JSON (progress still goes to stderr)')
     .action(async (command: string[], flags: RepairFlags) => {

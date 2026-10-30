@@ -13,10 +13,10 @@ export function parseCount(value: string): number {
   return n;
 }
 
-/** `--set temperature=1`: a request field for the probed call on; the value is JSON or a string. */
-export function parseFields(specs: string[], model: string | undefined): Record<string, unknown> {
+/** `--set temperature=1`: a request field for the probed call on; the value is JSON or a string. None given (undefined) sets none. */
+export function parseFields(specs: readonly string[] | undefined, model: string | undefined): Record<string, unknown> {
   const fields: Record<string, unknown> = {};
-  for (const spec of specs) {
+  for (const spec of specs ?? []) {
     const m = /^([A-Za-z_][\w.]*)=([\s\S]*)$/.exec(spec);
     if (!m) throw new InvalidArgumentError(`--set expects <key>=<value>, such as temperature=1, got "${spec}"`);
     let value: unknown = m[2]!;
