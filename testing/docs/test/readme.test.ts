@@ -44,6 +44,18 @@ describe('the architecture diagram', () => {
   });
 });
 
+/** The terminal UI frame a page shows: the first fenced block, from `from` on, with the TUI's box in it. */
+function tuiFrame(page: string, from = 0): string | undefined {
+  for (const m of page.slice(from).matchAll(/```[a-z]*\n([\s\S]*?)\n```/g)) if (/^╭/m.test(m[1])) return m[1];
+  return undefined;
+}
+
+/** The frames the README and the terminal UI's page show, each a run's screen as the TUI's own render draws it. */
+const frames: Array<[string, string | undefined]> = [
+  ['README.md', tuiFrame(readme, readme.indexOf('## Dashboard and terminal UI'))],
+  ['docs/tui.md', tuiFrame(readFileSync(join(root, 'docs', 'tui.md'), 'utf8'))],
+];
+
 describe('the terminal UI section', () => {
   it('shows the inspector tabs the TUI renders, in order', () => {
     const strip = readme.split('\n').find((l) => l.includes('conversation') && l.includes('request'));
@@ -53,52 +65,55 @@ describe('the terminal UI section', () => {
   });
 
   it('shows a footer the TUI renders, cut only where the TUI cuts it', () => {
-    const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
-    expect(frame, 'no terminal UI frame in the README').toBeDefined();
-    const footer = frame!.split('\n').at(-1)!.trim();
-    // The footer is whole hints, a key and what it does, two spaces apart, after what the keys act on
-    // when there is one: the sample is a frame at a fixed width, so it may stop after the last hint
-    // that fits, but each hint it shows is the TUI's own, in the TUI's order, not a paraphrase.
-    const shown = footer.split(/ {2}/);
-    const footers: Array<[string | null, ReadonlyArray<readonly [string, string]>]> = [
-      [null, TIMELINE_KEYS],
-      [null, INSPECTOR_KEYS],
-      [FORK_MENU_LEAD, FORK_MENU_KEYS],
-    ];
-    const rendered = footers.some(([lead, keys]) => {
-      const hints = lead === null ? shown : shown[0] === lead ? shown.slice(1) : null;
-      if (!hints) return false;
-      const all = keys.map(([k, d]) => `${k} ${d}`);
-      let at = 0;
-      for (const hint of hints) {
-        at = all.indexOf(hint, at);
-        if (at < 0) return false;
-        at++;
-      }
-      return hints.length >= Math.min(3, all.length);
-    });
-    expect(rendered, `the README shows "${footer}"; no footer of the TUI reads like that`).toBe(true);
+    for (const [page, frame] of frames) {
+      expect(frame, `no terminal UI frame in ${page}`).toBeDefined();
+      const footer = frame!.split('\n').at(-1)!.trim();
+      // The footer is whole hints, a key and what it does, two spaces apart, after what the keys act on
+      // when there is one: the sample is a frame at a fixed width, so it may stop after the last hint
+      // that fits, but each hint it shows is the TUI's own, in the TUI's order, not a paraphrase.
+      const shown = footer.split(/ {2}/);
+      const footers: Array<[string | null, ReadonlyArray<readonly [string, string]>]> = [
+        [null, TIMELINE_KEYS],
+        [null, INSPECTOR_KEYS],
+        [FORK_MENU_LEAD, FORK_MENU_KEYS],
+      ];
+      const rendered = footers.some(([lead, keys]) => {
+        const hints = lead === null ? shown : shown[0] === lead ? shown.slice(1) : null;
+        if (!hints) return false;
+        const all = keys.map(([k, d]) => `${k} ${d}`);
+        let at = 0;
+        for (const hint of hints) {
+          at = all.indexOf(hint, at);
+          if (at < 0) return false;
+          at++;
+        }
+        return hints.length >= Math.min(3, all.length);
+      });
+      expect(rendered, `${page} shows "${footer}"; no footer of the TUI reads like that`).toBe(true);
+    }
   });
 
-  it('is one frame at one width, header and footer as the TUI fits them to it', () => {
-    const frame = /```text\n([\s\S]*?)\n```/.exec(readme.slice(readme.indexOf('## Dashboard and terminal UI')))?.[1];
-    expect(frame, 'no terminal UI frame in the README').toBeDefined();
-    const lines = frame!.split('\n');
-    const width = [...lines[1]].length;
-    expect(lines[1]).toMatch(/^╭─+╮$/);
-    expect(lines.at(-2)).toMatch(/^╰─+╯$/);
-    // The box is as wide as the terminal; the header above it and the footer under it show whole
-    // items only, so they end where the last one that fits does.
-    const [header, ...rest] = lines;
-    const footer = rest.pop()!;
-    expect(rest.filter((l) => [...l].length !== width), 'lines of the box narrower or wider than it').toEqual([]);
-    expect([header, footer].filter((l) => [...l].length > width), 'a header or footer wider than the frame').toEqual([]);
+  it('is one frame at one width under the two lines the TUI draws above it, header and footer as the TUI fits them to it', () => {
+    for (const [page, frame] of frames) {
+      expect(frame, `no terminal UI frame in ${page}`).toBeDefined();
+      const lines = frame!.split('\n');
+      // Above the box, what a run's screen draws there: its header (its id, what it is and its stats),
+      // and under it the line saying what the run was about and how it stands.
+      const [header, about, top] = lines as [string, string, string];
+      expect(header, `${page}: the run's header`).toMatch(/^ [0-9A-Z]{10} \S/);
+      expect(about, `${page}: the line under the header`).toMatch(/^ (?![╭│╰])/);
+      expect(top, `${page}: the box's top`).toMatch(/^(╭─+╮)+$/);
+      expect(lines.at(-2), `${page}: the box's bottom`).toMatch(/^(╰─+╯)+$/);
+      // The box is as wide as the terminal; the lines above it and the footer under it show whole
+      // items only, so they end where the last one that fits does.
+      const width = [...top].length;
+      const footer = lines.at(-1)!;
+      expect(lines.slice(2, -1).filter((l) => [...l].length !== width), `${page}: lines of the box narrower or wider than it`).toEqual([]);
+      expect([header, about, footer].filter((l) => [...l].length > width), `${page}: a header or footer wider than the frame`).toEqual([]);
+    }
   });
 });
 
-// The terminal and the dashboard pictures come in three widths, and a narrower one is drawn at its own
-// width, never stretched to the column: a width on its <source> says how wide, and goes stale when npm
-// run demo or readme-shots draws it anew. A PNG is taken at twice the pixels.
 describe('the README pictures', () => {
   it('are files here, and a source with a width is as wide as its picture', () => {
     const tags = [...readme.matchAll(/<(?:source|img)\b[^>]*>/g)].map((m) => m[0]);
