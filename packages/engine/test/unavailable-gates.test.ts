@@ -248,7 +248,9 @@ describe('as docs/gating.md states it', () => {
     const rule: BaselineRule = { ...KEPT_DEFAULTS, risk: 0.05 };
     const answered = (p: number, e: number) => p / (p + (1 - p) * (1 - e));
     const worst = Math.max(...PAIRED.map(([pb, ec, eb]) => keptWithin(KEPT_RULE, pb - KEPT_RULE.margin, ec, pb, eb)));
-    says(`errors on a fifth of the change's failing attempts kept a run ${pct(pairedOdds(rule, answered(0.8, 0.2), 0.9).kept)} of the time when they were retried away, and at most ${pct(Math.ceil(1000 * worst) / 1000)} now`);
+    says(`errors on a fifth of the change's failing attempts kept a run ${pct(pairedOdds(rule, answered(0.8, 0.2), 0.9).kept)} of the time when they were retried away, and at most ${pct(Math.ceil(1000 * worst) / 1000)} tallied twice over`);
+    // A fixed count, against running cut-short failures again: 4 of 5 passes an agent at 70% as often as with no provider error.
+    says(`Run again instead, failures cut short three times in ten let 4 of 5 pass an agent at 70% ${pct(binomialTail(5, 4, 0.7 / (1 - 0.3 * 0.3)))} of the time where it passes ${pct(binomialTail(5, 4, 0.7))}; counted this way, it passes ${pct(binomialTail(5, 4, 0.7))} however many the provider cuts short.`);
   });
 });
 

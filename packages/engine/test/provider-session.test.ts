@@ -149,8 +149,8 @@ describe('a flaky provider and a session of 100 gated goldens', { timeout: 180_0
     const says = (text: string) => expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
     console.log(Object.entries(figures).map(([k, v]) => `${k}: ${pct(v, 4)}`).join('\n'));
     says(`with early errors on 2%, 5% and 10% of the attempts, ${pct(figures['stop 0.95 0.02 before'], 1)}, ${pct(figures['stop 0.95 0.05 before'], 0)} and ${pct(figures['stop 0.95 0.1 before'], 0)} of 100-golden sessions at 95% exited 3`);
-    says(`which a provider erring on 2%, 5% and 10% of the attempts makes ${pct(Math.ceil(1e6 * figures['stop 0.95 0.02 now']) / 1e6, 4)}, ${pct(Math.ceil(1e5 * figures['stop 0.95 0.05 now']) / 1e5, 3)} and ${pct(Math.ceil(1e3 * figures['stop 0.95 0.1 now']) / 1e3, 1)} of such sessions`);
-    says(`cut short on 5% of the attempts, a gate of a 100-golden suite at 95% was left inconclusive ${pct(figures.cutBefore)} of the time, ${pct(figures.cutBeforeSuite, 0)} of sessions, nearly all of it three in a row; now at most ${pct(Math.ceil(1e3 * figures.cutNowSuite) / 1e3, 1)} of sessions`);
+    says(`A session of 100 stops at ${sessionInARow(G)} in a row, which a provider erring on 2%, 5% and 10% of the attempts makes ${pct(Math.ceil(1e6 * figures['stop 0.95 0.02 now']) / 1e6, 4)}, ${pct(Math.ceil(1e5 * figures['stop 0.95 0.05 now']) / 1e5, 3)} and ${pct(Math.ceil(1e3 * figures['stop 0.95 0.1 now']) / 1e3, 1)} of such sessions`);
+    says(`cut short on 5% of the attempts, a gate of a 100-golden suite at 95% whose \`max\` counted them, stopped by three in a row of its own, was left inconclusive ${pct(figures.cutBefore)} of the time, ${pct(figures.cutBeforeSuite, 0)} of sessions, nearly all of it three in a row; counted as above, at most ${pct(Math.ceil(1e3 * figures.cutNowSuite) / 1e3, 1)} of sessions are`);
   });
 });
 
@@ -223,8 +223,8 @@ describe('a flaky provider and the runs outside test: verify, blame, repair, mig
     const says = (text: string) => expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
     console.log(Object.entries(runs).map(([k, v]) => `${k}: ${pct(v, 4)}`).join('\n'));
     const up = (x: number, d: number) => pct(Math.ceil(10 ** (d + 2) * x) / 10 ** (d + 2), d);
-    says(`a fixed 3 stopped runs of 300 and 600 attempts ${pct(runs['300 0.05 before'], 1)} and ${pct(runs['600 0.05 before'], 1)} of the time with errors on 5% of them, and ${pct(runs['300 0.1 before'], 0)} and ${pct(runs['600 0.1 before'], 0)} at 10%; now ${up(runs['300 0.05 now'], 2)}, ${up(runs['600 0.05 now'], 2)}, ${up(runs['300 0.1 now'], 1)} and ${up(runs['600 0.1 now'], 1)}`);
-    says(`3 in a row within each preset stopped sessions of 50 and 100 presets of 20 attempts ${pct(runs['chaos 50 0.05 before'], 0)} and ${pct(runs['chaos 100 0.05 before'], 0)} of the time with errors on 5% of them, and ${pct(runs['chaos 50 0.1 before'], 0)} and ${pct(runs['chaos 100 0.1 before'], 0)} at 10%; now ${up(runs['chaos 50 0.05 now'], 3)}, ${up(runs['chaos 100 0.05 now'], 3)}, ${up(runs['chaos 50 0.1 now'], 2)} and ${up(runs['chaos 100 0.1 now'], 1)}`);
+    says(`a fixed 3 stopped runs of 300 and 600 attempts ${pct(runs['300 0.05 before'], 1)} and ${pct(runs['600 0.05 before'], 1)} of the time with errors on 5% of them, and ${pct(runs['300 0.1 before'], 0)} and ${pct(runs['600 0.1 before'], 0)} at 10%, where this count stops them ${up(runs['300 0.05 now'], 2)}, ${up(runs['600 0.05 now'], 2)}, ${up(runs['300 0.1 now'], 1)} and ${up(runs['600 0.1 now'], 1)} of the time`);
+    says(`3 in a row within each preset stopped sessions of 50 and 100 presets of 20 attempts ${pct(runs['chaos 50 0.05 before'], 0)} and ${pct(runs['chaos 100 0.05 before'], 0)} of the time with errors on 5% of them, and ${pct(runs['chaos 50 0.1 before'], 0)} and ${pct(runs['chaos 100 0.1 before'], 0)} at 10%, where counting them across the session stops ${up(runs['chaos 50 0.05 now'], 3)}, ${up(runs['chaos 100 0.05 now'], 3)}, ${up(runs['chaos 50 0.1 now'], 2)} and ${up(runs['chaos 100 0.1 now'], 1)} of them`);
   });
 });
 

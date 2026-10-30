@@ -117,7 +117,7 @@ describe('the Overview: today', () => {
     const sep29 = overviewSummary(store, { tz: TZ, now: at(9, 29, 18) });
     // Two runs probed call #3: the one that rescued the run is a fork row; the other is an attempt.
     // Blamed before Fixes kept blames: in no fix, so no title.
-    expect(sep29.today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: id.failed1, outcome: 'blamed', lostAt: 3, title: null, fixId: null }] });
+    expect(sep29.today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: id.failed1, outcome: 'blamed', lostAt: 3, range: null, title: null, fixId: null }] });
     expect(sep29.today.forks).toMatchObject({ count: 1 });
   });
 
@@ -478,13 +478,16 @@ describe('the Overview: outcomes, the prompt cache, fixes and what needs a look'
       addRun(local, { parent: failed, startedAt: NOW - HOUR, divergence: 3, calls: 'rrllll', meta: { probe: { of: failed, callNo: 3, passed: false }, repeat: { group: 'p', attempt: 1, of: 1 } } });
       const { fix } = recordBlame(local, { runId: failed, report: blameReport(failed), expect: EXPECT, scope: null, command: 'c', title: 'issue_refund called with amount 240', checkText: 'x', at: NOW - HOUR });
       // Still probing: nothing on the run says how it came out yet.
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: failed, outcome: null, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame).toEqual({ blames: 1, probes: 1, attempts: 1, runs: [{ runId: failed, outcome: null, lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }] });
       // Done, and no model call rescued it: Today says so, as Needs a look does, rather than "not placed yet".
       local.updateRunMeta(failed, { blame: blameOf(null, null, NOW - HOUR / 2) });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
       // One whose first probe couldn't tell says so, for Today to read it as not settled.
       local.updateRunMeta(failed, { blame: { ...blameOf(null, null, NOW - HOUR / 3), unsettled: true } });
-      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', unsettled: true, lostAt: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'unrescuable', unsettled: true, lostAt: null, range: null, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
+      // Found no one call lost it: the two it was lost gradually around, for Today to say so.
+      local.updateRunMeta(failed, { blame: { ...blameOf(4, null, NOW - HOUR / 4), range: { from: 4, to: 6, fromStep: 4, toStep: 5, gradual: true } } });
+      expect(overviewSummary(local, { tz: 'UTC', now: NOW }).today.blame.runs).toEqual([{ runId: failed, outcome: 'blamed', lostAt: 4, range: { from: 4, to: 6, gradual: true }, title: 'issue_refund called with amount 240', fixId: fix.fixId }]);
     } finally {
       local.close();
     }

@@ -238,8 +238,11 @@ describe('the run page: header and banners', () => {
     const blame: BlameRecord = { at: 5, outcome: 'blamed', callNo: 4, confidence: 'high', rescuedRunId: rescued.runId, fields: {}, scope: 'agent', oracle: ['issue_refund called 0 times'], probes: [], spent: 0.1 };
     store.updateRunMeta(b.runId, { blame });
     const d = runDetail(store, b.runId)!;
-    expect(d.blame).toEqual({ outcome: 'blamed', callNo: 4, modelCall: { k: 2, m: 2 }, confidence: 'high', rescuedRunId: rescued.runId, scope: 'agent', at: 5 });
+    expect(d.blame).toEqual({ outcome: 'blamed', callNo: 4, range: null, modelCall: { k: 2, m: 2 }, confidence: 'high', rescuedRunId: rescued.runId, scope: 'agent', at: 5 });
     expect(runDetail(store, rescued.runId)!.rescuedBy).toEqual({ runId: b.runId, callNo: 4 });
+    // No one call lost it: the two it was lost gradually around, for the banner to say so.
+    store.updateRunMeta(b.runId, { blame: { ...blame, callNo: 2, range: { from: 2, to: 4, fromStep: 1, toStep: 2, gradual: true } } });
+    expect(runDetail(store, b.runId)!.blame).toMatchObject({ callNo: 2, range: { from: 2, to: 4, gradual: true }, modelCall: { k: 1, m: 2 } });
     // Without a scope, every model call counts.
     store.updateRunMeta(b.runId, { blame: { ...blame, scope: undefined as never } });
     expect(runDetail(store, b.runId)!.blame!.modelCall).toEqual({ k: 3, m: 4 });
@@ -394,7 +397,7 @@ describe('the run page: metadata from someone else’s pack', () => {
     const meta = {
       notRecorded: { hosts: ['evil', { target: 'api.example.com:443', count: 2, action: 'exfiltrated' }], tools: [1, 'send_slack'] },
       checks: 'all good',
-      blame: { outcome: 'pwned', callNo: 1.5, confidence: 9, scope: { x: 1 }, at: 'yesterday' },
+      blame: { outcome: 'pwned', callNo: 1.5, confidence: 9, scope: { x: 1 }, at: 'yesterday', range: { from: 'one', to: 2, gradual: true } },
       interventions: { flag: '--fail-at' },
       repeat: { group: { $ne: null } },
     } as unknown as RunMeta;
@@ -404,7 +407,7 @@ describe('the run page: metadata from someone else’s pack', () => {
     const d = runDetail(store, b.runId)!;
     expect(d.notRecorded).toEqual({ hosts: [{ target: 'api.example.com:443', count: 2, action: 'warned' }], tools: ['send_slack'] });
     expect(d.checks).toBeNull();
-    expect(d.blame).toEqual({ outcome: 'stopped', callNo: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, at: 0 });
+    expect(d.blame).toEqual({ outcome: 'stopped', callNo: null, range: null, modelCall: null, confidence: 'low', rescuedRunId: null, scope: null, at: 0 });
     expect(d.interventions).toEqual([]);
     expect(d.rescuedBy).toBeNull();
     store.close();

@@ -1,5 +1,6 @@
 import type { ActionItem, BlameView, CacheMissView, CallDetail, CheckView, FixView, Intervention, Meta, NotRecordedView, PromptChoice, RunDetail, RunListItem, RunOutcomeView, RunStateView } from './types.js';
 import { isObject } from '../../engine/src/is-object.js';
+import { lostAround } from '../../engine/src/run-verdicts.js';
 
 /**
  * The API's answers in the one shape the views read. Parts of the API name some fields their own
@@ -78,7 +79,7 @@ function normalizeBlame(v: unknown): BlameView | null {
   if (!isObject(v)) return null;
   const modelCall = isObject(v.modelCall) && int(v.modelCall.k) !== null && int(v.modelCall.m) !== null ? { k: int(v.modelCall.k)!, m: int(v.modelCall.m)! } : null;
   const outcome = v.outcome === 'blamed' || v.outcome === 'unrescuable' || v.outcome === 'stopped' ? v.outcome : null;
-  return { callNo: int(v.callNo), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, ...(v.unsettled === true ? { unsettled: true } : {}), short: str(v.short) };
+  return { callNo: int(v.callNo), range: lostAround(v.range), modelCall, confidence: str(v.confidence), rescuedRunId: str(v.rescuedRunId), scope: str(v.scope), outcome, ...(v.unsettled === true ? { unsettled: true } : {}), short: str(v.short) };
 }
 
 const FIX_ROLES = ['failing', 'good', 'probe', 'rescued', 'verify', 'unblamed'];
@@ -103,7 +104,7 @@ export function normalizeFix(v: unknown): { fix: FixView | null; role: string | 
     const k = int(b.step);
     const m = int(b.steps);
     const outcome = b.outcome === 'blamed' || b.outcome === 'unrescuable' || b.outcome === 'stopped' ? b.outcome : null;
-    blame = { callNo: int(b.lostAt), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, ...(b.unsettled === true ? { unsettled: true } : {}), short: str(b.short) };
+    blame = { callNo: int(b.lostAt), range: lostAround(b.range), modelCall: k !== null && m !== null && k >= 1 && k <= m ? { k, m } : null, confidence: str(b.confidence), rescuedRunId: str(b.rescuedRunId), scope: null, outcome, ...(b.unsettled === true ? { unsettled: true } : {}), short: str(b.short) };
   }
   // An attempt's banner links back to its probe on the fix's Blame step, or to the verdict it counted towards.
   const p = v.probe;
@@ -141,6 +142,13 @@ function normalizeIntervention(v: unknown): Intervention | null {
 
 const STATUSES: ReadonlyArray<RunStateView['status']> = ['running', 'completed', 'failed', 'crashed'];
 
+/** A run blame found lost: at its call, and when no one call lost it, the two it was lost gradually around. */
+function lostOutcome(v: Record<string, unknown>): RunOutcomeView | null {
+  const callNo = int(v.callNo);
+  const range = lostAround(v.range);
+  return callNo !== null ? { kind: 'lost', callNo, ...(range ? { range } : {}) } : null;
+}
+
 /** An outcome as the server classifies a run (`RunOutcome`), or null for anything else. */
 export function normalizeOutcome(v: unknown): RunOutcomeView | null {
   if (!isObject(v)) return null;
@@ -150,8 +158,9 @@ export function normalizeOutcome(v: unknown): RunOutcomeView | null {
     case 'none':
       return { kind: v.kind };
     case 'diverged':
-    case 'lost':
       return int(v.callNo) !== null ? { kind: v.kind, callNo: int(v.callNo)! } : null;
+    case 'lost':
+      return lostOutcome(v);
     case 'check-failed':
     case 'inconclusive':
       return { kind: v.kind, check: str(v.check) };

@@ -87,6 +87,18 @@ describe('the run page’s next step', () => {
     expect(page.one('.banner .st').textContent).toBe('fix verified');
   });
 
+  it('says a run lost gradually around two calls so in its banner, each call one to select, never lost at the first', async () => {
+    const selected: number[] = [];
+    const run = detail({ state: failedState, fix: verified, blame: { ...lost, range: { from: 5, to: 7, gradual: true } } });
+    page = await render(createElement(AppContext.Provider, { value: app() }, createElement(Banner, { ...bannerProps(run), onSelect: (n: number) => selected.push(n) })));
+    expect(page.one('.banner .bk').textContent).toBe('lost gradually around');
+    expect(page.all('.banner .bn').map((b) => b.textContent)).toEqual(['#5', '#7']);
+    expect(page.one('.banner').textContent).toContain('#5 and #7');
+    expect(page.one('.banner .why').textContent).toContain('model calls 3 and 4 of 5');
+    await page.click(page.all('.banner .bn')[1]);
+    expect(selected).toEqual([7]);
+  });
+
   it('says an open fix is open, in amber', () => {
     expect(fixStatusWords('open')).toEqual({ tone: 'warn', text: 'fix open', why: 'open: no change has been verified for it yet' });
     expect(fixStatusWords('applied').text).toBe('fix applied');

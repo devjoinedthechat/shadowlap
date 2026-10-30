@@ -1,4 +1,4 @@
-import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
+import { type AttemptVerdict, BLAME_DEFAULTS, type BlameReport, describeBlocks, describeRescue, expectArgs, findPairs, type FixRecords, GATE_MAX_ATTEMPTS, hasRecordedCommand, keptAttemptVerdict, lostWords, pinWords, probeBound, probeFinding, probeTally, probeWord, type PulledFrom, rescueRule, scopeArg, type SprtGate, type StoredBlame, type StoreOf, unrescuedWhy, unsettledFirst } from '@shadowlap/engine';
 import { blameEvidence, gateEvidence, type BlameEvidence, type GateEvidence } from './evidence.js';
 import { fieldArgs, rerunFlags, runIds, type RerunFlags } from './rerun.js';
 import { askedAgain, attemptNote, commandLine, countArgs, type FixActions, gateArg, noAnswerLost, PULLED_CAP, pulledGate, runHref, sprtGate } from './fix-shared.js';
@@ -98,7 +98,7 @@ export function blameStep(store: StoreOf<'recording' | 'readModels' | 'fixes'>, 
   let title: string;
   if (b.outcome === 'blamed' && r.blamed) {
     // Two calls when the check of the one the probes pinned found no drop there: lost gradually around them.
-    title = r.range?.gradual && r.lost ? `Lost gradually around model calls #${r.blamed.callNo} and #${r.lost.callNo}` : `Lost at model call #${r.blamed.callNo}`;
+    title = lostWords(r.blamed.callNo, r.range, 'title');
     const checked = r.pin ? ` ${pinWords(r.pin)}` : '';
     boundary =
       r.gate && r.blamed.decision
