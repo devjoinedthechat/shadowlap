@@ -2,7 +2,7 @@ import { basename, resolve } from 'node:path';
 import { messageOf, UNAVAILABLE_RETRY, agentCallsOf, decideCountUnavailable, decideUnavailable, formatDivergence, formatPassK, formatTally, gateHistory, gateOf, gateResult, hasRecordedCommand, heldFrom, sameCommandLine, judgedUnder, maskedChange, providerUnavailable, sessionUnavailableReason, unavailableReason, unpackRun, volatileValues, wholeInput, type CallRecord, type DivergenceReport, type Gate, type GateDecision, type GateHistory, type GateResult, type JudgeSummary, type Normalizer, type RunMeta, type RunRecord, type Store, type StoreOf, type TestFailure, type TestResult, type TestResultData, type Unavailable, type WritePolicy } from '@shadowlap/engine';
 import { checkLine, type CheckResult, type TestSpec } from './checks.js';
 import { notRunMessage } from './golden-consent.js';
-import { oracleLabels } from './attempts.js';
+import { oracleLabels } from './oracle.js';
 import { upstreamOverrides, type ShadowlapConfig } from './config.js';
 import { readPackHead } from './goldens.js';
 import { type JunitCase } from './junit.js';

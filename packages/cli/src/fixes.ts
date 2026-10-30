@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import { BLAME_DEFAULTS, ciProvider, commitTitle, messageOf, recordBlame, recordEvent, recordRepair, recordVerdict, resolveAuthor, SPRT_DEFAULTS, unsettledFirst, type BlameReport, type RecordedBlame, type RecordedRepair, type RecordedVerdict, type RepairReport, type SprtGate, type StepRerun, type Store, type StoreOf, type VerifyReport } from '@shadowlap/engine';
-import { EXIT_LABEL } from './attempts.js';
 import { callRuleLabel, conditionLabel, evaluateChecks, formatAmount, judgeLabel, LABEL_INPUT, type CheckResult, type CountRange, type ExpectSpec, type TestSpec, type TextCheck, type ToolCheck } from './checks.js';
+import { EXIT_LABEL } from './oracle.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { quoteArgv, shortId } from './ui.js';
 
