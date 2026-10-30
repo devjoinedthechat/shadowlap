@@ -4364,6 +4364,282 @@ answer none says why.
 | `--timeout <ms>` | How long to wait for each provider's list; a provider that doesn't answer within it becomes a note | 1500 ms |
 | `--json` | Print them as JSON | — |
 
+## push, pull
+
+```sh
+shadowlap push <run...>          # these runs, with their ancestors
+shadowlap push --all             # every run on this machine that isn't in the store as it is
+shadowlap pull [<run...>]        # teammates' runs, or only these (ids or unique prefixes, as in the store)
+shadowlap pull --include-pr      # and the runs pull requests' CI jobs pushed to their own folders
+```
+
+Copy runs between this machine and the [team store](./team.md) named by `store` in
+`shadowlap.config.json`, with this machine's own credentials.
+
+| Flag           | What it does                                                                           | Default |
+| -------------- | -------------------------------------------------------------------------------------- | ------- |
+| `--all`        | `push`: every run on this machine that is not in the store as it is                    | —       |
+| `--include-pr` | `pull`: also bring the runs pull requests' CI jobs pushed to their own folders (below) | —       |
+| `--json`       | Print the result as JSON (below)                                                       | —       |
+
+**What goes and comes.**
+
+- Blobs shared between runs go up once.
+- A run still recording goes when it ends.
+- Labels and notes merge both ways, and a run's results come from the machine that made it.
+- A run deleted here isn't pulled again, unless named.
+- A run named to `push` that the store has already is checked part by part, and what the bucket lost of
+  it (its calls, a blob) is sent again.
+- A push names the pusher as the author of a run made here without one. It leaves here, saying why, a
+  run a pull would refuse.
+
+**Counting.** Both count by run, as the dashboard does: "45 runs and 69 attempts pushed". Attempts
+(`--repeat`, blame's probes, verify's attempts, a golden's in one test session) are those filed under
+their runs. A run counts as only on this machine while it, or an attempt filed under it, isn't in the
+store.
+
+**Fixes go with their runs.** A push sends each [fix](#fix) with its blames, repairs and verdicts, once
+one of its runs is in the store. A pull brings the team's, merged with this machine's.
+
+- A teammate's repair, from a pull or from the store's copy a push merges with, has its `fix.patch` and
+  reports written to `.shadowlap/repairs/<id>/`.
+- Whether a fix is applied is this machine's own, and never goes.
+- A fix over 16 MB stays here, and a pull skips one in the store that is, saying which.
+
+**What a pull checks.** `pull` checks every run it brings as strictly as `unpack`. A run in the store
+that fails is skipped with its forks, and tried again next time. A pulled run is marked with the store's
+URL (`meta.imported.from`). It reads as its author's recording, with what it spent, and replaying it
+asks before running its command, as an unpacked run's does (`--yes` says yes).
+
+**In a pull request's CI job.** In a [pull request's CI job](./team.md#pull-requests) (GitHub Actions
+`pull_request` events, GitLab merge request pipelines, or `SHADOWLAP_PR` set), `push` writes only to the
+pull request's own folder, `pr/<number>/` in the store. `pull` leaves those folders out unless given
+`--include-pr`. Runs it brings from one stay on this machine: `push --all` leaves them out, and `push`
+refuses one by name.
+
+`push` and `pull` exit with:
+
+| Status | Meaning                                                               |
+| ------ | --------------------------------------------------------------------- |
+| `1`    | A run it was named can't go or come, or the store fails part way      |
+| `2`    | No store is set, or this machine's credentials are missing or refused |
+
+`push --json` prints
+`{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal, fixes }`:
+
+| Field         | Meaning                                                                   |
+| ------------- | ------------------------------------------------------------------------- |
+| `store`       | The store                                                                 |
+| `pullRequest` | The pull request whose folder it wrote to, or `null`                      |
+| `pushed`      | The runs pushed                                                           |
+| `updated`     | The runs whose labels, notes or results were merged                       |
+| `unchanged`   | The runs unchanged                                                        |
+| `queued`      | The runs still recording                                                  |
+| `repaired`    | The parts the bucket lost, sent again                                     |
+| `refused`     | Each run refused, with why                                                |
+| `blobs`       | The blobs `uploaded`, already `present`, and their `bytes`                |
+| `segment`     | The index segment it wrote, or `null`                                     |
+| `onlyLocal`   | How many runs are still only on this machine                              |
+| `fixes`       | The fixes that went with the runs, none from a pull request's job (below) |
+
+A push's `fixes` has the ids `sent`, those that `failed` (`fixId`, `reason`), and the teammates'
+`repairs` the store's copies brought.
+
+`pull --json` prints
+`{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests, fixes }`:
+
+| Field                  | Meaning                                           |
+| ---------------------- | ------------------------------------------------- |
+| `store`                | The store                                         |
+| `pulled`, `merged`     | The runs pulled, and merged                       |
+| `needPush`             | The merged ones whose changes the next push sends |
+| `skippedDeleted`       | Runs deleted here, and not pulled again           |
+| `missing`              | Runs gone from the store                          |
+| `unknown`              | Names that match no run                           |
+| `failed`               | Runs that couldn't come, with why                 |
+| `skippedSegments`      | Index segments that couldn't be read              |
+| `blobs`                | The blobs `downloaded`, and their `bytes`         |
+| `segments`             | The index segments read                           |
+| `inStore`, `onlyLocal` | The runs in the store, and those only here        |
+| `byAuthor`             | The pulled runs, by author                        |
+| `pullRequests`         | With `--include-pr`, each pull request's folder   |
+| `fixes`                | The fixes that came with the runs (below)         |
+
+A pull's `fixes` has the ids this machine didn't have (`pulled`), those here the store's copy added to
+(`merged`), those in the store that couldn't be read (`failed`: `fixId`, `reason`), and the `repairs`
+whose files it wrote.
+
+## share
+
+```sh
+shadowlap share <run> [--lineage] [--json]
+```
+
+Writes the run's [HTML report](#export-html), with every redaction rule applied, to the
+[team store](./team.md#share-links), and prints a presigned link that expires after 7 days. Anyone with
+the link can open it, without an account.
+
+| Flag        | What it does                   | Default |
+| ----------- | ------------------------------ | ------- |
+| `--lineage` | Include the run's ancestors    | —       |
+| `--json`    | Print the link as JSON (below) | —       |
+
+A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended. Until then
+`share` refuses it, exit status 2, before anything is asked of the store.
+
+`--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`:
+
+| Field               | Meaning                                                                   |
+| ------------------- | ------------------------------------------------------------------------- |
+| `runId`             | The run                                                                   |
+| `url`               | The link                                                                  |
+| `expiresAt`         | When it expires, in epoch milliseconds                                    |
+| `note`              | When it may stop working sooner: it was signed with temporary credentials |
+| `store`, `key`      | The store, and the object's key in it                                     |
+| `bytes`             | Its size                                                                  |
+| `redacted`, `rules` | Whether it is redacted, and with how many rules                           |
+| `runs`              | The runs it holds                                                         |
+
+## store
+
+```sh
+shadowlap store set <url> [--provider s3|gcs|azure|r2]   # write "store" to shadowlap.config.json
+shadowlap store set <url> --check                        # check access first; write it only if that works
+shadowlap store check                                    # list, write, read and delete; encryption, versioning, object lock
+shadowlap store show                                     # last push and pull, runs in the store and only here, last check (offline)
+shadowlap store policy [--provider s3|gcs|azure|r2]      # the access to ask your cloud admin for: two policies
+shadowlap store ci --provider github|gitlab|other [--packs <glob>]   # a CI step that runs test --push
+shadowlap store push-from-ci on|off                      # whether CI pushes its test runs and fixes
+```
+
+Set up the [team store](./team.md#the-store). Each subcommand takes `--json`.
+
+| Subcommand | What it does |
+| --- | --- |
+| [`set`](#store-set) | Write the store's URL to the config, after checking it against the provider's scheme |
+| [`check`](#store-check) | Prove this machine's credentials can list, write, read and delete a test object |
+| [`show`](#store-show) | The last push and pull, the runs in the store and only here, and the last check, offline |
+| [`policy`](#store-policy) | Print the two policies to ask your cloud admin for |
+| [`ci`](#store-ci) | Print a CI step that runs `test --push` |
+| [`push-from-ci`](#store-push-from-ci) | Whether CI pushes its test runs and fixes |
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--provider <provider>` | `set`: check the URL against this provider's scheme only. `policy`: the provider. One of `s3`, `gcs`, `azure`, `r2` | `policy`: the store's |
+| `--check` | `set`: check access first, as `check` does, and write the store only when it works | — |
+| `--provider <ci>` | `ci`: `github`, `gitlab` or `other` | — |
+| `--packs <glob>` | `ci`: the goldens to test | `goldens/*` |
+| `--json` | Print the result as JSON (below) | — |
+
+### `store set`
+
+Checks the URL against the provider's scheme (with `--provider`, against that one only), and writes it
+to the config, keeping everything else.
+
+With `--check`, it first checks the store as `check` does, and writes nothing when that fails. It then
+says what to fix, and to run the same `store set … --check` again (in the dashboard's store setup,
+**Check access and connect** again).
+
+With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config, set }`:
+
+| Field                                               | Meaning                                                |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| `store`                                             | The store, as written to the config                    |
+| `url`                                               | Its URL, without the options after `?`                 |
+| `provider`, `bucket`, `prefix`, `account`, `region` | Its parts                                              |
+| `previous`                                          | The store it replaced                                  |
+| `config`                                            | The config file's path                                 |
+| `set`                                               | True once the config is written                        |
+| `check`                                             | With `--check`: the check, as `check --json` prints it |
+
+When the check fails, it prints only `{ store, url, provider, set, check }`, with `set` false. It writes
+nothing, and exits 1.
+
+### `store check`
+
+Proves this machine's credentials can list, write, read and delete a test object, and reports
+encryption, versioning and object lock, with a warning when versioning or object lock is off. It exits 1
+when access fails.
+
+`check` prints
+`{ url, credentials, steps, ok, encryption, versioning, objectLock, warnings, notes, failure, pullRequest }`:
+
+| Field                                    | Meaning                                      |
+| ---------------------------------------- | -------------------------------------------- |
+| `url`                                    | The store's URL                              |
+| `credentials`                            | Where the credentials came from              |
+| `steps`                                  | Each step: `name`, `ok`, `detail`, `code`    |
+| `ok`                                     | Whether all passed                           |
+| `encryption`, `versioning`, `objectLock` | The bucket's, each with `state` and `detail` |
+| `warnings`                               | Its warnings                                 |
+| `notes`                                  | What couldn't be checked                     |
+| `failure`                                | The kind of the first failure                |
+| `pullRequest`                            | The pull request whose folder it checked     |
+
+### `store show`
+
+Shows the last push and pull, the runs in the store and only here, and the last check, offline.
+
+`show` prints
+`{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, localAttempts, queued, check }`:
+
+| Field | Meaning |
+| --- | --- |
+| `url`, `store`, `provider`, `providerName`, `bucket`, `prefix`, `region` | The store, and its parts |
+| `pushedAt`, `pulledAt` | The last push and pull, in epoch milliseconds |
+| `inStore` | The runs in the store |
+| `onlyLocal` | The runs only here: a run counts while it, or an attempt filed under it, is only here |
+| `localAttempts` | The attempts only here |
+| `queued` | The runs still recording, to go when they end (below) |
+| `check` | The last check: `ok`, `at`, `encryption`, `versioning`, `objectLock`, `credentials` |
+
+A run that ended since counts as only here until the next push sends it, and one deleted is forgotten.
+
+### `store policy`
+
+Prints two policies scoped to the store's folder, each an IAM policy, role bindings, a role assignment
+or R2 token scopes:
+
+- one for people and CI on protected branches;
+- one for pull requests' CI jobs, which may write only under `pr/`.
+
+`policy` prints `{ provider, writer, pullRequest, notes }`: each policy with whom it is `for`, its
+`kind`, its `text` and `notes`.
+
+### `store ci`
+
+Prints a step for GitHub Actions, GitLab CI or any other CI.
+
+- **Credentials**: short-lived ones (OIDC) where the CI and the cloud allow it, and the pull-request
+  credentials beside the protected branches'. On GitHub, that is for pull requests from the repository
+  itself: a fork's gets no OIDC token, so its job skips them and runs the tests without pushing.
+- **The tests** run with `npx shadowlap@<version>`, this CLI's own release. On GitHub, Node 22 and a line
+  for the agent's dependencies (`npm ci && npm run build`, to make your project's) come before them. On
+  GitLab, that line opens each job's script.
+- **Keys**: the goldens it tests that run live (marked `fork`, or with an injection gate) need the keys
+  of the providers their recordings call. On GitHub, the step's `env` takes them from the repository's
+  secrets, by name. On GitLab and any other CI, a note names them.
+- **Keys it can't name**: a comment says to add your agent's own, where a key can't be named: a pack
+  that can't be read, or Vertex AI, which signs in with a token.
+
+`ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
+
+| Field            | Meaning                                                                           |
+| ---------------- | --------------------------------------------------------------------------------- |
+| `ci`, `provider` | The CI, and the cloud provider                                                    |
+| `file`, `text`   | The file the step goes in, and the step's text                                    |
+| `oidc`           | Whether it uses short-lived credentials                                           |
+| `pullRequests`   | Whether pull requests' jobs push to their `own-folder`, or not at all (`no-push`) |
+| `notes`          | What to set up once, on the cloud side                                            |
+
+### `store push-from-ci`
+
+`push-from-ci off` writes `"ciPush": false` to the config. `test --push` in CI then runs the tests and
+keeps their runs in the job (outside CI, `--push` still pushes), and the GitHub Action keeps the fixes
+it opens there too. `on` turns it back on.
+
+`push-from-ci` prints `{ ciPush, previous, config }`.
+
 ## The configuration file
 
 `shadowlap.config.json`, in the directory you run Shadowlap from. Every key is optional, and
@@ -4404,125 +4680,6 @@ written for a newer version still works, while the schema rejects it — which i
 `"normalise"` from a rule that silently never applies into an error you see as you type.
 
 `shadowlap doctor` checks the file too, and reports every rule, price and effect it parsed.
-
-## push, pull
-
-```sh
-shadowlap push <run...>          # these runs, with their ancestors
-shadowlap push --all             # every run on this machine that isn't in the store as it is
-shadowlap pull [<run...>]        # teammates' runs, or only these (ids or unique prefixes, as in the store)
-shadowlap pull --include-pr      # and the runs pull requests' CI jobs pushed to their own folders
-```
-
-Copy runs between this machine and the [team store](./team.md) named by `store` in
-`shadowlap.config.json`, with this machine's own credentials. Blobs shared between runs go up once;
-a run still recording goes when it ends; labels and notes merge both ways, and a run's results come
-from the machine that made it; a run deleted here isn't pulled again unless named. Both count by
-run, as the dashboard does: "45 runs and 69 attempts pushed", where attempts (`--repeat`, blame's
-probes, verify's attempts, a golden's in one test session) are those filed under their runs, and a
-run counts as only on this machine while it, or an attempt filed under it, isn't in the store. Fixes
-go with their runs: a push sends each [fix](#fix) with its blames, repairs and verdicts once one of
-its runs is in the store, and a pull brings the team's, merged with this machine's (a teammate's
-repair, from a pull or from the store's copy a push merges with, has its `fix.patch` and reports
-written to `.shadowlap/repairs/<id>/`). Whether a fix is applied is this machine's own and never
-goes; a fix over 16 MB stays here, and a pull skips one in the store that is, saying which. A push
-names the pusher as the author of a run made here without one, and leaves here, saying why, a run a
-pull would refuse. `pull` checks every run it brings as strictly as `unpack`; a run in the store
-that fails is skipped with its forks and tried again next time. A pulled run is marked with the store's URL (`meta.imported.from`): it reads as its author's recording, with what it spent, and replaying it asks before running its command, as an unpacked run's does (`--yes` says yes). A run named to `push` that the store
-has already is checked part by part, and what the bucket lost of it (its calls, a blob) is sent
-again. Either exits 1 when a run it was named can't go or come, or the store fails part way, and 2 when
-no store is set or this machine's credentials are missing or refused. `--json` prints the result.
-
-In a [pull request's CI job](./team.md#pull-requests) (GitHub Actions `pull_request` events, GitLab
-merge request pipelines, or `SHADOWLAP_PR` set), `push` writes only to the pull request's own
-folder, `pr/<number>/` in the store. `pull` leaves those folders out unless given `--include-pr`;
-runs it brings from one stay on this machine: `push --all` leaves them out, and `push` refuses one
-by name.
-
-`push --json` prints `{ store, pullRequest, pushed, updated, unchanged, queued, repaired, refused, blobs, segment, onlyLocal, fixes }`:
-the store, the pull request whose folder it wrote to (or `null`), the runs `pushed`, `updated`
-(labels, notes or results merged), `unchanged`, `queued` (still recording) and `repaired` (parts
-the bucket lost, sent again), each run `refused` with why, the `blobs` `uploaded`, already
-`present` and their `bytes`, the index `segment` it wrote (or `null`), how many runs are still
-`onlyLocal`, and the `fixes` that went with the runs (none from a pull request's job): the ids
-`sent`, those that `failed` (`fixId`, `reason`), and the teammates' `repairs` the store's copies
-brought. `pull --json` prints `{ store, pulled, merged, needPush, skippedDeleted, missing, unknown, failed, skippedSegments, blobs, segments, inStore, byAuthor, onlyLocal, pullRequests, fixes }`:
-the runs `pulled` and `merged`, the merged ones whose changes the next push sends (`needPush`),
-runs deleted here and not pulled again (`skippedDeleted`), runs gone from the store (`missing`),
-names that match no run (`unknown`), runs that couldn't come (`failed`, with why) and index
-segments that couldn't be read (`skippedSegments`), the `blobs` `downloaded` and their `bytes`, the
-`segments` read, the runs `inStore` and `onlyLocal` here, the pulled runs `byAuthor`, with
-`--include-pr` each pull request's folder (`pullRequests`), and the `fixes` that came with the
-runs: the ids new here (`pulled`), those here the store's copy added to (`merged`), those in the
-store that couldn't be read (`failed`: `fixId`, `reason`), and the `repairs` whose files it wrote.
-
-## share
-
-```sh
-shadowlap share <run> [--lineage] [--json]
-```
-
-Writes the run's [HTML report](#export-html), with every redaction rule applied, to the
-[team store](./team.md#share-links) and prints a presigned link that expires after 7 days. Anyone
-with the link can open it, without an account. `--lineage` includes the run's ancestors. A run still recording, or with `--lineage` one whose ancestor is, is shared once it has ended: until then `share` refuses it, exit status 2, before anything is asked of the store.
-`--json` prints `{ runId, url, expiresAt, note, store, key, bytes, redacted, rules, runs }`: the link
-(`url`) and when it expires (`expiresAt`, epoch milliseconds), a `note` when it may stop working
-sooner (it was signed with temporary credentials), the store and the object's `key` in it, its `bytes`, whether it is `redacted`
-and with how many `rules`, and the `runs` it holds.
-
-## store
-
-```sh
-shadowlap store set <url> [--provider s3|gcs|azure|r2]   # write "store" to shadowlap.config.json
-shadowlap store set <url> --check                        # check access first; write it only if that works
-shadowlap store check                                    # list, write, read and delete; encryption, versioning, object lock
-shadowlap store show                                     # last push and pull, runs in the store and only here, last check (offline)
-shadowlap store policy [--provider s3|gcs|azure|r2]      # the access to ask your cloud admin for: two policies
-shadowlap store ci --provider github|gitlab|other [--packs <glob>]   # a CI step that runs test --push
-shadowlap store push-from-ci on|off                      # whether CI pushes its test runs and fixes
-```
-
-Set up the [team store](./team.md#the-store). `set` checks the URL against the provider's scheme
-(with `--provider`, against that one only) and writes it to the config, keeping everything else;
-with `--check` it first checks the store as `check` does and writes nothing when that fails, then
-says what to fix and to run the same `store set … --check` again (in the dashboard's store setup,
-**Check access and connect** again). `check` proves this machine's credentials can list, write, read
-and delete a test object, and reports encryption, versioning and object lock, with a warning when
-versioning or object lock is off; it exits 1 when access fails. `policy` prints two policies scoped
-to the store's folder, each an IAM policy, role bindings, a role assignment or R2 token scopes: one
-for people and CI on protected branches, and one for pull requests' CI jobs, which may write only
-under `pr/`. `ci` prints a step for GitHub Actions, GitLab CI or any other CI, with short-lived
-credentials (OIDC) where the CI and the cloud allow it, and the pull-request credentials beside the
-protected branches' (on GitHub, for pull requests from the repository itself: a fork's gets no OIDC
-token, so its job skips them and runs the tests without pushing). Its tests run with `npx
-shadowlap@<version>`, this CLI's own release; on GitHub, Node 22 and a line for the agent's
-dependencies (`npm ci && npm run build`, to make your project's) come before them, and on GitLab
-that line opens each job's script. The goldens it tests that run live (marked `fork`, or with an
-injection gate) need the keys of the providers their recordings call: on GitHub the step's `env`
-takes them from the repository's secrets, by name, and on GitLab and any other CI a note names
-them; a comment says to add your agent's own where a key can't be named (a pack that can't be read,
-or Vertex AI, which signs in with a token). `push-from-ci off` writes
-`"ciPush": false` to the config: `test --push` in CI then runs the tests and keeps their runs in the
-job (outside CI, `--push` still pushes), and the GitHub Action keeps the fixes it opens there too;
-`on` turns it back on. Each takes `--json`.
-
-With `--json`, `set` prints `{ store, url, provider, bucket, prefix, account, region, previous, config, set }`:
-the store as written to the config and its `url` without the options after `?`, its parts, the
-store it replaced (`previous`), the config file's path, and `set`, true once the config is written.
-With `--check` it adds `check`, the check as `check --json` prints it; when the check fails it
-prints only `{ store, url, provider, set, check }`, with `set` false, writes nothing and exits 1. `check` prints
-`{ url, credentials, steps, ok, encryption, versioning, objectLock, warnings, notes, failure, pullRequest }`:
-where the `credentials` came from, each step (`name`, `ok`, `detail`, `code`), whether all passed
-(`ok`), the bucket's `encryption`, `versioning` and `objectLock` (`state`, `detail`), its
-`warnings`, what couldn't be checked (`notes`), the kind of the first `failure`, and the pull
-request whose folder it checked. `show` prints `{ url, store, provider, providerName, bucket, prefix, region, pushedAt, pulledAt, inStore, onlyLocal, localAttempts, queued, check }`:
-the last push and pull (epoch milliseconds), the runs `inStore`, `onlyLocal` (a run counts while
-it, or an attempt filed under it, is only here), the attempts only here (`localAttempts`), the
-runs `queued` that are still recording, to go when they end (one that ended since counts as only here until the next push sends it, and one deleted is forgotten), and the last `check` (`ok`, `at`, `encryption`, `versioning`, `objectLock`,
-`credentials`). `policy` prints `{ provider, writer, pullRequest, notes }`, each policy with whom
-it is `for`, its `kind`, its `text` and `notes`. `ci` prints `{ ci, provider, file, text, oidc, pullRequests, notes }`:
-the step's `text` and the `file` it goes in, whether it uses short-lived credentials (`oidc`), and
-whether pull requests' jobs push to their `own-folder` or not at all (`no-push`, in `pullRequests`). `push-from-ci` prints `{ ciPush, previous, config }`.
 
 ## Environment
 
