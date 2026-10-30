@@ -9,7 +9,7 @@ import { defaultDbPath, loadConfig, type ShadowlapConfig } from '../config.js';
 import { embeddedDashboard, onStopSignals } from '../dashboard-stop.js';
 import { EXIT } from '../exit-codes.js';
 import { projectGoldens } from '../goldens.js';
-import { describeCall, leftRunning, missingStoreNote, openStore, parseIntArg, readStore, requireRun, statusWord, telemetry, VERSION, type GlobalOpts } from '../shared.js';
+import { collect, describeCall, leftRunning, missingStoreNote, openStore, parseIntArg, readStore, requireRun, statusWord, telemetry, VERSION, type GlobalOpts } from '../shared.js';
 import { dashboardTasks } from '../tasks.js';
 import { ago, palette as p, safe, shortId, table } from '../ui.js';
 
@@ -272,11 +272,11 @@ export function register(program: Command): void {
     .description('List runs')
     .option('--tree', 'show fork lineage')
     .option('-n, --limit <n>', 'maximum runs', parseIntArg, 50)
-    .option('--label <label>', 'only runs with this label (repeatable: all of them)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--label <label>', 'only runs with this label (repeatable: all of them)', collect)
     .option('--json', 'machine-readable output')
-    .action((flags: { tree?: boolean; limit: number; label: string[]; json?: boolean }) => {
+    .action(({ label: labels = [], ...flags }: { tree?: boolean; limit: number; label?: string[]; json?: boolean }) => {
       const store = readStore(program.opts<GlobalOpts>());
-      const runs = flags.label.length ? store.allRuns().filter((r) => flags.label.every((l) => r.meta?.labels?.includes(l))).slice(0, flags.limit) : store.listRuns(flags.limit);
+      const runs = labels.length ? store.allRuns().filter((r) => labels.every((l) => r.meta?.labels?.includes(l))).slice(0, flags.limit) : store.listRuns(flags.limit);
       if (flags.json) {
         const out = runs.map((r) => ({
           runId: r.runId,
@@ -304,11 +304,11 @@ export function register(program: Command): void {
       }
       if (runs.length === 0) {
         // Runs to show, but none with the labels asked for: say that, not that nothing was recorded.
-        const labelled = flags.label.length > 0 && store.listRuns(1).length > 0;
+        const labelled = labels.length > 0 && store.listRuns(1).length > 0;
         // No store here at all, but the project's is in a folder above: say where, not that nothing was recorded.
         const note = missingStoreNote(store);
         store.close();
-        process.stdout.write(p.dim(labelled ? `no runs labelled ${flags.label.map((l) => safe(l)).join(' and ')}\n` : note ? `no runs: ${note}\n` : 'no runs yet: shadowlap run -- <command>\n'));
+        process.stdout.write(p.dim(labelled ? `no runs labelled ${labels.map((l) => safe(l)).join(' and ')}\n` : note ? `no runs: ${note}\n` : 'no runs yet: shadowlap run -- <command>\n'));
         return;
       }
       // A run stopped before it ended reads interrupted, in a neutral tone, as the dashboard lists it.

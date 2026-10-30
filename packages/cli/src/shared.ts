@@ -236,6 +236,12 @@ export function parseIntArg(value: string): number {
   return n;
 }
 
+/**
+ * An option given more than once (`--set a=1 --set b=2`): each value, in order. It takes no default,
+ * so help shows none: an option never given is undefined, which its reader takes as no values.
+ */
+export const collect = (value: string, previous: string[] | undefined): string[] => [...(previous ?? []), value];
+
 /** `--override 9='{"a":1}'` or `--override 9=@result.json`; the call must be a tool call of the parent run. */
 
 export function parseChoice<T extends string>(choices: readonly T[]) {

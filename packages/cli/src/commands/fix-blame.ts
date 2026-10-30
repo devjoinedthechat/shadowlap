@@ -28,7 +28,7 @@ export interface BlameFlags {
   attempts?: number;
   passes?: number;
   model?: string;
-  set: string[];
+  set?: string[];
   scope?: string;
   scan: number;
   writes: 'stub' | 'block';

@@ -34,9 +34,9 @@ export interface VerifyCommandFlags {
   attempts?: number;
   passes?: number;
   model?: string;
-  set: string[];
-  from: string[];
-  liveTool: string[];
+  set?: string[];
+  from?: string[];
+  liveTool?: string[];
   writes: 'stub' | 'block';
   reads: ReadPolicy;
   concurrency: number;
@@ -80,7 +80,7 @@ export async function verifyRuns(opts: GlobalOpts, command: string[], flags: Ver
   const report = await runVerify({
     opts,
     runs,
-    settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
+    settings: { attempts: rule.attempts, needed: rule.needed, gate: rule.gate, concurrency: flags.concurrency, fields, ...(flags.from?.length ? { fromModels: flags.from } : {}), failFast: !!flags.failFast, spec: expect?.spec ?? null, expect: expect?.json ?? null, writes: flags.writes, reads: flags.reads, liveTools: flags.liveTool ?? [], budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, guard: flags.guard, allowUnrecorded: [...allowedUnrecorded(flags.allowUnrecorded)], ...(rule.gate ? { baseline } : {}), ...(flags.margin !== undefined ? { margin: flags.margin } : {}) },
     log,
   }).finally(() => progress.done());
   reportVerify(opts, report, request, command, flags);
@@ -93,7 +93,7 @@ function parseVerify(flags: VerifyCommandFlags): VerifyRequest {
   const undecidable = undecidableRefusal(expect?.spec ?? null, 'verify');
   if (undecidable) throw new InvalidArgumentError(undecidable);
   const fields = parseFields(flags.set, flags.model);
-  if (flags.from.length && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
+  if (flags.from?.length && !Object.keys(fields).length) throw new InvalidArgumentError('--from names the model calls --model and --set change: give one of them');
   const source = flags.baseline ?? loadConfig(process.cwd()).verify?.baseline ?? 'paired';
   if (source === 'history' && (flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('--base and --build check out the code a paired baseline runs at: give them without --baseline history');
   if (!rule.gate && (flags.margin !== undefined || flags.baseline !== undefined || flags.base !== undefined || flags.build !== undefined)) throw new InvalidArgumentError('a fixed count (--attempts, --passes) judges every run on its own: --margin, --baseline, --base and --build are for the gate, which keeps a good run against its baseline');
@@ -152,7 +152,7 @@ function verifyPlan({ rule, baseline }: VerifyRequest, runs: VerifyRuns, flags: 
  * as text or JSON, what its attempts ran unrecorded, its job's links, and its status.
  */
 function reportVerify(opts: GlobalOpts, report: VerifyReport, { rule, expect, fields }: VerifyRequest, command: string[], flags: VerifyCommandFlags): void {
-  const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool, failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
+  const step: VerifyFlags = { expect: expect?.json ?? null, attempts: rule.attempts, ...(flags.passes !== undefined ? { passes: flags.passes } : {}), gate: rule.gate, fields, from: flags.from, liveTools: flags.liveTool ?? [], failFast: !!flags.failFast, margin: flags.margin, baseline: flags.baseline, base: flags.base, build: flags.build ?? null, writes: flags.writes, reads: flags.reads, budget: flags.budget ?? null, timeoutMs: flags.timeout === undefined ? null : flags.timeout * 1000, argv: command.length ? command : null };
   const line = verifyCommand({ fixes: flags.fixes, holdout: flags.holdout, keeps: flags.keeps }, step);
   // Its flags kept apart from the line, which is only shown: Fixes runs it again from them.
   const kept = recordVerifyFix(opts, report, { expect: expect?.json ?? null, command: line, rerun: verifyRerun(step) });
