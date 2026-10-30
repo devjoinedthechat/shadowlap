@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import type { ReadPolicy, WritePolicy } from '@shadowlap/engine';
 import { ALLOW_UNRECORDED, ALLOW_UNRECORDED_HELP, collectNames, formatUnrecorded } from '../unrecorded.js';
 import { codeVersion, loadConfig } from '../config.js';
+import { agentCommands } from '../agent-registry.js';
 import { runMcp } from '../mcp.js';
 import { runUnderSidecar, type GuardMode } from '../run-agent.js';
 import { calibrate, type CalibrateFlags } from './calibrate.js';
@@ -93,7 +94,7 @@ export function register(program: Command): void {
     .description('Run an MCP server behind Shadowlap: shadowlap mcp -- <server command>, or shadowlap mcp --url <server> for one over Streamable HTTP, served over stdio or, with --listen, over HTTP. tools/call is recorded and replayed; everything else passes through')
     .argument('[command...]', 'the MCP server command, as the client would start it')
     .option('--url <server>', "a remote MCP server's endpoint, reached over Streamable HTTP")
-    .option('--header <header>', 'a header for every request to the --url server, such as "Authorization: Bearer ${TOKEN}" (repeatable; ${VAR} is read from the environment)', (v: string, acc: string[]) => [...acc, v], [] as string[])
+    .option('--header <header>', "a header for every request to the --url server, such as 'Authorization: Bearer $TOKEN' (repeatable; $VAR or ${VAR} is read from the proxy's environment, and $$ is a $)", (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--effect <tool=effect>', 'pure | read | write for a tool, overriding the server\'s annotations (repeatable)', (v: string, acc: string[]) => [...acc, v], [] as string[])
     .option('--allow-http', 'send --header values to a --url server over plain http on a network you trust (http is always accepted for this machine)')
     .option('--listen <address>', 'serve the --url server over Streamable HTTP at http://<address>/mcp, for an agent whose MCP client speaks HTTP: 127.0.0.1:8931, or a port alone (this machine only)')
@@ -101,7 +102,7 @@ export function register(program: Command): void {
     .action(async (argv: string[], flags: { url?: string; header: string[]; effect: string[]; allowHttp?: boolean; listen?: string }) => {
       // What it throws ends it with the contract's status: 2 for a flag or config to fix, 1 for a
       // host that didn't answer, 70 for a bug.
-      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects);
+      process.exitCode = await runMcp(argv, flags, loadConfig(process.cwd()).mcp?.effects, agentCommands(program));
     });
 
 }

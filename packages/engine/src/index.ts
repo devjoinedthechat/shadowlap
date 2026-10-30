@@ -9,7 +9,7 @@ export { REDACTION_EXPORTS, REMEDIES, carriesCredentials, clipChange, credential
 // Credentials in recorded traffic: the one list of credential parameters (credentialParam), the
 // headers that carry one, and the stored shapes with them masked, for the sidecar and every copy.
 export { nestsDeeper } from './credential-shapes.js';
-export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeArgv, credentialFreeBody, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialFreeUrl, credentialHeader, credentialParam, credentialQueryParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskPathCredentials, maskTextCredentials, maskUrlCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, sameCommandLine, withoutCredentials, withoutStoredCredentials } from './http.js';
+export { CREDENTIAL_HEADERS, CREDENTIAL_PLACEHOLDER, STATE_HEADERS, TOKEN_IN_VALUE, capturedHttp, credentialFreeArgv, credentialFreeBody, credentialFreeCommandLine, credentialFreeCallName, credentialFreeHeaders, credentialFreeQuery, credentialFreeRequest, credentialFreeResult, credentialFreeUrl, credentialHeader, credentialParam, credentialQueryParam, credentialValue, decodedParam, formShaped, maskBytesCredentials, maskChallenge, maskJsonCredentials, maskJsonTextCredentials, maskLocation, maskMultipartBytes, maskPathCredentials, maskTextCredentials, maskUrlCredentials, rawJsonMember, responseBodyWithoutCredentials, resultBlob, sameCommandLine, withoutCredentials, withoutStoredCredentials } from './http.js';
 export { calibrationTarget, covered, generalize, proposeNormalizers, type CalibrationStep, type Proposal } from './calibrate.js';
 export { asParsed, isRawNumber, matchable, parseJsonExact, reportable } from './json-exact.js';
 export { multipartContents, multipartView, parseMultipart, type MultipartContent, type MultipartPart, type MultipartView } from './multipart.js';
@@ -94,7 +94,7 @@ export { attemptKindOf, countAttempts, isAttempt, rescuedForks, type RoleContext
 export { kindFacts, modelResolver, runLabel, type LabelledRun } from './run-label.js';
 // What the dashboard and the terminal UI both say of a run: why it failed, how an attempt came out,
 // what a fork did differently from its parent and how each ended, and the good/bad key.
-export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
+export { attemptVerdict, checkFailed, FAILURE_WORDS, failureReason, keptAttemptVerdict, lostAround, lostWords, type AttemptVerdict, type FailureReason } from './run-verdicts.js';
 export { compareFork, forkEnd, MAX_TOOL_CALLS, type ForkChange, type ForkChangeKind, type ForkComparison, type ForkEnd, type ForkWrite } from './fork-changes.js';
 export { markChange, markKey, MARKS, markToast, type RunMark } from './run-marks.js';
 // A request's body, read whole or not at all, for every server here; node:sqlite as every store opens it.

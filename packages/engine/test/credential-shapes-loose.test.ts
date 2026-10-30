@@ -59,6 +59,14 @@ describe('an event stream and lines of JSON', () => {
     expect(maskTextCredentials('data: {"text":"hi"}\n\n')).toBeNull();
   });
 
+  it('reads a data line inside a data line as a stream of its own, as deep as a string inside a string, in time that grows with the text', () => {
+    expect(maskTextCredentials(`data: data: ${tok('SSEINSSE')}\n\n`)).toBe(`data: data: ${MASKED}\n\n`);
+    // A stream made to nest them over and over: each level read once, never each line again for every level around it.
+    const nested = (n: number) => `${'data:'.repeat(n)}x\n\n`;
+    const t = timesOf({ short: () => maskTextCredentials(nested(400)), long: () => maskTextCredentials(nested(6_400)) }, { rounds: 2 });
+    expect(t.long, `16 times the nesting took ${times(t.long, t.short)} as long`).toBeLessThan(48 * t.short);
+  });
+
   it('masks each line of JSON with a line that is none among them, left as it is', () => {
     expect(maskTextCredentials(`${tok('NDLOGA')}\nINFO done\n${tok('NDLOGB')}\n`)).toBe(`${MASKED}\nINFO done\n${MASKED}\n`);
     expect(maskTextCredentials(`{"ok":true}\nnot json\n{"name":"refund"}\n`)).toBeNull();
@@ -123,6 +131,14 @@ describe('the cheaper shapes', () => {
     });
     expect(JSON.stringify(headers)).not.toMatch(/SLSEC_BP_|eyJ/);
     expect(headers).toEqual({ 'x-upstream-auth': C, 'x-user-jwt': C, 'x-auth': C, 'x-forwarded-uri': `/cb?access_token=${C}&page=2`, 'hx-redirect': `/x?code=${C}`, 'hx-location': `{"path":"/x?code=${C}","target":"#main"}`, 'content-type': 'application/json', 'x-request-id': 'req_123' });
+  });
+
+  it('reads the URL in hx-location’s JSON by name, as hx-redirect’s and every other redirect’s are', () => {
+    // A code too short to read as a credential by its value: a redirect's is one by its name alone.
+    const headers = credentialFreeHeaders({ 'hx-redirect': '/cb?code=EXAMPLE1&state=s1', 'hx-location': '{"path":"/cb?code=EXAMPLE1&state=s1","target":"#main","values":{"token":"t1"}}' });
+    expect(headers).toEqual({ 'hx-redirect': `/cb?code=${C}&state=s1`, 'hx-location': `{"path":"/cb?code=${C}&state=s1","target":"#main","values":{"token":"${C}"}}` });
+    // Read the same way, a body's JSON keeps a code that doesn't read as one.
+    expect(maskTextCredentials('{"path":"/cb?code=EXAMPLE1","values":{"token":"t1"}}')).toBeNull();
   });
 });
 

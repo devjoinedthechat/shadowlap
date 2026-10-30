@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CREDENTIAL_PLACEHOLDER as C, credentialFreeArgv, credentialFreeCallName, credentialFreeQuery, credentialFreeUrl, maskJsonTextCredentials, maskPathCredentials, sameCommandLine, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
+import { quoteArgv } from '../src/text.js';
+import { CREDENTIAL_PLACEHOLDER as C, credentialFreeArgv, credentialFreeCallName, credentialFreeCommandLine, credentialFreeQuery, credentialFreeUrl, maskJsonTextCredentials, maskPathCredentials, sameCommandLine, withoutCredentials, withoutStoredCredentials } from '../src/http.js';
 
 /**
  * What the review found reaching a pack, an HTML file, a push, a share link and a trace: a key
@@ -34,6 +35,37 @@ describe('a command line', () => {
     expect(credentialFreeArgv(['curl', '-H', 'Authorization: Bearer SLSEC_ARGV_BEARER', '-H', 'Accept: application/json', 'https://api.example.com/x'])).toEqual(['curl', '-H', `Authorization: ${C}`, '-H', 'Accept: application/json', 'https://api.example.com/x']);
     expect(credentialFreeArgv(['agent', jwt])).toEqual(['agent', C]);
     expect(credentialFreeArgv(['agent', '--db', 'postgres://app:SLSEC_ARGV_DBPASS@db/app', '--notify=https://hooks.slack.com/services/T0/B0/SLSEC_ARGV_HOOK', 'https://api.example.com/v1?access_token=SLSEC_ARGV_QS'])).toEqual(['agent', '--db', `postgres://app:${C}@db/app`, `--notify=https://hooks.slack.com/services/T0/B0/${C}`, `https://api.example.com/v1?access_token=${C}`]);
+  });
+
+  it("masks a script a shell runs word by word: an assignment's value to where its word ends, and the rest of the script kept", () => {
+    expect(credentialFreeArgv(['sh', '-c', 'OPENAI_API_KEY=sk-test-EXAMPLE0000 node agent.js --task refund'])).toEqual(['sh', '-c', `OPENAI_API_KEY="${C}" node agent.js --task refund`]);
+    // Its words as a shell reads them: quoted, after `;`, a flag's value and a header line too; bash -lc after env.
+    const script = `export API_KEY='sk-test-EXAMPLE0001'; node agent.js --api-key sk-test-EXAMPLE0002 -H 'Authorization: Bearer sk-test-EXAMPLE0003' && echo "done"`;
+    const masked = credentialFreeArgv(['env', 'MODE=fast', '/bin/bash', '-lc', script]);
+    expect(masked).toEqual(['env', 'MODE=fast', '/bin/bash', '-lc', `export API_KEY="${C}"; node agent.js --api-key "${C}" -H "Authorization: ${C}" && echo "done"`]);
+    expect(credentialFreeArgv(masked)).toBe(masked);
+    // A script inside a script, and one with nothing to mask, kept as it is.
+    expect(credentialFreeArgv(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN=sk-test-EXAMPLE0004 ./run' > out.log`])).toEqual(['docker', 'exec', 'app', 'sh', '-c', `bash -c 'TOKEN="${C}" ./run' > out.log`]);
+    const plain = ['sh', '-c', 'MODE=fast node agent.js | tee out.log'];
+    expect(credentialFreeArgv(plain)).toBe(plain);
+    // Outside a shell's script, an assignment's value with spaces is masked whole, as before; so is a script whose quote is left open.
+    expect(credentialFreeArgv(['env', 'DB_PASSWORD=correct horse battery staple', 'node', 'agent.js'])).toEqual(['env', `DB_PASSWORD=${C}`, 'node', 'agent.js']);
+    expect(credentialFreeArgv(['python', '-c', 'API_KEY="sk-test-EXAMPLE0005"; run()'])).toEqual(['python', '-c', `API_KEY=${C}`]);
+    expect(credentialFreeArgv(['sh', '-c', "OPENAI_API_KEY='sk-test-EXAMPLE0006 node agent.js"])).toEqual(['sh', '-c', `OPENAI_API_KEY=${C}`]);
+  });
+
+  it('masks a command line written as one text, as quoteArgv writes it, each word as an argument, the rest as it was', () => {
+    // A blame's command as the CLI printed it: a request field it set, and the command given after `--`.
+    const line = quoteArgv(['shadowlap', 'blame', '01K5CQ4V3H', '--set', 'api_key=sk-test-EXAMPLE0000', '--', 'node', 'agent.js', '--api-key', 'sk-test-EXAMPLE0001', '--note', 'a ‮ word']);
+    const masked = credentialFreeCommandLine(line);
+    expect(masked).toBe(`shadowlap blame 01K5CQ4V3H --set 'api_key=${C}' -- node agent.js --api-key '${C}' --note $'a \\u202e word'`);
+    expect(credentialFreeCommandLine(masked)).toBe(masked);
+    // A script after `sh -c`, word by word; one with nothing to mask, and one whose quote is left open.
+    const script = quoteArgv(['shadowlap', 'verify', '--', 'sh', '-c', "OPENAI_API_KEY=sk-test-EXAMPLE0002 node agent.js --task 'refund it'"]);
+    expect(credentialFreeCommandLine(script)).toBe(quoteArgv(['shadowlap', 'verify', '--', 'sh', '-c', `OPENAI_API_KEY="${C}" node agent.js --task 'refund it'`]));
+    const plain = quoteArgv(['shadowlap', 'repair', '--fixes', 'label:refund', '--', 'python', 'agent.py']);
+    expect(credentialFreeCommandLine(plain)).toBe(plain);
+    expect(credentialFreeCommandLine("shadowlap blame 01K5 -- node agent.js --api-key sk-test-EXAMPLE0003 --note 'open")).toBe(`shadowlap blame 01K5 -- node agent.js --api-key '${C}' --note 'open`);
   });
 
   it('is the same command line as the one it masks, and masking it again changes nothing', () => {

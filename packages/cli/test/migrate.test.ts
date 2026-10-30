@@ -8,6 +8,7 @@ import { emptyCounts, Store, type DecisionRun, type DecisionsVerify } from '@sha
 import { startMockAnthropic, type MockServer } from '@shadowlap-testing/mock-anthropic';
 import { referenceScript } from '@shadowlap-testing/reference-agent';
 import { formatMigrate, modelMentions, passesOf, pullRequestBody, type MigrateReport, type MigrateRunPass } from '../src/migrate.js';
+import { quoteArgv } from '../src/ui.js';
 import { departures } from './json-shapes.js';
 
 /**
@@ -375,5 +376,12 @@ describe("migrate's first line", () => {
     const [alone] = passesOf([run], ['R0'], verify(0, 1), () => true);
     expect(formatMigrate({ ...r, passes: { verdict: 'incomplete', runs: [alone] } })).toContain('inconclusive · verified · attempt 1 not judged\n');
     expect(formatMigrate(r)).not.toMatch(/2 of 3|0 of 1/);
+  });
+
+  it('names the command it was checked with in the pull request body, with a key its command line carries masked', () => {
+    const command = quoteArgv(['shadowlap', 'migrate', '--to', 'claude-new', '--', 'node', 'agent.js', '--api-key', 'sk-test-EXAMPLE0000']);
+    const body = pullRequestBody({ ...report([kept], { verdict: 'accepted', flagged: 1 }), command }).body;
+    expect(body).not.toContain('sk-test-EXAMPLE0000');
+    expect(body).toContain("Checked with `shadowlap migrate --to claude-new -- node agent.js --api-key '<CREDENTIAL>'`: ");
   });
 });

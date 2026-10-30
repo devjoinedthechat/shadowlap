@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Store, summarizeRun, storedModelResolver } from '@shadowlap/engine';
 import { loadRunIndex } from '../src/run-index.js';
-import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, ROW_CALLS_BUDGET, rowsWarming, runsByDay, runsByDayOptions, runsPageOptions, type RunRow, type RunType } from '../src/runs-list.js';
+import { countRuns, deleteRuns, filterTerms, labelRuns, listRunsPage, recentRuns, ROW_CALLS_BUDGET, rowsWarming, runsByDay, runsByDayOptions, runsPageOptions, runState, type RunRow, type RunType } from '../src/runs-list.js';
 import { callTotals } from '../src/run-stats.js';
 import { addDays, dayIndex, daysFrom, isTimeZone, localDay } from '../src/local-days.js';
 import { addRun, blameOf, capture, DAY, HOUR, OFFLINE } from './read-model-store.js';
@@ -622,6 +622,25 @@ describe('a golden replayed several times in one test session', () => {
       // Deleted, the run takes its attempts with it, and not the run that only named another.
       expect(deleteRuns(local, [shown])).toMatchObject({ done: [shown], attempts: expect.arrayContaining(others) });
       expect(local.allRuns().map((r) => r.runId).sort()).toEqual([golden, other, odd].sort());
+    } finally {
+      local.close();
+    }
+  });
+});
+
+describe('a run blame found lost gradually around two calls', () => {
+  it('comes out lost around the two in the table and on its page, never at the first alone', () => {
+    const local = Store.open(':memory:');
+    try {
+      const run = addRun(local, { startedAt: NOW - DAY, status: 'failed', calls: 'l'.repeat(8) });
+      const range = { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true as const };
+      local.updateRunMeta(run, { blame: { ...blameOf(5, null, NOW - DAY + HOUR), range } });
+      const lost = { kind: 'lost', callNo: 5, range: { from: 5, to: 7, gradual: true } };
+      expect(listRunsPage(local, {}).runs.find((r) => r.runId === run)).toMatchObject({ lostAt: 5, outcome: lost, failed: true });
+      expect(runState(local, run)?.outcome).toEqual(lost);
+      // A range pinned to one call keeps the call alone.
+      local.updateRunMeta(run, { blame: { ...blameOf(5, null, NOW - DAY + 2 * HOUR), range: { from: 5, to: 5, fromStep: 3, toStep: 3 } } });
+      expect(runState(local, run)?.outcome).toEqual({ kind: 'lost', callNo: 5 });
     } finally {
       local.close();
     }

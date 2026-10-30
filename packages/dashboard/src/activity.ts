@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { asTheyStand, checkStatus, hintsFor, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
+import { asTheyStand, checkStatus, hintsFor, lostAround, lostWords, pulledRun, summarizeRun, type DivergenceReport, type GateResult, type RunRecord, type RunSummary, type StoredCheck, type StoreOf, type StoredEvent } from '@shadowlap/engine';
 import { links } from './links.js';
 import { projectEventText } from './projects.js';
 import { cachedRuns } from './run-cache.js';
@@ -113,10 +113,9 @@ const EVENT_TEXT = new Map<string, Describe>([
       if (d.outcome === 'unrescuable' && d.unsettled === true) return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}not settled from the first model call`, href };
       if (callNo === null || d.outcome === 'unrescuable') return { kind: 'blame', text: `Blamed · ${title ? `${title}, ` : ''}no single call rescued the run`, href };
       // Lost gradually around two calls, when the check of the one the probes pinned found no drop there.
-      const g = gradualOf(d.range);
       // The mock's two lines: with the failure's title when the fix has one, else with the confidence.
-      if (title) return { kind: 'blame', text: `Blamed · ${title}, ${g ? `lost gradually around #${g.from} and #${g.to}` : `lost at model call #${callNo}`}`, href };
-      return { kind: 'blame', text: parts(g ? `Blamed · lost gradually around #${g.from} and #${g.to}` : `Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)!}`), href };
+      if (title) return { kind: 'blame', text: `Blamed · ${title}, ${lostWords(callNo, d.range, 'calls')}`, href };
+      return { kind: 'blame', text: parts(lostAround(d.range) ? `Blamed · ${lostWords(callNo, d.range, 'calls')}` : `Blamed model call #${callNo}`, str(d.confidence) && `confidence ${str(d.confidence)!}`), href };
     },
   ],
   ['repair.accepted', (e, d) => ({ kind: 'fixok', text: `Repair accepted · ${str(d.title) ?? e.ref ?? ''}`, href: fixHref(e.ref, 'repair') })],
@@ -185,12 +184,6 @@ export function describeEvent(kind: string, describe: Describe): void {
   EVENT_TEXT.set(kind, describe);
 }
 
-/** The two calls a run was lost gradually around (a blame's `range` with `gradual`), or null. */
-function gradualOf(range: unknown): { from: number; to: number } | null {
-  if (!range || typeof range !== 'object') return null;
-  const { from, to, gradual } = range as Record<string, unknown>;
-  return gradual === true && typeof from === 'number' && typeof to === 'number' && Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to > from ? { from, to } : null;
-}
 
 /**
  * What an event says, as the feed reads it. A blame recorded before its event carried the calls the
@@ -535,8 +528,7 @@ function importedEvents(group: StoredEvent[]): ActivityItem {
 function blamed(run: RunRecord): ActivityItem {
   const b = run.meta!.blame!;
   const item = { ...base(run, `r:${run.runId}:blame`, time(b.at, run.endedAt ?? run.startedAt)), href: links.fixes() };
-  const g = gradualOf(b.range);
-  if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `${g ? `Blamed · lost gradually around #${g.from} and #${g.to}` : `Blamed model call #${b.callNo}`} · confidence ${b.confidence}` };
+  if (b.outcome === 'blamed' && b.callNo !== null) return { ...item, kind: 'blame', text: `${lostAround(b.range) ? `Blamed · ${lostWords(b.callNo, b.range, 'calls')}` : `Blamed model call #${b.callNo}`} · confidence ${b.confidence}` };
   if (b.outcome === 'stopped') return { ...item, kind: 'blame', text: `Blame stopped · ${plural(Array.isArray(b.probes) ? b.probes.length : 0, 'call')} probed` };
   // Its first probe couldn't tell: nothing is settled, which is no finding that no call rescues it.
   if (b.unsettled === true) return { ...item, kind: 'blame', text: 'Blamed · not settled from the first model call' };

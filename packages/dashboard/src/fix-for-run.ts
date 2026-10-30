@@ -1,4 +1,4 @@
-import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixOfRun, labelledFixes, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { canonicalize, checkSuggestion, fixLabelInfo, fixLabels, fixOfRun, labelledFixes, lostAround, type Block, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type VerifiedRun, type VerifyOutcome, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { fixHref, isUnblamedFailure, runHref, toolsCalled } from './fix-shared.js';
 
 /** A run's fix, as its page shows it: the fix it fails in, and what blame found of it. */
@@ -12,7 +12,7 @@ export interface FixRef {
   check: string;
 }
 
-/** What a run page's blame banner says: lost at #n, model call k of m, the confidence, and in a few words what asking again did. */
+/** What a run page's blame banner says: lost at #n (or gradually around two calls), model call k of m, the confidence, and in a few words what asking again did. */
 export interface RunBlame {
   blameId: string;
   at: number;
@@ -20,6 +20,8 @@ export interface RunBlame {
   /** It placed the failure on no call only because its first probe couldn't tell: not settled, never "not rescued". Absent otherwise. */
   unsettled?: true;
   lostAt: number | null;
+  /** The two calls it was lost gradually around, when no one call lost the run (lostAround): the banner says so, never "lost at". */
+  range: { from: number; to: number; gradual: true } | null;
   step: number | null;
   steps: number;
   confidence: 'high' | 'medium' | 'low';
@@ -67,7 +69,7 @@ function askedInstead(recorded: readonly Block[], rescued: readonly Block[]): st
 function runBlame(b: StoredBlame, fixId: string | null): RunBlame {
   const r = b.report;
   const what = b.outcome === 'blamed' ? `asked again, ${askedInstead(r.contrast?.recorded ?? [], r.contrast?.rescued ?? [])}` : b.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(r)) : 'blame stopped early';
-  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
+  return { blameId: b.blameId, at: b.at, outcome: b.outcome, ...(unsettledFirst(r) ? { unsettled: true as const } : {}), lostAt: r.blamed?.callNo ?? null, range: lostAround(r.range), step: r.blamed?.step ?? null, steps: r.steps, confidence: r.confidence, rescuedRunId: r.contrast?.rescuedRunId ?? null, short: what, href: fixId ? fixHref(fixId, 'blame') : runHref(b.runId) };
 }
 
 /** How a run takes part in Fixes, for its page and the Forks view; null when it doesn't. */

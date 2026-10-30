@@ -36,7 +36,7 @@ import {
   type StoreOf,
   type ToolTrust,
 } from '@shadowlap/engine';
-import { modelResolver, runLabel } from '@shadowlap/engine';
+import { lostAround, modelResolver, runLabel } from '@shadowlap/engine';
 import { runCalls } from './run-calls.js';
 import { runWebSockets, type WebSocketView } from './run-unrecorded.js';
 
@@ -455,6 +455,8 @@ export interface RunBlame {
   unsettled?: true;
   /** The model call whose recorded answer lost the run. */
   callNo: number | null;
+  /** The two calls it was lost gradually around, when no one call lost the run (lostAround). */
+  range: { from: number; to: number; gradual: true } | null;
   /** That call counted among the model calls in the blame's scope: "model call k of m". */
   modelCall: { k: number; m: number } | null;
   confidence: 'high' | 'medium' | 'low';
@@ -543,6 +545,7 @@ function blameOf(run: RunRecord, calls: readonly CallRecord[], step?: { k: numbe
     outcome: oneOf(b.outcome, ['blamed', 'unrescuable', 'stopped'] as const, 'stopped'),
     ...(b.unsettled === true ? { unsettled: true as const } : {}),
     callNo,
+    range: lostAround(b.range),
     modelCall,
     confidence: oneOf(b.confidence, ['high', 'medium', 'low'] as const, 'low'),
     rescuedRunId: str(b.rescuedRunId),

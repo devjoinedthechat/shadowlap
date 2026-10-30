@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { argsDelta, byRule, controlOpen, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
+import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
 import { judgeRecording } from './attempts.js';
 import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
@@ -320,12 +320,16 @@ export function remedyText(f: DecisionRemedy, code: (s: string) => string = (s) 
   return `${code(f.field)} = ${code(fieldValue(f.value))}`;
 }
 
-/** The pull request body: the four blocks, short enough to read on the pull request. */
+/**
+ * The pull request body: the four blocks, short enough to read on the pull request. It is written to
+ * be posted, so the command it names has a key its command line carries masked, as every copy of a
+ * run's command line has it (credentialFreeCommandLine).
+ */
 export function pullRequestBody(r: Omit<MigrateReport, 'pullRequest' | 'files'>): { title: string; body: string } {
   const title = r.from.length === 1 ? `Switch ${r.from[0]!} to ${r.to}` : `Switch the model to ${r.to}`;
   const runs = r.decisions.runs.length;
   const tick = (s: string) => `\`${s}\``;
-  const lines: string[] = [`## ${title}`, '', `Checked with \`${r.command}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a write, stop or judged change verified end to end.`];
+  const lines: string[] = [`## ${title}`, '', `Checked with \`${credentialFreeCommandLine(r.command)}\`: the model calls of ${runs} recording${runs === 1 ? '' : 's'} made with ${r.from.join(', ') || 'its model'} asked again under ${r.to}, and the ${r.changes.flagged} with a write, stop or judged change verified end to end.`];
   for (const n of r.retirements.filter((x) => r.from.includes(x.model))) lines.push('', `> ${n.text} ([source](${n.source}))`);
   lines.push('', '### What changes', '');
   if (!r.changes.steps.length) lines.push(`No write, stop or judged change${r.decisions.counts.notAsked ? ' in the steps asked' : ''}.`);

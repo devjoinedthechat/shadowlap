@@ -114,9 +114,10 @@ export interface RecordingOutcome {
   /** Every attempt run, unavailable ones included, in order. */
   attempts: GoldenAttempt[];
   /**
-   * The attempt the result shows: the last that passed when it passed; for an inconclusive one the
-   * attempt a check could not decide, or the last the provider was unavailable for, when one stopped
-   * it; else the first that failed.
+   * The attempt the result shows: the last that passed when it passed, or, when only the attempts it
+   * carried over passed its gate and every one this session ran failed, the last this session ran;
+   * for an inconclusive one the attempt a check could not decide, or the last the provider was
+   * unavailable for, when one stopped it; else the first that failed.
    */
   shown: GoldenAttempt;
   passed: number;
@@ -413,8 +414,18 @@ function judgeAttempts(spec: TestSpec | null, plan: AttemptPlan, run: AttemptsRu
   const verdict: RecordingOutcome['verdict'] = undecided || unavailableStop ? 'inconclusive' : verdictWord(gate ? decision : byCount!);
   const unjudgedAttempt = undecided ? mine.find((a) => attemptVerdict(a) === 'inconclusive') : undefined;
   const unavailableAttempt = unavailableStop ? attempts.at(-1) : undefined;
-  const shown = verdict === 'passed' ? mine.filter((a) => !a.failure).at(-1)! : (unjudgedAttempt ?? unavailableAttempt ?? mine.find((a) => attemptVerdict(a) === 'failed') ?? mine.find((a) => a.failure) ?? attempts.at(-1)!);
+  const shown = verdict === 'passed' ? passedShown(mine, attempts) : (unjudgedAttempt ?? unavailableAttempt ?? mine.find((a) => attemptVerdict(a) === 'failed') ?? mine.find((a) => a.failure) ?? attempts.at(-1)!);
   return { mine, passed, required, cut, carried, verdict, result, shown, interrupted, unjudgedAttempt, unavailableAttempt };
+}
+
+/**
+ * The attempt a golden that passed shows: its last that passed. A gate continued from an inconclusive
+ * session can pass on the attempts it carried over while every one this session ran failed: it then
+ * shows the last this session ran, the one that counted if any did, as it has none of its own that
+ * passed, and the gate's line says what the tally came to.
+ */
+function passedShown(mine: readonly GoldenAttempt[], attempts: readonly GoldenAttempt[]): GoldenAttempt {
+  return mine.filter((a) => !a.failure).at(-1) ?? mine.at(-1) ?? attempts.at(-1)!;
 }
 
 /** A gate's or a count's decision as a verdict: one still going is inconclusive. */

@@ -660,11 +660,12 @@ describe('events as each feature records them', () => {
     store.updateRunMeta(alone, { blame: { at: 3030, outcome: 'blamed', callNo: 5, confidence: 'high', range: gradual, rescuedRunId: null, fields: {}, oracle: [], probes: [], spent: 0 } });
     const items = activity(store, { limit: 50 }).items;
     const at = (t: number) => items.find((i) => i.at === t)?.text;
+    // In the engine's words for it (lostWords), as a pinned blame's "lost at model call #5" is.
     expect([3000, 3010, 3020, 3030].map(at)).toEqual([
-      'Blamed · refund over the limit, lost gradually around #5 and #7',
-      'Blamed · lost gradually around #5 and #7 · confidence medium',
-      'Blamed · refund twice, lost gradually around #5 and #7',
-      'Blamed · lost gradually around #5 and #7 · confidence high',
+      'Blamed · refund over the limit, lost gradually around model calls #5 and #7',
+      'Blamed · lost gradually around model calls #5 and #7 · confidence medium',
+      'Blamed · refund twice, lost gradually around model calls #5 and #7',
+      'Blamed · lost gradually around model calls #5 and #7 · confidence high',
     ]);
     store.close();
   });

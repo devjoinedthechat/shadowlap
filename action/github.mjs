@@ -3,6 +3,7 @@
 // a pull request. The REST API is called with Node's own fetch, which the tests replace: the action
 // adds no dependency. Inputs arrive as environment variables, as for run.mjs.
 import { readFileSync } from 'node:fs';
+import { titleText } from './markdown.mjs';
 
 /** @import { Dispatch, Fetch, GitHubAuth, GitHubObject, Posted, PullRequest } from './types.mjs' */
 
@@ -130,7 +131,9 @@ async function call(fetchFn, { api, token }, method, path, body) {
 
 /**
  * Opens a pull request of `head` into `base` on the repository the job runs for, through GitHub's
- * REST API with `auth`'s token, from no checkout: `{ pr, why }`, pr its URL. Never throws.
+ * REST API with `auth`'s token, from no checkout: `{ pr, why }`, pr its URL. Its title is `title` as
+ * titleText makes it, the repairer's words being anyone's (the branch's name when nothing is left of
+ * it). Never throws.
  * @param {{ env: NodeJS.ProcessEnv; auth: GitHubAuth | null | undefined; head: string; base: string; title: string; body: string; fetch?: Fetch }} o
  * @returns {Promise<{ pr: string | null; why: string | null }>}
  */
@@ -138,7 +141,7 @@ export async function openPullRequest({ env, auth, head, base, title, body, fetc
   const { api, repo } = repositoryOf(env);
   if (!repo || !auth?.token) return { pr: null, why: 'the job has no repository or token to open it with' };
   try {
-    const r = await call(fetchFn, { api, token: auth.token }, 'POST', `/repos/${repo}/pulls`, { title, head, base, body });
+    const r = await call(fetchFn, { api, token: auth.token }, 'POST', `/repos/${repo}/pulls`, { title: titleText(title) || titleText(head), head, base, body });
     const made = objectOf(r.data)?.html_url;
     if (r.ok && typeof made === 'string') return { pr: made, why: null };
     return { pr: null, why: r.ok ? 'GitHub named no pull request' : said(r) };

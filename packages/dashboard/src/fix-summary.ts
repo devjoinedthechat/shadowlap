@@ -1,14 +1,8 @@
-import { type BlameReport, checkSuggestion, commitTitle, fixCost, fixRecords, NO_REPAIRER, labelledFixes, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
+import { checkSuggestion, commitTitle, fixCost, fixRecords, labelledFixes, lostWords, NO_REPAIRER, noRepairerOf, repairToApply, type RunRecord, shownBlame, type StoredRepair, type StoreOf, unrescuedWords, unsettledFirst } from '@shadowlap/engine';
 import { loadRunIndex } from './run-index.js';
-import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, gradualRange, isUnblamedFailure, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, runHref, short, shownRepair, unrepairedVerdict } from './fix-shared.js';
+import { acceptedCandidate, brokenOf, counting, fieldsOf, fixHref, isUnblamedFailure, noAnswerLost, type PatchCheck, patchMerged, rejectedSinceApplied, runHref, short, shownRepair, unrepairedVerdict } from './fix-shared.js';
 
 /** The Overview's fixes: how many there are by status and week, and those that need a look. */
-
-/** Where a blame that named call `callNo` found the run lost, as a line about the fix says it: at the call, or gradually around two. */
-function lostWords(r: BlameReport, callNo: number): string {
-  const g = gradualRange(r);
-  return g ? `lost gradually around #${g.from} and #${g.to}` : `lost at model call #${callNo}`;
-}
 
 export interface FixesSummary {
   /** Fixes still open, and verified fixes not applied yet. */
@@ -133,7 +127,8 @@ export function needsLookFixes(store: StoreOf<'recording' | 'readModels' | 'fixe
     const rec = fixRecords(store, fix);
     if (fix.status === 'open') {
       const b = shownBlame(rec);
-      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report, b.report.blamed.callNo) : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
+      // At the call blame names, or gradually around two when no one call lost the run.
+      const where = b?.outcome === 'blamed' && b.report.blamed ? lostWords(b.report.blamed.callNo, b.report.range, 'calls') : b?.outcome === 'unrescuable' ? unrescuedWords(unsettledFirst(b.report)) : 'blame stopped early';
       // No answer of the model's lost it: a repair of the prompt is no fix, so the row opens the fix and says where to look.
       const elsewhere = noAnswerLost(b);
       // A repair whose repairer was never asked looked for no fix: it says why, not that none was found.

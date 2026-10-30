@@ -7,6 +7,7 @@
 import { checkStatus } from './check-status.js';
 import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
 import { isObject } from './is-object.js';
+import { lostAround, lostWords } from './run-verdicts.js';
 
 /**
  * - `recording`: recorded by `shadowlap run`.
@@ -51,7 +52,7 @@ export interface ClassifiableMeta {
   test?: unknown;
   chaos?: unknown;
   checks?: ReadonlyArray<{ ok?: unknown; label?: unknown; status?: unknown }> | undefined;
-  blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown } | undefined;
+  blame?: { outcome?: unknown; callNo?: unknown; rescuedRunId?: unknown; range?: unknown } | undefined;
 }
 
 /** What classification reads of a run. A `RunRecord` has it all; a lighter query can supply it too. */
@@ -265,12 +266,19 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
   return isObject(b) && b.outcome === 'blamed' && typeof b.callNo === 'number' && Number.isInteger(b.callNo) ? b.callNo : null;
 }
 
+/** A run blame found lost at `callNo`: and when no one call lost it, the two it was lost gradually around (lostAround). */
+function lostOutcome(run: Pick<ClassifiableRun, 'meta'>, callNo: number): RunOutcome {
+  const range = lostAround(run.meta?.blame?.range);
+  return { kind: 'lost', callNo, ...(range ? { range } : {}) };
+}
+
 /**
  * How a run came out, as the Runs table's status column says it. Only the outcome: the line under
  * the run's id already says what kind of run it is.
  * - `running`: in progress.
  * - `diverged`: a test replay that left its golden at call `callNo`.
- * - `lost`: `shadowlap blame` replayed the run, saw it fail, and found the model call that lost it.
+ * - `lost`: `shadowlap blame` replayed the run, saw it fail, and found the model call that lost it,
+ *   or, with `range`, the two calls it was lost gradually around (lostAround): lostWords says which.
  * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, the
  *   agent exited with an error (the first check of every oracle is that it exits 0), or a test
  *   replay made no calls.
@@ -284,7 +292,7 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
 export type RunOutcome =
   | { kind: 'running' }
   | { kind: 'diverged'; callNo: number }
-  | { kind: 'lost'; callNo: number }
+  | { kind: 'lost'; callNo: number; range?: { from: number; to: number; gradual: true } }
   | { kind: 'check-failed'; check: string | null }
   | { kind: 'inconclusive'; check: string | null }
   | { kind: 'passed'; checks: number; notApplicable?: number }
@@ -331,7 +339,7 @@ export function runOutcome(run: ClassifiableRun, ctx: OutcomeContext = {}): RunO
   // Blame only records a result after replaying the run and seeing it fail.
   if (isObject(run.meta?.blame)) {
     const at = lostAt(run);
-    return at !== null ? { kind: 'lost', callNo: at } : { kind: 'check-failed', check: firstCheck(run, 'failed') };
+    return at !== null ? lostOutcome(run, at) : { kind: 'check-failed', check: firstCheck(run, 'failed') };
   }
   if (kind === 'test' && run.divergence && divergenceDecides(run, checks !== null, ctx.offline === true)) return { kind: 'diverged', callNo: run.divergence.callNo };
   // `shadowlap test` fails a golden whose replay made no calls at all: nothing was tested.
@@ -368,7 +376,7 @@ export function outcomeLabel(o: RunOutcome): string {
     case 'diverged':
       return `diverged at #${o.callNo}`;
     case 'lost':
-      return `lost at #${o.callNo}`;
+      return lostWords(o.callNo, o.range);
     case 'check-failed':
       return 'check failed';
     case 'inconclusive':

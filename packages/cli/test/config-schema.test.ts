@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BASELINE_DEFAULTS, injectionTemplates, parseGate, SPRT_DEFAULTS } from '@shadowlap/engine';
+import { BASELINE_DEFAULTS, gateOdds, injectionTemplates, parseGate, SPRT_DEFAULTS } from '@shadowlap/engine';
 
 /**
  * The published schema for `shadowlap.config.json`. A schema that drifts from the parser is worse
@@ -48,6 +48,9 @@ describe('shadowlap.config.json schema', () => {
     expect(parseGate({ good: 0.95, bad: 0.8, risk: 0.01, max: 120 }, 'g')).toMatchObject({ kind: 'sprt', max: 120 });
     expect(parseGate({ baseline: 'history', drop: 0.2, risk: 0.01, window: 5, min: 6, max: 30 }, 'g')).toMatchObject({ kind: 'baseline', max: 30 });
     expect(sprt.properties.max.description).toContain(`Default ${SPRT_DEFAULTS.max}`);
+    // The attempts it names are the default gate's, worked out exactly: 16.69 on average at 95% (16.62 is max 40's).
+    const sprtGate = { kind: 'sprt' as const, ...SPRT_DEFAULTS };
+    expect(sprt.properties.max.description).toContain(`an agent that always passes needs ${gateOdds(sprtGate, 1).attempts}, one that passes 95% of the time ${gateOdds(sprtGate, 0.95).attempts.toFixed(1)} on average`);
     expect(history.properties.max.description).toContain(`Default ${BASELINE_DEFAULTS.max}`);
     expect(history.properties.min.description).toContain(`Default ${BASELINE_DEFAULTS.min}`);
   });

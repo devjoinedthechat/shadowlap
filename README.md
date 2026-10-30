@@ -228,6 +228,7 @@ One press labels a run good or bad, and `u` undoes it; a fix must leave each goo
 
 ```text
  01M64J4H6F fork @17 of 01M64J4EMP · 32 calls · 15 replayed · …
+ override #16
 ╭──────────────────────────────────────────────────────────────╮
 │ Fork menu                                                    │
 │ At #16 · lookup_policy · pure tool                           │

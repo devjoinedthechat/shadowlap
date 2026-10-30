@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/mcp.js', async (importOriginal) => {
@@ -7,7 +8,7 @@ vi.mock('../src/mcp.js', async (importOriginal) => {
 
 const { main } = await import('../src/index.js');
 const { exitCodeOf } = await import('../src/exit-codes.js');
-const { runMcp } = await import('../src/mcp.js');
+const { runMcp, startMcpProxy } = await import('../src/mcp.js');
 
 /**
  * `shadowlap mcp` ends as every command does (docs/cli.md, Exit status): 2 for what the person has
@@ -36,5 +37,17 @@ describe('shadowlap mcp, as an exit status', () => {
     vi.mocked(runMcp).mockImplementation(real);
     expect(await statusOf(['--url', 'https://mcp.example.com/mcp', '--', 'node', 'server.js'])).toBe(2);
     expect(await statusOf(['--effect', 'send=maybe', '--', 'node', 'server.js'])).toBe(2);
+  });
+
+  // A signal Windows can't send a process: its server ends with an exit code there, not a signal.
+  it.skipIf(process.platform === 'win32')('ends 128 + n when its server is killed by a signal it never got itself, as a shell reports one', async () => {
+    const killed = (signal: string) => {
+      const clientIn = new PassThrough();
+      const { done } = startMcpProxy({ clientIn, clientOut: new PassThrough(), server: { command: process.execPath, args: ['-e', `process.kill(process.pid, '${signal}')`] }, sidecar: null });
+      return done.finally(() => clientIn.end());
+    };
+    expect(await killed('SIGKILL')).toBe(137);
+    expect(await killed('SIGTERM')).toBe(143);
+    expect(await killed('SIGSEGV')).toBe(139);
   });
 });

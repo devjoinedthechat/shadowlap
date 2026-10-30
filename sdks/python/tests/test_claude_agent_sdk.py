@@ -500,7 +500,8 @@ class McpTools(unittest.TestCase):
             self.ran.append("refund " + args["id"])
             return {"content": [{"type": "text", "text": "refunded " + args["id"]}]}
 
-        self.tools = with_effects("orders", [SdkMcpTool("lookup_order", "look up", {"id": str}, lookup), SdkMcpTool("issue_refund", "refund", {"id": str}, refund)], {"lookup_order": "read", "issue_refund": "write"})
+        self.raw = [SdkMcpTool("lookup_order", "look up", {"id": str}, lookup), SdkMcpTool("issue_refund", "refund", {"id": str}, refund)]
+        self.tools = with_effects("orders", self.raw, {"lookup_order": "read", "issue_refund": "write"})
 
     def tearDown(self) -> None:
         shadowlap._post = self._post
@@ -525,6 +526,15 @@ class McpTools(unittest.TestCase):
     def test_needs_an_effect_for_every_tool(self) -> None:
         with self.assertRaisesRegex(TypeError, "missing for issue_refund"):
             with_effects("orders", self.tools, {"lookup_order": "read"})
+
+    def test_records_a_name_with_other_characters_as_claude_code_names_it_to_the_model(self) -> None:
+        # Claude Code turns every character of either name but a letter, a digit, _ and - into _, as the TypeScript adapter does.
+        tools = with_effects("order desk.v2", [dataclasses.replace(t, name=n) for t, n in zip(self.raw, ["look up", "refund-€"])], {"look up": "read", "refund-€": "write"})
+        recorded = Sidecar()
+        shadowlap._post = recorded
+        asyncio.run(tools[0].handler({"id": "A-1"}))
+        asyncio.run(tools[1].handler({"id": "A-1"}))
+        self.assertEqual([c["name"] for c in recorded.calls], ["mcp__order_desk_v2__look_up", "mcp__order_desk_v2__refund-_"])
 
 
 @unittest.skipUnless(trio, "trio is not installed")

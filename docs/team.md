@@ -181,9 +181,9 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   copies merge: every blame, repair and verdict either made, open turned verified by either, and a
   title someone gave it, the latest rename when it was renamed on both (`fix title` again after a
   sync replaces the title both had). A push that meets a teammate's newer copy merges it the same
-  way. A fix goes with the command line each of its blames, verdicts and repairs ran, as it was
-  typed, a command after `--` and a `--build` included: give a key the agent needs through the
-  environment, never on those command lines.
+  way. A fix goes with the command line each of its blames, verdicts and repairs ran, and the
+  flags kept to run each again, a command after `--` and a `--build` included, a key on them as
+  `<CREDENTIAL>`, as in a run's command line.
 - **A teammate's blame or verdict is run again only from what was checked.** A pull marks every
   blame and verdict it brings as pulled, on this machine only. **Blame again**, **Run more
   attempts** and **Verify again** build their command from the report and the flags kept beside

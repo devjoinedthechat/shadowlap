@@ -4,6 +4,7 @@ import { countOrigins, type Origin7 } from '../ui/origins.js';
 import { bannerFor, failedCheckText, failureText, fixCheckText, flagText, flagWhy, writesWord, type BannerInput } from '../ui/run/banner.js';
 import { metricItems, type MetricInput } from '../ui/run/metrics.js';
 import { blameOf, checksOf } from '../ui/run/model.js';
+import { normalizeFix, normalizeOutcome, normalizeRunDetail } from '../ui/normalize.js';
 
 // The run page's numbers and its one banner, from the run as the server sends it: today's fields, or
 // the newer ones (blame counted in its scope, checks with their counts, what was not recorded).
@@ -127,10 +128,16 @@ describe('the run’s banner', () => {
   });
 
   it('says where blame lost a run, as model call k of m in its scope', () => {
-    expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 17, modelCall: { k: 9, m: 15 }, confidence: 'high', rescuedRunId: '01K5CQ4R1T', scope: null } })).toEqual({ kind: 'lost', callNo: 17, why: 'model call 9 of 15 · confidence high', rescuedRunId: '01K5CQ4R1T' });
+    expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 17, modelCall: { k: 9, m: 15 }, confidence: 'high', rescuedRunId: '01K5CQ4R1T', scope: null } })).toEqual({ kind: 'lost', callNo: 17, words: 'lost at #17', why: 'model call 9 of 15 · confidence high', rescuedRunId: '01K5CQ4R1T' });
     expect(bannerFor({ ...base, blame: { callNo: 4, scope: 'agent' } })).toMatchObject({ why: 'call #4 · scope agent' });
     // What asking again did ends the line, as the fixes read model words it.
     expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 9, modelCall: { k: 3, m: 7 }, confidence: 'high', short: 'asked again, it calls escalate instead' } })).toMatchObject({ kind: 'lost', why: 'model call 3 of 7 · confidence high · asked again, it calls escalate instead' });
+  });
+
+  it('says a run blame found lost gradually around two calls was, the call and the next among its model calls, never lost at the first', () => {
+    const gradual = { from: 17, to: 19, gradual: true as const };
+    expect(bannerFor({ ...base, status: 'failed', blame: { callNo: 17, range: gradual, modelCall: { k: 9, m: 15 }, confidence: 'medium', rescuedRunId: null, scope: null } })).toEqual({ kind: 'lost', callNo: 17, words: 'lost gradually around #17 and #19', why: 'model calls 9 and 10 of 15 · confidence medium', rescuedRunId: null });
+    expect(bannerFor({ ...base, blame: { callNo: 4, range: { from: 4, to: 6, gradual: true }, scope: 'agent' } })).toMatchObject({ words: 'lost gradually around #4 and #6', why: 'calls #4 and #6 · scope agent' });
   });
 
   it('says what was not recorded: tools that weren’t wrapped, and hosts reached around Shadowlap', () => {
@@ -234,7 +241,7 @@ describe('blame and checks on a run', () => {
   const run = (meta: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ run: { meta }, calls, ...extra }) as never;
 
   it('reads the stored blame, counting the call among the model calls of its scope', () => {
-    expect(blameOf(run({ blame: { outcome: 'blamed', callNo: 4, confidence: 'high', rescuedRunId: '01R', scope: 'agent' } }))).toEqual({ callNo: 4, confidence: 'high', rescuedRunId: '01R', scope: 'agent', outcome: 'blamed', modelCall: { k: 2, m: 2 } });
+    expect(blameOf(run({ blame: { outcome: 'blamed', callNo: 4, confidence: 'high', rescuedRunId: '01R', scope: 'agent' } }))).toEqual({ callNo: 4, range: null, confidence: 'high', rescuedRunId: '01R', scope: 'agent', outcome: 'blamed', modelCall: { k: 2, m: 2 } });
     expect(blameOf(run({ blame: { outcome: 'blamed', callNo: 3, confidence: 'low', rescuedRunId: null } }))?.modelCall).toEqual({ k: 2, m: 3 });
   });
 
@@ -243,6 +250,18 @@ describe('blame and checks on a run', () => {
     expect(blameOf(run({ blame: { outcome: 'unrescuable', unsettled: true, callNo: null, confidence: 'low', rescuedRunId: null } }))).toMatchObject({ callNo: null, outcome: 'unrescuable', unsettled: true });
     expect(blameOf(run({}, { blame: { callNo: 1, modelCall: { k: 1, m: 9 } } }))).toEqual({ callNo: 1, modelCall: { k: 1, m: 9 } });
     expect(blameOf(run({}))).toBeNull();
+  });
+
+  it('reads the two calls a run was lost gradually around wherever its blame comes from: its page, the fix it fails in, the run itself', () => {
+    const range = { from: 4, to: 6, fromStep: 2, toStep: 3, gradual: true };
+    const gradual = { from: 4, to: 6, gradual: true };
+    const page = normalizeRunDetail({ run: { meta: {} }, calls, actions: [], blame: { outcome: 'blamed', callNo: 4, range, modelCall: { k: 2, m: 3 }, confidence: 'medium', rescuedRunId: null, scope: null } } as never);
+    expect(blameOf(page)?.range).toEqual(gradual);
+    expect(normalizeFix({ role: 'failing', fix: { fixId: 'fx-1', title: 't', status: 'open' }, blame: { lostAt: 4, range, step: 2, steps: 3, confidence: 'medium', outcome: 'blamed' } }).blame?.range).toEqual(gradual);
+    expect(blameOf(run({ blame: { outcome: 'blamed', callNo: 4, confidence: 'medium', rescuedRunId: null, range } }))?.range).toEqual(gradual);
+    expect(normalizeOutcome({ kind: 'lost', callNo: 4, range })).toEqual({ kind: 'lost', callNo: 4, range: gradual });
+    // One from a pack whose range is no two calls in order reads as lost at the call.
+    expect(normalizeOutcome({ kind: 'lost', callNo: 4, range: { from: 6, to: 4, gradual: true } })).toEqual({ kind: 'lost', callNo: 4 });
   });
 
   it('takes the server’s checks with their counts, else the stored ones', () => {

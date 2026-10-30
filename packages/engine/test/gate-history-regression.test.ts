@@ -19,7 +19,6 @@ describe('a regression in goldens gated against their own history', { timeout: 9
   const dropped = (rate: number, to: number) => cases.find((c) => c.rate === rate && c.to === to)!;
   // Dropped at their 15th session: young goldens, with too few sessions for an inconclusive to count by default.
   const young: Loop[] = [];
-  const droppedYoung = (rate: number, to: number) => young.find((c) => c.rate === rate && c.to === to)!;
   const mean = (l: Loop, f: (a: Loop['after'][number]) => number) => l.after.reduce((t, a) => t + f(a), 0) / l.after.length;
 
   it('is caught in each of the 10 sessions after it as often as by a gate held at the share with max 40, to a twentieth of a point', () => {
@@ -74,24 +73,7 @@ describe('a regression in goldens gated against their own history', { timeout: 9
     }
     const worst = Math.max(0, ...cases.flatMap((c) => c.after.map((a) => a.fixed - a.red)));
     says(`never more than ${(Math.ceil(100 * 100 * worst) / 100).toFixed(2)} of a point less`);
-    // A drop at their 15th session, over the 10 sessions after it: red by default, red under
-    // --inconclusive fail, inconclusive and only warning, and passed.
+    // A drop after their 15th session, over these 30 histories; the page's figures for it are over 400, gating-figures.test.ts.
     console.log(table(young));
-    for (const [rate, to] of [
-      [0.95, 0.75],
-      [0.9, 0.7],
-      [0.95, 0.6],
-    ] as const) {
-      const l = droppedYoung(rate, to);
-      says(`${Math.round(100 * rate)}% to ${Math.round(100 * to)}%: red by default in ${pct(mean(l, (a) => a.red), 0)} of them, ${pct(mean(l, (a) => a.counted), 0)} under \`--inconclusive fail\`, warned in ${pct(mean(l, (a) => a.warned), 0)} and passed in ${pct(mean(l, (a) => a.passed), 0)}`);
-    }
-    // Green, young (passed or only warned) against mature (passed), after the same drop.
-    const green = (l: Loop) => mean(l, (a) => a.passed + a.warned);
-    for (const [rate, to] of [
-      [0.95, 0.75],
-      [0.9, 0.7],
-    ] as const)
-      expect(green(droppedYoung(rate, to)), `${rate} to ${to}`).toBeGreaterThan(green(dropped(rate, to)));
-    says(`A young golden's green is weaker evidence of no drop than a mature one's: after the drop from 95% to 75%, a golden with 15 sessions stays green in ${pct(green(droppedYoung(0.95, 0.75)), 0)} of the 10 sessions after it, one with 30 in ${pct(green(dropped(0.95, 0.75)), 0)}`);
   });
 });
