@@ -61,7 +61,7 @@ export function isLoopbackUrl(url: string): boolean {
   }
 }
 
-function safeHome(): string | null {
+export function safeHome(): string | null {
   try {
     return homedir() || null;
   } catch {
@@ -77,7 +77,7 @@ export function registryDirs(cwd: string = process.cwd(), home: string | null = 
 const ownUid = typeof process.getuid === 'function' ? process.getuid() : null;
 
 /** Why a folder or file can't be trusted with a session token, or null. Ownership and modes are POSIX ideas; Windows keeps home folders private. */
-function untrusted(st: Stats, what: string, kind: 'dir' | 'file'): string | null {
+export function untrusted(st: Stats, what: string, kind: 'dir' | 'file'): string | null {
   if (st.isSymbolicLink()) return `${what} is a symbolic link`;
   if (kind === 'dir' ? !st.isDirectory() : !st.isFile()) return `${what} is not a ${kind === 'dir' ? 'folder' : 'regular file'}`;
   if (ownUid !== null && st.uid !== ownUid) return `${what} belongs to another user`;
@@ -133,8 +133,15 @@ const readOr = (file: string): string | null => {
  */
 export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: string; home?: string | null } = {}): { unregister: () => void; file: string | null } {
   const body: Registration = { v: 1, pid, parent: process.pid, url: target.url, runId: target.runId };
-  const text = JSON.stringify(body) + '\n';
-  for (const dir of registryDirs(o.cwd, o.home === undefined ? safeHome() : o.home)) {
+  return publish(registryDirs(o.cwd, o.home === undefined ? safeHome() : o.home), pid, JSON.stringify(body) + '\n');
+}
+
+/**
+ * Writes `text` as `<pid>.json`, owner-only, in the first of `dirs` that can be used, under its lock
+ * (see the header), until the returned function is called; `file` is null when none could be used.
+ */
+export function publish(dirs: readonly string[], pid: number, text: string): { unregister: () => void; file: string | null } {
+  for (const dir of dirs) {
     if (!prepareDir(dir)) continue;
     const file = join(dir, `${pid}.json`);
     try {
@@ -154,12 +161,12 @@ export function registerAgent(pid: number, target: SidecarTarget, o: { cwd?: str
         if (done) return;
         done = true;
         try {
-          // Only while it is the file written for this agent: its process id may be another agent's by now.
+          // Only while it is the file written for this process: its id may be another's by now.
           underLock(dir, () => {
             if (readOr(file) === text) rmSync(file, { force: true });
           });
         } catch {
-          // the folder kept busy: the next registration here removes it, its agent being gone
+          // the folder kept busy: the next registration here removes it, its process being gone
         }
       },
     };

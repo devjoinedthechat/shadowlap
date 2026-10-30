@@ -11,6 +11,7 @@ import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
 import { idKey, isRequest, isToolCall, refuseBatch, ToolCalls, type JsonRpcId, type JsonRpcMessage, type LiveCall, type McpOrigin, type ProxySidecar } from './mcp-calls.js';
+import { registerProxy } from './mcp-proxies.js';
 import { discoverSidecar, type DiscoverySkip } from './mcp-sidecar.js';
 
 /**
@@ -462,9 +463,17 @@ export async function listen(url: URL, at: { host: string; port: number }, heade
   const sidecar = (client: ClientEnd): ProxySidecar => (found.kind === 'sidecar' ? found.target : found.kind === 'unusable' ? { unusable: found.reason } : sessionSidecar(client, cwd, log));
   if (found.kind === 'none') log('started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none');
   const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, log });
+  // On its own it serves every command's agents, whose network guard lets them reach it while it is registered (mcp-proxies.ts).
+  const port = Number(new URL(listener.url).port);
+  const registered = found.kind === 'none' ? registerProxy({ host: at.host, port }) : null;
   log(`serving ${url.host} at ${listener.url}`);
+  if (registered && !registered.file) log(`could not register it in the home folder's .shadowlap/mcp, so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
   return new Promise((resolve) => {
-    const stop = (signal: NodeJS.Signals) => void listener.close().then(() => resolve(signalExit(signal)));
+    const stop = (signal: NodeJS.Signals) =>
+      void listener.close().then(() => {
+        registered?.unregister();
+        resolve(signalExit(signal));
+      });
     for (const s of STOP_SIGNALS) process.once(s, stop);
   });
 }
