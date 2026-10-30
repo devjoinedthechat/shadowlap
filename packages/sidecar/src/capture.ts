@@ -328,7 +328,7 @@ async function forwardHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttp
   if (client.gone) return left();
   const headers = keptResponseHeaders(upstream.headers);
   // A long answer is stored on a thread of its own (BodyThreads); the agent has it once it is stored, as before.
-  const stored = await core.bodies.response({ status: upstream.status, headers, contentType: upstream.headers.get('content-type') ?? undefined }, bytes, ctx.secretNames);
+  const stored = await core.bodies.response({ status: upstream.status, headers, contentType: upstream.headers.get('content-type') ?? undefined, callName: name }, bytes, ctx.secretNames);
   if (core.closed) return;
   if (client.gone) return left();
   endHttpCall(core, call, placed, stored, 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });

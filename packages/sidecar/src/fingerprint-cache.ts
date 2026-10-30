@@ -33,9 +33,11 @@ import { canonicalize, FINGERPRINT_VERSION, maskClock, nearClock, sha256, type C
  * as a key (`secret_name: "ghp_…"`), which is masked. 15: and a secret's path, ref, scope, namespace and
  * id, which keep their value too, under the rule a run stores as RunMeta.secretNames 2: the key names
  * any other rule a run's captured calls were read under. 16: and an object or a list under such a
- * name, masked through when a string in it reads as a key.
+ * name, masked through when a string in it reads as a key. 17: and where a secret store's answer
+ * holds its secret by its shape (a Kubernetes Secret's `data` and `stringData`, as a manifest sends
+ * them), and a TLS key (`tls.key`).
  */
-const CACHE_VERSION = 16;
+const CACHE_VERSION = 17;
 
 /** How a stored call is fingerprinted, besides its request: everything its cache key names. */
 export type FingerprintRules =

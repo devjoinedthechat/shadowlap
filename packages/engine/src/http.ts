@@ -1,6 +1,7 @@
 import { ACCOUNT_HEADERS } from './account-headers.js';
-import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type MultipartPartText, type StringMask, type StringTest } from './credential-shapes.js';
+import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type FindHeld, type MultipartPartText, type StringMask, type StringTest } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
+import { mayHoldSecrets, secretStoreValues, vaultKv1Read } from './secret-stores.js';
 import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
 import { quoteArgv } from './text.js';
 import { isObject } from './is-object.js';
@@ -117,10 +118,10 @@ const SECRET_NAME = new Set(['apikey', 'apikeys', 'appid', 'appkey', 'sig', 'hma
  */
 const EITHER_NAME = new Set(['key', 'token', 'code']);
 /**
- * Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`, `user_key`), unlike
- * a `sort_key` or an `idempotency_key`.
+ * Words before `key` that make it a credential (`x-api-key`, `Subscription-Key`, `user_key`, a TLS
+ * private key's `tls.key`), unlike a `sort_key` or an `idempotency_key`.
  */
-const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing', 'session', 'license', 'encryption', 'user']);
+const KEY_OWNER = new Set(['api', 'access', 'app', 'secret', 'private', 'subscription', 'auth', 'client', 'consumer', 'developer', 'dev', 'master', 'admin', 'service', 'account', 'signing', 'session', 'license', 'encryption', 'user', 'tls']);
 /** Words before `token` that make it a pagination cursor, not a credential: `page_token`, `nextPageToken`. */
 const CURSOR = ['page', 'next', 'prev', 'previous', 'continuation', 'sync', 'cursor', 'resume', 'start', 'pagination'];
 /** Words before `code` or `codes` that make it a credential (`auth_code`, `device_code`, `mfa_code`, `recovery_codes`), unlike an `error_code`. */
@@ -614,7 +615,7 @@ export function maskJsonCredentials(value: unknown): unknown {
   } catch {
     return value;
   }
-  const masked = text === undefined ? null : walkJson(text, stringsAt(0), credentialMember);
+  const masked = text === undefined ? null : walkJson(text, stringsAt(0), credentialMember, heldIn(text));
   return masked == null ? value : (JSON.parse(masked) as unknown);
 }
 
@@ -653,14 +654,27 @@ const stringsAt =
     maskedString(key, value, under, depth, byName);
 
 /**
+ * Where the JSON in `text` holds a secret by its shape, as walkJson reads it: a secret store's answer
+ * (secretStoreValues), looked for only in a text that can hold one. `callName` names the captured
+ * call `text` answers: a read under `/v1/secret/` (vaultKv1Read) is answered by Vault's KV engine,
+ * version 1, whose secret is the answer's `data`.
+ */
+function heldIn(text: string, callName?: string): FindHeld | null {
+  const kv1 = callName !== undefined && vaultKv1Read(callName);
+  if (!kv1 && !mayHoldSecrets(text)) return null;
+  return (doc, start) => secretStoreValues(doc, start, kv1, readsAsKey);
+}
+
+/**
  * JSON text with its credentials masked as maskJsonCredentials masks a parsed value, each string
  * replaced written as `"<CREDENTIAL>"` (or as the string with what is in it masked), every other byte
  * kept (whitespace, numbers of any length such as a 64-bit id or `20.0`, the other strings), so a
- * body stored as received can be masked without being re-serialised. Null when it holds no
+ * body stored as received can be masked without being re-serialised. `callName` names the captured
+ * call it answers, which says where a Vault KV answer holds its secret (heldIn). Null when it holds no
  * credential to mask, or doesn't read as JSON.
  */
-export function maskJsonTextCredentials(text: string): string | null {
-  return walkJson(text, stringsAt(0), credentialMember) ?? null;
+export function maskJsonTextCredentials(text: string, callName?: string): string | null {
+  return walkJson(text, stringsAt(0), credentialMember, heldIn(text, callName)) ?? null;
 }
 
 /**
@@ -670,14 +684,17 @@ export function maskJsonTextCredentials(text: string): string | null {
  * body's fields and parts; an event stream's data; lines of JSON (NDJSON); XML elements and
  * attributes; a GraphQL query's arguments; `key: value` and `key = value` lines (YAML, an INI or a
  * .env file); and the JSON objects among other text (maskEmbeddedJson).
- * Each value by its name (credentialParam), and a JWT whatever its name. `depth` counts the strings it is inside of; `byName` reads parameters by their
+ * Each value by its name (credentialParam), and a JWT whatever its name; in JSON, the secret a secret
+ * store's answer holds (heldIn). `depth` counts the strings it is inside of; `byName` reads parameters by their
  * name alone, as a redirect's are, and so the members of its JSON and what its strings hold (htmx's
- * `hx-location`). Every character it doesn't replace stays as it was; null when it replaced nothing.
+ * `hx-location`); `callName` names the captured call a whole JSON text answers (heldIn). Every
+ * character it doesn't replace stays as it was; null when it replaced nothing.
  */
-export function maskTextCredentials(text: string, depth = 0, byName = false): string | null {
+export function maskTextCredentials(text: string, depth = 0, byName = false, callName?: string): string | null {
   const strings = stringsAt(depth, byName);
   const wrapped = unwrapJson(text);
-  const json = walkJson(wrapped.json, strings, credentialMember);
+  const held = heldIn(text);
+  const json = walkJson(wrapped.json, strings, credentialMember, callName === undefined ? held : heldIn(text, callName));
   if (json !== undefined) return json === null ? null : wrapped.prefix + json + wrapped.suffix;
   if (URL_SHAPED.test(text)) {
     const masked = maskUrlCredentials(text, byName, depth);
@@ -693,14 +710,14 @@ export function maskTextCredentials(text: string, depth = 0, byName = false): st
     // An event's data is a string inside this one, a level deeper: a data line inside a data line,
     // over and over, is read no deeper than any other string inside a string, so a level at a time.
     maskEventStream(text, (payload) => (depth < MAX_NESTING ? maskTextCredentials(payload, depth + 1) : null)) ??
-    maskJsonLines(text, (line) => walkJson(line, strings, credentialMember)) ??
+    maskJsonLines(text, (line) => walkJson(line, strings, credentialMember, held)) ??
     maskXml(text, (name, value) => credentialParam(name, value) || JWT.test(value), credentialMember, CREDENTIAL_PLACEHOLDER) ??
     maskGraphqlArguments(text, (name, value) => credentialParam(name, value), CREDENTIAL_PLACEHOLDER) ??
     maskLooseForm(text, byName, depth) ??
     maskKeyValueLines(text, (name, value) => credentialParam(name, value) || JWT.test(value), CREDENTIAL_PLACEHOLDER);
   // JSON among other text, which no shape above read whole: after a comment, before `;`, run
   // together, in a page's script. What a shape masked already is read again, and stays as it is.
-  const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember) ?? shaped) : shaped;
+  const embedded = text.includes('{') ? (maskEmbeddedJson(shaped ?? text, strings, credentialMember, held) ?? shaped) : shaped;
   // A URL's user info and a JWT, wherever they stand in what is left: a .env line's database URL, a sentence's token.
   const read = embedded ?? text;
   const loose = maskJwtsInText(maskUrlUserInfo(read));
@@ -791,11 +808,11 @@ function maskLooseForm(text: string, byName: boolean, depth: number): string | n
 /**
  * Bytes (a body that isn't UTF-8, stored as base64: one in Latin-1, a JSON document holding raw
  * bytes, a form with a file) with their credentials masked by their shape, as maskTextCredentials
- * masks text: read one byte to a character, so every byte it doesn't replace stays as it was. Null
- * when it replaced nothing.
+ * masks text (`callName`, the call they answer, too): read one byte to a character, so every byte it
+ * doesn't replace stays as it was. Null when it replaced nothing.
  */
-export function maskBytesCredentials(bytes: Buffer): Buffer | null {
-  const masked = maskTextCredentials(bytes.toString('latin1'));
+export function maskBytesCredentials(bytes: Buffer, callName?: string): Buffer | null {
+  const masked = maskTextCredentials(bytes.toString('latin1'), 0, false, callName);
   return masked === null ? null : Buffer.from(masked, 'latin1');
 }
 
@@ -1215,10 +1232,11 @@ export function credentialFreeRequest(bytes: Buffer): Buffer | null {
  * recording keeps it: its headers as credentialFreeHeaders keeps them, and its body with its
  * credentials masked in place by its shape, whatever its content type said (an OAuth token
  * response's `access_token` in JSON, typed as text or behind a prefix; a form-encoded answer's
- * token; an event stream's; an STS answer's XML), every other byte as the service sent it; null when
- * it holds nothing to mask (or is no such result).
+ * token; an event stream's; an STS answer's XML; a secret store's secret, by `callName` too, the
+ * name of the call it answers), every other byte as the service sent it; null when it holds nothing
+ * to mask (or is no such result).
  */
-export function credentialFreeResult(bytes: Buffer): Buffer | null {
+export function credentialFreeResult(bytes: Buffer, callName?: string): Buffer | null {
   const text = bytes.toString('utf8');
   let doc: unknown;
   try {
@@ -1236,19 +1254,19 @@ export function credentialFreeResult(bytes: Buffer): Buffer | null {
   if (result.encoding === 'json' && body !== undefined) {
     const raw = rawJsonMember(text, ['result', 'body']);
     if (raw !== null) {
-      const masked = maskJsonTextCredentials(raw);
+      const masked = maskJsonTextCredentials(raw, callName);
       return kept === headers && masked === null ? null : resultBlob(next, masked ?? raw);
     }
   }
-  const maskedBody = typeof body === 'string' && (result.encoding === 'text' || result.encoding === 'base64') ? maskedResponseBody(body, result.encoding) : body;
+  const maskedBody = typeof body === 'string' && (result.encoding === 'text' || result.encoding === 'base64') ? maskedResponseBody(body, result.encoding, callName) : body;
   if (kept === headers && maskedBody === body) return null;
   return Buffer.from(JSON.stringify({ result: maskedBody === undefined ? next : { ...next, body: maskedBody } }), 'utf8');
 }
 
-/** A stored text or base64 response body with its credentials masked by its shape; the same string when there are none. */
-function maskedResponseBody(body: string, encoding: 'text' | 'base64'): string {
-  if (encoding === 'text') return maskTextCredentials(body) ?? body;
-  return maskBytesCredentials(Buffer.from(body, 'base64'))?.toString('base64') ?? body;
+/** A stored text or base64 response body, the answer to `callName`, with its credentials masked by its shape; the same string when there are none. */
+function maskedResponseBody(body: string, encoding: 'text' | 'base64', callName?: string): string {
+  if (encoding === 'text') return maskTextCredentials(body, 0, false, callName) ?? body;
+  return maskBytesCredentials(Buffer.from(body, 'base64'), callName)?.toString('base64') ?? body;
 }
 
 /**
@@ -1256,18 +1274,19 @@ function maskedResponseBody(body: string, encoding: 'text' | 'base64'): string {
  * whatever its content type said: for a JSON body, the string value of each credential member
  * (maskJsonTextCredentials); for text, as maskTextCredentials reads it (JSON typed as text or behind
  * a prefix, a form-encoded answer, an event stream, lines of JSON, XML); for bytes that aren't
- * UTF-8, the same, read one byte to a character. Every other byte as sent; the bytes as they are
- * when nothing is masked.
+ * UTF-8, the same, read one byte to a character. A secret store's secret is masked by the answer's
+ * shape, and by `callName`, the name of the call it answers (heldIn). Every other byte as sent; the
+ * bytes as they are when nothing is masked.
  */
-export function responseBodyWithoutCredentials(received: Buffer, encoding: unknown): Buffer {
+export function responseBodyWithoutCredentials(received: Buffer, encoding: unknown, callName?: string): Buffer {
   if (encoding === 'json') {
-    const masked = maskJsonTextCredentials(received.toString('utf8'));
+    const masked = maskJsonTextCredentials(received.toString('utf8'), callName);
     return masked === null ? received : Buffer.from(masked, 'utf8');
   }
   if (encoding === 'text') {
-    const masked = maskTextCredentials(received.toString('utf8'));
+    const masked = maskTextCredentials(received.toString('utf8'), 0, false, callName);
     return masked === null ? received : Buffer.from(masked, 'utf8');
   }
-  if (encoding === 'base64') return maskBytesCredentials(received) ?? received;
+  if (encoding === 'base64') return maskBytesCredentials(received, callName) ?? received;
   return received;
 }

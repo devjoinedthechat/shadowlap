@@ -56,7 +56,7 @@ describe('a multipart body', () => {
 });
 
 /** The masking's sources: every pattern in them runs on every request and response a recording keeps, and every copy of one. */
-const MASKING_SOURCES = ['credential-shapes.ts', 'http.ts', 'shell-words.ts'];
+const MASKING_SOURCES = ['credential-shapes.ts', 'http.ts', 'secret-stores.ts', 'shell-words.ts'];
 
 interface Pattern {
   at: string;

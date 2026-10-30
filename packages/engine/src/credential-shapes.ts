@@ -25,6 +25,16 @@ export type StringTest = (value: string) => boolean;
  */
 export type CredentialMember = (key: string) => boolean | StringTest;
 
+/**
+ * The values a JSON document holds a secret in by the shape around them rather than by their
+ * member's name (a secret store's answer, secret-stores.ts), each by where it starts in the text:
+ * everything in it a credential (true), or only when a string in it passes the test.
+ */
+export type HeldValues = ReadonlyMap<number, true | StringTest>;
+
+/** The values the JSON document that starts at `start` in `text` holds a secret in (HeldValues). */
+export type FindHeld = (text: string, start: number) => HeldValues;
+
 /** One open object or array, as the JSON reader walks it. */
 interface Frame {
   object: boolean;
@@ -38,7 +48,8 @@ interface Frame {
   first: boolean;
 }
 
-const NUMBER_OR_LITERAL = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
+/** A JSON number or literal, read where `lastIndex` says. */
+export const NUMBER_OR_LITERAL = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/y;
 
 /** A string value `mask` replaced: where its token starts and ends in the text, and the JSON string written in its place. */
 type Replaced = [start: number, end: number, json: string];
@@ -54,16 +65,18 @@ function spliced(text: string, replaced: readonly Replaced[]): string {
   return out.join('') + text.slice(copied);
 }
 
-const isJsonSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+/** Whether a character is JSON's white space. */
+export const isJsonSpace = (c: number) => c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
 
 /**
  * Reads the one JSON value that starts at `start` in `text` (whitespace before it skipped), noting
- * in `replaced` each string value `mask` replaces. `whole` when the value is complete: `at` is then
- * just past it. Otherwise `at` is where the text stopped being JSON (its length, when it ended
- * first), and `replaced` holds what was masked before there. Iterative, so a document nested
- * thousands deep reads like any other; each character is read once.
+ * in `replaced` each string value `mask` replaces, everything in a value `held` names a credential.
+ * `whole` when the value is complete: `at` is then just past it. Otherwise `at` is where the text
+ * stopped being JSON (its length, when it ended first), and `replaced` holds what was masked before
+ * there. Iterative, so a document nested thousands deep reads like any other; each character is read
+ * once.
  */
-function walkValue(text: string, start: number, mask: StringMask, credentialMember: CredentialMember, replaced: Replaced[]): { at: number; whole: boolean } {
+function walkValue(text: string, start: number, mask: StringMask, credentialMember: CredentialMember, replaced: Replaced[], held: HeldValues | null): { at: number; whole: boolean } {
   const stack: Frame[] = [];
   const n = text.length;
   let i = start;
@@ -144,13 +157,13 @@ function walkValue(text: string, start: number, mask: StringMask, credentialMemb
       const raw = scanString();
       const value = raw === null ? undefined : decode(raw);
       if (value === undefined) return { at: i, whole: false };
-      const replacement = mask(top?.key ?? null, value, top?.under ?? false);
+      const replacement = mask(top?.key ?? null, value, underHere(top, held?.get(from), value));
       if (replacement !== null && replacement !== value) replaced.push([from, i, JSON.stringify(replacement)]);
       if (ended()) return { at: i, whole: true };
       continue;
     }
     if (c === '{' || c === '[') {
-      stack.push(opened(text, i, top, c === '{', credentialMember));
+      stack.push(opened(text, i, top, c === '{', credentialMember, held));
       i++;
       continue;
     }
@@ -162,15 +175,23 @@ function walkValue(text: string, start: number, mask: StringMask, credentialMemb
   }
 }
 
+/** Whether a string value is a credential through and through: under one, or where a secret store holds one (`held`, its rule at the string). */
+function underHere(top: Frame | undefined, held: true | StringTest | undefined, value: string): boolean {
+  return top?.under === true || held === true || (held !== undefined && held(value));
+}
+
 /**
  * The frame an object or an array opens below `top`, its `{` or `[` at `at`: everything in it a
- * credential when it is under one, when `top`'s member is one, or when that member's test passes a
- * string in it (holdsString). Its strings are read for a test once: a frame they passed in is under a
- * credential, and one they didn't is clean, so no member inside either reads them again.
+ * credential when it is under one, when `top`'s member is one, when that member's test passes a
+ * string in it (holdsString), or as `held` says of the value at `at`, whichever masks more. Its
+ * strings are read for a test once: a frame they passed in is under a credential, and one they didn't
+ * is clean, so no member inside either reads them again.
  */
-function opened(text: string, at: number, top: Frame | undefined, object: boolean, credentialMember: CredentialMember): Frame {
+function opened(text: string, at: number, top: Frame | undefined, object: boolean, credentialMember: CredentialMember, held: HeldValues | null): Frame {
   const key = top?.key ?? null;
-  const member = top?.object === true && key !== null ? credentialMember(key) : false;
+  const own = top?.object === true && key !== null ? credentialMember(key) : false;
+  const rule = held?.get(at);
+  const member = rule === undefined || own === true ? own : rule;
   const inherited = top?.under ?? false;
   const clean = top?.clean ?? false;
   const test = typeof member === 'function' && !inherited && !clean ? member : null;
@@ -190,6 +211,7 @@ function holdsString(text: string, at: number, test: StringTest): boolean {
     },
     () => false,
     [],
+    null,
   );
   return found;
 }
@@ -197,12 +219,13 @@ function holdsString(text: string, at: number, test: StringTest): boolean {
 /**
  * One JSON document (any value, whitespace around it) with each string value `mask` replaces
  * written as the JSON string of its replacement, every other character as it was: a number of any
- * length, the layout, escapes in the strings kept. Undefined when the text isn't JSON, null when it
+ * length, the layout, escapes in the strings kept. Every string in a value `findHeld` finds holding a
+ * secret is passed to `mask` as under a credential. Undefined when the text isn't JSON, null when it
  * is and nothing was replaced. Iterative, so a document nested thousands deep reads like any other.
  */
-export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null | undefined {
+export function walkJson(text: string, mask: StringMask, credentialMember: CredentialMember, findHeld: FindHeld | null = null): string | null | undefined {
   const replaced: Replaced[] = [];
-  const { at, whole } = walkValue(text, 0, mask, credentialMember, replaced);
+  const { at, whole } = walkValue(text, 0, mask, credentialMember, replaced, findHeld?.(text, 0) ?? null);
   if (!whole) return undefined;
   let i = at;
   while (i < text.length && isJsonSpace(text.charCodeAt(i))) i++;
@@ -217,12 +240,13 @@ export function walkJson(text: string, mask: StringMask, credentialMember: Crede
  * jQuery JSONP call, the state a page's script holds (`__NEXT_DATA__`, `window.__STATE__ = …`).
  * Each `{` that no object read so far holds opens one, read as far as it is JSON: what it held
  * before it stopped being JSON is masked, and the search goes on from there, so each character is
- * read once. Null when nothing was replaced.
+ * read once (and once more by `findHeld`, which stops where the walk does). Null when nothing was
+ * replaced.
  */
-export function maskEmbeddedJson(text: string, mask: StringMask, credentialMember: CredentialMember): string | null {
+export function maskEmbeddedJson(text: string, mask: StringMask, credentialMember: CredentialMember, findHeld: FindHeld | null = null): string | null {
   const replaced: Replaced[] = [];
   for (let i = text.indexOf('{'); i >= 0; ) {
-    const { at } = walkValue(text, i, mask, credentialMember, replaced);
+    const { at } = walkValue(text, i, mask, credentialMember, replaced, findHeld?.(text, i) ?? null);
     i = text.indexOf('{', Math.max(at, i + 1));
   }
   return replaced.length ? spliced(text, replaced) : null;
