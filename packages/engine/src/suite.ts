@@ -55,7 +55,8 @@ export const DECLINE_AT = 0.8;
  * inconclusive counts though its history is short (`SuiteGolden.inconclusive`): a decline that more
  * history would not explain away, 99 to 1, or a drop. Not `DECLINE_AT`: at 4 to 1 a healthy agent's
  * sessions sit that far below often enough that a suite of 20 at 80% went red for nothing in 2.3% of
- * its 11th to 20th sessions, where at 99 to 1 it does in 0.9%, and in 0.8% with every one only warning.
+ * its 11th to 20th sessions, over 400 histories, nearly three times what it does at 99 to 1, as
+ * docs/gating.md gives it from engine/test/gating-figures.json, which is worked out at this value.
  */
 export const COUNTS_AT = 0.99;
 

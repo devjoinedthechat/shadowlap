@@ -128,14 +128,8 @@ describe('a healthy agent’s goldens gated against their own history, from thei
     const half = healthy(20, 0.5, true);
     expect(stage(healthy(20, 0.5), 'session 1').red).toBeLessThan(stage(half, 'session 1').redEarly / 100);
     says(`with every inconclusive counted, an agent at 50% goes red ${pct(stage(half, 'session 1').redEarly, 0)} of the time in its first session, where the plan says about ${pct(stage(half, 'session 1').plannedEarly, 0)}, nearly all of it inconclusive`);
-    // Its first 20 sessions by default, and with every inconclusive counted, as --inconclusive fail plans and counts them.
-    const byDefault = healthy(20, 0.8);
+    // Its first 20 sessions by default and with every inconclusive counted: over 400 histories, gating-figures.test.ts.
     const counted = healthy(20, 0.8, true);
-    expect(stage(counted, 'sessions 2-10').suiteRed).toBeGreaterThan(0.15);
-    expect(stage(counted, 'sessions 2-10').suiteRed).toBeLessThan(0.25);
-    expect(stage(counted, 'sessions 11-20').suiteRed).toBeGreaterThan(0.02);
-    expect(stage(counted, 'sessions 11-20').suiteRed).toBeLessThan(0.1);
-    says(`a healthy suite of 20 goldens at 80% goes red for nothing in ${pct(stage(byDefault, 'sessions 2-10').suiteRed, 1)} of its sessions from the 2nd to the 10th and ${pct(stage(byDefault, 'sessions 11-20').suiteRed, 1)} from the 11th to the 20th, where with every inconclusive counted, as \`--inconclusive fail\` counts it, it does in about one in five from the 2nd to the 10th and a few in a hundred from the 11th to the 20th`);
     // A healthy suite at 80% from its 21st session on, every inconclusive counted: the review's loop found 22% and 7%.
     const later = merged(counted, ['sessions 21-30', 'sessions 31-40']);
     expect(later.flagged).toBeGreaterThan(0.1);
