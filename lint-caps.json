@@ -9,7 +9,7 @@
       "upsertComment": 42
     },
     "action/run.mjs": {
-      "main": 59
+      "main": 58
     },
     "packages/adapters/src/claude-reach.ts": {
       "claudeReach": 118
@@ -619,7 +619,7 @@
   "max-lines": {
     "packages/cli/src/checks.ts": 1051,
     "packages/cli/src/decisions.ts": 1151,
-    "packages/cli/test/ci-fix.test.ts": 942,
+    "packages/cli/test/ci-fix.test.ts": 941,
     "packages/cli/test/repair.test.ts": 931,
     "packages/cli/test/training.test.ts": 993,
     "packages/dashboard/src/tests.ts": 1104,

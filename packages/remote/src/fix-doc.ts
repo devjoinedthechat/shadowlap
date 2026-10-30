@@ -1,4 +1,4 @@
-import { canonicalize, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
+import { canonicalize, credentialFreeArgv, credentialFreeCommandLine, FIX_STATUSES, isObject, repairPatchProblem, sha256, type FixData, type FixLink, type FixLinkKind, type FixStatus, type StepRerun, type StoreOf, type StoredBlame, type StoredFix, type StoredRepair, type StoredVerdict } from '@shadowlap/engine';
 import { LayoutError } from './layout.js';
 
 /**
@@ -19,6 +19,10 @@ import { LayoutError } from './layout.js';
  * and verdict a pull brings is marked as pulled (`pulled`, kept on this machine only): the Fixes
  * page runs one again only from its checked fields, never with a teammate's `--build`, `--base` or
  * command after `--`, and only once the user says yes to the exact command line.
+ *
+ * What goes up holds no key the machine that made it typed: each report's command line, and the
+ * flags kept beside a blame or a verdict, go with their credentials masked as a run's command line
+ * goes (`shared`), whatever the store's copy held before.
  */
 
 export const FIX_FORMAT = 'shadowlap-store-fix';
@@ -381,6 +385,28 @@ function unmarked<T extends { pulled?: unknown }>(r: T): T {
   return shared as T;
 }
 
+/** A step's flags (`StepRerun`) with their credentials masked as a command line's are (credentialFreeArgv): a `--build` script's key, the command after `--`. */
+function sharedRerun(rerun: StepRerun): StepRerun {
+  // No program before the first flag, which is read as any other.
+  const flags = ['', ...rerun.flags];
+  const masked = credentialFreeArgv(flags);
+  const command = rerun.command && credentialFreeArgv(rerun.command);
+  if (masked === flags && command === rerun.command) return rerun;
+  return { flags: masked === flags ? rerun.flags : masked.slice(1), command: command && [...command] };
+}
+
+/**
+ * A blame, a verdict or a repair as it goes to the store: its command line (credentialFreeCommandLine)
+ * and its flags (sharedRerun) with the credentials they carry masked, as every copy of a run's command
+ * line has them. This machine keeps its flags as they ran, which Blame again and Verify again run
+ * with; a teammate's are never run from a pull.
+ */
+function shared<T extends { command: string; rerun?: StepRerun | null }>(r: T): T {
+  const command = credentialFreeCommandLine(r.command);
+  const rerun = r.rerun ? sharedRerun(r.rerun) : r.rerun;
+  return command === r.command && rerun === r.rerun ? r : { ...r, command, ...(rerun ? { rerun } : {}) };
+}
+
 /** A value with every string's control characters (but tabs and line breaks) as U+FFFD, keys included. */
 function clean<T>(v: T, depth = 0): T {
   if (typeof v === 'string') return v.replace(CONTROL_IN_TEXT_ALL, '\uFFFD') as T;
@@ -415,9 +441,9 @@ export function fixDocOf(store: StoreOf<'fixes'>, fixId: string): FixDoc | null 
     version: FIX_VERSION,
     fix: sharedFix(fix),
     links,
-    blames: found(refs('blame').map((id) => store.getBlame(id))).map(unmarked),
-    verdicts: found(refs('verify').map((id) => store.getVerdict(id))).map(unmarked),
-    repairs: found(refs('repair').map((id) => store.getRepair(id))),
+    blames: found(refs('blame').map((id) => store.getBlame(id))).map((b) => shared(unmarked(b))),
+    verdicts: found(refs('verify').map((id) => store.getVerdict(id))).map((v) => shared(unmarked(v))),
+    repairs: found(refs('repair').map((id) => store.getRepair(id))).map(shared),
   });
 }
 
@@ -459,7 +485,9 @@ const titleGivenAt = (data: FixData): number | null => (data.titleEdited ? (data
  * there, and where it came from as far as either knows. A title someone gave it wins over the one
  * it was opened with, and of two given, the later rename (`titleEditedAt`), so a rename made since
  * the last sync wins over the title both copies agreed on; at the same time, the store's (`there`)
- * stays. How either was applied is left out (`sharedFix`): the copy merged is the one that syncs.
+ * stays. How either was applied is left out (`sharedFix`): the copy merged is the one that syncs,
+ * each of its reports with the credentials of its command line masked (`shared`), so a copy the
+ * store held with a key in it goes back without it.
  */
 export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
   const a = sharedFix(here.fix);
@@ -506,9 +534,9 @@ export function mergeFixDocs(here: FixDoc, there: FixDoc): FixDoc {
       data,
     },
     links: [...links.values()].sort((x, y) => x.at - y.at || (x.ref < y.ref ? -1 : 1)),
-    blames: union(here.blames, there.blames, (x) => x.blameId).sort((x, y) => x.at - y.at),
-    verdicts: union(here.verdicts, there.verdicts, (x) => x.verifyId).sort((x, y) => x.at - y.at),
-    repairs: union(here.repairs, there.repairs, (x) => x.repairId).sort((x, y) => x.at - y.at),
+    blames: union(here.blames, there.blames, (x) => x.blameId).sort((x, y) => x.at - y.at).map(shared),
+    verdicts: union(here.verdicts, there.verdicts, (x) => x.verifyId).sort((x, y) => x.at - y.at).map(shared),
+    repairs: union(here.repairs, there.repairs, (x) => x.repairId).sort((x, y) => x.at - y.at).map(shared),
   };
 }
 
@@ -534,12 +562,13 @@ export function applyFixDoc(store: StoreOf<'fixes' | 'team'>, doc: FixDoc, o: { 
       store.mergeFixData(fix.fixId, { ...fix.data, ...(here.data.applied ? { applied: here.data.applied } : {}) });
     }
     const pulled = { from: o.from ?? 'the team store', at: o.at ?? Date.now() };
-    for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame({ ...b, pulled });
-    for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict({ ...v, pulled });
+    // Kept as a push sends them, a key a teammate's copy held masked (`shared`).
+    for (const b of doc.blames) if (!store.getBlame(b.blameId)) store.putBlame({ ...shared(b), pulled });
+    for (const v of doc.verdicts) if (!store.getVerdict(v.verifyId)) store.putVerdict({ ...shared(v), pulled });
     const repairs: string[] = [];
     for (const r of doc.repairs) {
       if (store.getRepair(r.repairId)) continue;
-      store.putRepair(r);
+      store.putRepair(shared(r));
       if (o.from) store.markRepairPulled(o.from, r.repairId, o.at);
       repairs.push(r.repairId);
     }

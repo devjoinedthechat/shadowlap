@@ -333,10 +333,12 @@ function git(cwd, args, env, input) {
 const BRANCH_REF = '${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref || github.ref }}';
 
 /**
- * Why fixes can't be opened from this checkout, or null. A pull request needs a branch to target;
- * a pull request's own workflow checks out a detached merge commit unless told otherwise. A pull
- * request from a fork gets a token from GitHub that may not push a branch, and its branch is the
- * fork's, so it gets no fix whatever is checked out.
+ * Why fixes can't be opened from this checkout, or null, found before any repair spends its budget.
+ * A pull request needs a branch to target; a pull request's own workflow checks out a detached merge
+ * commit unless told otherwise. A pull request from a fork gets a token from GitHub that may not push
+ * a branch, and its branch is the fork's, so it gets no fix whatever is checked out. And a fix's
+ * branch goes only to the repository the workflow runs in, once the checkout's origin names it
+ * (pushTarget): a job that checked out another, or names none, could push no fix it paid for.
  * @param {string} workdir
  * @param {NodeJS.ProcessEnv} env
  * @param {(path: string) => string} [read]
@@ -351,7 +353,7 @@ export function cannotFix(workdir, env, read) {
   // The workflow this action started on a fix's branch, or a fix's own pull request: its checks say
   // whether the fix holds, and a fix of the fix would stack one pull request on another.
   if (branch.startsWith('shadowlap/fix-')) return `${branch} is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it`;
-  return null;
+  return pushTarget(workdir, env).why;
 }
 
 /**

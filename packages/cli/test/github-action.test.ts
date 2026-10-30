@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { trackInGit } from './tracked.js';
+import { parseRepairer } from '../src/repairer.js';
 import { githubAnnotations, markdownReport, testReport, type PackResult } from '../src/test-report.js';
 import { gateResult, Store } from '@shadowlap/engine';
 import { hasHistoryGate, historyPlan, keyPart } from '../../../action/history.mjs';
@@ -77,7 +78,9 @@ describe('the GitHub Action', () => {
     const budget = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, FIX_BUDGET: 'lots' });
     expect(budget.out).toContain('input fix-budget must be an amount in dollars');
     const repairer = action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'gpt' });
-    expect(repairer.out).toContain('input repairer must be claude-code, anthropic');
+    expect(repairer.out).toContain('input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "gpt"');
+    // One the CLI would refuse once the tests had run: an openai repairer names its model.
+    expect(action({ RECORDINGS: 'testing/golden/*', WORKING_DIRECTORY: ROOT, REPAIRER: 'openai' }).out).toContain('input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "openai"');
   });
 
   it('never takes a hidden folder for a recording, as shadowlap test doesn\'t', () => {
@@ -218,6 +221,26 @@ describe('the GitHub Action and inconclusive goldens', () => {
     expect(yml).toContain('\n  inconclusive:\n    description: Recordings whose verdict is inconclusive');
     expect(yml).toContain('INPUT_INCONCLUSIVE: ${{ inputs.inconclusive }}');
     expect(yml).toContain('INPUT_MAX_ATTEMPTS: ${{ inputs.max-attempts }}');
+    // The repairers it names are the ones the CLI takes (parseRepairer): a bare provider only where it needs no model.
+    const repairers = /as for shadowlap repair --repairer \(([^)]*)\)/.exec(yml)![1].split(', ');
+    const takes = (spec: string) => {
+      try {
+        parseRepairer(spec);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    for (const provider of ['claude-code', 'anthropic', 'openai']) {
+      expect(repairers, provider).toContain(`${provider}:<model>`);
+      expect(repairers.includes(provider), provider).toBe(takes(provider));
+    }
+    for (const r of repairers) expect(takes(r.replace('<model>', 'some-model')), r).toBe(true);
+    // What makes a recording inconclusive, and when one fails the step, as docs/ci.md and shadowlap test have it.
+    const outputs = yml.slice(yml.indexOf('\noutputs:'));
+    const said = (name: string) => new RegExp(`\\n  ${name}:\\n    description: ([^\\n]*)`).exec(outputs)![1];
+    for (const why of ['a gate that ran out of attempts between its bounds', 'a check that could not be decided', 'an injection gate that showed too little to say', 'a provider unavailable too many attempts in a row']) expect(said('inconclusive')).toContain(why);
+    for (const why of ['failed a check or an injection gate', 'unless inconclusive is warn', 'fewer than 30 sessions', 'a decline or a drop']) expect(said('failed')).toContain(why);
     // Restored before the tests, saved after them whether they passed or not.
     const restore = yml.indexOf('uses: actions/cache/restore@v4');
     const test = yml.indexOf('id: test');
@@ -247,6 +270,7 @@ describe('the test history the GitHub Action keeps', () => {
   it('saves the store under a key per run, and restores the branch\'s newest, then the default branch\'s', () => {
     expect(plan({ branch: 'fix/refunds', defaultBranch: 'main' })).toEqual({
       keep: false,
+      refused: null,
       path: [join('/work', '.shadowlap', 'shadowlap.db'), `${join('/work', '.shadowlap', 'shadowlap.db')}-wal`, `${join('/work', '.shadowlap', 'shadowlap.db')}-shm`],
       key: 'shadowlap-history-fix-refunds-42-1',
       restoreKeys: ['shadowlap-history-fix-refunds-', 'shadowlap-history-main-'],
@@ -254,6 +278,24 @@ describe('the test history the GitHub Action keeps', () => {
     expect(plan({ store: 'ci/history.db' }).path[0]).toBe(resolve('/work', 'ci/history.db'));
     expect(plan().restoreKeys).toEqual(['shadowlap-history-main-']);
     expect(keyPart('feature/a b')).toBe('feature-a-b');
+  });
+
+  it('restores and saves nothing on an event the action refuses, whatever keep-history says', () => {
+    for (const event of ['pull_request_target', 'workflow_run', 'issue_comment']) {
+      expect(plan({ config: historyGate, event }), event).toMatchObject({ keep: false, refused: expect.stringContaining(`the action does not run on ${event}, which`) });
+      expect(plan({ keep: 'true', event }).keep, event).toBe(false);
+    }
+    expect(plan({ config: historyGate, event: 'pull_request' })).toMatchObject({ keep: true, refused: null });
+    // As its step runs it: keep is false, so action.yml's restore and save steps are skipped, and the log says why.
+    const dir = mkdtempSync(join(tmpdir(), 'fp-history-refused-'));
+    dirs.push(dir);
+    writeFileSync(join(dir, 'shadowlap.config.json'), JSON.stringify(historyGate));
+    const output = join(dir, 'output');
+    writeFileSync(output, '');
+    const r = spawnSync(process.execPath, [join(ROOT, 'action', 'history.mjs')], { env: { ...process.env, INPUT_WORKING_DIRECTORY: dir, INPUT_KEEP_HISTORY: 'true', INPUT_STORE: '', GITHUB_OUTPUT: output, GITHUB_EVENT_NAME: 'pull_request_target', GITHUB_REF_NAME: 'main', GITHUB_RUN_ID: '7', GITHUB_RUN_ATTEMPT: '1', DEFAULT_BRANCH: 'main' }, encoding: 'utf8' });
+    expect(r.status, r.stderr).toBe(0);
+    expect(readFileSync(output, 'utf8')).toContain('keep=false\n');
+    expect(r.stdout).toContain('not keeping the test history between jobs: the action does not run on pull_request_target');
   });
 
   it('writes its outputs as GitHub reads them, the paths over several lines', () => {
@@ -544,7 +586,8 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
   }
 
   /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name. */
-  function project(): string {
+  /** A project with a branch checked out, as a fix needs, and a golden folder for the test to name; its origin is `origin`. */
+  function project(origin = 'https://github.test/northwind/agent.git'): string {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-'));
     dirs.push(dir);
     const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { cwd: dir, encoding: 'utf8' });
@@ -552,8 +595,11 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     cpSync(join(ROOT, 'testing', 'golden', 'reference-agent'), join(dir, 'goldens', 'refund-flow'), { recursive: true });
     git('add', '-A');
     git('commit', '-qm', 'agent');
+    git('remote', 'add', 'origin', origin);
     return dir;
   }
+  /** The repository the workflow runs in, as the runner names it: the one `project`'s origin names. */
+  const REPO = { GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
 
   it("runs repair under the step's guard and fix-build, and hands neither it nor the test any of GitHub's tokens", () => {
     const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-cli-'));
@@ -565,7 +611,7 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${job}`).toString('base64')}`;
     const r = action(
       { RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(), GUARD: 'warn', FIX_ON_FAILURE: 'true', FIX_BUDGET: '1.00', FIX_BUILD: 'npm run build', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false', GITHUB_TOKEN: pat },
-      { SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
+      { ...REPO, SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push', SHADOWLAP_JOB_TOKEN: job, GH_TOKEN: job, GITHUB_TOKEN: pat, ACTIONS_ID_TOKEN_REQUEST_TOKEN: oidc, ACTIONS_ID_TOKEN_REQUEST_URL: 'https://token.actions.test/', MY_COPY_OF_THE_TOKEN: job, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: header },
     );
     expect(r.code, r.out).toBe(0);
     const seen = fake.seen();
@@ -580,6 +626,23 @@ describe("the GitHub Action, fix on failure and the job's tokens", () => {
     expect(seen[0].args.slice(seen[0].args.indexOf('--guard'), seen[0].args.indexOf('--guard') + 2)).toEqual(['--guard', 'warn']);
     expect(repair.slice(repair.indexOf('--guard'), repair.indexOf('--guard') + 4)).toEqual(['--guard', 'warn', '--build', 'npm run build']);
     expect(r.out).toContain('refund-flow: no fix pull request: the gate accepted none of the 1 candidate tried');
+  });
+
+  it("starts no repair where it couldn't push the fix it pays for: a checkout of another repository, or a job that names none", () => {
+    for (const [origin, env, why] of [
+      ['https://github.test/northwind/fork.git', REPO, "the checkout's origin is not northwind/agent, the repository this workflow runs in, so no fix is pushed from it"],
+      ['https://github.test/northwind/agent.git', { GITHUB_SERVER_URL: '', GITHUB_REPOSITORY: '' }, "the job doesn't name the repository it runs in (GITHUB_SERVER_URL and GITHUB_REPOSITORY), so no fix is pushed from it"],
+    ] as const) {
+      const dir = mkdtempSync(join(tmpdir(), 'fp-action-fix-origin-'));
+      dirs.push(dir);
+      const fake = fakeCli(dir);
+      const r = action({ RECORDINGS: 'goldens/*', WORKING_DIRECTORY: project(origin), FIX_ON_FAILURE: 'true', REPAIRER: 'anthropic', FAIL_ON_DIVERGENCE: 'false' }, { ...env, SHADOWLAP_CLI: fake.cli, GITHUB_EVENT_NAME: 'push' });
+      expect(r.code, r.out).toBe(0);
+      // The test ran; repair, which spends the budget, never started.
+      expect(fake.seen().map((s) => s.args.find((a) => a === 'test' || a === 'repair'))).toEqual(['test']);
+      expect(r.out).toContain(`refund-flow: no fix pull request: ${why}`);
+      expect(r.outputs.fixes).toBe('0');
+    }
   });
 
   // Each gives the job the base repository's secrets and a token that may write, and is how a pull

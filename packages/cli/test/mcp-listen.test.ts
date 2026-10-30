@@ -233,7 +233,7 @@ describe('shadowlap mcp --listen', () => {
     expect(() => listenAddress('0.0.0.0:8931')).toThrow(/not this machine/);
     expect(() => listenAddress('192.168.1.4:8931')).toThrow(/not this machine/);
     expect(() => listenAddress('127.0.0.1:99999')).toThrow(/--listen expects/);
-    await expect(runMcp(['npx', 'server'], { header: [], effect: [], listen: '8931' }, undefined)).rejects.toThrow(/--listen serves a remote server over HTTP: give it with --url/);
+    await expect(runMcp(['npx', 'server'], { header: [], effect: [], listen: '8931' }, undefined, new Set())).rejects.toThrow(/--listen serves a remote server over HTTP: give it with --url/);
   });
 });
 

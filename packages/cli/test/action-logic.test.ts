@@ -208,6 +208,23 @@ describe("a fix's branch and its pull request", () => {
     const refused = github(() => ({ status: 422, json: { message: 'Validation Failed' } }));
     expect(await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title: 't', body: 'b', fetch: refused.fetch })).toEqual({ pr: null, why: 'GitHub answered 422 (Validation Failed)' });
   });
+
+  it("is titled on one line, within GitHub's limit, with a mention, a reference and a workflow command's start split by a character that shows nothing", async () => {
+    const auth = githubToken(ACTIONS);
+    const titleOf = async (title: string) => {
+      const gh = github(() => ({ status: 201, json: { number: 7, html_url: 'https://github.test/northwind/agent/pull/7' } }));
+      await openPullRequest({ env: ACTIONS, auth, head: 'shadowlap/fix-a', base: 'main', title, body: 'b', fetch: gh.fetch });
+      return (gh.calls[0].body as { title: string }).title;
+    };
+    // The fix commit's subject, as the repairer wrote it: what GitHub would read in it is split, the rest shows as written.
+    expect(await titleOf('Escalate refunds over $500 to @finance-leads, see #12')).toBe('Escalate refunds over $500 to @\u2060finance-leads, see #\u206012');
+    expect(await titleOf('::stop-commands::x\nApprove it\u202e')).toBe(':\u2060:stop-commands:\u2060:x Approve it');
+    for (const raw of [...HOSTILE, 'a'.repeat(300), '@x '.repeat(200)]) {
+      const title = await titleOf(raw);
+      expect([...title].length, raw).toBeLessThanOrEqual(256);
+      expect(title, raw).not.toMatch(/[\r\n\u202e\u200b]|@[A-Za-z0-9]|#\d|##\[|::|\bGH-\d/i);
+    }
+  });
 });
 
 describe('the pull request comment', () => {
@@ -395,6 +412,19 @@ describe('the pull request comment', () => {
     expect(cut).toMatch(/\| \| … \| \d+ more in the job summary \|/);
   });
 
+  it('writes the verdict the stored history holds as the text it is, as it writes every other: a job restores that history from a cache', () => {
+    const planted = '@octocat approves: ![x](https://evil.example/t.png) <img src=x> [click](https://evil.example) #12 | ok';
+    const history = [session('S-MAIN', 'e5f6a7b', [{ ...stored('goldens/refund|flow', 'passed', { branch: 'main' }), data: { verdict: planted, branch: 'main' } }, { ...stored('goldens/triage', 'passed'), data: { verdict: 'constructor' } }])];
+    const body = commentBody({ report, marker, base: baseSession(history, { baseRef: 'main', baseSha: null, current: 'S-NOW' }), baseRef: 'main' });
+    const rows = body.split('\n').filter((l) => l.startsWith('| ❌') || l.startsWith('| ✅'));
+    // With no mark: none is a verdict any report makes, nor is an object's own name one.
+    expect(rows[0].endsWith(`|  ${markdownText(planted)} |`)).toBe(true);
+    expect(rows[1].endsWith('|  constructor |')).toBe(true);
+    // Its pipe ends no cell: each row has its four.
+    for (const row of rows) expect(row.split(/(?<!\\)\|/).length, row).toBe(6);
+    for (const shown of ['@octocat', '![x]', '<img', '[click]', '#12']) expect(body).not.toContain(shown);
+  });
+
   it('is what docs/ci.md shows', () => {
     const page = readFileSync(join(ROOT, 'docs', 'ci.md'), 'utf8');
     const shown = /As Markdown, before GitHub renders it:\n\n```markdown\n([\s\S]*?)```/.exec(page)?.[1];
@@ -507,13 +537,21 @@ describe('what a fix is verified on', () => {
     for (const n of notes) expect(n).not.toMatch(/checks? pass/);
   });
 
-  it("opens no fix from a fork's pull request, whatever it checked out: its token may not push, and its branch is the fork's", () => {
-    const repo = temp('sl-fix-fork-');
-    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo });
+  /** The workflow's repository, as the runner names it, and a checkout of it on a branch. */
+  const REPO = { GITHUB_SERVER_URL: 'https://github.test', GITHUB_REPOSITORY: 'northwind/agent' };
+  const checkout = (prefix: string, branch: string) => {
+    const repo = temp(prefix);
+    execFileSync('git', ['init', '-q', '-b', branch], { cwd: repo });
     execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'agent'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', 'https://github.test/northwind/agent.git'], { cwd: repo });
+    return repo;
+  };
+
+  it("opens no fix from a fork's pull request, whatever it checked out: its token may not push, and its branch is the fork's", () => {
+    const repo = checkout('sl-fix-fork-', 'main');
     const event = join(repo, 'event.json');
     const pr = (head: string) => JSON.stringify({ pull_request: { number: 12, head: { ref: 'main', repo: { full_name: head } }, base: { ref: 'main', repo: { full_name: 'northwind/agent' } } } });
-    const env = { ...process.env, GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: event };
+    const env = { ...process.env, ...REPO, GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: event };
     writeFileSync(event, pr('someone/agent'));
     expect(cannotFix(repo, env)).toBe("a pull request from a fork gets a token from GitHub that may not push a branch, and its branch is the fork's, so no fix is opened from its job");
     writeFileSync(event, pr('northwind/agent'));
@@ -524,12 +562,18 @@ describe('what a fix is verified on', () => {
   });
 
   it('opens no fix from the branch of a fix it opened', () => {
-    const repo = temp('sl-fix-branch-');
-    execFileSync('git', ['init', '-q', '-b', 'shadowlap/fix-refund-flow-t9rb1d'], { cwd: repo });
-    execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '--allow-empty', '-m', 'the fix'], { cwd: repo });
-    expect(cannotFix(repo, process.env)).toBe('shadowlap/fix-refund-flow-t9rb1d is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it');
+    const repo = checkout('sl-fix-branch-', 'shadowlap/fix-refund-flow-t9rb1d');
+    const env = { ...process.env, ...REPO };
+    expect(cannotFix(repo, env)).toBe('shadowlap/fix-refund-flow-t9rb1d is the branch of a fix this action opened: its checks say whether the fix holds, and no fix is opened from it');
     execFileSync('git', ['checkout', '-q', '-b', 'main'], { cwd: repo });
-    expect(cannotFix(repo, process.env)).toBeNull();
+    expect(cannotFix(repo, env)).toBeNull();
+  });
+
+  it("opens no fix, before anything is spent, where it couldn't push one: a checkout of another repository, or a job that names none", () => {
+    const repo = checkout('sl-fix-origin-', 'main');
+    expect(cannotFix(repo, { ...process.env, ...REPO })).toBeNull();
+    expect(cannotFix(repo, { ...process.env, ...REPO, GITHUB_REPOSITORY: 'northwind/other' })).toBe("the checkout's origin is not northwind/other, the repository this workflow runs in, so no fix is pushed from it");
+    expect(cannotFix(repo, { ...process.env, GITHUB_SERVER_URL: undefined, GITHUB_REPOSITORY: undefined })).toMatch(/^the job doesn't name the repository it runs in \(GITHUB_SERVER_URL and GITHUB_REPOSITORY\), so no fix is pushed from it/);
   });
 });
 

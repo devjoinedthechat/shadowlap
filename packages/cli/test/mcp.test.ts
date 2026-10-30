@@ -178,7 +178,7 @@ describe('shadowlap mcp', () => {
 
   it("records under a test runner's host, whose URL names the run's slot instead of the run", async () => {
     const run = sidecar.startRun({ mode: 'record', command: { argv: ['vitest'], cwd: '/' }, slot: 'worker-1' });
-    const found = await findSidecar({ SHADOWLAP_URL: sidecar.envForSlot('worker-1').SHADOWLAP_URL }, '/nonexistent');
+    const found = await findSidecar({ SHADOWLAP_URL: sidecar.envForSlot('worker-1').SHADOWLAP_URL }, '/nonexistent', () => {}, { agentCommands: new Set() });
     expect(found).toMatchObject({ kind: 'sidecar', target: { runId: '' } });
     const c = client((found as { target: SidecarTarget }).target);
     await c.request('tools/list');

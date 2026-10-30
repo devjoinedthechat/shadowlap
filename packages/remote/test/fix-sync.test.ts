@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BLAME_DEFAULTS, fixRecords, gateResult, markFixApplied, PACK_LIMITS, recordBlame, recordRepair, recordVerdict, setFixTitle, SPRT_DEFAULTS, Store, unifiedDiff, type BlameReport, type SprtGate } from '@shadowlap/engine';
+import { BLAME_DEFAULTS, CREDENTIAL_PLACEHOLDER as C, fixRecords, gateResult, markFixApplied, PACK_LIMITS, quoteArgv, recordBlame, recordRepair, recordVerdict, setFixTitle, SPRT_DEFAULTS, Store, unifiedDiff, type BlameReport, type SprtGate } from '@shadowlap/engine';
 import { FIX_FORMAT, FIX_VERSION, fixDocHash, fixDocOf, fixKey, mergeFixDocs, parseFixDoc, parseStoreUrl, pull, pullRequestLocation, push, storeKey, type FixDoc, type SyncContext } from '@shadowlap/remote';
 import { MemoryStore } from './fakes/memory.js';
 import { blameReport, EXPECT, makeRun, ORACLE, repairReport, verifyReport } from '../../engine/test/fix-fixtures.js';
@@ -81,6 +81,47 @@ describe('a fix in the team store', () => {
     const parsed = parseFixDoc(Buffer.from(JSON.stringify(planted)), fixId);
     expect(parsed.verdicts[0]).not.toHaveProperty('pulled');
     expect(parsed.blames[0]).not.toHaveProperty('pulled');
+  });
+
+  it("sends each step's command line, and the flags kept to run it again, with the key they carry masked, as a run's command line goes", async () => {
+    const remote = new MemoryStore(loc);
+    const dana = machine(remote, 'dana@northwind.example');
+    const run = makeRun(dana.store, { labels: ['refund-bug'] });
+    const key = 'sk-test-EXAMPLE0123456789';
+    const agent = ['node', 'agent.mjs', '--api-key', key];
+    const build = `OPENAI_API_KEY=${key} npm run build`;
+    const script = ['sh', '-c', `OPENAI_API_KEY=${key} node agent.mjs`];
+    const { fix, blame } = recordBlame(dana.store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: quoteArgv(['shadowlap', 'blame', run, '--', ...agent]), rerun: { flags: ['--writes', 'block'], command: agent }, title: 'Refunds above the limit issued without approval', checkText: 'issue_refund called 0 times' });
+    const { verdict } = recordVerdict(dana.store, { report: verifyReport([{ runId: run, role: 'target', pass: false }]), expect: EXPECT, command: quoteArgv(['shadowlap', 'verify', '--fixes', run, '--build', build, '--', ...script]), rerun: { flags: ['--build', build], command: script } });
+    recordRepair(dana.store, { repairId: 'repair-munzln2i', dir: '.shadowlap/repairs/repair-munzln2i', report: repairReport({ targets: [run] }), expect: EXPECT, command: quoteArgv(['shadowlap', 'repair', '--fixes', run, '--', ...agent]) });
+    // Here, each command line is kept masked, as it is shown; the flags Blame again and Verify again run with, as they ran.
+    for (const r of [dana.store.getBlame(blame.blameId)!, dana.store.getVerdict(verdict.verifyId)!, dana.store.getRepair('repair-munzln2i')!]) expect(r.command).not.toContain(key);
+    expect(dana.store.getBlame(blame.blameId)!.command).toBe(`shadowlap blame ${run} -- node agent.mjs --api-key '${C}'`);
+    expect(dana.store.getBlame(blame.blameId)!.rerun).toEqual({ flags: ['--writes', 'block'], command: agent });
+    expect(dana.store.getVerdict(verdict.verifyId)!.rerun).toEqual({ flags: ['--build', build], command: script });
+
+    inStore(dana.store, run);
+    expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([fix.fixId]);
+    const sent = remote.objects.get(fixKey(fix.fixId))!.body.toString('utf8');
+    expect(sent).not.toContain(key);
+    const doc = JSON.parse(sent) as FixDoc;
+    expect(doc.blames[0].rerun).toEqual({ flags: ['--writes', 'block'], command: ['node', 'agent.mjs', '--api-key', C] });
+    expect(doc.verdicts.find((v) => v.verifyId === verdict.verifyId)!.rerun).toEqual({ flags: ['--build', `OPENAI_API_KEY=${C}`], command: ['sh', '-c', `OPENAI_API_KEY="${C}" node agent.mjs`] });
+    // Nothing is sent again: this machine's copy, masked as it goes, is the store's.
+    expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([]);
+
+    // A copy in the store that holds a key (a teammate's, written by hand) is masked when a pull takes it, and when a push merges with it.
+    const theirs = 'bl-01M3RZ00000000000000000099';
+    const planted: FixDoc = { ...doc, blames: [...doc.blames, { ...doc.blames[0], blameId: theirs, command: `${doc.blames[0].command} --token ${key}`, rerun: { flags: [], command: [...agent] } }], links: [...doc.links, { kind: 'blame', ref: theirs, at: 1, data: null }] };
+    remote.objects.set(fixKey(fix.fixId), { ...remote.objects.get(fixKey(fix.fixId))!, body: Buffer.from(JSON.stringify(planted)), version: 'theirs' });
+    const maya = machine(remote, 'maya@northwind.example');
+    await pull(maya);
+    expect(maya.store.getBlame(theirs)).not.toBeNull();
+    expect(JSON.stringify(fixRecords(maya.store, maya.store.getFix(fix.fixId)!).blames)).not.toContain(key);
+    setFixTitle(dana.store, fix.fixId, 'Escalate refunds above the policy limit');
+    expect((await push(dana, { runIds: [] })).fixes.sent).toEqual([fix.fixId]);
+    expect(remote.objects.get(fixKey(fix.fixId))!.body.toString('utf8')).not.toContain(key);
+    expect(JSON.stringify(dana.store.getBlame(theirs))).not.toContain(key);
   });
 
   it('sends nothing again that the store has, and reads only the fixes that changed there', async () => {

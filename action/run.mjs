@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { commentNote, postComment } from './comment.mjs';
+import { refusal } from './events.mjs';
 import { fixSummary, runFixes, testPath } from './fix.mjs';
 import { githubToken, withoutTokens } from './github.mjs';
 import { annotation, logLine } from './log.mjs';
@@ -45,20 +46,6 @@ export function outputsOf(report, fixes, paths) {
 }
 
 /**
- * The events the action refuses to run on, each with why and what to run it on instead. Each runs
- * with the base repository's secrets (the provider keys the agent needs among them) and a token that
- * may write, and is the usual way to run a pull request's code beside them, which is what the action
- * would run as the agent: so the whole action is refused, not only fix on failure, as the test
- * session alone runs the agent with those keys.
- * @type {Readonly<Record<string, string>>}
- */
-const REFUSED_EVENTS = {
-  pull_request_target: "runs a pull request's workflow with the base repository's secrets and a token that may write, beside the agent as the pull request changed it: run it on pull_request",
-  workflow_run: "runs with the base repository's secrets and a token that may write once another workflow ends, one a pull request from a fork may have started, and is how that pull request's code gets checked out beside them: run the action in that workflow instead, on pull_request for a pull request's code, or on push for a branch of this repository",
-  issue_comment: "runs with the base repository's secrets and a token that may write on a comment anyone can post, and is how a comment gets a pull request's code tested beside them: run it on pull_request, or on workflow_dispatch for a branch of this repository",
-};
-
-/**
  * Runs the action as action.yml's step does, and returns its exit code. `fetch` is GitHub's REST API's, which tests replace.
  * @param {NodeJS.ProcessEnv} [env]
  * @param {{ fetch?: Fetch }} [deps]
@@ -85,8 +72,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   // pull request's code is run beside them: the agent the action runs is whatever the job checked
   // out, and from the event alone it can't tell whose code that is. pull_request runs a pull
   // request's code with what a fork may have; push, schedule and workflow_dispatch run a branch here.
-  const event = env.GITHUB_EVENT_NAME ?? '';
-  if (Object.hasOwn(REFUSED_EVENTS, event)) fail(`the action does not run on ${event}, which ${String(REFUSED_EVENTS[event])}`);
+  const refused = refusal(env.GITHUB_EVENT_NAME);
+  if (refused) fail(refused);
   const cli = env.SHADOWLAP_CLI;
   if (!cli || !existsSync(cli)) fail(`the Shadowlap CLI was not found at ${cli ?? '(unset)'}`);
   const workdir = resolve(input('WORKING_DIRECTORY', '.') || '.');
@@ -101,7 +88,8 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
   const budget = Number(input('FIX_BUDGET', '2.00').replace(/^\$/, ''));
   if (!Number.isFinite(budget) || budget <= 0) fail(`input fix-budget must be an amount in dollars, such as 2.00, not "${input('FIX_BUDGET')}"`);
   const repairer = input('REPAIRER');
-  if (repairer && !/^(anthropic|openai|claude-code)(:.+)?$/.test(repairer)) fail(`input repairer must be claude-code, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
+  // As shadowlap repair --repairer takes it: an openai repairer names its model.
+  if (repairer && !/^(?:(?:anthropic|claude-code)(?::.+)?|openai:.+)$/.test(repairer)) fail(`input repairer must be claude-code, claude-code:<model>, anthropic, anthropic:<model> or openai:<model>, not "${repairer}"`);
   // What builds the agent once a fix changes its source, as shadowlap repair --build runs it.
   const fixBuild = input('FIX_BUILD');
   // The test history, and the runs a fix starts from: the project's store unless one is named.
