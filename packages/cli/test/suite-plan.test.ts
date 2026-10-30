@@ -20,7 +20,7 @@ describe('the session plan', () => {
       'forecast: about 1,675 attempts (16.7 a golden on average), up to 17,900 · about $41.87',
       'suite risk 5%: 100 gated goldens, 0.05% each, so a healthy suite goes red for nothing in 5% of runs or fewer, with the provider answering',
     ]);
-    expect(PAGE.includes(`\`\`\`\n${lines.join('\n')}\n\`\`\``), 'docs/gating.md shows the forecast as the session prints it').toBe(true);
+    expect(PAGE.includes(`\`\`\`text\n${lines.join('\n')}\n\`\`\``), 'docs/gating.md shows the forecast as the session prints it').toBe(true);
   });
 
   it('reports the plan under suite in --json: the risk, each golden’s share, and the forecast of attempts and cost', () => {

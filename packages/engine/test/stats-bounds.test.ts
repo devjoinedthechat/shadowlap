@@ -266,7 +266,17 @@ describe('the bound beside a verdict covers the true rate as often as it says, e
   it('as the page states it: the worst the printed bound does under each gate, read on both sides of every printed end, not on a grid of hundredths', () => {
     // A coverage is a floor, so the page rounds it down.
     const floor = (x: number) => `${(Math.floor(1000 * x) / 10).toFixed(1)}%`;
-    says(`The worst the printed bound does is ${floor(COVERED.default().worst)} under the default gate, ${floor(COVERED.split().worst)} under a gate split 100 ways, ${floor(COVERED.history().worst)} under the gate against history against 47 of 50, and ${floor(COVERED.blame().worst)} under a blame probe's at the share of 8 probes, whose bound is at ${confidencePercent(1 - PROBE.risk)}.`);
+    // A row for each gate.
+    says(
+      [
+        '| Gate | The worst the printed bound does |',
+        '|---|---:|',
+        `| The default gate | ${floor(COVERED.default().worst)} |`,
+        `| A gate split 100 ways | ${floor(COVERED.split().worst)} |`,
+        `| The gate against history, against 47 of 50 | ${floor(COVERED.history().worst)} |`,
+        `| A blame probe's at the share of 8 probes, whose bound is at ${confidencePercent(1 - PROBE.risk)} | ${floor(COVERED.blame().worst)} |`,
+      ].join('\n'),
+    );
     // Read only at the hundredths, where both kinds of printed end hold, each gate looks better than it is.
     for (const c of [COVERED.default(), COVERED.split(), COVERED.history(), COVERED.blame()]) expect(c.onGrid).toBeGreaterThan(c.worst);
     // Its worst is just off a hundredth, where a printed end stops holding.
