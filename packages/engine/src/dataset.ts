@@ -6,7 +6,7 @@
  */
 import { checksOf, type CheckCounts } from './classify.js';
 import { normalizeConversation, type Turn, type TurnBlock } from './conversation.js';
-import { credentialFreeArgv } from './http.js';
+import { credentialFreeArgv } from './argv-credentials.js';
 import { isJudgeCall } from './judge-scope.js';
 import { loadApiRequest } from './manifest.js';
 import { messageOf } from './message-of.js';

@@ -2,8 +2,6 @@ import { ACCOUNT_HEADERS } from './account-headers.js';
 import { maskEmbeddedJson, maskEventStream, maskGraphqlArguments, maskJsonLines, maskKeyValueLines, maskMultipart, maskXml, skipJsonValue, unwrapJson, walkJson, type FindHeld, type MultipartPartText, type StringMask, type StringTest } from './credential-shapes.js';
 import { parseJsonExact } from './json-exact.js';
 import { mayHoldSecrets, secretStoreValues, vaultKv1Read } from './secret-stores.js';
-import { rewriteWords, scriptWord, shellWords } from './shell-words.js';
-import { quoteArgv } from './text.js';
 import { isObject } from './is-object.js';
 import type { RunMeta } from './types.js';
 
@@ -446,121 +444,15 @@ const FLAG_PLACE = new Set(['file', 'files', 'path', 'paths', 'dir', 'env', 'var
  * when its value reads as one; `--token` whatever it is), unless its name says where the
  * credential is (FLAG_PLACE).
  */
-function credentialFlag(name: string, value: string): boolean {
+export function credentialFlag(name: string, value: string): boolean {
   const words = wordsOf(name);
   if (!words.length || FLAG_PLACE.has(words.at(-1)!)) return false;
   return words.join('') === 'token' || credentialQueryParam(name, value);
 }
 
-/** An argument written as a flag: `--name`, `-name`, with `=value` or not. */
-const FLAG_ARG = /^--?([A-Za-z][\w.-]*)(?:=([^]*))?$/;
-/** An argument that assigns a value: `API_KEY=…`, `auth.password=…` (`env`, `helm --set`, `vault write`). */
-const ASSIGN_ARG = /^([A-Za-z_][\w.-]*)=([^]*)$/;
-/** An argument that is a header line: `Authorization: Bearer …` (curl's `-H`). */
-const HEADER_ARG = /^([A-Za-z][\w-]*):[ \t]*(\S[^]*)$/;
-
-/**
- * One argument, or a flag's value, with its credentials masked: a JWT, a credential's value in an
- * assignment (`API_KEY=…`) or a header line (`Authorization: Bearer …`), and the credentials in a URL
- * (maskUrlCredentials: its user info's password, its query, a webhook's secret).
- */
-function credentialFreeArgument(value: string): string {
-  if (JWT.test(value)) return CREDENTIAL_PLACEHOLDER;
-  const assign = ASSIGN_ARG.exec(value);
-  if (assign) return assign[2] && assign[2] !== CREDENTIAL_PLACEHOLDER && credentialQueryParam(assign[1]!, assign[2]) ? `${assign[1]!}=${CREDENTIAL_PLACEHOLDER}` : value;
-  const header = HEADER_ARG.exec(value);
-  if (header && header[2] !== CREDENTIAL_PLACEHOLDER && credentialHeader(header[1]!)) return `${value.slice(0, value.length - header[2]!.length)}${CREDENTIAL_PLACEHOLDER}`;
-  return URL_SHAPED.test(value) ? maskUrlCredentials(value) : value;
-}
-
-/** A shell a command line hands a script to with `-c`: `sh`, `bash`, `zsh` and their kin, by name, a folder before it or `.exe` after it. */
-const SHELL = /(?:^|[\\/])(?:sh|bash|zsh|dash|ksh|mksh|ash|fish|csh|tcsh)(?:\.exe)?$/i;
-/** The option that hands a shell its script: `-c`, or `-c` last in a cluster of options (`-lc`, `-ec`). */
-const SCRIPT_FLAG = /^-[A-Za-z]*c$/;
-/** How many scripts deep a script inside a script is read word by word; one deeper is masked as any other argument. */
-const MAX_SCRIPTS = 4;
-
-/**
- * A script a shell runs (`sh -c '…'`'s), masked word by word as credentialFreeArgv masks a command
- * line's arguments, each word read as the shell reads it (shellWords): an assignment's value up to
- * where its word ends, the rest of the script kept, a flag's value and a header line as in any
- * command line, and a script it hands a shell in turn. A word that changes is written again in its
- * place (scriptWord), every other character as it was. A script whose quote is left open, or one
- * inside MAX_SCRIPTS others, is masked as any other argument.
- */
-function credentialFreeScript(script: string, depth: number): string {
-  const words = depth < MAX_SCRIPTS ? shellWords(script) : null;
-  if (!words) return credentialFreeArgument(script);
-  // No program before its first word, which is read as any other (`API_KEY=… node agent.js`).
-  const values = ['', ...words.map((w) => w.value)];
-  const masked = argvWithoutCredentials(values, depth + 1);
-  return masked === values ? script : rewriteWords(script, words, masked.slice(1), scriptWord);
-}
-
-/**
- * A command line as every copy that leaves the machine writes it (a pack, an HTML file or a share
- * link, a push, a trace, a dataset), its credentials masked with CREDENTIAL_PLACEHOLDER: the value
- * of each flag that takes one (`--api-key <value>`, `--api-key=<value>`, `-token <value>` as Go's
- * flags are written: credentialFlag), in any other argument or flag value a JWT, an assignment's
- * or a header line's credential, and a URL's (credentialFreeArgument), and in a script a shell runs
- * (`sh -c '…'`, `bash -lc '…'`) each of those word by word (credentialFreeScript). The program stays
- * as it is. The store keeps the command as it ran, which a replay runs again. The same array when
- * nothing changes.
- */
-export function credentialFreeArgv(argv: readonly string[]): readonly string[] {
-  return argvWithoutCredentials(argv, 0);
-}
-
-/** credentialFreeArgv, `depth` scripts deep. */
-function argvWithoutCredentials(argv: readonly string[], depth: number): readonly string[] {
-  let out: string[] | null = null;
-  const set = (i: number, value: string) => {
-    if (value === argv[i]) return;
-    out ??= [...argv];
-    out[i] = value;
-  };
-  // The first shell named, whose `-c` takes a script wherever it stands: `env MODE=1 bash -lc '…'`, `docker exec app sh -c '…'`.
-  const shell = argv.findIndex((a) => SHELL.test(a));
-  for (let i = 1; i < argv.length; i++) {
-    const arg = argv[i]!;
-    const flag = FLAG_ARG.exec(arg);
-    if (!flag) {
-      set(i, shell >= 0 && shell < i - 1 && SCRIPT_FLAG.test(argv[i - 1]!) ? credentialFreeScript(arg, depth) : credentialFreeArgument(arg));
-      continue;
-    }
-    const [, name = '', value] = flag;
-    if (value !== undefined) {
-      const masked = value === '' || value === CREDENTIAL_PLACEHOLDER ? value : credentialFlag(name, value) ? CREDENTIAL_PLACEHOLDER : credentialFreeArgument(value);
-      set(i, `${arg.slice(0, arg.length - value.length)}${masked}`);
-      continue;
-    }
-    // A flag's value is the argument after it, unless that is a flag of its own.
-    const next = argv[i + 1];
-    if (next === undefined || FLAG_ARG.test(next) || !credentialFlag(name, next)) continue;
-    if (next !== '' && next !== CREDENTIAL_PLACEHOLDER) set(i + 1, CREDENTIAL_PLACEHOLDER);
-    i++;
-  }
-  return out ?? argv;
-}
-
-/** Whether two command lines are one, but for the credentials a copy masks in them (credentialFreeArgv). */
-export function sameCommandLine(a: readonly string[], b: readonly string[]): boolean {
-  return JSON.stringify(credentialFreeArgv(a)) === JSON.stringify(credentialFreeArgv(b));
-}
-
-/**
- * A command line written as one text, as quoteArgv writes it (the command a blame, a verdict or a
- * repair keeps, as the CLI printed it), with its credentials masked as credentialFreeArgv masks its
- * words, each word read as a shell reads it (shellWords): a word that changes is written again in
- * its place, quoted as quoteArgv quotes it, every other character as it was. A text whose quote is
- * left open has each of its words between white space masked as one. The same string when nothing
- * changes.
- */
-export function credentialFreeCommandLine(text: string): string {
-  const words = shellWords(text) ?? [...text.matchAll(/\S+/g)].map((m) => ({ start: m.index, end: m.index + m[0].length, value: m[0] }));
-  const values = words.map((w) => w.value);
-  const masked = credentialFreeArgv(values);
-  return masked === values ? text : rewriteWords(text, words, masked, (v) => quoteArgv([v]));
+/** Whether a string reads as a URL: absolute (`https://…`), or a path with a query, a fragment or parameters (URL_SHAPED). */
+export function urlShaped(text: string): boolean {
+  return URL_SHAPED.test(text);
 }
 
 /**

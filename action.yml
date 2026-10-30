@@ -61,7 +61,7 @@ inputs:
     description: Push every test run and the session's report to the team store set in shadowlap.config.json (shadowlap test --push), and each fix that fix-on-failure opens, so teammates see it on their Fixes page. The job needs credentials for the bucket (shadowlap store ci prints the steps that give them, and with R2 keeps its keys and the push to jobs that aren't a pull request's); a pull request's job writes only to its own folder. A push that can't happen, such as one without credentials or from a fork's pull request, is a warning that says why; it never fails the job or keeps a fix's pull request from opening.
     default: 'false'
   fix-on-failure:
-    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence, nor from a fix's own branch; never merges. Needs contents and pull-requests write permission, the repairer's key, and the agent's own provider keys (blame and verify run it live); github-token says how the pull request's checks start.
+    description: When a golden fails an outcome check, run blame, repair and verify, and open a pull request with the fix verify accepted. Never for a divergence, nor from a fix's own branch or a merge queue's; never merges. Needs contents and pull-requests write permission, the repairer's key, and the agent's own provider keys (blame and verify run it live); github-token says how the pull request's checks start.
     default: 'false'
   fix-budget:
     description: Dollars fix-on-failure may spend per failing golden, on blame, the repairer and verify together.
@@ -171,6 +171,9 @@ runs:
         fi
         echo "cli=$(pwd)/packages/cli/bin/shadowlap.js" >> "$GITHUB_OUTPUT"
 
+    # The action runs on pull_request, push, schedule, workflow_dispatch and merge_group alone
+    # (action/events.mjs): on any other event this step keeps nothing, so the cache is neither
+    # restored nor saved, and the replay stops before it tests anything.
     - name: Find the test history to keep
       id: history
       shell: bash

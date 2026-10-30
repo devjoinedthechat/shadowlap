@@ -122,6 +122,12 @@ export interface McpOrigin {
   server: string;
 }
 
+/**
+ * The name a call's error is recorded under when the client's answer was broken off with the
+ * server's (`--listen`), so a replay breaks it off the same way rather than answer with the error.
+ */
+const CUT_SHORT = 'McpAnswerCutShort';
+
 /** A text bound for the sidecar: control characters as spaces, cut to `max`. */
 const bounded = (s: string, max: number) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max);
 
@@ -181,10 +187,11 @@ export class ToolCalls {
   }
 
   /**
-   * Routes a `tools/call`: `answer` is the response to give the client here; otherwise the request
-   * goes to the server, and `live` is set when its answer is to be recorded.
+   * Routes a `tools/call`: `answer` is the response to give the client here, and `cut` says the
+   * recording broke the client's answer off, which a transport that can does again; otherwise the
+   * request goes to the server, and `live` is set when its answer is to be recorded.
    */
-  async route(m: JsonRpcMessage & { id: JsonRpcId }): Promise<{ answer: unknown } | { forward: true; live?: LiveCall }> {
+  async route(m: JsonRpcMessage & { id: JsonRpcId }): Promise<{ answer: unknown; cut?: true } | { forward: true; live?: LiveCall }> {
     if (this.sidecar === null) return { forward: true };
     const name = typeof m.params?.name === 'string' ? m.params.name : '';
     const args = m.params?.arguments ?? {};
@@ -205,7 +212,7 @@ export class ToolCalls {
         // A tool failed with --fail-at answers as an MCP server does when a tool's handler fails: a
         // result with isError, which the client hands to the model. A recorded error stays as recorded.
         if (r.outcome === 'error' && r.injected) return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
-        return { answer: r.outcome === 'ok' ? { jsonrpc: '2.0', id: m.id, result: r.result } : { jsonrpc: '2.0', id: m.id, error: rpcError(r.error) } };
+        return { answer: r.outcome === 'ok' ? { jsonrpc: '2.0', id: m.id, result: r.result } : { jsonrpc: '2.0', id: m.id, error: rpcError(r.error) }, ...(r.outcome === 'error' && r.error.name === CUT_SHORT ? { cut: true as const } : {}) };
       case 'blocked':
         // The model sees the refusal as a tool error and can carry on, as an SDK agent would after ShadowlapWriteBlocked.
         return { answer: { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: r.error.message }], isError: true } } };
@@ -236,12 +243,12 @@ export class ToolCalls {
     return { forward: true };
   }
 
-  /** Records the server's answer to a call sent on. */
-  async complete(call: LiveCall, m: JsonRpcMessage): Promise<void> {
+  /** Records the server's answer to a call sent on; with `cut`, an error for an answer the client got broken off. */
+  async complete(call: LiveCall, m: JsonRpcMessage, o: { cut?: boolean } = {}): Promise<void> {
     if (this.sidecar === null || 'unusable' in this.sidecar) return;
     const latencyMs = Date.now() - call.started;
     const body = m.error
-      ? { outcome: 'error', error: { name: 'JsonRpcError', message: m.error.message, code: String(m.error.code), ...(m.error.data !== undefined ? { data: m.error.data } : {}) }, latencyMs }
+      ? { outcome: 'error', error: { name: o.cut ? CUT_SHORT : 'JsonRpcError', message: m.error.message, code: String(m.error.code), ...(m.error.data !== undefined ? { data: m.error.data } : {}) }, latencyMs }
       : { outcome: 'ok', result: m.result ?? null, latencyMs };
     try {
       await post(this.sidecar, `/v1/calls/${call.callNo}/complete`, body);

@@ -569,6 +569,12 @@ describe('what a fix is verified on', () => {
     expect(cannotFix(repo, env)).toBeNull();
   });
 
+  it("opens no fix from a merge queue's branch, which goes once its group merges or leaves the queue", () => {
+    // As actions/checkout checks out a merge_group job's ref.
+    const repo = checkout('sl-fix-queue-', 'gh-readonly-queue/main/pr-12-7d1c0b5e9f3a2468ace0bdf13579bdf02468ace0');
+    expect(cannotFix(repo, { ...process.env, ...REPO, GITHUB_EVENT_NAME: 'merge_group' })).toBe("gh-readonly-queue/main/pr-12-7d1c0b5e9f3a2468ace0bdf13579bdf02468ace0 is a merge queue's branch, which GitHub deletes once its group merges or leaves the queue, so no fix is opened against it");
+  });
+
   it("opens no fix, before anything is spent, where it couldn't push one: a checkout of another repository, or a job that names none", () => {
     const repo = checkout('sl-fix-origin-', 'main');
     expect(cannotFix(repo, { ...process.env, ...REPO })).toBeNull();

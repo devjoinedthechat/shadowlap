@@ -1,6 +1,6 @@
 import type { BlameReport } from './blame.js';
 import { canonicalize } from './canonical.js';
-import { credentialFreeCommandLine } from './http.js';
+import { credentialFreeCommandLine } from './argv-credentials.js';
 import { ulid } from './ids.js';
 import type { RepairReport } from './repair.js';
 import type { FixData, FixStatus, StepRerun, StoreOf, StoredBlame, StoredFix, StoredRepair, StoredVerdict, VerdictStanding } from './store.js';
