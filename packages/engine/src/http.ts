@@ -641,10 +641,19 @@ function maskedString(key: string | null, value: string, under: boolean, depth: 
  */
 const credentialMember = (key: string): boolean | StringTest => (credentialParam(key, '') ? true : describesASecret(key) ? readsAsKey : false);
 
-/** Whether a name names or describes a secret under the rule masking reads by (namesASecret), so it keeps a value that reads as no key. */
+/** Every word of SECRET_WORD, and every one a password's starts, holds one of these, in any case. */
+const SECRET_WORD_IN = /pass|secret/i;
+
+/**
+ * Whether a name names or describes a secret under the rule masking reads by (namesASecret), so it
+ * keeps a value that reads as no key. A name with no secret word's letters in it (SECRET_WORD_IN), as
+ * most are, isn't split into its words: a body nested deep opens an object under a member at every
+ * level.
+ */
 function describesASecret(name: string): boolean {
+  if (secretNames === 0 || !SECRET_WORD_IN.test(name)) return false;
   const words = wordsOf(name);
-  return secretNames > 0 && words.some(secretWord) && namesASecret(words, secretNames);
+  return words.some(secretWord) && namesASecret(words, secretNames);
 }
 
 /** The string rule for strings `depth` deep, as walkJson takes it; with `byName`, as a redirect's JSON is read (maskedString). */
