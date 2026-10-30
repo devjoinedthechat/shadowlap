@@ -170,7 +170,7 @@ describe('a regression from 95% to 60% on the default branch, re-run in CI', () 
     const whole = (x: number) => `${Math.round(100 * x)}%`;
     // The first run is the same under either pooling: the same baselines, before any regressed session joined one.
     expect(whole(then.exact[0])).toBe(whole(stated));
-    const text = `In a seeded simulation of ${REPLICAS} histories (in the engine's tests), each with a baseline of its own from 10 sessions at 95%, a drop to 60% was caught on the first run after it ${whole(stated)} of the time and on the tenth ${whole(now.exact[RERUNS - 1])}, worked out exactly against each history's baseline and averaged over them; when every session joined the baseline, it was caught as often on the first run, ${whole(then.exact[3])} on the fourth and ${whole(then.exact[RERUNS - 1])} on the tenth`;
+    const text = `In a seeded simulation of ${REPLICAS} histories (in the engine's tests), each with a baseline of its own from 10 sessions at 95%, a drop to 60% was caught on the first run after it ${whole(stated)} of the time and on the tenth ${whole(now.exact[RERUNS - 1])}. Both are worked out exactly against each history's baseline and averaged over them. When every session joined the baseline, it was caught as often on the first run, ${whole(then.exact[3])} on the fourth and ${whole(then.exact[RERUNS - 1])} on the tenth`;
     expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
   });
 });

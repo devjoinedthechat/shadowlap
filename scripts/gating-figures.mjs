@@ -7,7 +7,8 @@
 //
 //   node scripts/gating-figures.mjs
 //
-// writes packages/engine/test/gating-figures.json and prints the sentences to put in docs/gating.md.
+// writes packages/engine/test/gating-figures.json and prints the sentences and tables to put in
+// docs/gating.md.
 // packages/engine/test/gating-figures.test.ts holds the page to the file, and the file to the code: it
 // works out each loop's first 10 histories again, which come out as the file keeps them only while the
 // planner, the rule and the loop are as they were when it was written.

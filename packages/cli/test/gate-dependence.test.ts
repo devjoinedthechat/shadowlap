@@ -135,7 +135,15 @@ describe('goldens whose failures come in bursts', { timeout: 120_000 }, () => {
     const page = readFileSync(fileURLToPath(new URL('../../../docs/gating.md', import.meta.url)), 'utf8');
     const at95 = cases.find((c) => c.rate === 0.95 && c.burst === 0.5)!;
     const at90 = cases.find((c) => c.rate === 0.9 && c.burst === 0.3)!;
-    const text = `100 goldens of an agent that passes 95% of its attempts, where after a failure the next attempt fails half the time, go red ${pct(at95.oneByOne)} of the time when their attempts run one golden after another, and ${pct(at95.inTurns)} in turns; at 90%, where it fails again 30% of the time, ${pct(at90.oneByOne)} and ${pct(at90.inTurns)}`;
+    // A row for each agent: how often its failures come again, and how often its 100 goldens go red each way.
+    const text = [
+      "In a seeded simulation in the CLI's tests, 100 goldens whose failures come in bursts go red this share of the time, against the suite's 5%:",
+      '',
+      '| Agent passes | After a failure, the next attempt fails | Red, one golden after another | Red, in turns |',
+      '|---|---|---:|---:|',
+      `| 95% of its attempts | Half the time | ${pct(at95.oneByOne)} | ${pct(at95.inTurns)} |`,
+      `| 90% | 30% of the time | ${pct(at90.oneByOne)} | ${pct(at90.inTurns)} |`,
+    ].join('\n');
     expect(page.includes(text), `docs/gating.md says: ${text}`).toBe(true);
     console.log(cases.map((c) => `${c.goldens} goldens at ${c.rate}, P(fail | fail before) ${c.burst}: red ${pct(c.oneByOne)} one by one, ${pct(c.inTurns)} in turns`).join('\n'));
   });
