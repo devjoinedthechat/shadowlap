@@ -114,7 +114,7 @@ function stepsOf(rec: FixRecords): FixStep[] {
   else {
     const r = b.report;
     const cost = `${r.attempts} attempt${s(r.attempts)} · ${approx(r.spent)}`;
-    // At the call blame names, or gradually around two when no one call lost the run.
+    // At the call blame names, or around or between two when no one call is pinned.
     if (b.outcome === 'blamed' && r.blamed) blame = { key: 'blame', n: '01', state: 'done', short: lostWords(r.blamed.callNo, r.range), title: lostWords(r.blamed.callNo, r.range, 'title'), meta: `confidence ${r.confidence} · ${cost}` };
     // Its first probe couldn't tell: not settled, never a finding that no call rescues the run.
     // Not rescued from any model call only where blame's bound bears it out; else from the first, as blame's report heads it.

@@ -113,18 +113,21 @@ describe('how a run stands, in the terminal', () => {
     s.close();
   });
 
-  it('says a run blame found lost gradually around two calls was, in the run list and its timeline, never lost at the first', async () => {
+  it.each([
+    ['gradually around two calls', { from: 9, to: 11, fromStep: 4, toStep: 5, gradual: true as const }, 'lost gradually around #9 and #11'],
+    ['between two calls, the probes between them undecided', { from: 9, to: 12, fromStep: 4, toStep: 6 }, 'lost between #9 and #12'],
+  ])('says a run blame found lost %s so, in the run list and its timeline, never lost at the first', async (_, range, words) => {
     const { s, rec } = story();
-    s.updateRunMeta(rec, { blame: { ...s.getRun(rec)!.meta!.blame!, range: { from: 9, to: 11, fromStep: 4, toStep: 5, gradual: true } } });
+    s.updateRunMeta(rec, { blame: { ...s.getRun(rec)!.meta!.blame!, range } });
     const list = renderAt(<App store={s} columns={160} rows={30} />, 160, 30);
     const frame = await frameWhere(list.lastFrame, (f) => f.includes('2 runs'));
-    expect(frame).toMatch(/recording\s+Research request.*✗ 1\/2\s+lost gradually around #9 and #11\s+refund/);
+    expect(frame).toMatch(new RegExp(`recording\\s+Research request.*✗ 1/2\\s+${words}\\s+refund`));
     expect(frame).not.toContain('lost at #9');
     list.unmount();
     // The red line before the first of the two says so too, where a run lost at one call says "lost here".
     const page = renderAt(<App store={s} runId={rec} columns={120} rows={40} />, 120, 40);
     const lines = (await frameWhere(page.lastFrame, (f) => f.includes('How this run stands'))).split('\n');
-    expect(lines[lines.findIndex((l) => /> #9\s/.test(l)) - 1]).toContain('── lost gradually around #9 and #11 · blame, high confidence');
+    expect(lines[lines.findIndex((l) => /> #9\s/.test(l)) - 1]).toContain(`── ${words} · blame, high confidence`);
     page.unmount();
     s.close();
   });

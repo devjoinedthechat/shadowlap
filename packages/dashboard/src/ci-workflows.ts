@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { judgeTarget, lostAround, lostWords, type StoreOf } from '@shadowlap/engine';
+import { judgeTarget, lostRange, lostWords, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
 import { fixDetail, fixList, type FixDetail } from './fixes.js';
@@ -237,7 +237,7 @@ function lostLine(fix: FixDetail): string | null {
   const b = fix.blame;
   if (!b?.lostAt) return null;
   const range = b.evidence.range;
-  return `${lostWords(b.lostAt, range, 'calls')}${b.step && !lostAround(range) ? ` (${b.step} of ${b.steps})` : ''}`;
+  return `${lostWords(b.lostAt, range, 'calls')}${b.step && !lostRange(range) ? ` (${b.step} of ${b.steps})` : ''}`;
 }
 
 /**

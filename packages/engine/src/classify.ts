@@ -7,7 +7,7 @@
 import { checkStatus } from './check-status.js';
 import type { Origin, Outcome, RunMode, RunStatus } from './types.js';
 import { isObject } from './is-object.js';
-import { lostAround, lostWords } from './run-verdicts.js';
+import { lostRange, lostWords } from './run-verdicts.js';
 
 /**
  * - `recording`: recorded by `shadowlap run`.
@@ -266,9 +266,9 @@ export function lostAt(run: Pick<ClassifiableRun, 'meta'>): number | null {
   return isObject(b) && b.outcome === 'blamed' && typeof b.callNo === 'number' && Number.isInteger(b.callNo) ? b.callNo : null;
 }
 
-/** A run blame found lost at `callNo`: and when no one call lost it, the two it was lost gradually around (lostAround). */
+/** A run blame found lost at `callNo`: and when no one call is pinned, the two it was lost around or between (lostRange). */
 function lostOutcome(run: Pick<ClassifiableRun, 'meta'>, callNo: number): RunOutcome {
-  const range = lostAround(run.meta?.blame?.range);
+  const range = lostRange(run.meta?.blame?.range);
   return { kind: 'lost', callNo, ...(range ? { range } : {}) };
 }
 
@@ -278,7 +278,7 @@ function lostOutcome(run: Pick<ClassifiableRun, 'meta'>, callNo: number): RunOut
  * - `running`: in progress.
  * - `diverged`: a test replay that left its golden at call `callNo`.
  * - `lost`: `shadowlap blame` replayed the run, saw it fail, and found the model call that lost it,
- *   or, with `range`, the two calls it was lost gradually around (lostAround): lostWords says which.
+ *   or, with `range`, the two calls it was lost around or between (lostRange): lostWords says which.
  * - `check-failed`: an outcome check failed, blame confirmed a failure it could not place, the
  *   agent exited with an error (the first check of every oracle is that it exits 0), or a test
  *   replay made no calls.
@@ -292,7 +292,7 @@ function lostOutcome(run: Pick<ClassifiableRun, 'meta'>, callNo: number): RunOut
 export type RunOutcome =
   | { kind: 'running' }
   | { kind: 'diverged'; callNo: number }
-  | { kind: 'lost'; callNo: number; range?: { from: number; to: number; gradual: true } }
+  | { kind: 'lost'; callNo: number; range?: { from: number; to: number; gradual?: true } }
   | { kind: 'check-failed'; check: string | null }
   | { kind: 'inconclusive'; check: string | null }
   | { kind: 'passed'; checks: number; notApplicable?: number }

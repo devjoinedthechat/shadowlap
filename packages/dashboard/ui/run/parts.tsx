@@ -157,8 +157,8 @@ export interface BannerProps {
 
 /**
  * Words that name calls, as the engine's lostWords says where a run was lost (`lost at #5`, `lost
- * gradually around #5 and #7`): what comes before the first call is the banner's label, and each call
- * a button that selects it.
+ * gradually around #5 and #7`, `lost between #7 and #9`): what comes before the first call is the
+ * banner's label, and each call a button that selects it.
  */
 function CallWords({ words, call }: { words: string; call: (n: number) => ReactNode }) {
   const [label = '', ...rest] = words.split(/(#\d+)/);

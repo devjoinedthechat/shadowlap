@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { compareFork, forkEnd } from '../src/fork-changes.js';
 import { storeApiRequest } from '../src/manifest.js';
 import { markChange, markKey, markToast } from '../src/run-marks.js';
-import { attemptVerdict, failureReason, FAILURE_WORDS, keptAttemptVerdict, lostAround, lostWords } from '../src/run-verdicts.js';
+import { attemptVerdict, failureReason, FAILURE_WORDS, keptAttemptVerdict, lostRange, lostWords } from '../src/run-verdicts.js';
+import { lostWhere } from '../src/blame.js';
 import { Store } from '../src/store.js';
 import type { Effect, Origin } from '../src/types.js';
 
@@ -29,7 +30,7 @@ describe('why a run failed', () => {
 });
 
 describe('where blame found a run lost', () => {
-  it('says the call it names, or, where no one call lost the run, the two it was lost gradually around', () => {
+  it('says the call it names, or, where it pinned no one call, the two it was lost gradually around or between, as the CLI does', () => {
     expect(lostWords(5)).toBe('lost at #5');
     expect(lostWords(5, null, 'calls')).toBe('lost at model call #5');
     expect(lostWords(5, undefined, 'title')).toBe('Lost at model call #5');
@@ -37,15 +38,24 @@ describe('where blame found a run lost', () => {
     expect(lostWords(5, gradual)).toBe('lost gradually around #5 and #7');
     expect(lostWords(5, gradual, 'calls')).toBe('lost gradually around model calls #5 and #7');
     expect(lostWords(5, gradual, 'title')).toBe('Lost gradually around model calls #5 and #7');
-    // Pinned to one call, or a range the probes left open, it is said at the call blame names.
+    // The probes between two calls could not decide: lost at one of the calls from the first to the second.
+    const between = { from: 7, to: 9, fromStep: 2, toStep: 3 };
+    expect(lostWords(7, between)).toBe('lost between #7 and #9');
+    expect(lostWords(7, between, 'calls')).toBe('lost between model calls #7 and #9');
+    expect(lostWords(7, between, 'title')).toBe('Lost between model calls #7 and #9');
+    // As the CLI's report and show word the two (lostWhere), but for its comma.
+    expect(`lost ${lostWhere(7, between)}`).toBe(lostWords(7, between, 'calls'));
+    expect(`lost ${lostWhere(5, gradual)}`).toBe(lostWords(5, gradual, 'calls').replace('gradually around', 'gradually, around'));
+    // Pinned to one call, it is said at the call blame names.
     expect(lostWords(5, { from: 5, to: 5 })).toBe('lost at #5');
-    expect(lostWords(7, { from: 7, to: 9 })).toBe('lost at #7');
   });
 
-  it('reads a range as gradual only when it is two whole calls in order: a run from a pack can carry anything', () => {
-    expect(lostAround({ from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true })).toEqual({ from: 5, to: 7, gradual: true });
-    for (const odd of [null, undefined, 'x', [], { from: 5, to: 7 }, { from: 5, to: 7, gradual: 'yes' }, { from: 7, to: 5, gradual: true }, { from: 5, to: 5, gradual: true }, { from: 0, to: 2, gradual: true }, { from: 1.5, to: 3, gradual: true }, { from: '5', to: '7', gradual: true }]) {
-      expect(lostAround(odd), JSON.stringify(odd)).toBeNull();
+  it('reads a range as two calls only when they are two whole calls in order: a run from a pack can carry anything', () => {
+    expect(lostRange({ from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true })).toEqual({ from: 5, to: 7, gradual: true });
+    expect(lostRange({ from: 7, to: 9, fromStep: 2, toStep: 3 })).toEqual({ from: 7, to: 9 });
+    expect(lostRange({ from: 7, to: 9, gradual: 'yes' })).toEqual({ from: 7, to: 9 });
+    for (const odd of [null, undefined, 'x', [], { from: 7, to: 5, gradual: true }, { from: 5, to: 5, gradual: true }, { from: 5, to: 5 }, { from: 0, to: 2, gradual: true }, { from: 1.5, to: 3 }, { from: '5', to: '7', gradual: true }]) {
+      expect(lostRange(odd), JSON.stringify(odd)).toBeNull();
     }
     expect(lostWords(5, { from: 7, to: 5, gradual: true })).toBe('lost at #5');
   });
