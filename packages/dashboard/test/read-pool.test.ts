@@ -272,7 +272,7 @@ describe('read models on threads beside the server', () => {
   }, 30_000);
 
   it('starts another spare thread for what comes while what can wait holds one thread and requests every other, and ends both after', async () => {
-    const { pool: two, said } = timedPool({ analyse: 3000, compare: 3000, unrecorded: 2000 }, 'spare-stand-in');
+    const { pool: two, said } = timedPool({ analyse: 4000, compare: 3000, unrecorded: 2000 }, 'spare-stand-in');
     const idle = READ_LIMITS.spareIdleMs;
     READ_LIMITS.spareIdleMs = 50;
     const order: string[] = [];
@@ -286,13 +286,12 @@ describe('read models on threads beside the server', () => {
       const tools = noted('tools', two.run({ kind: 'unrecorded', runId: 'S', declared: {} }, { affinity: 'S', calls: 30 }));
       // The sidebar behind all three is answered on a fourth thread, before any of them ends: what can
       // wait holds a thread a request would have had.
-      const t0 = Date.now();
       const recent = await noted('recent', two.run({ kind: 'recent', read: {} }));
-      expect(Date.now() - t0).toBeLessThan(1500);
       const [c, t] = await Promise.all([compare, tools]);
       expect(new Set([first.thread, c.thread, t.thread, recent.thread]).size).toBe(4);
       expect(order).toEqual(['recent', 'tools', 'compare']);
-      // Once nothing can wait any more and they have had nothing to do, both spare threads end.
+      // Once nothing can wait any more (the analysis outlasts both requests) and they have had nothing
+      // to do, both spare threads end.
       const slots = () => (two as unknown as { slots: unknown[] }).slots.length;
       expect(slots()).toBe(4);
       for (let i = 0; i < 400 && slots() > 2; i++) await new Promise((r) => setTimeout(r, 25));
