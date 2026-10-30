@@ -4,7 +4,7 @@ import { approx, num, shortId } from '../format.js';
 import { href } from '../route.js';
 import { navigate } from '../router.js';
 import type { BlameStep, FixDetail } from '../types.js';
-import { attemptMark, blameWhere, callRowCells, probeBadge, probeVerdictWords } from './model.js';
+import { attemptMark, blameWhere, callRowCells, otherBlameWords, probeBadge, probeVerdictWords } from './model.js';
 import { AttemptGroups, useAttemptGroups } from './AttemptGroups.js';
 import { StepHead } from './parts.js';
 
@@ -164,7 +164,7 @@ export function BlameStepView({ fix }: { fix: FixDetail }) {
                     <a className="more" href={href.run(o.runId, o.lostAt)}>
                       {shortId(o.runId)}
                     </a>{' '}
-                    {o.outcome === 'blamed' && o.lostAt !== null ? `lost at #${o.lostAt}` : o.outcome === 'unrescuable' ? (o.unsettled ? 'not settled' : 'not rescued') : 'stopped'}
+                    {otherBlameWords(o)}
                   </span>
                 ))}
                 .

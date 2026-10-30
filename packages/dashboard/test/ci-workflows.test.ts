@@ -83,6 +83,16 @@ describe('the pull request a fix opens', () => {
     ]);
   });
 
+  it('says a run blame found lost gradually around two calls was, as the body\'s Lost at column has it, never at the first', () => {
+    const failing = makeRun(store, { labels: ['refund-bug'], calls: ['api', 'tool', 'api', 'tool', 'api', 'tool', 'api'] });
+    const range = { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true as const };
+    recordBlame(store, { runId: failing, report: { ...blameReport(failing), range }, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: 1_000 });
+    recordVerdict(store, { report: verifyReport([{ runId: failing, role: 'target', pass: true }]), expect: EXPECT, command: 'shadowlap verify', at: 2_000 });
+    const report = repairReport({ targets: [failing] });
+    recordRepair(store, { repairId: 'repair-gradual1', dir: '.shadowlap/repairs/repair-gradual1', report: { ...report, targets: report.targets.map((t) => ({ ...t, range })) }, expect: EXPECT, command: 'shadowlap repair', at: 3_000 });
+    expect(fixPreview(store, '2.00')?.blame).toBe('lost gradually, around model calls #5 and #7 (3 and 4 of 4)');
+  });
+
   it('names the branch after the golden whose test replay failed, as the action does, and the example the same way', () => {
     expect(ciFixBranch('goldens/refund-over-limit')).toBe('shadowlap/fix-refund-over-limit-…');
     expect(ciFixBranch('goldens/Refund Flow (EU)')).toBe('shadowlap/fix-refund-flow-eu-…');

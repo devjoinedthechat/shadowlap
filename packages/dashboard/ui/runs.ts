@@ -1,4 +1,5 @@
 import { isAttempt as isAttemptRun } from '../../engine/src/run-roles.js';
+import { lostWords } from '../../engine/src/run-verdicts.js';
 import { filterTerms } from '../src/links.js';
 import { approx, money, num, plural, shortId } from './format.js';
 import { countOrigins, parseOrigins, type Origin7, type OriginCounts } from './origins.js';
@@ -40,14 +41,15 @@ export interface RunLike {
    * listed like any run (`normalizeRuns`).
    */
   attemptKind?: string | null;
-  /** The last blame: the call the run was lost at. */
-  blame?: { callNo: number | null } | null;
+  /** The last blame: the call the run was lost at, and the two it was lost gradually around when no one call lost it. */
+  blame?: { callNo: number | null; range?: unknown } | null;
   /** Outcome checks, as they came out for this run: `passed` of `total`, and when any, `inconclusive` and `notApplicable`. */
   checks?: CheckCounts | null;
   author?: string | null;
   /** What kind of run it is and how it came out, when the server classifies runs itself. */
   kind?: string | null;
-  outcome?: { kind: string; callNo?: number; checks?: number; notApplicable?: number; check?: string | null } | null;
+  /** `range` on a run blame found lost gradually around two calls. */
+  outcome?: { kind: string; callNo?: number; range?: unknown; checks?: number; notApplicable?: number; check?: string | null } | null;
   failed?: boolean | null;
   /** What the run was about (decision 10: the id names it), when the server says. */
   about?: { text: string; from: string } | null;
@@ -310,7 +312,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
   if (o) {
     if (o.kind === 'running') return { tone: 'live', text: 'in progress' };
     if (o.kind === 'diverged' && typeof o.callNo === 'number') return { tone: 'err', text: `diverged at #${o.callNo}` };
-    if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: `lost at #${o.callNo}` };
+    if (o.kind === 'lost' && typeof o.callNo === 'number') return { tone: 'err', text: lostWords(o.callNo, o.range) };
     // A check, or the agent's exit (an outcome that names no check), in the sidebar's words.
     if (o.kind === 'check-failed') return { tone: 'err', text: failedWord(r) };
     // No check failed, and one could not be decided: amber, neither a pass nor a failure.
@@ -321,7 +323,7 @@ export function runOutcome(r: RunLike): { tone: 'live' | 'err' | 'ok' | 'warn' |
     if (o.kind === 'none') return r.status === 'crashed' ? { tone: 'n', text: 'interrupted' } : nothingToReport(r);
   }
   if (r.test && r.divergence) return { tone: 'err', text: `diverged at #${r.divergence.callNo}` };
-  if (r.blame && r.blame.callNo) return { tone: 'err', text: `lost at #${r.blame.callNo}` };
+  if (r.blame && r.blame.callNo) return { tone: 'err', text: lostWords(r.blame.callNo, r.blame.range) };
   if (r.checks && r.checks.total) {
     if (checksFailed(r.checks) > 0) return { tone: 'err', text: 'check failed' };
     if (r.checks.inconclusive) return { tone: 'warn', text: 'check inconclusive' };

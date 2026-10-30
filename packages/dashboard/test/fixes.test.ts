@@ -53,10 +53,10 @@ describe('a run blame found lost gradually around two calls', () => {
     // The check of the call the probes pinned (#5) found no drop there: lost gradually around it and the next model call, #7.
     const report = { ...blameReport(failing), range: { from: 5, to: 7, fromStep: 3, toStep: 4, gradual: true as const } };
     const { fix } = recordBlame(store, { runId: failing, report, expect: EXPECT, scope: null, command: 'shadowlap blame', title: 'issue_refund called with amount 240', checkText: 'issue_refund never called with {"amount":240}', at: NOW });
-    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'done', short: 'lost gradually, #5–#7', title: 'Lost gradually around model calls #5 and #7' });
+    expect(fixList(store).fixes[0].steps[0]).toMatchObject({ state: 'done', short: 'lost gradually around #5 and #7', title: 'Lost gradually around model calls #5 and #7' });
     expect(fixDetail(store, fix.fixId)!.steps[0]).toMatchObject({ title: 'Lost gradually around model calls #5 and #7' });
     expect(fixDetail(store, fix.fixId)!.blame).toMatchObject({ title: 'Lost gradually around model calls #5 and #7' });
-    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost gradually around #5 and #7 · no fix yet');
+    expect(needsLookFixes(store).find((x) => x.fixId === fix.fixId)?.detail).toBe('lost gradually around model calls #5 and #7 · no fix yet');
     // Pinned to one call, it says the call.
     const pinned = makeRun(store, { labels: ['double-email'] });
     const { fix: one } = blame(pinned, { expect: { tools: { send_email: 1 } }, title: 'send_email called twice, not once' });

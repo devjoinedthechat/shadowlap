@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import { useMemo, type ReactNode } from 'react';
-import { formatDuration, formatTokens, formatUsd, importedCommandSource, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { formatDuration, formatTokens, formatUsd, importedCommandSource, lostAround, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { fitAbout } from '../about.js';
 import type { Action } from '../actions.js';
 import { ago, type ModelAction } from '../data.js';
@@ -103,6 +103,17 @@ function rowsOf(visibleCalls: readonly CallRecord[], divergence: RunRecord['dive
   return i < 0 ? items : [...items.slice(0, i), { kind: 'lost' }, ...items.slice(i)];
 }
 
+/**
+ * The words of the red line before the call blame found the run lost at: lost here, or, when it found
+ * no one call lost it, the two it was lost gradually around, in the engine's words (lostWords); then
+ * its confidence.
+ */
+function lostRuleWords(run: RunRecord): string {
+  const b = run.meta?.blame;
+  const where = b && typeof b.callNo === 'number' && lostAround(b.range) ? lostWords(b.callNo, b.range) : 'lost here';
+  return `${where} · blame, ${String(b?.confidence ?? '')} confidence`;
+}
+
 export interface CallListProps {
   run: RunRecord;
   calls: readonly CallRecord[];
@@ -183,7 +194,7 @@ export function CallList({ run, calls, visibleCalls, selected, lost, notedCalls,
     );
   };
   const draw = (it: Item) =>
-    it.kind === 'fork' ? rule('fork', divergenceSummary(divergence!), theme.accent) : it.kind === 'lost' ? rule('lost', `lost here · blame, ${String(run.meta?.blame?.confidence ?? '')} confidence`, theme.err) : callRow(visibleCalls[it.at]!, it.at);
+    it.kind === 'fork' ? rule('fork', divergenceSummary(divergence!), theme.accent) : it.kind === 'lost' ? rule('lost', lostRuleWords(run), theme.err) : callRow(visibleCalls[it.at]!, it.at);
 
   return (
     <Box flexDirection="column" width={width} height={height} borderStyle="round" borderColor={focused ? theme.accent : theme.faint}>

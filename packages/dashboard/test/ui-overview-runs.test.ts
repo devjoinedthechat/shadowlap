@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseOtlpFile, readOtel } from '../../cli/src/import-otel.js';
 import { runsLinkQuery, runsQueryString } from '../ui/runspage/query.js';
-import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
+import { activityGlyph, activityLine, blameWords, chartScale, dayText, dotLine, kindGlyph, needsLookAction, needsLookShown, originCounts, originRows, outcomeWords, personName, reproducedNote, share, spentNote, testsKpi, tickText, todayBlameCount, todayTestsLine, verifiedNote } from '../ui/overview/model.js';
 import { authorTint, ciName } from '../ui/runspage/authors.js';
 import { bulkToast, deleteText, deleteWhat, localTitle, PACK_MAX, packCommand, packFolders, packOff, rmCommand } from '../ui/runspage/bulk.js';
 import { datasetCommand, datasetFile } from '../ui/run/share.js';
@@ -34,6 +34,11 @@ describe('the Overview’s words', () => {
     expect(verifiedNote({ value: 1, lastWeek: 0, rejected: 0 })).toBe('none rejected');
     // Today's blame line, in the words Needs a look uses for the same fix.
     expect(blameWords({ outcome: 'blamed', lostAt: 7 })).toBe('lost at #7');
+    // No one call lost it: the two it was lost gradually around, as Runs and Fixes say it.
+    expect(blameWords({ outcome: 'blamed', lostAt: 7, range: { from: 7, to: 9, gradual: true } })).toBe('lost gradually around #7 and #9');
+    expect(outcomeWords({ kind: 'lost', callNo: 7 })).toBe('lost at #7');
+    expect(outcomeWords({ kind: 'lost', callNo: 7, range: { from: 7, to: 9, gradual: true } })).toBe('lost gradually around #7 and #9');
+    expect(outcomeWords({ kind: 'diverged', callNo: 1 })).toBe('diverged at #1');
     expect(blameWords({ outcome: 'unrescuable', lostAt: null })).toBe('not rescued from any model call');
     // One whose first probe couldn't tell is not settled, never a finding that no call rescues the run.
     expect(blameWords({ outcome: 'unrescuable', unsettled: true, lostAt: null })).toBe('not settled from the first model call');

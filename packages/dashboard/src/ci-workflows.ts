@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import { judgeTarget, type StoreOf } from '@shadowlap/engine';
+import { judgeTarget, lostAround, lostWords, type StoreOf } from '@shadowlap/engine';
 import { ciStep, parseStoreUrl, shortStoreName, type CiStepKeys, type StoreLocation } from '@shadowlap/remote';
 import { ACTION, alertFailures, alertsMessage, alertsNeeds, alertsSecret, alertsYaml, FIX_BUDGETS, fixOnFailureNeeds, fixOnFailureNever, fixOnFailureYaml, REPAIRERS, VERSION, WORKFLOW_FILE, workflowNeeds, workflowYaml, type BucketCredentials, type LiveGoldens } from './ci-yaml.js';
-import { fixDetail, fixList } from './fixes.js';
+import { fixDetail, fixList, type FixDetail } from './fixes.js';
 import type { TeamStoreInput } from './team-store.js';
 
 /**
@@ -223,6 +223,23 @@ function examplePreview(budget: string, base: string): PullRequestPreview {
   };
 }
 
+/** A failing run's place as the pull request's Lost at column has it (repair's targetWhere): at a model call, or gradually around, or between, two. */
+const LOST_PLACE = /^(?:model call #\d+ \(\d+ of \d+\)|(?:gradually, around|between) model calls #\d+ and #\d+ \(\d+ and \d+ of \d+\))/;
+
+/**
+ * Where blame found the fix's first failing run lost, as the pull request's Lost at column has it
+ * (who rescued it is a column of its own there): `lost at model call #5 (3 of 5)`, `lost gradually,
+ * around model calls #17 and #18 (17 and 18 of 30)`; from the fix's blame when its repair placed none.
+ */
+function lostLine(fix: FixDetail): string | null {
+  const place = fix.repair?.lost.map((l) => LOST_PLACE.exec(l.at)?.[0]).find((x): x is string => !!x);
+  if (place) return `lost ${place.startsWith('model call') ? 'at ' : ''}${place}`;
+  const b = fix.blame;
+  if (!b?.lostAt) return null;
+  const range = b.evidence.range;
+  return `${lostWords(b.lostAt, range, 'calls')}${b.step && !lostAround(range) ? ` (${b.step} of ${b.steps})` : ''}`;
+}
+
 /**
  * The pull request the newest verified fix in this store would be, opened by CI as the action opens
  * one: its commit title, the branch CI names after the golden that failed (the golden one of the
@@ -239,15 +256,13 @@ export function fixPreview(store: StoreOf<'recording' | 'readModels' | 'activity
     const spent = repair.cost.blame + (repair.cost.repairer ?? 0) + repair.cost.verify + (repair.cost.judge ?? 0);
     const patch = repair.files.find((f) => f.name === 'fix.patch')?.note.replace(/^1 file · /, '') ?? null;
     const golden = fix.failingRuns.map((r) => store.getRun(r.runId)?.meta?.test?.golden).find((g): g is string => typeof g === 'string') ?? null;
-    // The first failing run's place, as the body's Lost at column has it (who rescued it is a column of its own there).
-    const lost = repair.lost.map((l) => /^model call #\d+ \(\d+ of \d+\)/.exec(l.at)?.[0]).find((x): x is string => !!x) ?? (fix.blame?.lostAt ? `model call #${fix.blame.lostAt}${fix.blame.step ? ` (${fix.blame.step} of ${fix.blame.steps})` : ''}` : null);
     return {
       title: repair.title,
       author: 'github-actions',
       base: 'main',
       branch: ciFixBranch(golden),
       verify: verifyLine(repair.roles, repair.rule),
-      blame: lost ? `lost at ${lost}` : null,
+      blame: lostLine(fix),
       change: repair.change ? `${repair.change.file}${patch ? ` ${patch}` : ''}` : patch,
       spent: `≈${dollars(spent)} of $${budget}`,
       fixId: fix.fixId,

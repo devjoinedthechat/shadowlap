@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { attemptBundles, formatTokens, shortModel, wholeInput, withAttempts, type CallRecord, type ModelResolver, type Normalizer, type RunRecord, type Store, type StoreOf } from '@shadowlap/engine';
 import { aboutRun } from '../about.js';
-import { attemptTallies } from '../attempts.js';
+import { attemptTallies, leftRunning } from '../attempts.js';
 import { modelAction, type ModelAction } from '../data.js';
 import type { BlameAction, FixJob } from '../fix-actions.js';
 import { forkEffects } from '../fork-effects.js';
@@ -122,7 +122,9 @@ export function useRunFacts(store: Store, run: RunRecord, calls: CallRecord[], o
     const around = runsAround(store, run);
     const ids = withAttempts(attemptBundles(around), run.runId);
     const byId = new Map(around.map((r) => [r.runId, r]));
-    return ids.length ? attemptTallies(ids.flatMap((id) => byId.get(id) ?? [])) : null;
+    const attempts = ids.flatMap((id) => byId.get(id) ?? []);
+    // One its recorder left running is interrupted, as the run list counts it.
+    return ids.length ? attemptTallies(attempts, leftRunning(store, attempts)) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the attempts change when the run ends, or a job adds some (version), not each time it is read again
   }, [store, run.runId, run.status, version]);
   const blameAt = run.meta?.blame?.at;
