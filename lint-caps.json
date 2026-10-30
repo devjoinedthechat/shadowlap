@@ -440,9 +440,6 @@
     }
   },
   "max-lines-per-function": {
-    "packages/adapters/src/claude-agent-sdk.ts": {
-      "fenceHooks": 230
-    },
     "packages/cli/src/bisect.ts": {
       "runBisect": 193
     },
