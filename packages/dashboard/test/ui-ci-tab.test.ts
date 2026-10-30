@@ -85,6 +85,8 @@ describe('Settings → CI', () => {
     const fails = r.all('#workflow .teamside .cilist li');
     expect(fails.map((li) => li.querySelector('code')?.textContent)).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection', 'inconclusive']);
     expect(fails.map((li) => li.querySelector('i')?.getAttribute('class'))).toEqual(['err', 'err', 'err', 'err', 'err', 'warn']);
+    // The inconclusive row gives the same exception the Fails row beside it does: a young gate against history only warns.
+    expect(fails.at(-1)!.querySelector('span')!.textContent).toBe('a gate, a judge or an injection test can’t decide, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them');
     // The two fork goldens' key, in the needs and in the test step's env.
     expect(r.all('#workflow .cimain .cilist li').map((li) => li.textContent)).toContain('2 goldens run live (fork)ANTHROPIC_API_KEY');
     expect(r.one('#workflow .codebox').textContent).toContain('  env:\n    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}');

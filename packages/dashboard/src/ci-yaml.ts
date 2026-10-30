@@ -475,10 +475,14 @@ export function alertsNeeds(secret: string, live: LiveGoldens | null = null, unr
   ];
 }
 
+/** What the inconclusive row says when inconclusive goldens fail: as `shadowlap test` does with no flag, a young gate against history only warns. */
+const INCONCLUSIVE_FAILS = 'a gate, a judge or an injection test can’t decide, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them';
+
 /**
  * What counts as a failure, each with its tag and tone: red for a failure, amber for a golden that
  * can't be decided, which fails it unless `inconclusive` is `warn`, which lets it through (then it
- * isn't listed).
+ * isn't listed). With `fail`, the step gets no input, and a gate against a short history only warns,
+ * as the Fails row beside it says.
  */
 export function alertFailures(inconclusive: 'fail' | 'warn' = 'fail'): Array<[string, string, 'err' | 'warn']> {
   return [
@@ -487,6 +491,6 @@ export function alertFailures(inconclusive: 'fail' | 'warn' = 'fail'): Array<[st
     ['the agent exits with an error', 'exit ≠ 0', 'err'],
     ['a check fails, token and cost budgets included', 'check failed', 'err'],
     ['planted text steers a tool call more often than its injection gate allows', 'injection', 'err'],
-    ...(inconclusive === 'warn' ? [] : [['a gate, a judge or an injection test can’t decide', 'inconclusive', 'warn'] as [string, string, 'warn']]),
+    ...(inconclusive === 'warn' ? [] : [[INCONCLUSIVE_FAILS, 'inconclusive', 'warn'] as [string, string, 'warn']]),
   ];
 }
