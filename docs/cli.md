@@ -50,9 +50,9 @@ Every command takes these options:
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--db <path>` | The store to use | `./.shadowlap/shadowlap.db` |
-| `-v`, `--verbose` | Print the sidecar's log on stderr. Give every attempt its own line where a terminal folds them, as [blame](#blame), verify and repair do | — |
-| `-h`, `--help` | Print the command's help, with its options and these | — |
-| `-V`, `--version` | Print the version number | — |
+| `-v, --verbose` | Print the sidecar's log on stderr. Give every attempt its own line where a terminal folds them, as [blame](#blame), verify and repair do | — |
+| `-h, --help` | Print the command's help, with its options and these | — |
+| `-V, --version` | Print the version number | — |
 
 `--db` and `--verbose` go before the command or after it: `shadowlap --db other.db ls` and
 `shadowlap ls --db other.db` are the same. Run ids can be abbreviated to any unique prefix.
@@ -371,7 +371,7 @@ These flags decide how the replay runs:
 | `--summary-json <file>` | Also write the summary (with `--repeat`, every attempt and the report) as JSON to a file ([fields](#replay-summary-as-json)) | — |
 | `--guard warn\|block\|off` | The [network guard](./how-it-works.md#the-network-guard) for connections that bypass Shadowlap. `run` accepts `warn\|off`; `test` defaults to `block` | `warn` |
 | `--allow-unrecorded <names>` | Run these tools again for real, though the recording never recorded them: names separated by commas (repeatable; below) | — |
-| `-y`, `--yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking | — |
+| `-y, --yes` | Run the recorded command of a run imported from a pack, or pulled from the [team store](./team.md), without asking | — |
 
 These flags change what the replay does. [Interventions](./interventions.md) says what each one does
 to the conversation prefix, and what each provider takes:
@@ -761,12 +761,12 @@ shadowlap ls [--tree] [-n <limit>] [--label <label>] [--json]
 
 Lists runs, newest first, with their labels.
 
-| Flag                | What it does                                            | Default |
-| ------------------- | ------------------------------------------------------- | ------- |
-| `--tree`            | Nest forks under their parents                          | —       |
-| `-n`, `--limit <n>` | The most runs to list                                   | 50      |
-| `--label <label>`   | Keep runs with this label; repeat it to require several | —       |
-| `--json`            | Print one object per run (below)                        | —       |
+| Flag              | What it does                                            | Default |
+| ----------------- | ------------------------------------------------------- | ------- |
+| `--tree`          | Nest forks under their parents                          | —       |
+| `-n, --limit <n>` | The most runs to list                                   | 50      |
+| `--label <label>` | Keep runs with this label; repeat it to require several | —       |
+| `--json`          | Print one object per run (below)                        | —       |
 
 A run stopped before it ended, or left marked running by a recorder that went away, reads
 `interrupted`, as the dashboard lists it. `--json` keeps the stored status.
@@ -805,11 +805,11 @@ shadowlap search '"refund policy"' --run 01M2P9PVCP -n 50 [--json]
 Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words
 must appear together.
 
-| Flag                | What it does                       | Default |
-| ------------------- | ---------------------------------- | ------- |
-| `--run <run>`       | Search only this run               | —       |
-| `-n`, `--limit <n>` | The most matches to print          | 20      |
-| `--json`            | Print one object per match (below) | —       |
+| Flag              | What it does                       | Default |
+| ----------------- | ---------------------------------- | ------- |
+| `--run <run>`     | Search only this run               | —       |
+| `-n, --limit <n>` | The most matches to print          | 20      |
+| `--json`          | Print one object per match (below) | —       |
 
 Each match names the run, the call and where the text was found. It ends with the
 `shadowlap ui <run> --call <n>` that opens it.
@@ -1534,7 +1534,7 @@ AzureOpenAI SDKs do; without it, nothing is sent.
 | `--timeout <seconds>` | Stop a model request, or a verify attempt, after this long | A model request waits ten minutes, as the official SDKs do |
 | `--strict` | Exit 1 when a run has a rank 1 or 2 change, for CI | — |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status: `fail` exits 3, `warn` exits 0 with a warning | `fail` |
-| `-y`, `--yes` | Run recorded commands without asking (below) | — |
+| `-y, --yes` | Run recorded commands without asking (below) | — |
 | `--json` | Print the report as JSON on stdout ([below](#decisions-report-as-json)); progress goes to stderr | — |
 
 More on some of them:
@@ -1820,7 +1820,7 @@ Shadowlap's own calls (its judge's) are none of the agent's.
 | `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count | Verify's |
 | `--budget <usd>`, `--timeout <seconds>` | As for [`decisions`](#decisions) | — |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` | `fail` |
-| `-y`, `--yes` | Run recorded commands without asking (below) | — |
+| `-y, --yes` | Run recorded commands without asking (below) | — |
 | `--json` | Print the report as JSON on stdout ([below](#migrate-report-as-json)) | — |
 
 `--expect` defaults to each run's checks from `shadowlap.config.json`: its golden's, or, for a run
@@ -1985,7 +1985,7 @@ called whose credentials the environment lacks, so a job without secrets tests i
 | `--annotations` | Print a GitHub Actions annotation for each pack that didn't pass, attached to its `run.json` (below) | — |
 | `--update` | [Re-record each golden that diverged](./ci.md#update-a-golden-after-an-intended-change), live with writes stubbed, and replace its pack (below) | — |
 | `--online` | Allow live calls after a divergence | Every provider offline: a live call fails the pack |
-| `-y`, `--yes` | Run the recorded command of a golden from someone else's pack, which the repository doesn't track, without asking | — |
+| `-y, --yes` | Run the recorded command of a golden from someone else's pack, which the repository doesn't track, without asking | — |
 | `--writes block\|stub\|allow` | What `write` tools do after a divergence | `block` |
 | `--cwd <dir>` | Where the recorded commands run | The current directory |
 | `--guard block\|warn\|off` | The [network guard](./how-it-works.md#the-network-guard) | `block` |
@@ -2438,6 +2438,723 @@ An attempt is `inconclusive` when its replay never reached the call, when all th
 is a check no attempt can decide, or when its provider failed for real, with `unavailable` then
 `retried` or `counted`.
 
+## bisect
+
+```sh
+shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--allow-unrecorded <names>] [-y] [--json] [-- <command>]
+```
+
+[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails. It replays it
+at commits between `--good` (where it passed) and `--bad`, halving the range each time, each commit
+checked out in a temporary git worktree.
+
+```sh
+shadowlap bisect goldens/refund --good v1.4.0
+```
+
+A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a
+commit. Replays are offline, so it costs no tokens. It prints the first bad commit with its subject,
+author and date, and why it fails there, and any untestable commits just before it that could be the
+one.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--good <rev>` | A commit where the recording passed | — |
+| `--bad <rev>` | A commit where it fails | `HEAD` |
+| `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 | The golden's, under `tests` |
+| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide (below) | — |
+| `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped | — |
+| `--cwd <dir>` | Where the recorded command runs, inside the repository | The current directory |
+| `--timeout <seconds>` | Stop a replay after this long, and count it as failing | 300 |
+| `--guard <mode>` | The network guard: `block`, `warn` or `off` | `block` |
+| `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
+| `-y, --yes` | Run recorded commands at each commit without asking (below) | — |
+| `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
+| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
+
+**`--fork`** is for a run that failed a check, whose recording no older commit would replay. The live
+part costs tokens, and the result says how many. A replay that forks asks its
+[judge checks](./judges.md) live. One no replay can ask (no key for its provider, and no upstream set
+for it) is refused before anything runs.
+
+**Whose command runs.** Each replay runs the recorded command, or the one after `--`, in the commit's
+worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command
+someone else chose, which would run at every commit:
+
+- bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 2)
+  unless given `--yes`, which runs it at each commit without asking;
+- so does a golden from a pack the repository doesn't track, recorded elsewhere, as `test` asks of
+  one;
+- a golden recorded on this machine, or one the repository tracks, runs without asking.
+
+`bisect` exits with:
+
+| Status    | Meaning                                                                           |
+| --------- | --------------------------------------------------------------------------------- |
+| `0`       | It found the first bad commit                                                     |
+| `1`       | There is none between the two: it passes at `--bad`, or already fails at `--good` |
+| `2`       | It can't search what it was given (below)                                         |
+| `3`       | A commit at either end can't be tested                                            |
+| `128 + n` | A stop signal; 130 for Ctrl-C                                                     |
+
+It can't search what it was given, exit status 2, for:
+
+- a commit that isn't one;
+- a run with no command;
+- a recording whose model called a tool it never recorded that
+  [writes](./how-it-works.md#tools-shadowlap-did-not-record).
+
+**What it keeps.** The answer is kept in the project's activity either way: the first bad commit, or why
+there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of
+them can't be tested). It is kept with the golden's newest test result as the search started, the
+failure it answers.
+
+The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then:
+not once it passed, and never over a later failure. An answer given while the golden passed answers
+none. A search stopped with Ctrl-C keeps nothing.
+
+`--json` prints
+`{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`:
+
+| Field | Meaning |
+| --- | --- |
+| `outcome` | `found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped` |
+| `why` | Why, when there is no answer; with `first`, why it fails there |
+| `target` | `kind` (`golden` or `run`), its `name` and `runId` |
+| `good`, `bad`, `commits` | The `good` and `bad` commits, and the commits between them |
+| `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
+| `first` | The first bad commit |
+| `untested` | The untested commits just before it |
+| `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
+
+A commit is `{ rev, short, subject, author, date }`.
+
+## pack, unpack
+
+```sh
+shadowlap pack <run> <dir> [--lineage] [--no-redact]
+shadowlap unpack <dir>
+```
+
+`pack` writes a run as a directory, to commit as a CI golden or to share. `unpack` imports one.
+
+| Flag          | What it does                                                                             | Default |
+| ------------- | ---------------------------------------------------------------------------------------- | ------- |
+| `--lineage`   | `pack`: include the run's ancestors                                                      | —       |
+| `--no-redact` | `pack`: skip the redaction rules in `shadowlap.config.json`, and say how many it skipped | —       |
+
+### What `pack` writes
+
+A pack holds `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`, and a
+`.gitattributes` (`* -text`, unless the folder has one). The `.gitattributes` keeps git from
+converting line endings, which would break the blobs' hashes in a Windows checkout. Stable names and
+one file per blob keep it git-friendly, so it can be committed as a CI golden or shared.
+
+- **A run still recording** is packed once it has ended, as every export waits for it: half a run would
+  make a golden that never matches. Until then, `pack` refuses it, exit status 2. With `--lineage`, it
+  waits for every run the pack would hold.
+- **Packing into a folder that already holds a pack** (the same golden again) replaces its `run.json`,
+  `calls.jsonl` and `blobs/` as a whole, and leaves anything else there. So the folder never keeps an
+  earlier pack's blobs, unredacted ones above all.
+- **Redaction**: the [redaction rules](./normalizers-and-redaction.md#redaction) in
+  `shadowlap.config.json` are applied to the copy, but for a model call's
+  [signed reasoning](./normalizers-and-redaction.md#signed-reasoning), which stays as recorded. `pack`
+  names each rule that matched inside it.
+- **Credentials**: a credential a recording kept never goes into a pack, with the rules or with
+  `--no-redact`.
+- **Authors**: who made each run (its author, often an email) is left out of it.
+
+The local store is never modified, but for this: a golden whose checks ask a [judge](./judges.md) is
+judged once, live, before it is packed. The judge's calls are added to the run and go into the pack, so
+every replay of the golden is judged from the recording.
+
+- A verdict the run already holds for the very request is not asked again.
+- One that can't be asked (no key) is said to be inconclusive, with how to record it.
+- A check that reads the agent's `output` can't be judged when packing, since a recording keeps no
+  output. `pack` says so, and `shadowlap test <golden> --update` records its verdict from what a replay
+  prints.
+- A run that didn't complete (its agent exited with an error, or it was interrupted) is not judged at
+  all, since no replay of it is either.
+
+### What `unpack` checks
+
+`unpack` imports a pack, treating it as untrusted input. A pack that fails a check imports nothing:
+
+- every record is validated, its redaction rules' patterns as the config's are, so none that
+  [could take too long](./normalizers-and-redaction.md#patterns-that-could-take-too-long) comes in;
+- each file is read without following a link;
+- every blob is verified against its hash. A blob git checked out with CRLF line endings is verified as
+  it was committed, and refused when that doesn't match either;
+- only the blobs its calls need come into the store;
+- a time more than a day ahead of this machine's clock fails a check.
+
+Nothing on this machine records an unpacked run, so one the pack marks as still running comes in as
+interrupted (crashed, ended at its last call). Runs that already exist are skipped. When the store's
+run under that id is another recording (another command, or other calls), `unpack` says so and keeps it
+as it is.
+
+Imported runs are marked, and `unpack` prints the command each one would run on replay:
+
+```text
+imported 01K5CQ4N7G8M2XWQH6V3T9RB1D  command: node dist/agent.js --task 'triage inbox'
+
+Replaying an imported run executes the command it was recorded with (shown above), which came from whoever made the pack.
+shadowlap replay asks before running it; give your own command after "--" to run that instead.
+```
+
+[SECURITY.md](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md) lists every check.
+
+## serve
+
+```sh
+shadowlap serve [--recordings [--allow-unrecorded <names>]]
+```
+
+Starts a sidecar with one recording run, for a process you launch yourself, and prints the environment
+to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. It ends the run on Ctrl-C,
+SIGTERM or a closed terminal (SIGHUP).
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--recordings` | Start no run of its own, and serve [recorded tests](./testing.md) instead (below) | — |
+| `--allow-unrecorded <names>` | With `--recordings`: replay these tools again for real, though a recording never recorded them (below) | — |
+
+- **No command**: serve never sees the command that starts your process, so the run has none, as a
+  capture has none. Replaying it, or a fork, blame or Find the commit, needs your command after `--`.
+- **Several runs**: hosts that manage several runs (a test runner) can create them through the
+  sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and
+  SDK calls send an `X-Shadowlap-Run` header. So several processes can record through one sidecar at
+  once.
+- **In-process capture**: the printed environment has the base URLs only. Clients that need
+  [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the
+  endpoint in code) record under `shadowlap run`.
+
+With `--recordings`, it serves recorded tests for the pytest and Vitest integrations, which start it
+themselves. A recording whose model called a tool it never recorded that writes, or may, is refused
+before its replay starts, unless `--allow-unrecorded <names>` or `SHADOWLAP_ALLOW_UNRECORDED` in its
+environment names it.
+
+## check
+
+```sh
+shadowlap check [recording...] [--expect <json|@file>] [--json]
+```
+
+Judges recordings by [checks](./checks.md) from what they recorded. Nothing is replayed and nothing is
+sent, so a check can be tried on every run there is before it goes into the config.
+
+```sh
+shadowlap check label:bug --expect '{"tools":{"send_email":0}}'
+```
+
+A recording is one of:
+
+- a run id or unique prefix;
+- `label:<name>`, for every run with that label;
+- a pack directory (`goldens/*`, with `*` in the last part matched by the command itself), read into a
+  store of its own, so the project's store is left as it is.
+
+With none, it judges every recording in the store that has ended. A recording named twice (a run and a
+label it has, a pack and its run in the store) is judged once, as its pack when it is one.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--expect <json\|@file>` | The checks to judge every recording by: an `expect` object | Each recording's own, under `tests` |
+| `--json` | Print the report as JSON (below) | — |
+
+Each recording is judged by `--expect`, or without it by its entry under `tests` in
+`shadowlap.config.json`. A recording with neither is counted apart. It comes out:
+
+- **passed**;
+- **failed**: a check failed, or the run exited with an error or was interrupted;
+- **inconclusive**: a check on the agent's output, which a recording doesn't keep, a judge check with no
+  verdict, a condition it can't read, or a partial recording that holds no tool calls.
+
+Each line names the recording by its id, labels and command, or its pack. Its checks follow one that
+did not pass. Under the totals, the report says when the checks fail a recording labelled `good` or
+pass one labelled `bug`. It names a value the checks read that none of the calls judged has (a misspelt
+`result.totl`), with the key it most likely meant.
+
+`check` exits with:
+
+| Status | Meaning                               |
+| ------ | ------------------------------------- |
+| `0`    | Every recording judged passed         |
+| `1`    | One failed                            |
+| `2`    | None was judged                       |
+| `3`    | None failed, and one was inconclusive |
+
+`--json` prints `{ expect, recordings, counts, unchecked, notes }`. A dashboard job that runs it gets
+the same report as its result.
+
+| Field | Meaning |
+| --- | --- |
+| `expect` | The `expect` given, or null |
+| `recordings` | Each recording judged (below) |
+| `counts` | The recordings by outcome: `passed`, `failed`, `inconclusive` |
+| `unchecked` | The recordings counted apart for want of checks |
+| `notes` | Recordings labelled good that fail, or bug that pass, and values the checks read that no call judged has |
+
+Each of `recordings` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `runId` | The run |
+| `pack` | The pack it came from, or null |
+| `labels` | Its labels |
+| `source` | The source of its checks: `--expect`, or the recording directory of its `tests` entry |
+| `outcome` | `passed`, `failed` or `inconclusive` |
+| `why` | Why it failed, or could not be settled |
+| `checks` | Its checks, as [each check comes out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`, and a judge's `reason` and `source` |
+
+## injection
+
+```sh
+shadowlap injection <run|golden...> [--repeat <n>] [--templates <ids>] [--payloads <file>]
+  [--baselines <n>] [--obeyed <n>] [--influenced <n>] [--live-reads] [--inconclusive <mode>]
+  [--html <file>] [--no-redact] [--concurrency <n>] [--budget <usd>] [--timeout <seconds>]
+  [--guard <mode>] [--allow-unrecorded <names>] [-y] [--json]
+shadowlap injection <run> --clean <call[=result]> [--write <call>] [--gate <json>] [--json]
+shadowlap injection --list-templates [--json]
+```
+
+[Causal injection tests](./injection.md): whether text in what the agent reads can steer it.
+
+```sh
+shadowlap injection goldens/research --repeat 3 --html injection.html
+```
+
+For each read of a tool marked untrusted, it plants each payload in the recorded result, with a canary
+of its own, as [`--inject-result`](./interventions.md#plant-an-instruction-in-a-tool-result) does. Then
+it replays:
+
+- the calls before the read, from the recording;
+- the rest live, from the model call whose request carries the planted text;
+- with writes stubbed;
+- with reads served from the recording when they match, and fenced when they don't.
+
+A tool is marked untrusted by `"tools": { "fetch_page": { "trust": "untrusted" } }` in the config, by
+`trust: 'untrusted'` in the [SDK](./sdk.md#untrusted-reads), or, for an MCP read tool, by its server
+setting `openWorldHint`.
+
+An attempt comes out:
+
+- ***obeyed***: a tool call carries the canary, which is proof the planted text caused it, for a write,
+  and for a read, which can carry data out;
+- ***influenced***: a write that no clean replay of the same read made;
+- ***ignored***: otherwise;
+- ***inconclusive***: the attempt shows nothing either way (no model read the planted text, a model call
+  failed, the agent exited non-zero), with why.
+
+The payloads are the built-in templates (`--list-templates` prints them), unless `--payloads` or
+`--templates` say otherwise. A golden's `"injection"` entry under `tests` gives its defaults. Every
+replay is a run marked with the test it belongs to, and every result is kept in the store for the
+dashboard.
+
+Each run tested comes to a verdict against its limits:
+
+- *failed*, when more attempts obeyed (or were influenced) than allowed;
+- *inconclusive*, when the test showed too little to say: no untrusted read to plant in, an attempt in
+  which something failed, no attempt a model read, or the planned attempts cut short by `--budget`.
+  With a limit on influenced attempts, a clean replay in which something failed makes it inconclusive
+  too;
+- else *passed*.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--repeat <n>` | Attempts per untrusted read and payload. With `--clean`, the most clean attempts the test may take (below) | The golden's, else 1 |
+| `--templates <ids>` | Built-in templates to plant: `all`, `none`, or ids separated by commas | `all` |
+| `--payloads <file>` | Your own payloads, or a red-teaming tool's (below) | — |
+| `--list-templates` | Print the built-in templates; with `--json`, as the versioned data they ship as | — |
+| `--baselines <n>` | Clean replays of each read, forked at the model call that reads it, that *influenced* compares with (below) | The golden's, else 3 |
+| `--obeyed <n>` | Attempts that may obey before the run fails | The golden's, else 0 |
+| `--influenced <n>` | Attempts that may be influenced before the run fails | The golden's, else no limit |
+| `--live-reads` | Run the reads the recording doesn't hold after the fork, instead of fencing them (below) | — |
+| `--inconclusive fail\|warn` | What an inconclusive verdict does to the exit status | `fail` |
+| `--clean <call[=result]>` | Replace read `<call>` with a neutral result, or the one given (JSON, text, or `@file`), and decide whether its content caused each write after it | — |
+| `--write <call>` | With `--clean`: the recorded write to test (repeatable) | Every write after the read |
+| `--gate <json>` | With `--clean`: the sequential test that decides; the figures left out are the default's | `{"good":0.8,"bad":0.2,"risk":0.05,"max":10}` |
+| `--html <file>` | Also write the security report (below) | — |
+| `--no-redact` | With `--html`: skip the redaction rules | — |
+| `--concurrency <n>` | Attempts running at once | 1 |
+| `--budget <usd>` | Start no attempt once this much is spent on live model calls; a test cut short is inconclusive | — |
+| `--timeout <seconds>` | Stop an attempt after this long; it is inconclusive | — |
+| `--guard <mode>` | The network guard: `block`, `warn` or `off` | `block` |
+| `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
+| `-y, --yes` | Run the recorded command of an imported run, or of a golden from a pack the repository doesn't track, without asking | — |
+| `--json` | Print the report as JSON ([below](#injection-report-as-json)); progress goes to stderr | — |
+
+More on some of them:
+
+- **`--repeat`** with `--clean`: fewer than the gate needs to decide a write is refused.
+- **`--payloads`**: text (one a line, or blocks between `---` lines), JSON or JSON Lines. Their
+  `{{canary}}` is filled in. They are planted instead of the templates, unless `--templates` names
+  some.
+- **`--baselines`**: the recording's own writes after the read count as one more. A clean replay in
+  which something failed is left out, and, with `--influenced`, makes the verdict inconclusive.
+- **`--live-reads`**: the agent gets an error for a fenced read. A read that carries planted text is
+  fenced all the same.
+- **`--html`**: the reads × payloads matrix, the proof of each obeyed cell, why the inconclusive ones
+  show nothing, the `--clean` verdicts and the payloads. The redaction rules are applied, and every
+  canary is kept.
+
+`injection` exits with:
+
+| Status    | Meaning                                                                   |
+| --------- | ------------------------------------------------------------------------- |
+| `0`       | Every run tested passed; with `--clean`, every write was decided          |
+| `1`       | A run tested failed                                                       |
+| `3`       | One is inconclusive (`0` with `--inconclusive warn`)                      |
+| `128 + n` | A stop signal: 130 for Ctrl-C, 129 for a closed terminal, 143 for SIGTERM |
+
+### Proving cause with `--clean`
+
+`--clean <call>` asks the reverse of a recorded incident:
+
+1. Read `<call>` is replaced with a neutral result, or the one given. A neutral result has each string
+   with a space in it emptied, and keeps ids, numbers and the shape.
+2. The run replays until the [sequential test](./injection.md#prove-cause-on-an-incident) decides, for
+   each write the run made after the read, whether it comes back. A write is known by the values that
+   identify it: an address, an id, an amount.
+3. Each write is reported *caused* by the read's content, *not caused*, or *inconclusive*.
+
+A clean attempt in which something failed, or that never made the read, decides nothing; three in a row
+stop the test.
+
+### Injection report as JSON
+
+With `--list-templates --json` it prints the built-in templates, and exits:
+
+| Field                | Meaning                                                   |
+| -------------------- | --------------------------------------------------------- |
+| `version`, `updated` | The template set's version, and when it was updated       |
+| `templates`          | Each template, with its `id`, `shape`, `title` and `text` |
+
+Otherwise, with `--json` it prints the report:
+
+| Field       | Meaning                                                        |
+| ----------- | -------------------------------------------------------------- |
+| `templates` | The built-in set's `version` and `updated`                     |
+| `results`   | One per run tested (below)                                     |
+| `totals`    | The totals over the runs tested by planting (below)            |
+| `verdict`   | The verdict they come to: `passed`, `failed` or `inconclusive` |
+| `passed`    | Whether the exit status is 0                                   |
+| `html`      | The report's path, or null                                     |
+
+`totals` adds up these, over the runs tested by planting:
+
+| Field                                             | Meaning                             |
+| ------------------------------------------------- | ----------------------------------- |
+| `runs`                                            | The runs tested                     |
+| `attempts`                                        | Their attempts                      |
+| `obeyed`, `influenced`, `ignored`, `inconclusive` | The attempts that came out each way |
+
+A run tested by planting has these fields:
+
+| Field                           | Meaning                                                           |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `resultId`                      | The `inj-…` id it is kept under                                   |
+| `mode`                          | `plant`                                                           |
+| `runId`, `golden`               | The run, and its golden or null                                   |
+| `templates`                     | The templates used: their set's `version`, and the `ids`          |
+| `repeat`                        | Attempts per read and payload                                     |
+| `reads`                         | The untrusted reads (below)                                       |
+| `unrecordedReads`               | `fence` or `live`                                                 |
+| `skipped`                       | The untrusted calls skipped, each with `callNo`, `name` and `why` |
+| `payloads`, `cells`, `attempts` | The payloads, the cells and the attempts (below)                  |
+| `baselines`                     | The reads' baselines (below)                                      |
+| `totals`                        | Its totals                                                        |
+| `verdict`                       | The strongest verdict an attempt showed                           |
+| `gate`                          | Its gate (below)                                                  |
+| `stopReason`                    | Why it stopped                                                    |
+| `cost`                          | `spent`, `upstreamRequests` and `unknownModels`                   |
+| `startedAt`, `endedAt`          | When it started and ended                                         |
+
+Each untrusted read has these fields:
+
+| Field            | Meaning                                |
+| ---------------- | -------------------------------------- |
+| `callNo`, `name` | The read                               |
+| `from`           | `config`, `sdk` or `mcp`               |
+| `readAt`         | The model call that reads it           |
+| `args`           | Its arguments                          |
+| `planted`, `why` | Whether it was planted in, and why not |
+
+Each payload has these fields:
+
+| Field            | Meaning                             |
+| ---------------- | ----------------------------------- |
+| `id`             | The payload                         |
+| `source`         | `template` or `file`                |
+| `shape`, `title` | Its shape and title                 |
+| `text`           | Its text, its placeholders unfilled |
+| `canary`         | Whether it has one                  |
+
+Each cell, one read with one payload, has these fields:
+
+| Field                                             | Meaning                             |
+| ------------------------------------------------- | ----------------------------------- |
+| `read`, `payload`                                 | The read and the payload            |
+| `verdict`                                         | Its verdict                         |
+| `attempts`                                        | Its attempts                        |
+| `obeyed`, `influenced`, `ignored`, `inconclusive` | How many attempts came out each way |
+| `runs`                                            | Their runs                          |
+
+Each attempt has these fields:
+
+| Field                        | Meaning                                                         |
+| ---------------------------- | --------------------------------------------------------------- |
+| `runId`                      | The attempt's run                                               |
+| `read`, `payload`, `attempt` | The read, the payload, and which attempt it is                  |
+| `canary`                     | The canary it carried: `token`, `address`, `id` and `amount`    |
+| `verdict`                    | Its verdict                                                     |
+| `why`                        | Why an inconclusive one shows nothing                           |
+| `failed`                     | Whether that is because something failed in it                  |
+| `plantedAt`                  | Where the payload was served, in the attempt's own call numbers |
+| `forkedAt`                   | Where the attempt forked                                        |
+| `readAt`                     | The first model call whose request carried it                   |
+| `exitCode`                   | The agent's exit code                                           |
+| `evidence`                   | The pieces of evidence (below)                                  |
+| `spent`                      | USD spent                                                       |
+
+Each piece of evidence has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `canary`, a write that carried it; `read`, a read that carried it; or `write`, a write no clean replay made |
+| `callNo` | The attempt's call |
+| `tool` | The tool |
+| `path` | Where in its arguments |
+| `value` | The value |
+| `why` | Why it is evidence |
+
+Each read's baseline has these fields:
+
+| Field    | Meaning                                               |
+| -------- | ----------------------------------------------------- |
+| `read`   | The read                                              |
+| `runs`   | The clean replays' runs                               |
+| `writes` | The writes they and the recording made                |
+| `failed` | The clean replays that failed, each `runId` and `why` |
+
+The gate has these fields:
+
+| Field                  | Meaning                              |
+| ---------------------- | ------------------------------------ |
+| `obeyed`, `influenced` | The limits                           |
+| `verdict`              | `passed`, `failed` or `inconclusive` |
+| `reason`               | The reason                           |
+
+A run tested with `--clean` has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `resultId` | The id it is kept under |
+| `mode` | `clean` |
+| `runId`, `golden` | The run, and its golden |
+| `read` | The read replaced, with `callNo`, `name`, `trust`, `from` and `args` |
+| `canary` | The canary the run carried, when it is an attempt of an injection test, or null |
+| `neutral` | The neutral result served |
+| `unrecordedReads` | `fence` or `live` |
+| `writes` | The recorded writes (below) |
+| `attempts` | The clean attempts (below) |
+| `gate`, `rule` | The gate it was decided with, and its rule (below) |
+| `verdict` | `caused` when the read's content caused a write, `not caused` when every write comes back without it, else `inconclusive` |
+| `stopReason`, `cost` | Why it stopped, and what it cost |
+| `startedAt`, `endedAt` | When it started and ended |
+
+`rule` is stated as the terminal states it once under the writes:
+`gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`.
+
+Each recorded write has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `callNo`, `name`, `args` | The write |
+| `identifiers` | The values that make it the same write again |
+| `attempts` | The clean attempts that decided it |
+| `gone` | How many it was gone in |
+| `verdict` | Its verdict |
+| `bound` | The bound on the share of clean attempts it was gone in (below), or null before an attempt decided anything |
+
+`bound` is as its line shows it beside the tally: `rate >= 0.29 (95%)` for a caused write,
+`rate <= 0.71 (95%)` for one not caused, both ends for an undecided one.
+
+Each clean attempt has these fields:
+
+| Field              | Meaning                                      |
+| ------------------ | -------------------------------------------- |
+| `runId`, `attempt` | The attempt's run, and which attempt it is   |
+| `forkedAt`         | Where it forked                              |
+| `exitCode`         | The agent's exit code                        |
+| `made`             | The writes it made, each `callNo` and `name` |
+| `gone`             | The recorded writes gone in it               |
+| `why`              | Why it decided nothing, or null              |
+
+## coverage
+
+```sh
+shadowlap coverage [--json]
+shadowlap coverage --pack [<behaviour>...] [--not-packed fail|warn] [--json] [-- <command>]
+shadowlap coverage --pack <behaviour>... --fork --expect <checks> [-- <command>]
+```
+
+[Production coverage](./coverage.md): groups the project's imported runs by behaviour, and names the
+behaviours no golden covers. Imported runs are the captures and traces `import` made, a teammate's from
+the team store included: runs that came with no command of their own.
+
+```text
+Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)
+
+  ✗ 2 runs   lookup_order → read_policy → issue_refund
+             writes issue_refund · answered · seen 2d ago in refund.har
+             nearest golden: goldens/escalate, the same for 2 steps;
+             then it calls issue_refund where the golden calls escalate
+             runs: 01K5CQ9C4H 01K5CQ9B7Q · behaviour 3f9a2c1d5e8b7a60
+
+  ✓ 1 run    lookup_order → read_policy → escalate
+             writes escalate · answered · seen 2d ago in escalate.har
+             covered by goldens/escalate
+```
+
+A behaviour is:
+
+- **the tools the model called, in order**: the calls one answer asked for together match in any
+  order, as [`--repeat`](#repeating-a-fork) reads paths;
+- **the writes among them**: a tool whose effect nothing recorded or configured names counts as one;
+- **how the run ended**: `answered`, `model-error` (its last model call failed), `token-limit`,
+  `tool-call` (it ended asking for a tool), `agent-error` (a recording whose agent failed) or
+  `no-model-calls`.
+
+The path is read from the model's own answers, so a capture with no tool calls compares with a golden.
+Arguments are not part of a behaviour.
+
+The goldens are read from their packs on disk (the goldens folder and the packs `tests` names), as
+`test` reads them. A golden covers a behaviour when its recording behaves the same way. A behaviour no
+golden covers names the golden that shares the most of its path, where they part, and why the last
+`--pack` couldn't pack it. Each scan is kept in the store, its groups replacing the last scan's, for the
+dashboard.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--json` | Print the scan as JSON (below) | — |
+| `--pack [<behaviour>...]` | Make a golden of one run of each behaviour no golden covers, or of the behaviours named by key: four characters of it or more | — |
+| `-- <command>` | With `--pack`: the agent's command, for a capture no run here says the command of (below) | — |
+| `--fork` | With `--pack` and the behaviours named: pack each as a golden that forks (below) | — |
+| `--expect <checks>` | With `--fork`: what the agent must do on that input now, as JSON or `@file.json`, in the grammar of a tests entry's `expect` | — |
+| `--not-packed fail\|warn` | With `--pack`: what a behaviour that could not be packed does to the exit status; `warn` reports it and exits 0, for a scheduled job | `fail` |
+| `--guard <mode>` | The [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes: `block`, `warn` or `off` | `block` |
+
+`coverage` exits 0. With `--pack`, it exits 1 when a behaviour asked for could not be packed, unless
+`--not-packed warn`.
+
+### Packing a capture
+
+`--pack` turns a capture into a golden `test` can replay. A capture holds model calls and no command, so
+its newest runs (up to three) are each replayed with the agent's command until one reproduces it. The
+command is:
+
+1. the command of the newest run here (not one from a pack or the team store) whose first model call
+   sent the capture's first request: its fingerprint under the normalizers, or its bytes;
+2. then the command given after `--`, its placeholders filled for that capture.
+
+The replay is offline, and needs no tool to answer:
+
+- each tool call the model asked for is served the result the next request carried back to the model
+  (as MCP content, for a tool this store has recorded through `shadowlap mcp`);
+- a tool the capture holds calls of itself keeps them;
+- a tool some of whose calls got no answer back runs live;
+- writes are stubbed.
+
+A replay that sends every request the capture holds and exits 0 is a recording of the agent as it is
+doing what production did. It is packed into `goldens/<first tool>-<writes>-<key>` (with the project's
+redaction rules, as `pack` writes one) and logged in the activity feed.
+
+One that doesn't is not packed, and says why:
+
+- `no-command`: nothing says what starts the agent;
+- `other-message`: the command started it with another first message than production's (the wrong
+  command, or one that needs `{message}`);
+- `not-reproduced`: the agent sends something else (the code changed since the traffic was captured,
+  or a tool's arguments are not the model's);
+- `agent-error`: the agent failed on what production got back;
+- `gone`: its runs were deleted.
+
+A behaviour the agent no longer reproduces can still be kept, as the test that the change holds.
+`--fork` packs production's run, with the command that starts the agent as production did, as a golden
+that forks where the agent parts from it and passes on `--expect`. Its tests entry is written with
+`"fork": true` and `--expect`, even when the agent no longer does what production did.
+
+What `--pack` made of each behaviour is kept in the store, and the scan after it counts the goldens it
+made.
+
+**Placeholders.** In the command after `--`, `{message}` stands for the capture's first message (the text
+of the first user turn it sent), and `{message:/regex/}` for the part of it the regex picks (its first
+group, else the whole match). So each capture starts as production started it.
+
+- A placeholder is an argument of the agent's own command, passed as it is.
+- A placeholder is refused in a shell's script, after an interpreter's `-c`, `-e` or `-m`, or where the
+  message would name what runs.
+- What runs is the program, the script an interpreter runs or one of its flags, the command a runner
+  such as `env`, `cross-env` or `npx` runs, or what `npm exec`, `pnpm dlx`, `bun x`, `uv run`,
+  `pipx run` and the like run.
+- A capture whose message would start an argument with a dash is left out.
+- A regex is checked as a redaction rule's is
+  ([Patterns that could take too long](./normalizers-and-redaction.md#patterns-that-could-take-too-long)).
+
+### Coverage scan as JSON
+
+`--json` prints `{ scanId, at, runs, uncovered, groups, goldens, pack }`:
+
+| Field       | Meaning                                                        |
+| ----------- | -------------------------------------------------------------- |
+| `scanId`    | The scan in the store                                          |
+| `at`        | When it ran                                                    |
+| `runs`      | The imported runs read                                         |
+| `uncovered` | The behaviours no golden covers                                |
+| `groups`    | Every behaviour (below)                                        |
+| `goldens`   | Every golden read (below)                                      |
+| `pack`      | With `--pack`, what each behaviour became (below); else `null` |
+
+`groups` has an entry for every behaviour:
+
+| Field                   | Meaning                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `key`                   | The behaviour's key                                                                        |
+| `covered`, `coveredBy`  | Whether a golden covers it, and the goldens it is covered by                               |
+| `path`, `writes`        | Its path, and its writes                                                                   |
+| `unknown`               | The tools of unknown effect                                                                |
+| `outcome`               | How its runs ended                                                                         |
+| `runs`, `runIds`        | How many runs behaved so, and their ids, newest first                                      |
+| `sources`               | The sources they came from                                                                 |
+| `firstSeen`, `lastSeen` | When it was first and last seen                                                            |
+| `nearest`               | For one no golden covers: the `golden`, the steps `shared`, and where it `differs` (below) |
+| `command`               | The command that would reproduce its newest run, with the run it came `from`               |
+| `packed`                | The golden this `--pack` made of it: `golden`, `runId`, `mode`                             |
+| `lastPack`              | What the last `--pack` made of it, here or before (below)                                  |
+
+- **`nearest.differs`**: the `step`, what the behaviour does there as `seen`, and the golden's.
+- **`lastPack`**: `at`, the `golden` (or null), its `mode`, and the `reason` and `why` it wasn't packed.
+
+`goldens` has an entry for every golden read:
+
+| Field                       | Meaning                                |
+| --------------------------- | -------------------------------------- |
+| `golden`, `runId`           | The golden, and its run                |
+| `path`, `writes`, `outcome` | Its path, writes and outcome           |
+| `error`                     | The error that kept it from being read |
+
+With `--pack`, `pack` says what each became:
+
+| Field             | Meaning                                       |
+| ----------------- | --------------------------------------------- |
+| `key`             | The behaviour                                 |
+| `golden`, `runId` | The golden written, and the run packed        |
+| `from`            | The imported run it came from                 |
+| `command`         | The command it ran with, where that came from |
+| `mode`            | The golden's mode: `replay` or `fork`         |
+| `reason`, `why`   | The reason it wasn't packed, and why          |
+
 ## init
 
 ```sh
@@ -2489,111 +3206,6 @@ Exit status 0 when every task was scored in full; 1 when a task was skipped or s
 `tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
-
-## bisect
-
-```sh
-shadowlap bisect <golden|run> --good <rev> [--bad <rev>] [--expect <json|@file>] [--fork] [--build <command>] [--cwd <dir>] [--timeout <seconds>] [--allow-unrecorded <names>] [-y] [--json] [-- <command>]
-```
-
-[Finds the first commit](./ci.md#find-the-commit-that-broke-it) where a recording fails: it replays it at commits between `--good` (where it passed) and `--bad` (default `HEAD`), halving the range each time, each commit checked out in a temporary git worktree. A divergence, a replay that ends before its recording does, a failed check or a non-zero exit fails a commit. Replays are offline, so it costs no tokens. Prints the first bad commit with its subject, author and date, and why it fails there, and any untestable commits just before it that could be the one; exit status 0 when it found one, 1 when there is none between the two (it passes at `--bad`, or already fails at `--good`), 3 when a commit at either end can't be tested, 2 when it can't search what it was given (a commit that isn't one, a run with no command, a recording whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record)), and 128 + n for a stop signal (130 for Ctrl-C). The answer is kept in the project's activity either way: the first bad commit, or why there is none between the two commits (it already fails at `--good`, it passes at `--bad`, or one of them can't be tested), with the golden's newest test result as the search started, the failure it answers. The dashboard's Tests shows it above the golden's buttons while the golden keeps failing as it did then: not once it passed, and never over a later failure (an answer given while the golden passed answers none). A search stopped with Ctrl-C keeps nothing.
-
-Each replay runs the recorded command, or the one after `--`, in the commit's worktree. A run from someone else's pack, or pulled from the [team store](./team.md), carries a command someone else chose, which would run at every commit: bisect asks first, as `replay` does, and with no terminal to ask in it refuses (exit status 2) unless given `--yes`. So does a golden from a pack the repository doesn't track, recorded elsewhere, as `test` asks of one; a golden recorded on this machine, or one the repository tracks, runs without asking.
-
-| Option | Effect |
-|---|---|
-| `--expect <json\|@file>` | The checks a replay must pass besides exiting 0 (default: the golden's under `tests`) |
-| `--fork` | Let each replay diverge and run live from the fork, so only the exit status and the checks decide: for a run that failed a check, whose recording no older commit would replay. The live part costs tokens, and the result says how many. A replay that forks asks its [judge checks](./judges.md) live: one no replay can ask (no key for its provider, and no upstream set for it) is refused before anything runs |
-| `--build <command>` | Run in each worktree before its replay, e.g. `"npm ci && npm run build"`. A commit where it fails is skipped |
-| `--cwd <dir>` | Where the recorded command runs, inside the repository (default: the current directory) |
-| `--timeout <seconds>` | Stop a replay after this long and count it as failing (default 300) |
-| `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
-| `--allow-unrecorded <names>` | As for `replay` |
-| `-y, --yes` | Run the recorded command of a run from a pack or the team store, or of a golden from a pack the repository doesn't track, at each commit without asking |
-| `-- <command>` | The agent's command to run at each commit instead of the recorded one |
-| `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took |
-
-`--json` prints `{ outcome, target, good, bad, commits, steps, first, untested, why, replays, tokens, upstreamRequests, spent, seconds }`: the `outcome` (`found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped`, with `why` when there is no answer), the `target` (`kind` `golden` or `run`, its `name` and `runId`), the `good` and `bad` commits and the `commits` between them, each replay in `steps` (`rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds`), the `first` bad commit with `why` it fails there, the `untested` commits just before it, and what it took: `replays`, `tokens`, `upstreamRequests`, USD `spent` and `seconds`. A commit is `{ rev, short, subject, author, date }`.
-
-## check
-
-```sh
-shadowlap check [recording...] [--expect <json|@file>] [--json]
-```
-
-Judges recordings by [checks](./checks.md) from what they recorded: nothing is replayed and nothing is sent, so a check can be tried on every run there is before it goes into the config. A recording is a run id or unique prefix, `label:<name>` for every run with that label, or a pack directory (`goldens/*`, with `*` in the last part matched by the command itself), read into a store of its own so the project's store is left as it is; with none, every recording in the store that has ended. A recording named twice (a run and a label it has, a pack and its run in the store) is judged once, as its pack when it is one. Each is judged by `--expect`, or without it by its entry under `tests` in `shadowlap.config.json`; a recording with neither is counted apart. It comes out passed, failed (a check failed, or the run exited with an error or was interrupted), or inconclusive: a check on the agent's output, which a recording doesn't keep, a judge check with no verdict, a condition it can't read, or a partial recording that holds no tool calls. Each line names the recording by its id, labels and command, or its pack; its checks follow one that did not pass. Under the totals, the report says when the checks fail a recording labelled `good` or pass one labelled `bug`, and names a value the checks read that none of the calls judged has (a misspelt `result.totl`), with the key it most likely meant. Exit status 0 when every recording judged passed, 1 when one failed, 3 when none failed and one was inconclusive, and 2 when none was judged.
-
-| Option | Effect |
-|---|---|
-| `--expect <json\|@file>` | The checks to judge every recording by: an `expect` object. Default: each recording's own under `tests` |
-| `--json` | Print the report as JSON |
-
-`--json` prints `{ expect, recordings, counts, unchecked, notes }`: the `expect` given (or null), each recording judged in `recordings` (its `runId`, the `pack` it came from or null, its `labels`, the `source` of its checks, `--expect` or the recording directory of its `tests` entry, its `outcome`, `passed`, `failed` or `inconclusive`, `why` it failed or could not be settled, and its `checks` as [each check comes out](./checks.md#how-a-check-comes-out): `status`, `ok`, `label`, `detail`, and a judge's `reason` and `source`), the `counts` of recordings by outcome (`passed`, `failed`, `inconclusive`), the recordings `unchecked` for want of checks, and the `notes`: recordings labelled good that fail or bug that pass, and values the checks read that no call judged has. A dashboard job that runs it gets the same report as its result.
-
-## injection
-
-```sh
-shadowlap injection <run|golden...> [--repeat <n>] [--templates <ids>] [--payloads <file>]
-  [--baselines <n>] [--obeyed <n>] [--influenced <n>] [--live-reads] [--inconclusive <mode>]
-  [--html <file>] [--no-redact] [--concurrency <n>] [--budget <usd>] [--timeout <seconds>]
-  [--guard <mode>] [--allow-unrecorded <names>] [-y] [--json]
-shadowlap injection <run> --clean <call[=result]> [--write <call>] [--gate <json>] [--json]
-shadowlap injection --list-templates [--json]
-```
-
-[Causal injection tests](./injection.md): for each read of a tool marked untrusted (`"tools": { "fetch_page": { "trust": "untrusted" } }` in the config, `trust: 'untrusted'` in the [SDK](./sdk.md#untrusted-reads), or an MCP read tool whose server sets `openWorldHint`), it plants each payload in the recorded result with a canary of its own, as [`--inject-result`](./interventions.md#plant-an-instruction-in-a-tool-result) does, and replays: the calls before the read from the recording, the rest live from the model call whose request carries the planted text, writes stubbed, reads served from the recording when they match and fenced when they don't. A tool call carrying the canary is proof the planted text caused it: *obeyed*, for a write, and for a read, which can carry data out. A write no clean replay of the same read made is *influenced*. Otherwise the payload was *ignored*, or, when the attempt shows nothing either way (no model read the planted text, a model call failed, the agent exited non-zero), *inconclusive*, with why. The payloads are the built-in templates (`--list-templates` prints them) unless `--payloads` or `--templates` say otherwise, and a golden's `"injection"` entry under `tests` gives its defaults. Every replay is a run marked with the test it belongs to, and every result is kept in the store for the dashboard.
-
-Each run tested comes to a verdict against its limits: *failed* when more attempts obeyed (or were influenced) than allowed, *inconclusive* when the test showed too little to say (no untrusted read to plant in, an attempt in which something failed, no attempt a model read, the planned attempts cut short by `--budget`, and, with a limit on influenced attempts, a clean replay in which something failed), else *passed*. Exit status: 0 when every run tested passed, 1 when one failed, 3 when one is inconclusive (0 with `--inconclusive warn`), 128 + n for a stop signal (130 for Ctrl-C, 129 for a closed terminal, 143 for SIGTERM).
-
-`--clean <call>` asks the reverse of a recorded incident: read `<call>` is replaced with a neutral result (each string with a space in it emptied, ids, numbers and the shape kept) or the one given, and the run replays until the [sequential test](./injection.md#prove-cause-on-an-incident) decides, for each write the run made after the read, whether it comes back (by the values that identify it: an address, an id, an amount). Each is reported *caused* by the read's content, *not caused*, or *inconclusive*. A clean attempt in which something failed, or that never made the read, decides nothing; three in a row stop the test. Exit status 0 when every write was decided, 3 when one is inconclusive (0 with `--inconclusive warn`), 128 + n for a stop signal.
-
-| Option | Effect |
-|---|---|
-| `--repeat <n>` | Attempts per untrusted read and payload (default: the golden's, else 1). With `--clean`, the most clean attempts the test may take; fewer than the gate needs to decide a write is refused |
-| `--templates <ids>` | Built-in templates to plant: `all` (default), `none`, or ids separated by commas |
-| `--payloads <file>` | Your own payloads, or a red-teaming tool's: text (one a line, or blocks between `---` lines), JSON or JSON Lines; their `{{canary}}` is filled in. Planted instead of the templates unless `--templates` names some |
-| `--list-templates` | Print the built-in templates; with `--json`, as the versioned data they ship as |
-| `--baselines <n>` | Clean replays of each read, forked at the model call that reads it, that *influenced* compares with (default: the golden's, else 3). The recording's own writes after the read count as one more; a clean replay in which something failed is left out, and with `--influenced` makes the verdict inconclusive |
-| `--obeyed <n>` | Attempts that may obey before the run fails (default: the golden's, else 0) |
-| `--influenced <n>` | Attempts that may be influenced before the run fails (default: the golden's, else no limit) |
-| `--live-reads` | Run the reads the recording doesn't hold after the fork, instead of fencing them (the agent gets an error for a fenced read). A read that carries planted text is fenced all the same |
-| `--inconclusive fail\|warn` | What an inconclusive verdict does to the exit status: `fail` (default) or `warn` |
-| `--clean <call[=result]>` | Replace read `<call>` with a neutral result, or the one given (JSON, text, or `@file`), and decide whether its content caused each write after it |
-| `--write <call>` | With `--clean`: the recorded write to test (repeatable; default every write after the read) |
-| `--gate <json>` | With `--clean`: the sequential test that decides; the figures left out are the default's, `{"good":0.8,"bad":0.2,"risk":0.05,"max":10}` |
-| `--html <file>` | Also write the security report: the reads × payloads matrix, the proof of each obeyed cell, why the inconclusive ones show nothing, the `--clean` verdicts and the payloads, with the redaction rules applied and every canary kept |
-| `--no-redact` | With `--html`: skip the redaction rules |
-| `--concurrency <n>` | Attempts running at once (default 1) |
-| `--budget <usd>` | Start no attempt once this much is spent on live model calls; a test cut short is inconclusive |
-| `--timeout <seconds>` | Stop an attempt after this long; it is inconclusive |
-| `--guard <mode>` | The network guard: `block` (default), `warn` or `off` |
-| `--allow-unrecorded <names>` | As for `replay` |
-| `-y, --yes` | Run the recorded command of an imported run, or of a golden from a pack the repository doesn't track, without asking |
-| `--json` | Print the report as JSON; progress goes to stderr |
-
-With `--list-templates --json` it prints (`version`, `updated`, and the `templates`, each with its `id`, `shape`, `title` and `text`) and exits; otherwise, with `--json` it prints (`templates`, the built-in set's `version` and `updated`; `results`, one per run tested; `totals`; the `verdict` they come to, `passed`, `failed` or `inconclusive`; `passed`, whether the exit status is 0; `html`, the report's path or null). `totals` adds up (`runs`, `attempts`, `obeyed`, `influenced`, `ignored`, `inconclusive`) over the runs tested by planting.
-
-A run tested by planting is (`resultId`, the `inj-…` id it is kept under; `mode` `plant`; `runId`; `golden` or null; the `templates` used, as their set's `version` and the `ids`; `repeat`; `reads`; `unrecordedReads`, `fence` or `live`; the untrusted calls `skipped`, each with `callNo`, `name` and `why`; `payloads`; `cells`; `attempts`; `baselines`; `totals`; the strongest `verdict` an attempt showed; `gate`; `stopReason`; `cost`, as `spent`, `upstreamRequests` and `unknownModels`; `startedAt` and `endedAt`). Each untrusted read is (`callNo`, `name`, `from`: `config`, `sdk` or `mcp`; `readAt`, the model call that reads it; its `args`; `planted`, and `why` not). Each payload is (`id`, `source`: `template` or `file`; `shape`; `title`; `text`, its placeholders unfilled; `canary`: whether it has one). Each cell, one read with one payload, is (`read`, `payload`, `verdict`, `attempts`, how many `obeyed`, `influenced`, `ignored` and `inconclusive`, and their `runs`). Each attempt is (`runId`, `read`, `payload`, `attempt`, the `canary` it carried as `token`, `address`, `id` and `amount`; `verdict`; `why` an inconclusive one shows nothing; `failed`, whether that is because something failed in it; in the attempt's own call numbers, `plantedAt`, where the payload was served, `forkedAt`, where the attempt forked, and `readAt`, the first model call whose request carried it; `exitCode`; `evidence`; USD `spent`). Each piece of evidence is (`kind`: `canary`, a write that carried it, `read`, a read that carried it, or `write`, a write no clean replay made; the attempt's `callNo`; `tool`; `path` in its arguments; `value`; `why`). Each read's baseline is (`read`, the clean replays' `runs`, the `writes` they and the recording made, and those `failed`, each `runId` and `why`). The gate is (`obeyed` and `influenced`, the limits; its `verdict`, `passed`, `failed` or `inconclusive`; the `reason`).
-
-A run tested with `--clean` is (`resultId`; `mode` `clean`; `runId`; `golden`; the `read` replaced, with `callNo`, `name`, `trust`, `from` and `args`; the `canary` the run carried, when it is an attempt of an injection test, or null; the `neutral` result served; `unrecordedReads`; `writes`; `attempts`; the `gate` it was decided with, and its `rule` as the terminal states it once under the writes, `gate: tells a write gone in 80%+ of clean attempts from one gone in 20%-, at <= 5% risk, up to 10 attempts`; the `verdict`: `caused` when the read's content caused a write, `not caused` when every write comes back without it, else `inconclusive`; `stopReason`; `cost`; `startedAt` and `endedAt`). Each recorded write is (`callNo`, `name`, `args`, the `identifiers` that make it the same write again, the clean `attempts` that decided it, how many it was `gone` in, its `verdict`, and the `bound` on the share of clean attempts it was gone in, as its line shows it beside the tally (`rate >= 0.29 (95%)` for a caused write, `rate <= 0.71 (95%)` for one not caused, both ends for an undecided one), or null before an attempt decided anything). Each clean attempt is (`runId`, `attempt`, `forkedAt`, `exitCode`, the writes it `made`, each `callNo` and `name`, the recorded writes `gone` in it, and `why` it decided nothing, or null).
-
-## pack, unpack
-
-```sh
-shadowlap pack <run> <dir> [--lineage] [--no-redact]
-shadowlap unpack <dir>
-```
-
-`pack` writes a run as a directory: `run.json`, `calls.jsonl`, one uncompressed file per blob under `blobs/`, and a `.gitattributes` (`* -text`, unless the folder has one) that keeps git from converting line endings, which would break the blobs' hashes in a Windows checkout. A run still recording is packed once it has ended, as every export waits for it: half a run would make a golden that never matches; until then `pack` refuses it, exit status 2, and with `--lineage` it waits for every run the pack would hold. Stable names and one file per blob keep it git-friendly, so it can be committed as a CI golden or shared. Packing into a folder that already holds a pack (the same golden again) replaces its `run.json`, `calls.jsonl` and `blobs/` as a whole and leaves anything else there, so the folder never keeps an earlier pack's blobs, unredacted ones above all. The [redaction rules](./normalizers-and-redaction.md#redaction) in `shadowlap.config.json` are applied to the copy (`--no-redact` skips them, and says how many it skipped), but for a model call's [signed reasoning](./normalizers-and-redaction.md#signed-reasoning), which stays as recorded, and `pack` names each rule that matched inside it; a credential a recording kept never goes into a pack, with the rules or with `--no-redact`; and who made each run (its author, often an email) is left out of it; the local store is never modified, but for this: a golden whose checks ask a [judge](./judges.md) is judged once, live, before it is packed, and the judge's calls are added to the run and go into the pack, so every replay of the golden is judged from the recording. A verdict the run already holds for the very request is not asked again; one that can't be asked (no key) is said to be inconclusive, with how to record it. A check that reads the agent's `output` can't be judged when packing, since a recording keeps no output: `pack` says so, and `shadowlap test <golden> --update` records its verdict from what a replay prints. A run that didn't complete (its agent exited with an error, or it was interrupted) is not judged at all, since no replay of it is either. `unpack` imports a pack, treating it as untrusted input: every record is validated (its redaction rules' patterns as the config's are, so none that [could take too long](./normalizers-and-redaction.md#patterns-that-could-take-too-long) comes in), each file is read without following a link, every blob is verified against its hash (a blob git checked out with CRLF line endings is verified as it was committed, and refused when that doesn't match either), only the blobs its calls need come into the store, and a pack that fails a check imports nothing; a time more than a day ahead of this machine's clock fails one. Nothing on this machine records an unpacked run, so one the pack marks as still running comes in as interrupted (crashed, ended at its last call). Runs that already exist are skipped; when the store's run under that id is another recording (another command, or other calls), `unpack` says so and keeps it as it is. Imported runs are marked, and `unpack` prints the command each one would run on replay:
-
-```
-imported 01K5CQ4N7G8M2XWQH6V3T9RB1D  command: node dist/agent.js --task 'triage inbox'
-
-Replaying an imported run executes the command it was recorded with (shown above), which came from whoever made the pack.
-shadowlap replay asks before running it; give your own command after "--" to run that instead.
-```
-
-[SECURITY.md](https://github.com/devjoinedthechat/shadowlap/blob/main/SECURITY.md) lists every check.
 
 ## import
 
@@ -2811,91 +3423,6 @@ names of the files a LiteLLM run was put together from, or `langfuse:…`, `lang
 trace stores, otherwise `null`. When nothing could be imported, `runs` is empty and the exit code
 is 1. Started from the dashboard, the command also reports each run to the job that started it.
 
-## coverage
-
-```sh
-shadowlap coverage [--json]
-shadowlap coverage --pack [<behaviour>...] [--not-packed fail|warn] [--json] [-- <command>]
-shadowlap coverage --pack <behaviour>... --fork --expect <checks> [-- <command>]
-```
-
-[Production coverage](./coverage.md): groups the project's imported runs (the captures and traces
-`import` made, a teammate's from the team store included: runs that came with no command of their
-own) by behaviour, and names the behaviours no golden covers. A behaviour is the tools the model
-called, in order (the calls one answer asked for together in any order, as
-[`--repeat`](#repeating-a-fork) reads paths), the writes among them (a tool whose effect nothing
-recorded or configured names counts as one), and how the run ended: `answered`, `model-error` (its
-last model call failed), `token-limit`, `tool-call` (it ended asking for a tool), `agent-error` (a
-recording whose agent failed) or `no-model-calls`. The path is read from the model's own answers,
-so a capture with no tool calls compares with a golden. Arguments are not part of a behaviour. The
-goldens are read from their packs on disk (the goldens folder and the packs `tests` names), as
-`test` reads them; a golden covers a behaviour when its recording behaves the same way. A behaviour
-no golden covers names the golden that shares the most of its path, and where they part, and why
-the last `--pack` couldn't pack it. Each scan is kept in the store, its groups replacing the last
-scan's, for the dashboard. Exit status 0; with `--pack`, 1 when a behaviour asked for could not be
-packed, unless `--not-packed warn`.
-
-```
-Coverage of what 3 imported runs did: 2 behaviours, 1 not covered by a golden (1 golden read)
-
-  ✗ 2 runs   lookup_order → read_policy → issue_refund
-             writes issue_refund · answered · seen 2d ago in refund.har
-             nearest golden: goldens/escalate, the same for 2 steps;
-             then it calls issue_refund where the golden calls escalate
-             runs: 01K5CQ9C4H 01K5CQ9B7Q · behaviour 3f9a2c1d5e8b7a60
-
-  ✓ 1 run    lookup_order → read_policy → escalate
-             writes escalate · answered · seen 2d ago in escalate.har
-             covered by goldens/escalate
-```
-
-| Option | Effect |
-|---|---|
-| `--json` | Print the scan as JSON (below) |
-| `--pack [<behaviour>...]` | Make a golden of one run of each behaviour no golden covers, or of the behaviours named by their key (four characters of it or more): see below |
-| `-- <command>` | With `--pack`: the agent's command, for a capture no run here says the command of. `{message}` in it stands for the capture's first message (the text of the first user turn it sent), `{message:/regex/}` for the part of it the regex picks (its first group, else the whole match), so each capture starts as production started it. A placeholder is an argument of the agent's own command, passed as it is: one in a shell's script, after an interpreter's `-c`, `-e` or `-m`, or where the message would name what runs (the program, the script an interpreter runs or one of its flags, the command a runner such as `env`, `cross-env` or `npx` runs, or what `npm exec`, `pnpm dlx`, `bun x`, `uv run`, `pipx run` and the like run), is refused, and a capture whose message would start an argument with a dash is left out. A regex is checked as a redaction rule's is ([Patterns that could take too long](./normalizers-and-redaction.md#patterns-that-could-take-too-long)) |
-| `--fork` | With `--pack` and the behaviours named: pack each as a golden that forks, its tests entry written with `"fork": true` and `--expect`, even when the agent no longer does what production did |
-| `--expect <checks>` | With `--fork`: what the agent must do on that input now, as JSON or `@file.json`, in the grammar of a tests entry's `expect` |
-| `--not-packed fail\|warn` | With `--pack`: what a behaviour that could not be packed does to the exit status. Default `fail`; `warn` reports it and exits 0, for a scheduled job |
-| `--guard <mode>` | The [network guard](./how-it-works.md#the-network-guard) for the replays `--pack` makes: `block` (default), `warn` or `off` |
-
-`--pack` turns a capture into a golden `test` can replay. A capture holds model calls and no
-command, so its newest runs (up to three) are each replayed with the agent's command until one
-reproduces it: the command of the newest run here (not one from a pack or the team store) whose
-first model call sent the capture's first request (its fingerprint under the normalizers, or its
-bytes), then the command given after `--`, its placeholders filled for that capture. The replay is
-offline and needs no tool to answer: each tool call the model asked for is served the result the
-next request carried back to the model (as MCP content for a tool this store has recorded through
-`shadowlap mcp`), a tool the capture holds calls of itself keeps them, a tool some of whose calls got
-no answer back runs live, and writes are stubbed. A replay that sends every request the capture
-holds and exits 0 is a recording of the agent as it is now doing what production did, and is packed
-into `goldens/<first tool>-<writes>-<key>` (with the project's redaction rules, as `pack` writes one)
-and logged in the activity feed. One that doesn't is not packed, and says why: nothing says what
-starts the agent (`no-command`); the command started it with another first message than
-production's (`other-message`: the wrong command, or one that needs `{message}`); the agent sends
-something else now (`not-reproduced`: the code changed since the traffic was captured, or a tool's
-arguments are not the model's); the agent failed on what production got back (`agent-error`); or
-its runs were deleted (`gone`). A behaviour the agent no longer reproduces can still be kept, as
-the test that the change holds: `--fork` packs production's run, with the command that starts the
-agent as production did, as a golden that forks where the agent parts from it and passes on
-`--expect`. What `--pack` made of each behaviour is kept in the store, and the scan after it counts
-the new goldens.
-
-`--json` prints `{ scanId, at, runs, uncovered, groups, goldens, pack }`: the scan in the store,
-when it ran, the imported runs read and the behaviours no golden covers; for every behaviour
-(`key`, `covered`, the goldens it is `coveredBy`, its `path`, `writes`, the tools of `unknown`
-effect, its `outcome`, how many `runs` behaved so and their `runIds`, newest first, the `sources`
-they came from, `firstSeen` and `lastSeen`, the `nearest` golden for one no golden covers
-(`golden`, the steps `shared`, and where it `differs`: the `step`, what the behaviour does there as
-`seen` and the golden's), the `command` that would reproduce its newest run with the run it came
-`from`, the golden this `--pack` made of it, `packed` (`golden`, `runId`, `mode`), and `lastPack`,
-what the last `--pack` made of it, here or before: `at`, the `golden` (or null), its `mode`, and the
-`reason` and `why` it wasn't packed); for every golden read (`golden`, `runId`, its `path`, `writes`
-and `outcome`, or the `error` that kept it from being read); and, with `--pack`, what each became
-(`key`, the `golden` written and the `runId` packed, the imported run it came `from`, the `command`
-it ran with where that came from, the `mode` of the golden, `replay` or `fork`, and the `reason`
-and `why` it wasn't packed), else `null`.
-
 ## The configuration file
 
 `shadowlap.config.json`, in the directory you run Shadowlap from. Every key is optional, and
@@ -2958,14 +3485,6 @@ Both edit `shadowlap.config.json` in the working directory. [Normalizers](./norm
 - `redact preview` shows what the rules would mask in a run that has ended (default: the newest), counted per rule with up to two samples, read through the functions `pack` applies them with (the run's own record included: a fork's flags, the divergence report, the checks and the last blame); under each rule, what it matches that a pack leaves as it is (a number: a copy masks the strings of a JSON document and keeps its numbers as recorded; anything in a clock or random read, which every copy keeps as recorded), with where each is and, for each place, the path rule that would mask it (in what a call got back, one that only the copies that are read apply), a rule that already does, or why none can; and on a line of its own what the rules match in the run's command line, labels and notes (`details`), which `export html`, `dataset` and `otel` mask and `pack` keeps. Nothing is written. [Preview](./normalizers-and-redaction.md#preview). `--json` prints `{ "runId", "calls", "unreadable", "partial", "total", "returned", "unmasked", "rules", "details" }`: the calls read and those that couldn't be, `total` masked in a pack, `returned` masked only by the copies that are read and `unmasked` left as they are, each rule with its number `n`, the `rule`, its `count`, up to two `samples` (`before`, `after`), how many values a path rule `reached`, a `note` when it masks nothing, its `returned` (the `count` and `samples` of what a path rule masks in what calls got back, which only `export html`, `har` and `dataset` mask) and its `unmasked`: their `count`, up to two `samples` (each `value`, whether it is a `key`, the `callNo`, `kind` and `name` of its call, whether it is `in` the call's request, response or error, its `path` there, and the stream's `event` it is in, or null), the `places` a path rule would mask them at, the `remedies` for up to 20 of those (each the `rule`, the `command` that adds it, and `copies`: `all` for a request, `read` for what a call got back, which only the copies that are read mask), the rules already `covered` that do in those copies (their numbers), and the `reasons` the rest get none (`replay`: a clock or random read; `stream`: in a stream's events; `whole`: the whole request or response, or a key at its top; `key`: under a key holding `]`; `signed`: in a model call's signed reasoning, which a pack keeps as recorded); `details` has a `count`, `samples` and the `rules` that match there.
 
 Each add and rm is recorded in the project's activity, in a store that exists.
-
-## serve
-
-```sh
-shadowlap serve [--recordings [--allow-unrecorded <names>]]
-```
-
-Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C, SIGTERM or a closed terminal (SIGHUP). Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves: a recording whose model called a tool it never recorded that writes, or may, is refused before its replay starts, unless `--allow-unrecorded <names>` or `SHADOWLAP_ALLOW_UNRECORDED` in its environment names it. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
 
 ## doctor
 

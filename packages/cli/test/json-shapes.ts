@@ -136,7 +136,7 @@ export const SHAPES = {
   bisectCommit: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'author', 'date'] },
   bisectStep: { section: 'bisect', grows: true, fields: ['rev', 'short', 'subject', 'ok', 'skipped', 'result', 'seconds'] },
   // Injection tests: the report of injection --json, per run tested by planting or by --clean.
-  injection: { section: 'injection', list: 'otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
+  injection: { section: 'injection', list: 'Otherwise, with `--json` it prints', fields: ['templates', 'results', 'totals', 'verdict', 'passed', 'html'] },
   injectionTotals: { section: 'injection', list: '`totals` adds up', fields: ['runs', 'attempts', 'obeyed', 'influenced', 'ignored', 'inconclusive'] },
   injectionPlant: { section: 'injection', list: 'A run tested by planting', fields: ['resultId', 'mode', 'runId', 'golden', 'templates', 'repeat', 'reads', 'unrecordedReads', 'skipped', 'payloads', 'cells', 'attempts', 'baselines', 'totals', 'verdict', 'gate', 'stopReason', 'cost', 'startedAt', 'endedAt'] },
   injectionRead: { section: 'injection', list: 'Each untrusted read', fields: ['callNo', 'name', 'from', 'readAt', 'args', 'planted', 'why'] },
