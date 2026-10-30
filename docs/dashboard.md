@@ -738,7 +738,7 @@ Two long runs take seconds to compare whole, since every model call's request of
 
 - **The identical prefix and the first request that differs** come at once and show, unless the runs were fingerprinted under other normalizers, with no replay between them.
 - **The page says what is still being compared.**
-- **When the rest takes longer** than the two minutes a request is given, what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
+- **When the rest takes longer** than a request is given (two minutes per 50,000 calls of the pair, at least two), what came first stays, with the `shadowlap diff` command that compares the two in a terminal, with no time limit.
 
 A run still recording is compared again as its calls arrive.
 
@@ -1575,7 +1575,8 @@ The dashboard's limits, in one place:
 | A fork's changes                              | The first four, then **Show all**                                 |
 | An edited tool result                         | JSON of at most 2 MB                                              |
 | An edited person's answer                     | At most 65,536 characters                                         |
-| Compare, in a request                         | Two minutes; `shadowlap diff` has no time limit                   |
+| Compare, in a request                         | Two minutes per 50,000 calls of the pair, at least two            |
+| Compare in a terminal (`shadowlap diff`)      | No time limit                                                     |
 | Comparisons in an exported copy               | Every pair up to six runs, beyond that each run with the first    |
 | A share link                                  | 7 days at most                                                    |
 | Uploads                                       | 64 MB and 32 files at once; a file no job used goes after an hour |
@@ -1646,7 +1647,7 @@ The work done on those threads:
 - Past that, another thread takes it and keeps the run, and the run's requests waiting for the first thread follow it there.
 - The warm-up works on the thread that answered a request least lately, so the run you are reading keeps the thread that holds it.
 
-**Work that takes too long.** A job that runs past two minutes (ten for what can wait, such as a long run's whole analysis) is stopped with its thread. Its page says it took too long rather than wait for good, and another thread takes what comes after.
+**Work that takes too long.** A job that runs past its time is stopped with its thread. A request has two minutes per 50,000 calls of the runs it reads, at least two, and what can wait (a long run's whole analysis) ten. Its page says it took too long rather than wait for good, and another thread takes what comes after.
 
 **Writes have threads of their own:**
 
@@ -2097,7 +2098,7 @@ A button that is off says why on hover. The usual reasons:
 
 ### A page took too long
 
-Work on one of the dashboard's threads that runs past two minutes (ten for what can wait) is stopped, and its page says it took too long; see [Large stores and long runs](#large-stores-and-long-runs).
+Work on one of the dashboard's threads that runs past its time is stopped, and its page says it took too long. A request has two minutes per 50,000 calls of the runs it reads, at least two, and what can wait ten; see [Large stores and long runs](#large-stores-and-long-runs).
 
 - **Compare**: what came first stays, with the `shadowlap diff` command, which has no time limit.
 - **Share → HTML file** on a read-only dashboard: it is stopped, naming the redaction rule most likely at fault. `shadowlap export html` makes it from a terminal.

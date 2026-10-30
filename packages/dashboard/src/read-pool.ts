@@ -35,7 +35,8 @@ import type { Keeper } from './run-stats.js';
 export interface ReadModels {
   /**
    * Works out a job. `affinity` names the run it reads: the thread that read that run last does, as
-   * it keeps it; `calls`, how long that run is (whether another thread may take the job meanwhile).
+   * it keeps it; `calls`, how many calls the runs it reads have: whether another thread may take the
+   * job meanwhile, and how long it may take (`READ_LIMITS.jobCalls`).
    */
   run(job: ReadJob, o?: { affinity?: string; calls?: number }): Promise<ReadAnswer>;
   /** The warm-up has been through every run, until an answer says it is warming again (`warm`). */
@@ -88,9 +89,16 @@ export const READ_LIMITS = {
   /**
    * The longest a thread may work on one job, in milliseconds: past it the thread is ended, the
    * request is answered that it took too long, and a new thread takes the rest. A request, two
-   * minutes; what can wait (a long run's whole analysis), ten.
+   * minutes for each `jobCalls` calls of the runs it reads, two at least; what can wait (a long run's
+   * whole analysis), ten.
    */
   jobMs: 120_000,
+  /**
+   * The calls of the runs a request reads that two minutes (`jobMs`) are given for: a whole Compare of
+   * two runs of 100,000 calls took 25 s on a quiet machine and 94 s at load 28, and once passed two
+   * minutes, which it was given then.
+   */
+  jobCalls: 50_000,
   backgroundMs: 600_000,
 };
 
@@ -126,7 +134,7 @@ interface Pending {
    * it waiting for its old thread follow it there.
    */
   handed?: boolean;
-  /** How many calls its run has, when it is about one (`affinity`): whether a free thread may take it from the thread that holds the run. */
+  /** How many calls the runs it reads have: whether a free thread may take it from the thread that holds its run (`affinity`), and how long it may take. */
   calls?: number;
   resolve(a: ReadAnswer): void;
   reject(err: Error): void;
@@ -400,7 +408,7 @@ export class ReadPool implements ReadModels {
   /** Ends the thread when `p` runs past its time: a job that never ends would hold the thread, and every request for its runs, for good. */
   private time(slot: Slot, p: Pending): void {
     if (slot.limit) clearTimeout(slot.limit);
-    const ms = p.background ? READ_LIMITS.backgroundMs : READ_LIMITS.jobMs;
+    const ms = p.background ? READ_LIMITS.backgroundMs : READ_LIMITS.jobMs * Math.max(1, Math.ceil((p.calls ?? 0) / READ_LIMITS.jobCalls));
     slot.limit = setTimeout(() => {
       slot.limit = null;
       const worker = slot.worker;

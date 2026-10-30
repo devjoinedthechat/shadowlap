@@ -454,6 +454,23 @@ describe('read models on threads beside the server', () => {
     }
   });
 
+  it('gives a request that reads long runs longer, in step with their calls, and one that reads short runs its time', async () => {
+    // Threads that take 600 ms over a comparison: past the time a request is given here, but within
+    // what a pair of runs of 2,500 calls is given.
+    const { pool: two, said } = timedPool({ compare: 600 }, 'long-pair');
+    const was = { jobMs: READ_LIMITS.jobMs, jobCalls: READ_LIMITS.jobCalls };
+    READ_LIMITS.jobMs = 300;
+    READ_LIMITS.jobCalls = 1000;
+    try {
+      for (let i = 0; i < 400 && !two.warmed; i++) await new Promise((r) => setTimeout(r, 10));
+      expect(said(await two.run({ kind: 'compare', a: 'A', b: 'B', cwd: null }, { calls: 2500 })).kind).toBe('compare');
+      await expect(two.run({ kind: 'compare', a: 'C', b: 'D', cwd: null }, { calls: 500 })).rejects.toMatchObject({ status: 503, message: 'a compare job took more than 0.3 s, so it was stopped' });
+    } finally {
+      Object.assign(READ_LIMITS, was);
+      await two.close();
+    }
+  }, 30_000);
+
   it('fails a job a thread answers nothing for (one built before that kind of job), rather than wait for good', async () => {
     const script = join(dir, 'stale-worker.mjs');
     writeFileSync(script, "import { parentPort } from 'node:worker_threads';\nparentPort.postMessage({ type: 'ready' });\nparentPort.on('message', (m) => m.type === 'close' ? parentPort.postMessage({ type: 'closed' }) : parentPort.postMessage({ type: 'answer', id: m.id }));\n");
