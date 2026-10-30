@@ -1,6 +1,6 @@
 import { Command, Option } from 'commander';
 import { applyLeft, BLAME_DEFAULTS, describeBaselineRule, FIX_STATUSES, FixIdError, fixRecords, type FixStatus, KEPT_DEFAULTS, prNumber, type ReadPolicy, repairerProblem, resolveFix, setFixTitle, SPRT_DEFAULTS, type StoredFix, type StoreOf } from '@shadowlap/engine';
-import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, readableHosts, type PrRead } from '@shadowlap/dashboard';
+import { fieldChange, fixDetail, fixHref, fixList, ghReader, patchesInTree, patchesToCheck, prHost, pulledPatchesToCheck, readableHosts, rewritesHere, type PrRead } from '@shadowlap/dashboard';
 import { acceptedRepair, ApplyError, applyFix } from '../fix-apply.js';
 import { formatFixDetail, formatFixList, repairLine, shortFixId } from '../fix-format.js';
 import { emitJobEvent } from '../job-events.js';
@@ -184,10 +184,12 @@ function registerFixes(program: Command): void {
       try {
         const repairer = configuredRepairer();
         // The repair it suggests next, whether its repairer can be asked from here (claude on the PATH),
-        // and whether a verified fix's patch is in this working tree already, which apply only marks applied.
+        // whether a verified fix's patch is in this working tree already, which apply only marks applied,
+        // and why apply refuses a pulled repair's patch here, as the file it rewrites reads.
         const fix = requireFix(store, arg);
         const patchInTree = await patchesInTree(process.cwd(), patchesToCheck(store, [fix]));
-        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree })!;
+        const rewriteHere = await rewritesHere(process.cwd(), pulledPatchesToCheck(store, [fix]));
+        const detail = fixDetail(store, fix.fixId, { repairer, checkRepairer: repairerProblem, patchInTree, rewriteHere })!;
         process.stdout.write((flags.json ? JSON.stringify(detail, null, 2) : formatFixDetail(detail, p, { repairer })) + '\n');
       } catch (err) {
         fixIdFailed(err, arg, flags.json);

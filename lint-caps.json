@@ -80,7 +80,7 @@
       "runDoctor": 76
     },
     "packages/cli/src/fix-apply.ts": {
-      "applyFix": 82
+      "applyFix": 72
     },
     "packages/cli/src/fix-format.ts": {
       "formatFixDetail": 64
@@ -179,7 +179,7 @@
       "verifyMore": 41
     },
     "packages/dashboard/src/fixes.ts": {
-      "fixDetail": 49
+      "fixDetail": 48
     },
     "packages/dashboard/src/injection.ts": {
       "injectionJob": 49
@@ -192,7 +192,7 @@
       "recordStep": 52
     },
     "packages/dashboard/src/read-jobs.ts": {
-      "runJob": 72
+      "runJob": 69
     },
     "packages/dashboard/src/routes/imports.ts": {
       "register > build": 35

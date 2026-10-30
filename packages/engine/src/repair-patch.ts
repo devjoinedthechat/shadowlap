@@ -1,13 +1,16 @@
-import { longestRewrite, placeholders, REPAIR_FILE_LIMIT, templateSyntax, type Placeholder, type RepairReport, type SourceFile } from './repair.js';
+import { checkEdit, longestRewrite, placeholders, REPAIR_FILE_LIMIT, templateSyntax, type Placeholder, type RepairReport, type SourceFile } from './repair.js';
 import { sourceStrings, type SourceString } from './source-strings.js';
 import { safeLine } from './text.js';
 
 /**
- * What a repair's patch may change, and where a repair rewrites text. `shadowlap fix apply` hands a
- * patch to `git apply`, and the store it comes from can be someone else's (a teammate's bucket, a
- * copied file), so a patch is held to the one rewrite its accepted candidate makes
- * (`repairPatchProblem`). A repair rewrites text only inside a string of JavaScript, TypeScript or
- * Python source, or in a prose file, where it places its anchors (`repairNeverRewritesAt`).
+ * What a repair's patch may change. `shadowlap fix apply` hands a patch to `git apply`, and the store
+ * it comes from can be someone else's (a teammate's bucket, a copied file), so a patch is held to the
+ * one rewrite its accepted candidate makes (`repairPatchProblem`). A patch a pull brought is held to
+ * the rewrites repair itself makes, in the working tree it goes into (`rewriteHere`): text inside a
+ * string of JavaScript, TypeScript or Python source, or text of a prose file, where repair places
+ * its anchors too (`repairNeverRewritesAt`), and a rewrite of it that `checkEdit` would let repair
+ * try. A teammate's machine or the bucket can be someone else's, so a fix from there can do no more
+ * than one repair made here could.
  */
 
 /**
@@ -111,6 +114,7 @@ export function repairPatchProblem(report: Pick<RepairReport, 'patch' | 'candida
   if (!plainRepoPath(file)) return `its accepted candidate names "${safeLine(file)}", which is not a plain path inside the repository`;
   const never = repairNeverRewrites(file);
   if (never) return `its accepted candidate rewrites ${safeLine(file)}, ${never}: a repair rewrites only the text the agent sends the model, where the agent's source holds it`;
+  if (!rewriteKind(file)) return `its accepted candidate rewrites ${safeLine(file)}, ${kindWords(file)}: a repair rewrites text only in ${REWRITTEN_TEXT}`;
   // Nothing larger than a repair makes is read any further: the text a candidate rewrites is in a
   // file repair read, and its rewrite is held to longestRewrite. The patch holds the lines around
   // the rewrite before and after it, a mark in front of each, which at most doubles them (empty lines).
@@ -278,4 +282,73 @@ export function repairNeverRewritesAt(file: SourceFile, offset: number, length: 
   }
   const cut = code.find((p) => p.start < end && offset < p.end && (p.start < offset || p.end > end));
   return cut ? `starts or ends inside ${safeLine(file.content.slice(cut.start, cut.end)).slice(0, 80)}: a rewrite keeps each placeholder whole` : null;
+}
+
+/** Where `lines`, whole lines of text, are in `text`: each place a line of it starts, and at its end when the last has no line break. Two at most. */
+function linesAt(text: string, lines: string): number[] {
+  const at: number[] = [];
+  for (let i = text.indexOf(lines); i >= 0 && at.length < 2; i = text.indexOf(lines, i + 1)) {
+    if ((i === 0 || text[i - 1] === '\n') && (lines.endsWith('\n') || i + lines.length === text.length)) at.push(i);
+  }
+  return at;
+}
+
+const lf = (s: string) => s.replace(/\r\n/g, '\n');
+
+/**
+ * Where `text` holds `before` such that rewriting it to `after` there makes `result`, or -1. The text
+ * the two share at either end bounds it: before the first place they differ, and after where the
+ * text they share at the end begins, less the length of `before`. Where `before` and what is around it
+ * repeat, the rewrite at more than one place makes the same `result`, and any of them will do; the
+ * first few are tried, each in one pass.
+ */
+function placeOf(text: string, result: string, before: string, after: string): number {
+  let first = 0;
+  while (first < text.length && text.charCodeAt(first) === result.charCodeAt(first)) first++;
+  let same = 0;
+  while (same < text.length && same < result.length && text.charCodeAt(text.length - 1 - same) === result.charCodeAt(result.length - 1 - same)) same++;
+  let at = text.indexOf(before, Math.max(0, text.length - same - before.length));
+  // Up to `first` the two are the same, so a place there only needs `after` and what follows `before`.
+  for (let tries = 0; at >= 0 && at <= first && tries < 8; tries++, at = text.indexOf(before, at + 1)) {
+    if (text.length - before.length + after.length === result.length && result.startsWith(after, at) && result.endsWith(text.slice(at + before.length))) return at;
+  }
+  return -1;
+}
+
+/**
+ * Why the change a repair's patch makes to `content`, its file's text in this working tree, is not a
+ * rewrite repair itself would make there: `{ problem }`, with null for one it would make. Null when
+ * the patch's lines are not in `content` once: it is in already, or the file changed since.
+ *
+ * A pull brings a teammate's patch, which their machine or the bucket could have written, so it goes
+ * in only as a fix repair could have proposed here: one rewrite of the candidate's text, where
+ * `git apply` would put it (the one place the hunk's lines are, line endings aside), that is text a
+ * repair rewrites there (`repairNeverRewritesAt`), rewritten as `checkEdit` lets a repair rewrite
+ * text. A teammate's file can differ from this one beyond the hunk, so what the text is (in a string,
+ * code or a comment) is read here, never taken from the patch.
+ */
+export function rewriteHere(report: Pick<RepairReport, 'patch' | 'candidates' | 'accepted'>, content: string): { problem: string | null } | null {
+  const problem = repairPatchProblem(report);
+  if (problem) return { problem };
+  const c = report.candidates.find((x) => x.id === report.accepted);
+  const hunk = report.patch !== null && c ? hunkOf(report.patch, c.file) : null;
+  if (!c || !hunk || typeof hunk === 'string') return null;
+  // As `git apply` reads the file where git converts line endings: CRLF as LF, on both sides.
+  const text = lf(content);
+  const was = lf(hunk.was);
+  if (!was) return { problem: `its hunk holds no line of ${c.file}, where a repair's holds the lines its rewrite changes` };
+  const at = linesAt(text, was);
+  if (!at.length) return null;
+  if (at.length > 1) return { problem: `the lines it changes are in ${c.file} more than once here, so where it goes is not one place` };
+  const result = text.slice(0, at[0]) + lf(hunk.is) + text.slice(at[0]! + was.length);
+  const before = lf(c.before);
+  const after = lf(c.after);
+  const offset = placeOf(text, result, before, after);
+  if (offset < 0) return { problem: `here, the text its accepted candidate rewrites is not where its patch changes ${c.file}` };
+  const where = repairNeverRewritesAt({ path: c.file, content: text }, offset, before.length);
+  if (where) return { problem: `here, the text its accepted candidate rewrites in ${c.file} ${where}` };
+  if (after !== after.trim()) return { problem: "its accepted candidate's rewrite starts or ends with white space, which a repair trims" };
+  const anchor = { id: 1, surface: c.surface, text: before, file: c.file, offset, prev: text[offset - 1] ?? '', next: text[offset + before.length] ?? '' };
+  const check = checkEdit({ anchor: 1, replace: after, strategy: c.strategy, why: c.why }, [anchor], new Set());
+  return { problem: check.ok ? null : `its accepted candidate's rewrite is one a repair sets aside: ${check.reason}` };
 }

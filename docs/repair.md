@@ -103,7 +103,7 @@ An anchor is text a rewrite can change without changing what runs. It is in one 
 
 Text anywhere else is never anchored: code, a comment or a regular expression, and any other file, such as a workflow, a `package.json`, a shell script, MDX or another language's source. Shadowlap can't tell its text from what runs there.
 
-The switch to a stronger model is held to the same rule.
+The switch to a stronger model is held to the same rule, and so is a patch a pull brings from the [team store](./team.md#a-teammates-patch-is-held-to-a-repairs-rewrites), read where it goes in your working tree.
 
 ### Where no anchor is placed
 

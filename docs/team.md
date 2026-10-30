@@ -293,7 +293,22 @@ The patch is someone else's code, so a pull takes a fix only when each repair's 
 - one that writes another file;
 - one that makes, renames or deletes one;
 - one that adds lines the candidate doesn't;
-- one larger than a repair writes.
+- one larger than a repair writes;
+- one to a file a repair never rewrites, such as a workflow, a `package.json` or a shell script.
+
+A repair rewrites text only in a string of JavaScript, TypeScript or Python source, or in a Markdown, plain text, prompt or Jinja file. See [where an anchor goes](./repair.md#where-an-anchor-goes).
+
+### A teammate's patch is held to a repair's rewrites
+
+A teammate's machine or the bucket could have written the fix, so a pulled patch can do no more than a repair made here could. `shadowlap fix apply` reads the file where the patch goes, as it is in your working tree, and refuses the patch when what it rewrites is:
+
+- outside any string in code, such as other code or a comment;
+- past the end of the string it starts in, or the inside of a placeholder (`${…}`, `{…}`, `{{ … }}`);
+- a rewrite a repair sets aside: one that adds a quote, a backslash, a brace or a placeholder, or a line break to one-line text.
+
+Nothing is changed, and the message says why. The Fixes page and `shadowlap fix show` say the same, and offer no `git apply` to copy.
+
+A string can hold more than a prompt, such as a command your code runs, so read a pulled patch before you apply it.
 
 ### Applied on each machine
 
