@@ -484,9 +484,14 @@ function maskConnectionString(text: string): string | null {
   return pairs >= 2 && changed ? out.join(';') : null;
 }
 
-/** A text body written as URL-encoded parameters, as a form body is (`a=1&b=2`): a `=`, and no space, quote or brace. */
+/**
+ * A text body written as URL-encoded parameters, as a form body is (`a=1&b=2`): a `=`, and no space,
+ * quote or brace. A value masked already counts as any other, so a form masked once reads as a form
+ * again, as a replay reads a stored one: read otherwise, as a `key=value` line, it lost the
+ * parameters after its first when that was a credential.
+ */
 export function formShaped(text: string): boolean {
-  return text.includes('=') && /^[^\s"{}<>\\^`|]+$/.test(text);
+  return text.includes('=') && /^[^\s"{}<>\\^`|]+$/.test(text.replaceAll(CREDENTIAL_PLACEHOLDER, ''));
 }
 
 /**

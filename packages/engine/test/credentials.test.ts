@@ -498,3 +498,15 @@ describe('credentials in a captured body', () => {
     expect(credentialFreeResult(json)).toBeNull();
   });
 });
+
+describe('a form masked once', () => {
+  it('is masked to the same again, its credential first or last, as a body and as a string in one, as a replay reads a stored call', () => {
+    for (const form of ['password=pw_FAKE_0123&username=app', 'client_secret=EXAMPLE-0123&grant_type=client_credentials', 'grant_type=password&password=pw_FAKE_0123&scope=read']) {
+      const once = credentialFreeBody({ body: form, encoding: 'text' });
+      expect(once.body, form).toBe(form.replace(/(password|client_secret)=[^&]*/, `$1=${CREDENTIAL_PLACEHOLDER}`));
+      expect(credentialFreeBody(once), form).toBe(once);
+      const inJson = credentialFreeBody({ body: { form }, encoding: 'json' });
+      expect(credentialFreeBody(inJson), form).toBe(inJson);
+    }
+  });
+});

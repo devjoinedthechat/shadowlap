@@ -303,6 +303,42 @@ describe('credentials in a captured call', () => {
     }
   });
 
+  it('in a form, its credential first, match a replay that fingerprints the recording again, as one after the fingerprint cache changes does', async () => {
+    const upstream = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => res.writeHead(200, { 'content-type': 'application/json' }).end('{"token_type":"bearer"}'));
+    });
+    await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', () => r()));
+    const host = `127.0.0.1:${(upstream.address() as AddressInfo).port}`;
+    const store = Store.open(':memory:');
+    const token = async (base: string, runId: string, secret: string) => {
+      const res = await fetch(`${base}/r/${runId}/http/oauth/token`, { method: 'POST', headers: { 'x-shadowlap-upstream': `http://${host}`, 'content-type': 'application/x-www-form-urlencoded' }, body: `client_secret=${secret}&grant_type=client_credentials&scope=read` });
+      await res.text();
+      return res.status;
+    };
+    const sidecars: Sidecar[] = [];
+    try {
+      const recording = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact' });
+      sidecars.push(recording);
+      const run = recording.startRun({ mode: 'record', command: { argv: ['x'], cwd: '.' } });
+      expect(await token(recording.url, run.runId, 'EXAMPLE-secret-0123')).toBe(200);
+      recording.endRun(run.runId, 'completed');
+      // A normalizer that changes nothing here: the stored request is fingerprinted again, not taken from the cache.
+      const sidecar = await Sidecar.start({ store, http: [{ host, effect: 'read' }], clock: 'exact', normalizers: [{ kind: 'api', pattern: 'uuid' }] });
+      sidecars.push(sidecar);
+      for (const secret of ['EXAMPLE-secret-0123', 'EXAMPLE-rotated-4567']) {
+        const replay = sidecar.startRun({ mode: 'replay', parentRunId: run.runId, command: { argv: ['x'], cwd: '.' }, offline: true });
+        expect(await token(sidecar.url, replay.runId, secret)).toBe(200);
+        expect(sidecar.endRun(replay.runId, 'completed').summary.divergence, secret).toBeNull();
+        expect(store.getCalls(replay.runId).map((c) => c.origin)).toEqual(['replayed']);
+      }
+    } finally {
+      for (const s of sidecars) await s.close();
+      store.close();
+      upstream.close();
+    }
+  });
+
   it("in a webhook's address are stored masked, and a recording that kept them as sent still matches, with a rotated secret too", async () => {
     const seen: string[] = [];
     const upstream = createServer((req, res) => {
