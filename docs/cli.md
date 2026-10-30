@@ -35,8 +35,8 @@ the [exit statuses](#exit-status), the [JSON output](#json-output), the
 
 ## Requirements
 
-The CLI runs on Node 22.16 or later, but not on Node 23. Every store keeps a full-text index. Node's
-built-in SQLite has one from 22.16 on, and in 24 and later.
+The CLI runs on Node 22.16 or later, but not on Node 23. That is because every store keeps a full-text
+index, which Node's built-in SQLite has from 22.16 on, and in 24 and later.
 
 - **Another Node**: the CLI names the Node it needs and exits 2.
 - **A SQLite without full-text search**: a Node in that range can have a SQLite built without it,
@@ -45,17 +45,18 @@ built-in SQLite has one from 22.16 on, and in 24 and later.
 
 ## Global options
 
-Every command takes these options:
+`shadowlap` takes these options:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--db <path>` | The store to use | `./.shadowlap/shadowlap.db` |
 | `-v, --verbose` | Print the sidecar's log on stderr. Give every attempt its own line where a terminal folds them, as [blame](#blame), verify and repair do | — |
-| `-h, --help` | Print the command's help, with its options and these | — |
-| `-V, --version` | Print the version number | — |
+| `-h, --help` | Print the help; after a command, that command's, with its options and these | — |
+| `-V, --version` | Print the version number, before any command | — |
 
-`--db` and `--verbose` go before the command or after it: `shadowlap --db other.db ls` and
-`shadowlap ls --db other.db` are the same. Run ids can be abbreviated to any unique prefix.
+Every command takes `--db` and `--verbose`, before the command or after it:
+`shadowlap --db other.db ls` and `shadowlap ls --db other.db` are the same. Run ids can be abbreviated
+to any unique prefix.
 
 ### Where a store is created
 
@@ -75,14 +76,14 @@ Every command ends with an exit status a script or a CI step can tell apart: 1 f
 failed, 2 for a command it can't run as given, 3 for a verdict that couldn't be reached, 70 for a bug.
 Each command's section says which statuses it ends with. The statuses are:
 
-| Status    | Meaning                                                             |
-| --------- | ------------------------------------------------------------------- |
-| `0`       | Ok: the command did what it was asked, and what it judged passed    |
-| `1`       | Failed: what it judged failed, or the work could not be finished    |
-| `2`       | Usage or configuration: something to fix before the command can run |
-| `3`       | Inconclusive: a gate or check that could not decide                 |
-| `70`      | Internal error: a bug in Shadowlap                                  |
-| `128 + n` | Stopped by signal *n*                                               |
+| Status    | Meaning                                                          |
+| --------- | ---------------------------------------------------------------- |
+| `0`       | Ok: the command did what it was asked, and what it judged passed |
+| `1`       | Failed: what it judged failed, or the work could not be finished |
+| `2`       | Usage or configuration: a command it can't run as given          |
+| `3`       | Inconclusive: a gate or check that could not decide              |
+| `70`      | Internal error: a bug in Shadowlap                               |
+| `128 + n` | Stopped by signal *n*                                            |
 
 **`1`, failed**, covers:
 
@@ -104,12 +105,13 @@ Each command's section says which statuses it ends with. The statuses are:
   again;
 - an agent on a Node too old for the guard.
 
-**`3`, inconclusive**, covers a gate or check that could not decide, a budget spent before a
-verdict, and the provider unavailable. It is `0` when the result only warns:
+**`3`, inconclusive**, covers:
 
-- under `--inconclusive warn`;
-- with no `--inconclusive` given, for a gate against history whose golden has fewer than 30
-  sessions that ran out of attempts with no decline or drop in them.
+- a gate or check that could not decide. That is `0` when it only warns: under
+  `--inconclusive warn`, or, with none given, for a gate against history whose golden has fewer than
+  30 sessions that ran out of attempts with no decline or drop in them;
+- a budget spent before a verdict;
+- the provider unavailable.
 
 **`70`, internal error**: the message says so. Run the command again with `SHADOWLAP_DEBUG=1` to see
 where it happened, and report it.
@@ -226,11 +228,14 @@ stop signal that reached Shadowlap or the agent).
 
 `run` exits with:
 
-| Status      | Meaning                                                                   |
-| ----------- | ------------------------------------------------------------------------- |
-| The agent's | The agent's own exit code                                                 |
-| `127`       | The command never started ([below](#when-the-command-never-starts))       |
-| `128 + n`   | A signal ended the agent: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM |
+| Status | Meaning |
+| --- | --- |
+| The agent's | The agent's own exit code |
+| `127` | The command isn't on the PATH, or can't start for another reason ([below](#when-the-command-never-starts)) |
+| `128 + n` | A signal ended the agent: 130 for SIGINT, 129 for SIGHUP, 143 for SIGTERM |
+
+On Windows, a command that is a batch file, such as `npm start` or `npx tsx agent.ts`, runs through
+cmd.exe, its arguments passed on as given.
 
 What the run did unrecorded is kept on it, for its page in the
 [dashboard](./dashboard.md#what-a-runs-page-is-worked-out-from): the hosts the guard saw it reach
@@ -248,8 +253,6 @@ of, which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-di
 - **Under `test` and `bisect`**: a golden whose command never started fails with the same words. One
   replayed in a working directory that doesn't exist (`--cwd`, or a folder a commit doesn't have yet)
   says so, rather than blaming the command.
-- **On Windows**: a command that is a batch file, such as `npm start` or `npx tsx agent.ts`, runs
-  through cmd.exe, its arguments passed on as given.
 
 A Node agent on a Node before 18.18 never starts either. That Node refuses the preload (`--import` in
 `NODE_OPTIONS`) and exits 9 before any of the agent runs:
@@ -418,7 +421,9 @@ More on some of them:
   before anything runs, exit status 2.
 - **`--chaos`**: a fork for each preset, judged by `--expect`, or, for a golden's run, by its
   `chaos.expect` or the write limits of its `expect`. Writes are stubbed unless `--writes` is given,
-  and `--summary-json` writes their report. It doesn't combine with the flags that change a replay.
+  and `--summary-json` writes their report. It doesn't combine with the flags that change a replay:
+  `--override`, `--fail-at`, `--inject-result`, `--inject`, `--set`, `--model`, `--prompt-from`,
+  `--diverge-at`, `--live-tool`, `--repeat`, `--watch` and `--strict`.
 
 A change the recorded request can't take (a system message on Gemini, a field Converse has no place
 for, a write tool to plant in) is refused before anything runs, with the reason. An intervention the
@@ -440,12 +445,13 @@ guard is the Claude Code CLI the Claude Agent SDK runs, while it can still reach
 can't watch and `guard.accept` doesn't take it ([details](./frameworks.md#claude-agent-sdk)). Its summary then
 reads `✗ Replay not watched`, never clean.
 
-With `--repeat`, the status is 0 only when every attempt asked for ran, exited 0, was watched by the
-guard under `--guard block` and passed its checks. Otherwise it is:
+With `--repeat`, the status is:
 
-- 1, and with `--strict`, also when any attempt diverged or ended early;
+- 0 only when every attempt asked for ran, exited 0, was watched by the guard under `--guard block`,
+  and passed its checks;
 - 3 when all that kept an attempt from passing is a check that could not be decided;
-- 128 + n for a `--repeat` that a stop signal cut short, 130 for Ctrl-C.
+- 128 + n for a `--repeat` that a stop signal cut short, 130 for Ctrl-C;
+- else 1. With `--strict`, it is 1 also when any attempt diverged or ended early.
 
 A run still recording is refused, exit status 2, until it has ended: it has no end to replay to yet,
 as the dashboard's Replay and Fork wait for it. One whose recording process was killed (see
@@ -632,7 +638,7 @@ the client talks stdio to it. See [MCP servers](./mcp.md#served-over-http---list
 | --- | --- | --- |
 | `--url <server>` | Speak Streamable HTTP to a remote server at this endpoint | — |
 | `--header <header>` | Send this header with every request to the `--url` server; `$VAR` or `${VAR}` is read from the environment (repeatable) | — |
-| `--allow-http` | Send headers over plain http to a host other than this machine | Plain http only to this machine |
+| `--allow-http` | Send headers over plain http to a host other than this machine | Headers go over plain http only to this machine |
 | `--effect <tool=effect>` | `pure`, `read` or `write` for a tool, overriding the server's annotations (repeatable) | The server's annotations |
 | `--listen <address>` | Serve the `--url` server over Streamable HTTP at `http://<address>/mcp` (below) | Stdio |
 
@@ -666,8 +672,7 @@ A local web UI over the store: runs and forks, a timeline of calls by origin, th
 call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork
 actions. See [Dashboard](./dashboard.md).
 
-It listens on 127.0.0.1, with a session token in the link it prints. It needs a store to show, and
-never creates one.
+It listens on 127.0.0.1, with a session token in the link it prints.
 
 `dashboard` takes these flags:
 
@@ -679,10 +684,10 @@ never creates one.
 | `--read-only`   | Show every page and change nothing (below)                      | —       |
 
 A port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a
-free one. Either way, the link names the port it got.
+free one, and `--port 0` asks for any free one. Either way, the link names the port it got.
 
 With `--read-only`, actions, labels, notes, uploads and deletes are refused, and the dashboard says
-why.
+why. It needs a store to show, and never creates one.
 
 ## ui
 
@@ -899,7 +904,7 @@ requests, stored with their numbers rounded, compare rounded on both sides.
 | `firstRequestDifference` | `callNo`, `kind`, `name` and the structural `diff`, or `null` |
 | `responseDifferences` | Each with `sameAnswer` when only the response differed, not its answer, and `by`, the flag, for the call a replay's flag answered |
 | `after` | Each run's course from the first difference on |
-| `onlyInA`, `onlyInB` | The calls only one run made |
+| `onlyInA`, `onlyInB` | How many calls each run made beyond the other's end, when no request differed |
 | `changes` | `systemPrompt`, each run's system prompts by their hashes in `systems`, `tools`, `models`, `code` |
 | `intervention` | What a replay's flag changed (below), or `null` |
 
@@ -1172,8 +1177,8 @@ More on some of them:
 | `3` | It stopped before a verdict: the budget spent, too little of it left to ask the repairer, or the provider unavailable |
 | `128 + n` | A stop signal, whenever it comes, the verdict reached or not |
 
-The hand-over fails when, for example, a branch it can't make (a name git refuses, or one that
-exists) is found at the hand-over. The repair is kept.
+A branch it can't make (a name git refuses, or one that exists) is found at the hand-over: that
+fails the hand-over, and the repair is kept.
 
 It can't start, exit status 2:
 
@@ -1228,8 +1233,8 @@ With `--json`, each subcommand prints:
 | `fix show` | The fix, with its three steps in full ([fields](#fix-show)) |
 | `fix apply` | What it did ([fields](#fix-apply)) |
 | `fix pr` | `{ fixId, pr: { url, number, state, at } }` ([below](#fix-pr)) |
-| An id that matches no fix, or several | `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, exit status 2 |
-| An error | `{ fixId, status, error }`, with `status` `error` |
+| An id that matches no fix, or several | `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, with the `fixId` given; exit status 2 |
+| An error in `fix pr` or `fix apply` | `{ fixId, status, error }`, with `status` `error` |
 
 ### `fix ls`
 
@@ -1417,8 +1422,9 @@ Hands a verified fix over. Run it in the folder the repair ran in, where its dir
 
 A patch that applied stays applied.
 
-**The project's other goldens.** A prompt or a tool description goes into every request, so `fix apply`
-replays the project's other goldens offline, in a store of their own that nothing keeps:
+**The project's other goldens.** Then `fix apply` replays the project's other goldens offline, in a
+store of their own that nothing keeps. A prompt or a tool description goes into every request, so they
+can diverge on what the patch changed:
 
 - It names each that diverges on what the patch changed: a request field that holds text the patch
   added, or lost text it removed. It prints the command that re-records them,
@@ -1464,8 +1470,9 @@ in, and the file keeps its CRLF.
 - A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only
   marked applied. One verified with a change of request fields (`--set`, `--model`) says which, since
   no file carries them: set them in your agent.
-- When the working tree has changes the patch conflicts with, nothing is changed. The message says
-  whether to commit or stash them, or to apply the patch by hand.
+
+**A conflict.** When the working tree has changes the patch conflicts with, nothing is changed. The
+message says whether to commit or stash them, or to apply the patch by hand.
 
 **Run again** on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied.
 It copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and
@@ -1711,8 +1718,8 @@ Each of its `decisions`, a step, has these fields:
 
 More on a step's fields:
 
-- **`rank`** is `null` when no sample changed, and when either side got fewer than 3 answers, which
-  leaves the step not settled.
+- **`rank`** is `null` when there is none, and when either side got fewer than 3 answers, which leaves
+  the step not settled.
 - **`changes`**: each has its `rank`, its `kind`, the `tool` and its `effect`, `before`, `after` and a
   `detail` sentence. `kind` is one of `write-added`, `write-removed`, `write-arguments`,
   `write-order`, `stops`, `handover`, `judge`, `read-added`, `read-removed`, `read-arguments` and
@@ -1793,8 +1800,8 @@ Each run verified has:
 A good run kept against its own baseline has the `baseline`'s `passes` and `attempts`, and its `bound`
 is the drop's (`drop <= 0.10 (95%)`).
 
-The `rule` is stated once: `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. It is `null`
-in a session whose runs were decided by different rules, verified again later under other figures,
+The `rule` is stated once, such as `gate: tells 90%+ from 70%- at <= 5% risk, up to 80 attempts`. It is
+`null` in a session whose runs were decided by different rules, verified again later under other figures,
 where each run's own says which.
 
 `--verify --json` prints:
@@ -1850,7 +1857,7 @@ Shadowlap's own calls (its judge's) are none of the agent's.
 | `--samples <n>`, `--concurrency <n>` | As for [`decisions`](#decisions) | 1, 4 |
 | `--expect <json\|@file>` | What a passing run must do besides exiting 0 | Each run's checks (below) |
 | `--gate <json\|@file>`, `--attempts <n>`, `--passes <n>`, `--writes stub\|block`, `--guard` | Verify's, as for [`verify`](#verify). Each run is decided by verify's gate, unless `--attempts` or `--passes` gives a fixed count | Verify's |
-| `--budget <usd>`, `--timeout <seconds>` | As for [`decisions`](#decisions) | — |
+| `--budget <usd>`, `--timeout <seconds>` | As for [`decisions`](#decisions) | `--timeout`: a model request waits ten minutes |
 | `--inconclusive fail\|warn` | What an inconclusive result does to the exit status, as for `decisions` | `fail` |
 | `-y, --yes` | Run recorded commands without asking (below) | — |
 | `--json` | Print the report as JSON on stdout ([below](#migrate-report-as-json)) | — |
@@ -1924,7 +1931,7 @@ a longer string, or in `shadowlap.config.json`.
 | `command` | The command that migrates the same way again, every option given |
 | `decisions` | The [decisions report](#decisions-report-as-json), with its `remedies` (below) |
 | `changes` | `runs`, `flagged`, and each rank 1 or 2 change in `steps` (below) |
-| `passes` | What verify found: its `verdict` and the `runs` (below) |
+| `passes` | What still passes: verify's `verdict`, and the `runs` (below) |
 | `costs` | `perRun` and `total`, `before` and `after` in USD, `tokensPerRun`, and what `checking` cost (below) |
 | `set` | The `--set` `flags` verify took, the `fields` changed, and those `given` with `--set` |
 | `configChange` | The change to the project's files (below); `null` when no file names the model |
@@ -1956,7 +1963,10 @@ to your code. Each of its `runs` has these fields:
 | `runId`, `golden` | The run, and its golden |
 | `verdict` | `passed`, `failed` or `inconclusive` |
 | `outcome` | How it came out (below) |
-| `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it and `undecided`; else `null` |
+| `tally` | For a run verify took: its `passes`, `attempts`, `bound` (exact under the gate's stopping), the `rule` that decided it and `undecided` (below); else `null` |
+
+A tally's `bound`, `rule` and `undecided` are as in the decisions report's
+[`verify`](#decisions-report-as-json).
 
 `outcome` is in verify's own words when it was `verified` (`kept`, `fixed`, `broken`, `not-fixed`,
 `inconclusive`, `unsettled`). Else it is:
@@ -2505,7 +2515,7 @@ one.
 | `--timeout <seconds>` | Stop a replay after this long, and count it as failing | 300 |
 | `--guard <mode>` | The network guard: `block`, `warn` or `off` | `block` |
 | `--allow-unrecorded <names>` | As for [`replay`](#replay) | — |
-| `-y, --yes` | Run recorded commands at each commit without asking (below) | — |
+| `-y, --yes` | At each commit, run without asking the recorded command of a run from a pack or the team store, or of an untracked golden (below) | — |
 | `-- <command>` | The agent's command to run at each commit instead of the recorded one | — |
 | `--json` | Print the result as JSON: each replay, the first bad commit, and the replays, tokens and upstream requests it took | — |
 
@@ -2556,11 +2566,12 @@ none. A search stopped with Ctrl-C keeps nothing.
 | Field | Meaning |
 | --- | --- |
 | `outcome` | `found`, `passes-at-bad`, `fails-at-good`, `untestable` or `stopped` |
-| `why` | Why, when there is no answer; with `first`, why it fails there |
+| `why` | Why there is no answer, when there is none |
 | `target` | `kind` (`golden` or `run`), its `name` and `runId` |
-| `good`, `bad`, `commits` | The `good` and `bad` commits, and the commits between them |
+| `good`, `bad` | The `good` and `bad` commits |
+| `commits` | How many commits come after the good one, up to and including the bad one |
 | `steps` | Each replay: `rev`, `short`, `subject`, `ok`, `skipped`, its `result` and `seconds` |
-| `first` | The first bad commit |
+| `first` | The first bad commit, with `why` it fails there |
 | `untested` | The untested commits just before it |
 | `replays`, `tokens`, `upstreamRequests`, `spent`, `seconds` | What it took: replays, tokens, upstream requests, USD spent and seconds |
 
@@ -2715,8 +2726,8 @@ Each recording is judged by `--expect`, or without it by its entry under `tests`
 
 Each line names the recording by its id, labels and command, or its pack. Its checks follow one that
 did not pass. Under the totals, the report says when the checks fail a recording labelled `good` or
-pass one labelled `bug`. It names a value the checks read that none of the calls judged has (a misspelt
-`result.totl`), with the key it most likely meant.
+pass one labelled `bug`. It also names a value the checks read that none of the calls judged has (a
+misspelt `result.totl`), with the key it most likely meant.
 
 `check` exits with:
 
@@ -2947,20 +2958,20 @@ Each cell, one read with one payload, has these fields:
 
 Each attempt has these fields:
 
-| Field                        | Meaning                                                         |
-| ---------------------------- | --------------------------------------------------------------- |
-| `runId`                      | The attempt's run                                               |
-| `read`, `payload`, `attempt` | The read, the payload, and which attempt it is                  |
-| `canary`                     | The canary it carried: `token`, `address`, `id` and `amount`    |
-| `verdict`                    | Its verdict                                                     |
-| `why`                        | Why an inconclusive one shows nothing                           |
-| `failed`                     | Whether that is because something failed in it                  |
-| `plantedAt`                  | Where the payload was served, in the attempt's own call numbers |
-| `forkedAt`                   | Where the attempt forked                                        |
-| `readAt`                     | The first model call whose request carried it                   |
-| `exitCode`                   | The agent's exit code                                           |
-| `evidence`                   | The pieces of evidence (below)                                  |
-| `spent`                      | USD spent                                                       |
+| Field | Meaning |
+| --- | --- |
+| `runId` | The attempt's run |
+| `read`, `payload`, `attempt` | The read, the payload, and which attempt it is |
+| `canary` | The canary it carried: `token`, `address`, `id` and `amount` |
+| `verdict` | Its verdict |
+| `why` | Why an inconclusive one shows nothing |
+| `failed` | Whether that is because something failed in it |
+| `plantedAt`, `forkedAt`, `readAt` | Where the payload was served, where the attempt forked, and the first model call whose request carried it (below) |
+| `exitCode` | The agent's exit code |
+| `evidence` | The pieces of evidence (below) |
+| `spent` | USD spent |
+
+`plantedAt`, `forkedAt` and `readAt` are in the attempt's own call numbers.
 
 Each piece of evidence has these fields:
 
@@ -3507,12 +3518,15 @@ is written. See [Preview](./normalizers-and-redaction.md#preview).
 | --- | --- |
 | `runId` | The run |
 | `calls`, `unreadable` | The calls read, and those that couldn't be |
-| `partial` | Whether the run is a partial recording |
+| `partial` | Set when a limit stopped the preview early (below); else `null` |
 | `total` | What a pack masks |
 | `returned` | What only the copies that are read mask |
 | `unmasked` | What is left as it is |
 | `rules` | Each rule (below) |
 | `details` | What the rules match in the run's command line, labels and notes: a `count`, `samples` and the `rules` that match there |
+
+`partial` has how many of the run's calls it `read`, `of` how many, and the limit it `stopped` at:
+`calls`, `bytes` or `time`.
 
 Each of `rules` has these fields:
 
@@ -3647,10 +3661,10 @@ Its subcommands take these flags:
 
 | Flag | What it does | Default |
 | --- | --- | --- |
-| `--name <name>` | The name to record as the run's source (below) | The file's name |
+| `--name <name>` | `har`, `nock`, `vcr`, `litellm`, `otel`: the name to record as the run's source (below) | The file's name |
 | `--json` | Print every run made, by its full id, and what it skipped ([below](#--json)) | — |
 | `--host <url>` | Trace stores: the store's API, for a self-hosted instance or another region | [Below](#traces) |
-| `--allow-http` | Trace stores: send the keys over plain http to a `--host` on a network you trust | Plain http only to this machine |
+| `--allow-http` | Trace stores: accept plain http for another host than this machine, on a network you trust | Plain http only for this machine ([below](#traces)) |
 | `--since <when>` | Without a trace id: import the traces that started from then on; `logfire` takes it with one too | 30 days ago |
 | `--until <when>` | Without a trace id: the traces that started before then | The current time |
 | `--limit <n>` | Without a trace id: the most traces to import, newest first; at most 10,000 | 100 |
@@ -3705,14 +3719,8 @@ otherwise git's `user.email`. Its source is the file's name; `--name <name>` rec
 dashboard's Import a capture passes the name of the file you picked, which it keeps under a name of its
 own while it imports.
 
-`import` exits with:
-
-| Status | Meaning                                                                                                   |
-| ------ | --------------------------------------------------------------------------------------------------------- |
-| `0`    | It imported a run; for a window, otherwise, an empty window included                                      |
-| `1`    | Nothing could be imported (`runs` is empty), or a window held traces and none of them is imported (below) |
-| `1`    | A trace store that failed, or didn't answer                                                               |
-| `2`    | Keys a trace store refused                                                                                |
+`import` exits 1 when nothing could be imported: `runs` is empty. An import of
+[the traces in a window](#the-traces-in-a-window) exits as that section says.
 
 ### Traces
 
@@ -3771,7 +3779,7 @@ conventions:
 
 It reads OpenInference's conventions too (Arize Phoenix, and the LlamaIndex, DSPy and smolagents
 instrumentations): LLM spans with `llm.input_messages`, `llm.output_messages`, `llm.tools` and
-`llm.invocation_parameters`, and TOOL spans. They are rebuilt exactly from `input.value` and
+`llm.invocation_parameters`, and TOOL spans. LLM spans are rebuilt exactly from `input.value` and
 `output.value` where its OpenAI and Anthropic instrumentations log the request and response themselves.
 When a framework's span wraps the client library's span for the same call, the inner one is kept.
 
@@ -3851,11 +3859,11 @@ import, and replay runs live from the fork with writes fenced.
 - **A Pydantic AI agent** forks at its first model call, whatever the store. Pydantic AI logs the
   conversation, not the request it sends, which writes text as content blocks and sets `tool_choice`.
 - **An agent that hands the Anthropic SDK's own response objects back as messages**
-  (`"content": reply.content`) forks at its second model call, where the trace kept the response whole
+  (`"content": reply.content`) forks at its second model call where the trace kept the response whole
   but those blocks only as the text the SDK prints for them, as OpenInference's Anthropic instrumentation
   logs them.
 
-The request is then rebuilt from `llm.input_messages`, which leaves out fields the SDK sends with those
+For that agent, the request is then rebuilt from `llm.input_messages`, which leaves out fields the SDK sends with those
 blocks (`citations`, `caller`, `toolset_name`), and holds a tool result as the user's text. Where the
 trace logged the blocks as JSON, or by the GenAI conventions, such an agent replays from the
 trace alone, as one that builds its messages as plain dicts does. Traced by
@@ -3918,9 +3926,16 @@ Imported 1 of 3 traces: 1 imported before, 1 skipped.
 - **A failure** (the store refusing, failing or not answering) stops the import at that trace. The runs
   it made stay, and the same command run again goes on from there.
 
-The exit status is that failure's: 2 for keys the store refused, 1 for a store that failed or didn't
-answer. It is 1 when the window held traces and none of them is imported, in this import or before;
-otherwise 0, an empty window included.
+An import of the traces in a window exits with:
+
+| Status | Meaning                                                                       |
+| ------ | ----------------------------------------------------------------------------- |
+| `0`    | Otherwise, an empty window included                                           |
+| `1`    | The window held traces and none of them is imported, in this import or before |
+| `1`    | A failure: a store that failed or didn't answer                               |
+| `2`    | A failure: keys the store refused                                             |
+
+A failure's exit status is the failure's own.
 
 `--json` adds the window it read, `window`:
 
@@ -4013,10 +4028,10 @@ holds.
 
 `export html` takes these flags:
 
-| Flag          | What it does                                                                    | Default |
-| ------------- | ------------------------------------------------------------------------------- | ------- |
-| `--lineage`   | Include the run's ancestors, so its recording and forks compare inside the file | —       |
-| `--no-redact` | Skip the redaction rules in `shadowlap.config.json`                             | —       |
+| Flag          | What it does                                                 | Default |
+| ------------- | ------------------------------------------------------------ | ------- |
+| `--lineage`   | Include the run's ancestors, so they compare inside the file | —       |
+| `--no-redact` | Skip the redaction rules in `shadowlap.config.json`          | —       |
 
 It is a copy of recorded data, so the redaction rules in `shadowlap.config.json` apply, as they do to
 `pack`. The command says how many applied, that there were none, or, with `--no-redact`, how many it
@@ -4160,7 +4175,7 @@ involved.
 
 | Flag | What it does | Default |
 | --- | --- | --- |
-| `--out <file>` | Write the trace to this file, and send it nowhere else unless `--endpoint` is given too | stdout |
+| `--out <file>` | Write the trace to this file, and send it nowhere else unless `--endpoint` is given too | `OTEL_EXPORTER_OTLP_ENDPOINT` when it is set, else stdout |
 | `--endpoint <url>` | The OTLP/HTTP endpoint, such as `http://localhost:4318` | `OTEL_EXPORTER_OTLP_ENDPOINT`, unless `--out` is given |
 | `--service <name>` | The `service.name` resource attribute | `shadowlap-agent` |
 | `--no-redact` | Skip the redaction rules in `shadowlap.config.json` | — |
@@ -4286,8 +4301,8 @@ shadowlap gc --before <cutoff> --expect <count>-<digest>
 ```
 
 That names those runs: how many, and a digest of their ids and their attempts'. It refuses, deleting
-nothing and with exit status 2, when the runs that match are different, even the same number of others,
-or have other attempts under them. `--before` also takes a date (`2026-09-01`).
+nothing and with exit status 2, when the runs that match by the time it runs are different, even the
+same number of others, or have other attempts under them. `--before` also takes a date (`2026-09-01`).
 
 ### `gc` as JSON
 
@@ -4328,7 +4343,6 @@ shadowlap tasks models [--json]
 
 Goldens as tasks a model can be scored on. A model under test takes over at one model call, the calls
 before it replay from the recording for free, and the golden's checks score what it did from there.
-[Training](./training.md) explains the defaults.
 
 `tasks` (or `tasks ls`) lists them: where the model takes over and why, what each rewards, which tools
 run live or are stubbed after the takeover, and whether each is:
@@ -4342,6 +4356,7 @@ run live or are stubbed after the takeover, and whether each is:
 
 It warns when every ready task rewards the same behaviour. The takeover, why, what a task rewards and
 the agent's scope can be set in a `task` object next to its `expect` in the config.
+[Training](./training.md) explains the defaults.
 
 `tasks` takes one flag:
 
@@ -4370,7 +4385,7 @@ shadowlap tasks score --model qwen3:8b --base-url http://127.0.0.1:11434/v1
 | --- | --- | --- |
 | `--model <model>` | The model to score (required; below) | — |
 | `--base-url <url>` | An OpenAI-compatible endpoint, such as `http://127.0.0.1:8000/v1` (no user or password in it) | — |
-| `--key-env <name>` | The variable holding the endpoint's key (below) | `OPENAI_API_KEY` for api.openai.com, `ANTHROPIC_API_KEY` for `anthropic:` |
+| `--key-env <name>` | The variable holding the endpoint's key (below) | `OPENAI_API_KEY` for api.openai.com; `ANTHROPIC_API_KEY` for `anthropic:` on a recording that isn't Anthropic's |
 | `--attempts <n>` | Attempts per task | 5 |
 | `--reads live\|replay` | What read tools do after the takeover | `live` |
 | `--concurrency <n>`, `--budget <usd>`, `--timeout <seconds>`, `--guard` | As for [`blame`](#blame) | — |
@@ -4388,8 +4403,7 @@ completions or the Responses API), Gemini's, Amazon Bedrock's (Claude, and the C
 AI's and Azure OpenAI's. Another model of Bedrock, Vertex AI or Azure OpenAI themselves can't be asked:
 score Anthropic's or OpenAI's API, or a model at your own endpoint, on those recordings.
 
-- **`--key-env`**: `ANTHROPIC_API_KEY` is its default for `anthropic:` on a recording that isn't
-  Anthropic's. Another model of the recording's own provider goes with the agent's own key.
+- **`--key-env`**: another model of the recording's own provider goes with the agent's own key.
 - **`--yes`**: without it, such a golden asks first, as `test` asks of one, and without a terminal it is
   skipped, saying why.
 
@@ -4681,7 +4695,8 @@ Shows the last push and pull, the runs in the store and only here, and the last 
 | `queued` | The runs still recording, to go when they end (below) |
 | `check` | The last check: `ok`, `at`, `encryption`, `versioning`, `objectLock`, `credentials` |
 
-A run that ended since counts as only here until the next push sends it, and one deleted is forgotten.
+A queued run that ended since counts as only here until the next push sends it, and a queued run that
+was deleted is forgotten.
 
 ### `store policy`
 
@@ -4760,15 +4775,15 @@ Its keys are these:
 | `tests` | Outcome checks for `shadowlap test`, by recording directory, and each golden's gates, task and presets (below) |
 | `repair` | `repairer` (`provider:model`), `baseUrl` and `timeout` for the model [`shadowlap repair`](./repair.md#the-repairer) asks for fixes (below) |
 | `store` | The [team store](./team.md), a bucket you own (`s3://`, `gs://`, `az://`, `r2://`), written by [`shadowlap store set`](#store). Never credentials |
-| `ciPush` | `false` keeps CI from pushing to the team store (`shadowlap store push-from-ci on\|off`; below) |
+| `ciPush` | `false` keeps `test --push` in CI, and the GitHub Action, from pushing (`shadowlap store push-from-ci on\|off`; below) |
 | `guard` | `accept: ["claude-code"]`: take the Claude Code CLI as it is under `--guard block` (below) |
 
 More on some of them:
 
 - **`redact`**: [where the rules apply](./normalizers-and-redaction.md#where-the-rules-apply). A redacted
   pack still replays, and a push copies runs to the team store as recorded.
-- **`tools`**: `trust` by tool name (or a host under `http`) is `untrusted` for a read that brings outside
-  text in, where [`shadowlap injection`](./injection.md) plants payloads. It is recorded on each call of
+- **`tools`**: `trust` by tool name (or a host under `http`): set it to `untrusted` for a read that
+  brings outside text in, where [`shadowlap injection`](./injection.md) plants payloads. It is recorded on each call of
   the tool as it is made. Read when a run is tested, it wins over every recorded mark: the SDK's, an MCP
   server's, an earlier config's.
 - **`tools.unrecorded`** maps the tools the agent runs without Shadowlap recording them to `read` or
@@ -4810,7 +4825,7 @@ These environment variables change what Shadowlap does:
 
 | Variable | What it does | Default |
 | --- | --- | --- |
-| `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream: a mock, or an OpenAI-compatible server such as Ollama | The base-URL variables (below) |
+| `SHADOWLAP_UPSTREAM_ANTHROPIC`, `_OPENAI`, `_GEMINI`, `_AZURE`, `_VERTEX`, `_BEDROCK` | Override a provider's upstream: a mock, or an OpenAI-compatible server such as Ollama | `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL`, when they are set |
 | `SHADOWLAP_GUARD_ACCEPT=claude-code` | Accept the Claude Code CLI's unwatched connections under `--guard block`, as `guard.accept` in the [config](#the-configuration-file) does (below) | — |
 | `SHADOWLAP_CAPTURE=off` | Don't capture model calls inside Node and Python agents; only the base-URL variables apply ([details](./providers.md#in-process-capture)) | — |
 | `SHADOWLAP_TELEMETRY=0`, `DO_NOT_TRACK=1` | Disable [telemetry](./telemetry.md) | — |
@@ -4827,8 +4842,6 @@ These environment variables change what Shadowlap does:
 | `NO_COLOR` | Plain output | — |
 | `SHADOWLAP_UI_THEME` | `dark`, `light` or `ansi`: the [terminal UI](./tui.md#colours)'s palette | The one picked from what the terminal reports |
 
-- **The upstreams**: without one, `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL` and `GOOGLE_GEMINI_BASE_URL`
-  are used when they are set.
 - **`SHADOWLAP_GUARD_ACCEPT`**: any other value ends every command that takes `--guard` with 2 as it
   starts, before anything runs.
 - **`SHADOWLAP_PR`** is for where Shadowlap doesn't recognise pull requests by itself; it does on GitHub
