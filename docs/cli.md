@@ -650,6 +650,274 @@ HTTP. It runs until stopped.
 | `70`         | A bug                                                               |
 | `128 + n`    | A stop signal, which a `--listen` proxy runs until (130 for Ctrl-C) |
 
+## dashboard
+
+```sh
+shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
+```
+
+A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any
+call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork
+actions. See [Dashboard](./dashboard.md).
+
+It listens on 127.0.0.1, with a session token in the link it prints. It needs a store to show, and
+never creates one.
+
+| Flag            | What it does                                                    | Default |
+| --------------- | --------------------------------------------------------------- | ------- |
+| `--call <n>`    | With a run: open at this call                                   | —       |
+| `--port <port>` | The port to listen on; `--port 0` asks for any free one (below) | `4777`  |
+| `--no-open`     | Print the link instead of opening a browser                     | —       |
+| `--read-only`   | Show every page and change nothing (below)                      | —       |
+
+A port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a
+free one. Either way, the link names the port it got.
+
+With `--read-only`, actions, labels, notes, uploads and deletes are refused, and the dashboard says
+why.
+
+## ui
+
+```sh
+shadowlap ui [run] [--call <n>]
+```
+
+Opens the [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` names another
+call.
+
+| Flag         | What it does                 | Default                    |
+| ------------ | ---------------------------- | -------------------------- |
+| `--call <n>` | With a run: select this call | The divergence, for a fork |
+
+## show
+
+```sh
+shadowlap show <run> [--json] [--request <call>] [--response <call>]
+```
+
+Prints a run's timeline: one row per call, then the divergence report if the run forked.
+
+- **Each row**: the call's kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`,
+  `overridden`), outcome, latency, and tokens or arguments.
+- **Above the timeline**: the run's status, duration, upstream requests and what it spent. For a
+  replay, what replaying didn't spend again (`$0.0075 not re-spent (8.1k input tokens)`).
+- **Input tokens**, here and in each row, are everything the model read: uncached, written to the
+  prompt cache and read from it, as `test`, `replay` and the dashboard count them.
+
+| Flag                | What it does                          | Default |
+| ------------------- | ------------------------------------- | ------- |
+| `--json`            | Print the run as JSON (below)         | —       |
+| `--request <call>`  | Print the stored request of call *n*  | —       |
+| `--response <call>` | Print the stored response of call *n* | —       |
+
+What else it shows:
+
+- **An interrupted run**: a run stopped before it ended (Ctrl-C, a kill, a crash, or a recorder that
+  went away) reads `interrupted`, as the dashboard says it. `--json` keeps the stored status, `crashed`
+  or `running`.
+- **Someone else's spend**: a teammate's run pulled from the [team store](./team.md) says who spent
+  it where it was recorded (`≈$0.0030 spent by maya`). A run from a pack or a capture says what its
+  traffic cost where it ran (`of traffic captured`).
+- **Untrusted reads**: a run with [untrusted reads](./injection.md) names them above the timeline,
+  each with where its mark came from (the first five, then how many more). It tags each one's row
+  `untrusted`, as the dashboard's Calls view does.
+- **Tools it never recorded**: a line names the tools its model called that the run recorded no call
+  of (`not recorded: Bash (14 calls from #3, writes)`), which a replay runs for real
+  ([details](./how-it-works.md#tools-shadowlap-did-not-record)).
+- **Where blame lost it**: a run [blame](./blame.md) searched says where it was lost, as blame's report
+  does: `blame: lost at model call #5 (high confidence), rescued by 01M5FAB2C1`, or
+  `lost gradually, around model calls #17 and #18` when no one call lost it.
+
+Untrusted reads are the reads of a tool that the config's `tools`, the SDK's `trust` or its MCP
+server's `openWorldHint` marks untrusted, where `shadowlap injection` plants.
+
+`--json` prints `{ "run", "summary", "calls", "untrusted", "unrecordedTools" }`. The dashboard's
+Provenance tab copies the same object.
+
+| Field | Meaning |
+| --- | --- |
+| `run` | The run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`) |
+| `summary` | Its summary, as [`run --summary-json`](#run-summary-as-json) writes it |
+| `calls` | Every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`) |
+| `untrusted` | Its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`); empty if it has none |
+| `unrecordedTools` | The tools its model called that the run never recorded (below); empty if it has none |
+
+Each of the tools its model called that the run never recorded, `unrecordedTools`, has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | The tool's name, as the model called it |
+| `count` | How often the model asked for it |
+| `firstCallNo` | The model call that first did |
+| `effect` | `write`, `read` or `unknown` |
+| `why` | Why it has that effect, in a few words |
+| `fix` | How to have it [recorded](./how-it-works.md#tools-shadowlap-did-not-record): `fence`, `fence-effects`, `mcp`, `none` or `wrap` |
+
+## ls
+
+```sh
+shadowlap ls [--tree] [-n <limit>] [--label <label>] [--json]
+```
+
+Lists runs, newest first, with their labels.
+
+| Flag                | What it does                                            | Default |
+| ------------------- | ------------------------------------------------------- | ------- |
+| `--tree`            | Nest forks under their parents                          | —       |
+| `-n`, `--limit <n>` | The most runs to list                                   | `50`    |
+| `--label <label>`   | Keep runs with this label; repeat it to require several | —       |
+| `--json`            | Print one object per run (below)                        | —       |
+
+A run stopped before it ended, or left marked running by a recorder that went away, reads
+`interrupted`, as the dashboard lists it. `--json` keeps the stored status.
+
+`--json` prints one object per run: `runId`, `parentRunId`, `mode`, `status`, `calls`, `command`,
+`codeVersion`, `startedAt`, `endedAt` and `labels`, and these:
+
+| Field | Meaning |
+| --- | --- |
+| `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null` (below) |
+| `hasCommand` | `false` for a run with no command of its own (below) |
+| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md), or `null` |
+| `partial` | The kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
+| `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
+| `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null` (below) |
+
+- **`forkedAt`**: a replay that stopped before its recording did has `type` `ended_early`, at the
+  first recorded call it never made. It lists as `ended early @n`, never as a clean replay.
+- **`hasCommand`**: `false` for a run imported from a capture, recorded through [`serve`](#serve), or
+  recorded by a test that gave no command (its command reads `<test>` and the test's name). It has no
+  command, so replaying it needs yours after `--`.
+- **`imported`**: for a run from the team store, `from` is the store's URL: `s3://…`, `gs://…`,
+  `az://…` or `r2://…`.
+- **`checks`**: `passed` counts only the checks that passed. When there are any, `inconclusive` and
+  `notApplicable` count those that
+  [could not be decided or did not apply](./checks.md#how-a-check-comes-out); the rest of `total`
+  failed.
+
+## search
+
+```sh
+shadowlap search refund policy             # every word must appear
+shadowlap search '"refund policy"' --run 01M2P9PVCP -n 50 [--json]
+```
+
+Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words
+must appear together.
+
+| Flag                | What it does                       | Default |
+| ------------------- | ---------------------------------- | ------- |
+| `--run <run>`       | Search only this run               | —       |
+| `-n`, `--limit <n>` | The most matches to print          | `20`    |
+| `--json`            | Print one object per match (below) | —       |
+
+Each match names the run, the call and where the text was found. It ends with the
+`shadowlap ui <run> --call <n>` that opens it.
+
+- **Attempts come last**: matches in attempts (blame's probes, verify's attempts, `replay --repeat`'s),
+  which repeat the run they came from word for word, come after those in the runs you made, as in the
+  dashboard's search.
+- **The index**: it is built the first time you search, and updated for runs that changed since. Each
+  model call indexes only the turns it added to the conversation, so a long run is indexed once, not
+  once per call.
+- **A run still recording** is indexed from where the last search stopped, not from its first call
+  again.
+
+`search` exits 1 when nothing matches, as `grep` does.
+
+`--json` prints one object per match:
+
+| Field                             | Meaning                                       |
+| --------------------------------- | --------------------------------------------- |
+| `runId`, `callNo`, `kind`, `name` | The run, and the call the match is in         |
+| `field`                           | `prompt`, `response`, `arguments` or `result` |
+| `snippet`                         | The text around the match                     |
+| `runStartedAt`                    | When the run started                          |
+
+## diff
+
+```sh
+shadowlap diff <a> <b> [--json]
+```
+
+Compares two runs call by call, aligned by position. It exits 1 when the runs differ, like `diff`.
+
+| Flag     | What it does                         | Default |
+| -------- | ------------------------------------ | ------- |
+| `--json` | Print the comparison as JSON (below) | —       |
+
+It prints, in order:
+
+1. **What differs about the runs as a whole**: their system prompts, the tools they offered (added,
+   removed, or with a changed definition), the models they used and their code versions.
+2. **How many leading calls are identical** in request and response.
+3. **What a replay's flag did**, when one run is the other's replay and the flag that made it changed
+   an answer rather than a request (`--fail-at`, `--override`, `--inject-result`, `--diverge-at`). It
+   says what each run got there: `⑂ #19 got HTTP 529 instead of an answer, by --fail-at 19=529`, or
+   `⑂ #16 lookup_policy returned {…} instead of {…}`.
+4. **The first call whose request differs**, with a structural diff and normalizer hints, and how
+   many later requests differ too.
+5. **Every call whose request was the same but whose response was not**, such as a live re-run where
+   the model answered differently (both answers are shown), or a tool that returned something else. A
+   call answered the same way in another response, where only its id or token counts differ, is
+   counted apart.
+
+Two calls make the same request when a replay served one from the other, or when what each sent is
+the same, however each run fingerprinted it. What each sent covers:
+
+- its kind and name;
+- the headers and query that make a model call the call it is;
+- its body, each number as it was sent, so two ids past 2^53 a double rounds alike differ.
+
+A run recorded by an earlier Shadowlap compares with its replay as the replay matched it. Its model
+requests, stored with their numbers rounded, compare rounded on both sides.
+
+`--json` prints the comparison:
+
+| Field | Meaning |
+| --- | --- |
+| `a`, `b` | Each run's `runId` and `calls` |
+| `identicalPrefix`, `prefix` | How many leading calls are identical, and those calls (the first 500) |
+| `firstRequestDifference` | `callNo`, `kind`, `name` and the structural `diff`, or `null` |
+| `responseDifferences` | Each with `sameAnswer` when only the response differed, not its answer, and `by`, the flag, for the call a replay's flag answered |
+| `after` | Each run's course from the first difference on |
+| `onlyInA`, `onlyInB` | The calls only one run made |
+| `changes` | `systemPrompt`, each run's system prompts by their hashes in `systems`, `tools`, `models`, `code` |
+| `intervention` | What a replay's flag changed (below), or `null` |
+
+`intervention` is set when one run is the other's replay and its flag changed an answer:
+
+- `run`: `a` or `b`, the one the flag made;
+- `kind`: `fail`, `override`, `answer`, `plant` or `resample`;
+- `flag`, `callNo` and `name`;
+- `before` and `after`: what each run got there;
+- `words`.
+
+## label, note
+
+```sh
+shadowlap label <run> bug refund-flow      # add labels
+shadowlap label <run> bug --remove         # remove one
+shadowlap label <run> [--json]             # print them
+shadowlap note <run> "The model skipped the refund check." [--call <n>]
+```
+
+What people know about a run that the recording can't. Both travel in packs.
+
+- **A label** says what the run is, so it can be found (`ls --label`, the dashboard's search) and
+  exported as part of a dataset (`export dataset --label good`). A label is up to 40 letters, digits,
+  spaces and `_ . : / -`.
+- **A note** says why, on the run or on one call. `show` prints them, and the dashboard shows a
+  call's notes in its details.
+
+| Flag         | What it does                                        | Default |
+| ------------ | --------------------------------------------------- | ------- |
+| `--remove`   | `label`: remove these labels instead of adding them | —       |
+| `--json`     | `label`: print the labels as JSON (below)           | —       |
+| `--call <n>` | `note`: the call the note is about                  | The run |
+
+`label --json` prints `{ runId, labels }`, with the labels as they are after the change.
+
 ## init
 
 ```sh
@@ -918,65 +1186,6 @@ Exit status 0 when every task was scored in full; 1 when a task was skipped or s
 `tasks serve` answers one attempt per HTTP request, for a training loop that wants a reward: `POST /v1/tasks/<task>/attempts` with `{"model": …, "baseUrl": …}` returns each check's result, the score, the run and its cost. It listens on 127.0.0.1, checks the `Host` header and needs the token it prints (`SHADOWLAP_TASKS_TOKEN` sets it, at least 16 characters). `--base-url <url>` is the endpoint requests that name none ask, and `--key-env <name>` the variable whose key goes to that endpoint and nowhere else. A golden from a pack the repository doesn't track, recorded elsewhere, is served only once you say yes to its command as it starts, or with `-y`/`--yes`; a request for one nobody said yes to gets a 409. [Training](./training.md) shows a request and its response.
 
 `tasks models` lists models to score: the one the recordings used, each configured provider's models (Anthropic's and OpenAI's with the keys in the environment, Ollama's on this machine) and the models scored before, each with its price per attempt, last score and the ready tasks it can answer (a model that can answer none says why). A provider that doesn't answer within `--timeout` (1500 ms) becomes a note.
-
-## show
-
-```sh
-shadowlap show <run> [--json] [--request <call>] [--response <call>]
-```
-
-The timeline: one row per call with kind, name, origin (`live`, `replayed`, `blocked`, `stubbed`, `overridden`), outcome, latency and tokens or arguments; then the divergence report if the run forked. Above it, the run's status, duration, upstream requests and what it spent, and for a replay what replaying didn't spend again (`$0.0075 not re-spent (8.1k input tokens)`). A run stopped before it ended (Ctrl-C, a kill, a crash, or a recorder that went away) reads `interrupted`, as the dashboard says it; `--json` keeps the stored status, `crashed` or `running`. Input tokens, here and in each row, are everything the model read: uncached, written to the prompt cache and read from it, as `test`, `replay` and the dashboard count them. A teammate's run pulled from the [team store](./team.md) says who spent it where it was recorded (`≈$0.0030 spent by maya`), and a run from a pack or a capture what its traffic cost where it ran (`of traffic captured`). A run with [untrusted reads](./injection.md) (the reads of a tool the config's `tools`, the SDK's `trust` or its MCP server's `openWorldHint` marks untrusted, where `shadowlap injection` plants) names them above the timeline, each with where its mark came from (the first five, then how many more), and tags each one's row `untrusted`, as the dashboard's Calls view does. A line names the tools its model called that the run recorded no call of (`not recorded: Bash (14 calls from #3, writes)`), which a replay runs for real ([details](./how-it-works.md#tools-shadowlap-did-not-record)). A run [blame](./blame.md) searched says where it was lost as blame's report does (`blame: lost at model call #5 (high confidence), rescued by 01M5FAB2C1`, or `lost gradually, around model calls #17 and #18` when no one call lost it). `--request n` and `--response n` print the stored payloads.
-
-`--json` prints `{ "run", "summary", "calls", "untrusted", "unrecordedTools" }`: the run as stored (`runId`, `parentRunId`, `mode`, `status`, `divergence`, `command`, `codeVersion`, `startedAt`, `endedAt`, `meta`), its summary as [`run --summary-json`](#run) writes it, every call as stored (`runId`, `callNo`, `kind`, `name`, `fingerprint`, `occurrence`, `origin`, `effect`, `requestRef`, `meta`, `at`, `end`, `attempts`), its untrusted reads in call order, as the dashboard's `GET /api/injection/runs/:id` lists them (`callNo`, `name`, and `from`: `config`, `sdk` or `mcp`), empty for a run with none, and the tools its model called that the run never recorded, `unrecordedTools` (each `name`, how often the model asked for it, `count`, the model call that first did, `firstCallNo`, its `effect`, `write`, `read` or `unknown`, `why`, and `fix`, how to have it [recorded](./how-it-works.md#tools-shadowlap-did-not-record): `fence`, `fence-effects`, `mcp`, `none` or `wrap`), empty for a run with none. The dashboard's Provenance tab copies the same object.
-
-## ls
-
-```sh
-shadowlap ls [--tree] [-n <limit>] [--label <label>] [--json]
-```
-
-Runs, newest first, with their labels; `--tree` nests forks under their parents. `--label` keeps runs with that label; repeat it to require several. A run stopped before it ended, or left marked running by a recorder that went away, reads `interrupted`, as the dashboard lists it; `--json` keeps the stored status.
-
-`--json` prints one object per run: `runId`, `parentRunId`, `mode`, `status`, `calls`, `command`, `codeVersion`, `startedAt`, `endedAt` and `labels`, and:
-
-| Field | |
-|---|---|
-| `forkedAt` | `{ callNo, type, kind, name, reason }` where the run forked, or `null`. A replay that stopped before its recording did has `type` `ended_early` at the first recorded call it never made, and lists as `ended early @n`, never as a clean replay |
-| `hasCommand` | `false` for a run imported from a capture, recorded through [`serve`](#serve), or recorded by a test that gave no command (its command reads `<test>` and the test's name): it has no command, so replaying it needs yours after `--` |
-| `imported` | `{ at, from }` for a run from a pack, a capture or the [team store](./team.md) (then `from` is the store's URL, `s3://…`, `gs://…`, `az://…` or `r2://…`), or `null` |
-| `partial` | the kinds of call a partial recording covers (`["api"]` for a capture), or `null` |
-| `repeat` | `{ group, attempt, of }` for an attempt of `replay --repeat`, or `null` |
-| `checks` | `{ passed, total }` for a run from `shadowlap test` with [outcome checks](./ci.md#outcome-checks), or `null`: `passed` counts only the checks that passed, and when there are any, `inconclusive` and `notApplicable` count those that [could not be decided or did not apply](./checks.md#how-a-check-comes-out); the rest of `total` failed |
-
-## label, note
-
-```sh
-shadowlap label <run> bug refund-flow      # add labels
-shadowlap label <run> bug --remove         # remove one
-shadowlap label <run> [--json]             # print them
-shadowlap note <run> "The model skipped the refund check." [--call <n>]
-```
-
-What people know about a run that the recording can't. A label says what the run is, so it can be found (`ls --label`, the dashboard's search) and exported as part of a dataset (`export dataset --label good`). A label is up to 40 letters, digits, spaces and `_ . : / -`. A note says why, on the run or on one call; `show` prints them and the dashboard shows a call's notes in its details. Both travel in packs. `label --json` prints `{ runId, labels }` with the labels as they are after the change.
-
-## search
-
-```sh
-shadowlap search refund policy             # every word must appear
-shadowlap search '"refund policy"' --run 01M2P9PVCP -n 50 [--json]
-```
-
-Searches what runs recorded: prompts, model responses, tool arguments and tool results. Quoted words must appear together. Each match names the run, the call and where the text was found, and ends with the `shadowlap ui <run> --call <n>` that opens it. Matches in attempts (blame's probes, verify's attempts, `replay --repeat`'s), which repeat the run they came from word for word, come after those in the runs you made, as in the dashboard's search. The index is built the first time you search and updated for runs that changed since; each model call indexes only the turns it added to the conversation, so a long run is indexed once, not once per call, and a run still recording is indexed from where the last search stopped, not from its first call again.
-
-`--json` prints one object per match: `runId`, `callNo`, `kind`, `name`, `field` (`prompt`, `response`, `arguments` or `result`), `snippet` (the text around the match) and `runStartedAt`. Exit status 1 when nothing matches, as for `grep`.
-
-## ui
-
-```sh
-shadowlap ui [run] [--call <n>]
-```
-
-The [terminal UI](./tui.md). A fork opens at its divergence, unless `--call` names another call.
 
 ## test
 
@@ -1572,24 +1781,6 @@ shadowlap serve [--recordings [--allow-unrecorded <names>]]
 ```
 
 Starts a sidecar with one recording run for a process you launch yourself and prints the environment to export: `export` lines, or on Windows PowerShell's `$env:NAME = 'value'`. Ends the run on Ctrl-C, SIGTERM or a closed terminal (SIGHUP). Serve never sees the command that starts your process, so the run has none, as a capture has none: replaying it, or a fork, blame or Find the commit, needs your command after `--`. Hosts that manage several runs (a test runner) can create them through the sidecar's `/v1/runs` API. Each run's environment pins it: the provider base URLs carry the run id, and SDK calls send an `X-Shadowlap-Run` header, so several processes can record through one sidecar at once. With `--recordings` it starts no run of its own and serves [recorded tests](./testing.md) instead, for the pytest and Vitest integrations, which start it themselves: a recording whose model called a tool it never recorded that writes, or may, is refused before its replay starts, unless `--allow-unrecorded <names>` or `SHADOWLAP_ALLOW_UNRECORDED` in its environment names it. The printed environment has the base URLs only; clients that need [in-process capture](./providers.md#in-process-capture) (Bedrock, and Azure or Vertex with the endpoint in code) record under `shadowlap run`.
-
-## diff
-
-```sh
-shadowlap diff <a> <b> [--json]
-```
-
-Two runs call by call, aligned by position. Two calls make the same request when a replay served one from the other, or when what each sent is the same (its kind and name, the headers and query that make a model call the call it is, and its body, each number as it was sent, so two ids past 2^53 a double rounds alike differ), however each run fingerprinted it: a run recorded by an earlier Shadowlap compares with its replay as the replay matched it, and its model requests, stored with their numbers rounded, compare rounded on both sides. First, what differs about the runs as a whole: their system prompts, the tools they offered (added, removed, or with a changed definition), the models they used and their code versions. Then how many leading calls are identical in request and response; when one run is the other's replay and the flag that made it changed an answer rather than a request (`--fail-at`, `--override`, `--inject-result`, `--diverge-at`), what it did, with what each run got there (`⑂ #19 got HTTP 529 instead of an answer, by --fail-at 19=529`, `⑂ #16 lookup_policy returned {…} instead of {…}`); then the first call whose request differs (with a structural diff and normalizer hints), how many later requests differ too, and every call whose request was the same but whose response was not, e.g. a live re-run where the model answered differently (both answers are shown; a call answered the same way in a new response, where only its id or token counts differ, is counted apart), or a tool that returned something else. Exit status 1 when the runs differ, like `diff`.
-
-`--json` prints the comparison: `a` and `b` (each `runId` and `calls`), `identicalPrefix` and those calls (`prefix`, the first 500), `firstRequestDifference` (`callNo`, `kind`, `name` and the structural `diff`, or `null`), `responseDifferences` (each with `sameAnswer` when the response was new but its answer the same, and `by`, the flag, for the call a replay's flag answered), `after` (each run's course from the first difference on), `onlyInA`, `onlyInB`, `changes` (`systemPrompt`, each run's system prompts by their hashes in `systems`, `tools`, `models`, `code`), and `intervention`: when one run is the other's replay and its flag changed an answer, `run` (`a` or `b`, the one the flag made), `kind` (`fail`, `override`, `answer`, `plant` or `resample`), `flag`, `callNo`, `name`, `before` and `after` (what each run got there), and `words`; `null` otherwise.
-
-## dashboard
-
-```sh
-shadowlap dashboard [run] [--call <n>] [--port 4777] [--no-open] [--read-only]
-```
-
-A local web UI over the store: runs and forks, a timeline of calls by origin, the conversation at any call, playback of streamed responses, fork diffs, comparison, the activity feed, and replay and fork actions. Listens on 127.0.0.1 with a session token in the link it prints; a port that is taken, or that the system keeps for itself (a range Windows reserves), falls back to a free one, and `--port 0` asks for any free one: either way the link names the port it got. `--read-only` shows every page and changes nothing: actions, labels, notes, uploads and deletes are refused, and the dashboard says why. It needs a store to show and never creates one. See [Dashboard](./dashboard.md).
 
 ## doctor
 
