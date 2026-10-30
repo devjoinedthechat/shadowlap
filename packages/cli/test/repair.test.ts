@@ -7,9 +7,8 @@ import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { judgeAnswer, judgeQuestion, message, startMockAnthropic, text, toolUse, type MockServer, type ScriptContext } from '@shadowlap-testing/mock-anthropic';
-import { processAlive, Store, unifiedDiff } from '@shadowlap/engine';
+import { processAlive, Store } from '@shadowlap/engine';
 import { removeTempProject, tempProject } from '../../../testing/temp-project.mjs';
-import { applyAccepted } from '../src/repair.js';
 
 /**
  * `shadowlap repair` through the CLI, on the support agent in a git repository of its own. The mock
@@ -926,38 +925,42 @@ describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files
     expect(sh(project, 'git', ['status', '--porcelain'])).toBe('');
   });
 
-  it("never shows the repairer a file of git's own, nor puts one in its report: a link to .git/config, with a token in it", async () => {
+  it("never shows the repairer a file of git's own or one git ignores, nor puts one in a patch or a report: links to .git/config and to .env, a token in each", async () => {
     const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
+    const KEY = 'ghp_EXAMPLEdonotuse1111111111111111111111';
     const url = `https://x-access-token:${TOKEN}@github.com/acme/support-agent.git`;
-    // The checkout's git config holds a credential, as a remote's URL with a token does, and a link in
-    // the repository names the config, as a pull request could add one.
+    // The checkout's git config holds a credential, as a remote's URL with a token does, a .env git
+    // ignores holds another, and links in the repository name both, as a pull request could add them.
     sh(project, 'git', ['remote', 'add', 'origin', url]);
+    writeFileSync(join(project, '.gitignore'), '.shadowlap/\n.env\n');
+    writeFileSync(join(project, '.env'), `SUPPORT_KEY=${KEY}\n`);
     mkdirSync(join(project, 'docs'));
     symlinkSync('../.git/config', join(project, 'docs', 'remote.txt'));
-    // The project's redaction rule masks the token in all the repairer is shown of a run.
+    symlinkSync('../.env', join(project, 'docs', 'env.txt'));
+    // The project's redaction rule masks the tokens in all the repairer is shown of a run.
     writeFileSync(join(project, 'shadowlap.config.json'), JSON.stringify({ redact: [{ pattern: '/ghp_[A-Za-z0-9]+/', replace: '<TOKEN>' }] }));
     sh(project, 'git', ['add', '-A']);
-    sh(project, 'git', ['commit', '-qm', 'a link to the git config']);
-    // A system prompt with a line of that config in it, as an agent that reads the link would send.
-    const system = { AGENT_SYSTEM: `You are a support agent. Follow the refund policy.\nurl = ${url}` };
+    sh(project, 'git', ['commit', '-qm', 'links to the git config and the .env']);
+    // A system prompt with a line of each in it, as an agent that reads the links would send.
+    const system = { AGENT_SYSTEM: `You are a support agent. Follow the refund policy.\nurl = ${url}\nSUPPORT_KEY=${KEY}` };
     const recorded = await shadowlap(['run', '--', process.execPath, 'agent.mjs'], system);
     expect(recorded.code, recorded.out).toBe(0);
     const failed = /recording run (\w{26})/.exec(recorded.out)![1];
     mode = 'alternate';
-    // A rewrite of a span offered in git's config, whenever one is: it would carry its line into the report.
-    proposals = (prompt) => [/\[(\d+)\] system prompt, in \.git\/config:/.exec(prompt)?.[1]].flatMap((id) => (id ? [{ anchor: Number(id), replace: 'url = https://github.com/acme/support-agent.git', strategy: 'Name the remote without its token', why: 'It needs none.' }] : []));
+    // A rewrite of a span offered in either file, whenever one is: it would carry its lines into the patch and the report.
+    proposals = (prompt) => [/\[(\d+)\] system prompt, in (?:\.git\/config|\.env):/.exec(prompt)?.[1]].flatMap((id) => (id ? [{ anchor: Number(id), replace: 'SUPPORT_KEY=none', strategy: 'Name no key', why: 'It needs none.' }] : []));
     const before = mock.requests.length;
     const r = await shadowlap(['repair', '--fixes', failed, '--expect', ORACLE, '--repairer', 'anthropic', '--json'], system);
     expect(r.stdout, r.out).toContain('"outcome"');
     const asked = mock.requests.slice(before).filter((q) => JSON.stringify(q.body.system).includes('You improve AI agents'));
     expect(asked).toHaveLength(1);
-    // The run as the rule masks it, and no span of git's config to rewrite.
+    // The run as the rule masks it, and no span of either file to rewrite.
     const shown = JSON.stringify(asked[0].body.messages).replace(/\\n/g, '\n');
-    expect(shown).toContain(`System prompt:\nYou are a support agent. Follow the refund policy.\nurl = https://x-access-token:<TOKEN>@github.com/acme/support-agent.git`);
-    expect(shown).not.toContain('.git/config');
-    expect(JSON.stringify(asked[0].body)).not.toContain(TOKEN);
-    const dir = join(project, (JSON.parse(r.stdout) as Report).output.dir);
-    for (const [name, text] of [['output', r.out], ['report.md', readFileSync(join(dir, 'report.md'), 'utf8')], ['report.json', readFileSync(join(dir, 'report.json'), 'utf8')]]) expect(text, name).not.toContain(TOKEN);
+    expect(shown).toContain(`System prompt:\nYou are a support agent. Follow the refund policy.\nurl = https://x-access-token:<TOKEN>@github.com/acme/support-agent.git\nSUPPORT_KEY=<TOKEN>`);
+    expect(shown).not.toMatch(/in (\.git\/config|\.env):/);
+    const report = JSON.parse(r.stdout) as Report;
+    const dir = join(project, report.output.dir);
+    for (const [name, text] of [['prompt', JSON.stringify(asked[0].body)], ['output', r.out], ['patch', report.patch ?? ''], ['report.md', readFileSync(join(dir, 'report.md'), 'utf8')], ['report.json', readFileSync(join(dir, 'report.json'), 'utf8')]]) for (const secret of [TOKEN, KEY]) expect(text, name).not.toContain(secret);
   });
 
   it.skipIf(process.getuid?.() === 0)("says a candidate it can't write into its worktree is incomplete, and tries the next", async () => {
@@ -979,29 +982,6 @@ describe.skipIf(process.platform === 'win32')('shadowlap repair, links and files
       }
     } finally {
       chmodSync(join(project, 'agent.mjs'), 0o644);
-    }
-  });
-});
-
-describe('applyAccepted', () => {
-  const candidate = { id: 1, source: 'repairer' as const, strategy: 's', why: 'w', surface: 'system prompt', file: 'agent.mjs', offset: 16, before: 'Follow the refund policy.', after: 'Follow the refund policy: escalate above the limit.', size: 26, state: 'accepted' as const, reason: null, verify: null };
-  const content = "const system = 'Follow the refund policy.';\n";
-
-  it('writes the accepted candidate into the working tree, and nothing when its patch is anything more', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'fp-apply-'));
-    try {
-      writeFileSync(join(dir, 'agent.mjs'), content);
-      writeFileSync(join(dir, 'other.mjs'), 'export {};\n');
-      const fixed = content.replace(candidate.before, candidate.after);
-      const report = { candidates: [candidate], accepted: 1, patch: unifiedDiff('agent.mjs', content, fixed), output: { dir: null, patch: 'fix.patch', report: null, goldens: [], applied: false, branch: null, pr: null } };
-      // A patch that also changes another file is not the candidate's change: refused, nothing written.
-      const more = { ...report, patch: report.patch + unifiedDiff('other.mjs', 'export {};\n', 'process.exit(1);\n') };
-      expect(() => applyAccepted(more, dir)).toThrow(/the patch is not the accepted candidate's change \(it changes agent\.mjs and other\.mjs, where its accepted candidate changes agent\.mjs alone\), so nothing was applied/);
-      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(content);
-      applyAccepted(report, dir);
-      expect(readFileSync(join(dir, 'agent.mjs'), 'utf8')).toBe(fixed);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { argsDelta, byRule, controlOpen, credentialFreeCommandLine, formatUsd, judgeOpen, RANK_LABELS, safeLine, decisionLine, type DecisionRemedy, type DecisionRun, type DecisionsReport, type DecisionsVerify, type RetirementNotice, type SprtGate, type Store, type StoreOf } from '@shadowlap/engine';
@@ -7,7 +6,7 @@ import { type TestSpec } from './checks.js';
 import { loadConfig } from './config.js';
 import { keepDecisions, newSessionId, runDecisions, type DecisionTarget } from './decisions.js';
 import { physicalPath } from './real-path.js';
-import { fileInside, gitFolders, readInside } from './repair-tree.js';
+import { listedFiles, readInside } from './repair-tree.js';
 import { type GuardMode } from './run-agent.js';
 import { openStore, type GlobalOpts } from './shared.js';
 import { palette as p, shortId } from './ui.js';
@@ -152,27 +151,21 @@ const NOT_SOURCE = /(^|\/)(\.shadowlap|node_modules|blobs)\/|(^|\/)(package-lock
 
 /**
  * Files the project tracks or would (not ignored), with text, outside recordings and the store. A link
- * is read as the file it ends at, under that file's own path, and only when that file is the
- * project's too and not git's own (fileInside, as repair reads them): the patch's context lines and
- * the review never quote a key file kept elsewhere, nor git's config, which can hold a credential.
+ * is read as the file it ends at, under that file's own path, and only when git lists that file too
+ * and it is not git's own (listedFiles, as repair reads them): the patch's context lines and the
+ * review never quote a file git ignores, such as a `.env`, a key file kept elsewhere, nor git's
+ * config, which can hold a credential.
  */
 function projectTextFiles(cwd: string): Array<{ path: string; content: string }> | null {
-  let listed: string;
-  let gitOwn: string[];
+  let paths: string[];
   try {
-    listed = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 }).toString();
-    gitOwn = gitFolders(cwd);
+    paths = listedFiles(cwd, (path) => NOT_SOURCE.test(path));
   } catch {
     return null;
   }
   const real = physicalPath(cwd);
-  const seen = new Set<string>();
   const out: Array<{ path: string; content: string }> = [];
-  for (const name of listed.split('\0')) {
-    if (!name || NOT_SOURCE.test(name)) continue;
-    const path = fileInside(real, name, gitOwn);
-    if (!path || NOT_SOURCE.test(path) || seen.has(path)) continue;
-    seen.add(path);
+  for (const path of paths) {
     // A pack's recording holds the requests the model was sent, not where the agent names it.
     if (/(^|\/)(run\.json|calls\.jsonl)$/.test(path) && existsSync(join(real, dirname(path), 'run.json'))) continue;
     try {

@@ -161,6 +161,40 @@ export function fileInside(root: string, rel: string, gitOwn: readonly string[] 
   return inside;
 }
 
+/** Whether `path` itself is a link, not following it; false for nothing there. */
+const isLink = (path: string) => {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * The project's files git lists in `dir` (tracked, and untracked but not ignored), each once, as the
+ * file it names, relative to `dir` with forward slashes. A link counts as the file it ends at only
+ * when git lists that file too: one to a file git ignores (a `.env`, a build's output), out of `dir`,
+ * or into git's own folders (fileInside) names nothing. Git lists a link, never a path through one.
+ * `skip` leaves a path out, by the name git lists or by the file's own.
+ */
+export function listedFiles(dir: string, skip: (path: string) => boolean = () => false): string[] {
+  const real = physicalPath(dir);
+  const gitOwn = gitFolders(real);
+  const names = git(dir, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0').filter(Boolean);
+  const listed = new Set(names);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (skip(name)) continue;
+    const path = fileInside(real, name, gitOwn);
+    if (!path || skip(path) || seen.has(path)) continue;
+    if (path !== name && isLink(join(real, name)) && !listed.has(path)) continue;
+    seen.add(path);
+    out.push(path);
+  }
+  return out;
+}
+
 /**
  * For a test that plays a process racing repair on the same files: `walked` is called once the path
  * has been walked, before the file is opened, and `opened` once it is open, before it is checked.

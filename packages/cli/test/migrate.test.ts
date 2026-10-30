@@ -298,7 +298,7 @@ describe('shadowlap migrate', () => {
 
 // Links: Windows makes one only with a privilege a runner may not have, so this runs elsewhere, as the other link tests do.
 describe.skipIf(process.platform === 'win32')("migrate's change to the project's files", () => {
-  it("reads a link only as a file of the project's own: nothing of a key file outside it, nor of git's config, is in the patch or the review", () => {
+  it("reads a link only as a file git lists: nothing of a key file outside the project, an .env git ignores or git's config is in the patch or the review", () => {
     const base = realpathSync(mkdtempSync(join(tmpdir(), 'sl-migrate-links-')));
     try {
       const TOKEN = 'ghp_EXAMPLEdonotuse0000000000000000000000';
@@ -314,6 +314,10 @@ describe.skipIf(process.platform === 'win32')("migrate's change to the project's
       git('remote', 'add', 'origin', `https://x-access-token:${TOKEN}@github.com/acme/agent.git`);
       git('config', 'acme.model', FROM);
       symlinkSync('../.git/config', join(project, 'config', 'git.py'));
+      // A .env git ignores, a key beside the model, and a link to it.
+      writeFileSync(join(project, '.gitignore'), '.env\n');
+      writeFileSync(join(project, '.env'), `MODEL="${FROM}"\nAPI_KEY="${TOKEN}"\n`);
+      symlinkSync('../.env', join(project, 'config', 'env.py'));
       const change = modelMentions(project, [FROM], 'claude-sonnet-4-6');
       expect(change).toMatchObject({ files: [{ path: 'agent.py', places: 1 }], review: [] });
       expect(JSON.stringify(change)).not.toContain(TOKEN);
