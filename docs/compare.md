@@ -26,7 +26,22 @@ Each kind of tool is the better choice for a different job:
 | [Durable execution](#durable-execution) | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal | Make long-running agents survive crashes, and resume or patch a failed run in production |
 | Shadowlap | — | Reproduce one run of any agent exactly, find the call that lost it, and prove the fix offline |
 
-[Side by side](#side-by-side) compares them question by question.
+## Side by side
+
+Each row asks one question of every kind of tool. A cell answers yes, partly or no, then says how:
+
+| | Shadowlap | Cassettes | Tracing and evals | Replay evals | Agent debuggers | Time travel | Durable execution |
+|---|---|---|---|---|---|---|---|
+| Examples |  | VCR.py, Polly.js, nock | LangSmith, Langfuse, Braintrust, Phoenix, Weave, Logfire, Helicone | Kitaru | Laminar, OrcaReplay | LangGraph, Microsoft Agent Framework, Google ADK, Claude Agent SDK | Inngest, DBOS, Restate, Cloudflare Workflows, Temporal |
+| Re-runs your code against the model's recorded answers | **yes** — every call before the first changed request, at zero tokens | partly — while requests match; VCR.py's default match ignores the body | no — a playground or an experiment asks the model again | no — the agent's model calls run live, by design | partly — up to a call you choose; Laminar's cache key leaves out the system message | no — continuing from a checkpoint asks the model again | partly — a model call made as a step keeps its result before the restart point |
+| Forks at the first changed request, with a diff | **yes** — a structural diff of that request, then live from there | no — a miss raises an error or goes live, by library | no — every call runs live | no — every replay starts from the top | partly — live from a call you choose, or from Laminar's first cache miss | no — from a checkpoint you choose | no — from a step you choose |
+| Fences write tools after a fork | **yes** — blocked by default; `--writes` stubs or allows them | no — tools outside HTTP run every time | no — tools run unless your agent blocks them (LangSmith Engine's docs give `safe_tools` middleware) | partly — a policy per tool; with none set, tools run live | no — tool calls run again; OrcaReplay says replay is not a sandbox | no — tools run again after the checkpoint | no — every step after the restart point runs, writes included |
+| Finds the model call that lost a run | **yes** — `blame` re-asks calls from forks and names the last one that can still save the run | no | partly — LangSmith Engine diagnoses recurring issues from traces and your code | no — you review sessions, in investigations a coding assistant drafts | no — you read the trace (Laminar) or its causal graph (OrcaReplay) | no | no |
+| Proves a fix holds | **yes** — `verify` replays failing, held-out and good runs, each at a stated error rate; `repair` proposes fixes | no | partly — LangSmith Engine replays up to 5 traces live against its pull request (private beta, LangSmith Cloud) | partly — an experiment scores your change across a cohort, with the model live | partly — a rerun of your change, graded by an eval (Laminar) or a command (OrcaReplay) | no | no |
+| Gates a pull request offline, with no model key | **yes** — goldens, replayed by `shadowlap test` and the GitHub Action | yes — tests replay what the cassette recorded | no — evals in CI call the model, unless LangSmith's test cache answers | no — the model runs live; `--wait` fails only on a failed run | partly — OrcaReplay replays offline and reports in JSON, for a script you write | no | no |
+| Judges output quality | partly — judge checks, recorded so a clean replay is judged free; not evals at scale | no | **yes** — LLM judges, scorers and human review over datasets | **yes** — evaluators, LLM judges and human labels | partly — evals (Laminar), a command you name (OrcaReplay) | no | no |
+| Shows production traffic at scale | no — it runs on your machine and in CI; production runs come in as imports | no | **yes** | **yes** — sessions recorded in production or imported | partly — Laminar traces production; OrcaReplay records the runs it launches | no | **yes** — workflow history |
+| Works with any framework, TypeScript and Python | **yes** — model calls at the HTTP layer; tools through SDKs for TypeScript and Python, or the wire protocol | partly — one language each | partly — through each platform's SDK, OpenTelemetry or a proxy | partly — adapters for six frameworks, in Python and TypeScript, or imported traces | partly — Laminar caches four Python integrations and the AI SDK; OrcaReplay, any agent its proxy reaches | no — that framework only | no — the agent written as a workflow for that runtime |
 
 ## HTTP record and replay libraries
 
@@ -278,118 +293,6 @@ workflow for that runtime.
 
 Use durable execution to make long-running agents survive crashes, and to resume or patch a failed run
 in production. Use Shadowlap to find what changed in a run, and to test a change before it ships.
-
-## Side by side
-
-Each table answers one question for every kind of tool.
-
-### Re-runs your code against the model's recorded answers
-
-| Kind of tool      | Answer  | How                                                                        |
-|-------------------|---------|----------------------------------------------------------------------------|
-| Shadowlap         | **yes** | Every call before the first changed request, at zero tokens                |
-| Cassettes         | partly  | While requests match; VCR.py's default match ignores the body              |
-| Tracing and evals | no      | A playground or an experiment asks the model again                         |
-| Replay evals      | no      | The agent's model calls run live, by design                                |
-| Agent debuggers   | partly  | Up to a call you choose; Laminar's cache key leaves out the system message |
-| Time travel       | no      | Continuing from a checkpoint asks the model again                          |
-| Durable execution | partly  | A model call made as a step keeps its result before the restart point      |
-
-### Forks at the first changed request, with a diff
-
-| Kind of tool      | Answer  | How                                                             |
-|-------------------|---------|-----------------------------------------------------------------|
-| Shadowlap         | **yes** | A structural diff of that request, then live from there         |
-| Cassettes         | no      | A miss raises an error or goes live, by library                 |
-| Tracing and evals | no      | Every call runs live                                            |
-| Replay evals      | no      | Every replay starts from the top                                |
-| Agent debuggers   | partly  | Live from a call you choose, or from Laminar's first cache miss |
-| Time travel       | no      | From a checkpoint you choose                                    |
-| Durable execution | no      | From a step you choose                                          |
-
-### Fences write tools after a fork
-
-| Kind of tool | Answer | How |
-|---|---|---|
-| Shadowlap | **yes** | Blocked by default; `--writes` stubs or allows them |
-| Cassettes | no | Tools outside HTTP run every time |
-| Tracing and evals | no | Tools run unless your agent blocks them (LangSmith Engine's docs give `safe_tools` middleware) |
-| Replay evals | partly | A policy per tool; with none set, tools run live |
-| Agent debuggers | no | Tool calls run again; OrcaReplay says replay is not a sandbox |
-| Time travel | no | Tools run again after the checkpoint |
-| Durable execution | no | Every step after the restart point runs, writes included |
-
-### Finds the model call that lost a run
-
-| Kind of tool      | Answer  | How                                                                                 |
-|-------------------|---------|-------------------------------------------------------------------------------------|
-| Shadowlap         | **yes** | `blame` re-asks calls from forks and names the last one that can still save the run |
-| Cassettes         | no      | —                                                                                   |
-| Tracing and evals | partly  | LangSmith Engine diagnoses recurring issues from traces and your code               |
-| Replay evals      | no      | You review sessions, in investigations a coding assistant drafts                    |
-| Agent debuggers   | no      | You read the trace (Laminar) or its causal graph (OrcaReplay)                       |
-| Time travel       | no      | —                                                                                   |
-| Durable execution | no      | —                                                                                   |
-
-### Proves a fix holds
-
-| Kind of tool | Answer | How |
-|---|---|---|
-| Shadowlap | **yes** | `verify` replays failing, held-out and good runs, each at a stated error rate; `repair` proposes fixes |
-| Cassettes | no | — |
-| Tracing and evals | partly | LangSmith Engine replays up to 5 traces live against its pull request (private beta, LangSmith Cloud) |
-| Replay evals | partly | An experiment scores your change across a cohort, with the model live |
-| Agent debuggers | partly | A rerun of your change, graded by an eval (Laminar) or a command (OrcaReplay) |
-| Time travel | no | — |
-| Durable execution | no | — |
-
-### Gates a pull request offline, with no model key
-
-| Kind of tool      | Answer  | How                                                                    |
-|-------------------|---------|------------------------------------------------------------------------|
-| Shadowlap         | **yes** | Goldens, replayed by `shadowlap test` and the GitHub Action            |
-| Cassettes         | yes     | Tests replay what the cassette recorded                                |
-| Tracing and evals | no      | Evals in CI call the model, unless LangSmith's test cache answers      |
-| Replay evals      | no      | The model runs live; `--wait` fails only on a failed run               |
-| Agent debuggers   | partly  | OrcaReplay replays offline and reports in JSON, for a script you write |
-| Time travel       | no      | —                                                                      |
-| Durable execution | no      | —                                                                      |
-
-### Judges output quality
-
-| Kind of tool      | Answer  | How                                                                         |
-|-------------------|---------|-----------------------------------------------------------------------------|
-| Shadowlap         | partly  | Judge checks, recorded so a clean replay is judged free; not evals at scale |
-| Cassettes         | no      | —                                                                           |
-| Tracing and evals | **yes** | LLM judges, scorers and human review over datasets                          |
-| Replay evals      | **yes** | Evaluators, LLM judges and human labels                                     |
-| Agent debuggers   | partly  | Evals (Laminar), a command you name (OrcaReplay)                            |
-| Time travel       | no      | —                                                                           |
-| Durable execution | no      | —                                                                           |
-
-### Shows production traffic at scale
-
-| Kind of tool      | Answer  | How                                                                   |
-|-------------------|---------|-----------------------------------------------------------------------|
-| Shadowlap         | no      | It runs on your machine and in CI; production runs come in as imports |
-| Cassettes         | no      | —                                                                     |
-| Tracing and evals | **yes** | —                                                                     |
-| Replay evals      | **yes** | Sessions recorded in production or imported                           |
-| Agent debuggers   | partly  | Laminar traces production; OrcaReplay records the runs it launches    |
-| Time travel       | no      | —                                                                     |
-| Durable execution | **yes** | Workflow history                                                      |
-
-### Works with any framework, TypeScript and Python
-
-| Kind of tool | Answer | How |
-|---|---|---|
-| Shadowlap | **yes** | Model calls at the HTTP layer; tools through SDKs for TypeScript and Python, or the wire protocol |
-| Cassettes | partly | One language each |
-| Tracing and evals | partly | Through each platform's SDK, OpenTelemetry or a proxy |
-| Replay evals | partly | Adapters for six frameworks, in Python and TypeScript, or imported traces |
-| Agent debuggers | partly | Laminar caches four Python integrations and the AI SDK; OrcaReplay, any agent its proxy reaches |
-| Time travel | no | That framework only |
-| Durable execution | no | The agent written as a workflow for that runtime |
 
 ## Where Shadowlap does not help
 
