@@ -393,7 +393,7 @@ These flags run the replay more than once:
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--repeat <n>` | Run the replay *n* times and report how the attempts differ after the fork ([Repeating a fork](#repeating-a-fork)) | — |
-| `--concurrency <n>` | With `--repeat`: attempts running at once | `1` |
+| `--concurrency <n>` | With `--repeat`: attempts running at once | 1 |
 | `--chaos` | Run the [error-path presets](#error-path-presets) on this run instead of one replay (below) | — |
 | `--presets <list>`, `--chaos-tool <name>`, `--inconclusive fail\|warn` | With `--chaos`: as for [`test --chaos`](#test) | `--inconclusive`: `fail` |
 
@@ -575,7 +575,7 @@ recording.
 | Flag | What it does | Default |
 | --- | --- | --- |
 | `--write` | Add the proposals to `shadowlap.config.json`, and say their numbers | — |
-| `--max-rounds <n>` | How many replays to try first | `8` |
+| `--max-rounds <n>` | How many replays to try first | 8 |
 | `--json` | Print the result as JSON when calibration ends (below) | — |
 | `--guard <mode>`, `--allow-unrecorded <names>`, `-y` | As for [`replay`](#replay) | `--guard`: `warn` |
 
@@ -666,7 +666,7 @@ never creates one.
 | Flag            | What it does                                                    | Default |
 | --------------- | --------------------------------------------------------------- | ------- |
 | `--call <n>`    | With a run: open at this call                                   | —       |
-| `--port <port>` | The port to listen on; `--port 0` asks for any free one (below) | `4777`  |
+| `--port <port>` | The port to listen on; `--port 0` asks for any free one (below) | 4777    |
 | `--no-open`     | Print the link instead of opening a browser                     | —       |
 | `--read-only`   | Show every page and change nothing (below)                      | —       |
 
@@ -764,7 +764,7 @@ Lists runs, newest first, with their labels.
 | Flag                | What it does                                            | Default |
 | ------------------- | ------------------------------------------------------- | ------- |
 | `--tree`            | Nest forks under their parents                          | —       |
-| `-n`, `--limit <n>` | The most runs to list                                   | `50`    |
+| `-n`, `--limit <n>` | The most runs to list                                   | 50      |
 | `--label <label>`   | Keep runs with this label; repeat it to require several | —       |
 | `--json`            | Print one object per run (below)                        | —       |
 
@@ -808,7 +808,7 @@ must appear together.
 | Flag                | What it does                       | Default |
 | ------------------- | ---------------------------------- | ------- |
 | `--run <run>`       | Search only this run               | —       |
-| `-n`, `--limit <n>` | The most matches to print          | `20`    |
+| `-n`, `--limit <n>` | The most matches to print          | 20      |
 | `--json`            | Print one object per match (below) | —       |
 
 Each match names the run, the call and where the text was found. It ends with the
@@ -918,6 +918,557 @@ What people know about a run that the recording can't. Both travel in packs.
 
 `label --json` prints `{ runId, labels }`, with the labels as they are after the change.
 
+## blame
+
+```sh
+shadowlap blame <run> [options] [-- <command> [args...]]
+```
+
+Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run
+pass. [Blame](./blame.md) explains the search, the report and the limits.
+
+```sh
+shadowlap blame 01M2P9PVCP --expect '{"tools":{"send_email":0}}'
+```
+
+How it searches:
+
+1. It replays the run as recorded, to confirm the failure.
+2. It probes model calls with forks that replay everything before the probed call for free.
+3. It binary-searches for the boundary.
+
+Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0: the `expect` object of an [outcome check](./ci.md#outcome-checks), such as `'{"tools":{"send_email":0}}'` | — |
+| `--gate <json\|@file>` | How a probe decides, after each attempt ([gating](./gating.md#verify-and-blame); below). Give any of the four figures | `{"good":0.6,"bad":0.1,"risk":0.05,"max":20}` |
+| `--attempts <n>` | A fixed count instead of the gate: attempts per probed call | 5 with `--passes` alone |
+| `--passes <n>` | With a fixed count: how many passing make a rescue | 2, or 1 with one attempt |
+| `--model <model>` | Rescue with this model from the probed call on, instead of asking the recorded one again | — |
+| `--set <key=value>` | Set a request field from the probed call on, such as `temperature=1` (repeatable) | — |
+| `--scope <name>` | Probe only model calls made in this [scope](./sdk.md#scopes): the agent's, and not a simulated user's | — |
+| `--scan <n>` | Model calls past the boundary to probe too, in case rescue works again after it | 2 |
+| `--writes stub\|block` | What write tools do after the fork; `allow` is not accepted (below) | `stub` |
+| `--reads live\|replay` | What read tools do after the fork | `live` |
+| `--concurrency <n>` | Attempts of one probe running at once (below) | 1 |
+| `--budget <usd>` | Start no attempt once this much is spent on live model calls | — |
+| `--timeout <seconds>` | Stop an attempt after this long, and count it as failed | — |
+| `--json` | Print the report as JSON on stdout ([fields](./blame.md#json)) | — |
+| `--guard`, `--allow-unrecorded`, `-y` | As for [`replay`](#replay) | `--guard`: `warn` |
+
+More on some of them:
+
+- **`--gate`**: a gate that tells a re-asked call that passes `good` of the time or more (a rescue)
+  from one that passes `bad` or less (lost), up to `max` attempts. `risk` is the whole search's,
+  spread over the most probes it can make, so each probe runs at its share with its `max` deepened to
+  match ([the search](./blame.md#how-it-works)).
+- **The default gate**: for a search of 5 to 10 probes, three straight passes rescue and six or seven
+  straight failures lose.
+- **A probe's verdict** shows its tally and its bound at its own confidence, under the rule, which is
+  stated once: `rescued · 5 of 10 · rate >= 0.10 (99.1%)` under
+  `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts`, in a search of 6 probes.
+- **`--writes`**: a write the recording made, with the same arguments, gets what it got then, an
+  error included.
+- **`--concurrency`**: the probe decides on its attempts in the order they started, and its first
+  verdict stands. One starts only while fewer than *n* have started that the probe hasn't counted, so
+  at most *n* − 1 run past the attempt that decides.
+
+Its progress goes to stderr:
+
+- **In a terminal**, a probe's attempts fold into one line that counts them as they come, and the
+  probe's verdict then takes its place. The pairs of a pinned call's check fold into one line that
+  counts each call's attempts (`3 pairs: #5 3 passed · #6 1 passed, 2 failed`).
+- **With `-v`, or anywhere else** (a CI log, a file, the dashboard), every attempt keeps its line,
+  with its run id.
+
+Verify and repair print theirs the same way.
+
+`blame` exits with:
+
+| Status    | Meaning                                                                           |
+| --------- | --------------------------------------------------------------------------------- |
+| `0`       | The search reached a verdict: a blamed call, or no call that rescues the run      |
+| `1`       | It refuses what it saw: the run passes its oracle, or does not replay as recorded |
+| `2`       | It can't start (below)                                                            |
+| `3`       | It stopped before a verdict (below)                                               |
+| `128 + n` | A stop signal; 130 for Ctrl-C                                                     |
+
+It can't start, exit status 2, for:
+
+- a run with no model call to probe;
+- a run that fails only a cost check a model with no price keeps from being judged;
+- an agent on a Node too old for the guard;
+- a run whose model called a tool it never recorded that
+  [writes](./how-it-works.md#tools-shadowlap-did-not-record).
+
+It stops before a verdict, exit status 3, when:
+
+- the budget is spent, or the provider unavailable;
+- what the replay as recorded showed could not be decided;
+- its first probe could not tell a rescue from a loss (*Not settled from the first model call*).
+
+## verify
+
+```sh
+shadowlap verify --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
+```
+
+Checks a change before it ships. [Verify](./verify.md) explains the roles, the report and the
+warnings.
+
+```sh
+shadowlap verify --fixes label:bug --keeps label:good
+```
+
+It replays, under the code in the working directory:
+
+- **failing runs**, which the change must fix;
+- **good runs**, which it must not break.
+
+It accepts the change only when every failing run passes its gate and every good run is kept: not
+worse, by the margin or more, than the same run under the code before the change, attempt for attempt.
+Runs are ids, unique prefixes or `label:<name>`. A replay that forks nowhere settles its run in one
+free attempt.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--fixes <run...>` | Failing runs the change was written to fix | — |
+| `--holdout <run...>` | Failing runs of the same kind the change was not written against | — |
+| `--keeps <run...>` | Runs that passed and must not get worse, each kept against its own baseline, such as `label:good` | — |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0, as for [`blame`](#blame) | — |
+| `--gate <json\|@file>` | How a run decides, after each attempt where its replay forks ([gating](./gating.md); below). Give any of the four figures | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
+| `--attempts <n>` | A fixed count instead of the gate: attempts per run where the replay forks | 5 with `--passes` alone |
+| `--passes <n>` | With a fixed count: how many must pass | 80% rounded up, 4 of 5 |
+| `--model <model>`, `--set <key=value>` | The change is a request field, set from each run's first model call | — |
+| `--from <model>` | With `--model` or `--set`: change only the model calls made with this model, from the first of them on (repeatable; below) | — |
+| `--live-tool <name>` | The change is in this tool: run it live, its first call and every call of it after a fork (repeatable) | — |
+| `--writes stub\|block`, `--reads live\|replay` | As for [`blame`](#blame) | `stub`, `live` |
+| `--concurrency <n>` | Runs verified at once | 1 |
+| `--budget <usd>`, `--timeout <seconds>` | As for [`blame`](#blame) | — |
+| `--fail-fast` | Start nothing more once a run has failed | — |
+| `--margin <share>` | A good run that forks is kept unless its pass rate drops this much or more below its baseline's, at the gate's risk | `verify.margin` in `shadowlap.config.json`, else 0.1: 10 points |
+| `--baseline paired\|history` | What a good run is compared with (below) | `verify.baseline`, else `paired` |
+| `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts | HEAD, when the working tree has a change |
+| `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` | — |
+| `--json` | Print the report as JSON on stdout ([fields](./verify.md#json)) | — |
+| `--guard`, `--allow-unrecorded`, `-y` | As for [`replay`](#replay) | `--guard`: `warn` |
+
+More on some of them:
+
+- **`--gate`**: a gate that tells a run that passes `good` of the time or more from one that passes
+  `bad` or less, each verdict wrong at most `risk` of the time at those two rates, up to `max`
+  attempts. With the default, a run that always passes is accepted after 12 attempts, and one that
+  always fails rejected after 3.
+- **`--from`**: such as the agent's model calls, and not a simulated user's or a sub-agent's on
+  another model. `decisions --then-verify` and `migrate` pass the models they switched from.
+- **`--margin`, `--baseline`**: [good runs](./verify.md#good-runs-against-their-own-baseline) are
+  kept against their own baseline. `paired` is the same run under the code before the change, each
+  attempt paired with one of the change's. `history` is its golden's test history.
+
+`verify` exits with:
+
+| Status | Meaning |
+| --- | --- |
+| `0` | The change is accepted |
+| `1` | The change is rejected |
+| `2` | A run's model called a tool the run never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record), before anything runs |
+| `3` | The verification did not finish: a run's gate or baseline inconclusive, the budget spent, the provider unavailable |
+| `128 + n` | A stop signal, whenever it comes, the verdict reached or not |
+
+The verdict is kept with the [fix](#fix) of its failing runs, whatever it is. An accepted one turns
+the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on
+a run that failed it.
+
+## repair
+
+```sh
+shadowlap repair --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
+```
+
+Fixes failing runs. [Repair](./repair.md) explains the loop and the safeguards.
+
+```sh
+shadowlap repair --fixes label:bug --keeps label:good --repairer anthropic
+```
+
+1. It blames each failing run.
+2. It asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system
+   prompt or a tool description. Rewrites that name a detail of the failing runs, or add a placeholder
+   the agent would fill in, are set aside before anything runs.
+3. It keeps the smallest rewrite `verify` accepts twice, the second time with fresh attempts: on the
+   failing runs, the runs held out from the repairer (`--holdout`), and the good runs.
+4. The fix comes out as a patch, a pull request body and a recording of each fixed run.
+
+Each candidate is verified in a temporary git worktree, never in the working tree. A good run is
+verified against the same run under the code without the candidate, in another worktree.
+
+| Flag | What it does | Default |
+| --- | --- | --- |
+| `--fixes <run...>` | The failing runs | — |
+| `--holdout <run...>` | The failing runs kept from the repairer | Every other `--fixes` run, when there are two or more |
+| `--keeps <run...>` | The runs that must not get worse (below) | — |
+| `--expect <json\|@file>` | What a passing run must do besides exiting 0 | — |
+| `--repairer <provider:model>` | The model that proposes fixes (below) | `repair.repairer` in the config |
+| `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long | `repair.timeout` in the config, else 600 |
+| `--candidates <n>` | Rewrites to ask for | 3 |
+| `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer | — |
+| `--scope <name>`, `--set <key=value>` | As for [`blame`](#blame): which calls to probe, and what probes change, such as `temperature=1` | — |
+| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for [`verify`](#verify) | `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
+| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for [`verify`](#verify) | — |
+| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, before verify runs it when its rewrite alone does | 25 |
+| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` | — |
+| `--apply` | Leave the accepted fix in the working tree | — |
+| `--branch <name>` | Commit it to a branch it makes, without checking anything out | — |
+| `--pr` | With `--branch`: push it and open a pull request with `gh` | — |
+| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository | — |
+| `--budget <usd>` | Stop once this much is spent on blame, the repairer, verification and judge checks (below) | — |
+| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `--allow-unrecorded`, `-y` | As for [`verify`](#verify) | — |
+| `--json` | Print the report as JSON on stdout ([fields](./repair.md#json)) | — |
+
+More on some of them:
+
+- **`--keeps`**: a good run that forks is kept unless it drops 10+ points below its baseline, the same
+  run on the code without the candidate, attempt for attempt, as [verify](#verify) keeps one. Its
+  verdict bounds the drop as verify's does (`drop <= 0.10 (95%)`).
+- **`--repairer`**: `anthropic` (Claude Opus 5.5), `anthropic:<model>`, `openai:<model>`, or
+  `claude-code[:<model>]` to run your own Claude Code (2.1.248 or later) in print mode, restricted: no
+  tools, no MCP server, none of your settings ([details](./repair.md)).
+- **`--budget`**: the repairer is asked only when what is left covers the most asking it could cost.
+
+`repair` exits with:
+
+| Status | Meaning |
+| --- | --- |
+| `0` | A candidate is accepted, and handed over as asked |
+| `1` | None is accepted, a repairer that could not be asked among them, or the hand-over fails (below) |
+| `2` | It can't start (below) |
+| `3` | It stopped before a verdict: the budget spent, too little of it left to ask the repairer, or the provider unavailable |
+| `128 + n` | A stop signal, whenever it comes, the verdict reached or not |
+
+The hand-over fails when, for example, a branch it can't make (a name git refuses, or one that
+exists) is found at the hand-over. The repair is kept.
+
+It can't start, exit status 2:
+
+- outside a git repository;
+- with another repair running in the folder;
+- with `--goldens` outside the repository, with `--branch`;
+- for an agent on a Node too old for the guard;
+- for a run whose model called a tool it never recorded that
+  [writes](./how-it-works.md#tools-shadowlap-did-not-record).
+
+The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed.
+When a candidate is accepted under the fix's check, the fix turns verified. When none is, the fix stays
+open, with every candidate tried and why it was dropped.
+
+## fix
+
+```sh
+shadowlap fix ls [--status open|verified|applied] [--json]
+shadowlap fix show <fix> [--json]
+shadowlap fix title <fix> <title...>
+shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
+shadowlap fix pr <fix> [<url>] [--json]
+```
+
+A fix is one failure, from the blame that reproduced it to a change that held.
+
+- **Where fixes come from**: a [blame](./blame.md#fixes) opens one or joins one, by the run's labels,
+  else its check. [Verify](./verify.md#verdicts-are-kept) and
+  [repair](./repair.md#the-fix-it-reports-to) report to the fix of the runs they were given. Their
+  verdict counts for it only when it checked the fix's check on a run that failed it.
+- **Fix ids** look like `fx-01M3RZ4XKN…`. Any unique prefix works, with or without `fx-`, and the list
+  shows the first ten characters.
+- **Activity**: blame, repair, verify and apply each log an activity event in the store
+  (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`,
+  `fix.applied`).
+
+| Flag                | What it does                                                              | Default   |
+| ------------------- | ------------------------------------------------------------------------- | --------- |
+| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes         | —         |
+| `--goldens <dir>`   | `fix apply`: where the recordings go                                      | `goldens` |
+| `--no-test`         | `fix apply`: copy the recordings without running `shadowlap test` on them | —         |
+| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test           | —         |
+| `--json`            | Print it as JSON: the dashboard's read model of Fixes (below)             | —         |
+
+With `--json`, each subcommand prints:
+
+| Subcommand | `--json` prints |
+| --- | --- |
+| `fix ls` | `{ fixes, counts }` ([fields](#fix-ls)) |
+| `fix show` | The fix, with its three steps in full ([fields](#fix-show)) |
+| `fix apply` | What it did ([fields](#fix-apply)) |
+| `fix pr` | `{ fixId, pr: { url, number, state, at } }` ([below](#fix-pr)) |
+| An id that matches no fix, or several | `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, exit status 2 |
+| An error | `{ fixId, status, error }`, with `status` `error` |
+
+### `fix ls`
+
+Lists fixes, the most recently opened first. Each fix takes up to three lines:
+
+1. Its status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step
+   got (*lost at #5 · prompt fix · 3 fixed · 1 kept*).
+2. What its failing runs did and the check they must meet
+   (*failed: send_email called twice, not once · must: send_email called once*), where the fix came
+   from (*from CI · PR #138*) and when it was opened.
+3. A line that says so, when an applied fix doesn't hold.
+
+What its failing runs did is the title blame gave the fix when it opened it, so the second line names
+it only once someone renames the fix.
+
+`fix ls --json` prints `{ fixes, counts }`: each fix as its row in the list, and the `counts` of `all`,
+`open` and `verified` fixes, applied ones counted as verified. Each row has these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `fixId`, `status`, `title`, `label`, `labels`, `check` | The fix, as the list shows it |
+| `href` | Where the dashboard shows it |
+| `failed` | What its failing runs did (below) |
+| `failing`, `good` | How many runs are failing, and how many good |
+| `steps`, `source` | Its steps, and where it came from |
+| `openedAt`, `verifiedAt`, `appliedAt` | When it was opened, verified and applied: epoch milliseconds, or `null` |
+| `broken` | Why it is broken |
+| `attempts`, `spent` | The attempts, and the USD spent, behind it |
+
+`failed` is in the words blame titled the fix with when it opened it, which a title of someone's own
+no longer says. For a fix opened on another machine, it is the first failure its blame recorded. It is
+`null` when no blame recorded one.
+
+### `fix show`
+
+Prints a fix: what its failing runs did and the check they must meet, as `fix ls` says them, and its
+three steps.
+
+1. **Blame**: where the run was lost, and the probes that found it.
+2. **Repair**: the change, the candidates tried and why each was dropped, who proposed them or why no
+   repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's
+   warnings.
+3. **Verify**: every verdict, named by what changed (a repair's candidate, the request fields it set,
+   or the code version) and headed by the runs it checked, with each run's role and outcome. One that
+   doesn't count for the fix says why in its heading.
+
+It ends with what to do next. It says when the repair it suggests would end *No fix to try* without
+running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its
+repairer from here (`claude` isn't on the PATH).
+
+`fix show --json` has the three steps in full:
+
+| Field | Meaning |
+| --- | --- |
+| `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt` | As in [`fix ls`](#fix-ls) |
+| `openedBy` | Who opened it |
+| `status`, `title`, `label`, `labels`, `check`, `failed`, `oracle`, `expect`, `source` | The fix (below) |
+| `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
+| `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
+| `steps` | Blame, repair and verify (below) |
+| `blame`, `repair`, `verify` | Each step in full (below) |
+| `blames`, `repairs` | Every blame and repair behind the fix, newest first (below) |
+| `defaultStep`, `defaultVerify` | The step the dashboard opens at, and the verdict it shows first: the newest that counts |
+| `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
+| `actions` | What can be done next (below) |
+| `commands` | The `blame`, `repair` and `verify` commands to run it again |
+| `repairer` | The repairer the config names (below) |
+| `applied` | Once applied, how: `patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via` |
+
+The fix's own fields:
+
+- `label` is the one most of its failing runs carry, and `labels` all it groups runs by.
+- `check` is in words, and `failed` is what its failing runs did (as `fix ls` has it).
+- `oracle` is the conditions a verdict must check to count. `expect` is the `--expect` JSON (null for
+  the exit code alone).
+- `source` says where it came from, such as `from CI · PR #138`.
+
+`steps` holds blame, repair and verify, each with `state` (`done`, `todo`, or `no` for a verify that
+only rejected), a `title`, a `meta` line and a `short` form. Only verdicts that count move the verify
+step.
+
+`blame` has:
+
+- the call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the
+  `boundary` sentence and both `answers`;
+- `probes` with their verdicts, and the attempts per probe (`bundles`);
+- every call of the run, with whether it is in the blame's scope (`callRow`);
+- `cost` and `command`.
+
+`repair` has:
+
+- the `change`, with the text it `added`; the result per role (`roles`); and whether its verification
+  `counts`;
+- who proposed it (`repairer`), or why no repairer did (`noRepairer`: its `text`, and the `warning`
+  that says what to do);
+- where each run was `lost`, and the `diagnosis`;
+- every candidate, with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`,
+  `build failed`, `unsettled`) and `why`;
+- the `files` handed over, and the pull request body (`prBody`);
+- what each stage `cost`, and how many `attempts` it ran: the probes of the blames it ran, and every
+  candidate's verification;
+- `command` and `warnings`.
+
+`verify` has one entry per change verified, newest first, with:
+
+- its `verdict`, and whether it `counts`;
+- the change it checked, named by what changed (`code`: a repair's candidate, the request fields it set
+  and from which call, or the code version; `label` as the dashboard's switch shows it);
+- its `headline`: by the runs it checked, or, for one that doesn't count, why;
+- a `note` when it was rejected after the fix was applied;
+- `oracle`;
+- each run's `role`, `attempts`, `outcome` and where it went (`note`), and the token and cost changes
+  per run;
+- what it took to find out;
+- its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change
+  failed it, in `unsettled`.
+
+`actions` says what can be done next:
+
+- **`repair`**, for an open fix: `noFix` says why it would end *No fix to try* without running the
+  agent, or is `null`.
+- **`apply`**, for a verified or applied one: `kind` is `patch`, or `mark` when there is no patch
+  (below).
+- **`applied`**, once it is applied.
+
+`apply` has:
+
+- `kind`, and the `gitApply` command;
+- `pending`, saying what applying left undone;
+- every file the patch changes in `files`, the patch itself in `diff`, and where it is kept in
+  `patchFile`;
+- `inTree` when it is in the working tree already, which applying only marks;
+- how many recordings applying copies into the goldens folder, in `goldens`;
+- the request fields a change with no patch set, in `change`;
+- `refused`, saying why `fix apply` won't apply it, when the patch is more than the change its repair
+  verified. `gitApply` is `null` then, and once the patch is in.
+
+`blames` lists every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`), and
+`repairs` every repair (`repairId`, `at`, `outcome`, `accepted`, `title`), newest first.
+
+`repairer` has its `name`, whether it is `configured`, and, on an open fix, the `problem` that keeps it
+from being asked here (such as `claude` not on the PATH), or `null`.
+
+### `fix title`
+
+Replaces the title derived from the check with one of your own. Blames that join the fix later keep
+it. With a team store, the latest rename on any machine is the one every machine keeps.
+
+### `fix pr`
+
+Records the pull request opened for a fix, given its `https://` link. `repair --pr` and CI's
+[fix on failure](./ci.md#fix-on-failure) record theirs, so the list says where the fix went
+(*from CI · PR #138*).
+
+With no link, it reads where the recorded pull request stands from GitHub, with `gh pr view`
+(installed and signed in), and records it: *open*, *merged* or *closed*. When `gh` can't say, or isn't
+asked, the state stays as recorded and the line says why. The [dashboard](./dashboard.md) reads it the
+same way, in the background, while Fixes is open.
+
+Only a pull request on github.com, on the host `GH_HOST` names, or on the host of the project's
+`origin` remote is read. A fix pulled from the team store can name any address, and `gh` would send
+that host a token. A token for a GitHub server of your own only ever goes to the host `GH_HOST` names.
+
+`fix pr --json` prints `{ fixId, pr: { url, number, state, at } }`, with a `note` saying why when the
+state is as recorded because GitHub wasn't asked or couldn't say.
+
+### `fix apply`
+
+Hands a verified fix over. Run it in the folder the repair ran in, where its directory under
+`.shadowlap/repairs/` is.
+
+1. It runs `git apply` on the accepted repair's `fix.patch`.
+2. It copies the recordings the fixed code made into the goldens folder.
+3. It runs [`shadowlap test`](#test) on them, and marks the fix applied.
+4. It replays the project's other goldens, and names each that diverges on what the patch changed
+   (below).
+
+`fix apply` exits with:
+
+| Status | Meaning |
+| --- | --- |
+| `1` | It refuses the patch: not the change its repair verified, a file it may not write through, or `fix.patch` changed since |
+| `1` | The patch does not apply, or the test fails |
+| `2` | The fix is still open (nothing verified to apply), or it runs outside the repository and folder the repair ran in |
+
+A patch that applied stays applied.
+
+**The project's other goldens.** A prompt or a tool description goes into every request, so `fix apply`
+replays the project's other goldens offline, in a store of their own that nothing keeps:
+
+- It names each that diverges on what the patch changed: a request field that holds text the patch
+  added, or lost text it removed. It prints the command that re-records them,
+  `shadowlap test <goldens> --update`.
+- It leaves out those from a pack the repository doesn't track, recorded elsewhere, whose command runs
+  only with a yes, and names them.
+- A golden that may fork is named only when it forks before its task's takeover, as `--update`
+  re-records it then.
+- `--no-test` skips this too.
+
+**A teammate's repair**, from the [team store](./team.md), left its recordings on their machine.
+`fix apply` puts the patch in, says so in one line, and leaves nothing to finish. Nothing here runs the
+code that patch put in: no `--build`, test or replay of the other goldens. It says to read the change
+(`git diff -- <file>`) and then run `shadowlap test`.
+
+**What the patch may change.** Before anything goes in, the patch is checked against the repair it came
+with. It has to be the rewrite of the accepted candidate, to that candidate's file alone, changed in
+place: no file made, deleted, renamed or copied, and no mode or binary change. It may never touch:
+
+- a file of a recording: a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl`
+  and blobs, or anything in `__recordings__`;
+- `shadowlap.config.json` or the `.shadowlap` folder.
+
+A repair rewrites the text the agent sends the model where its source holds it, and never reads those.
+A patch that is anything more is refused, and nothing is changed. So is one to a file git ignores,
+whose change neither `git status` nor `git diff` would show, or to a file reached through a link to a
+folder, which `git apply` refuses too.
+
+**Line endings.** The patch goes in on the file's bytes as they are, so the file is the one the repair
+verified. Git applies it to a copy of them that nothing converts. `git apply` in the working tree would
+convert line endings as `core.autocrlf` (Git for Windows sets it) or a `text` or `eol` attribute in
+`.gitattributes` asks, and write a file with LF back with CRLF on every line.
+
+A patch whose lines end otherwise than the file's (a teammate's, made where the file has LF, for a
+checkout where it has CRLF) applies only through that conversion. So it goes in as `git apply` puts it
+in, and the file keeps its CRLF.
+
+**What it only marks.**
+
+- Applied is marked on this machine only.
+- A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is
+  recognised with `git apply --reverse --check` and only marked.
+- A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only
+  marked applied. One verified with a change of request fields (`--set`, `--model`) says which, since
+  no file carries them: set them in your agent.
+- When the working tree has changes the patch conflicts with, nothing is changed. The message says
+  whether to commit or stash them, or to apply the patch by hand.
+
+**Run again** on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied.
+It copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and
+runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it
+does nothing; with `--no-test`, it says when a test is still to pass.
+
+A test that fails leaves the fix applied, marked as not holding. It stays so until a run of `fix apply`
+passes it, or a `shadowlap test` session passes every one of its goldens (after `test --update`
+re-recorded what another fix changed, say), which says the fix holds again.
+
+**It trusts nothing it reads from the store.** Otherwise it changes nothing, and says why:
+
+- the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`;
+- the patch must be the accepted candidate's one rewrite to that candidate's file, no larger than a
+  repair writes;
+- that file must be a plain file git doesn't ignore, not a symbolic link or a folder;
+- `fix.patch` must be the patch the repair verified.
+
+`fix apply --json` prints `{ fixId, status, again, patch, repairId, goldens, tests, outdated, update }`:
+
+| Field | Meaning |
+| --- | --- |
+| `fixId`, `repairId` | The fix, and its repair |
+| `status` | `applied`, or `already-applied` when nothing was left to do |
+| `again` | Set when it finished a fix applied before |
+| `patch` | What became of the patch: `applied`, `already` in the tree, or `none` to apply |
+| `goldens` | Each golden's `from`, `to`, and whether it was `copied` |
+| `tests` | `passed`, `failed` or `skipped` |
+| `outdated` | The project's other goldens that diverge on what the patch changed, each with its `golden`, `callNo` and request field `path` |
+| `update` | The command that re-records them, or `null` |
+
 ## init
 
 ```sh
@@ -939,151 +1490,6 @@ It warns about a model client constructed with a literal base URL: `shadowlap ru
 Its install step adds the SDKs with the project's package manager, and the CLI: `shadowlap` as a dev dependency, which the steps after it run with `npx`, or for a Python project `npm install --global shadowlap`. Run by a global `shadowlap`, it leaves the CLI out, and the steps run that one.
 
 `init` writes one file: an empty `shadowlap.config.json`, only when there is none. The detection reads source text; it runs nothing. `--json` prints the findings as JSON, with the lines the dashboard's setup shows (`summary`: the language with its pinned runtime and package manager, the model SDKs with their versions, the framework, the command and where it came from, what happened to the config, and `node`, the Node the project pins with its minor and whether it is older than the guard takes, `tooOld`), each tool marked `wrapped` or not, the tools that aren't (`unwrapped`), and the code that wraps them in the project's language, through its framework's adapter, with the fence for a Claude Agent SDK query that runs through none (`wrap`). The models it warns about are `unrecordedModels` (each with its `file`, `line`, `model`, and the framework that builds its client, `via`). The addresses it prints (`modelServer`, `hardcodedBaseUrls`) never carry credentials: a password, or a key in the query, is left out, and a model server that had one gets no `upstream`. Run it again after wrapping them to check again: the config is left as it is and the tools are scanned afresh. In a folder that is a [project in the dashboard](./dashboard.md#projects), `init` also marks the first step of its setup done, and `project` says whether it could (`noted`), and why not (the project list was busy, or a newer Shadowlap wrote it); in a terminal, a line on stderr says so. Run by the dashboard, whose setup has its own buttons for the next steps, it prints only what it found, a line each, and what it did with `shadowlap.config.json`. The rest of the object is what was found: `cwd`, `languages`, `packageManager`, `providers` (each SDK and the package it came `via`), `frameworks`, `command` (its `argv` and where it came `from`), `tools` (each with its `file`, `line`, `effect`, `suggested` effect, `why` and `wrapped`), `fence` (each Claude Agent SDK the project uses: its `framework`, the `language` of the code that fences its query, and where a query runs through the fence, `at`, or null), `scannedFiles`, `config` (its `path`, whether it `existed` and was `created`) and `folder` (the kind of project the folder holds).
-
-## blame
-
-```sh
-shadowlap blame <run> [options] [-- <command> [args...]]
-```
-
-Finds the model call where a failed run was lost: the last one whose answer, asked again, lets the run pass. It first replays the run as recorded to confirm the failure, then probes model calls with forks that replay everything before the probed call for free, and binary-searches for the boundary. [Blame](./blame.md) explains the search, the report and the limits. Its progress goes to stderr: in a terminal a probe's attempts fold into one line that counts them as they come, which the probe's verdict then takes the place of, and the pairs of a pinned call's check into one that counts each call's attempts (`3 pairs: #5 3 passed · #6 1 passed, 2 failed`); with `-v`, or anywhere else (a CI log, a file, the dashboard), every attempt keeps its line, with its run id. Verify and repair print theirs the same way.
-
-| Option | Effect |
-|---|---|
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0: the `expect` object of an [outcome check](./ci.md#outcome-checks), such as `'{"tools":{"send_email":0}}'` |
-| `--gate <json\|@file>` | How a probe decides, after each attempt ([gating](./gating.md#verify-and-blame)): a gate that tells a re-asked call that passes `good` of the time or more (a rescue) from one that passes `bad` or less (lost), up to `max` attempts. `risk` is the whole search's, spread over the most probes it can make, so each probe runs at its share with its `max` deepened to match ([the search](./blame.md#how-it-works)). A probe's verdict shows its tally and its bound at its own confidence under the rule, stated once: `rescued · 5 of 10 · rate >= 0.10 (99.1%)` under `gate: rescue at 60%+, lost at 10%-, <= 5% risk, up to 32 attempts`, in a search of 6 probes. Default `{"good":0.6,"bad":0.1,"risk":0.05,"max":20}`: for a search of 5 to 10 probes, three straight passes rescue and six or seven straight failures lose. Give any of the four |
-| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate: attempts per probed call (5 with `--passes` alone), and how many passing make a rescue (default 2, or 1 with one attempt) |
-| `--model <model>` | Rescue with this model from the probed call on, instead of asking the recorded one again |
-| `--set <key=value>` | Set a request field from the probed call on, such as `temperature=1` (repeatable) |
-| `--scope <name>` | Probe only model calls made in this [scope](./sdk.md#scopes): the agent's, and not a simulated user's |
-| `--scan <n>` | Model calls past the boundary to probe too, in case rescue works again after it. Default 2 |
-| `--writes stub\|block` | What write tools do after the fork. Default `stub`; `allow` is not accepted. A write the recording made, with the same arguments, gets what it got then, an error included |
-| `--reads live\|replay` | What read tools do after the fork. Default `live` |
-| `--concurrency <n>` | Attempts of one probe running at once; the probe decides on them in the order they started, and its first verdict stands. One starts only while fewer than *n* have started that the probe hasn't counted, so at most *n* − 1 run past the attempt that decides. Default 1 |
-| `--budget <usd>` | Start no attempt once this much is spent on live model calls |
-| `--timeout <seconds>` | Stop an attempt after this long and count it as failed |
-| `--json` | The report as JSON on stdout ([fields](./blame.md#json)) |
-| `--guard`, `--allow-unrecorded`, `-y` | As for `replay` |
-
-Exit status 0 when the search reaches a verdict (a blamed call, or no call that rescues the run); 1 when it refuses what it saw: the run passes its oracle, or does not replay as recorded; 2 when it can't start: a run with no model call to probe, a run that fails only a cost check a model with no price keeps from being judged, an agent on a Node too old for the guard, or a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict, the budget spent or the provider unavailable, when what the replay as recorded showed could not be decided, or when its first probe could not tell a rescue from a loss (*Not settled from the first model call*); 128 + n for a stop signal, 130 for Ctrl-C.
-
-Each blame is kept with the [fix](#fix) it opens or joins, by the run's labels, else its check.
-
-## verify
-
-```sh
-shadowlap verify --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
-```
-
-Checks a change before it ships. Replays failing runs, which the change must now fix, and good runs, which it must not break, under the code in the working directory, and accepts the change only when every failing run passes its gate and every good run is kept: no worse than the same run under the code before the change by the margin or more, attempt for attempt. Runs are ids, unique prefixes or `label:<name>`. A replay that forks nowhere settles its run in one free attempt. [Verify](./verify.md) explains the roles, the report and the warnings.
-
-| Option | Effect |
-|---|---|
-| `--fixes <run...>` | Failing runs the change was written to fix |
-| `--holdout <run...>` | Failing runs of the same kind the change was not written against |
-| `--keeps <run...>` | Runs that passed and must not get worse, each kept against its own baseline, such as `label:good` |
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0, as for `blame` |
-| `--gate <json\|@file>` | How a run decides, after each attempt where its replay forks ([gating](./gating.md)): a gate that tells a run that passes `good` of the time or more from one that passes `bad` or less, each verdict wrong at most `risk` of the time at those two rates, up to `max` attempts. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}`: a run that always passes is accepted after 12 attempts, one that always fails rejected after 3. Give any of the four |
-| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate: attempts per run where the replay forks (5 with `--passes` alone), and how many must pass (default 80% rounded up, 4 of 5) |
-| `--model <model>`, `--set <key=value>` | The change is a request field, set from each run's first model call |
-| `--from <model>` | With `--model` or `--set`: change only the model calls made with this model, from the first of them on, such as the agent's and not a simulated user's or a sub-agent's on another model (repeatable). `decisions --then-verify` and `migrate` pass the models they switched from |
-| `--live-tool <name>` | The change is in this tool: run it live, its first call and every call of it after a fork (repeatable) |
-| `--writes stub\|block`, `--reads live\|replay` | As for `blame` |
-| `--concurrency <n>` | Runs verified at once. Default 1 |
-| `--budget <usd>`, `--timeout <seconds>` | As for `blame` |
-| `--fail-fast` | Start nothing new once a run has failed |
-| `--margin <share>` | A good run that forks is kept unless its pass rate drops this much or more below its baseline's, at the gate's risk ([good runs](./verify.md#good-runs-against-their-own-baseline)). Default `verify.margin` in `shadowlap.config.json`, else 0.1: 10 points |
-| `--baseline paired\|history` | What a good run is compared with: `paired`, the same run under the code before the change, each attempt paired with one of the change's; `history`, its golden's test history. Default `verify.baseline`, else `paired` |
-| `--base <rev>` | With a paired baseline: the commit before the change, checked out on its own for the baseline's attempts. Default HEAD, when the working tree has a change |
-| `--build <command>` | With a paired baseline at a commit: build its checkout before its attempts, such as `"npm run build"` |
-| `--json` | The report as JSON on stdout ([fields](./verify.md#json)) |
-| `--guard`, `--allow-unrecorded`, `-y` | As for `replay` |
-
-Exit status 0 when the change is accepted, 1 when it is rejected, 2 when a run's model called a tool the run never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record), before anything runs, 3 when the verification did not finish (a run's gate or baseline inconclusive, the budget spent, the provider unavailable), 128 + n for a stop signal, whenever it comes, the verdict reached or not. The verdict is kept with the [fix](#fix) of its failing runs, whatever it is; an accepted one turns the fix verified when it [counts](./verify.md#verdicts-are-kept) there: it checked the fix's check on a run that failed it.
-
-## repair
-
-```sh
-shadowlap repair --fixes <run...> [--holdout <run...>] [--keeps <run...>] [options] [-- <command> [args...]]
-```
-
-Fixes failing runs. Blames each one, asks a model you choose (`--repairer`, or `repair.repairer` in the config) to rewrite the system prompt or a tool description, and keeps the smallest rewrite `verify` accepts twice, the second time with fresh attempts, on the failing runs, runs held out from the repairer, and the good runs. Rewrites that name a detail of the failing runs, or add a placeholder the agent would fill in, are set aside before anything runs. Each candidate is verified in a temporary git worktree, never in the working tree, and a good run against the same run under the code without the candidate, in another; the fix comes out as a patch, a pull request body and a recording of each fixed run. [Repair](./repair.md) explains the loop and the safeguards.
-
-| Option | Effect |
-|---|---|
-| `--fixes`, `--holdout`, `--keeps <run...>` | The failing runs, the failing runs kept from the repairer (default: every other `--fixes` run, when there are two or more), and the runs that must not get worse: one that forks is kept unless it drops 10+ points below its baseline, the same run on the code without the candidate, attempt for attempt, as [verify](#verify) keeps one, its verdict bounding the drop as verify's does (`drop <= 0.10 (95%)`) |
-| `--expect <json\|@file>` | What a passing run must do besides exiting 0 |
-| `--repairer <provider:model>` | `anthropic` (Claude Opus 5.5), `anthropic:<model>`, `openai:<model>`, or `claude-code[:<model>]` to run your own Claude Code (2.1.248 or later) in print mode, restricted: no tools, no MCP server, none of your settings ([details](./repair.md)) |
-| `--repairer-timeout <seconds>` | Give up on the repairer when it hasn't answered after this long. Default `repair.timeout` in the config, else 600 |
-| `--candidates <n>` | Rewrites to ask for. Default 3 |
-| `--stronger <model>` | When the recorded model can't be rescued, rescue with this one and try switching to it, before asking the repairer |
-| `--scope <name>`, `--set <key=value>` | As for `blame`: which calls to probe, and what probes change, such as `temperature=1` |
-| `--gate <json\|@file>` | The gate each candidate's runs are verified by, as for `verify`. Default `{"good":0.9,"bad":0.7,"risk":0.05,"max":80}` |
-| `--attempts <n>`, `--passes <n>` | A fixed count instead of the gate, as for `verify` |
-| `--max-growth <percent>` | Reject a fix that grows input tokens per run by more than this, before verify runs it when its rewrite alone does. Default 25 |
-| `--build <command>` | Build the agent in each candidate's worktree and in its baseline's, and in the working tree after `--apply` |
-| `--apply` | Leave the accepted fix in the working tree |
-| `--branch <name>` | Commit it to a new branch without checking anything out |
-| `--pr` | With `--branch`: push it and open a pull request with `gh` |
-| `--goldens <dir>` | With `--apply` or `--branch`: put the recordings of the fixed runs in this directory too; with `--branch`, one inside the repository |
-| `--budget <usd>` | Stop once this much is spent on blame, the repairer, verification and judge checks; the repairer is asked only when what is left covers the most asking it could cost |
-| `--writes`, `--reads`, `--concurrency`, `--timeout`, `--guard`, `--allow-unrecorded`, `-y` | As for `verify` |
-| `--json` | The report as JSON on stdout ([fields](./repair.md#json)) |
-
-Exit status 0 when a candidate is accepted and handed over as asked; 1 when none is accepted, a repairer that could not be asked among them, or the hand-over fails (a branch it can't make, a name git refuses or one that exists, is found there, the repair kept); 2 when it can't start: outside a git repository, another repair running in the folder, `--goldens` outside the repository with `--branch`, an agent on a Node too old for the guard, a run whose model called a tool it never recorded that [writes](./how-it-works.md#tools-shadowlap-did-not-record); 3 when it stops before a verdict: the budget spent, too little of it left to ask the repairer, or the provider unavailable; 128 + n for a stop signal, whenever it comes, the verdict reached or not. The repair is kept with the [fix](#fix) its blames opened or joined, even when the hand-over failed: when a candidate is accepted under the fix's check the fix turns verified, and when none is, the fix stays open with every candidate tried and why it was dropped.
-
-## fix
-
-```sh
-shadowlap fix ls [--status open|verified|applied] [--json]
-shadowlap fix show <fix> [--json]
-shadowlap fix title <fix> <title...>
-shadowlap fix apply <fix> [--goldens <dir>] [--no-test] [--build <command>] [--json]
-shadowlap fix pr <fix> [<url>] [--json]
-```
-
-A fix is one failure, from the blame that reproduced it to a change that held. A [blame](./blame.md#fixes) opens one or joins one, by the run's labels, else its check; [verify](./verify.md#verdicts-are-kept) and [repair](./repair.md#the-fix-it-reports-to) report to the fix of the runs they were given, and their verdict counts for it only when it checked the fix's check on a run that failed it. Fix ids look like `fx-01M3RZ4XKN…`; any unique prefix works, with or without `fx-`, and the list shows the first ten characters.
-
-- **`fix ls`** lists fixes, the most recently opened first: status (`open`, `verified`, `applied`), id, title, label, failing runs, and how far each step got (*lost at #5 · prompt fix · 3 fixed · 1 kept*). A second line gives what its failing runs did and the check they must meet (*failed: send_email called twice, not once · must: send_email called once*; what they did is the title blame gave the fix when it opened it, so the line names it only once someone renames the fix), where the fix came from (*from CI · PR #138*) and when it was opened, and a third says so when an applied fix doesn't hold.
-- **`fix show`** prints a fix, with what its failing runs did and the check they must meet as `fix ls` says them, and its three steps: where the run was lost and the probes that found it; the change, the candidates tried and why each was dropped, who proposed them or why no repairer did (*not fixed · the repairer could not be asked: claude was not found*), and the repair's warnings; and every verdict, named by what changed (a repair's candidate, the request fields it set, or the code version) and headed by the runs it checked, with each run's role and outcome; one that doesn't count for the fix says why in its heading. It ends with what to do next, and says when the repair it suggests would end *No fix to try* without running the agent, and why (the blames it would reuse rescued no failing run), or couldn't ask its repairer from here (`claude` isn't on the PATH).
-- **`fix title`** replaces the title derived from the check with one of your own; blames that join the fix later keep it. With a team store, the latest rename on any machine is the one every machine keeps.
-- **`fix pr`** records the pull request opened for a fix, given its `https://` link: `repair --pr` and CI's [fix on failure](./ci.md#fix-on-failure) record theirs, so the list says where the fix went (*from CI · PR #138*). With no link it reads where the recorded pull request stands from GitHub, with `gh pr view` (installed and signed in), and records it: *open*, *merged* or *closed*. Only a pull request on github.com, on the host `GH_HOST` names, or on the host of the project's `origin` remote is read: a fix pulled from the team store can name any address, and `gh` would send that host a token (a token for a GitHub server of your own only ever goes to the host `GH_HOST` names). When `gh` can't say, or isn't asked, the state stays as recorded and the line says why. The [dashboard](./dashboard.md) reads it the same way, in the background, while Fixes is open.
-- **`fix apply`** hands a verified fix over. It runs `git apply` on the accepted repair's `fix.patch`, copies the recordings the fixed code made into the goldens folder, runs [`shadowlap test`](#test) on them, and marks the fix applied. Then it replays the project's other goldens offline, in a store of their own that nothing keeps (all but one from a pack the repository doesn't track, recorded elsewhere, whose command runs only with a yes: it names those it leaves out), and names each that now diverges on what the patch changed (a prompt or a tool description goes into every request): a request field that holds text the patch added, or lost text it removed. It prints the command that re-records them, `shadowlap test <goldens> --update`; a golden that may fork is named only when it forks before its task's takeover, as `--update` re-records it then. `--no-test` skips this too. A teammate's repair, from the [team store](./team.md), left its recordings on their machine: `fix apply` puts the patch in, says so in one line, and leaves nothing to finish. Nothing here runs the code that patch put in, no `--build`, test or replay of the other goldens: it says to read the change (`git diff -- <file>`) and then run `shadowlap test`. Before anything goes in, the patch is checked against the repair it came with: it has to be the rewrite of the accepted candidate, to that candidate's file alone, changed in place (no file made, deleted, renamed or copied, no mode or binary change), and never to a file of a recording (a pack's `run.json`, which holds the command a replay runs, its `calls.jsonl` and blobs, or anything in `__recordings__`), `shadowlap.config.json` or the `.shadowlap` folder: a repair rewrites the text the agent sends the model where its source holds it, and never reads those. One that is anything more is refused and nothing is changed, as is one to a file git ignores, whose change neither `git status` nor `git diff` would show, or to a file reached through a link to a folder, which `git apply` refuses too. The patch goes in on the file's bytes as they are, so the file is the one the repair verified: git applies it to a copy of them that nothing converts, where `git apply` in the working tree would convert line endings as `core.autocrlf` (Git for Windows sets it) or a `text` or `eol` attribute in `.gitattributes` asks, and write a file with LF back with CRLF on every line. A patch whose lines end otherwise than the file's (a teammate's, made where the file has LF, for a checkout where it has CRLF) applies only through that conversion, so it goes in as `git apply` puts it in, and the file keeps its CRLF. Applied is marked on this machine only. A patch already in the tree, applied by hand, committed, or left there by `repair --apply`, is recognised with `git apply --reverse --check` and only marked. When the working tree has changes the patch conflicts with, nothing is changed, and the message says whether to commit or stash them or to apply the patch by hand. A fix verified on the working tree itself, with no repair behind it, has no patch, so it is only marked applied; one verified with a change of request fields (`--set`, `--model`) says which, since no file carries them: set them in your agent.
-
-Run again on an applied fix, `fix apply` finishes what is left, and keeps when the fix was applied: it copies the goldens not in the project yet (`repair --apply` copies none without `--goldens`), and runs the test when it hasn't passed, on goldens copied before where they are. With nothing left, it does nothing; with `--no-test` it says when a test is still to pass. A test that fails leaves the fix applied, marked as not holding, until a run of `fix apply` passes it, or a `shadowlap test` session passes every one of its goldens (after `test --update` re-recorded what another fix changed, say), which says the fix holds again.
-
-It trusts nothing it reads from the store: the repair's directory must be `.shadowlap/repairs/<repair id>`, each golden inside its `goldens/`, the patch the accepted candidate's one rewrite to that candidate's file and no larger than a repair writes, that file a plain file git doesn't ignore (not a symbolic link or a folder), and `fix.patch` the patch the repair verified, or it changes nothing and says why.
-
-| Option | Effect |
-|---|---|
-| `--status <status>` | `fix ls`: only open, verified (applied ones too) or applied fixes |
-| `--goldens <dir>` | `fix apply`: where the recordings go. Default `goldens` |
-| `--no-test` | `fix apply`: copy the recordings without running `shadowlap test` on them |
-| `--build <command>` | `fix apply`: rebuild the agent after the patch, before the test |
-| `--json` | The list, the fix, what `fix apply` did, or the fix's pull request (`fix pr`: `{ fixId, pr: { url, number, state, at } }`, with a `note` saying why when the state is as recorded because GitHub wasn't asked or couldn't say), as JSON: the dashboard's read model of Fixes. An id that matches no fix, or several, prints `{ "status": "error", "error": { "reason": "unknown" \| "ambiguous", "message" } }`, exit status 2 |
-
-`fix apply` exits 1 when it refuses the patch (not the change its repair verified, a file it may not write through, `fix.patch` changed since), the patch does not apply, or the test fails, and 2 when the fix is still open (nothing verified to apply) or it runs outside the repository and folder the repair ran in; a patch that applied stays applied. Run it in the folder the repair ran in, where its directory under `.shadowlap/repairs/` is.
-
-`fix show --json` has the three steps in full:
-
-| Field | |
-|---|---|
-| `status`, `title`, `label`, `labels`, `check`, `failed`, `oracle`, `expect`, `source` | The fix: `label` is the one most of its failing runs carry, `labels` all it groups runs by; `check` is in words, `failed` what its failing runs did (as `fix ls` has it), `oracle` the conditions a verdict must check to count, `expect` the `--expect` JSON (null for the exit code alone); `source` says where it came from, such as `from CI · PR #138` |
-| `broken` | For an applied fix that doesn't hold, why: its test failed, or a verify rejected it after it was applied |
-| `failingRuns`, `goodRuns` | The runs, each with `runId`, `exists` (false once deleted from the store), `status` and `labels` |
-| `steps` | Blame, repair and verify, each with `state` (`done`, `todo`, or `no` for a verify that only rejected), a `title`, a `meta` line and a `short` form. Only verdicts that count move the verify step |
-| `blame` | The call where the run was lost (`lostAt`, model call `step` of `steps`), `confidence`, the `boundary` sentence, both `answers`, `probes` with their verdicts, the attempts per probe (`bundles`), every call of the run with whether it is in the blame's scope (`callRow`), `cost` and `command` |
-| `repair` | The `change` with the text it `added`, the result per role (`roles`), whether its verification `counts`, who proposed it (`repairer`) or why no repairer did (`noRepairer`: its `text`, and the `warning` that says what to do), where each run was `lost`, the `diagnosis`, every candidate with its `verdict` (`accepted`, `rejected`, `set aside`, `not tried`, `build failed`, `unsettled`) and `why`, the `files` handed over, the pull request body (`prBody`), what each stage `cost` and how many `attempts` it ran (the probes of the blames it ran and every candidate's verification), `command` and `warnings` |
-| `verify` | One entry per change verified, newest first: its `verdict`, whether it `counts`, the change it checked named by what changed (`code`: a repair's candidate, the request fields it set and from which call, or the code version; `label` as the dashboard's switch shows it), its `headline` (by the runs it checked, or for one that doesn't count, why), a `note` when it was rejected after the fix was applied, `oracle`, each run's `role`, `attempts`, `outcome` and where it went (`note`), the token and cost changes per run, what it took to find out, and its `reasons`, with those that say a run is inconclusive or not settled, rather than that the change failed it, in `unsettled` |
-| `attempts`, `spent`, `upstreamRequests` | What everything behind the fix took: the attempts that ran live, and what they and the repairer cost |
-| `actions` | What can be done next: `repair` for an open fix (`noFix` says why it would end *No fix to try* without running the agent, or is `null`); `apply` for a verified or applied one (`kind` is `patch`, or `mark` when there is no patch, with the `gitApply` command, `pending` saying what applying left undone, every file the patch changes in `files`, the patch itself in `diff` and where it is kept in `patchFile`, `inTree` when it is in the working tree already, which applying only marks, how many recordings applying copies into the goldens folder in `goldens`, the request fields a change with no patch set in `change`, and `refused` saying why `fix apply` won't apply it, when the patch is more than the change its repair verified; `gitApply` is `null` then, and once the patch is in); `applied` once it is applied |
-| `fixId`, `href`, `failing`, `good`, `openedAt`, `verifiedAt`, `appliedAt`, `openedBy` | As in `fix ls`, and who opened it |
-| `blames`, `repairs`, `defaultStep`, `defaultVerify` | Every blame (`blameId`, `runId`, `at`, `outcome`, `lostAt`, `confidence`) and repair (`repairId`, `at`, `outcome`, `accepted`, `title`) behind the fix, newest first; the step the dashboard opens at, and the verdict it shows first: the newest that counts |
-| `commands`, `repairer`, `applied` | The `blame`, `repair` and `verify` commands to run it again; the repairer the config names (`name`, whether it is `configured`, and on an open fix the `problem` that keeps it from being asked here, such as `claude` not on the PATH, or `null`); and, once applied, how (`patch`, `repairId`, the `goldens` copied, `tests`, `by`, `via`) |
-
-`fix ls --json` prints `{ fixes, counts }`: each fix as its row in the list, with `fixId`, `href` (where the dashboard shows it), `status`, `title`, `label`, `labels`, `check`, `failed` (what its failing runs did, in the words blame titled the fix with when it opened it, which a title of someone's own no longer says; for a fix opened on another machine, the first failure its blame recorded; `null` when no blame recorded one), how many runs are `failing` and `good`, its `steps`, `source`, when it was `openedAt`, `verifiedAt` and `appliedAt` (epoch milliseconds, or `null`), why it is `broken`, and the `attempts` and USD `spent` behind it; and the `counts` of `all`, `open` and `verified` fixes, applied ones counted as verified. `fix apply --json` prints `{ fixId, status, again, patch, repairId, goldens, tests, outdated, update }`: `status` is `applied`, or `already-applied` when nothing was left to do; `again` when it finished a fix applied before; what became of the `patch` (`applied`, `already` in the tree, or `none` to apply); the `repairId`; each golden's `from`, `to` and whether it was `copied`; the `tests` (`passed`, `failed` or `skipped`); the project's other goldens that diverge on what the patch changed, `outdated`, each with its `golden`, `callNo` and request field `path`; and `update`, the command that re-records them, or `null`. An error prints `{ fixId, status, error }` with `status` `error`, as the `--json` row says.
-
-Blame, repair, verify and apply each log an activity event in the store (`blame.done`, `repair.accepted`, `repair.empty`, `verify.accepted`, `verify.rejected`, `fix.applied`).
 
 ## decisions
 
