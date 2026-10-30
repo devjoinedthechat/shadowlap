@@ -167,8 +167,11 @@ describe('a name with a password or secret word in it', () => {
       for (const [shape, value] of Object.entries(KEYS)) expect(credentialParam(name, value), `${name}: ${shape}`).toBe(true);
     }
     expect(maskJsonCredentials({ secret_name: KEYS.ghp_, secret_description: KEYS['sk-'], secret_tags: 'team:data' })).toEqual({ secret_name: C, secret_description: C, secret_tags: 'team:data' });
-    // A time and an ARN read as no key, their digits and the suffix AWS makes up notwithstanding.
+    // A time, a duration and an ARN read as no key, their digits and the suffix AWS makes up notwithstanding.
     expect(credentialParam('password_expires_at', '2027-01-01T00:00:00.125+01:00')).toBe(false);
+    expect(credentialParam('password_expires_at', 'Thu, 30 Oct 2026 12:00:00 GMT')).toBe(false);
+    expect(credentialParam('secret_rotation_period', '720h0m0s')).toBe(false);
+    expect(credentialParam('secret_count', '48201938475610293847561')).toBe(true);
     expect(credentialParam('SecretArn', 'arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf')).toBe(false);
   });
 
@@ -353,6 +356,16 @@ describe('response headers as a recording keeps them', () => {
     // Read by its name alone, with no value to read, one is taken for a credential.
     expect(credentialHeader('x-amzn-bedrock-input-token-count')).toBe(true);
     expect(credentialHeader('azureml-model-session')).toBe(true);
+  });
+
+  it('keep a count only as a count of at most 12 digits, a time or a duration, and Azure’s session only as Azure writes it', () => {
+    const count = 'x-amzn-bedrock-input-token-count';
+    for (const value of ['0', '12', '999999999999', '2026-10-30T12:00:00Z', '2026-10-30T12:00:00.123456789-05:00', 'Thu, 30 Oct 2026 12:00:00 GMT', '6m0s', '1h2m3.5s', '150ms', '1.5µs', '720h0m0s']) expect(credentialHeader(count, value), value).toBe(false);
+    // Longer digits than a count has, a time or a duration with more after it, anything else.
+    for (const value of ['1234567890123', '48201938475610293847561', '2026-10-30T12:00:00Z-1', 'Thu, 30 Oct 2026 12:00:00 GMT x', '6m0sx', '.5s', '5.s', '1h1h1h1h1h1h1h', 'twelve', '12 ']) expect(credentialHeader(count, value), value).toBe(true);
+    expect(credentialHeader('azureml-model-session', 'd2034-20240327082231')).toBe(false);
+    for (const value of ['73910485726103847561', 'd065-20240606224238-extra', 'D065-20240606224238', 'd065-2024060622423', 'session-EXAMPLE']) expect(credentialHeader('azureml-model-session', value), value).toBe(true);
+    expect(credentialFreeHeaders({ [count]: '48201938475610293847561', 'azureml-model-session': '73910485726103847561' })).toEqual({ [count]: CREDENTIAL_PLACEHOLDER, 'azureml-model-session': CREDENTIAL_PLACEHOLDER });
   });
 
   it('mask a header that holds a token whatever counting word it has, and a count whose value reads as a key or a JWT', () => {

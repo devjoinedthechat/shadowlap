@@ -230,18 +230,46 @@ export function credentialValue(value: string): boolean {
   return value.split(/[^A-Za-z0-9]+/).some((part) => part !== '' && !WORDLIKE.test(part));
 }
 
-/** A count, a limit, a duration or a time: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
-const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
+/** A time as RFC 3339 writes it: `2026-10-30T12:00:00Z`, `2026-10-30T12:00:00.125+01:00`. */
+const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})$/;
+/** A time as HTTP writes it, RFC 9110's IMF-fixdate: `Thu, 30 Oct 2026 12:00:00 GMT`. */
+const HTTP_DATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+/** The units of a duration as Go writes it, those of two letters first. */
+const DURATION_UNITS = ['ns', 'us', 'µs', 'ms', 'h', 'm', 's'];
 /** An Amazon Resource Name, whose last part may end in a suffix AWS makes up (`arn:aws:secretsmanager:us-east-1:123456789012:secret:prod/db-AbCdEf`). */
 const ARN_SHAPED = /^arn:[\w-]+:[\w-]+:[\w-]*:\d*:\S+$/;
 
 /**
- * Whether a value under a name that holds none (a count of tokens, a secret's name) reads as a key
- * (credentialValue) all the same: never a count, a duration or a time, nor an ARN, whose made-up
- * suffix reads as a key's part.
+ * Whether a value is a duration as Go writes one, and OpenAI's rate limits with it: one to six
+ * numbers of at most 20 characters, a fraction allowed, each followed by its unit (`6m0s`,
+ * `1h2m3.5s`, `150ms`). Read by hand, character by character.
+ */
+function goDuration(value: string): boolean {
+  let i = 0;
+  let parts = 0;
+  while (i < value.length) {
+    const start = i;
+    while (i < value.length && value.charCodeAt(i) >= 0x30 && value.charCodeAt(i) <= 0x39) i++;
+    if (value[i] === '.') i++;
+    while (i < value.length && value.charCodeAt(i) >= 0x30 && value.charCodeAt(i) <= 0x39) i++;
+    const unit = DURATION_UNITS.find((u) => value.startsWith(u, i));
+    if (i === start || i - start > 20 || value[start] === '.' || value[i - 1] === '.' || !unit || ++parts > 6) return false;
+    i += unit.length;
+  }
+  return parts > 0;
+}
+
+/** Whether a value is a time or a duration as a service writes one: RFC 3339, an HTTP date, Go's `6m0s`. */
+function timeShaped(value: string): boolean {
+  return RFC3339.test(value) || HTTP_DATE.test(value) || goDuration(value);
+}
+
+/**
+ * Whether a value under a name that holds none (a secret's name) reads as a key (credentialValue)
+ * all the same: never a time or a duration, nor an ARN, whose suffix AWS makes up reads as a key's part.
  */
 function readsAsKey(value: string): boolean {
-  return credentialValue(value) && !COUNT_SHAPED.test(value) && !ARN_SHAPED.test(value);
+  return credentialValue(value) && !timeShaped(value) && !ARN_SHAPED.test(value);
 }
 
 /** A URL-encoded name or value as text: `+` a space, `%xx` its character; as it is when it doesn't decode. */
@@ -958,6 +986,14 @@ const TOKEN_COUNT = new Set(['count', 'counts', 'usage', 'limit', 'limits', 'rem
 const ROUTING_HEADERS = ['azureml-model-session'];
 
 /**
+ * A count or a limit of tokens as a header gives it: at most 12 digits, a trillion, more than any
+ * provider counts or limits tokens in, and fewer than a card number or a numeric token has.
+ */
+const SHORT_COUNT = /^\d{1,12}$/;
+/** The session Azure names in `azureml-model-session`: a letter and a few digits, then the 14 digits of when it started (`d065-20240606224238`). */
+const AZURE_SESSION = /^[a-z]\d{1,6}-\d{14}$/;
+
+/**
  * Whether the token word at `i` of a header's name is a count's or a limit's: the word after it is
  * one of TOKEN_COUNT, and ends the name (`…-token-count`). Before it, it says what the token is for:
  * a `reset-token` is a password reset's.
@@ -974,8 +1010,9 @@ function countsTokens(words: readonly string[], i: number): boolean {
  * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
  * explicit list covers the echoed request headers, which read by their words alone aren't
  * credentials. A count or a limit of tokens (countsTokens) and a routing hint (ROUTING_HEADERS) hold
- * none: given its `value`, one is a credential only when that reads as a key (readsAsKey); with no
- * value given, it is taken for one.
+ * none: given its `value`, one is kept only in the shape its name says it has, a count of at most 12
+ * digits, a time or a duration (SHORT_COUNT, timeShaped), and Azure's session as Azure writes it
+ * (AZURE_SESSION), and taken for a credential otherwise, as with no value given.
  */
 export function credentialHeader(name: string, value?: string): boolean {
   const lower = name.toLowerCase();
@@ -985,7 +1022,8 @@ export function credentialHeader(name: string, value?: string): boolean {
   const words = wordsOf(lower);
   const counted = words.map((w, i) => w === 'token' && countsTokens(words, i));
   if (words.some((w, i) => HEADER_SECRET_WORD.has(w) && !counted[i])) return !words.some((w) => CURSOR.includes(w));
-  return (routing || counted.includes(true)) && (value === undefined || readsAsKey(value));
+  if (!routing && !counted.includes(true)) return false;
+  return value === undefined || !(routing ? AZURE_SESSION.test(value) : SHORT_COUNT.test(value) || timeShaped(value));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */
