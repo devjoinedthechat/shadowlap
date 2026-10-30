@@ -199,6 +199,33 @@ describe('calls paired across two runs', () => {
     for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
     store.close();
   });
+
+  it('tells two lookups by a secret’s name apart, and reads a run made before such names were kept as a replay of it matches', () => {
+    const store = Store.open(':memory:');
+    const lookup = (run: RunRecord, fingerprint: string, secretName: string) => put(store, run, 1, { kind: 'tool', name: 'POST secrets.example.com/v1/describe', fingerprint, request: { args: { method: 'POST', url: 'https://secrets.example.com/v1/describe', body: { secret_name: secretName, secret_value: '<CREDENTIAL>' }, encoding: 'json' } }, meta: { http: 'secrets.example.com' }, answer: '{"result":{"status":200,"headers":{},"body":{"ok":true},"encoding":"json"}}' });
+    const named = (): RunRecord => store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true, secretNames: true } });
+    const compared = (x: RunRecord, y: RunRecord) => compareRuns(store, x, store.getCalls(x.runId), y, store.getCalls(y.runId));
+    const [a, b] = [named(), named()];
+    lookup(a, '1'.repeat(64), 'prod/db');
+    lookup(b, '2'.repeat(64), 'prod/cache');
+    expect(compared(a, b).firstRequestDifference).toMatchObject({ callNo: 1, diff: [{ path: '$.args.body.secret_name', op: 'changed', before: 'prod/db', after: 'prod/cache' }] });
+    // A recording made before stored the name masked: the same lookup, read with the name masked on both sides.
+    const older = store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } });
+    lookup(older, '3'.repeat(64), '<CREDENTIAL>');
+    for (const [x, y] of [[older, a], [a, older]] as const) expect(compared(x, y)).toMatchObject({ identicalPrefix: 1, firstRequestDifference: null });
+    store.close();
+  });
+
+  it('names what changed in a Gemini conversation, never the call ids each run’s client made up', () => {
+    const store = Store.open(':memory:');
+    const asked = (city: string, id: string) => ({ contents: [{ role: 'user', parts: [{ text: `weather in ${city}` }] }, { role: 'model', parts: [{ functionCall: { id, name: 'weather', args: {} } }] }, { role: 'user', parts: [{ functionResponse: { id, name: 'weather', response: { c: 18 } } }] }] });
+    const gemini = (run: RunRecord, fingerprint: string, city: string, id: string) => put(store, run, 1, { kind: 'api', name: 'POST /v1beta/models/gemini-2.5-flash:generateContent', fingerprint, request: asked(city, id), meta: { provider: 'gemini', query: '' }, answer: '{"candidates":[]}' });
+    const [a, b] = [store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } }), store.createRun({ mode: 'record', command: cmd, meta: { exactNumbers: true } })];
+    gemini(a, '1'.repeat(64), 'Oslo', 'PfyxZOhr4ro30QGk');
+    gemini(b, '2'.repeat(64), 'Bergen', 'Rb4nQypSnBKnJXzi');
+    expect(compareRuns(store, a, store.getCalls(a.runId), b, store.getCalls(b.runId)).firstRequestDifference?.diff?.map((e) => e.path)).toEqual(['$.contents[0].parts[0].text']);
+    store.close();
+  });
 });
 
 describe('what made a fork, when it changed an answer', () => {

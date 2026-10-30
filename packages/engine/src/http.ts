@@ -26,8 +26,59 @@ export const CREDENTIAL_PLACEHOLDER = '<CREDENTIAL>';
  * `X-Upstream-Authorization`, and the lists `signatures`.
  */
 const SECRET_LAST = new Set(['secret', 'signature', 'signatures', 'password', 'passwd', 'pwd', 'credential', 'credentials', 'assertion', 'verifier', 'authorization']);
-/** Words that make a name a credential wherever they are in it: `password_confirmation`, `secret_id`, `client_secrets`. */
+/**
+ * Words that make a name a credential wherever they are in it (`password_confirmation`, `secret_id`,
+ * `client_secrets`, `SecretString`), unless its last words name or describe the secret (namesASecret).
+ */
 const SECRET_WORD = new Set(['password', 'passwd', 'passphrase', 'secret', 'secrets']);
+/** A word of SECRET_WORD, or one a password's starts (`passwords`, `passwordless`). */
+const secretWord = (w: string): boolean => SECRET_WORD.has(w) || w.startsWith('password');
+/**
+ * Last words that make a name with a secret word in it name or describe the secret rather than hold
+ * it: its name (`secret_name`, Kubernetes' `secretName`), its ARN (`SecretArn`), its version and stage
+ * (`secret_version_id`, `SecretVersionStages`), a policy (IAM's `PasswordPolicy`), the e-mail address a
+ * reset goes to (`password_reset_email`), its length, count, type, description and tags, its
+ * rotation's settings (`secret_rotation_enabled`), and when it was made, changed or expires
+ * (`password_expires_at`). Never an id (Vault AppRole's `secret_id` is a credential, though AWS's
+ * `SecretId` names one), a hint (often the password itself, or one that gives it away), a URL (a reset
+ * link carries its token, and a secret URL is the secret), nor any other word (`secret_value`).
+ */
+const NAMES_A_SECRET = new Set(['name', 'names', 'arn', 'arns', 'version', 'versions', 'version id', 'version ids', 'version stage', 'version stages', 'policy', 'policies', 'email', 'length', 'count', 'type', 'description', 'tags', 'rotation', 'rotation enabled', 'rotation rules', 'rotation schedule', 'rotation period', 'rotation interval', 'rotation days', 'expires at', 'created at', 'updated at']);
+
+/**
+ * Whether a name with a secret word in it names or describes the secret rather than holding it: its
+ * last word or two are one of NAMES_A_SECRET, or the words after its last secret word say when it was
+ * last done something to (`secret_last_rotated_date`).
+ */
+function namesASecret(words: readonly string[]): boolean {
+  const n = words.length;
+  if (NAMES_A_SECRET.has(words[n - 1]!) || (n > 1 && NAMES_A_SECRET.has(`${words[n - 2]!} ${words[n - 1]!}`))) return true;
+  let after = n;
+  while (after > 0 && !secretWord(words[after - 1]!)) after--;
+  return words[n - 1] === 'date' && words.indexOf('last', after) >= 0;
+}
+
+/**
+ * Whether a name that names or describes a secret (namesASecret) keeps its value: false while
+ * masking as a recording made before such names were kept masked them (withSecretNames).
+ */
+let secretNamesKept = true;
+
+/**
+ * What `mask` gives, with every name that names or describes a secret (`secret_name`,
+ * `password_policy`) kept as a recording keeps it (`kept`), or masked, as one made before such names
+ * were kept masked them all (RunMeta.secretNames): a replay of such a recording reads a live call so
+ * to match it. Masking reads no time, so nothing else masks while `mask` runs.
+ */
+export function withSecretNames<T>(kept: boolean, mask: () => T): T {
+  const was = secretNamesKept;
+  secretNamesKept = kept;
+  try {
+    return mask();
+  } finally {
+    secretNamesKept = was;
+  }
+}
 /**
  * Whole names (their words run together) that are credentials: `api_key`, `apiKey`, `apikeys`, `sig`,
  * `appid`, `auth`, a `cookie` or `cookies` (a session's), a one-time password (`otp`, `totp`), and
@@ -81,7 +132,10 @@ function runTogether(word: string, suffix: 'key' | 'token' | 'code'): boolean {
  * two calls that differ only in it match the same recorded call: a sort key, a page token or an
  * error code stays a value like any other. A bare `key`, `token` or `code` is a credential when its
  * `value` (decoded) reads as one (credentialValue); with no value given, it is taken for one, as a
- * model call's query takes it.
+ * model call's query takes it. So is a name with a password or secret word in it, wherever the word
+ * stands (`SecretString`, `password_confirmation`), but one whose last words name or describe the
+ * secret (`secret_name`, `password_policy`: namesASecret), which keeps its value when one is given,
+ * so lookups of two secrets stay two calls; read by its name alone, it is taken for one too.
  */
 export function credentialParam(name: string, value?: string): boolean {
   const words = wordsOf(name);
@@ -91,7 +145,7 @@ export function credentialParam(name: string, value?: string): boolean {
   const before = words.slice(0, -1);
   if (EITHER_NAME.has(joined)) return value === undefined || credentialValue(value);
   if (SECRET_NAME.has(joined) || SECRET_LAST.has(last)) return true;
-  if (words.some((w) => SECRET_WORD.has(w) || w.startsWith('password'))) return true;
+  if (words.some(secretWord) && !(value !== undefined && secretNamesKept && namesASecret(words))) return true;
   if (last === 'key' || last === 'keys') return before.some((w) => KEY_OWNER.has(w));
   if (last === 'token') return !before.some((w) => CURSOR.includes(w));
   if (last === 'tokens') return before.some((w) => TOKEN_OWNER.has(w));
@@ -840,19 +894,53 @@ export const STATE_HEADERS: readonly string[] = ['set-cookie', 'set-cookie2'];
 const HEADER_SECRET_WORD = new Set(['token', 'secret', 'password', 'passwd', 'credential']);
 
 /**
+ * Words that make the token word before them in a header's name a count or a limit of tokens, not a
+ * token (countsTokens): Bedrock's `x-amzn-bedrock-input-token-count`. The rate limits' families count
+ * `tokens`, which no rule reads as a token (`anthropic-ratelimit-input-tokens-remaining`,
+ * `x-ratelimit-reset-tokens`).
+ */
+const TOKEN_COUNT = new Set(['count', 'counts', 'usage', 'limit', 'limits', 'remaining', 'reset', 'used']);
+
+/**
+ * Headers named as a session's that hold none: Azure's `azureml-model-session`, which Azure OpenAI
+ * and Azure ML endpoints send with every answer, names the model deployment's session that served
+ * the call, so a client can send it back to be routed there again. It signs nobody in: a call that
+ * sends it back still needs its key.
+ */
+const ROUTING_HEADERS = ['azureml-model-session'];
+
+/** A count, a limit, a duration or a time as a header gives it: digits, and only a time's punctuation and letters (`12`, `6m0s`, `2026-10-30T12:00:00Z`). */
+const COUNT_SHAPED = /^[\d .:+\-TZhmsun]*$/i;
+
+/**
+ * Whether the token word at `i` of a header's name is a count's or a limit's: the word after it is
+ * one of TOKEN_COUNT, and ends the name (`…-token-count`). Before it, it says what the token is for:
+ * a `reset-token` is a password reset's.
+ */
+function countsTokens(words: readonly string[], i: number): boolean {
+  return i === words.length - 2 && TOKEN_COUNT.has(words[i + 1]!);
+}
+
+/**
  * Whether a response header's whole value is a credential: one of CREDENTIAL_HEADERS, a name
  * `credentialParam` reads as one (`x-access-token`, `x-vault-token`, a service's own `*-token` or
  * `*-key`), a session's (`x-session`, `*-session`), an auth header of a service's own (`x-auth`,
  * `*-auth`), or one with a token, secret, password or credential word anywhere in its name
  * (`x-session-token-raw`), but a page's token (`x-next-page-token`), which a client sends back. The
  * explicit list covers the echoed request headers, which read by their words alone aren't
- * credentials.
+ * credentials. A count or a limit of tokens (countsTokens) and a routing hint (ROUTING_HEADERS) hold
+ * none: given its `value`, one is a credential only when that reads as a key (credentialValue)
+ * rather than as a count, a duration or a time; with no value given, it is taken for one.
  */
-export function credentialHeader(name: string): boolean {
+export function credentialHeader(name: string, value?: string): boolean {
   const lower = name.toLowerCase();
-  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower) || /(?:^|-)(?:session|auth)$/.test(lower)) return true;
+  if (CREDENTIAL_HEADERS.includes(lower) || credentialParam(lower)) return true;
+  const routing = ROUTING_HEADERS.includes(lower);
+  if (!routing && /(?:^|-)(?:session|auth)$/.test(lower)) return true;
   const words = wordsOf(lower);
-  return words.some((w) => HEADER_SECRET_WORD.has(w)) && !words.some((w) => CURSOR.includes(w));
+  const counted = words.map((w, i) => w === 'token' && countsTokens(words, i));
+  if (words.some((w, i) => HEADER_SECRET_WORD.has(w) && !counted[i])) return !words.some((w) => CURSOR.includes(w));
+  return (routing || counted.includes(true)) && (value === undefined || (credentialValue(value) && !COUNT_SHAPED.test(value)));
 }
 
 /** A header value that is a JWT, alone or after an auth scheme (`Bearer eyJ…`): a bearer credential, whatever the header is named. */
@@ -921,7 +1009,8 @@ export function maskChallenge(value: string): string {
 }
 
 /**
- * Headers as a recording keeps them: each credential header (credentialHeader), and each whose value
+ * Headers as a recording keeps them: each credential header (credentialHeader, read with its value,
+ * so a count of tokens stays as sent unless it reads as a key), and each whose value
  * is a JWT (alone or after a scheme, `Bearer eyJ…`), with CREDENTIAL_PLACEHOLDER for its value; the credential inside a URL a header names or
  * a challenge masked in place (TOKEN_IN_VALUE); and the headers that set a cookie or name the account
  * a call was made with (ACCOUNT_HEADERS) left out. Names are read in any case. The same object when
@@ -933,7 +1022,7 @@ export function credentialFreeHeaders(headers: Readonly<Record<string, string>>)
     const lower = name.toLowerCase();
     const state = STATE_HEADERS.includes(lower) || ACCOUNT_HEADERS.includes(lower);
     const inValue = !state ? TOKEN_IN_VALUE[lower] : undefined;
-    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower) || jwtValue(value));
+    const credential = !state && !inValue && value !== CREDENTIAL_PLACEHOLDER && (credentialHeader(lower, value) || jwtValue(value));
     const masked = inValue ? inValue(value) : value;
     if (!state && !credential && masked === value) continue;
     out ??= { ...headers };

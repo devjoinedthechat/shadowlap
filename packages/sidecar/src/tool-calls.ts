@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { configuredTrust, fingerprintMisc, fingerprintTool, isRawNumber, matchable, plantInToolResult, refused, reportable, toolFailureError, type CallKind, type CallMeta, type CallStartRow, type Decision, type Effect, type Normalizer, type SerializedError, type ToolFailure } from '@shadowlap/engine';
 import { HttpError, jsonBytes } from './answers.js';
 import type { SidecarCore } from './core.js';
-import { clockMarks, encodeMarks, fingerprintKey, rulesId, type FingerprintRules } from './fingerprint-cache.js';
+import { clockMarks, encodeMarks, fingerprintKey, rulesId, toolRules } from './fingerprint-cache.js';
 import type { RunContext, TrackedCall } from './run-context.js';
 
 export interface ResolveBody {
@@ -260,7 +260,8 @@ export function recordToolStart(core: SidecarCore, ctx: RunContext, callNo: numb
 /**
  * Record: a tool call's fingerprint in the cache for the next replay to start from, once its
  * request is stored, with the dates its arguments hold (fingerprint-cache.ts). `matched` is the
- * name and rules it was fingerprinted under.
+ * name and rules it was fingerprinted under; a captured call's arguments were read with a secret's
+ * name kept or masked as the run keeps it (RunContext.secretNames).
  */
 export function cacheToolFingerprint(core: SidecarCore, ctx: RunContext, callNo: number, matched: { name: string; normalizers: Normalizer[] }, captured: boolean, fingerprint: string, args: unknown, requestRef: () => string | null): void {
   core.writer.write({
@@ -269,7 +270,7 @@ export function cacheToolFingerprint(core: SidecarCore, ctx: RunContext, callNo:
     run: () => {
       const ref = requestRef();
       if (ref === null) return;
-      const rules: FingerprintRules = { kind: 'tool', name: matched.name, normalizers: matched.normalizers === ctx.normalizers ? ctx.rules.normalizers : rulesId(matched.normalizers), clock: ctx.clockRef !== undefined, captured };
+      const rules = toolRules(matched.name, matched.normalizers === ctx.normalizers ? ctx.rules.normalizers : rulesId(matched.normalizers), ctx.clockRef !== undefined, captured, ctx.secretNames);
       core.store.cacheFingerprints([{ key: fingerprintKey(rules, ref), requestRef: ref, fingerprint, clock: encodeMarks(clockMarks([matchable(args ?? null)], ctx.clockRef)) }]);
     },
   });

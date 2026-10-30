@@ -215,8 +215,9 @@ export class RecordingHost {
 
     const d = summary.divergence;
     if (!d) {
-      // A clean replay adds nothing worth keeping.
-      this.store.deleteRun(a.runId);
+      // A clean replay adds nothing worth keeping. Deleted through the sidecar's writer: another
+      // process holding the store waits on its timer, never on the thread every test's stream is on.
+      sidecar.deleteRun(a.runId);
       return { ...base, ok: true, mode: 'replay', message: null, report: null };
     }
     // A replay that stopped before its recording did fails as one that diverged: what the agent never

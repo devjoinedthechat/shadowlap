@@ -106,11 +106,7 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
   const startedAt = Date.now();
   const parent = input.mode === 'replay' ? replayParent(core, input, startedAt) : undefined;
   const parentCalls = parent?.calls;
-  const normalizers = parent?.normalizers ?? core.normalizers;
-  const redactions = parent?.redactions ?? [];
-  const roundedNumbers = parent?.roundedNumbers ?? false;
-  // A run that replays none keeps its header parameters; one whose parent holds none keeps none either (ReplayParent).
-  const headerParameters = parent?.headerParameters ?? true;
+  const { normalizers, redactions, roundedNumbers, headerParameters, secretNames } = rulesOf(core, parent);
   // Resolved against the parent before the run exists, so a target that is not a model call is refused with nothing created.
   // Flags name the agent's model calls: a judge's is never one of them, nor counted among them.
   const requestInterventions = input.interventions && parentCalls ? new RequestInterventions(parentCalls.filter((c) => !isJudgeCall(c)), input.interventions, (message) => {
@@ -125,6 +121,7 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
     // Its model requests are stored with each number as the agent sent it.
     exactNumbers: true,
     ...(headerParameters ? { headerParameters: true } : {}),
+    ...(secretNames ? { secretNames: true } : {}),
     ...(input.commandFromImport ? { commandFromImport: true } : {}),
     ...(described ? { interventions: described } : {}),
   };
@@ -137,14 +134,14 @@ export function startRun(core: SidecarCore, input: StartRunInput): RunRecord {
     // A divergence's diff is worked out once its call is answered (explainWaiting), never on its path.
     deferExplain: true,
     ...(input.replay ? { replay: input.replay } : {}),
-    loadRequest: (rec) => loadRequest(core, rec, roundedNumbers),
+    loadRequest: (rec) => loadRequest(core, rec, roundedNumbers, secretNames),
     matchName: (rec) => matchName(core, rec, redactions),
     // Its query as the call's identity reads it, under the rules that redacted it, as the live call's is.
     matchQuery: (rec) => storedQuery(rec, redactions),
     ...(clockRef !== undefined && parent ? { clock: { parent: parent.startedAt, run: run.startedAt } } : {}),
     ...(parent?.recordsInput ? { parentRecordsInput: true } : {}),
   });
-  const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? unversioned(core, parentCalls) : undefined, parentCalls ? unqueried(core, parentCalls) : undefined, roundedNumbers, headerParameters);
+  const ctx = new RunContext(run, session, requestInterventions, normalizers, input.offline === true, input.slot ?? null, clockRef, input.replay?.promptFrom !== undefined, redactions, parentCalls ? unversioned(core, parentCalls) : undefined, parentCalls ? unqueried(core, parentCalls) : undefined, roundedNumbers, headerParameters, secretNames);
   core.writer.write({
     what: `run ${run.runId}'s start`,
     of: { runId: run.runId, part: 'run' },
@@ -181,6 +178,20 @@ interface ReplayParent {
    * without them, and this run keeps none either, so its own replays match the same way.
    */
   headerParameters: boolean;
+  /**
+   * Whether its captured calls kept a secret's name as sent (RunMeta.secretNames): one that masked
+   * them is matched with a live call's masked the same way, and this run masks them too, so its own
+   * replays match the same way.
+   */
+  secretNames: boolean;
+}
+
+/**
+ * What a run is matched and kept under: its parent's normalizers, redactions and rules for a replay
+ * (ReplayParent); a recording's own otherwise, which keeps its header parameters and a secret's name.
+ */
+function rulesOf(core: SidecarCore, parent: ReplayParent | undefined): Pick<ReplayParent, 'normalizers' | 'redactions' | 'roundedNumbers' | 'headerParameters' | 'secretNames'> {
+  return parent ?? { normalizers: core.normalizers, redactions: [], roundedNumbers: false, headerParameters: true, secretNames: true };
 }
 
 /**
@@ -200,6 +211,7 @@ function replayParent(core: SidecarCore, input: StartRunInput, startedAt: number
   const kept = core.store.getCalls(input.parentRunId);
   const stored = headerParameters ? kept : kept.map((c) => withoutParameters(core, c));
   const roundedNumbers = parent.meta?.exactNumbers !== true;
+  const secretNames = parent.meta?.secretNames === true;
   if (input.replay?.promptFrom !== undefined) {
     const target = stored.find((c) => c.callNo === input.replay!.promptFrom);
     if (!target || target.kind !== 'api' || isJudgeCall(target)) throw new HttpError(400, `--prompt-from: call #${input.replay.promptFrom} is not a model call of run ${input.parentRunId}${target && isJudgeCall(target) ? ' (it is a judge check\'s)' : ''}`);
@@ -214,17 +226,17 @@ function replayParent(core: SidecarCore, input: StartRunInput, startedAt: number
     // A judge's call is matched by its request as sent (judgeFingerprint), whatever the normalizers: those are fingerprinted again too.
     const again = (c: CallRecord) => capturedHttp(c) || isJudgeCall(c);
     const some = stored.some(again);
-    calls = some ? refingerprint(core, stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, redactions }, again).calls : stored;
+    calls = some ? refingerprint(core, stored, { normalizers, clockRef: undefined, withoutPrompt, roundedNumbers, secretNames, redactions }, again).calls : stored;
     core.log(`run ${input.parentRunId}: reusing stored fingerprints (${stored.length} calls${some ? ', captured HTTP and judge calls fingerprinted again' : ''})`);
   } else {
     // Most come from the cache (fingerprint-cache.ts), which the recording filled.
-    const fresh = refingerprint(core, stored, { normalizers, clockRef: core.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, redactions });
+    const fresh = refingerprint(core, stored, { normalizers, clockRef: core.clock === 'auto' ? [parent.startedAt, startedAt] : undefined, withoutPrompt, roundedNumbers, secretNames, redactions });
     calls = fresh.calls;
     core.log(`run ${input.parentRunId}: re-fingerprinting ${stored.length} call${stored.length === 1 ? '' : 's'} under the current normalizers (${fresh.cached} from the cache)`);
   }
   // Compared as they are matched, so a divergence report never shows a sign-in beta as a change.
   calls = calls.map((c) => asMatched(core, c));
-  return { calls, startedAt: parent.startedAt, recordsInput: parent.meta?.inputs === true, normalizers, redactions, ownCommand, roundedNumbers, headerParameters };
+  return { calls, startedAt: parent.startedAt, recordsInput: parent.meta?.inputs === true, normalizers, redactions, ownCommand, roundedNumbers, headerParameters, secretNames };
 }
 
 /**
@@ -265,7 +277,8 @@ export function openForJudge(core: SidecarCore, runId: string): void {
   const normalizers = redactions.length ? [...core.normalizers, ...redactions] : core.normalizers;
   const clockRef = core.clock !== 'auto' ? undefined : parent ? [parent.startedAt, run.startedAt] : [run.startedAt];
   const roundedNumbers = parent !== null && parent.meta?.exactNumbers !== true;
-  const recorded = parent ? refingerprint(core, core.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, redactions }).calls : [];
+  // A judge's calls are model calls: a captured call's rule for a secret's name reaches none of them.
+  const recorded = parent ? refingerprint(core, core.store.getCalls(parent.runId).filter(isJudgeCall), { normalizers, clockRef, withoutPrompt: false, roundedNumbers, secretNames: true, redactions }).calls : [];
   const session = new Session({ mode: parent ? 'replay' : 'record', parentRunId: parent?.runId ?? null, parentCalls: recorded });
   const ctx = new RunContext(run, session, null, normalizers, false, null, clockRef, false, redactions, undefined, undefined, roundedNumbers);
   ctx.nextCallNo = core.store.getCalls(runId).reduce((n, c) => Math.max(n, c.callNo), 0) + 1;
@@ -314,6 +327,25 @@ export function updateRunMeta(core: SidecarCore, runId: string, patch: Partial<R
     of: { runId, part: 'run' },
     run: () => core.store.updateRunMeta(runId, patch),
     failed: (reason) => core.storeTrouble(ctx, 'store:meta', `What was kept on run ${runId} could not be written to the store (${reason}).`),
+  });
+}
+
+/**
+ * Deletes a run this sidecar has ended, such as a clean replay a test keeps nothing of, through the
+ * store writer after the run's own writes: at once when the store is free, else once it is, on the
+ * writer's timer, so another process holding the store (the dashboard, gc, another test's
+ * recording) never holds up the thread every agent's answers stream on. Tried for as long as the
+ * store is held, and made before it closes (close makes what the writer holds); a read of the run in
+ * this process makes it first.
+ */
+export function deleteRun(core: SidecarCore, runId: string): void {
+  if (core.runs.has(runId)) throw new HttpError(409, `run ${runId} is still open: end it before deleting it`);
+  core.writer.write({
+    what: `run ${runId}'s deletion`,
+    of: { runId, part: 'run' },
+    run: () => core.store.deleteRun(runId),
+    retain: true,
+    failed: (reason) => core.log(`run ${runId} could not be deleted (${reason}): it stays in the store`),
   });
 }
 

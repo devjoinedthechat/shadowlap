@@ -244,6 +244,13 @@ export interface RunMeta {
    */
   headerParameters?: true;
   /**
+   * The run's captured calls keep a member, parameter or element whose name names or describes a
+   * secret as sent (`secret_name`, `SecretArn`, `password_policy`: the engine's credentialParam). A
+   * run without it, made before they were kept, stored each as `<CREDENTIAL>`: a replay of it is
+   * matched, and kept, with them masked the same way (withSecretNames), so its own replays match so too.
+   */
+  secretNames?: true;
+  /**
    * Set by `unpack` and `pull`: the run came from a pack or the team store, so its recorded command
    * is someone else's. `from`: the pack's folder, or the store's URL (`s3://…`, `gs://…`, `az://…`,
    * `r2://…`), which marks a run pulled from it (`pulledRun`). `pr`: it came from a pull request's

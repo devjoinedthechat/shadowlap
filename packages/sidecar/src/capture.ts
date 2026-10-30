@@ -4,7 +4,7 @@
  * request itself when one runs live, and only to a declared host.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { fingerprintTool, maskPathCredentials, matchedAs, messageOf, plantInToolResult, refused, toolFailureError, type CallEndRow, type CallStartRow, type Decision, type Effect, type SerializedError } from '@shadowlap/engine';
+import { fingerprintTool, maskPathCredentials, matchedAs, messageOf, plantInToolResult, refused, toolFailureError, withSecretNames, type CallEndRow, type CallStartRow, type Decision, type Effect, type SerializedError } from '@shadowlap/engine';
 import { breakAsRecorded, breakConnection, clientLeft, ClientWatch, HttpError, json, jsonBytes, sendOwn, type OwnAnswer } from './answers.js';
 import type { SidecarCore } from './core.js';
 import { encodeBody, keptResponseHeaders, matchHttpRule, storedResponseBytes, withoutCredentials, type HttpResult, type StoredBody } from './http.js';
@@ -103,11 +103,12 @@ async function routeHttpCall(core: SidecarCore, req: IncomingMessage, res: Serve
   }
   if (client.gone) return null;
   // A long body is stored on a thread of its own (BodyThreads): the agent can leave meanwhile.
-  const body = await core.bodies.request(rawBody, req.headers['content-type']);
+  // A secret's name is kept, or masked as the run's recording masked them (RunContext.secretNames).
+  const body = await core.bodies.request(rawBody, req.headers['content-type'], ctx.secretNames);
   if (client.gone) return null;
   // Stored and matched without the credentials in its address: a webhook's secret in its path, its query's (credentialFreeUrl).
-  const path = maskPathCredentials(subpath);
-  const args = { method, url: `${origin.origin}${path}${withoutCredentials(search)}`, ...body };
+  const [path, query] = withSecretNames(ctx.secretNames, () => [maskPathCredentials(subpath), withoutCredentials(search)] as const);
+  const args = { method, url: `${origin.origin}${path}${query}`, ...body };
   return { ctx, req, res, client, scope, host: origin.host, effect: rule.effect, method, rawBody, name: `${method} ${origin.host}${path}`, url: `${origin.origin}${subpath}${search}`, search, args };
 }
 
@@ -327,7 +328,7 @@ async function forwardHttp(core: SidecarCore, call: HttpCall, placed: PlacedHttp
   if (client.gone) return left();
   const headers = keptResponseHeaders(upstream.headers);
   // A long answer is stored on a thread of its own (BodyThreads); the agent has it once it is stored, as before.
-  const stored = await core.bodies.response({ status: upstream.status, headers, contentType: upstream.headers.get('content-type') ?? undefined }, bytes);
+  const stored = await core.bodies.response({ status: upstream.status, headers, contentType: upstream.headers.get('content-type') ?? undefined }, bytes, ctx.secretNames);
   if (core.closed) return;
   if (client.gone) return left();
   endHttpCall(core, call, placed, stored, 'ok', { status: upstream.status, latencyMs: Date.now() - started, bytes: bytes.length });

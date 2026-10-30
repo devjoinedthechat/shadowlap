@@ -423,7 +423,7 @@
       "describeInterventions": 38
     },
     "packages/sidecar/src/lifecycle.ts": {
-      "startRun": 38
+      "startRun": 31
     },
     "packages/sidecar/src/provider-state.ts": {
       "ProviderState.recorded": 47

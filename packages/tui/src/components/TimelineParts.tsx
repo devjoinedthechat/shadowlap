@@ -1,6 +1,6 @@
 import { Box, Text } from 'ink';
 import { useMemo, type ReactNode } from 'react';
-import { formatDuration, formatTokens, formatUsd, importedCommandSource, lostAround, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
+import { formatDuration, formatTokens, formatUsd, importedCommandSource, lostRange, lostWords, quoteArgv, safeLine, shortCallName, wholeInput, type CallRecord, type RunAbout, type RunRecord, type RunSummary, type Store } from '@shadowlap/engine';
 import { fitAbout } from '../about.js';
 import type { Action } from '../actions.js';
 import { ago, type ModelAction } from '../data.js';
@@ -104,13 +104,13 @@ function rowsOf(visibleCalls: readonly CallRecord[], divergence: RunRecord['dive
 }
 
 /**
- * The words of the red line before the call blame found the run lost at: lost here, or, when it found
- * no one call lost it, the two it was lost gradually around, in the engine's words (lostWords); then
- * its confidence.
+ * The words of the red line before the call blame found the run lost at: lost here, or, when it pinned
+ * no one call, the two it was lost around or between, in the engine's words (lostWords); then its
+ * confidence.
  */
 function lostRuleWords(run: RunRecord): string {
   const b = run.meta?.blame;
-  const where = b && typeof b.callNo === 'number' && lostAround(b.range) ? lostWords(b.callNo, b.range) : 'lost here';
+  const where = b && typeof b.callNo === 'number' && lostRange(b.range) ? lostWords(b.callNo, b.range) : 'lost here';
   return `${where} · blame, ${String(b?.confidence ?? '')} confidence`;
 }
 

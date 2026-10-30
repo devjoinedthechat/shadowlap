@@ -387,3 +387,34 @@ describe('scopes', () => {
     ]).toEqual([1, 1, 2, 1]);
   });
 });
+
+describe('a divergence report on a Gemini conversation', () => {
+  const NAME = 'POST /v1beta/models/gemini-2.5-flash:generateContent';
+  /** A user turn, then two function calls and their results, each paired by the id a client made up. */
+  const turns = (text: string, calls: [string, string], answers: [string, string] = calls) => ({
+    contents: [
+      { role: 'user', parts: [{ text }] },
+      { role: 'model', parts: [{ functionCall: { id: calls[0], name: 'weather', args: { city: 'Oslo' } } }, { functionCall: { id: calls[1], name: 'weather', args: { city: 'Bergen' } } }] },
+      { role: 'user', parts: [{ functionResponse: { id: answers[0], name: 'weather', response: { c: 18 } } }, { functionResponse: { id: answers[1], name: 'weather', response: { c: 14 } } }] },
+    ],
+  });
+  const recorded = () => {
+    no = 0;
+    return [rec('api', NAME, 'G1', 1, null, turns('weather in Oslo and Bergen', ['PfyxZOhr4ro30QGk', 'q7Lx0aZr2bYc9WdE']))];
+  };
+
+  it('names the change matching counted, never the call ids the client made up afresh', () => {
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: recorded(), loadRequest });
+    s.resolve({ callNo: 1, kind: 'api', name: NAME, fingerprint: 'G2', request: turns('weather in Oslo and Tromsø', ['Rb4nQypSnBKnJXzi', 'Hk2mVt8sP0aQx1Ze']) });
+    expect(s.divergence?.diff?.map((e) => e.path)).toEqual(['$.contents[0].parts[0].text']);
+  });
+
+  it('still shows which result answers which call, numbered as matching numbers them', () => {
+    const s = new Session({ mode: 'replay', parentRunId: 'PARENT', parentCalls: recorded(), loadRequest });
+    s.resolve({ callNo: 1, kind: 'api', name: NAME, fingerprint: 'G2', request: turns('weather in Oslo and Bergen', ['Rb4nQypSnBKnJXzi', 'Hk2mVt8sP0aQx1Ze'], ['Hk2mVt8sP0aQx1Ze', 'Rb4nQypSnBKnJXzi']) });
+    expect(s.divergence?.diff).toEqual([
+      { path: '$.contents[2].parts[0].functionResponse.id', op: 'changed', before: '<call-1>', after: '<call-2>' },
+      { path: '$.contents[2].parts[1].functionResponse.id', op: 'changed', before: '<call-2>', after: '<call-1>' },
+    ]);
+  });
+});

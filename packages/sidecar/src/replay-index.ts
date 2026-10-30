@@ -5,9 +5,9 @@
  * (refingerprint); its model calls are read as matching reads them (asMatched, withoutParameters,
  * matchName), and its requests as a divergence report shows them (loadRequest).
  */
-import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, messageOf, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, type CallRecord, type Normalizer } from '@shadowlap/engine';
+import { apiCallName, fingerprintApi, fingerprintMisc, fingerprintTool, isJudgeCall, judgeRules, loadApiRequest, matchable, matchedAs, messageOf, multipartView, apiNumbers, queryPairs, redactApiPath, redactHeaderValues, reportable, withoutStoredCredentials, withSecretNames, type CallRecord, type Normalizer } from '@shadowlap/engine';
 import type { SidecarCore } from './core.js';
-import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
+import { allowedHeaders, clockMarks, decodeMarks, encodeMarks, fingerprintKey, rulesId, servesClock, toolRules, type ClockMark, type FingerprintRules } from './fingerprint-cache.js';
 import { identityQuery } from './query.js';
 import { withoutHeaderParameters, type Provider } from './providers.js';
 
@@ -15,13 +15,16 @@ import { withoutHeaderParameters, type Provider } from './providers.js';
  * The rules a run's model calls are fingerprinted under, live and from their records: its
  * normalizers, the times dates are masked against, whether prompts are left out (`--prompt-from`),
  * and whether a request's numbers are read rounded, as a recording made before requests kept their
- * numbers stored them (RunMeta.exactNumbers).
+ * numbers stored them (RunMeta.exactNumbers). A captured call's arguments are read with a secret's
+ * name kept (`secretNames`), or masked, as a recording made before such names were kept stored them
+ * (RunMeta.secretNames).
  */
 export interface MatchingRules {
   normalizers: Normalizer[];
   clockRef: readonly number[] | undefined;
   withoutPrompt: boolean;
   roundedNumbers: boolean;
+  secretNames: boolean;
 }
 
 /**
@@ -45,7 +48,8 @@ export function modelRules(rules: Pick<MatchingRules, 'clockRef' | 'withoutPromp
  * A captured HTTP call is fingerprinted under its name masked by the rules that redacted the
  * parent (`redactions`, matchedAs), as proxyHttp fingerprints a live one; a redacted copy already
  * holds it so. Its arguments are read with their credentials masked (withoutStoredCredentials),
- * as proxyHttp stores a live call's. `only` limits the calls fingerprinted again; the others keep
+ * as proxyHttp stores a live call's, a secret's name kept or masked as the parent kept it
+ * (MatchingRules.secretNames). `only` limits the calls fingerprinted again; the others keep
  * their stored fingerprints, and every call's occurrence is counted again.
  *
  * Most fingerprints come from the cache (fingerprint-cache.ts), which the recording filled: one
@@ -143,11 +147,11 @@ function fingerprintPlan(core: SidecarCore, rec: CallRecord, rules: MatchingRule
     const matched = matchedAs(rec, rules.normalizers, rules.redactions);
     const captured = capturedHttp(rec);
     return {
-      key: fingerprintKey({ kind: 'tool', name: matched.name, normalizers: matched.normalizers === rules.normalizers ? rules.ids.normalizers : rulesId(matched.normalizers), clock: rules.clockRef !== undefined, captured }, ref),
+      key: fingerprintKey(toolRules(matched.name, matched.normalizers === rules.normalizers ? rules.ids.normalizers : rulesId(matched.normalizers), rules.clockRef !== undefined, captured, rules.secretNames), ref),
       requestRef: ref,
       compute: () => {
         const req = core.getJsonExact<{ args?: unknown }>(ref);
-        const args = (captured ? withoutStoredCredentials(req?.args) : req?.args) ?? null;
+        const args = (captured ? withSecretNames(rules.secretNames, () => withoutStoredCredentials(req?.args)) : req?.args) ?? null;
         return { fingerprint: fingerprintTool(matched.name, args, matched.normalizers, rules.clockRef).fingerprint, marks: clockMarks([matchable(args)], rules.clockRef) };
       },
     };
@@ -186,14 +190,15 @@ export function sentRequest(core: SidecarCore, rec: CallRecord): unknown {
 /**
  * A recorded call's request as a divergence report shows it: each number as it was stored, or, for a
  * parent recorded before requests kept their numbers (`rounded`), every model request's number as
- * the double it reads as, the way it was matched.
+ * the double it reads as, the way it was matched. A captured call's arguments read with a secret's
+ * name kept, or masked as a parent made before such names were kept masked it (`secretNames`).
  */
-export function loadRequest(core: SidecarCore, rec: CallRecord, rounded = false): unknown {
+export function loadRequest(core: SidecarCore, rec: CallRecord, rounded = false, secretNames = true): unknown {
   if (!rec.requestRef) return undefined;
   if (rec.kind === 'api') return rounded ? loadApiRequest(core.store, rec.requestRef) : reportable(loadApiRequest(core.store, rec.requestRef, { exact: true }));
   const req = reportable(core.getJsonExact<{ args?: unknown }>(rec.requestRef)) as { args?: unknown } | null;
   // A captured HTTP call is diffed as it is matched: no credential as sent from an older recording.
-  return capturedHttp(rec) && req ? { ...req, args: withoutStoredCredentials(req.args) } : req;
+  return capturedHttp(rec) && req ? { ...req, args: withSecretNames(secretNames, () => withoutStoredCredentials(req.args)) } : req;
 }
 
 /**

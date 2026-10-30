@@ -359,7 +359,8 @@ describe('the Alerts steps', () => {
       ['injection', 'err'],
       ['inconclusive', 'warn'],
     ]);
-    expect(fail.at(-1)![0]).toBe('a gate, a judge or an injection test can’t decide');
+    // As the Fails row beside it: with no input, a gate against a short history only warns.
+    expect(fail.at(-1)![0]).toBe('a gate, a judge or an injection test can’t decide, but a gate against a history of fewer than 30 sessions only warns while the plan reads no decline or drop in them');
     expect(alertFailures()).toEqual(fail);
     // Warn lets them through: they no longer fail a golden.
     expect(alertFailures('warn').map((r) => r[1])).toEqual(['diverged', 'live call', 'exit ≠ 0', 'check failed', 'injection']);

@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { Store } from '@shadowlap/engine';
 import { Sidecar } from '@shadowlap/sidecar';
 import { RecordingHost, type RecordedCalls, type RecordingResult } from '../src/recordings.js';
@@ -74,6 +74,36 @@ describe('a recording a test ends while another process holds the store', () => 
       const ended = await api<RecordingResult>('end', { runId: rec.runId, passed: true });
       expect(ended.body).toMatchObject({ ok: true, mode: 'record', saved: true, calls: 3 });
       expect(readFileSync(join(root, 'recs/held/calls.jsonl'), 'utf8').trim().split('\n')).toHaveLength(3);
+    } finally {
+      await sidecar.close();
+      store.close();
+    }
+  }, 60_000);
+
+  it('deletes a clean replay through the sidecar’s writer, as the run’s own rows are written, never on the thread', async () => {
+    const path = join(dir, 'clean.db');
+    const store = Store.open(path);
+    const host = new RecordingHost(store, join(dir, 'clean-project'), { codeVersion: null, redact: [] });
+    const sidecar = await Sidecar.start({ store, upstreams: {}, api: host.api });
+    host.attach(sidecar);
+    const api = <T>(route: string, body: unknown) => post<T>(`${sidecar.url}/v1/recordings/${route}`, body);
+    const lookup = async () => {
+      const base = sidecar.envForSlot('w').SHADOWLAP_URL;
+      const r = (await post<{ origin: string; callNo: number }>(`${base}/v1/calls/resolve`, { kind: 'tool', name: 'lookup_order', effect: 'read', args: { order: 'A-1' }, implHash: 'h' })).body;
+      if (r.origin === 'live') await post(`${base}/v1/calls/${r.callNo}/complete`, { outcome: 'ok', result: { status: 'delivered' }, latencyMs: 1 });
+      return r.origin;
+    };
+    try {
+      const rec = (await api<{ runId: string }>('start', { recording: 'recs/clean', slot: 'w' })).body;
+      expect(await lookup()).toBe('live');
+      expect((await api<RecordingResult>('end', { runId: rec.runId, passed: true })).body).toMatchObject({ saved: true });
+      const replay = (await api<{ runId: string; mode: string }>('start', { recording: 'recs/clean', slot: 'w', mode: 'none' })).body;
+      expect(replay.mode).toBe('replay');
+      expect(await lookup()).toBe('replayed');
+      const deleted = vi.spyOn(sidecar, 'deleteRun');
+      expect((await api<RecordingResult>('end', { runId: replay.runId, passed: true })).body).toMatchObject({ ok: true, mode: 'replay' });
+      expect(deleted).toHaveBeenCalledWith(replay.runId);
+      expect(store.getRun(replay.runId)).toBeNull();
     } finally {
       await sidecar.close();
       store.close();

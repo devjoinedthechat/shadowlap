@@ -90,7 +90,7 @@ function checksLine(run: RunNode['run']): string {
   return `checks ${n.passed}/${n.total} passed${n.inconclusive ? `, ${n.inconclusive} inconclusive` : ''}${n.notApplicable ? `, ${n.notApplicable} not applicable` : ''}`;
 }
 
-/** A run's status where it says something: a finished run needs no word, a failed one where blame found it lost (at a call, or gradually around two). */
+/** A run's status where it says something: a finished run needs no word, a failed one where blame found it lost (at a call, or around or between two). */
 function statusOf(n: RunNode): string {
   if (n.run.status === 'running') return n.interrupted ? 'interrupted' : 'recording';
   const lost = lostAt(n.run);
