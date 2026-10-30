@@ -105,7 +105,7 @@ describe.skipIf(process.platform === 'win32')('the output the docs show', () => 
   // shadowlap test prints its report on stdout; replay leaves stdout to the agent and reports on stderr.
   it('in docs/ci.md is what shadowlap test prints', () => {
     expect(tested.code, tested.stdout + tested.stderr).toBe(1);
-    const shown = sample(page('ci.md'), 'Output, when one agent puts a new UUID');
+    const shown = sample(page('ci.md'), 'It prints this when one agent puts a fresh UUID');
     expect(mask(shown), `docs/ci.md shows something else than shadowlap test prints:\n${tested.stdout}`).toBe(mask(tested.stdout));
   });
 
