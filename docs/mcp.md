@@ -97,9 +97,10 @@ to the server:
   server offers one.
 - It ends the session when the client goes away.
 
-A tool call the recording answers, and a write after a fork, never reach the server:
-**a remote write never runs again on replay**. That is the difference from listing the server's host
-under `http` in the config, which records it as one tool with one effect.
+A tool call the recording answers never reaches the server, nor does a write after a fork unless the
+replay allows writes (`--writes allow`): **a remote write never runs again on replay** unless you
+allow it. That is the difference from listing the server's host under `http` in the config, which
+records it as one tool with one effect.
 
 ### Headers
 
@@ -166,8 +167,8 @@ The agent's client connects to `http://127.0.0.1:8931/mcp`:
 - Each answer comes back as the server gave it, JSON or an event stream, event ids included.
 - The client's GET stream for the server's own messages, and its DELETE when it leaves, pass through
   the same way.
-- `tools/call` is recorded, replayed and fenced as in the other modes: a call the recording answers,
-  and a write after a fork, never reach the server.
+- `tools/call` is recorded, replayed and fenced as in the other modes: a call the recording answers
+  never reaches the server, nor does a write after a fork unless the replay allows writes.
 
 ### This machine only
 
