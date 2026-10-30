@@ -68,10 +68,11 @@ export async function main(env = process.env, { fetch: fetchFn = globalThis.fetc
     process.exit(1);
   }
 
-  // Events that give a job the base repository's secrets and a token that may write, and are how a
-  // pull request's code is run beside them: the agent the action runs is whatever the job checked
-  // out, and from the event alone it can't tell whose code that is. pull_request runs a pull
-  // request's code with what a fork may have; push, schedule and workflow_dispatch run a branch here.
+  // The events the action runs on alone (events.mjs): pull_request runs a pull request's code with
+  // what a fork may have; push, schedule, workflow_dispatch and merge_group run a branch here. Many
+  // others give a job the base repository's secrets and a token that may write beside a pull
+  // request's code, and the agent the action runs is whatever the job checked out, which the event
+  // alone doesn't say.
   const refused = refusal(env.GITHUB_EVENT_NAME);
   if (refused) fail(refused);
   const cli = env.SHADOWLAP_CLI;

@@ -126,15 +126,38 @@ export function scriptWord(value: string): string {
 }
 
 /**
+ * A word written again in place of one whose value changed: its new value, the word as the text
+ * held it (quotes and all), and the value it had.
+ */
+export type WordWriter = (value: string, raw: string, before: string) => string;
+
+/**
+ * A word written again in the quotes it was written in, for a language whose quoting isn't a POSIX
+ * shell's (Python's, PowerShell's, cmd's): the part of its value that changed, replaced where it
+ * stands in the word as written (`'ghp_…'` in `os.environ['X']='ghp_…'` becomes `'<CREDENTIAL>'`),
+ * when it stands there once as it is; else the word as scriptWord writes it.
+ */
+export function rawWord(value: string, raw: string, before: string): string {
+  let head = 0;
+  while (head < before.length && head < value.length && before[head] === value[head]) head++;
+  let tail = 0;
+  while (tail < before.length - head && tail < value.length - head && before[before.length - 1 - tail] === value[value.length - 1 - tail]) tail++;
+  const removed = before.slice(head, before.length - tail);
+  const at = removed ? raw.indexOf(removed) : -1;
+  if (at < 0 || raw.indexOf(removed, at + 1) >= 0) return scriptWord(value);
+  return `${raw.slice(0, at)}${value.slice(head, value.length - tail)}${raw.slice(at + removed.length)}`;
+}
+
+/**
  * `text` with each word whose value changed written again in its place (`write` makes it), every
  * other character as it was: `values[k]` is `words[k]`'s value now. The same string when none changed.
  */
-export function rewriteWords(text: string, words: readonly ShellWord[], values: readonly string[], write: (value: string) => string): string {
+export function rewriteWords(text: string, words: readonly ShellWord[], values: readonly string[], write: WordWriter): string {
   const parts: string[] = [];
   let at = 0;
   words.forEach((w, k) => {
     if (values[k] === w.value) return;
-    parts.push(text.slice(at, w.start), write(values[k]!));
+    parts.push(text.slice(at, w.start), write(values[k]!, text.slice(w.start, w.end), w.value));
     at = w.end;
   });
   return parts.length ? parts.join('') + text.slice(at) : text;

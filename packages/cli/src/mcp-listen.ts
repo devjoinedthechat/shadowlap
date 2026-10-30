@@ -11,6 +11,7 @@ import { STOP_SIGNALS } from './agent-signals.js';
 import { signalExit } from './exit-codes.js';
 import { isLoopbackHost } from './loopback.js';
 import { idKey, isRequest, isToolCall, refuseBatch, ToolCalls, type JsonRpcId, type JsonRpcMessage, type LiveCall, type McpOrigin, type ProxySidecar } from './mcp-calls.js';
+import { registerProxy } from './mcp-proxies.js';
 import { discoverSidecar, type DiscoverySkip } from './mcp-sidecar.js';
 
 /**
@@ -237,7 +238,8 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
     let live: LiveCall | undefined;
     if (isRequest(m) && m.method === 'tools/call') {
       const route = await calls.route(m);
-      if ('answer' in route) return rpcAnswer(res, 200, route.answer);
+      // An answer the server broke off live is broken off again, as the client saw it then.
+      if ('answer' in route) return route.cut ? void res.destroy() : rpcAnswer(res, 200, route.answer);
       live = route.live;
     }
     const id = isRequest(m) ? m.id : null;
@@ -252,10 +254,10 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
         if (live) await calls.complete(live, one);
       }
     };
-    const unanswered = async (why: string) => {
+    const unanswered = async (why: string, cut = false) => {
       if (settled || !live) return;
       settled = true;
-      await calls.complete(live, { error: { code: -32000, message: why } });
+      await calls.complete(live, { error: { code: -32000, message: why } }, { cut });
     };
 
     await new Promise<void>((resolve) => {
@@ -273,7 +275,7 @@ export async function startMcpListener(o: McpListenOptions): Promise<McpListener
           // A body the server's connection broke off part way through: the call ends as the agent saw
           // it end, and the client's response is broken off too, never passed on as the whole of it.
           const cutShort = async (cut: string) => {
-            await unanswered(`the MCP server's answer was cut short: ${cut}`);
+            await unanswered(`the MCP server's answer was cut short: ${cut}`, true);
             res.destroy();
             resolve();
           };
@@ -461,9 +463,17 @@ export async function listen(url: URL, at: { host: string; port: number }, heade
   const sidecar = (client: ClientEnd): ProxySidecar => (found.kind === 'sidecar' ? found.target : found.kind === 'unusable' ? { unusable: found.reason } : sessionSidecar(client, cwd, log));
   if (found.kind === 'none') log('started on its own: each session records into the run of the Shadowlap command its client belongs to, and refuses writes when it has none');
   const listener = await startMcpListener({ host: at.host, port: at.port, url: url.href, headers, sidecar, effects, log });
+  // On its own it serves every command's agents, whose network guard lets them reach it while it is registered (mcp-proxies.ts).
+  const port = Number(new URL(listener.url).port);
+  const registered = found.kind === 'none' ? registerProxy({ host: at.host, port }) : null;
   log(`serving ${url.host} at ${listener.url}`);
+  if (registered && !registered.file) log(`could not register it in the home folder's .shadowlap/mcp, so the network guard of the agents Shadowlap commands start refuses it under block (shadowlap test's default): run them with SHADOWLAP_GUARD_ALLOW=${at.host}:${port}`);
   return new Promise((resolve) => {
-    const stop = (signal: NodeJS.Signals) => void listener.close().then(() => resolve(signalExit(signal)));
+    const stop = (signal: NodeJS.Signals) =>
+      void listener.close().then(() => {
+        registered?.unregister();
+        resolve(signalExit(signal));
+      });
     for (const s of STOP_SIGNALS) process.once(s, stop);
   });
 }

@@ -37,8 +37,8 @@ export const keyPart = (s) => String(s || 'none').replace(/[^\w.-]+/g, '-').slic
  * What the cache steps need: keep it for `true`, never for `false`, and for `auto` when a golden has a
  * gate against history; the store's file with its write-ahead log; a key for this run; and the keys to
  * restore from, this branch's newest first, then the default branch's (a branch's first job). On an
- * `event` the action refuses (events.mjs), never, whatever `keep` says, and `refused` says why: such
- * a job tests nothing, and the store in its checkout must not be saved as a branch's history.
+ * `event` the action doesn't run on (events.mjs), never, whatever `keep` says, and `refused` says
+ * why: such a job tests nothing, and the store in its checkout must not be saved as a branch's history.
  * @param {{ keep: string; workdir: string; store: string; config: unknown; branch: string; defaultBranch: string; runId: string | undefined; attempt: string | undefined; event?: string | undefined }} o
  * @returns {HistoryPlan}
  */

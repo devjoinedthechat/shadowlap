@@ -200,6 +200,8 @@ pr/<number>/…              what a pull request's CI job pushed, laid out the s
   the change came through git, and marks it applied on that machine only.
 - **A teammate's repair** comes with its `fix.patch` and reports, written to
   `.shadowlap/repairs/<id>/` as where it ran, so **Copy git apply** and `shadowlap fix apply` work.
+  Never into a folder that is there already, nor through a link on the way to it, which a
+  repository could track to send them elsewhere: the pull says it couldn't write them, and why.
   The recordings it made of the fixed runs (its goldens) stay on the machine that ran it, because a
   golden runs the command it recorded when it is tested: they are committed from there. The Fixes
   page says so, and applying the fix here puts in the patch alone, with nothing left to finish.

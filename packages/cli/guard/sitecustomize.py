@@ -4,7 +4,9 @@ Loaded by `shadowlap run` / `replay` / `test` through PYTHONPATH, so it needs no
 no dependency. It intercepts every outbound connection the agent process makes, and every UDP
 datagram it sends: the sidecar is allowed, everything else is a side effect Shadowlap cannot
 replay, so it is reported (SHADOWLAP_GUARD=warn) or refused (=block). SHADOWLAP_GUARD=off disables
-it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets.
+it; SHADOWLAP_GUARD_ALLOW=host:port,host:port whitelists targets. SHADOWLAP_MCP_PROXIES names the
+`shadowlap mcp --listen` proxies the command that started the agent found running: they record the
+tool calls they carry, so reaching one bypasses nothing.
 
 It sees what goes through Python's socket module, asyncio's event loops (the selector loop, and
 the proactor loop that is Windows' default), and uvloop. A library that opens its sockets in C,
@@ -124,7 +126,7 @@ if _url and _mode != "off" and not getattr(socket, "_shadowlap_guard", False):
     if os.environ.get("SHADOWLAP_HTTP2_URL"):
         _h2 = urlparse(os.environ["SHADOWLAP_HTTP2_URL"])
         _allowed.add("%s:%s" % (_h2.hostname, _h2.port))
-    for _item in os.environ.get("SHADOWLAP_GUARD_ALLOW", "").split(","):
+    for _item in [*os.environ.get("SHADOWLAP_GUARD_ALLOW", "").split(","), *os.environ.get("SHADOWLAP_MCP_PROXIES", "").split(",")]:
         if _item.strip():
             _allowed.add(_item.strip())
     _seen: dict[str, int] = {}

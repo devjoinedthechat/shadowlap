@@ -106,8 +106,7 @@ async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEn
   const dir = mkdtempSync(join(tmpdir(), 'sl-cifix-'));
   const output = join(dir, 'output');
   const summary = join(dir, 'summary.md');
-  writeFileSync(output, '');
-  writeFileSync(summary, '');
+  for (const file of [output, summary]) writeFileSync(file, '');
   const vars: NodeJS.ProcessEnv = {
     SHADOWLAP_CLI: CLI,
     GITHUB_OUTPUT: output,
@@ -121,6 +120,8 @@ async function action(inputs: Record<string, string>, extraEnv: NodeJS.ProcessEn
     GITHUB_SERVER_URL: pathToFileURL(server).href,
     GITHUB_REPOSITORY: 'example/agent',
     GITHUB_WORKFLOW_REF: 'example/agent/.github/workflows/ci.yml@refs/heads/main',
+    // A job for a push, unless a test names another event: never the event of the job running the tests.
+    GITHUB_EVENT_NAME: 'push',
     SHADOWLAP_JOB_TOKEN: JOB_TOKEN,
     // Not this machine's: the job's token is the only one, unless a test gives the action another.
     GH_TOKEN: undefined,

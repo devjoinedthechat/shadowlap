@@ -1,7 +1,7 @@
 import { closeSync, constants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pulledRun } from './classify.js';
-import { sameCommandLine } from './http.js';
+import { sameCommandLine } from './argv-credentials.js';
 import { sha256 } from './ids.js';
 import { agentCallsOf, isJudgeCall } from './judge-scope.js';
 import { bringRequest, loadApiRequest, manifestRefs } from './manifest.js';

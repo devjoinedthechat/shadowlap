@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { join, relative, resolve, sep } from 'node:path';
-import { sameCommandLine } from './http.js';
+import { sameCommandLine } from './argv-credentials.js';
 import { commandIsImported, hasRecordedCommand, PACK_FORMAT, readPackFile } from './pack.js';
 import { PACK_LIMITS } from './pack-schema.js';
 import type { StoreOf } from './store.js';
